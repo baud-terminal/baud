@@ -114,6 +114,6 @@ proptest! {
     #[test]
     fn viewport_bounds_hold(bytes in prop::collection::vec(any::<u8>(), 0..3000)) {
         let v = drive(&bytes, 211, OpMode::Computed);
-        prop_assert!(v.len() > 0);
+        prop_assert!(!v.is_empty());
     }
 }

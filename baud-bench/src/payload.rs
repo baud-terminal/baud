@@ -73,7 +73,7 @@ pub fn tui(cap: usize, seq: &mut u64) -> Vec<u8> {
         let r = s % geometry().1.index() as u64 + 1;
         let c = 1 + s.wrapping_mul(37) % (geometry().0.index() as u64 - 80);
         b.extend_from_slice(format!("\x1b[{};{}H", r, c).as_bytes());
-        if s % 211 == 0 {
+        if s.is_multiple_of(211) {
             b.extend_from_slice(format!("\x1b[{}m", 30 + s % 8).as_bytes());
         }
         for k in 0..6 {
@@ -81,13 +81,13 @@ pub fn tui(cap: usize, seq: &mut u64) -> Vec<u8> {
             b.push(b' ');
         }
         b.extend_from_slice(b"\x1b[K");
-        if s % 97 == 0 {
+        if s.is_multiple_of(97) {
             b.extend_from_slice(b"\x1b[3X");
         }
-        if s % 401 == 0 {
+        if s.is_multiple_of(401) {
             b.extend_from_slice(b"\x1b[2L");
         }
-        if s % 1601 == 0 {
+        if s.is_multiple_of(1601) {
             b.extend_from_slice(b"\x1b[J");
         }
         *seq += 1;

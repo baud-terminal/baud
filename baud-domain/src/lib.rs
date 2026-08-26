@@ -166,7 +166,7 @@ impl<'layout> Layout<'layout> {
     /// asserted against rather than drifting from the text.
     pub fn rows_for(&self, w: DisplayWidth) -> RowCount {
         let c = self.cols.raw() as u32;
-        RowCount((w.cells().max(1) + c - 1) / c)
+        RowCount(w.cells().max(1).div_ceil(c))
     }
 }
 
@@ -328,7 +328,7 @@ impl<'buf> Store<'buf> {
     /// Returns [`Lapped`] rather than silently discarding history. This is the
     /// one invariant the type system cannot express, so it is a `Result` the
     /// caller cannot ignore under `#[must_use]`.
-    #[must_use]
+    #[must_use = "a Lapped error means ingest overran the drain thread; dropping it silently discards history"]
     pub fn advance_head(&mut self, n: ByteLen) -> Result<BytePos, Lapped> {
         let next = self.head.advance(n);
         if next.gap(self.drained).exceeds(self.arena.len()) {
@@ -590,8 +590,9 @@ impl<'layout, 'font, 'buf> Viewport<'layout, 'font, 'buf> {
 // What the types cannot express
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Left as runtime checks, deliberately.
 pub mod unchecked {
+    //! Left as runtime checks, deliberately.
+    //!
     //! * **Viewport reconstructibility.** That materialising from
     //!   `(lines, cols, anchor)` reproduces the same cells is a property of the
     //!   materialiser, not of any type. Assert it in debug builds — if it fails,
@@ -678,7 +679,9 @@ impl ByteLen {
                 .saturating_sub(r.index().min(u16::MAX as usize) as u16),
         )
     }
-    pub fn add(self, o: ByteLen) -> ByteLen {
+    /// Named for what it does. `add` hid the saturation, which is the kind of
+    /// invisible behaviour this crate exists to prevent.
+    pub fn saturating_add(self, o: ByteLen) -> ByteLen {
         ByteLen(self.0.saturating_add(o.0))
     }
 }
@@ -968,6 +971,9 @@ impl RowCount {
     pub fn index(self) -> usize {
         self.0 as usize
     }
+    /// Not an `Add` impl, deliberately. An operator makes the quantity invisible
+    /// at the call site, and a visible quantity is the whole point of this crate.
+    #[allow(clippy::should_implement_trait)]
     pub fn add(self, o: RowCount) -> RowCount {
         RowCount(self.0 + o.0)
     }
@@ -1410,7 +1416,7 @@ impl<'a> Encoded<'a> {
     }
     /// Checked downcast back to a static proof.
     pub fn as_utf8(self) -> Option<Bytes<'a, Utf8>> {
-        (self.encoding == Encoding::Utf8).then(|| Bytes {
+        (self.encoding == Encoding::Utf8).then_some(Bytes {
             raw: self.bytes.raw,
             _k: core::marker::PhantomData,
         })
@@ -1527,6 +1533,10 @@ impl<'a> ArenaSlot<'a> {
         self.idx
     }
     /// For a source to write into. The one raw handle, named.
+    ///
+    /// Not an `AsMut` impl: that would make the raw handle reachable generically
+    /// by anything with a `T: AsMut<_>` bound, which is the opposite of "named".
+    #[allow(clippy::should_implement_trait)]
     pub fn as_mut(&mut self) -> &mut [u8; SLOT_BYTES] {
         self.buf
     }
@@ -1888,7 +1898,7 @@ impl StreamByte {
         }
     }
     pub fn utf8_continuation(self) -> Option<u32> {
-        (self.0 & 0xc0 == 0x80).then(|| (self.0 & 0x3f) as u32)
+        (self.0 & 0xc0 == 0x80).then_some((self.0 & 0x3f) as u32)
     }
 }
 
@@ -2022,7 +2032,7 @@ impl ParamCount {
 
 impl SgrAttr {
     /// Parse the attribute starting at `i`.
-    pub fn parse_at<'p>(params: &'p [Option<Param>], i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
+    pub fn parse_at(params: &[Option<Param>], i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
         SgrAttr::parse(Params::new(&params[i.0 as usize..]))
     }
     /// Apply to a packed 24-bit colour + attribute word.
@@ -2128,6 +2138,12 @@ impl<'a> View<'a> {
     /// Bulk rather than per-cell: the bounds check and the row base are
     /// computed once. Doing it per cell cost ~25% of ingest throughput, which
     /// was a refactoring mistake rather than anything to do with the types.
+    ///
+    /// The indexed loop stays. Clippy asks for `src.iter().enumerate()`, which is
+    /// a codegen change on the measured ingest path — and the note above is the
+    /// measurement that says this loop's shape is worth 25%. Changing it needs a
+    /// benchmark, not a lint fix.
+    #[allow(clippy::needless_range_loop)]
     pub fn put_ascii_run(&mut self, r: Row, at: Col, src: &[u8], style: StyleId) {
         if r.index() >= self.rows.index() {
             return;
@@ -2328,6 +2344,11 @@ impl<'a> Slot<'a> {
         ByteLen::new(SLOT_BYTES as u16)
     }
     /// Copy from a typed byte stream.
+    ///
+    /// Indexed rather than iterated for the same reason as `put_ascii_run`: this
+    /// runs once per `read(2)` on the ingest path, so the loop's codegen is a
+    /// measured quantity and not clippy's to choose.
+    #[allow(clippy::needless_range_loop)]
     pub fn write(&mut self, src: &[StreamByte]) -> Filled {
         let n = src.len().min(SLOT_BYTES);
         for i in 0..n {

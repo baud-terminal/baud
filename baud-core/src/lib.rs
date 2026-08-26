@@ -210,7 +210,7 @@ impl<'a> Term<'a> {
     /// [`MAX_COLS`]/[`MAX_ROWS`]. Silently clamping was the old behaviour and it
     /// produces a terminal that renders a smaller grid than the application
     /// believes it has — the cursor drifts and nothing says why.
-    #[must_use]
+    #[must_use = "Resized::Truncated means the geometry exceeded MAX_COLS/MAX_ROWS; ignoring it is the silent-clamp bug this return value replaced"]
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
         let (c, r) = ws.geometry();
         let over = c.index() > MAX_COLS || r.index() > MAX_ROWS;
@@ -383,7 +383,7 @@ impl<'a> Term<'a> {
                 self.blit(base, off, room);
             }
             self.cx += room;
-            off = off.add(ByteLen::from_room(room));
+            off = off.saturating_add(ByteLen::from_room(room));
             n = n.sub_room(room);
         }
     }
