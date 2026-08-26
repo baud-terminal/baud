@@ -123,14 +123,14 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI \`` | HPA char position absolute | done |
 | `CSI a` | HPR char position relative | done |
 | `CSI b` | REP repeat preceding char | **todo** |
-| `CSI c` | DA device attributes | **todo** — needs a reply channel |
+| `CSI c` | DA device attributes | done — identifies as VT102 |
 | `CSI d` | VPA line position absolute | done |
 | `CSI e` | VPR line position relative | done |
 | `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
 | `CSI h` | SM set mode | partial — LNM and IRM parsed; IRM not yet acted on |
 | `CSI l` | RM reset mode | partial — as SM |
 | `CSI m` | SGR character attributes | partial — see SGR below |
-| `CSI n` | DSR device status report | **todo** — needs a reply channel |
+| `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
 | `CSI ? h` / `CSI ? l` | DECSET / DECRST | **parsed** |
@@ -199,11 +199,21 @@ Recorded so that "not implemented" is a decision rather than an omission.
 
 Two things block whole tiers and are not any single sequence.
 
-**No reply channel.** `DA`, `DSR`, `DECRQM`, `XTVERSION` and cursor-position
-reports must write *back* to the PTY. `Term` has no way to emit bytes. Until it
-does, every query sequence is unimplementable, and an application that waits for
-a reply will hang rather than degrade. This is the single largest structural
-gap — bigger than any operation count.
+**~~No reply channel.~~** Resolved. `Storage.reply` is a 256-byte buffer the
+core fills and the caller drains with `Term::reply()` / `Term::clear_reply()`,
+mirroring the input side -- the core is `no_std` with no I/O, so it cannot own a
+PTY. Overflow is counted in `reply_overflows`, never silent.
+
+DA and DSR go through it. `DECRQM` and `XTVERSION` remain **todo**, but they are
+now ordinary work rather than blocked on structure.
+
+Two rules the tests pin, because both failure modes are worse than silence:
+
+* **DA under-claims.** baud answers `CSI ? 6 c` (VT102), which is what it is.
+  Claiming VT220 would make applications send sequences baud drops.
+* **An unsupported DSR gets no answer at all.** Replying with the wrong report
+  shape is worse than not replying: the application parses whatever arrives as
+  the report it asked for.
 
 **~~No tab stop table.~~** Resolved. `Storage.tabs` is one flag per column,
 defaulted every eight and restored by RIS; `HT`, `HTS`, `TBC`, `CHT` and `CBT`

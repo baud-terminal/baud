@@ -45,6 +45,13 @@ pub const MAX_ROWS: usize = 640;
 pub const SB: usize = 10_000;
 pub const ARENA: usize = 1 << 20;
 pub const MAXRUN: usize = 8;
+
+/// Bytes of pending reply the core will hold for the caller.
+///
+/// Queries are rare and their answers are short -- the longest baud produces is
+/// a CPR at 12 bytes -- but a stream can send many in one read, so this is sized
+/// for a burst rather than for one. Overflow is counted, never silent.
+pub const REPLY: usize = 256;
 pub const NSTYLE: usize = 64;
 pub const READ_CHUNK: usize = baud_domain::SLOT_BYTES;
 
@@ -83,6 +90,14 @@ pub struct Storage {
     pub tmpl: [PackedCell; NSTYLE * MAX_COLS],
     pub tmpl_key: [StyleWord; NSTYLE],
     pub tmpl_valid: [bool; NSTYLE],
+    /// Bytes the terminal owes the host.
+    ///
+    /// A terminal is not write-only: DA, DSR and DECRQM are questions, and an
+    /// application that asks one and gets nothing back **hangs** rather than
+    /// degrading. The core cannot own a PTY -- it is `no_std` with no I/O -- so
+    /// this mirrors the input side: the core fills a buffer, the caller drains
+    /// it with [`Term::reply`] and writes it wherever the input came from.
+    pub reply: [u8; REPLY],
     /// Tab stops, one flag per column.
     ///
     /// A real table rather than the every-8 arithmetic HT used to do: HTS, TBC,
@@ -126,6 +141,7 @@ impl Storage {
             // Zeroed here and populated by Term::reset_tabs, so `Storage` stays
             // a plain zeroable block for `new_box_zeroed`.
             tabs: [false; MAX_COLS],
+            reply: [0; REPLY],
         }
     }
 }
@@ -311,6 +327,11 @@ pub struct Term<'a> {
     // why the fast CSI path declined, so the fallback rate is measurable
     pub fast_hits: Stat,
     pub bells: Stat,
+    /// How much of `Storage::reply` is pending.
+    reply_len: ByteLen,
+    /// Replies dropped because the buffer was full. Counted so a caller that
+    /// never drains can find out, instead of losing answers silently.
+    pub reply_overflows: Stat,
     /// The intermediate byte of the CSI being parsed, if any. `CSI ! p` is
     /// DECSTR and `CSI p` is not the same operation.
     csi_inter: Option<StreamByte>,
@@ -352,6 +373,8 @@ impl<'a> Term<'a> {
             replacements: Stat::ZERO,
             fast_hits: Stat::ZERO,
             bells: Stat::ZERO,
+            reply_len: ByteLen::ZERO,
+            reply_overflows: Stat::ZERO,
             csi_inter: None,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
@@ -367,6 +390,60 @@ impl<'a> Term<'a> {
     /// These counters have been fed since the fast paths were written and never
     /// read anywhere, which is how "is the fast path even firing on this
     /// target?" became a question that could not be answered from the outside.
+    /// Bytes the terminal owes the host, e.g. the answer to a DA or DSR.
+    ///
+    /// Write these back to wherever the input came from, then call
+    /// [`Term::clear_reply`]. Empty when there is nothing to say.
+    pub fn reply(&self) -> &[u8] {
+        &self.s.reply[..self.reply_len.index()]
+    }
+    /// Drop the pending reply after sending it.
+    pub fn clear_reply(&mut self) {
+        self.reply_len = ByteLen::ZERO;
+    }
+
+    /// Append to the pending reply, or count the loss.
+    fn emit(&mut self, bytes: &[u8]) {
+        let at = self.reply_len.index();
+        if at + bytes.len() > REPLY {
+            self.reply_overflows.inc();
+            return;
+        }
+        self.s.reply[at..at + bytes.len()].copy_from_slice(bytes);
+        self.reply_len = ByteLen::from_index(at + bytes.len());
+    }
+
+    /// Append a 1-based coordinate as decimal.
+    ///
+    /// No allocator and no `format!`. Five digits covers MAX_COLS and MAX_ROWS
+    /// with room to spare; anything larger cannot be a coordinate on this grid.
+    fn emit_num(&mut self, v: OneBased) {
+        // A coordinate, not a `usize`. Taking `usize` here tripped the audit --
+        // correctly: it is exactly the "two quantities confused" shape the
+        // newtypes exist to prevent, and a report is where an off-by-one would
+        // be invisible until an application drew in the wrong place.
+        let n = usize::from(v.get());
+        const DIGITS: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 5];
+        let mut i = buf.len();
+        let mut v = n;
+        loop {
+            i -= 1;
+            // Indexed, not `(v % 10) as u8`: the cast would be another raw-integer
+            // site against the audit budget, and a table lookup says what it means.
+            buf[i] = DIGITS[v % 10];
+            v /= 10;
+            if v == 0 || i == 0 {
+                break;
+            }
+        }
+        // `buf` is local, so this does not borrow `self`.
+        let (lo, hi) = (i, buf.len());
+        let mut tmp = [0u8; 5];
+        tmp[..hi - lo].copy_from_slice(&buf[lo..hi]);
+        self.emit(&tmp[..hi - lo]);
+    }
+
     /// BEL characters seen. There is no UI here to ring one.
     pub fn bells(&self) -> u64 {
         self.bells.count()
@@ -898,6 +975,27 @@ impl<'a> Term<'a> {
         let p = Params::new(&self.params[..n]);
         match Csi::parse(marker, self.csi_inter, p, f) {
             Csi::SoftReset => self.soft_reset(),
+            // `[[source: ctlseqs]]` lists the Primary DA identities. VT102 is
+            // what baud actually is: it has DECSTBM (VT100) and IL/DL (VT102),
+            // and it does NOT have sixel, ReGIS, UDKs, selective erase or
+            // 132-column mode. Claiming VT220 would make applications send
+            // sequences baud drops -- under-claiming degrades, over-claiming
+            // breaks.
+            Csi::DeviceAttributes => self.emit(b"\x1b[?6c"),
+            Csi::DeviceStatus(Some(baud_domain::StatusKind::Operating)) => self.emit(b"\x1b[0n"),
+            Csi::DeviceStatus(Some(baud_domain::StatusKind::CursorPosition)) => {
+                // CPR is 1-based, like CUP.
+                let (r, c) = (self.cy.one_based(), self.cx.one_based());
+                self.emit(b"\x1b[");
+                self.emit_num(r);
+                self.emit(b";");
+                self.emit_num(c);
+                self.emit(b"R");
+            }
+            // A DSR baud does not implement gets no answer. Replying with the
+            // wrong report shape is worse than silence: the application parses
+            // it as the report it asked for.
+            Csi::DeviceStatus(None) => {}
             Csi::CursorPosition { row, col } => {
                 self.cy = row.to_row(self.rows);
                 self.cx = col.to_col(self.cols);

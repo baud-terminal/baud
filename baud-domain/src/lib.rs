@@ -1585,6 +1585,25 @@ impl OneBased {
     pub fn to_col(self, cols: Cols) -> Col {
         Col(((self.0 - 1) as usize).min(cols.raw().saturating_sub(1)))
     }
+    /// The wire value. For emitting a report, which is the only direction that
+    /// needs the number back out.
+    pub fn get(self) -> u16 {
+        self.0
+    }
+}
+
+impl Row {
+    /// This row as it appears on the wire. CPR and CUP are both 1-based, so a
+    /// report built from this round-trips through `OneBased::to_row`.
+    pub fn one_based(self) -> OneBased {
+        OneBased(self.0.saturating_add(1).min(u16::MAX as usize) as u16)
+    }
+}
+impl Col {
+    /// This column as it appears on the wire.
+    pub fn one_based(self) -> OneBased {
+        OneBased(self.0.saturating_add(1).min(u16::MAX as usize) as u16)
+    }
 }
 
 /// A repeat count or distance. Omitted or zero both mean 1 — a rule that was
@@ -1647,6 +1666,12 @@ pub enum Csi {
         /// making it indistinguishable from an explicit `CSI 1;1 r`.
         bottom: Option<OneBased>,
     },
+    /// DA, `CSI c`. Primary Device Attributes: "what are you?".
+    DeviceAttributes,
+    /// DSR, `CSI n`. `[[source: ctlseqs]]` defines 5 (status) and 6 (CPR); any
+    /// other value is a report baud does not produce, and answering it with the
+    /// wrong shape is worse than not answering at all.
+    DeviceStatus(Option<StatusKind>),
     /// DECSTR, `CSI ! p`. Soft reset: modes, region, cursor and attributes to
     /// their defaults, but **not** the screen contents -- that is what makes it
     /// soft, and what distinguishes it from RIS.
@@ -1750,6 +1775,8 @@ impl Csi {
                 },
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
+            b'c' => Csi::DeviceAttributes,
+            b'n' => Csi::DeviceStatus(StatusKind::from_param(p.at(ParamIdx::FIRST))),
             b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
             b'Z' => Csi::CursorBackTab(p.count(ParamIdx::FIRST)),
             b'g' => Csi::TabClear(TabClear::from_param(p.at(ParamIdx::FIRST))),
@@ -1917,6 +1944,24 @@ impl SgrAttr {
             }
             _ => return None,
         })
+    }
+}
+
+/// The two DSR reports baud answers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StatusKind {
+    /// `CSI 5 n` -> `CSI 0 n`, "OK".
+    Operating,
+    /// `CSI 6 n` -> `CSI r ; c R`, the cursor position, 1-based.
+    CursorPosition,
+}
+impl StatusKind {
+    pub fn from_param(p: Option<Param>) -> Option<StatusKind> {
+        match p.map_or(0, |x| x.0) {
+            5 => Some(StatusKind::Operating),
+            6 => Some(StatusKind::CursorPosition),
+            _ => None,
+        }
     }
 }
 
