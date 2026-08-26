@@ -31,6 +31,9 @@ fn legal_uses_compile() {
     ];
     match Csi::parse(
         Marker::Standard,
+        // No intermediate: `CSI 5;10 H` is CUP. With one, the same final byte
+        // would be a different operation entirely.
+        None,
         Params::new(&ps),
         FinalByte::from_stream(StreamByte::from_stream(b'H')).unwrap(),
     ) {

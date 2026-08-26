@@ -35,22 +35,24 @@ but the substrate. `[[source: williams]]` specifies the DEC ANSI parser as a
 |---|---|---|
 | `ground` | done | |
 | `escape` | done | |
-| `escape_intermediate` | **todo** | needed for `ESC # 8` (DECALN), charset designators `ESC ( B` |
+| `escape_intermediate` | done | final byte consumed; DECALN itself still todo |
 | `csi_entry` | partial | folded into `CsiParams` |
 | `csi_param` | done | `CsiParams` |
-| `csi_intermediate` | **todo** | needed for `CSI ! p`, `CSI SP q`, `CSI " q`, `CSI $ r` |
-| `csi_ignore` | **todo** | malformed sequences must be consumed to their final byte, not re-interpreted |
-| `dcs_entry` | **todo** | no DCS support at all |
+| `csi_intermediate` | done | intermediate recorded, in both feed paths |
+| `csi_ignore` | done | |
+| `dcs_entry` | partial | payload consumed via `StringIgnore`; no DCS dispatch |
 | `dcs_param` | **todo** | |
 | `dcs_intermediate` | **todo** | |
 | `dcs_passthrough` | **todo** | |
 | `dcs_ignore` | **todo** | |
 | `osc_string` | partial | `OscString` consumes to ST but dispatches nothing |
-| `sos_pm_apc_string` | **todo** | `SOS`/`PM`/`APC` must be consumed, or their payload is executed as commands |
+| `sos_pm_apc_string` | done | payload consumed, never executed |
 
-`sos_pm_apc_string` is a **correctness and security** gap, not a feature gap: a
-stream containing `ESC _ ... ESC \` currently has its payload interpreted rather
-than ignored.
+~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: DCS, SOS,
+PM and APC payloads are consumed by `StringIgnore` and never executed. Note the
+specified limit, which is not a hole: `[[source: williams]]` says a bare `ESC`
+*cancels* a control string, so the guarantee is precisely that a payload
+containing no ESC is inert.
 
 baud adds a `Utf8` state, which `[[source: williams]]` does not have — that
 parser predates UTF-8 and is defined over bytes. Keeping it is deliberate; the
@@ -147,7 +149,7 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 
 | seq | name | status |
 |---|---|---|
-| `CSI ! p` | DECSTR soft reset | **todo** |
+| `CSI ! p` | DECSTR soft reset | done |
 | `CSI SP q` | DECSCUSR cursor style | **todo** |
 | `CSI " q` | DECSCA character protection | **todo** |
 | `CSI ? J` | DECSED selective erase display | **todo** |

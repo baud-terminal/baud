@@ -1647,6 +1647,10 @@ pub enum Csi {
         /// making it indistinguishable from an explicit `CSI 1;1 r`.
         bottom: Option<OneBased>,
     },
+    /// DECSTR, `CSI ! p`. Soft reset: modes, region, cursor and attributes to
+    /// their defaults, but **not** the screen contents -- that is what makes it
+    /// soft, and what distinguishes it from RIS.
+    SoftReset,
     /// CHT, `CSI I`. Forward `n` tab stops.
     CursorForwardTab(Count),
     /// CBT, `CSI Z`. Backward `n` tab stops.
@@ -1694,7 +1698,18 @@ pub enum Csi {
 }
 
 impl Csi {
-    pub fn parse(marker: Marker, p: Params<'_>, f: FinalByte) -> Csi {
+    /// `inter` is the intermediate byte, which is part of the operation's
+    /// identity: `CSI ! p` is DECSTR and `CSI p` is not the same thing.
+    pub fn parse(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
+        if let Some(i) = inter {
+            return match (i.raw_byte(), f.raw()) {
+                (b'!', b'p') => Csi::SoftReset,
+                _ => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            };
+        }
         if marker == Marker::Private {
             return match f.raw() {
                 b'h' => Csi::PrivateMode {
@@ -2040,6 +2055,9 @@ impl StreamByte {
     /// NUL. Discarded, never printed: `[[source: ecma48]]` § 8.3.88 makes it a
     /// fill character with no effect on the presentation.
     pub const NUL: StreamByte = StreamByte(0x00);
+    /// DEL. `[[source: williams]]` gives it the `ignore` action inside escape
+    /// and CSI sequences: it neither ends them nor contributes to them.
+    pub const DEL: StreamByte = StreamByte(0x7f);
     /// VT. `[[source: ctlseqs]]` treats it as an index, like LF.
     pub const VT: StreamByte = StreamByte(0x0b);
     /// FF. Also an index -- a terminal does not eject a page.
@@ -2052,8 +2070,27 @@ impl StreamByte {
     pub const QUESTION: StreamByte = StreamByte(b'?');
     pub const CSI_INTRO: StreamByte = StreamByte(b'[');
     pub const OSC_INTRO: StreamByte = StreamByte(b']');
+    /// `ESC P`. Device Control String: a payload that must be consumed, never
+    /// executed.
+    pub const DCS_INTRO: StreamByte = StreamByte(b'P');
+    /// `ESC X`, `ESC ^`, `ESC _`: SOS, PM, APC. Same rule as DCS.
+    pub const SOS_INTRO: StreamByte = StreamByte(b'X');
+    pub const PM_INTRO: StreamByte = StreamByte(b'^');
+    pub const APC_INTRO: StreamByte = StreamByte(b'_');
+    /// `ESC \`, the string terminator's final byte.
+    pub const ST_FINAL: StreamByte = StreamByte(b'\\');
     pub fn is_csi_intermediate(self) -> bool {
         (0x20..0x30).contains(&self.0)
+    }
+    /// Intermediate bytes after `ESC`, per `[[source: williams]]`'s
+    /// `escape_intermediate`. Same range as the CSI intermediates: `ESC # 8` is
+    /// DECALN, and without this the `#` is dropped and the `8` printed.
+    pub fn is_esc_intermediate(self) -> bool {
+        (0x20..0x30).contains(&self.0)
+    }
+    /// A byte that ends an escape sequence: `0x30..=0x7e`.
+    pub fn is_esc_final(self) -> bool {
+        (0x30..0x7f).contains(&self.0)
     }
     /// Lead byte of a UTF-8 sequence: how many continuation bytes follow, and
     /// the payload bits. `None` for ASCII and for stray continuation bytes.

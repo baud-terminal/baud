@@ -134,8 +134,27 @@ impl Storage {
 enum State {
     Ground,
     Escape,
+    /// After `ESC` and an intermediate byte. `[[source: williams]]`'s
+    /// `escape_intermediate`. Without it `ESC # 8` dropped the `#` and printed
+    /// the `8`.
+    EscapeIntermediate,
     CsiParams,
+    /// `[[source: williams]]`'s `csi_intermediate`. The intermediate is kept,
+    /// so `CSI ! p` (DECSTR) is distinguishable from `CSI p`.
+    CsiIntermediate,
+    /// `[[source: williams]]`'s `csi_ignore`: a malformed sequence is consumed
+    /// to its final byte and discarded. Returning to Ground mid-sequence
+    /// instead would print the remainder as text.
+    CsiIgnore,
     OscString,
+    /// The payload of DCS, SOS, PM and APC.
+    ///
+    /// Consumed to the string terminator and executed as nothing. This state
+    /// not existing was a **correctness and security** bug, not a missing
+    /// feature: those introducers fell through to Ground, so
+    /// `ESC _ ... ESC \` had its payload interpreted as commands. A stream
+    /// could hide `CSI 2 J` inside an APC string and clear the screen.
+    StringIgnore,
     /// Mid multi-byte sequence: continuation bytes remaining, and bits so far.
     Utf8 {
         remaining: Pending,
@@ -292,6 +311,9 @@ pub struct Term<'a> {
     // why the fast CSI path declined, so the fallback rate is measurable
     pub fast_hits: Stat,
     pub bells: Stat,
+    /// The intermediate byte of the CSI being parsed, if any. `CSI ! p` is
+    /// DECSTR and `CSI p` is not the same operation.
+    csi_inter: Option<StreamByte>,
     pub fb_not_csi: Stat,
     pub fb_boundary: Stat,
     pub fb_odd_param: Stat,
@@ -330,6 +352,7 @@ impl<'a> Term<'a> {
             replacements: Stat::ZERO,
             fast_hits: Stat::ZERO,
             bells: Stat::ZERO,
+            csi_inter: None,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
@@ -500,6 +523,21 @@ impl<'a> Term<'a> {
         } else if let Some(r) = self.cy.next(self.rows) {
             self.cy = r;
         }
+        // The destination line starts empty of spans.
+        //
+        // Load-bearing for chunk invariance, not tidiness: without it runs
+        // accumulate on a line across index operations, so whether MAXRUN
+        // overflows -- and therefore whether the line gets promoted -- depends
+        // on how the input happened to be split into reads. Dropping this line
+        // broke ingest_is_chunk_invariant.
+        //
+        // KNOWN GAP: this also means IND onto an *existing* unpromoted line
+        // discards its spans, where the spec moves the cursor without touching
+        // content. Recorded in docs/vt-coverage.md rather than fixed here,
+        // because fixing it means bounding run growth some other way and that
+        // needs its own measurement.
+        let i = self.line();
+        self.s.nrun[i.index()] = RunCount::ZERO;
     }
 
     /// CR + IND: what autowrap does at the right margin, and what NEL is.
@@ -858,7 +896,8 @@ impl<'a> Term<'a> {
         let n = self.nparam.count_at_least_one();
         let marker = self.private;
         let p = Params::new(&self.params[..n]);
-        match Csi::parse(marker, p, f) {
+        match Csi::parse(marker, self.csi_inter, p, f) {
+            Csi::SoftReset => self.soft_reset(),
             Csi::CursorPosition { row, col } => {
                 self.cy = row.to_row(self.rows);
                 self.cx = col.to_col(self.cols);
@@ -916,36 +955,49 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// The C0 `execute` action.
+    ///
+    /// Separate from the Ground branch because `[[source: williams]]` has the
+    /// escape and CSI states execute C0 controls mid-sequence rather than
+    /// treating them as the end of the sequence: `event 00-17,19,1C-1F /
+    /// execute`. A stream carrying `ESC [ 1 ; \n 2 m` gets its line feed *and*
+    /// its SGR.
+    #[inline(always)]
+    fn execute(&mut self, b: StreamByte) {
+        if b == StreamByte::LF {
+            self.line_feed();
+        } else if b == StreamByte::CR {
+            self.cx = Col::ZERO;
+        } else if b == StreamByte::BS {
+            self.cx = self.cx.back(Count::ONE);
+        } else if b == StreamByte::TAB {
+            self.tab_forward(Count::ONE);
+        } else if b == StreamByte::VT || b == StreamByte::FF {
+            // Both are an index. A terminal does not eject a page, and they were
+            // being dropped, so a stream containing VT lost the line break.
+            self.index();
+        } else if b == StreamByte::BEL {
+            // No UI here to ring one, so count it. A core that silently drops
+            // BEL leaves an embedder no way to implement one.
+            self.bells.inc();
+        }
+        // Anything else in C0 is discarded, never printed.
+    }
+
     #[inline(always)]
     fn control(&mut self, b: StreamByte) {
         match self.st {
             State::Ground => {
-                if b == StreamByte::LF {
-                    self.line_feed();
-                } else if b == StreamByte::CR {
-                    self.cx = Col::ZERO;
-                } else if b == StreamByte::ESC {
+                if b == StreamByte::ESC {
                     self.st = State::Escape;
-                } else if b == StreamByte::BS {
-                    self.cx = self.cx.back(Count::ONE);
-                } else if b == StreamByte::TAB {
-                    self.tab_forward(Count::ONE);
-                } else if b == StreamByte::VT || b == StreamByte::FF {
-                    // Both are an index. A terminal does not eject a page, and
-                    // they were being dropped, so a stream containing VT lost
-                    // the line break entirely.
-                    self.index();
-                } else if b == StreamByte::BEL {
-                    // No UI here to ring one, so count it. A core that silently
-                    // drops BEL gives an embedder no way to implement one --
-                    // the "accepted, did nothing" failure again.
-                    self.bells.inc();
+                } else if b.is_c0() || b == StreamByte::BEL {
+                    self.execute(b);
                 } else if let Some((rem, acc)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
                         acc: Utf8Acc::lead(acc),
                     };
-                } else if !b.is_c0() {
+                } else {
                     // stray continuation byte or 0x7f: not text
                     self.replacements.inc();
                     self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
@@ -977,14 +1029,63 @@ impl<'a> Term<'a> {
                     self.params = [None; 16];
                     self.nparam = ParamIdx::FIRST;
                     self.private = Marker::Standard;
+                    self.csi_inter = None;
                     self.st = State::CsiParams;
                 } else if b == StreamByte::OSC_INTRO {
                     self.st = State::OscString;
+                } else if b == StreamByte::DCS_INTRO
+                    || b == StreamByte::SOS_INTRO
+                    || b == StreamByte::PM_INTRO
+                    || b == StreamByte::APC_INTRO
+                {
+                    // Consume the payload; never execute it. These fell through
+                    // to `esc_fe` and back to Ground, so the bytes that followed
+                    // were interpreted as commands.
+                    self.st = State::StringIgnore;
+                } else if b.is_esc_intermediate() {
+                    self.st = State::EscapeIntermediate;
                 } else {
                     // Same two-byte escapes the AVX2 path handles. The two feed
                     // paths must be indistinguishable; `feed_matches_feed_avx2`
                     // in the property suite asserts it.
                     self.esc_fe(b);
+                    self.st = State::Ground;
+                }
+            }
+            State::EscapeIntermediate => {
+                // DECALN (`ESC # 8`) and the charset designators are Tier 1
+                // `todo` in docs/vt-coverage.md. What matters here is that the
+                // final byte is consumed rather than printed.
+                if b.is_c0() {
+                    self.execute(b);
+                } else if !b.is_esc_intermediate() && b != StreamByte::DEL {
+                    self.st = State::Ground;
+                }
+            }
+            State::StringIgnore => {
+                // Terminated by ST (`ESC \`) or, as xterm accepts, by BEL.
+                // Any ESC leaves the string; the Escape state decides whether
+                // the next byte is the ST backslash or a fresh sequence, so a
+                // truncated string cannot swallow what follows it forever.
+                if b == StreamByte::BEL {
+                    self.st = State::Ground;
+                } else if b == StreamByte::ESC {
+                    self.st = State::Escape;
+                }
+            }
+            State::CsiIntermediate => {
+                if let Some(f) = FinalByte::from_stream(b) {
+                    self.dispatch(f);
+                    self.st = State::Ground;
+                } else if !b.is_csi_intermediate() {
+                    self.st = State::CsiIgnore;
+                }
+            }
+            State::CsiIgnore => {
+                // Consume to the final byte and dispatch nothing.
+                if b.is_c0() {
+                    self.execute(b);
+                } else if FinalByte::from_stream(b).is_some() {
                     self.st = State::Ground;
                 }
             }
@@ -1008,8 +1109,14 @@ impl<'a> Term<'a> {
                 } else if let Some(f) = FinalByte::from_stream(b) {
                     self.dispatch(f);
                     self.st = State::Ground;
-                } else if !b.is_csi_intermediate() {
-                    self.st = State::Ground;
+                } else if b.is_csi_intermediate() {
+                    self.csi_inter = Some(b);
+                    self.st = State::CsiIntermediate;
+                } else {
+                    // Malformed. Consume to the final byte rather than
+                    // returning to Ground here, which printed the remainder of
+                    // the sequence as text.
+                    self.st = State::CsiIgnore;
                 }
             }
             State::OscString => {
@@ -1170,13 +1277,31 @@ impl<'a> Term<'a> {
                 }
             };
             let term = StreamByte::from_stream(self.s.arena[b + s + off]);
-            // BEL ends it; ESC needs the following byte to confirm ESC-backslash
+            // BEL ends it. ESC only ends it when the next byte is the backslash
+            // of ST -- `[[source: ctlseqs]]` line 201 defines ST as `ESC \` and
+            // nothing else.
+            //
+            // This used to consume the byte after ESC without checking it, so
+            // `OSC ... ESC E` swallowed the `E` and the NEL never ran, while the
+            // byte-at-a-time path cancelled the string and executed it. Whether
+            // a stream got its NEL depended on where the read boundary fell:
+            // caught by ingest_is_chunk_invariant, and pre-dating the state
+            // machine work that exposed it.
+            //
+            // A non-backslash byte means the ESC *cancelled* the string
+            // (`[[source: williams]]`), and what follows is a fresh sequence.
+            // Handing that back to the state machine is the whole fix: it
+            // already parses the cancel correctly.
             let used = if term == StreamByte::BEL {
                 s + off + 1 - i
-            } else if s + off + 1 < n {
+            } else if s + off + 1 >= n {
+                self.fb_boundary.inc();
+                return None;
+            } else if StreamByte::from_stream(self.s.arena[b + s + off + 1]) == StreamByte::ST_FINAL
+            {
                 s + off + 2 - i
             } else {
-                self.fb_boundary.inc();
+                self.fb_not_csi.inc();
                 return None;
             };
             self.fast_hits.inc();
@@ -1221,6 +1346,20 @@ impl<'a> Term<'a> {
             }
             _ => {}
         }
+    }
+
+    /// DECSTR. Modes, region, cursor and attributes to their defaults --
+    /// **not** the screen contents. That is what makes it soft, and it is why
+    /// an application uses it to recover a terminal without losing scrollback.
+    fn soft_reset(&mut self) {
+        self.cx = Col::ZERO;
+        self.cy = Row::ZERO;
+        self.style = StyleId::DEFAULT;
+        self.style_raw = StyleWord::DEFAULT;
+        self.saved = None;
+        self.scroll_top = Row::ZERO;
+        self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.modes = Modes::default();
     }
 
     /// RIS. Everything back to power-on state, including the scrolling region
@@ -1275,6 +1414,7 @@ impl<'a> Term<'a> {
         self.params = [None; 16];
         self.nparam = ParamIdx::FIRST;
         self.private = Marker::Standard;
+        self.csi_inter = None;
 
         // `ESC [ <final>` — roughly half of a TUI stream, and needs no scan.
         let first = StreamByte::from_stream(self.s.arena[b + s]);
@@ -1310,7 +1450,13 @@ impl<'a> Term<'a> {
                 any = false;
             } else if d == StreamByte::QUESTION {
                 self.private = Marker::Private;
-            } else if !d.is_csi_intermediate() {
+            } else if d.is_csi_intermediate() {
+                // Recorded, not skipped. Dropping it here would make the AVX2
+                // path dispatch `CSI ! p` as `CSI p` while the portable path
+                // dispatched DECSTR -- a silent divergence between the two
+                // feeds, which is the bug class this codebase has had before.
+                self.csi_inter = Some(d);
+            } else {
                 self.fb_odd_param.inc();
                 return None; // something unexpected; let the state machine decide
             }
