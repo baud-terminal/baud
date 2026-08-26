@@ -29,6 +29,13 @@ fn drive(bytes: &[u8], chunk: usize, mode: OpMode) -> Vec<PackedCell> {
 }
 
 /// Drive with the AVX2 path instead. Same input, must give the same state.
+///
+/// `feed_avx2` is `#[cfg(target_arch = "x86_64")]`, so this helper and the
+/// property below must be too, or the suite does not compile off x86 at all.
+/// The gate is on the *test*, not on the check it performs: on x86 the property
+/// still runs, and CLAUDE.md records what happens when the SIMD path stops
+/// being exercised and nobody notices.
+#[cfg(target_arch = "x86_64")]
 fn drive_avx2(bytes: &[u8], chunk: usize, mode: OpMode) -> Vec<PackedCell> {
     let mut store = boxed_storage();
     let mut t = Term::new(&mut store, mode);
@@ -76,6 +83,7 @@ proptest! {
     /// `M` and only implemented there, the two silently diverged and the
     /// chunk-invariance property could not see it, because it exercises one path.
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn feed_matches_feed_avx2(
         bytes in prop::collection::vec(any::<u8>(), 0..4000),
         chunk in 1usize..=512,
