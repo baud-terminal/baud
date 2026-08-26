@@ -43,7 +43,7 @@ in
   # Development scripts
   scripts.dev-test.exec = ''
     echo "Running tests..."
-    RUSTFLAGS="-D warnings" cargo test ${scope} --all-features
+    RUSTFLAGS="-D warnings" cargo test --release ${scope} --all-features
   '';
 
   scripts.dev-fmt.exec = ''
@@ -76,11 +76,15 @@ in
     echo "=== fmt ==="
     treefmt --fail-on-change || { echo "FAILED: fmt"; exit 1; }
     echo "=== clippy ==="
-    cargo clippy --quiet -- -D warnings || { echo "FAILED: clippy"; exit 1; }
+    cargo clippy --quiet ${scope} -- -D warnings || { echo "FAILED: clippy"; exit 1; }
     echo "=== check ==="
-    cargo check --quiet || { echo "FAILED: check"; exit 1; }
+    cargo check --quiet ${scope} || { echo "FAILED: check"; exit 1; }
     echo "=== test ==="
-    RUSTFLAGS="-D warnings" cargo test --quiet || { echo "FAILED: test"; exit 1; }
+    RUSTFLAGS="-D warnings" cargo test --release --quiet ${scope} || { echo "FAILED: test"; exit 1; }
+    echo "=== bare metal ==="
+    cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
+    echo "=== audit ==="
+    sh ./audit_all.sh || { echo "FAILED: audit"; exit 1; }
     echo "=== ALL PASSED ==="
   '';
 
@@ -118,7 +122,7 @@ in
       } | ${pkgs.boxes}/bin/boxes -d stone -a l -i none
       echo
       echo "Available scripts:"
-      echo "  dev-ci        - Run full CI pipeline (treefmt + clippy + check + test)"
+      echo "  dev-ci        - Full pipeline (fmt + clippy + check + test + bare + audit)"
       echo "  dev-test      - Run tests"
       echo "  dev-fmt       - Check formatting"
       echo "  dev-lint      - Run clippy"
@@ -214,8 +218,12 @@ in
       after = [ "test:clippy" ];
     };
 
+    # --release is load-bearing, not an optimisation. baud-core/tests/perf_floor.rs
+    # asserts throughput floors (100 MB/s spans, 70 MB/s cells); an unoptimised
+    # build misses them by an order of magnitude, so the suite would fail on the
+    # profile rather than on the code. BUILD.md runs the same tests in release.
     "test:unit" = {
-      exec = "RUSTFLAGS='-D warnings' cargo test --quiet ${scope}";
+      exec = "RUSTFLAGS='-D warnings' cargo test --release --quiet ${scope}";
       after = [ "test:check" ];
     };
 
