@@ -2037,6 +2037,17 @@ impl StreamByte {
     pub const BS: StreamByte = StreamByte(0x08);
     pub const TAB: StreamByte = StreamByte(b'\t');
     pub const BEL: StreamByte = StreamByte(0x07);
+    /// NUL. Discarded, never printed: `[[source: ecma48]]` § 8.3.88 makes it a
+    /// fill character with no effect on the presentation.
+    pub const NUL: StreamByte = StreamByte(0x00);
+    /// VT. `[[source: ctlseqs]]` treats it as an index, like LF.
+    pub const VT: StreamByte = StreamByte(0x0b);
+    /// FF. Also an index -- a terminal does not eject a page.
+    pub const FF: StreamByte = StreamByte(0x0c);
+    /// SO / SI, the G1 and G0 shifts. Consumed so they are not printed; the
+    /// charset they select is not implemented -- see docs/vt-coverage.md.
+    pub const SO: StreamByte = StreamByte(0x0e);
+    pub const SI: StreamByte = StreamByte(0x0f);
     pub const SEMICOLON: StreamByte = StreamByte(b';');
     pub const QUESTION: StreamByte = StreamByte(b'?');
     pub const CSI_INTRO: StreamByte = StreamByte(b'[');

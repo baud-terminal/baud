@@ -67,13 +67,13 @@ without these.
 
 | byte | name | status |
 |---|---|---|
-| `0x00` NUL | ignored | **todo** — must be discarded, not printed |
-| `0x07` BEL | bell | **todo** |
+| `0x00` NUL | ignored | done |
+| `0x07` BEL | bell | done — counted; no UI to ring |
 | `0x08` BS | backspace | done |
 | `0x09` HT | tab | done — real stop table |
 | `0x0A` LF | line feed | done — index only unless LNM |
-| `0x0B` VT | vertical tab | **todo** — treated as LF |
-| `0x0C` FF | form feed | **todo** — treated as LF |
+| `0x0B` VT | vertical tab | done — index |
+| `0x0C` FF | form feed | done — index |
 | `0x0D` CR | carriage return | done |
 | `0x0E` SO | shift out (G1) | **todo** |
 | `0x0F` SI | shift in (G0) | **todo** |

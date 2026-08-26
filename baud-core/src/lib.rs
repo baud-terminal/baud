@@ -291,6 +291,7 @@ pub struct Term<'a> {
     pub replacements: Stat,
     // why the fast CSI path declined, so the fallback rate is measurable
     pub fast_hits: Stat,
+    pub bells: Stat,
     pub fb_not_csi: Stat,
     pub fb_boundary: Stat,
     pub fb_odd_param: Stat,
@@ -328,6 +329,7 @@ impl<'a> Term<'a> {
             maxrun_overflows: Stat::ZERO,
             replacements: Stat::ZERO,
             fast_hits: Stat::ZERO,
+            bells: Stat::ZERO,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
@@ -342,6 +344,10 @@ impl<'a> Term<'a> {
     /// These counters have been fed since the fast paths were written and never
     /// read anywhere, which is how "is the fast path even firing on this
     /// target?" became a question that could not be answered from the outside.
+    /// BEL characters seen. There is no UI here to ring one.
+    pub fn bells(&self) -> u64 {
+        self.bells.count()
+    }
     pub fn fast_hits(&self) -> u64 {
         self.fast_hits.count()
     }
@@ -924,6 +930,16 @@ impl<'a> Term<'a> {
                     self.cx = self.cx.back(Count::ONE);
                 } else if b == StreamByte::TAB {
                     self.tab_forward(Count::ONE);
+                } else if b == StreamByte::VT || b == StreamByte::FF {
+                    // Both are an index. A terminal does not eject a page, and
+                    // they were being dropped, so a stream containing VT lost
+                    // the line break entirely.
+                    self.index();
+                } else if b == StreamByte::BEL {
+                    // No UI here to ring one, so count it. A core that silently
+                    // drops BEL gives an embedder no way to implement one --
+                    // the "accepted, did nothing" failure again.
+                    self.bells.inc();
                 } else if let Some((rem, acc)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
