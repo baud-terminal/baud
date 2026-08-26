@@ -2,13 +2,19 @@
 name = "multibench"
 version = "0.1.0"
 edition = "2021"
+
 [dependencies]
-alacritty_terminal = { path = "../../../alacritty/alacritty_terminal" }
+# From crates.io rather than a sibling checkout. The path dependency made this
+# harness unrunnable on any machine that had not cloned alacritty to exactly the
+# right relative location, which is most of them. A pinned registry version is
+# also a version anyone can quote alongside the numbers.
+alacritty_terminal = "0.26"
 vt100 = "0.16"
 termwiz = { version = "0.23", default-features = false }
 baud-core = { path = "../../baud-core", features = ["alloc"] }
 libc = "0.2"
 tattoy-wezterm-term = "0.1.0-fork.5"
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -4,6 +4,44 @@ use alacritty_terminal::term::{Config, Term as ATerm};
 use alacritty_terminal::vte::ansi::Processor;
 use std::time::Instant;
 
+/// ghostty's terminal core via libghostty-vt's C ABI. Three functions is the
+/// whole surface we need: create, feed, destroy.
+///
+/// This replaces bench-others/ghostty-bench, a separate Zig harness that stalled
+/// on ghostty's build-time-generated unicode_tables. libghostty-vt is now a
+/// shipped artifact built by ghostty's own build.zig, which runs that codegen
+/// itself — so ghostty measures here, in the same harness, through the same PTY,
+/// against the same payloads as every other core. A separate harness was the
+/// confound MEASUREMENTS.md warns about.
+#[cfg(have_ghostty)]
+mod ghostty {
+    use std::ffi::c_void;
+    pub type Terminal = *mut c_void;
+    unsafe extern "C" {
+        /// `allocator` may be NULL for ghostty's default. Returns 0 on success.
+        pub fn ghostty_terminal_new(
+            allocator: *const c_void,
+            out: *mut Terminal,
+            cols: u16,
+            rows: u16,
+        ) -> i32;
+        pub fn ghostty_terminal_free(t: Terminal);
+        /// Documented as infallible: malformed input is logged, never fatal.
+        pub fn ghostty_terminal_vt_write(t: Terminal, data: *const u8, len: usize);
+    }
+}
+
+/// baud's SIMD entry point only exists on x86-64, so naming it elsewhere does
+/// not compile. Same shape as baud-bench's dispatch.
+#[cfg(target_arch = "x86_64")]
+unsafe fn baud_feed(t: &mut baud_core::Term, base: baud_core::BytePos, n: baud_core::ByteLen) {
+    unsafe { t.feed_avx2(base, n) }
+}
+#[cfg(not(target_arch = "x86_64"))]
+unsafe fn baud_feed(t: &mut baud_core::Term, base: baud_core::BytePos, n: baud_core::ByteLen) {
+    t.feed(base, n)
+}
+
 const COLS: usize = 200;
 const ROWS: usize = 50;
 
@@ -84,15 +122,27 @@ fn through_pty(payload: &[u8], total: usize, mut sink: impl FnMut(&[u8])) -> f64
     }
 }
 
-fn best(n: usize, mut f: impl FnMut() -> f64) -> f64 {
-    let mut b = 0f64;
-    for _ in 0..n {
-        let v = f();
-        if v > b {
-            b = v
-        }
-    }
-    b
+/// Median and range over `n` runs.
+///
+/// Was `best()`, which returned the maximum and discarded everything else. That
+/// is an upward-biased estimator and, worse, it hides variance: two runs of
+/// identical code here differed by 9.3%, which is larger than most differences
+/// this table gets used to argue about. baud-bench has always reported
+/// median-and-range; this makes the two harnesses agree on the statistic, so
+/// only the payloads still differ between them.
+fn stat(n: usize, mut f: impl FnMut() -> f64) -> (f64, f64, f64) {
+    let mut v: Vec<f64> = (0..n).map(|_| f()).collect();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    (v[v.len() / 2], v[0], v[v.len() - 1])
+}
+
+/// One table row. Ranges are printed, not summarised away: if two cores' ranges
+/// overlap there is no result, and the reader has to be able to see that.
+fn row(label: &str, s: (f64, f64, f64), t: (f64, f64, f64)) {
+    println!(
+        "  {:<28} {:>7.1} [{:>5.1}-{:>5.1}]  {:>7.1} [{:>5.1}-{:>5.1}]",
+        label, s.0, s.1, s.2, t.0, t.1, t.2
+    );
 }
 
 fn main() {
@@ -130,33 +180,31 @@ fn main() {
         s += 1;
     }
 
-    println!("  same payloads, same real PTY, 4096-byte reads, best of 5\n");
-    println!("  {:<28} {:>12} {:>12}", "core", "streaming", "TUI redraw");
+    println!("  same payloads, same real PTY, 4096-byte reads, median of 9\n");
+    println!(
+        "  {:<28} {:>21}  {:>21}",
+        "core", "streaming median [min-max]", "TUI median [min-max]"
+    );
 
     // --- baud ---
     let f = |p: &Vec<u8>| {
-        best(5, || {
+        stat(9, || {
             let mut st = baud_core::Storage::boxed();
             let mut t = baud_core::Term::new(&mut st, baud_core::OpMode::Runs);
             through_pty(p, total, |chunk| {
                 let mut slot = t.read_slot();
                 let base = slot.base();
                 let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
-                unsafe { t.feed_avx2(base, fl.len()) };
+                unsafe { baud_feed(&mut t, base, fl.len()) };
                 t.commit_read(fl.len());
             })
         })
     };
-    println!(
-        "  {:<28} {:>9.1}    {:>9.1}",
-        "baud (spans)",
-        f(&stream),
-        f(&tui)
-    );
+    row("baud (spans)", f(&stream), f(&tui));
 
     // --- alacritty_terminal ---
     let f = |p: &Vec<u8>| {
-        best(5, || {
+        stat(9, || {
             let mut cfg = Config::default();
             cfg.scrolling_history = 10_000;
             let mut term = ATerm::new(cfg, &Dim, Noop);
@@ -164,26 +212,49 @@ fn main() {
             through_pty(p, total, |chunk| proc.advance(&mut term, chunk))
         })
     };
+    row("alacritty_terminal", f(&stream), f(&tui));
+
+    // --- ghostty, via libghostty-vt ---
+    //
+    // Skipped rather than faked when the static lib is absent: build.rs emits a
+    // warning and the row does not print, which is visible. A zero would not be.
+    #[cfg(have_ghostty)]
+    {
+        let f = |p: &Vec<u8>| {
+            stat(9, || {
+                let mut term: ghostty::Terminal = std::ptr::null_mut();
+                let rc = unsafe {
+                    ghostty::ghostty_terminal_new(
+                        std::ptr::null(),
+                        &mut term,
+                        COLS as u16,
+                        ROWS as u16,
+                    )
+                };
+                assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
+                let v = through_pty(p, total, |chunk| unsafe {
+                    ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
+                });
+                unsafe { ghostty::ghostty_terminal_free(term) };
+                v
+            })
+        };
+        row("ghostty (libghostty-vt)", f(&stream), f(&tui));
+    }
+    #[cfg(not(have_ghostty))]
     println!(
-        "  {:<28} {:>9.1}    {:>9.1}",
-        "alacritty_terminal",
-        f(&stream),
-        f(&tui)
+        "  {:<28} {:>21}  {:>21}",
+        "ghostty (libghostty-vt)", "n/a (lib not built)", "n/a"
     );
 
     // --- vt100 crate ---
     let f = |p: &Vec<u8>| {
-        best(5, || {
+        stat(9, || {
             let mut parser = vt100::Parser::new(ROWS as u16, COLS as u16, 10_000);
             through_pty(p, total, |chunk| parser.process(chunk))
         })
     };
-    println!(
-        "  {:<28} {:>9.1}    {:>9.1}",
-        "vt100 crate",
-        f(&stream),
-        f(&tui)
-    );
+    row("vt100 crate", f(&stream), f(&tui));
 
     // --- wezterm, full terminal model ---
     #[derive(Debug)]
@@ -203,7 +274,7 @@ fn main() {
         }
     }
     let f = |p: &Vec<u8>| {
-        best(5, || {
+        stat(9, || {
             let size = tattoy_wezterm_term::TerminalSize {
                 rows: ROWS,
                 cols: COLS,
@@ -221,16 +292,11 @@ fn main() {
             through_pty(p, total, |chunk| term.advance_bytes(chunk))
         })
     };
-    println!(
-        "  {:<28} {:>9.1}    {:>9.1}",
-        "wezterm (full terminal)",
-        f(&stream),
-        f(&tui)
-    );
+    row("wezterm (full terminal)", f(&stream), f(&tui));
 
     // --- termwiz (wezterm's core) ---
     let f = |p: &Vec<u8>| {
-        best(5, || {
+        stat(9, || {
             let mut parser = termwiz::escape::parser::Parser::new();
             through_pty(p, total, |chunk| {
                 parser.parse(chunk, |a| {
@@ -239,10 +305,5 @@ fn main() {
             })
         })
     };
-    println!(
-        "  {:<28} {:>9.1}    {:>9.1}",
-        "termwiz (wezterm) parse only",
-        f(&stream),
-        f(&tui)
-    );
+    row("termwiz (wezterm) parse only", f(&stream), f(&tui));
 }
