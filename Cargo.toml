@@ -1,30 +1,31 @@
-[package]
-name = "baud"
+[workspace]
+resolver = "2"
+members = ["baud-domain", "baud-core", "baud-bench"]
+
+# baud-difftest pins alacritty by absolute path (see its manifest and BUILD.md),
+# so it cannot resolve on a checkout that has not set that path. bench-others/*
+# are standalone harnesses against sibling checkouts of other terminals — and
+# ghostty-bench is Zig. None of them belong in this lock file.
+exclude = ["baud-difftest", "bench-others"]
+
+# baud-bench is a workspace member but not a default one: it drives a real PTY
+# through libc and uses F_SETPIPE_SZ, which is Linux-only. `cargo check` with no
+# -p therefore covers the portable crates on any host, and CI (ubuntu-latest)
+# adds --workspace to cover the harness too.
+default-members = ["baud-domain", "baud-core"]
+
+[workspace.package]
 version = "0.1.0"
-edition = "2024"
-# Edition 2024 selects resolver 3, which makes rust-version affect dependency
-# resolution: cargo will not pick a dependency needing a newer compiler. Set it
-# to the highest rust-version in the tree, measured with `cargo msrv find`.
-rust-version = "1.85"
+# Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition
+# migration across a measured hot path is a change that needs a benchmark, not
+# a flag flip.
+edition = "2021"
 authors = ["i-am-logger"]
-description = "A Rust CLI project"
+description = "A terminal emulator ingest core, and the measurements that produced it."
 license = "CC-BY-NC-SA-4.0"
 repository = "https://github.com/i-am-logger/baud"
-keywords = []
-categories = ["command-line-utilities"]
 
-[dependencies]
-# CLI
-clap = { version = "4.5", features = ["derive"] }
-
-# Logging
-log = "0.4"
-env_logger = "0.11"
-
-# Error handling
-thiserror = "2.0"
-
-# Manifest-level, so it holds for every cargo invocation rather than only those
-# that inherit RUSTFLAGS from the devenv shell. Unused code is a build failure.
-[lints.rust]
-unused = "deny"
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,12 @@
+[package]
+name = "baud-bench"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PTY benchmark harness for baud-core. Linux-only."
+
+[dependencies]
+baud-core = { path = "../baud-core", features = ["alloc"] }
+libc = "0.2"

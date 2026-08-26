@@ -1,0 +1,8 @@
+[package]
+name = "baud-difftest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+baud-core = { path = "../baud-core", features = ["alloc"] }
+alacritty_terminal = { path = "/home/user/t/alacritty/alacritty_terminal" }

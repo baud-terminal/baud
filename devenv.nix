@@ -5,9 +5,22 @@
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-  packageName = cargoToml.package.name;
-  packageVersion = cargoToml.package.version;
-  packageDescription = cargoToml.package.description or "";
+  # The root manifest is a virtual workspace, so there is no `package` table to
+  # read: the name is the repo, the shared metadata lives in workspace.package.
+  packageName = "baud";
+  packageVersion = cargoToml.workspace.package.version;
+  packageDescription = cargoToml.workspace.package.description or "";
+
+  # baud-bench is Linux-only (F_SETPIPE_SZ), so it is a workspace member but not
+  # a default one. On Linux every cargo invocation covers it; elsewhere the
+  # default members are the portable crates. CI runs on ubuntu-latest, so the
+  # harness is never unchecked in the place that gates a merge.
+  scope = lib.optionalString pkgs.stdenv.isLinux "--workspace";
+
+  # The bare-metal gate. Building baud-core for a target with no OS and no
+  # allocator is what actually proves #![no_std] and the default-off `alloc`
+  # feature; a green build on the host proves neither.
+  bareTarget = "x86_64-unknown-none";
 in
 {
   # Set root explicitly for flake compatibility
@@ -22,12 +35,15 @@ in
   packages = [
     pkgs.git
     pkgs.pkg-config
+    # audit_all.sh shells out to impl_audit.py; the gate must not depend on
+    # whatever python happens to be on the host.
+    pkgs.python3
   ];
 
   # Development scripts
   scripts.dev-test.exec = ''
     echo "Running tests..."
-    RUSTFLAGS="-D warnings" cargo test --all-features
+    RUSTFLAGS="-D warnings" cargo test ${scope} --all-features
   '';
 
   scripts.dev-fmt.exec = ''
@@ -37,12 +53,22 @@ in
 
   scripts.dev-lint.exec = ''
     echo "Running clippy..."
-    cargo clippy --quiet -- -D warnings
+    cargo clippy --quiet ${scope} -- -D warnings
   '';
 
   scripts.dev-check.exec = ''
     echo "Checking compilation..."
-    cargo check --quiet
+    cargo check --quiet ${scope}
+  '';
+
+  scripts.dev-bare.exec = ''
+    echo "Building baud-core for ${bareTarget} (no_std, no alloc)..."
+    cargo build --release -p baud-core --target ${bareTarget}
+  '';
+
+  scripts.dev-audit.exec = ''
+    echo "Running the type-system audit..."
+    sh ./audit_all.sh
   '';
 
   scripts.dev-ci.exec = ''
@@ -59,13 +85,13 @@ in
   '';
 
   scripts.dev-run.exec = ''
-    echo "Running ${packageName}..."
-    cargo run --release
+    echo "Running the PTY benchmark (Linux only)..."
+    cargo run --release -p baud-bench
   '';
 
   scripts.dev-build.exec = ''
     echo "Building ${packageName}..."
-    cargo build --release
+    cargo build --release ${scope}
   '';
 
   # Environment variables
@@ -97,8 +123,10 @@ in
       echo "  dev-fmt       - Check formatting"
       echo "  dev-lint      - Run clippy"
       echo "  dev-check     - Check compilation"
-      echo "  dev-run       - Run the application"
-      echo "  dev-build     - Build the application"
+      echo "  dev-bare      - Build baud-core for ${bareTarget} (no_std gate)"
+      echo "  dev-audit     - Run the type-system audit gate"
+      echo "  dev-run       - Run the PTY benchmark (Linux only)"
+      echo "  dev-build     - Build the workspace"
       echo ""
     } >&2
   '';
@@ -177,21 +205,37 @@ in
     };
 
     "test:clippy" = {
-      exec = "cargo clippy --quiet -- -D warnings";
+      exec = "cargo clippy --quiet ${scope} -- -D warnings";
       after = [ "test:fmt" ];
     };
 
     "test:check" = {
-      exec = "cargo check --quiet";
+      exec = "cargo check --quiet ${scope}";
       after = [ "test:clippy" ];
     };
 
     "test:unit" = {
-      exec = "RUSTFLAGS='-D warnings' cargo test --quiet";
+      exec = "RUSTFLAGS='-D warnings' cargo test --quiet ${scope}";
       after = [ "test:check" ];
+    };
+
+    # The no_std proof. A host build links std through the harness crates and
+    # so cannot fail on an accidental std dependency in baud-core; a target
+    # with no OS and no allocator can and does.
+    "test:bare" = {
+      exec = "cargo build --release --quiet -p baud-core --target ${bareTarget}";
+      after = [ "test:unit" ];
+    };
+
+    # The type-system gate: raw integers outside the newtype internals are a
+    # bug waiting for two quantities to be confused. Per-file limits and the
+    # reason for each live in audit_all.sh.
+    "test:audit" = {
+      exec = "sh ./audit_all.sh";
+      after = [ "test:bare" ];
     };
   };
 
   # https://devenv.sh/tests/
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:clippy test:check test:unit";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:clippy test:check test:unit test:bare test:audit";
 }

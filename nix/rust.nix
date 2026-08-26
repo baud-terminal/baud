@@ -5,7 +5,12 @@ _:
   languages.rust = {
     enable = true;
     # https://devenv.sh/reference/options/#languagesrustchannel
-    channel = "stable";
+    #
+    # Nightly, deliberately. This project is a measurement harness for an ingest
+    # hot path, and the compiler is part of what is being measured: codegen
+    # changes, new SIMD intrinsics and portable-simd all land on nightly first,
+    # and a regression that appears there is a finding rather than an accident.
+    channel = "nightly";
 
     components = [
       "rustc"
@@ -22,9 +27,10 @@ _:
     # dependency never breaks the build.
     rustflags = "-D warnings";
 
-    # Add cross-compilation targets here, e.g.
-    #   targets = [ "wasm32-unknown-unknown" ];
-    # They are fetched by rust-overlay alongside the toolchain, so a
-    # `cargo build --target <triple>` in CI needs no extra setup step.
+    # Fetched by rust-overlay alongside the toolchain, so the bare-metal gate in
+    # `tasks."test:bare"` needs no extra setup step in CI. x86_64-unknown-none
+    # has no OS and no allocator, which is what makes it a real test of
+    # baud-core's #![no_std] and its default-off `alloc` feature.
+    targets = [ "x86_64-unknown-none" ];
   };
 }

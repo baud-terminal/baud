@@ -1,0 +1,11 @@
+[package]
+name = "baud-domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The type system: every quantity is a type, every invariant the compiler can hold is held by the compiler."
+
+[dependencies]
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }

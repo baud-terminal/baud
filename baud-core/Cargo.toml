@@ -1,0 +1,21 @@
+[package]
+name = "baud-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The terminal ingest core: PTY bytes through VT parse into a grid, no_std and allocation-free."
+# no_std, no alloc, no dependencies. storage is caller-provided.
+
+[features]
+default = []
+alloc = ["zerocopy/alloc"]
+
+[dependencies]
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+baud-domain = { path = "../baud-domain" }
+
+[dev-dependencies]
+proptest = "1"
+baud-core = { path = ".", features = ["alloc"] }
