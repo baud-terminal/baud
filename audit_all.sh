@@ -17,7 +17,12 @@ for f in baud-core/src/lib.rs baud-core/tests/*.rs baud-bench/src/*.rs baud-diff
   #      (scan_avx2, find_final, find_st)
   # Everything else goes through baud-domain. If this number rises, something
   # untyped was reintroduced.
-  baud-core/src/lib.rs) limit=12 ;;
+  # 12 -> 15 when the scans became portable. The three added sites are one
+  # `m.trailing_zeros() as usize` per portable scan (run / final_byte / st) --
+  # the same category as the AVX2 lane masks already permitted above. A movemask
+  # result is a bitmask and a lane index is not a domain quantity, so there is
+  # nothing in baud-domain for them to go through.
+  baud-core/src/lib.rs) limit=15 ;;
   # 4 before treefmt, 12 after, with nothing untyped added. impl_audit.py
   # anchors `^\s+\w+: (usize|bool|...),` to a line, meaning to catch struct
   # fields; rustfmt breaks a long fn signature onto one parameter per line, and

@@ -58,6 +58,14 @@ proptest! {
     /// THE property for a VT parser. The kernel hands you arbitrary 4095-byte
     /// slices; an escape sequence split across two reads must parse identically
     /// to one delivered whole. Everything else is downstream of this.
+    ///
+    /// It now also covers the vector body against the scalar tail, on every
+    /// target and for free. `Portable` uses 16-byte lanes, so a chunk of 1 byte
+    /// can only take the scalar tail while a chunk of 512 takes the vector body,
+    /// and `a`/`b` range over both. The DEL bug -- where the AVX2 body accepted
+    /// `0x7f` into a printable run and its own scalar tail did not -- is exactly
+    /// this shape, and would now fail here rather than needing a dedicated
+    /// cross-path property.
     #[test]
     fn ingest_is_chunk_invariant(
         bytes in prop::collection::vec(any::<u8>(), 0..4000),

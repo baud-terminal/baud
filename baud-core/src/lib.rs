@@ -12,6 +12,9 @@
 //! throughout.
 #![no_std]
 #![forbid(unsafe_op_in_unsafe_fn)]
+// Portable SIMD, so the scans below vectorise on every target rather than only
+// x86-64. Nightly-only, which this project already requires.
+#![feature(portable_simd)]
 
 #[cfg(feature = "alloc")]
 extern crate alloc;
@@ -129,6 +132,129 @@ enum State {
         remaining: Pending,
         acc: Utf8Acc,
     },
+}
+
+/// A scan backend.
+///
+/// The three scans below are the *only* ISA-dependent code in the parser. Every
+/// fast path is written once against this trait and monomorphised per backend,
+/// so the portable and accelerated feeds cannot diverge in logic — which is the
+/// bug this codebase has already had once, when `ESC 7`/`8`/`M` were
+/// implemented in the AVX2 path only and `feed` silently disagreed with
+/// `feed_avx2`.
+///
+/// # Safety
+/// An implementation may require a target feature. The caller establishes it
+/// once, at startup; `no_std` has no runtime feature detection.
+pub(crate) trait Scan {
+    /// Length of the leading printable-ASCII run.
+    unsafe fn run(buf: &[u8]) -> ByteLen;
+    /// Offset of the first CSI final byte (`0x40..=0x7e`).
+    unsafe fn final_byte(buf: &[u8]) -> Option<ByteLen>;
+    /// Offset of the first BEL, or the ESC of an ESC-backslash terminator.
+    unsafe fn st(buf: &[u8]) -> Option<ByteLen>;
+}
+
+/// Vectorised through `core::simd`, which lowers to NEON on aarch64, SSE2 on
+/// baseline x86-64, and a scalar loop anywhere without vectors. Requires no
+/// target feature, so it is always safe to call.
+///
+/// 16-byte lanes. [`Avx2`] stays for x86-64 because it does 32.
+pub(crate) struct Portable;
+
+/// 32-byte lanes on x86-64. Requires AVX2.
+#[cfg(target_arch = "x86_64")]
+pub(crate) struct Avx2;
+
+/// Lane width. 16 bytes is what every SIMD ISA this targets has natively;
+/// asking `core::simd` for more emits multiple registers per step and measured
+/// no better.
+const LANES: usize = 16;
+
+impl Scan for Portable {
+    unsafe fn run(buf: &[u8]) -> ByteLen {
+        use core::simd::{Simd, cmp::SimdPartialOrd};
+        let n = buf.len();
+        let mut i = 0usize;
+        // Printable is `0x20..=0x7e`, so non-printable is `< 0x20 || > 0x7e`.
+        // Stated as two comparisons rather than the AVX2 path's three, which
+        // needed a separate `== 0x7f` term and once omitted it — the vector body
+        // then accepted DEL into a run while its own scalar tail rejected it.
+        let lo = Simd::<u8, LANES>::splat(0x20);
+        let hi = Simd::<u8, LANES>::splat(0x7e);
+        while i + LANES <= n {
+            let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
+            let m = (v.simd_lt(lo) | v.simd_gt(hi)).to_bitmask();
+            if m != 0 {
+                return ByteLen::from_lane(i + m.trailing_zeros() as usize);
+            }
+            i += LANES;
+        }
+        while i < n && StreamByte::from_stream(buf[i]).is_printable() {
+            i += 1;
+        }
+        ByteLen::from_lane(i)
+    }
+
+    unsafe fn final_byte(buf: &[u8]) -> Option<ByteLen> {
+        use core::simd::{Simd, cmp::SimdPartialOrd};
+        let n = buf.len();
+        let mut i = 0usize;
+        let lo = Simd::<u8, LANES>::splat(0x40);
+        let hi = Simd::<u8, LANES>::splat(0x7e);
+        while i + LANES <= n {
+            let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
+            let m = (v.simd_ge(lo) & v.simd_le(hi)).to_bitmask();
+            if m != 0 {
+                return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+            }
+            i += LANES;
+        }
+        while i < n {
+            if FinalByte::from_stream(StreamByte::from_stream(buf[i])).is_some() {
+                return Some(ByteLen::from_lane(i));
+            }
+            i += 1;
+        }
+        None
+    }
+
+    unsafe fn st(buf: &[u8]) -> Option<ByteLen> {
+        use core::simd::{Simd, cmp::SimdPartialEq};
+        let n = buf.len();
+        let mut i = 0usize;
+        let bel = Simd::<u8, LANES>::splat(0x07);
+        let esc = Simd::<u8, LANES>::splat(0x1b);
+        while i + LANES <= n {
+            let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
+            let m = (v.simd_eq(bel) | v.simd_eq(esc)).to_bitmask();
+            if m != 0 {
+                return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+            }
+            i += LANES;
+        }
+        while i < n {
+            let b = StreamByte::from_stream(buf[i]);
+            if b == StreamByte::BEL || b == StreamByte::ESC {
+                return Some(ByteLen::from_lane(i));
+            }
+            i += 1;
+        }
+        None
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl Scan for Avx2 {
+    unsafe fn run(buf: &[u8]) -> ByteLen {
+        unsafe { Term::scan_avx2(buf) }
+    }
+    unsafe fn final_byte(buf: &[u8]) -> Option<ByteLen> {
+        unsafe { Term::find_final(buf) }
+    }
+    unsafe fn st(buf: &[u8]) -> Option<ByteLen> {
+        unsafe { Term::find_st(buf) }
+    }
 }
 
 pub struct Term<'a> {
@@ -742,10 +868,13 @@ impl<'a> Term<'a> {
     /// read-boundary case, which is what the fallback exists for, was 0.18%.
     ///
     /// # Safety
-    /// AVX2 must be available.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    unsafe fn fast_esc(&mut self, base: BytePos, at: ByteLen, limit: ByteLen) -> Option<ByteLen> {
+    /// Whatever target feature `S` requires must be available.
+    unsafe fn fast_esc<S: Scan>(
+        &mut self,
+        base: BytePos,
+        at: ByteLen,
+        limit: ByteLen,
+    ) -> Option<ByteLen> {
         let (b, i, n) = (base.index(), at.index(), limit.index());
         if i + 1 >= n {
             self.fb_boundary.inc();
@@ -760,8 +889,8 @@ impl<'a> Term<'a> {
                 self.fb_boundary.inc();
                 return None;
             }
-            // SAFETY: caller established AVX2.
-            let off = match unsafe { Self::find_st(&self.s.arena[b + s..b + n]) } {
+            // SAFETY: caller established whatever S requires.
+            let off = match unsafe { S::st(&self.s.arena[b + s..b + n]) } {
                 Some(o) => o.index(),
                 None => {
                     self.fb_boundary.inc();
@@ -866,10 +995,13 @@ impl<'a> Term<'a> {
     /// bit trick that replaces it.
     ///
     /// # Safety
-    /// AVX2 must be available.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    unsafe fn fast_csi(&mut self, base: BytePos, at: ByteLen, limit: ByteLen) -> Option<ByteLen> {
+    /// Whatever target feature `S` requires must be available.
+    unsafe fn fast_csi<S: Scan>(
+        &mut self,
+        base: BytePos,
+        at: ByteLen,
+        limit: ByteLen,
+    ) -> Option<ByteLen> {
         let (i, n) = (at.index(), limit.index());
         let b = base.index();
         if i + 2 >= n {
@@ -893,8 +1025,8 @@ impl<'a> Term<'a> {
             return Some(ByteLen::from_index(s + 1 - i));
         }
 
-        // SAFETY: caller established AVX2.
-        let off = match unsafe { Self::find_final(&self.s.arena[b + s..b + n]) } {
+        // SAFETY: caller established whatever S requires.
+        let off = match unsafe { S::final_byte(&self.s.arena[b + s..b + n]) } {
             Some(o) => o.index(),
             None => {
                 self.fb_boundary.inc();
@@ -936,23 +1068,23 @@ impl<'a> Term<'a> {
         Some(ByteLen::from_index(s + off + 1 - i))
     }
 
-    /// Same as [`Term::feed`], scanning 32 bytes at a time.
+    /// The one ingest loop. Both public entry points are this, monomorphised.
     ///
-    /// Measured 278.5 MB/s against 240.8 for the portable path. The port to the
-    /// domain types dropped this method entirely and nothing noticed, because
-    /// the benchmark was still *printing* "scan path: AVX2" from a stale flag.
+    /// Writing it once is not tidiness. `ESC 7`/`8`/`M` were previously
+    /// implemented in the AVX2 loop only, `feed` and `feed_avx2` silently
+    /// disagreed, and `ingest_is_chunk_invariant` could not see it because it
+    /// drives one path. With the loop shared, that class of divergence is not
+    /// expressible; only the scan backend varies.
     ///
     /// # Safety
-    /// The caller must have established AVX2 support.
-    #[cfg(target_arch = "x86_64")]
-    #[target_feature(enable = "avx2")]
-    pub unsafe fn feed_avx2(&mut self, base: BytePos, n: ByteLen) {
+    /// Whatever target feature `S` requires must be available.
+    unsafe fn feed_with<S: Scan>(&mut self, base: BytePos, n: ByteLen) {
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
         while i < nn {
             if self.st == State::Ground {
-                // SAFETY: caller established AVX2.
-                let run = unsafe { Self::scan_avx2(&self.s.arena[b + i..b + nn]) }.index();
+                // SAFETY: caller established whatever S requires.
+                let run = unsafe { S::run(&self.s.arena[b + i..b + nn]) }.index();
                 if run > 0 {
                     self.put_run(base, ByteLen::from_index(i), ByteLen::from_index(run));
                     i += run;
@@ -964,15 +1096,14 @@ impl<'a> Term<'a> {
             if self.st == State::Ground
                 && StreamByte::from_stream(self.s.arena[b + i]) == StreamByte::ESC
             {
-                // SAFETY: caller established AVX2.
                 let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
-                // SAFETY: caller established AVX2.
-                if let Some(used) = unsafe { self.fast_csi(base, at, lim) } {
+                // SAFETY: caller established whatever S requires.
+                if let Some(used) = unsafe { self.fast_csi::<S>(base, at, lim) } {
                     i += used.index();
                     continue;
                 }
                 // SAFETY: as above.
-                if let Some(used) = unsafe { self.fast_esc(base, at, lim) } {
+                if let Some(used) = unsafe { self.fast_esc::<S>(base, at, lim) } {
                     i += used.index();
                     continue;
                 }
@@ -983,27 +1114,30 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// Ingest, portable. Vectorises through `core::simd` on any target that has
+    /// vectors at all, and carries the same CSI and `ESC Fe` fast paths the
+    /// x86-64 loop has.
+    ///
+    /// Until this existed, those fast paths were inside `#[cfg(target_arch =
+    /// "x86_64")]`, so every escape on aarch64 went through the byte-at-a-time
+    /// state machine — the 85.2% -> 99.8% fast-path win was x86-only.
     pub fn feed(&mut self, base: BytePos, n: ByteLen) {
-        let (b, nn) = (base.index(), n.index());
-        let mut i = 0usize;
-        while i < nn {
-            if self.st == State::Ground {
-                let mut run = 0usize;
-                while i + run < nn {
-                    if !StreamByte::from_stream(self.s.arena[b + i + run]).is_printable() {
-                        break;
-                    }
-                    run += 1;
-                }
-                if run > 0 {
-                    self.put_run(base, ByteLen::from_index(i), ByteLen::from_index(run));
-                    i += run;
-                    continue;
-                }
-            }
-            let byte = StreamByte::from_stream(self.s.arena[b + i]);
-            self.control(byte);
-            i += 1;
-        }
+        // SAFETY: `Portable` requires no target feature.
+        unsafe { self.feed_with::<Portable>(base, n) }
+    }
+
+    /// Ingest, scanning 32 bytes at a time instead of 16.
+    ///
+    /// Measured 278.5 MB/s against 240.8 for the portable path *when the
+    /// portable path was scalar*. That comparison predates `Portable` being
+    /// vectorised and has not been re-run.
+    ///
+    /// # Safety
+    /// The caller must have established AVX2 support.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    pub unsafe fn feed_avx2(&mut self, base: BytePos, n: ByteLen) {
+        // SAFETY: caller established AVX2.
+        unsafe { self.feed_with::<Avx2>(base, n) }
     }
 }

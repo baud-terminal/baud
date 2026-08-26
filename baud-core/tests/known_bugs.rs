@@ -98,3 +98,63 @@ fn bug3_maxrun_overflow_is_observable() {
 fn bug2_cursor_addressed_edit_survives_scrolling_off() {
     // promote() has no write-back into the run pool before eviction.
 }
+
+/// DEL (`0x7f`) is not printable, wherever it lands in a read.
+///
+/// The AVX2 scanner once masked `v < 0x20 || v >= 0x80` and never tested
+/// `0x7f`, so the 32-byte body wrote DEL as a cell while the scalar tail
+/// substituted U+FFFD -- the same input rendered differently depending on
+/// whether it fell in a vector block or the remainder. `Portable` cannot
+/// reproduce it (it tests `< 0x20 || > 0x7e`, two comparisons, no separate DEL
+/// term) but the shape is cheap to pin down permanently.
+///
+/// The two offsets straddle a 16-byte lane deliberately: one DEL inside the
+/// first vector block, one far enough in to land in a later block, and the
+/// leading text pushes a third into the scalar tail.
+#[test]
+fn del_is_never_printable_in_body_or_tail() {
+    let mut data = Vec::new();
+    data.extend_from_slice(b"ab\x7fcd"); // early: tail on a short read
+    data.extend_from_slice(&[b'x'; 40]); // push past a lane boundary
+    data.push(0x7f); // inside a vector block
+    data.extend_from_slice(b"yz");
+
+    let a = drive_bytes(&data, 1); // scalar tail only (chunk < 16 lanes)
+    let b = drive_bytes(&data, 4096); // vector body
+    assert_eq!(
+        a, b,
+        "DEL handled differently by the vector body and the scalar tail"
+    );
+
+    // Body-vs-tail agreement alone would still pass if both paths were wrong in
+    // the same way, so pin the actual behaviour: DEL becomes U+FFFD and occupies
+    // a cell.
+    //
+    // OPEN QUESTION, not asserted as correct. ECMA-48 makes DEL a character to
+    // be *ignored*, and alacritty drops it — so this is a candidate for one of
+    // the seven cases the differential test still fails. Deciding it is a
+    // semantic change and needs its own differential run, not a test edit.
+    let without: Vec<u8> = data.iter().copied().filter(|&c| c != 0x7f).collect();
+    assert_ne!(
+        a,
+        drive_bytes(&without, 4096),
+        "DEL now behaves as ignored; if that was deliberate, update this test \
+         and check the differential against alacritty"
+    );
+}
+
+fn drive_bytes(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
+    let mut store = Storage::boxed();
+    let mut t = Term::new(&mut store, OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = chunk.min(READ_CHUNK).min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    t.viewport().to_vec()
+}

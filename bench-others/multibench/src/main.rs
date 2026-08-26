@@ -282,6 +282,28 @@ fn main() {
         stream.push(b' ');
         col += 1;
     }
+    // Pure printable text, no escapes at all. The streaming payload above still
+    // emits SGR every 37 bytes, so it exercises the state machine as well as the
+    // scanner. This one is scanner-only, and is the control for "is the gap
+    // between a scalar and a vectorised scanner?" -- if a lead widens here
+    // relative to `stream`, scanning is where it comes from.
+    if std::env::var("PURE").is_ok() {
+        stream.clear();
+        let mut col = 0;
+        while stream.len() < (1 << 19) - 100 {
+            if col > 70 {
+                stream.extend_from_slice(b"\r\n");
+                col = 0;
+                continue;
+            }
+            let w = W[stream.len() % 8].as_bytes();
+            stream.extend_from_slice(w);
+            col += w.len();
+            stream.push(b' ');
+            col += 1;
+        }
+    }
+
     let mut tui = Vec::new();
     let mut s = 0u64;
     while tui.len() < (1 << 19) - 200 {
