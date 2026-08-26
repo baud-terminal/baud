@@ -158,3 +158,51 @@ fn drive_bytes(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
     }
     t.viewport().to_vec()
 }
+
+/// The CSI and `ESC Fe` fast paths must be reachable on every target.
+///
+/// They used to live behind `#[cfg(target_arch = "x86_64")]` and were called
+/// only from `feed_avx2`, so on aarch64 every escape went byte-at-a-time
+/// through the state machine and the 85.2% -> 99.8% fast-path win was x86-only.
+/// Nothing detected that, because the counters were fed and never read.
+#[test]
+fn fast_paths_fire_on_this_target() {
+    let mut data = Vec::new();
+    for i in 0..500u32 {
+        // CSI with parameters, CSI bare, and a two-byte ESC Fe.
+        data.extend_from_slice(format!("\x1b[{};{}H", i % 50 + 1, i % 120 + 1).as_bytes());
+        data.extend_from_slice(b"some text");
+        data.extend_from_slice(b"\x1b[K");
+        data.extend_from_slice(b"\x1b7");
+    }
+
+    let mut store = Storage::boxed();
+    let mut t = Term::new(&mut store, OpMode::Computed);
+    let mut i = 0;
+    while i < data.len() {
+        let n = READ_CHUNK.min(data.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(StreamByte::slice_from(&data[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+
+    let (hits, not_csi, boundary) = (t.fast_hits(), t.fb_not_csi(), t.fb_boundary());
+    assert!(
+        hits > 0,
+        "no fast-path hits: the CSI/ESC fast paths are not reachable from feed() \
+         on this target ({} not-CSI, {} boundary fallbacks)",
+        not_csi,
+        boundary
+    );
+    // 2000 escapes were fed. Boundary fallbacks are legitimate (a sequence can
+    // straddle a read) but must stay rare; not-CSI should be zero because every
+    // ESC Fe here is one fast_esc knows.
+    let total = hits + not_csi + boundary;
+    assert!(
+        hits * 10 > total * 9,
+        "fast path took only {hits}/{total}; not-CSI {not_csi}, boundary {boundary}"
+    );
+}

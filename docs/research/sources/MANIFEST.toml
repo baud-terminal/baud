@@ -1,0 +1,50 @@
+# baud — primary-source retrieval manifest.
+#
+# One entry per fetched source. url/sha256/bytes/status are FACTS about the
+# retrieval: scripts/check-sources.sh re-hashes every retrieved file against
+# them, so a source that changed upstream, or was edited locally, fails the
+# check suite rather than silently backing a citation it no longer supports.
+#
+# `status`:
+#   retrieved   committed here, and hashes to `sha256`
+#   external    read and hash-verified, but NOT committed (licence or size).
+#               Citable: it was read.
+#   gated       never obtained (paywall / registration); `access` says how.
+#               NOT citable — no claim may rest on it.
+#
+# Notes cite with `[[source: <key>]]`. A claim that matters carries a section
+# or page alongside — "simdjson § 3", not "simdjson".
+#
+# Groups map to docs/research/notes/:
+#   A  SIMD parsing and vectorised classification
+#   B  data-parallel finite-state machines
+#   C  the terminal parser as specified
+#   D  memory hierarchy and write amplification
+#   E  the tty layer and syscall batching
+#   F  text sequence data structures
+
+[sources.simdjson]
+key    = "simdjson"
+title  = "Parsing Gigabytes of JSON per Second"
+author = "Geoff Langdale and Daniel Lemire"
+year   = 2019
+venue  = "The VLDB Journal 28(6)"
+url    = "https://arxiv.org/pdf/1902.08318"
+file   = "langdale-lemire-2019-simdjson.pdf"
+sha256 = "504e85a963f5d8f23fddb0d8e04192cdedaf6540488866104e48e9f5ad0f7363"
+bytes  = 590555
+status = "retrieved"
+group  = "A"
+
+[sources.dpfsm]
+key    = "dpfsm"
+title  = "Data-Parallel Finite-State Machines"
+author = "Todd Mytkowicz, Madanlal Musuvathi, and Wolfram Schulte"
+year   = 2014
+venue  = "ASPLOS '14, pp. 529-542"
+url    = "https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/asplos302-mytkowicz.pdf"
+file   = "mytkowicz-2014-data-parallel-fsm.pdf"
+sha256 = "e6b4fad46c40c9d9e4798c805ebdfaa8502a1d55aa428fa1c682a9ff307243e1"
+bytes  = 288585
+status = "retrieved"
+group  = "B"

@@ -172,30 +172,26 @@ pub(crate) struct Avx2;
 const LANES: usize = 16;
 
 impl Scan for Portable {
+    // Scalar, deliberately. The `core::simd` version of this loop measured a
+    // 12% regression on the streaming payload against this one and #[inline]
+    // did not recover it: printable runs there average ~32 bytes, so a 16-lane
+    // scan does two vector steps plus a bitmask and trailing_zeros where this
+    // does ~32 compares an M-series core predicts perfectly. Vectorising a scan
+    // is only free when the runs are long.
+    //
+    // Kept as a trait method rather than inlined back into feed_with so the
+    // shared loop and the AVX2 backend survive.
+    #[inline(always)]
     unsafe fn run(buf: &[u8]) -> ByteLen {
-        use core::simd::{Simd, cmp::SimdPartialOrd};
         let n = buf.len();
         let mut i = 0usize;
-        // Printable is `0x20..=0x7e`, so non-printable is `< 0x20 || > 0x7e`.
-        // Stated as two comparisons rather than the AVX2 path's three, which
-        // needed a separate `== 0x7f` term and once omitted it — the vector body
-        // then accepted DEL into a run while its own scalar tail rejected it.
-        let lo = Simd::<u8, LANES>::splat(0x20);
-        let hi = Simd::<u8, LANES>::splat(0x7e);
-        while i + LANES <= n {
-            let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
-            let m = (v.simd_lt(lo) | v.simd_gt(hi)).to_bitmask();
-            if m != 0 {
-                return ByteLen::from_lane(i + m.trailing_zeros() as usize);
-            }
-            i += LANES;
-        }
         while i < n && StreamByte::from_stream(buf[i]).is_printable() {
             i += 1;
         }
         ByteLen::from_lane(i)
     }
 
+    #[inline(always)]
     unsafe fn final_byte(buf: &[u8]) -> Option<ByteLen> {
         use core::simd::{Simd, cmp::SimdPartialOrd};
         let n = buf.len();
@@ -219,6 +215,7 @@ impl Scan for Portable {
         None
     }
 
+    #[inline(always)]
     unsafe fn st(buf: &[u8]) -> Option<ByteLen> {
         use core::simd::{Simd, cmp::SimdPartialEq};
         let n = buf.len();
@@ -320,6 +317,23 @@ impl<'a> Term<'a> {
         };
         t.clear_screen();
         t
+    }
+
+    /// Fast-path hits: CSI or `ESC Fe` sequences consumed in bulk.
+    ///
+    /// These counters have been fed since the fast paths were written and never
+    /// read anywhere, which is how "is the fast path even firing on this
+    /// target?" became a question that could not be answered from the outside.
+    pub fn fast_hits(&self) -> u64 {
+        self.fast_hits.count()
+    }
+    /// Escapes that fell back because they were not `ESC [`.
+    pub fn fb_not_csi(&self) -> u64 {
+        self.fb_not_csi.count()
+    }
+    /// Escapes that fell back because the sequence crossed the read boundary.
+    pub fn fb_boundary(&self) -> u64 {
+        self.fb_boundary.count()
     }
 
     /// A fresh screen is spaces, not NULs. Terminals compare equal on blank
@@ -869,6 +883,7 @@ impl<'a> Term<'a> {
     ///
     /// # Safety
     /// Whatever target feature `S` requires must be available.
+    #[inline]
     unsafe fn fast_esc<S: Scan>(
         &mut self,
         base: BytePos,
@@ -996,6 +1011,7 @@ impl<'a> Term<'a> {
     ///
     /// # Safety
     /// Whatever target feature `S` requires must be available.
+    #[inline]
     unsafe fn fast_csi<S: Scan>(
         &mut self,
         base: BytePos,
@@ -1078,6 +1094,7 @@ impl<'a> Term<'a> {
     ///
     /// # Safety
     /// Whatever target feature `S` requires must be available.
+    #[inline]
     unsafe fn feed_with<S: Scan>(&mut self, base: BytePos, n: ByteLen) {
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;

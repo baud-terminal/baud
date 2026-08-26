@@ -81,6 +81,8 @@ in
     RUSTFLAGS="-D warnings" cargo test --release --quiet ${scope} || { echo "FAILED: test"; exit 1; }
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
+    echo "=== sources ==="
+    bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
     echo "=== audit ==="
     sh ./audit_all.sh || { echo "FAILED: audit"; exit 1; }
     echo "=== ALL PASSED ==="
@@ -233,6 +235,13 @@ in
       after = [ "test:unit" ];
     };
 
+    # The source-provenance gate. A design claim that cites a paper nobody
+    # fetched is worse than one with no citation, because it looks checked.
+    "test:sources" = {
+      exec = "bash ./scripts/check-sources.sh";
+      after = [ "test:fmt" ];
+    };
+
     # The type-system gate: raw integers outside the newtype internals are a
     # bug waiting for two quantities to be confused. Per-file limits and the
     # reason for each live in audit_all.sh.
@@ -243,5 +252,5 @@ in
   };
 
   # https://devenv.sh/tests/
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:clippy test:check test:unit test:bare test:audit";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:audit";
 }
