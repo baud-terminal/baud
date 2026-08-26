@@ -213,3 +213,83 @@ fn decaln_resets_the_margins() {
 fn other_hash_sequences_do_not_align() {
     assert_eq!(grid(b"ab\x1b#3cd"), grid(b"abcd"));
 }
+
+// ── what used to be dropped ─────────────────────────────────────────────────
+
+/// Every attribute ECMA-48 § 8.3.117 defines and baud claims must actually
+/// reach the cell.
+///
+/// `SgrAttr::fold` used to fall through to "no change" for `Set`, `Unset` and
+/// every `Bg`, because `StyleWord` was a bare u32 holding only the foreground.
+/// Bold, italic, underline, reverse and all background colours were parsed and
+/// discarded — support in the parser, nothing on the screen.
+#[test]
+fn every_claimed_attribute_reaches_the_cell() {
+    for (name, seq) in [
+        ("bold", &b"\x1b[1m"[..]),
+        ("dim", b"\x1b[2m"),
+        ("italic", b"\x1b[3m"),
+        ("underline", b"\x1b[4m"),
+        ("blink", b"\x1b[5m"),
+        ("reverse", b"\x1b[7m"),
+        ("conceal", b"\x1b[8m"),
+        ("strike", b"\x1b[9m"),
+    ] {
+        let mut v = seq.to_vec();
+        v.extend_from_slice(b"x");
+        assert_ne!(grid(&v), grid(b"x"), "{name} must change the rendered cell");
+    }
+}
+
+/// Background colours are a separate slot from foreground, not the same one.
+#[test]
+fn background_is_independent_of_foreground() {
+    assert_ne!(grid(b"\x1b[41mx"), grid(b"x"), "background must apply");
+    assert_ne!(
+        grid(b"\x1b[31mx"),
+        grid(b"\x1b[41mx"),
+        "fg red and bg red are different renditions"
+    );
+    // Setting one must not disturb the other.
+    assert_ne!(grid(b"\x1b[31;41mx"), grid(b"\x1b[31mx"));
+    assert_ne!(grid(b"\x1b[31;41mx"), grid(b"\x1b[41mx"));
+}
+
+/// Attributes compose rather than replace.
+#[test]
+fn attributes_accumulate() {
+    assert_ne!(
+        grid(b"\x1b[1;4mx"),
+        grid(b"\x1b[1mx"),
+        "bold+underline != bold"
+    );
+    assert_ne!(grid(b"\x1b[1;4mx"), grid(b"\x1b[4mx"));
+    // and order does not matter
+    assert_eq!(grid(b"\x1b[1;4mx"), grid(b"\x1b[4;1mx"));
+}
+
+/// Unsetting one attribute leaves the others alone.
+#[test]
+fn unsetting_is_selective() {
+    assert_eq!(
+        grid(b"\x1b[1;4m\x1b[24mx"),
+        grid(b"\x1b[1mx"),
+        "removing underline must leave bold"
+    );
+    assert_eq!(
+        grid(b"\x1b[31;41m\x1b[39mx"),
+        grid(b"\x1b[41mx"),
+        "default fg only"
+    );
+    assert_eq!(
+        grid(b"\x1b[31;41m\x1b[49mx"),
+        grid(b"\x1b[31mx"),
+        "default bg only"
+    );
+}
+
+/// 22 clears both bold and dim, per ECMA-48's "neither bold nor faint".
+#[test]
+fn twenty_two_clears_bold_and_dim() {
+    assert_eq!(grid(b"\x1b[1;2m\x1b[22mx"), grid(b"x"));
+}

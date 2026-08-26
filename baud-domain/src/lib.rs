@@ -1829,7 +1829,9 @@ impl Csi {
 /// No public field, no `From<u16>`, no `BitOr<u16>`. `Attrs` and [`LineFlags`]
 /// are both 16-bit sets and would happily OR together as raw integers; here
 /// they cannot meet.
-#[derive(Clone, Copy, PartialEq, Eq, Default, FromBytes, IntoBytes, Immutable, KnownLayout)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
 #[repr(transparent)]
 pub struct Attrs(u16);
 
@@ -1844,6 +1846,10 @@ impl Attrs {
     pub const HIDDEN: Attrs = Attrs(1 << 6);
     pub const STRIKE: Attrs = Attrs(1 << 7);
 
+    /// The raw set, for hashing a rendition.
+    pub fn bits(self) -> u16 {
+        self.0
+    }
     pub fn with(self, o: Attrs) -> Attrs {
         Attrs(self.0 | o.0)
     }
@@ -2279,8 +2285,11 @@ impl StyleId {
     /// styles produced 112,144 interns at a 51.6% hit rate.
     pub fn bucket(raw: StyleWord, buckets: usize) -> usize {
         debug_assert!(buckets.is_power_of_two());
-        let shift = 32 - buckets.trailing_zeros();
-        (raw.bits().wrapping_mul(2_654_435_761) >> shift) as usize
+        // 64-bit now that a rendition is more than a colour, but the same
+        // lesson: take the HIGH bits. The 32-bit constant is replaced by the
+        // 64-bit Fibonacci one for the wider key.
+        let shift = 64 - buckets.trailing_zeros();
+        (raw.key().wrapping_mul(0x9E37_79B9_7F4A_7C15) >> shift) as usize
     }
     pub fn from_index(i: usize) -> StyleId {
         StyleId(i as u16)
@@ -2325,15 +2334,22 @@ impl SgrAttr {
         SgrAttr::parse(Params::new(&params[i.0 as usize..]))
     }
     /// Apply to a packed 24-bit colour + attribute word.
+    /// Apply one attribute to the accumulating rendition.
+    ///
+    /// Every variant is handled. It used to fall through to `cur.bits()` for
+    /// `Set`, `Unset` and every `Bg`, so bold, italic, underline, reverse,
+    /// blink, conceal, strike and all background colours were parsed and then
+    /// silently discarded.
     pub fn fold(self, cur: StyleWord) -> StyleWord {
-        StyleWord::from_bits(match self {
-            SgrAttr::Reset => StyleWord::DEFAULT.bits(),
-            SgrAttr::Fg(Color::Rgb(r, g, b)) => {
-                ((r.get() as u32) << 16) | ((g.get() as u32) << 8) | b.get() as u32
-            }
-            SgrAttr::Fg(Color::Indexed(n)) => 0x0010_1010u32.wrapping_mul(n.get() as u32 + 1),
-            _ => cur.bits(),
-        })
+        match self {
+            // `[[source: ecma48]]` § 8.3.117: SGR 0 "cancels the effect of any
+            // preceding occurrence of SGR in the data stream".
+            SgrAttr::Reset => StyleWord::DEFAULT,
+            SgrAttr::Set(a) => cur.with_attrs(cur.attrs().with(a)),
+            SgrAttr::Unset(a) => cur.with_attrs(cur.attrs().without(a)),
+            SgrAttr::Fg(c) => cur.with_fg(ColorWord::from_color(c)),
+            SgrAttr::Bg(c) => cur.with_bg(ColorWord::from_color(c)),
+        }
     }
 }
 
@@ -2764,19 +2780,96 @@ impl Codepoint {
     }
 }
 
-/// A packed rendition word: 24-bit colour plus attribute bits, as SGR
-/// accumulates it. Interned into a [`StyleId`]; never stored per cell.
+/// One colour slot: default, a palette index, or 24-bit RGB.
+///
+/// A tagged `u32` rather than an enum so the whole rendition stays a plain
+/// zeroable block -- `Storage` is `new_box_zeroed`, and all-zero must be a valid
+/// default rather than a colour that happens to look like one.
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct StyleWord(u32);
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct ColorWord(u32);
 
-impl StyleWord {
-    pub const DEFAULT: StyleWord = StyleWord(0x00d0_d0d0);
-    pub fn from_bits(v: u32) -> StyleWord {
-        StyleWord(v)
+impl ColorWord {
+    const TAG_INDEXED: u32 = 0x0100_0000;
+    const TAG_RGB: u32 = 0x0200_0000;
+    /// Zero, so a zeroed `Storage` starts with default colours.
+    pub const DEFAULT: ColorWord = ColorWord(0);
+    pub fn indexed(n: Chan) -> ColorWord {
+        ColorWord(Self::TAG_INDEXED | n.get() as u32)
+    }
+    pub fn rgb(r: Chan, g: Chan, b: Chan) -> ColorWord {
+        ColorWord(
+            Self::TAG_RGB | ((r.get() as u32) << 16) | ((g.get() as u32) << 8) | b.get() as u32,
+        )
     }
     pub fn bits(self) -> u32 {
         self.0
+    }
+    pub fn is_default(self) -> bool {
+        self.0 == 0
+    }
+    /// The parsed SGR colour, packed.
+    pub fn from_color(c: Color) -> ColorWord {
+        match c {
+            Color::Default => ColorWord::DEFAULT,
+            Color::Indexed(n) => ColorWord::indexed(n),
+            Color::Rgb(r, g, b) => ColorWord::rgb(r, g, b),
+        }
+    }
+}
+
+/// A packed rendition: foreground, background, and attribute bits, as SGR
+/// accumulates it. Interned into a [`StyleId`]; never stored per cell.
+///
+/// This used to be a bare `u32` holding only the foreground, with the result
+/// that `SgrAttr::fold` had nowhere to put bold, underline, reverse or any
+/// background colour -- so it dropped them. They were parsed and discarded,
+/// which is the failure `docs/vt-coverage.md` calls `parsed`, at the scale of
+/// every attribute a terminal has.
+#[repr(C)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct StyleWord {
+    fg: ColorWord,
+    bg: ColorWord,
+    attrs: Attrs,
+    _pad: u16,
+}
+
+impl StyleWord {
+    /// All zero, so `Storage::new_box_zeroed` starts every template slot at the
+    /// default rendition rather than at an arbitrary grey.
+    pub const DEFAULT: StyleWord = StyleWord {
+        fg: ColorWord::DEFAULT,
+        bg: ColorWord::DEFAULT,
+        attrs: Attrs::NONE,
+        _pad: 0,
+    };
+    pub fn fg(self) -> ColorWord {
+        self.fg
+    }
+    pub fn bg(self) -> ColorWord {
+        self.bg
+    }
+    pub fn attrs(self) -> Attrs {
+        self.attrs
+    }
+    pub fn with_fg(self, c: ColorWord) -> StyleWord {
+        StyleWord { fg: c, ..self }
+    }
+    pub fn with_bg(self, c: ColorWord) -> StyleWord {
+        StyleWord { bg: c, ..self }
+    }
+    pub fn with_attrs(self, a: Attrs) -> StyleWord {
+        StyleWord { attrs: a, ..self }
+    }
+    /// Everything that distinguishes one rendition from another, folded into
+    /// one integer for hashing.
+    pub fn key(self) -> u64 {
+        (self.fg.0 as u64) ^ ((self.bg.0 as u64) << 21) ^ ((self.attrs.bits() as u64) << 45)
     }
 }
 

@@ -92,7 +92,7 @@ without these.
 | `ESC c` | RIS full reset | done |
 | `ESC H` | HTS set tab stop | done |
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | **todo** |
-| `ESC # 8` | DECALN screen alignment | **todo** — needs `escape_intermediate` |
+| `ESC # 8` | DECALN screen alignment | done |
 | `ESC ( ` / `ESC ) ` | charset designate G0/G1 | **todo** |
 
 ### CSI operations
@@ -122,7 +122,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI Z` | CBT backward tabulation | done |
 | `CSI \`` | HPA char position absolute | done |
 | `CSI a` | HPR char position relative | done |
-| `CSI b` | REP repeat preceding char | **todo** |
+| `CSI b` | REP repeat preceding char | done |
 | `CSI c` | DA device attributes | done — identifies as VT102 |
 | `CSI d` | VPA line position absolute | done |
 | `CSI e` | VPR line position relative | done |
@@ -137,9 +137,32 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 
 ### SGR
 
-`SGR` is one final byte and many operations. Current coverage is partial and the
-gap has never been enumerated; `docs/research/notes/` will carry the breakdown
-once measured against `[[source: ecma48]]` § 8.3.117.
+Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
+`[[source: ctlseqs]]` § "Character Attributes".
+
+| parameters | status |
+|---|---|
+| 0 reset | done |
+| 1, 2 bold/dim · 22 neither | done |
+| 3 italic · 23 not | done |
+| 4 underline, 21 double · 24 not | done — one underline bit, so double is an underline |
+| 5, 6 blink · 25 steady | done — no timer, so rapid and slow are the same bit |
+| 7 reverse · 27 positive | done |
+| 8 conceal · 28 reveal | done |
+| 9 strike · 29 not | done |
+| 30-37, 39 foreground · 40-47, 49 background | done |
+| 90-97, 100-107 aixterm bright | done — palette indices 8..15 |
+| 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done |
+| 38/48 `:5:n` / `:2::r:g:b` sub-parameter form | **todo** — the colon form ISO 8613-6 specifies |
+| 10-19 fonts, 20 Fraktur, 26, 50-65 | **out** — no renderer consumes them, and a bit set and never read is the failure this table exists to catch |
+
+**This was the largest `parsed` gap in the codebase and the table did not show
+it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no
+change" for `Set`, `Unset` and every `Bg` — because `StyleWord` was a bare `u32`
+holding a 24-bit foreground and nothing else. Bold, italic, underline, reverse,
+blink, conceal, strike and **all background colours** were parsed and discarded:
+support in the parser, nothing on the screen. `StyleWord` now carries
+foreground, background and attributes.
 
 ---
 

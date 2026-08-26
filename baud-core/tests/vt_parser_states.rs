@@ -132,15 +132,20 @@ fn parsing_recovers_after_a_malformed_csi() {
 
 // ── escape_intermediate ─────────────────────────────────────────────────────
 
-/// `ESC # 8` is DECALN. It is not implemented, but the `8` must not print.
+/// The final byte of an `ESC <intermediate> <final>` sequence is consumed, not
+/// printed, whether or not the sequence is implemented.
+///
+/// `ESC # 8` is DECALN and now does something (see vt_sgr_rep_align.rs), so the
+/// unimplemented `ESC # 3` carries this assertion: what matters here is the
+/// parser state, not the operation.
 #[test]
 fn esc_intermediate_final_is_not_printed() {
     assert_eq!(
-        grid(b"ab\x1b#8cd"),
+        grid(b"ab\x1b#3cd"),
         grid(b"abcd"),
-        "the final byte of ESC # 8 must be consumed"
+        "the final byte of an ESC # sequence must be consumed"
     );
-    assert_eq!(cursor(b"ab\x1b#8cd"), (0, 4));
+    assert_eq!(cursor(b"ab\x1b#3cd"), (0, 4));
 }
 
 /// Charset designators are consumed the same way.
