@@ -1647,6 +1647,30 @@ pub enum Csi {
         /// making it indistinguishable from an explicit `CSI 1;1 r`.
         bottom: Option<OneBased>,
     },
+    /// CHT, `CSI I`. Forward `n` tab stops.
+    CursorForwardTab(Count),
+    /// CBT, `CSI Z`. Backward `n` tab stops.
+    CursorBackTab(Count),
+    /// TBC, `CSI g`. `None` for the values xterm does not implement.
+    TabClear(Option<TabClear>),
+    /// CNL, `CSI E`. Down `n` lines, to column 1.
+    CursorNextLine(Count),
+    /// CPL, `CSI F`. Up `n` lines, to column 1.
+    CursorPrevLine(Count),
+    /// CHA `CSI G` and HPA `CSI \``: absolute column, row unchanged. ECMA-48
+    /// gives them separate names; they are the same operation.
+    ColumnAbsolute(OneBased),
+    /// VPA, `CSI d`. Absolute row, column unchanged.
+    LineAbsolute(OneBased),
+    /// HPR, `CSI a`. Right `n` columns -- CUF by another name.
+    ColumnRelative(Count),
+    /// VPR, `CSI e`. Down `n` rows, column unchanged. Unlike CNL.
+    LineRelative(Count),
+    /// SCOSC, `CSI s`. Ambiguous with DECSLRM when DECLRMM is enabled; baud
+    /// does not implement left/right margins, so this is unambiguous here.
+    SaveCursor,
+    /// SCORC, `CSI u`.
+    RestoreCursor,
     /// SU, `CSI S`. Scroll the scrolling region up, cursor unmoved.
     ScrollUp(Count),
     /// SD, `CSI T`. Scroll the scrolling region down, cursor unmoved.
@@ -1711,6 +1735,17 @@ impl Csi {
                 },
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
+            b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
+            b'Z' => Csi::CursorBackTab(p.count(ParamIdx::FIRST)),
+            b'g' => Csi::TabClear(TabClear::from_param(p.at(ParamIdx::FIRST))),
+            b'E' => Csi::CursorNextLine(p.count(ParamIdx::FIRST)),
+            b'F' => Csi::CursorPrevLine(p.count(ParamIdx::FIRST)),
+            b'G' | b'`' => Csi::ColumnAbsolute(p.one_based(ParamIdx::FIRST)),
+            b'd' => Csi::LineAbsolute(p.one_based(ParamIdx::FIRST)),
+            b'a' => Csi::ColumnRelative(p.count(ParamIdx::FIRST)),
+            b'e' => Csi::LineRelative(p.count(ParamIdx::FIRST)),
+            b's' => Csi::SaveCursor,
+            b'u' => Csi::RestoreCursor,
             b'S' => Csi::ScrollUp(p.count(ParamIdx::FIRST)),
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
             b'h' => Csi::Mode {
@@ -1867,6 +1902,25 @@ impl SgrAttr {
             }
             _ => return None,
         })
+    }
+}
+
+/// TBC, `CSI g`. ECMA-48 defines six values; `[[source: ctlseqs]]` notes xterm
+/// implements 0 and 3, which are the two any application sends.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TabClear {
+    /// 0: the stop at the cursor.
+    AtCursor,
+    /// 3: every stop.
+    All,
+}
+impl TabClear {
+    pub fn from_param(p: Option<Param>) -> Option<TabClear> {
+        match p.map_or(0, |x| x.0) {
+            0 => Some(TabClear::AtCursor),
+            3 => Some(TabClear::All),
+            _ => None,
+        }
     }
 }
 

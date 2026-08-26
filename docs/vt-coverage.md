@@ -70,7 +70,7 @@ without these.
 | `0x00` NUL | ignored | **todo** — must be discarded, not printed |
 | `0x07` BEL | bell | **todo** |
 | `0x08` BS | backspace | done |
-| `0x09` HT | tab | partial — advances, but no tab stop table (see TBC/HTS) |
+| `0x09` HT | tab | done — real stop table |
 | `0x0A` LF | line feed | done — index only unless LNM |
 | `0x0B` VT | vertical tab | **todo** — treated as LF |
 | `0x0C` FF | form feed | **todo** — treated as LF |
@@ -88,7 +88,7 @@ without these.
 | `ESC E` | NEL next line | done |
 | `ESC M` | RI reverse index | done |
 | `ESC c` | RIS full reset | done |
-| `ESC H` | HTS set tab stop | **todo** |
+| `ESC H` | HTS set tab stop | done |
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | **todo** |
 | `ESC # 8` | DECALN screen alignment | **todo** — needs `escape_intermediate` |
 | `ESC ( ` / `ESC ) ` | charset designate G0/G1 | **todo** |
@@ -104,11 +104,11 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI B` | CUD cursor down | done |
 | `CSI C` | CUF cursor forward | done |
 | `CSI D` | CUB cursor back | done |
-| `CSI E` | CNL cursor next line | **todo** |
-| `CSI F` | CPL cursor preceding line | **todo** |
-| `CSI G` | CHA cursor char absolute | **todo** |
+| `CSI E` | CNL cursor next line | done |
+| `CSI F` | CPL cursor preceding line | done |
+| `CSI G` | CHA cursor char absolute | done |
 | `CSI H` / `CSI f` | CUP / HVP | done |
-| `CSI I` | CHT forward tabulation | **todo** |
+| `CSI I` | CHT forward tabulation | done |
 | `CSI J` | ED erase in display | done |
 | `CSI K` | EL erase in line | done |
 | `CSI L` | IL insert lines | done |
@@ -117,20 +117,20 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI S` | SU scroll up | done |
 | `CSI T` | SD scroll down | done |
 | `CSI X` | ECH erase chars | done |
-| `CSI Z` | CBT backward tabulation | **todo** |
-| `CSI \`` | HPA char position absolute | **todo** |
-| `CSI a` | HPR char position relative | **todo** |
+| `CSI Z` | CBT backward tabulation | done |
+| `CSI \`` | HPA char position absolute | done |
+| `CSI a` | HPR char position relative | done |
 | `CSI b` | REP repeat preceding char | **todo** |
 | `CSI c` | DA device attributes | **todo** — needs a reply channel |
-| `CSI d` | VPA line position absolute | **todo** |
-| `CSI e` | VPR line position relative | **todo** |
-| `CSI g` | TBC tab clear | **todo** |
+| `CSI d` | VPA line position absolute | done |
+| `CSI e` | VPR line position relative | done |
+| `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
 | `CSI h` | SM set mode | partial — LNM and IRM parsed; IRM not yet acted on |
 | `CSI l` | RM reset mode | partial — as SM |
 | `CSI m` | SGR character attributes | partial — see SGR below |
 | `CSI n` | DSR device status report | **todo** — needs a reply channel |
 | `CSI r` | DECSTBM scroll region | done |
-| `CSI s` / `CSI u` | SCOSC / SCORC | **todo** |
+| `CSI s` / `CSI u` | SCOSC / SCORC | done |
 | `CSI ? h` / `CSI ? l` | DECSET / DECRST | **parsed** |
 
 ### SGR
@@ -203,9 +203,11 @@ does, every query sequence is unimplementable, and an application that waits for
 a reply will hang rather than degrade. This is the single largest structural
 gap — bigger than any operation count.
 
-**No tab stop table.** `HT`, `HTS`, `TBC`, `CHT` and `CBT` are one feature. baud
-advances the cursor on `HT` without a stop table, which is why the differential
-test names tab stops among its failures.
+**~~No tab stop table.~~** Resolved. `Storage.tabs` is one flag per column,
+defaulted every eight and restored by RIS; `HT`, `HTS`, `TBC`, `CHT` and `CBT`
+all go through it. Whether this closes the differential failures the README
+names is **unverified** -- that needs a differential run, which needs an
+alacritty checkout.
 
 ---
 

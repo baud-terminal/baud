@@ -83,6 +83,12 @@ pub struct Storage {
     pub tmpl: [PackedCell; NSTYLE * MAX_COLS],
     pub tmpl_key: [StyleWord; NSTYLE],
     pub tmpl_valid: [bool; NSTYLE],
+    /// Tab stops, one flag per column.
+    ///
+    /// A real table rather than the every-8 arithmetic HT used to do: HTS, TBC,
+    /// CHT and CBT are meaningless without one, and `HT` after `CSI 3 g` must
+    /// run to the right margin rather than to the next multiple of eight.
+    pub tabs: [bool; MAX_COLS],
 }
 
 impl Storage {
@@ -117,6 +123,9 @@ impl Storage {
             tmpl: [C; NSTYLE * MAX_COLS],
             tmpl_key: [StyleWord::DEFAULT; NSTYLE],
             tmpl_valid: [false; NSTYLE],
+            // Zeroed here and populated by Term::reset_tabs, so `Storage` stays
+            // a plain zeroable block for `new_box_zeroed`.
+            tabs: [false; MAX_COLS],
         }
     }
 }
@@ -323,6 +332,7 @@ impl<'a> Term<'a> {
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
         };
+        t.reset_tabs();
         t.clear_screen();
         t
     }
@@ -342,6 +352,55 @@ impl<'a> Term<'a> {
     /// Escapes that fell back because the sequence crossed the read boundary.
     pub fn fb_boundary(&self) -> u64 {
         self.fb_boundary.count()
+    }
+
+    /// Default stops every eight columns, which is what a terminal powers on
+    /// with and what RIS restores.
+    fn reset_tabs(&mut self) {
+        for (i, stop) in self.s.tabs.iter_mut().enumerate() {
+            *stop = i % 8 == 0 && i != 0;
+        }
+    }
+
+    /// HT, and the engine of CHT. Advances to the next stop, or to the last
+    /// column when there is none left -- never past the margin.
+    fn tab_forward(&mut self, n: Count) {
+        let last = self.cols.index() - 1;
+        // There cannot be more stops than columns, so a larger count is the
+        // same as `cols`. Without this, `CSI 65535 I` spins 65535 times once
+        // the cursor is already at the margin -- bounded, but work a stream
+        // should not be able to ask for.
+        for _ in 0..n.at_least_one().min(self.cols.index()) {
+            let mut x = self.cx.index();
+            loop {
+                if x >= last {
+                    x = last;
+                    break;
+                }
+                x += 1;
+                if self.s.tabs[x] {
+                    break;
+                }
+            }
+            self.cx = Col::at_index(x);
+        }
+    }
+
+    /// CBT. Backward to the previous stop, or to column 0.
+    fn tab_back(&mut self, n: Count) {
+        for _ in 0..n.at_least_one().min(self.cols.index()) {
+            let mut x = self.cx.index();
+            loop {
+                if x == 0 {
+                    break;
+                }
+                x -= 1;
+                if self.s.tabs[x] {
+                    break;
+                }
+            }
+            self.cx = Col::at_index(x);
+        }
     }
 
     /// A fresh screen is spaces, not NULs. Terminals compare equal on blank
@@ -807,6 +866,39 @@ impl<'a> Term<'a> {
             Csi::EraseChars(c) => self.erase_chars(c),
             Csi::DeleteChars(c) => self.delete_chars(c),
             Csi::InsertBlanks(c) => self.insert_blanks(c),
+            Csi::CursorForwardTab(c) => self.tab_forward(c),
+            Csi::CursorBackTab(c) => self.tab_back(c),
+            Csi::TabClear(Some(baud_domain::TabClear::AtCursor)) => {
+                let x = self.cx.index();
+                self.s.tabs[x] = false;
+            }
+            Csi::TabClear(Some(baud_domain::TabClear::All)) => {
+                for stop in self.s.tabs.iter_mut() {
+                    *stop = false;
+                }
+            }
+            Csi::TabClear(None) => {}
+            Csi::CursorNextLine(c) => {
+                self.cy = self.cy.down(c, self.rows);
+                self.cx = Col::ZERO;
+            }
+            Csi::CursorPrevLine(c) => {
+                self.cy = self.cy.up(c);
+                self.cx = Col::ZERO;
+            }
+            Csi::ColumnAbsolute(c) => self.cx = c.to_col(self.cols),
+            Csi::LineAbsolute(r) => self.cy = r.to_row(self.rows),
+            Csi::ColumnRelative(c) => self.cx = self.cx.forward(c, self.cols),
+            Csi::LineRelative(c) => self.cy = self.cy.down(c, self.rows),
+            Csi::SaveCursor => self.saved = Some((self.cy, self.cx, self.style, self.style_raw)),
+            Csi::RestoreCursor => {
+                if let Some((r, c, st, sw)) = self.saved {
+                    self.cy = r;
+                    self.cx = c;
+                    self.style = st;
+                    self.style_raw = sw;
+                }
+            }
             Csi::InsertLines(c) => self.insert_lines(c),
             Csi::DeleteLines(c) => self.delete_lines(c),
             Csi::ScrollUp(c) => self.scroll_region_up(c),
@@ -831,7 +923,7 @@ impl<'a> Term<'a> {
                 } else if b == StreamByte::BS {
                     self.cx = self.cx.back(Count::ONE);
                 } else if b == StreamByte::TAB {
-                    self.cx = self.cx.next_tab(self.cols);
+                    self.tab_forward(Count::ONE);
                 } else if let Some((rem, acc)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
@@ -1107,6 +1199,10 @@ impl<'a> Term<'a> {
             b'D' => self.index(),
             b'E' => self.wrap(),
             b'c' => self.reset(),
+            b'H' => {
+                let x = self.cx.index();
+                self.s.tabs[x] = true;
+            }
             _ => {}
         }
     }
@@ -1123,6 +1219,7 @@ impl<'a> Term<'a> {
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
         self.modes = Modes::default();
+        self.reset_tabs();
         self.clear_screen();
     }
 
