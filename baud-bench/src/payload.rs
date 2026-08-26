@@ -10,7 +10,13 @@ use baud_core::{Cols, Rows, WinSize};
 
 /// The geometry the payloads are written against. Not two loose integers: the
 /// same `WinSize` the terminal is configured from, so they cannot drift.
-fn geometry() -> (Cols, Rows) { WinSize { ws_row: 50, ws_col: 200 }.geometry() }
+fn geometry() -> (Cols, Rows) {
+    WinSize {
+        ws_row: 50,
+        ws_col: 200,
+    }
+    .geometry()
+}
 
 /// Bulk text: mostly printable, SGR roughly every 37 bytes, wraps near col 70.
 /// Models `cat`, build output, log tailing.

@@ -1,1 +1,3 @@
-fn main(){ println!("cargo:rustc-link-lib=util"); }
+fn main() {
+    println!("cargo:rustc-link-lib=util");
+}

@@ -1,13 +1,15 @@
 //! Properties that must hold for any input. These catch the class of bug that
 //! example-based tests miss: state-machine errors that only appear when an
 //! escape sequence straddles a read boundary.
-use proptest::prelude::*;
 use baud_core::*;
+use proptest::prelude::*;
 
 /// `Storage::zeroed()` builds a ~1.7 MB value on the stack before `Box::new`
 /// moves it. Fine for `static` placement on bare metal, fatal on a test thread.
 /// Until the core gains an in-place constructor, allocate zeroed heap directly.
-fn boxed_storage() -> Box<Storage> { Storage::boxed() }
+fn boxed_storage() -> Box<Storage> {
+    Storage::boxed()
+}
 
 /// Drive a Term with `bytes`, delivered in chunks of `chunk` bytes.
 fn drive(bytes: &[u8], chunk: usize, mode: OpMode) -> Vec<PackedCell> {

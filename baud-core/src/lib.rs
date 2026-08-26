@@ -17,11 +17,10 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    ByteLen, BytePos, Col, Cols, Count, Csi, Encoding, EraseExtent, FinalByte, Marker,
-    Content, Filled, PackedCell, Param, ParamIdx, Params, RingPos, Room, Row, Rows, Run, RunCount,
-    ArenaTail, Codepoint, LineSlot, Pending, Slot, Stat, StreamByte, StyleId, StyleWord,
-    Utf8Acc,
-    View, Width, WinSize,
+    ArenaTail, ByteLen, BytePos, Codepoint, Col, Cols, Content, Count, Csi, Encoding, EraseExtent,
+    Filled, FinalByte, LineSlot, Marker, PackedCell, Param, ParamIdx, Params, Pending, RingPos,
+    Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId, StyleWord, Utf8Acc, View,
+    Width, WinSize,
 };
 
 /// Largest geometry the fixed viewport can hold.
@@ -47,7 +46,11 @@ pub const NSTYLE: usize = 64;
 pub const READ_CHUNK: usize = baud_domain::SLOT_BYTES;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum OpMode { Computed, Templated, Runs }
+pub enum OpMode {
+    Computed,
+    Templated,
+    Runs,
+}
 
 /// Outcome of a [`Term::resize`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -57,11 +60,17 @@ pub enum Resized {
     /// The window is larger than the fixed viewport. The grid was clamped to
     /// the geometry given; the caller should surface this rather than render a
     /// terminal that disagrees with the application about its own size.
-    Truncated { cols: Cols, rows: Rows },
+    Truncated {
+        cols: Cols,
+        rows: Rows,
+    },
 }
 
 #[repr(C)]
-#[cfg_attr(feature = "alloc", derive(zerocopy::FromZeros, zerocopy::KnownLayout, zerocopy::Immutable))]
+#[cfg_attr(
+    feature = "alloc",
+    derive(zerocopy::FromZeros, zerocopy::KnownLayout, zerocopy::Immutable)
+)]
 pub struct Storage {
     pub arena: [u8; ARENA],
     pub runs: [Run; SB * MAXRUN],
@@ -88,29 +97,54 @@ impl Storage {
     }
 
     pub const fn zeroed() -> Self {
-        const R: Run = Run { pos: BytePos::ZERO, len: ByteLen::ZERO,
-                             style: StyleId::DEFAULT, encoding: 0, _pad: [0; 3] };
+        const R: Run = Run {
+            pos: BytePos::ZERO,
+            len: ByteLen::ZERO,
+            style: StyleId::DEFAULT,
+            encoding: 0,
+            _pad: [0; 3],
+        };
         const C: PackedCell = PackedCell::EMPTY;
-        Storage { arena: [0; ARENA], runs: [R; SB * MAXRUN], nrun: [RunCount::ZERO; SB],
-                  vp: [C; MAX_ROWS * MAX_COLS], promoted: [false; MAX_ROWS],
-                  tmpl: [C; NSTYLE * MAX_COLS], tmpl_key: [StyleWord::DEFAULT; NSTYLE],
-                  tmpl_valid: [false; NSTYLE] }
+        Storage {
+            arena: [0; ARENA],
+            runs: [R; SB * MAXRUN],
+            nrun: [RunCount::ZERO; SB],
+            vp: [C; MAX_ROWS * MAX_COLS],
+            promoted: [false; MAX_ROWS],
+            tmpl: [C; NSTYLE * MAX_COLS],
+            tmpl_key: [StyleWord::DEFAULT; NSTYLE],
+            tmpl_valid: [false; NSTYLE],
+        }
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
-    Ground, Escape, CsiParams, OscString,
+    Ground,
+    Escape,
+    CsiParams,
+    OscString,
     /// Mid multi-byte sequence: continuation bytes remaining, and bits so far.
-    Utf8 { remaining: Pending, acc: Utf8Acc },
+    Utf8 {
+        remaining: Pending,
+        acc: Utf8Acc,
+    },
 }
 
 pub struct Term<'a> {
     s: &'a mut Storage,
-    tail: ArenaTail, head: RingPos,
-    cx: Col, cy: Row, cols: Cols, rows: Rows,
-    st: State, params: [Option<Param>; 16], nparam: ParamIdx, private: Marker,
-    style: StyleId, style_raw: StyleWord,
+    tail: ArenaTail,
+    head: RingPos,
+    cx: Col,
+    cy: Row,
+    cols: Cols,
+    rows: Rows,
+    st: State,
+    params: [Option<Param>; 16],
+    nparam: ParamIdx,
+    private: Marker,
+    style: StyleId,
+    style_raw: StyleWord,
     saved: Option<(Row, Col, StyleId, StyleWord)>,
     mode: OpMode,
     pub promotions: Stat,
@@ -127,15 +161,37 @@ pub struct Term<'a> {
 
 impl<'a> Term<'a> {
     pub fn new(s: &'a mut Storage, mode: OpMode) -> Self {
-        let (cols, rows) = WinSize { ws_row: 50, ws_col: 200 }.geometry();
-        let mut t = Term { s, tail: ArenaTail::ZERO, head: RingPos::ZERO, cx: Col::ZERO, cy: Row::ZERO,
-               cols: cols.clamp(MAX_COLS), rows: rows.clamp(MAX_ROWS),
-               st: State::Ground, params: [None; 16], nparam: ParamIdx::FIRST, private: Marker::Standard,
-               style: StyleId::DEFAULT, style_raw: StyleWord::DEFAULT, saved: None, mode,
-               promotions: Stat::ZERO, tmpl_builds: Stat::ZERO, tmpl_hits: Stat::ZERO,
-               maxrun_overflows: Stat::ZERO, replacements: Stat::ZERO,
-               fast_hits: Stat::ZERO, fb_not_csi: Stat::ZERO,
-               fb_boundary: Stat::ZERO, fb_odd_param: Stat::ZERO };
+        let (cols, rows) = WinSize {
+            ws_row: 50,
+            ws_col: 200,
+        }
+        .geometry();
+        let mut t = Term {
+            s,
+            tail: ArenaTail::ZERO,
+            head: RingPos::ZERO,
+            cx: Col::ZERO,
+            cy: Row::ZERO,
+            cols: cols.clamp(MAX_COLS),
+            rows: rows.clamp(MAX_ROWS),
+            st: State::Ground,
+            params: [None; 16],
+            nparam: ParamIdx::FIRST,
+            private: Marker::Standard,
+            style: StyleId::DEFAULT,
+            style_raw: StyleWord::DEFAULT,
+            saved: None,
+            mode,
+            promotions: Stat::ZERO,
+            tmpl_builds: Stat::ZERO,
+            tmpl_hits: Stat::ZERO,
+            maxrun_overflows: Stat::ZERO,
+            replacements: Stat::ZERO,
+            fast_hits: Stat::ZERO,
+            fb_not_csi: Stat::ZERO,
+            fb_boundary: Stat::ZERO,
+            fb_odd_param: Stat::ZERO,
+        };
         t.clear_screen();
         t
     }
@@ -160,15 +216,28 @@ impl<'a> Term<'a> {
         let over = c.index() > MAX_COLS || r.index() > MAX_ROWS;
         self.cols = c.clamp(MAX_COLS);
         self.rows = r.clamp(MAX_ROWS);
-        self.cx = Col::ZERO; self.cy = Row::ZERO;
+        self.cx = Col::ZERO;
+        self.cy = Row::ZERO;
         self.clear_screen();
-        if over { Resized::Truncated { cols: self.cols, rows: self.rows } }
-        else { Resized::Ok }
+        if over {
+            Resized::Truncated {
+                cols: self.cols,
+                rows: self.rows,
+            }
+        } else {
+            Resized::Ok
+        }
     }
 
-    pub fn cursor(&self) -> (Row, Col) { (self.cy, self.cx) }
-    pub fn geometry(&self) -> (Cols, Rows) { (self.cols, self.rows) }
-    pub fn stride(&self) -> Cols { Cols::from_stride(MAX_COLS) }
+    pub fn cursor(&self) -> (Row, Col) {
+        (self.cy, self.cx)
+    }
+    pub fn geometry(&self) -> (Cols, Rows) {
+        (self.cols, self.rows)
+    }
+    pub fn stride(&self) -> Cols {
+        Cols::from_stride(MAX_COLS)
+    }
     /// The whole materialised region, stride included. Callers wanting a single
     /// row should use [`Term::row`], which is bounds-correct by construction.
     pub fn viewport(&self) -> &[PackedCell] {
@@ -191,9 +260,14 @@ impl<'a> Term<'a> {
         Slot::new(&mut self.s.arena[base..base + READ_CHUNK], pos)
     }
     #[inline(always)]
-    pub fn commit_read(&mut self, n: ByteLen) { self.tail = self.tail.advance(n); }
+    pub fn commit_read(&mut self, n: ByteLen) {
+        self.tail = self.tail.advance(n);
+    }
 
-    #[inline(always)] fn line(&self) -> LineSlot { LineSlot::of(self.head.plus(self.cy, SB)) }
+    #[inline(always)]
+    fn line(&self) -> LineSlot {
+        LineSlot::of(self.head.plus(self.cy, SB))
+    }
 
     #[inline(always)]
     fn newline(&mut self) {
@@ -201,7 +275,10 @@ impl<'a> Term<'a> {
             Some(r) => self.cy = r,
             None => {
                 self.head = self.head.advance(SB);
-                let last = self.head.plus(Row::from_index(self.rows.index() - 1), SB).index();
+                let last = self
+                    .head
+                    .plus(Row::from_index(self.rows.index() - 1), SB)
+                    .index();
                 self.s.nrun[last] = RunCount::ZERO;
                 self.s.promoted[self.rows.index() - 1] = false;
                 let b = PackedCell::empty_with(self.style);
@@ -217,9 +294,12 @@ impl<'a> Term<'a> {
     #[inline(always)]
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         let k = StyleId::bucket(raw, NSTYLE);
-        if self.s.tmpl_valid[k] && self.s.tmpl_key[k] == raw { self.tmpl_hits.inc(); }
-        else {
-            self.s.tmpl_valid[k] = true; self.s.tmpl_key[k] = raw; self.tmpl_builds.inc();
+        if self.s.tmpl_valid[k] && self.s.tmpl_key[k] == raw {
+            self.tmpl_hits.inc();
+        } else {
+            self.s.tmpl_valid[k] = true;
+            self.s.tmpl_key[k] = raw;
+            self.tmpl_builds.inc();
             let c = PackedCell::empty_with(StyleId::from_index(k));
             let a = k * MAX_COLS;
             self.s.tmpl[a..a + MAX_COLS].fill(c);
@@ -229,7 +309,12 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     fn view(&mut self) -> View<'_> {
-        View::new(&mut self.s.vp, Cols::from_stride(MAX_COLS), self.cols, self.rows)
+        View::new(
+            &mut self.s.vp,
+            Cols::from_stride(MAX_COLS),
+            self.cols,
+            self.rows,
+        )
     }
 
     #[inline(always)]
@@ -243,8 +328,12 @@ impl<'a> Term<'a> {
     /// That decision is forced by `try_advance` returning `Option`.
     #[inline(always)]
     fn put_cp(&mut self, cp: Codepoint, w: Width) {
-        if w == Width::ZERO { return; }
-        if self.cx.try_advance(w, self.cols).is_none() { self.newline(); }
+        if w == Width::ZERO {
+            return;
+        }
+        if self.cx.try_advance(w, self.cols).is_none() {
+            self.newline();
+        }
         self.promote_if_runs();
         self.write_cell(cp);
         if w == Width::WIDE {
@@ -260,24 +349,30 @@ impl<'a> Term<'a> {
         let (r, c, st) = (self.cy, self.cx, self.style);
         let (stride, cols, rows) = (Cols::from_stride(MAX_COLS), self.cols, self.rows);
         let (arena, vp) = (&self.s.arena, &mut self.s.vp);
-        View::new(vp, stride, cols, rows)
-            .put_ascii_run(r, c, &arena[abs..abs + room.index()], st);
+        View::new(vp, stride, cols, rows).put_ascii_run(r, c, &arena[abs..abs + room.index()], st);
     }
 
     #[inline(always)]
     fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
         while !n.is_zero() {
             let mut room = self.cols.room_at(self.cx).min(n);
-            if room.is_empty() { self.newline(); room = self.cols.room_at(self.cx).min(n); }
+            if room.is_empty() {
+                self.newline();
+                room = self.cols.room_at(self.cx).min(n);
+            }
             let promoted = self.s.promoted[self.cy.index()];
             if self.mode == OpMode::Runs && !promoted {
                 let i = self.line();
                 let c = self.s.nrun[i.index()];
                 if c.index() < MAXRUN {
                     self.s.runs[i.run(c, MAXRUN)] = Run {
-                        pos: base.advance(off), len: ByteLen::from_room(room),
-                        style: self.style, encoding: 0, _pad: [0; 3] }
-                            .with_encoding(Encoding::Ascii);
+                        pos: base.advance(off),
+                        len: ByteLen::from_room(room),
+                        style: self.style,
+                        encoding: 0,
+                        _pad: [0; 3],
+                    }
+                    .with_encoding(Encoding::Ascii);
                     self.s.nrun[i.index()] = c.inc();
                 } else {
                     self.maxrun_overflows.inc();
@@ -295,7 +390,9 @@ impl<'a> Term<'a> {
 
     fn promote(&mut self) {
         let y = self.cy.index();
-        if self.s.promoted[y] { return; }
+        if self.s.promoted[y] {
+            return;
+        }
         let i = self.line();
         let n = self.s.nrun[i.index()].index();
         let mut c = 0usize;
@@ -303,22 +400,33 @@ impl<'a> Term<'a> {
             let run = self.s.runs[i.run(RunCount::from_index(r), MAXRUN)];
             let (o, l) = (run.pos.index(), run.len.index());
             for z in 0..l {
-                if c >= self.cols.index() { break; }
+                if c >= self.cols.index() {
+                    break;
+                }
                 let b = StreamByte::from_stream(self.s.arena[o + z]);
                 let (rr, cc) = (Row::from_index(y), Col::at_index(c));
-                self.view().put(rr, cc, PackedCell::from_ascii(b, run.style));
+                self.view()
+                    .put(rr, cc, PackedCell::from_ascii(b, run.style));
                 c += 1;
             }
         }
         let blank = PackedCell::empty_with(self.style);
-        let (rr, from, to) = (Row::from_index(y), Col::at_index(c), Col::at_index(self.cols.index()));
+        let (rr, from, to) = (
+            Row::from_index(y),
+            Col::at_index(c),
+            Col::at_index(self.cols.index()),
+        );
         self.view().fill(rr, from, to, blank);
         self.s.promoted[y] = true;
         self.promotions.inc();
     }
 
     #[inline(always)]
-    fn promote_if_runs(&mut self) { if self.mode == OpMode::Runs { self.promote(); } }
+    fn promote_if_runs(&mut self) {
+        if self.mode == OpMode::Runs {
+            self.promote();
+        }
+    }
 
     fn erase_line(&mut self, e: EraseExtent) {
         let y = self.cy.index();
@@ -403,7 +511,8 @@ impl<'a> Term<'a> {
         let p = Params::new(&self.params[..n]);
         match Csi::parse(marker, p, f) {
             Csi::CursorPosition { row, col } => {
-                self.cy = row.to_row(self.rows); self.cx = col.to_col(self.cols);
+                self.cy = row.to_row(self.rows);
+                self.cx = col.to_col(self.cols);
             }
             Csi::CursorUp(c) => self.cy = self.cy.up(c),
             Csi::CursorDown(c) => self.cy = self.cy.down(c, self.rows),
@@ -424,13 +533,21 @@ impl<'a> Term<'a> {
     fn control(&mut self, b: StreamByte) {
         match self.st {
             State::Ground => {
-                if b == StreamByte::LF { self.newline(); }
-                else if b == StreamByte::CR { self.cx = Col::ZERO; }
-                else if b == StreamByte::ESC { self.st = State::Escape; }
-                else if b == StreamByte::BS { self.cx = self.cx.back(Count::ONE); }
-                else if b == StreamByte::TAB { self.cx = self.cx.next_tab(self.cols); }
-                else if let Some((rem, acc)) = b.utf8_lead() {
-                    self.st = State::Utf8 { remaining: Pending::new(rem), acc: Utf8Acc::lead(acc) };
+                if b == StreamByte::LF {
+                    self.newline();
+                } else if b == StreamByte::CR {
+                    self.cx = Col::ZERO;
+                } else if b == StreamByte::ESC {
+                    self.st = State::Escape;
+                } else if b == StreamByte::BS {
+                    self.cx = self.cx.back(Count::ONE);
+                } else if b == StreamByte::TAB {
+                    self.cx = self.cx.next_tab(self.cols);
+                } else if let Some((rem, acc)) = b.utf8_lead() {
+                    self.st = State::Utf8 {
+                        remaining: Pending::new(rem),
+                        acc: Utf8Acc::lead(acc),
+                    };
                 } else if !b.is_c0() {
                     // stray continuation byte or 0x7f: not text
                     self.replacements.inc();
@@ -445,7 +562,10 @@ impl<'a> Term<'a> {
                         let c = acc.finish();
                         self.put_cp(c, Width::of(c));
                     } else {
-                        self.st = State::Utf8 { remaining: remaining.dec(), acc };
+                        self.st = State::Utf8 {
+                            remaining: remaining.dec(),
+                            acc,
+                        };
                     }
                 }
                 None => {
@@ -457,7 +577,9 @@ impl<'a> Term<'a> {
             },
             State::Escape => {
                 if b == StreamByte::CSI_INTRO {
-                    self.params = [None; 16]; self.nparam = ParamIdx::FIRST; self.private = Marker::Standard;
+                    self.params = [None; 16];
+                    self.nparam = ParamIdx::FIRST;
+                    self.private = Marker::Standard;
                     self.st = State::CsiParams;
                 } else if b == StreamByte::OSC_INTRO {
                     self.st = State::OscString;
@@ -471,23 +593,34 @@ impl<'a> Term<'a> {
             }
             State::CsiParams => {
                 if let Some(d) = b.as_ascii_digit() {
-                    if self.nparam.is_first() { self.nparam = self.nparam.next(); }
+                    if self.nparam.is_first() {
+                        self.nparam = self.nparam.next();
+                    }
                     let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
                     self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
                 } else if b == StreamByte::SEMICOLON {
-                    if self.nparam.is_first() { self.nparam = self.nparam.next(); }
-                    if self.nparam.raw_index() < 16 { self.params[self.nparam.raw_index()] = None; self.nparam = self.nparam.next(); }
+                    if self.nparam.is_first() {
+                        self.nparam = self.nparam.next();
+                    }
+                    if self.nparam.raw_index() < 16 {
+                        self.params[self.nparam.raw_index()] = None;
+                        self.nparam = self.nparam.next();
+                    }
                 } else if b == StreamByte::QUESTION {
                     self.private = Marker::Private;
                 } else if let Some(f) = FinalByte::from_stream(b) {
-                    self.dispatch(f); self.st = State::Ground;
+                    self.dispatch(f);
+                    self.st = State::Ground;
                 } else if !b.is_csi_intermediate() {
                     self.st = State::Ground;
                 }
             }
             State::OscString => {
-                if b == StreamByte::BEL { self.st = State::Ground; }
-                else if b == StreamByte::ESC { self.st = State::Escape; }
+                if b == StreamByte::BEL {
+                    self.st = State::Ground;
+                } else if b == StreamByte::ESC {
+                    self.st = State::Escape;
+                }
             }
         }
     }
@@ -519,13 +652,16 @@ impl<'a> Term<'a> {
                 // containing a DEL byte then rendered differently depending on
                 // whether it landed in a 32-byte block or the tail.
                 let d = _mm256_cmpeq_epi8(v, del);
-                let m = _mm256_movemask_epi8(
-                    _mm256_or_si256(_mm256_or_si256(lt, hi), d)) as u32;
-                if m != 0 { return ByteLen::from_lane(i + m.trailing_zeros() as usize); }
+                let m = _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(lt, hi), d)) as u32;
+                if m != 0 {
+                    return ByteLen::from_lane(i + m.trailing_zeros() as usize);
+                }
                 i += 32;
             }
         }
-        while i < n && StreamByte::from_stream(buf[i]).is_printable() { i += 1; }
+        while i < n && StreamByte::from_stream(buf[i]).is_printable() {
+            i += 1;
+        }
         ByteLen::from_lane(i)
     }
 
@@ -545,8 +681,12 @@ impl<'a> Term<'a> {
             while i + 32 <= n {
                 let v = _mm256_loadu_si256(p.add(i) as *const __m256i);
                 let m = _mm256_movemask_epi8(_mm256_and_si256(
-                    _mm256_cmpgt_epi8(v, lo), _mm256_cmpgt_epi8(hi, v))) as u32;
-                if m != 0 { return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize)); }
+                    _mm256_cmpgt_epi8(v, lo),
+                    _mm256_cmpgt_epi8(hi, v),
+                )) as u32;
+                if m != 0 {
+                    return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+                }
                 i += 32;
             }
         }
@@ -575,8 +715,12 @@ impl<'a> Term<'a> {
             while i + 32 <= n {
                 let v = _mm256_loadu_si256(p.add(i) as *const __m256i);
                 let m = _mm256_movemask_epi8(_mm256_or_si256(
-                    _mm256_cmpeq_epi8(v, bel), _mm256_cmpeq_epi8(v, esc))) as u32;
-                if m != 0 { return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize)); }
+                    _mm256_cmpeq_epi8(v, bel),
+                    _mm256_cmpeq_epi8(v, esc),
+                )) as u32;
+                if m != 0 {
+                    return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+                }
                 i += 32;
             }
         }
@@ -601,36 +745,50 @@ impl<'a> Term<'a> {
     /// AVX2 must be available.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    unsafe fn fast_esc(&mut self, base: BytePos, at: ByteLen, limit: ByteLen)
-        -> Option<ByteLen>
-    {
+    unsafe fn fast_esc(&mut self, base: BytePos, at: ByteLen, limit: ByteLen) -> Option<ByteLen> {
         let (b, i, n) = (base.index(), at.index(), limit.index());
-        if i + 1 >= n { self.fb_boundary.inc(); return None; }
+        if i + 1 >= n {
+            self.fb_boundary.inc();
+            return None;
+        }
         let second = StreamByte::from_stream(self.s.arena[b + i + 1]);
 
         // OSC: skip to the string terminator in one scan.
         if second == StreamByte::OSC_INTRO {
             let s = i + 2;
-            if s >= n { self.fb_boundary.inc(); return None; }
+            if s >= n {
+                self.fb_boundary.inc();
+                return None;
+            }
             // SAFETY: caller established AVX2.
             let off = match unsafe { Self::find_st(&self.s.arena[b + s..b + n]) } {
                 Some(o) => o.index(),
-                None => { self.fb_boundary.inc(); return None; }
+                None => {
+                    self.fb_boundary.inc();
+                    return None;
+                }
             };
             let term = StreamByte::from_stream(self.s.arena[b + s + off]);
             // BEL ends it; ESC needs the following byte to confirm ESC-backslash
-            let used = if term == StreamByte::BEL { s + off + 1 - i }
-                       else if s + off + 1 < n { s + off + 2 - i }
-                       else { self.fb_boundary.inc(); return None; };
+            let used = if term == StreamByte::BEL {
+                s + off + 1 - i
+            } else if s + off + 1 < n {
+                s + off + 2 - i
+            } else {
+                self.fb_boundary.inc();
+                return None;
+            };
             self.fast_hits.inc();
             return Some(ByteLen::from_index(used));
         }
 
         // ESC Fe: two bytes, no parameters.
-        let known = matches!(second.raw_byte(),
-                             b'7' | b'8' | b'M' | b'D' | b'E' | b'c' | b'=' | b'>');
+        let known = matches!(
+            second.raw_byte(),
+            b'7' | b'8' | b'M' | b'D' | b'E' | b'c' | b'=' | b'>'
+        );
         if known {
-            self.esc_fe(second);          // one implementation, both paths
+            self.esc_fe(second); // one implementation, both paths
             self.fast_hits.inc();
             Some(ByteLen::from_index(2))
         } else {
@@ -646,15 +804,24 @@ impl<'a> Term<'a> {
             b'7' => self.saved = Some((self.cy, self.cx, self.style, self.style_raw)),
             b'8' => {
                 if let Some((r, c, st, sw)) = self.saved {
-                    self.cy = r; self.cx = c; self.style = st; self.style_raw = sw;
+                    self.cy = r;
+                    self.cx = c;
+                    self.style = st;
+                    self.style_raw = sw;
                 }
             }
             b'M' => {
-                if self.cy.index() == 0 { self.scroll_down(); }
-                else { self.cy = self.cy.up(Count::ONE); }
+                if self.cy.index() == 0 {
+                    self.scroll_down();
+                } else {
+                    self.cy = self.cy.up(Count::ONE);
+                }
             }
             b'D' => self.newline(),
-            b'E' => { self.newline(); self.cx = Col::ZERO; }
+            b'E' => {
+                self.newline();
+                self.cx = Col::ZERO;
+            }
             b'c' => self.reset(),
             _ => {}
         }
@@ -702,12 +869,13 @@ impl<'a> Term<'a> {
     /// AVX2 must be available.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    unsafe fn fast_csi(&mut self, base: BytePos, at: ByteLen, limit: ByteLen)
-        -> Option<ByteLen>
-    {
+    unsafe fn fast_csi(&mut self, base: BytePos, at: ByteLen, limit: ByteLen) -> Option<ByteLen> {
         let (i, n) = (at.index(), limit.index());
         let b = base.index();
-        if i + 2 >= n { self.fb_boundary.inc(); return None; }
+        if i + 2 >= n {
+            self.fb_boundary.inc();
+            return None;
+        }
         if StreamByte::from_stream(self.s.arena[b + i + 1]) != StreamByte::CSI_INTRO {
             return None; // fast_esc gets it; counted there
         }
@@ -728,7 +896,10 @@ impl<'a> Term<'a> {
         // SAFETY: caller established AVX2.
         let off = match unsafe { Self::find_final(&self.s.arena[b + s..b + n]) } {
             Some(o) => o.index(),
-            None => { self.fb_boundary.inc(); return None; }
+            None => {
+                self.fb_boundary.inc();
+                return None;
+            }
         };
 
         let mut np = ParamIdx::FIRST;
@@ -819,12 +990,15 @@ impl<'a> Term<'a> {
             if self.st == State::Ground {
                 let mut run = 0usize;
                 while i + run < nn {
-                    if !StreamByte::from_stream(self.s.arena[b + i + run]).is_printable() { break; }
+                    if !StreamByte::from_stream(self.s.arena[b + i + run]).is_printable() {
+                        break;
+                    }
                     run += 1;
                 }
                 if run > 0 {
                     self.put_run(base, ByteLen::from_index(i), ByteLen::from_index(run));
-                    i += run; continue;
+                    i += run;
+                    continue;
                 }
             }
             let byte = StreamByte::from_stream(self.s.arena[b + i]);

@@ -4,7 +4,10 @@ use baud_domain::*;
 
 #[test]
 fn legal_uses_compile() {
-    let ws = WinSize { ws_row: 24, ws_col: 80 };
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
     let (cols, rows) = ws.geometry();
 
     // typed grid: indexed by axis, never by integer
@@ -22,9 +25,15 @@ fn legal_uses_compile() {
     assert!(cols.room_at(cx).is_empty());
 
     // CSI parsing speaks types end to end
-    let ps = [Some(Param::ZERO.push(dig(5))), Some(Param::ZERO.push(dig(1)).push(dig(0)))];
-    match Csi::parse(Marker::Standard, Params::new(&ps),
-                     FinalByte::from_stream(StreamByte::from_stream(b'H')).unwrap()) {
+    let ps = [
+        Some(Param::ZERO.push(dig(5))),
+        Some(Param::ZERO.push(dig(1)).push(dig(0))),
+    ];
+    match Csi::parse(
+        Marker::Standard,
+        Params::new(&ps),
+        FinalByte::from_stream(StreamByte::from_stream(b'H')).unwrap(),
+    ) {
         Csi::CursorPosition { .. } => {}
         _ => panic!("expected CursorPosition"),
     }
@@ -34,7 +43,11 @@ fn legal_uses_compile() {
     let _ = l.width();
 }
 
-fn dig(n: u8) -> Digit { StreamByte::from_stream(b'0' + n).as_ascii_digit().unwrap() }
+fn dig(n: u8) -> Digit {
+    StreamByte::from_stream(b'0' + n).as_ascii_digit().unwrap()
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
-pub struct Cell2 { pub v: u16 }
+pub struct Cell2 {
+    pub v: u16,
+}
