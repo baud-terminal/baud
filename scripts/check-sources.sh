@@ -16,7 +16,9 @@ cd "$(dirname "$0")/.." || exit 1
 
 SRC="docs/research/sources"
 MANIFEST="$SRC/MANIFEST.toml"
-NOTES="docs/research/notes"
+# Every doc, not just the notes: docs/vt-coverage.md cites sources too, and a
+# gate that only scanned notes/ would have let those citations rot unchecked.
+DOCS="docs"
 fail=0
 
 [ -f "$MANIFEST" ] || {
@@ -69,8 +71,8 @@ done
 # ── 4: every citation resolves to a readable source ──────────────────────────
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
-if [ -d "$NOTES" ]; then
-  grep -ohE '\[\[source: [a-z0-9_-]+\]\]' "$NOTES"/*.md 2>/dev/null |
+if [ -d "$DOCS" ]; then
+  grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.md' "$DOCS" 2>/dev/null |
     sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
   while read -r c; do
     [ -n "$c" ] || continue

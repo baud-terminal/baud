@@ -48,3 +48,42 @@ sha256 = "e6b4fad46c40c9d9e4798c805ebdfaa8502a1d55aa428fa1c682a9ff307243e1"
 bytes  = 288585
 status = "retrieved"
 group  = "B"
+
+[sources.ctlseqs]
+key    = "ctlseqs"
+title  = "XTerm Control Sequences"
+author = "Edward Moy, Stephen Gildea, Thomas Dickey"
+year   = 2026
+venue  = "invisible-island.net"
+url    = "https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt"
+file   = "xterm-ctlseqs.txt"
+sha256 = "364c1c1987c85b1c1135e57a93e9008054f46d09a338de8dcc66ea9a7c613709"
+bytes  = 164037
+status = "retrieved"
+group  = "C"
+
+[sources.williams]
+key    = "williams"
+title  = "A parser for DEC's ANSI-compatible video terminals"
+author = "Paul Flo Williams"
+year   = 2004
+venue  = "vt100.net"
+url    = "https://vt100.net/emu/dec_ansi_parser"
+file   = "williams-dec-ansi-parser.html"
+sha256 = "72db5905ebd81bb4f3da420db66db390bfa6693704bc5e24aec74290d2ce691d"
+bytes  = 90287
+status = "retrieved"
+group  = "C"
+
+[sources.ecma48]
+key    = "ecma48"
+title  = "ECMA-48: Control Functions for Coded Character Sets, 5th edition"
+author = "Ecma International"
+year   = 1991
+venue  = "ECMA-48 (= ISO/IEC 6429)"
+url    = "https://ecma-international.org/wp-content/uploads/ECMA-48_5th_edition_june_1991.pdf"
+file   = "ecma-48-5th-1991.pdf"
+sha256 = "9577ad2514c411584b274ef7a4b3238c80aa93defbb349b18b8c78f78873f450"
+bytes  = 1607865
+status = "retrieved"
+group  = "C"
