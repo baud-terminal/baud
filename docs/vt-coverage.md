@@ -133,7 +133,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
-| `CSI ? h` / `CSI ? l` | DECSET / DECRST | **parsed** |
+| `CSI ? h` / `CSI ? l` | DECSET / DECRST | partial — DECOM, DECAWM, DECTCEM act; the rest inert by decision |
 
 ### SGR
 
@@ -175,7 +175,7 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 2004 h/l` | bracketed paste | **todo** |
 | `CSI ? 1000-1006 h/l` | mouse reporting | **todo** |
 | `CSI ? 2026 h/l` | synchronised output | **todo** |
-| `CSI ? 25 h/l` | DECTCEM cursor visibility | **todo** |
+| `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
 
 ---
 
@@ -194,6 +194,15 @@ Recorded so that "not implemented" is a decision rather than an omission.
 | National replacement charsets | DECNRCM | Superseded by UTF-8. Recorded because `[[source: ctlseqs]]` documents them and a reader will ask. |
 
 ---
+
+## A source conflict, recorded
+
+`[[source: vt510-decawm]]` gives DECAWM's default as **"No autowrap"**.
+`[[source: ctlseqs]]` documents xterm, where autowrap is on, and every modern
+terminal wraps. baud follows xterm: an application emitting a long line expects
+it to wrap, and the DEC default would break essentially all of them. The older
+and stricter reading is the one baud does **not** implement, and that is a
+choice rather than an oversight.
 
 ## Cross-cutting gaps
 

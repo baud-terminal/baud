@@ -87,3 +87,29 @@ sha256 = "9577ad2514c411584b274ef7a4b3238c80aa93defbb349b18b8c78f78873f450"
 bytes  = 1607865
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-decom]
+key    = "vt510-decom"
+title  = "DECOM — Origin Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECOM.html"
+file   = "vt510-DECOM.html"
+sha256 = "81f22ba36088e8a311b26157bdc59d0dac6d0ea94a2a24d6b1cf165d21f7faf8"
+bytes  = 20140
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decawm]
+key    = "vt510-decawm"
+title  = "DECAWM — Autowrap Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECAWM.html"
+file   = "vt510-DECAWM.html"
+sha256 = "c4cae82f72666e54bcb7f82df4ee1c9e6ce17fd8d969f29ffb36293a507dd36b"
+bytes  = 19930
+status = "retrieved"
+group  = "C"

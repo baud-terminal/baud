@@ -22,8 +22,8 @@ extern crate alloc;
 pub use baud_domain::{
     AnsiMode, ArenaTail, ByteLen, BytePos, Codepoint, Col, Cols, Content, Count, Csi, Encoding,
     EraseExtent, Filled, FinalByte, LineSlot, Marker, ModeBit, Modes, OneBased, PackedCell, Param,
-    ParamIdx, Params, Pending, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte,
-    StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
+    ParamIdx, Params, Pending, PrivateMode, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
+    StreamByte, StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
 };
 
 /// Largest geometry the fixed viewport can hold.
@@ -713,6 +713,59 @@ impl<'a> Term<'a> {
         self.cy = t;
     }
 
+    /// DECSET / DECRST.
+    ///
+    /// Only modes baud acts on are stored, for the same reason as the ANSI
+    /// ones: a bit that is set and never read is the "accepted, did nothing"
+    /// failure `docs/vt-coverage.md` calls `parsed`. Mouse reporting, bracketed
+    /// paste and the alternate screen are recognised by the parser and
+    /// deliberately not recorded here -- they are input-side or need a second
+    /// screen buffer, and pretending otherwise would be worse than ignoring.
+    fn set_private_mode(&mut self, m: PrivateMode, on: bool) {
+        match m {
+            PrivateMode::CursorVisible => self.modes.apply(ModeBit::CursorVisible, on),
+            PrivateMode::Origin => {
+                self.modes.apply(ModeBit::Origin, on);
+                // Both DECSET and DECRST home the cursor, and where home *is*
+                // depends on the mode just applied.
+                self.cx = Col::ZERO;
+                self.cy = if on { self.scroll_top } else { Row::ZERO };
+            }
+            PrivateMode::AutoWrap => self.modes.apply(ModeBit::AutoWrap, on),
+            _ => {}
+        }
+    }
+
+    /// Whether the cursor should be drawn. DECTCEM; a renderer needs it.
+    pub fn cursor_visible(&self) -> bool {
+        self.modes.is_set(ModeBit::CursorVisible)
+    }
+
+    /// Origin for row addressing, and the row a CUP parameter is relative to.
+    ///
+    /// `[[source: vt510-decom]]`: "When DECOM is set, the home cursor position
+    /// is at the upper-left corner of the screen, within the margins. The
+    /// starting point for line numbers depends on the current top margin
+    /// setting. The cursor cannot move outside of the margins."
+    fn origin_row(&self) -> Row {
+        if self.modes.is_set(ModeBit::Origin) {
+            self.scroll_top
+        } else {
+            Row::ZERO
+        }
+    }
+
+    /// Clamp a row to the margins when DECOM confines the cursor to them.
+    fn confine(&self, r: Row) -> Row {
+        if !self.modes.is_set(ModeBit::Origin) {
+            return r;
+        }
+        Row::from_index(
+            r.index()
+                .clamp(self.scroll_top.index(), self.scroll_bot.index()),
+        )
+    }
+
     /// SM / RM for the unprefixed namespace.
     ///
     /// Only modes baud acts on are stored. An unrecognised mode is ignored
@@ -780,6 +833,14 @@ impl<'a> Term<'a> {
             return;
         }
         if self.cx.try_advance(w, self.cols).is_none() {
+            if !self.modes.is_set(ModeBit::AutoWrap) {
+                // DECAWM reset: the character overwrites the last column and the
+                // cursor stays put. No wrap, and therefore no scroll.
+                self.cx = Col::at_index(self.cols.index() - 1);
+                self.promote_if_runs();
+                self.write_cell(cp);
+                return;
+            }
             self.wrap();
         }
         self.promote_if_runs();
@@ -805,7 +866,14 @@ impl<'a> Term<'a> {
         while !n.is_zero() {
             let mut room = self.cols.room_at(self.cx).min(n);
             if room.is_empty() {
-                self.wrap();
+                if self.modes.is_set(ModeBit::AutoWrap) {
+                    self.wrap();
+                } else {
+                    // DECAWM reset: pin to the last column and let each
+                    // remaining byte overwrite it. The last one wins, and the
+                    // screen never scrolls.
+                    self.cx = Col::at_index(self.cols.index() - 1);
+                }
                 room = self.cols.room_at(self.cx).min(n);
             }
             let promoted = self.s.promoted[self.cy.index()];
@@ -831,6 +899,13 @@ impl<'a> Term<'a> {
                 self.blit(base, off, room);
             }
             self.cx += room;
+            // With autowrap on, the cursor may sit one past the last column --
+            // the "wrap is pending" sentinel the next write consumes. With it
+            // off there is no pending wrap, so that position is not reachable
+            // and the cursor belongs on the last cell.
+            if !self.modes.is_set(ModeBit::AutoWrap) && self.cx.index() >= self.cols.index() {
+                self.cx = Col::at_index(self.cols.index() - 1);
+            }
             off = off.saturating_add(ByteLen::from_room(room));
             n = n.sub_room(room);
         }
@@ -975,6 +1050,7 @@ impl<'a> Term<'a> {
         let p = Params::new(&self.params[..n]);
         match Csi::parse(marker, self.csi_inter, p, f) {
             Csi::SoftReset => self.soft_reset(),
+            Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
             // `[[source: ctlseqs]]` lists the Primary DA identities. VT102 is
             // what baud actually is: it has DECSTBM (VT100) and IL/DL (VT102),
             // and it does NOT have sixel, ReGIS, UDKs, selective erase or
@@ -997,11 +1073,13 @@ impl<'a> Term<'a> {
             // it as the report it asked for.
             Csi::DeviceStatus(None) => {}
             Csi::CursorPosition { row, col } => {
-                self.cy = row.to_row(self.rows);
+                let base = self.origin_row().index();
+                let want = Row::from_index(base + row.to_row(self.rows).index());
+                self.cy = self.confine(want);
                 self.cx = col.to_col(self.cols);
             }
-            Csi::CursorUp(c) => self.cy = self.cy.up(c),
-            Csi::CursorDown(c) => self.cy = self.cy.down(c, self.rows),
+            Csi::CursorUp(c) => self.cy = self.confine(self.cy.up(c)),
+            Csi::CursorDown(c) => self.cy = self.confine(self.cy.down(c, self.rows)),
             Csi::CursorForward(c) => self.cx = self.cx.forward(c, self.cols),
             Csi::CursorBack(c) => self.cx = self.cx.back(c),
             Csi::EraseInLine(e) => self.erase_line(e),
@@ -1022,17 +1100,21 @@ impl<'a> Term<'a> {
             }
             Csi::TabClear(None) => {}
             Csi::CursorNextLine(c) => {
-                self.cy = self.cy.down(c, self.rows);
+                self.cy = self.confine(self.cy.down(c, self.rows));
                 self.cx = Col::ZERO;
             }
             Csi::CursorPrevLine(c) => {
-                self.cy = self.cy.up(c);
+                self.cy = self.confine(self.cy.up(c));
                 self.cx = Col::ZERO;
             }
             Csi::ColumnAbsolute(c) => self.cx = c.to_col(self.cols),
-            Csi::LineAbsolute(r) => self.cy = r.to_row(self.rows),
+            Csi::LineAbsolute(r) => {
+                let base = self.origin_row().index();
+                let want = Row::from_index(base + r.to_row(self.rows).index());
+                self.cy = self.confine(want);
+            }
             Csi::ColumnRelative(c) => self.cx = self.cx.forward(c, self.cols),
-            Csi::LineRelative(c) => self.cy = self.cy.down(c, self.rows),
+            Csi::LineRelative(c) => self.cy = self.confine(self.cy.down(c, self.rows)),
             Csi::SaveCursor => self.saved = Some((self.cy, self.cx, self.style, self.style_raw)),
             Csi::RestoreCursor => {
                 if let Some((r, c, st, sw)) = self.saved {

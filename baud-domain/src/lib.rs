@@ -2066,6 +2066,11 @@ impl Modes {
 /// integers — one swaps the screen buffer, the other hides the cursor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrivateMode {
+    /// DECOM, ?6. Cursor addressing relative to the margins, and confined
+    /// to them.
+    Origin,
+    /// DECAWM, ?7.
+    AutoWrap,
     CursorVisible,      // ?25
     BracketedPaste,     // ?2004
     AltScreen,          // ?1049
@@ -2076,6 +2081,8 @@ pub enum PrivateMode {
 impl PrivateMode {
     pub fn from_wire(p: Option<Param>) -> PrivateMode {
         match p.map_or(0, |x| x.0) {
+            6 => PrivateMode::Origin,
+            7 => PrivateMode::AutoWrap,
             25 => PrivateMode::CursorVisible,
             1006 => PrivateMode::MouseSgr,
             1049 => PrivateMode::AltScreen,
