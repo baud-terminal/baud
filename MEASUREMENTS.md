@@ -86,22 +86,68 @@ anything in this repo.
 
 # Host B — macOS arm64 (Apple Silicon)
 
-*Harness `bench-others/multibench` · median of 9 over 32 MB, **interleaved and
-rotated** · payloads generated inline in `multibench/src/main.rs`.*
+## The PTY was the constraint, and it hid every difference
 
-Not comparable to Host A: Darwin has no `n_tty`, so no `N_TTY_BUF_SIZE` cap on
-`read(2)` and no tty tax. **baud runs its scalar path here** -- there is no NEON
-scanner -- while ghostty vectorises regardless of build flags (below).
+*Harness `bench-others/multibench` · median of 9 over 32 MB, interleaved and
+rotated · three runs · `TRANSPORT=memory`, no PTY and no syscalls.*
+
+`MEASUREMENTS.md` has always recorded the tty tax for *alacritty* and never for
+baud. Measuring it finally explains why every through-a-PTY table in this file
+compresses the field into a narrow band: on Darwin the transport caps the
+pipeline near 200 MB/s, and a core fast enough to reach that cap is measured as
+"200 MB/s" no matter how much faster it is.
 
 | core | streaming median [min-max] | TUI median [min-max] |
 |---|---|---|
-| ghostty (libghostty-vt) | 214.2 [204.8-224.6] | 267.0 [242.9-284.0] |
-| **baud** (spans, scalar) | **192.8** [152.6-206.4] | **280.7** [178.6-306.6] |
-| ceiling (discard, no parse) | 180.8 [170.5-194.5] | 181.5 [172.1-208.2] |
-| termwiz (wezterm) parse only | 157.9 [153.6-169.3] | 157.8 [141.6-165.2] |
-| alacritty_terminal | 140.5 [132.7-149.7] | 153.0 [151.1-165.1] |
-| vt100 crate | 118.2 [99.9-122.1] | 148.8 [109.1-159.6] |
-| wezterm (full terminal) | 16.1 [15.8-16.6] | 27.5 [27.3-28.0] |
+| **baud** (spans, **scalar** on this host) | **1699.2** [1152.6-1706.2] | **1076.1** [929.4-1084.8] |
+| ghostty (libghostty-vt, vectorised) | 1121.1 [1110.0-1127.5] | 1047.7 [1033.2-1052.7] |
+| termwiz (wezterm) parse only | 378.9 [377.4-380.5] | 367.4 [365.8-370.6] |
+| alacritty_terminal | 215.7 [213.7-221.8] | 262.5 [258.7-269.4] |
+| vt100 crate | 168.5 [167.1-169.9] | 219.8 [218.4-222.7] |
+| wezterm (full terminal) | 17.8 [17.4-17.9] | 31.4 [31.4-31.5] |
+
+### The tty tax, measured on baud for the first time
+
+| core | from memory | through a PTY | transport cost |
+|---|---|---|---|
+| **baud** | 1699 | ~165-193 | **-89%** |
+| ghostty | 1121 | ~210-226 | -81% |
+| alacritty | 216 | ~140-148 | -33% |
+| wezterm | 17.8 | ~16 | -10% |
+
+The gradient is the finding. wezterm is compute-bound and barely notices the
+PTY; alacritty loses a third, close to the -30% this file already recorded for
+it on Linux; baud loses **89%**, because it is fast enough that the transport is
+essentially all of its measured time. A parser cannot be compared to another
+parser through a channel that neither of them saturates.
+
+### Streaming: a result
+
+Three runs, ratios 1.49x, 1.51x, 1.52x. No range overlaps against any core.
+
+| baud vs | ratio | overlap |
+|---|---|---|
+| ghostty | **1.52x** | none |
+| termwiz (parse only, keeps no screen) | 4.5x | none |
+| alacritty_terminal | 7.9x | none |
+| vt100 | 10.1x | none |
+| wezterm (full terminal) | 95x | none |
+
+That is with baud running its **scalar** path — there is no NEON scanner — against
+a ghostty that vectorises. See `notes/b-data-parallel-fsm.md` for why that is
+consistent with parser speed not being where baud's advantage comes from.
+
+### TUI: not a result
+
+baud 1076.1 [929.4-1084.8] against ghostty 1047.7 [1033.2-1052.7]. Ranges
+overlap in all three runs; the medians differ by 2.7%, and baud's lower bound is
+below ghostty's. **baud does not beat ghostty on the TUI payload.** That is the
+open half of the comparison.
+
+Note also that the TUI payload here omits the arbitrary-column addressing and
+the ECH/IL/ED operations that `baud-bench`'s payload carries, and `payload.rs`
+records that arbitrary columns tripled promotions. The case span storage is
+worst at is under-represented in this table.
 
 ## Run order was biasing the results, and now does not
 

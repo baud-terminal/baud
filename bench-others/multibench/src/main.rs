@@ -64,6 +64,50 @@ impl alacritty_terminal::grid::Dimensions for Dim {
     }
 }
 
+/// Feed `sink` from memory, in the same 4096-byte chunks, with no PTY at all.
+///
+/// The transport ceiling has never been separated from the parser for baud.
+/// MEASUREMENTS.md records the tty tax for *alacritty* (-30% on streaming) and
+/// nothing equivalent for baud, so it has never been established whether the
+/// numbers in these tables are parser-bound or transport-bound. If every core
+/// lands at the same figure through a PTY and they separate from memory, the
+/// PTY is the constraint and no amount of parser work moves the table.
+fn through_memory(payload: &[u8], total: usize, mut sink: impl FnMut(&[u8])) -> f64 {
+    let t0 = Instant::now();
+    let mut got = 0usize;
+    while got < total {
+        let mut o = 0usize;
+        while o < payload.len() && got < total {
+            let n = CHUNK.min(payload.len() - o).min(total - got);
+            sink(&payload[o..o + n]);
+            o += n;
+            got += n;
+        }
+    }
+    got as f64 / t0.elapsed().as_secs_f64() / 1_048_576.0
+}
+
+/// Which transport `run_one` drives. `TRANSPORT=memory` selects the in-memory
+/// path; anything else keeps the real PTY, which stays the default because it
+/// is what a terminal actually faces.
+fn from_memory() -> bool {
+    std::env::var("TRANSPORT")
+        .map(|v| v == "memory")
+        .unwrap_or(false)
+}
+
+/// Dispatch to whichever transport is selected. Same sink, same chunk size, so
+/// the only difference between the two is the kernel.
+fn drive(payload: &[u8], total: usize, sink: impl FnMut(&[u8])) -> f64 {
+    if from_memory() {
+        through_memory(payload, total, sink)
+    } else {
+        through_pty(payload, total, sink)
+    }
+}
+
+const CHUNK: usize = 4096;
+
 /// Fork a writer on a PTY slave, hand the master fd to `sink` 4096 bytes at a time.
 fn through_pty(payload: &[u8], total: usize, mut sink: impl FnMut(&[u8])) -> f64 {
     unsafe {
@@ -170,13 +214,13 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         // Not a ceiling. A discarding sink makes the reader block in read(2)
         // continuously, so this pair pays more scheduler round trips per byte
         // than one whose sink does work -- cores have measured *above* it.
-        0 => through_pty(p, total, |c| {
+        0 => drive(p, total, |c| {
             std::hint::black_box(c);
         }),
         1 => {
             let mut st = baud_core::Storage::boxed();
             let mut t = baud_core::Term::new(&mut st, baud_core::OpMode::Runs);
-            through_pty(p, total, |chunk| {
+            drive(p, total, |chunk| {
                 let mut slot = t.read_slot();
                 let base = slot.base();
                 let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
@@ -189,7 +233,7 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
             cfg.scrolling_history = 10_000;
             let mut term = ATerm::new(cfg, &Dim, Noop);
             let mut proc = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::default();
-            through_pty(p, total, |chunk| proc.advance(&mut term, chunk))
+            drive(p, total, |chunk| proc.advance(&mut term, chunk))
         }
         3 => {
             #[cfg(have_ghostty)]
@@ -204,7 +248,7 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                     )
                 };
                 assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
-                let v = through_pty(p, total, |chunk| unsafe {
+                let v = drive(p, total, |chunk| unsafe {
                     ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
                 });
                 unsafe { ghostty::ghostty_terminal_free(term) };
@@ -218,7 +262,7 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         }
         4 => {
             let mut parser = vt100::Parser::new(ROWS as u16, COLS as u16, 10_000);
-            through_pty(p, total, |chunk| parser.process(chunk))
+            drive(p, total, |chunk| parser.process(chunk))
         }
         5 => {
             let size = tattoy_wezterm_term::TerminalSize {
@@ -235,11 +279,11 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                 "1",
                 Box::new(WzSink),
             );
-            through_pty(p, total, |chunk| term.advance_bytes(chunk))
+            drive(p, total, |chunk| term.advance_bytes(chunk))
         }
         6 => {
             let mut parser = termwiz::escape::parser::Parser::new();
-            through_pty(p, total, |chunk| {
+            drive(p, total, |chunk| {
                 parser.parse(chunk, |a| {
                     std::hint::black_box(a);
                 });
@@ -350,8 +394,12 @@ fn main() {
     }
 
     println!(
-        "  same payloads, same real PTY, 4096-byte reads, median of {REPS}, \
-         interleaved and rotated\n"
+        "  same payloads, {}, {CHUNK}-byte reads, median of {REPS}, interleaved and rotated\n",
+        if from_memory() {
+            "FROM MEMORY (no PTY, no syscalls)"
+        } else {
+            "through a real PTY"
+        }
     );
     println!(
         "  {:<28} {:>21}  {:>21}",
