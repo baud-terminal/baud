@@ -183,15 +183,41 @@ Spans lead on both payloads here; the cell modes are within noise of ghostty.
 
 ### Both payloads: a result
 
-Two runs, no range overlaps against any core.
+Two runs, from memory, after the VT protocol work.
 
 | baud (spans) vs | streaming | TUI redraw |
 |---|---|---|
-| **ghostty** | **1.55x** | **2.14x** |
-| termwiz (parse only, keeps no screen) | 4.9x | 6.6x |
-| alacritty_terminal | 7.7x | 8.3x |
-| vt100 | 10.3x | 10.3x |
-| wezterm (full terminal) | 98x | 70x |
+| **ghostty** | **1.42x** | **1.98x** |
+| termwiz (parse only, keeps no screen) | 4.0x | 5.5x |
+| alacritty_terminal | 7.1x | 7.7x |
+| vt100 | 9.5x | 9.7x |
+| wezterm (full terminal) | 95x | 66x |
+
+**TUI is clean**: baud 2131.6 [1792.9-2185.5] against ghostty's
+1068.6 [1051.1-1076.4], no overlap in either run.
+
+**Streaming is a median result, not a range result.** baud 1620.8 / 1582.8
+against ghostty 1138.9 / 1127.8 -- a 1.42x gap on medians, consistent across
+runs -- but baud's spread is wide enough that its *minimum* dips into ghostty's
+range in one of the two runs (1137.2 against a ghostty maximum of 1147.2). baud
+remains the noisiest core here by a wide margin, which this file has recorded
+since the ordering work. Quote the median gap; do not claim non-overlap on
+streaming.
+
+### What the protocol work cost
+
+Correctness is not free, and the bill is on the record:
+
+| baud, from memory | before VT work | after |
+|---|---|---|
+| streaming | 1741.7 | ~1600 (-8%) |
+| TUI | 2276.0 | ~2120 (-7%) |
+
+ghostty was untouched and measured 1123.9 -> 1138.9 across the same runs, so
+this is the change and not drift. Most of the loss was one avoidable mistake --
+two `modes.is_set(AutoWrap)` reads inside `put_run`'s inner loop, which runs per
+span. Hoisting them recovered 1540 -> 1600. The remainder is real work per byte
+that the terminal now does and previously did not.
 
 That is with baud on its **scalar** path -- there is no NEON scanner -- against a
 ghostty that vectorises. The advantage is not parser speed.

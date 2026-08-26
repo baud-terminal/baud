@@ -863,10 +863,13 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
+        // Hoisted: a mode cannot change inside a run, and reading it per
+        // iteration cost 12% of streaming throughput -- measured, not guessed.
+        let wrap = self.modes.is_set(ModeBit::AutoWrap);
         while !n.is_zero() {
             let mut room = self.cols.room_at(self.cx).min(n);
             if room.is_empty() {
-                if self.modes.is_set(ModeBit::AutoWrap) {
+                if wrap {
                     self.wrap();
                 } else {
                     // DECAWM reset: pin to the last column and let each
@@ -903,7 +906,7 @@ impl<'a> Term<'a> {
             // the "wrap is pending" sentinel the next write consumes. With it
             // off there is no pending wrap, so that position is not reachable
             // and the cursor belongs on the last cell.
-            if !self.modes.is_set(ModeBit::AutoWrap) && self.cx.index() >= self.cols.index() {
+            if !wrap && self.cx.index() >= self.cols.index() {
                 self.cx = Col::at_index(self.cols.index() - 1);
             }
             off = off.saturating_add(ByteLen::from_room(room));

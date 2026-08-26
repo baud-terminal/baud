@@ -166,6 +166,34 @@ the gap is still work not being done — the differential test now matches on
 (`CSI P`, `CSI @`, tab stops, scroll-region edge cases) rather than a fog. It also does damage tracking, selection,
 vi-mode, and hyperlink tracking on every write, which baud does not.
 
+## What of the protocol is implemented
+
+`docs/vt-coverage.md` is the answer, enumerated against primary sources rather
+than summarised. It carries a status per operation, and a row reaches **done**
+only when a test exists that would fail if the operation regressed.
+
+The status worth knowing about is `parsed`: a sequence the parser recognises and
+then **drops**. That is worse than one it does not implement, because the
+terminal accepts it, does nothing, and gives the application no way to find out.
+Three operations sat in that state — DECSTBM, DL and SM/RM — while this file
+advertised "~22 operations".
+
+Implemented since: scrolling regions and the operations that share them (DL, SU,
+SD, IL, IND, RI, NEL, LF with real LNM state); cursor positioning (CNL, CPL,
+CHA, HPA, VPA, HPR, VPR, SCOSC, SCORC); a real tab-stop table behind HT, HTS,
+TBC, CHT and CBT; the C0 controls; four missing parser states, including the one
+whose absence let an APC payload execute as commands; DECSTR; DECOM, DECAWM and
+DECTCEM; and a reply channel carrying DA and DSR.
+
+`docs/protocol-roadmap.md` recommends what to add next and what to decline, with
+reasons for both.
+
+Every claim traces to a source in `docs/research/sources/`, hash-pinned in
+`MANIFEST.toml` and gated by `scripts/check-sources.sh`: xterm's `ctlseqs`,
+Paul Flo Williams' DEC ANSI parser, ECMA-48, and the VT510 programmer
+reference. Control functions are not implemented from memory here — the spec has
+overruled confident guesses more than once, and the commit log says where.
+
 ## Layout
 
 ```
@@ -245,7 +273,8 @@ In rough order of how likely each is to invalidate the above:
 - **The width table itself.** Hand-rolled, and measured **5.6% wrong across
   194,528 codepoints** against `unicode-width`. Replace with generated Unicode
   data.
-- **The other ~56 VT operations.** Several (`insert_blank_lines`,
+- **The rest of the VT operations.** `docs/vt-coverage.md` enumerates them by
+  tier with a status each; the count in this section predates that file. Several (`insert_blank_lines`,
   `delete_chars`, `erase_chars`, scrolling regions) are in-place mutations of
   completed lines — exactly what span storage is worst at.
 - **Rendering.** No renderer exists. All render figures above are isolated
