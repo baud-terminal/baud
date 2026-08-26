@@ -1666,6 +1666,16 @@ pub enum Csi {
         /// making it indistinguishable from an explicit `CSI 1;1 r`.
         bottom: Option<OneBased>,
     },
+    /// DECSCA, `CSI Ps " q`. Whether following characters may be erased by
+    /// DECSED/DECSEL. `[[source: vt510-decsca]]`: 1 means they cannot; 0 and 2
+    /// mean they can.
+    SelectProtection {
+        protect: bool,
+    },
+    /// DECSED, `CSI ? Ps J`. Erase in display, erasable characters only.
+    SelectiveEraseDisplay(EraseExtent),
+    /// DECSEL, `CSI ? Ps K`. Erase in line, erasable characters only.
+    SelectiveEraseLine(EraseExtent),
     /// REP, `CSI b`. Repeat the preceding graphic character.
     Repeat(Count),
     /// DA, `CSI c`. Primary Device Attributes: "what are you?".
@@ -1731,6 +1741,9 @@ impl Csi {
         if let Some(i) = inter {
             return match (i.raw_byte(), f.raw()) {
                 (b'!', b'p') => Csi::SoftReset,
+                (b'"', b'q') => Csi::SelectProtection {
+                    protect: p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 1,
+                },
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1746,6 +1759,20 @@ impl Csi {
                 b'l' => Csi::PrivateMode {
                     set: false,
                     mode: p.mode(ParamIdx::FIRST),
+                },
+                b'J' => match p.extent(ParamIdx::FIRST) {
+                    Some(e) => Csi::SelectiveEraseDisplay(e),
+                    None => Csi::Unsupported {
+                        marker,
+                        final_byte: f,
+                    },
+                },
+                b'K' => match p.extent(ParamIdx::FIRST) {
+                    Some(e) => Csi::SelectiveEraseLine(e),
+                    None => Csi::Unsupported {
+                        marker,
+                        final_byte: f,
+                    },
                 },
                 _ => Csi::Unsupported {
                     marker,
@@ -2836,7 +2863,15 @@ pub struct StyleWord {
     fg: ColorWord,
     bg: ColorWord,
     attrs: Attrs,
-    _pad: u16,
+    /// DECSCA character protection: non-zero when DECSED/DECSEL may **not**
+    /// erase this character.
+    ///
+    /// Deliberately not a bit in `attrs`. `[[source: vt510-decsca]]`: "DECSCA
+    /// does not effect visual character attributes set by the select graphic
+    /// rendition (SGR) function" -- so it must not sit where a renderer reading
+    /// attributes could mistake it for one. It is still part of the interning
+    /// key, so protected and unprotected text are distinct renditions.
+    prot: u16,
 }
 
 impl StyleWord {
@@ -2846,8 +2881,17 @@ impl StyleWord {
         fg: ColorWord::DEFAULT,
         bg: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
-        _pad: 0,
+        prot: 0,
     };
+    pub fn is_protected(self) -> bool {
+        self.prot != 0
+    }
+    pub fn with_protected(self, on: bool) -> StyleWord {
+        StyleWord {
+            prot: u16::from(on),
+            ..self
+        }
+    }
     pub fn fg(self) -> ColorWord {
         self.fg
     }
@@ -2869,7 +2913,10 @@ impl StyleWord {
     /// Everything that distinguishes one rendition from another, folded into
     /// one integer for hashing.
     pub fn key(self) -> u64 {
-        (self.fg.0 as u64) ^ ((self.bg.0 as u64) << 21) ^ ((self.attrs.bits() as u64) << 45)
+        (self.fg.0 as u64)
+            ^ ((self.bg.0 as u64) << 21)
+            ^ ((self.attrs.bits() as u64) << 45)
+            ^ ((self.prot as u64) << 61)
     }
 }
 

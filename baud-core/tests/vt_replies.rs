@@ -32,9 +32,11 @@ fn replies(bytes: &[u8]) -> Vec<u8> {
 /// `CSI c` answers, and answers what baud actually is.
 ///
 /// VT102: baud has DECSTBM (VT100) and IL/DL (VT102), and does not have sixel,
-/// ReGIS, UDKs, selective erase or 132-column mode. Over-claiming would make
-/// applications send sequences baud silently drops; under-claiming only makes
-/// them use less.
+/// ReGIS, UDKs, NRCS or 132-column mode. Selective erase, a VT220 feature, has
+/// since landed and the answer still does not move -- a DA identity promises
+/// *everything* at that level, so one VT220 feature does not buy the claim.
+/// Over-claiming would make applications send sequences baud silently drops;
+/// under-claiming only makes them use less.
 #[test]
 fn da_identifies_as_vt102() {
     assert_eq!(replies(b"\x1b[c"), b"\x1b[?6c");

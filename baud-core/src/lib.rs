@@ -669,7 +669,7 @@ impl<'a> Term<'a> {
             return;
         }
         let k = n.at_least_one().min(bot + 1 - top);
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         let last = self.rows.index() - 1;
         if top == 0 && bot == last {
             for _ in 0..k {
@@ -696,7 +696,7 @@ impl<'a> Term<'a> {
         if top > bot {
             return;
         }
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
         self.view().insert_lines_in(rt, n, rb, blank);
         for y in top..=bot {
@@ -792,13 +792,36 @@ impl<'a> Term<'a> {
         if self.cy.index() < self.scroll_top.index() || self.cy.index() > self.scroll_bot.index() {
             return;
         }
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let (at, rb) = (self.cy, self.scroll_bot);
         self.view().delete_lines_in(at, n, rb, blank);
         for y in cy..=bot {
             self.s.promoted[y] = true;
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
+        }
+    }
+
+    /// The cell an erase leaves behind.
+    ///
+    /// Erase-to-background: the blank carries the current rendition, which is
+    /// why `erase_line` cannot simply write `PackedCell::EMPTY`. But it must
+    /// **not** carry the DECSCA protection. An erased position holds no
+    /// character, and `[[source: vt510-decsca]]` scopes protection to "all
+    /// characters that follow the DECSCA function" -- a position with no
+    /// character in it is not one of them. Carrying it would make the first
+    /// selective erase under `DECSCA 1` protect everything it just cleared, so
+    /// the second one would find nothing left to erase.
+    ///
+    /// Costs an extra intern only while protection is on, which is rare; the
+    /// common path is the already-interned `self.style`.
+    #[inline(always)]
+    fn blank(&mut self) -> PackedCell {
+        if self.style_raw.is_protected() {
+            let id = self.intern_style(self.style_raw.with_protected(false));
+            PackedCell::empty_with(id)
+        } else {
+            PackedCell::empty_with(self.style)
         }
     }
 
@@ -956,7 +979,7 @@ impl<'a> Term<'a> {
                 c += 1;
             }
         }
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         let (rr, from, to) = (
             Row::from_index(y),
             Col::at_index(c),
@@ -995,7 +1018,7 @@ impl<'a> Term<'a> {
             EraseExtent::ToStart => (0, (self.cx.index() + 1).min(self.cols.index())),
             EraseExtent::All => (0, self.cols.index()),
         };
-        let b = PackedCell::empty_with(self.style);
+        let b = self.blank();
         let (rr, f, t) = (Row::from_index(y), Col::at_index(from), Col::at_index(to));
         self.view().fill(rr, f, t, b);
     }
@@ -1006,7 +1029,7 @@ impl<'a> Term<'a> {
             EraseExtent::ToStart => (0, self.cy.index() + 1),
             EraseExtent::All => (0, self.rows.index()),
         };
-        let b = PackedCell::empty_with(self.style);
+        let b = self.blank();
         for y in lo..hi {
             self.view().fill_row(Row::from_index(y), b);
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
@@ -1016,7 +1039,7 @@ impl<'a> Term<'a> {
 
     fn erase_chars(&mut self, n: Count) {
         self.promote_if_runs();
-        let b = PackedCell::empty_with(self.style);
+        let b = self.blank();
         let (r, from) = (self.cy, self.cx);
         let to = Col::at_index(self.cx.index() + n.at_least_one());
         self.view().fill(r, from, to, b);
@@ -1024,13 +1047,13 @@ impl<'a> Term<'a> {
 
     fn delete_chars(&mut self, n: Count) {
         self.promote_if_runs();
-        let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
+        let (r, at, b) = (self.cy, self.cx, self.blank());
         self.view().delete_chars(r, at, n, b);
     }
 
     fn insert_blanks(&mut self, n: Count) {
         self.promote_if_runs();
-        let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
+        let (r, at, b) = (self.cy, self.cx, self.blank());
         self.view().insert_blanks(r, at, n, b);
     }
 
@@ -1044,7 +1067,7 @@ impl<'a> Term<'a> {
         }
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let k = n.at_least_one().min(bot + 1 - cy);
-        let (at, rb, b) = (self.cy, self.scroll_bot, PackedCell::empty_with(self.style));
+        let (at, rb, b) = (self.cy, self.scroll_bot, self.blank());
         self.view().insert_lines_in(at, n, rb, b);
         for y in cy..cy + k {
             self.s.promoted[y] = true;
@@ -1074,12 +1097,12 @@ impl<'a> Term<'a> {
         match Csi::parse(marker, self.csi_inter, p, f) {
             Csi::SoftReset => self.soft_reset(),
             Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
-            // `[[source: ctlseqs]]` lists the Primary DA identities. VT102 is
-            // what baud actually is: it has DECSTBM (VT100) and IL/DL (VT102),
-            // and it does NOT have sixel, ReGIS, UDKs, selective erase or
-            // 132-column mode. Claiming VT220 would make applications send
-            // sequences baud drops -- under-claiming degrades, over-claiming
-            // breaks.
+            Csi::SelectProtection { protect } => {
+                self.style_raw = self.style_raw.with_protected(protect);
+                self.style = self.intern_style(self.style_raw);
+            }
+            Csi::SelectiveEraseDisplay(e) => self.selective_erase_display(e),
+            Csi::SelectiveEraseLine(e) => self.selective_erase_line(e),
             Csi::Repeat(c) => {
                 if let Some((cp, w)) = self.last_cp {
                     // Bounded by the row: a repeat cannot usefully exceed the
@@ -1090,6 +1113,12 @@ impl<'a> Term<'a> {
                     }
                 }
             }
+            // `[[source: ctlseqs]]` lists the Primary DA identities. VT102 is
+            // what baud actually is: it has DECSTBM (VT100) and IL/DL (VT102),
+            // and it does NOT have sixel, ReGIS, UDKs, NRCS or 132-column mode.
+            // Selective erase is a VT220 feature and has since landed, but a DA
+            // identity promises everything at that level, so the answer does
+            // not move. Under-claiming degrades, over-claiming breaks.
             Csi::DeviceAttributes => self.emit(b"\x1b[?6c"),
             Csi::DeviceStatus(Some(baud_domain::StatusKind::Operating)) => self.emit(b"\x1b[0n"),
             Csi::DeviceStatus(Some(baud_domain::StatusKind::CursorPosition)) => {
@@ -1564,6 +1593,63 @@ impl<'a> Term<'a> {
                 self.s.tabs[x] = true;
             }
             _ => {}
+        }
+    }
+
+    /// Is the cell at `(r, c)` protected from a selective erase?
+    ///
+    /// The protection travels with the rendition, so it is read back out of the
+    /// intern table rather than stored per cell -- `PackedCell` is 8 bytes by
+    /// measurement and a protection bit is not worth widening it.
+    fn is_protected(&mut self, r: Row, c: Col) -> bool {
+        let id = self.view().get(r, c).style.index();
+        self.s.tmpl_valid[id] && self.s.tmpl_key[id].is_protected()
+    }
+
+    /// DECSEL, `CSI ? Ps K`.
+    ///
+    /// `[[source: vt510-decsel]]`: "erases only those characters defined as
+    /// erasable by the DECSCA control function", and it "works inside or
+    /// outside the scrolling margins".
+    fn selective_erase_line(&mut self, e: EraseExtent) {
+        self.promote_if_runs();
+        let (from, to) = self.erase_span(e);
+        let (y, blank) = (self.cy, self.blank());
+        for x in from..to {
+            let c = Col::at_index(x);
+            if !self.is_protected(y, c) {
+                self.view().put(y, c, blank);
+            }
+        }
+    }
+
+    /// DECSED, `CSI ? Ps J`. Same rule, over the display.
+    fn selective_erase_display(&mut self, e: EraseExtent) {
+        let (lo, hi) = match e {
+            EraseExtent::ToEnd => (self.cy.index(), self.rows.index()),
+            EraseExtent::ToStart => (0, self.cy.index() + 1),
+            EraseExtent::All => (0, self.rows.index()),
+        };
+        let blank = self.blank();
+        for y in lo..hi {
+            let r = Row::from_index(y);
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            for x in 0..self.cols.index() {
+                let c = Col::at_index(x);
+                if !self.is_protected(r, c) {
+                    self.view().put(r, c, blank);
+                }
+            }
+        }
+    }
+
+    /// The half-open column span an erase extent names, relative to the cursor.
+    fn erase_span(&self, e: EraseExtent) -> (usize, usize) {
+        match e {
+            EraseExtent::ToEnd => (self.cx.index(), self.cols.index()),
+            EraseExtent::ToStart => (0, (self.cx.index() + 1).min(self.cols.index())),
+            EraseExtent::All => (0, self.cols.index()),
         }
     }
 

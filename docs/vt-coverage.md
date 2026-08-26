@@ -35,7 +35,7 @@ but the substrate. `[[source: williams]]` specifies the DEC ANSI parser as a
 |---|---|---|
 | `ground` | done | |
 | `escape` | done | |
-| `escape_intermediate` | done | final byte consumed; DECALN itself still todo |
+| `escape_intermediate` | done | final byte consumed; DECALN dispatched |
 | `csi_entry` | partial | folded into `CsiParams` |
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
@@ -174,12 +174,28 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 |---|---|---|
 | `CSI ! p` | DECSTR soft reset | done |
 | `CSI SP q` | DECSCUSR cursor style | **todo** |
-| `CSI " q` | DECSCA character protection | **todo** |
-| `CSI ? J` | DECSED selective erase display | **todo** |
-| `CSI ? K` | DECSEL selective erase line | **todo** |
+| `CSI " q` | DECSCA character protection | done |
+| `CSI ? J` | DECSED selective erase display | done |
+| `CSI ? K` | DECSEL selective erase line | done |
 | `CSI $ p` | DECRQM request mode | **todo** |
 | `CSI s` (DECSLRM) | left/right margins | **todo** |
 | `CSI ' }` / `CSI ' ~` | DECIC / DECDC | **todo** |
+
+DECSCA, DECSED and DECSEL land together on purpose: the two erases without the
+protection are silent aliases for ED and EL, and an application that protected a
+region would watch it vanish.
+
+Protection is **not** an `Attrs` bit. `[[source: vt510-decsca]]`: "DECSCA does
+not effect visual character attributes set by the select graphic rendition (SGR)
+function" -- so it sits in its own field of `StyleWord`, where a renderer
+reading attributes cannot mistake it for one. It *is* part of the interning key,
+so protected and unprotected text are distinct renditions and the flag survives
+in the template table without widening the 8-byte `PackedCell`.
+
+Two rules follow, and both are pinned by tests. A plain ED/EL erases protected
+characters -- only the private forms are selective. And the blank an erase
+leaves behind does not inherit the protection, or the first DECSEL under
+`DECSCA 1` would protect everything it just cleared.
 
 ---
 
@@ -241,8 +257,12 @@ now ordinary work rather than blocked on structure.
 
 Two rules the tests pin, because both failure modes are worse than silence:
 
-* **DA under-claims.** baud answers `CSI ? 6 c` (VT102), which is what it is.
-  Claiming VT220 would make applications send sequences baud drops.
+* **DA under-claims.** baud answers `CSI ? 6 c` (VT102). It now implements
+  selective erase, which is a VT220 feature, and the answer still does not move
+  -- a DA identity is a promise about *everything* in that level, and baud has
+  neither UDKs nor NRCS nor 132-column mode. Claiming VT220 would make
+  applications send sequences baud drops, which is the `parsed` failure by
+  another route.
 * **An unsupported DSR gets no answer at all.** Replying with the wrong report
   shape is worse than not replying: the application parses whatever arrives as
   the report it asked for.

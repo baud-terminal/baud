@@ -144,3 +144,42 @@ bytes  = 0
 status = "gated"
 access = "Published as a figure/image rather than text; no machine-readable mapping obtained."
 group  = "C"
+
+[sources.vt510-decsca]
+key    = "vt510-decsca"
+title  = "DECSCA — Select Character Protection Attribute (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSCA.html"
+file   = "vt510-DECSCA.html"
+sha256 = "d13269d969d16e07fa02c9ef9a2d5d72e9f722e2ac243602c0da3775bd6c9b00"
+bytes  = 19921
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decsed]
+key    = "vt510-decsed"
+title  = "DECSED — Selective Erase in Display (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSED.html"
+file   = "vt510-DECSED.html"
+sha256 = "1640ec7b3293ef6d32956df583928a8cabd0c1964de8c8cf83ea4f7ee8fc786c"
+bytes  = 19794
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decsel]
+key    = "vt510-decsel"
+title  = "DECSEL — Selective Erase in Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSEL.html"
+file   = "vt510-DECSEL.html"
+sha256 = "d5897c6bade88ce7f03d2933a04eab5d5bc9bff712ac0a298222990497ccdbc2"
+bytes  = 19795
+status = "retrieved"
+group  = "C"
