@@ -8,12 +8,6 @@ members = ["baud-domain", "baud-core", "baud-bench"]
 # ghostty-bench is Zig. None of them belong in this lock file.
 exclude = ["baud-difftest", "bench-others"]
 
-# baud-bench is a workspace member but not a default one: it drives a real PTY
-# through libc and uses F_SETPIPE_SZ, which is Linux-only. `cargo check` with no
-# -p therefore covers the portable crates on any host, and CI (ubuntu-latest)
-# adds --workspace to cover the harness too.
-default-members = ["baud-domain", "baud-core"]
-
 [workspace.package]
 version = "0.1.0"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition

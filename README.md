@@ -218,10 +218,14 @@ cargo build --release -p baud-core --target x86_64-unknown-none   # no_std proof
 cargo run --release -p baud-difftest           # cell-by-cell diff vs alacritty
 ```
 
-`baud-bench` is Linux-only (`F_SETPIPE_SZ`) and `baud-difftest` needs an
-alacritty checkout whose path is set in its manifest — it is excluded from the
-workspace for that reason. `bench-others/` holds the cross-implementation
-harnesses and their requirements.
+`baud-bench` builds and runs on Linux and macOS, x86-64 and aarch64 — but it
+prints a warning off Linux and you should believe it. The tty layer is the thing
+being measured, Darwin has no `n_tty`, and there is no SIMD scanner outside
+x86-64. Nothing measured off Linux is comparable to [MEASUREMENTS.md](MEASUREMENTS.md).
+
+`baud-difftest` needs an alacritty checkout whose path is set in its manifest,
+so it is excluded from the workspace. `bench-others/` holds the
+cross-implementation harnesses and their requirements.
 
 ## Not done
 

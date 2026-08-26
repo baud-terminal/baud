@@ -11,11 +11,9 @@ let
   packageVersion = cargoToml.workspace.package.version;
   packageDescription = cargoToml.workspace.package.description or "";
 
-  # baud-bench is Linux-only (F_SETPIPE_SZ), so it is a workspace member but not
-  # a default one. On Linux every cargo invocation covers it; elsewhere the
-  # default members are the portable crates. CI runs on ubuntu-latest, so the
-  # harness is never unchecked in the place that gates a merge.
-  scope = lib.optionalString pkgs.stdenv.isLinux "--workspace";
+  # Explicit rather than implied by default-members, so adding a crate that is
+  # not a default member cannot quietly drop out of the check suite.
+  scope = "--workspace";
 
   # The bare-metal gate. Building baud-core for a target with no OS and no
   # allocator is what actually proves #![no_std] and the default-off `alloc`

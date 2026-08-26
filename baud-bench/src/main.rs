@@ -9,6 +9,41 @@ enum P {
     Streaming,
     Tui,
 }
+/// Whether the AVX2 scanner exists on this build.
+///
+/// Off x86-64 the answer is not "the CPU lacks AVX2" but "there is no such
+/// entry point to name": `Term::feed_avx2` is `#[cfg(target_arch = "x86_64")]`,
+/// and `is_x86_feature_detected!` is itself x86-only. Hence a cfg rather than a
+/// runtime probe. There is no NEON scanner yet, so on aarch64 this harness
+/// measures the portable path and nothing else.
+#[cfg(target_arch = "x86_64")]
+fn avx2_available() -> bool {
+    is_x86_feature_detected!("avx2")
+}
+#[cfg(not(target_arch = "x86_64"))]
+fn avx2_available() -> bool {
+    false
+}
+
+/// # Safety
+/// When `avx2`, AVX2 must be available — the caller decided that once, at
+/// startup, via [`avx2_available`].
+#[cfg(target_arch = "x86_64")]
+unsafe fn feed_dispatch(t: &mut Term, base: BytePos, n: ByteLen, avx2: bool) {
+    if avx2 {
+        unsafe { t.feed_avx2(base, n) }
+    } else {
+        t.feed(base, n)
+    }
+}
+
+/// # Safety
+/// Trivially satisfied: off x86-64 there is only the portable path.
+#[cfg(not(target_arch = "x86_64"))]
+unsafe fn feed_dispatch(t: &mut Term, base: BytePos, n: ByteLen, _avx2: bool) {
+    t.feed(base, n)
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tr {
     Pty,
@@ -47,6 +82,12 @@ fn run_once_t(
             }
             m = fds[0];
             s = fds[1];
+            // Linux only. The 1 MiB pipe buffer is why the pipe transport reaches
+            // 8155 MB/s in README.md; there is no equivalent knob on Darwin, whose
+            // default is ~64 KiB. The pipe row measured off Linux is therefore a
+            // different quantity, not a slower version of the same one — the banner
+            // in main() says so rather than letting the number pass as comparable.
+            #[cfg(target_os = "linux")]
             libc::fcntl(m, libc::F_SETPIPE_SZ, 1 << 20);
         }
 
@@ -90,11 +131,7 @@ fn run_once_t(
                 break;
             }
             let n = Filled::from_read(r as usize).len();
-            if avx2 {
-                t.feed_avx2(base, n)
-            } else {
-                t.feed(base, n)
-            }
+            feed_dispatch(&mut t, base, n, avx2);
             t.commit_read(n);
             got += n.index();
             if got >= total {
@@ -125,6 +162,10 @@ fn run_once(
     run_once_t(store, mode, which, total, avx2, Tr::Pty)
 }
 
+/// Eight parameters because eight things vary between rows of the table this
+/// prints, and a config struct would put them behind a name instead of at the
+/// call site. The audit gate already caps how many may be raw integers.
+#[allow(clippy::too_many_arguments)]
 fn bench_t(
     store: &mut Storage,
     label: &str,
@@ -190,7 +231,7 @@ fn bench(
 fn main() {
     let total = 48usize << 20;
     let reps = 9;
-    let avx2 = is_x86_feature_detected!("avx2");
+    let avx2 = avx2_available();
     let mut store: Box<Storage> = Storage::boxed();
 
     println!(
@@ -198,7 +239,28 @@ fn main() {
         total >> 20,
         reps
     );
-    println!("scan path: {}\n", if avx2 { "AVX2" } else { "portable" });
+    println!(
+        "scan path: {}",
+        if avx2 {
+            "AVX2"
+        } else if cfg!(target_arch = "x86_64") {
+            "portable (AVX2 not detected)"
+        } else {
+            "portable (no SIMD scanner on this target)"
+        }
+    );
+    // CLAUDE.md's first measurement failure is comparing across machines. The
+    // tty layer is the thing being measured and it is not the same layer here:
+    // Darwin has no n_tty, so no N_TTY_BUF_SIZE cap on read(2) and no 1 MiB
+    // pipe buffer. Nothing below is comparable to MEASUREMENTS.md off Linux.
+    if !cfg!(target_os = "linux") {
+        println!(
+            "WARNING: {} is not Linux. Different tty layer, no N_TTY_BUF_SIZE cap,\n\
+             no F_SETPIPE_SZ. These numbers are NOT comparable to MEASUREMENTS.md.",
+            std::env::consts::OS
+        );
+    }
+    println!();
 
     println!(
         "  {:<32} {:>7}  {:>13}",
