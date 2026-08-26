@@ -122,18 +122,131 @@ fn through_pty(payload: &[u8], total: usize, mut sink: impl FnMut(&[u8])) -> f64
     }
 }
 
-/// Median and range over `n` runs.
+/// Median and range over collected samples.
 ///
-/// Was `best()`, which returned the maximum and discarded everything else. That
-/// is an upward-biased estimator and, worse, it hides variance: two runs of
-/// identical code here differed by 9.3%, which is larger than most differences
-/// this table gets used to argue about. baud-bench has always reported
-/// median-and-range; this makes the two harnesses agree on the statistic, so
-/// only the payloads still differ between them.
-fn stat(n: usize, mut f: impl FnMut() -> f64) -> (f64, f64, f64) {
-    let mut v: Vec<f64> = (0..n).map(|_| f()).collect();
+/// Was `best()`, which returned the maximum and discarded everything else -- an
+/// upward-biased estimator that also hides variance, and variance here is the
+/// whole problem.
+fn summarize(v: &mut [f64]) -> (f64, f64, f64) {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     (v[v.len() / 2], v[0], v[v.len() - 1])
+}
+
+#[derive(Debug)]
+struct WzCfg;
+impl tattoy_wezterm_term::TerminalConfiguration for WzCfg {
+    fn color_palette(&self) -> tattoy_wezterm_term::color::ColorPalette {
+        tattoy_wezterm_term::color::ColorPalette::default()
+    }
+}
+struct WzSink;
+impl std::io::Write for WzSink {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+const CORES: &[&str] = &[
+    "ceiling (discard, no parse)",
+    "baud (spans)",
+    "alacritty_terminal",
+    "ghostty (libghostty-vt)",
+    "vt100 crate",
+    "wezterm (full terminal)",
+    "termwiz (wezterm) parse only",
+];
+
+/// One rep of one core, with state built fresh exactly as before.
+///
+/// Indexed rather than a closure per core so the driver can interleave them.
+/// Blocked ordering -- nine reps of one core, then nine of the next -- let run
+/// position bias a core: inserting a row above baud cost it 16% while every
+/// other core moved under 6%.
+fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
+    match core {
+        // Not a ceiling. A discarding sink makes the reader block in read(2)
+        // continuously, so this pair pays more scheduler round trips per byte
+        // than one whose sink does work -- cores have measured *above* it.
+        0 => through_pty(p, total, |c| {
+            std::hint::black_box(c);
+        }),
+        1 => {
+            let mut st = baud_core::Storage::boxed();
+            let mut t = baud_core::Term::new(&mut st, baud_core::OpMode::Runs);
+            through_pty(p, total, |chunk| {
+                let mut slot = t.read_slot();
+                let base = slot.base();
+                let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
+                unsafe { baud_feed(&mut t, base, fl.len()) };
+                t.commit_read(fl.len());
+            })
+        }
+        2 => {
+            let mut cfg = Config::default();
+            cfg.scrolling_history = 10_000;
+            let mut term = ATerm::new(cfg, &Dim, Noop);
+            let mut proc = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::default();
+            through_pty(p, total, |chunk| proc.advance(&mut term, chunk))
+        }
+        3 => {
+            #[cfg(have_ghostty)]
+            {
+                let mut term: ghostty::Terminal = std::ptr::null_mut();
+                let rc = unsafe {
+                    ghostty::ghostty_terminal_new(
+                        std::ptr::null(),
+                        &mut term,
+                        COLS as u16,
+                        ROWS as u16,
+                    )
+                };
+                assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
+                let v = through_pty(p, total, |chunk| unsafe {
+                    ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
+                });
+                unsafe { ghostty::ghostty_terminal_free(term) };
+                v
+            }
+            // NaN, not zero: a missing core must not be mistaken for a slow one.
+            #[cfg(not(have_ghostty))]
+            {
+                f64::NAN
+            }
+        }
+        4 => {
+            let mut parser = vt100::Parser::new(ROWS as u16, COLS as u16, 10_000);
+            through_pty(p, total, |chunk| parser.process(chunk))
+        }
+        5 => {
+            let size = tattoy_wezterm_term::TerminalSize {
+                rows: ROWS,
+                cols: COLS,
+                pixel_width: 0,
+                pixel_height: 0,
+                dpi: 0,
+            };
+            let mut term = tattoy_wezterm_term::Terminal::new(
+                size,
+                std::sync::Arc::new(WzCfg),
+                "baud-bench",
+                "1",
+                Box::new(WzSink),
+            );
+            through_pty(p, total, |chunk| term.advance_bytes(chunk))
+        }
+        6 => {
+            let mut parser = termwiz::escape::parser::Parser::new();
+            through_pty(p, total, |chunk| {
+                parser.parse(chunk, |a| {
+                    std::hint::black_box(a);
+                });
+            })
+        }
+        _ => unreachable!(),
+    }
 }
 
 /// One table row. Ranges are printed, not summarised away: if two cores' ranges
@@ -197,146 +310,41 @@ fn main() {
         return;
     }
 
-    println!("  same payloads, same real PTY, 4096-byte reads, median of 9\n");
+    const REPS: usize = 9;
+
+    // Interleaved and rotated, not blocked. Rep-major order means thermal drift
+    // reaches every core equally; rotating the starting index by the rep number
+    // means no core keeps a fixed position across the run. Blocked ordering is
+    // what let a row inserted above baud move it 16%.
+    let payloads: [&Vec<u8>; 2] = [&stream, &tui];
+    let mut samples = vec![[Vec::with_capacity(REPS), Vec::with_capacity(REPS)]; CORES.len()];
+    for rep in 0..REPS {
+        for k in 0..CORES.len() {
+            let ci = (k + rep) % CORES.len();
+            for (pi, p) in payloads.iter().enumerate() {
+                samples[ci][pi].push(run_one(ci, p, total));
+            }
+        }
+    }
+
+    println!(
+        "  same payloads, same real PTY, 4096-byte reads, median of {REPS}, \
+         interleaved and rotated\n"
+    );
     println!(
         "  {:<28} {:>21}  {:>21}",
         "core", "streaming median [min-max]", "TUI median [min-max]"
     );
-
-    // --- harness ceiling ---
-    //
-    // Not a terminal: the same PTY loop with a sink that discards. No core can
-    // exceed it, and what a core costs is its distance from it. This exists
-    // because kitty must be measured in a Python harness (its parser is a
-    // CPython object), and comparing a number from that harness with one from
-    // this one is only meaningful if both report what their own loop costs.
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            through_pty(p, total, |c| {
-                std::hint::black_box(c);
-            })
-        })
-    };
-    row("ceiling (discard, no parse)", f(&stream), f(&tui));
-
-    // --- baud ---
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            let mut st = baud_core::Storage::boxed();
-            let mut t = baud_core::Term::new(&mut st, baud_core::OpMode::Runs);
-            through_pty(p, total, |chunk| {
-                let mut slot = t.read_slot();
-                let base = slot.base();
-                let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
-                unsafe { baud_feed(&mut t, base, fl.len()) };
-                t.commit_read(fl.len());
-            })
-        })
-    };
-    row("baud (spans)", f(&stream), f(&tui));
-
-    // --- alacritty_terminal ---
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            let mut cfg = Config::default();
-            cfg.scrolling_history = 10_000;
-            let mut term = ATerm::new(cfg, &Dim, Noop);
-            let mut proc = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::default();
-            through_pty(p, total, |chunk| proc.advance(&mut term, chunk))
-        })
-    };
-    row("alacritty_terminal", f(&stream), f(&tui));
-
-    // --- ghostty, via libghostty-vt ---
-    //
-    // Skipped rather than faked when the static lib is absent: build.rs emits a
-    // warning and the row does not print, which is visible. A zero would not be.
-    #[cfg(have_ghostty)]
-    {
-        let f = |p: &Vec<u8>| {
-            stat(9, || {
-                let mut term: ghostty::Terminal = std::ptr::null_mut();
-                let rc = unsafe {
-                    ghostty::ghostty_terminal_new(
-                        std::ptr::null(),
-                        &mut term,
-                        COLS as u16,
-                        ROWS as u16,
-                    )
-                };
-                assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
-                let v = through_pty(p, total, |chunk| unsafe {
-                    ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
-                });
-                unsafe { ghostty::ghostty_terminal_free(term) };
-                v
-            })
-        };
-        row("ghostty (libghostty-vt)", f(&stream), f(&tui));
-    }
-    #[cfg(not(have_ghostty))]
-    println!(
-        "  {:<28} {:>21}  {:>21}",
-        "ghostty (libghostty-vt)", "n/a (lib not built)", "n/a"
-    );
-
-    // --- vt100 crate ---
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            let mut parser = vt100::Parser::new(ROWS as u16, COLS as u16, 10_000);
-            through_pty(p, total, |chunk| parser.process(chunk))
-        })
-    };
-    row("vt100 crate", f(&stream), f(&tui));
-
-    // --- wezterm, full terminal model ---
-    #[derive(Debug)]
-    struct WzCfg;
-    impl tattoy_wezterm_term::TerminalConfiguration for WzCfg {
-        fn color_palette(&self) -> tattoy_wezterm_term::color::ColorPalette {
-            tattoy_wezterm_term::color::ColorPalette::default()
-        }
-    }
-    struct Sink;
-    impl std::io::Write for Sink {
-        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-            Ok(b.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            let size = tattoy_wezterm_term::TerminalSize {
-                rows: ROWS,
-                cols: COLS,
-                pixel_width: 0,
-                pixel_height: 0,
-                dpi: 0,
-            };
-            let mut term = tattoy_wezterm_term::Terminal::new(
-                size,
-                std::sync::Arc::new(WzCfg),
-                "baud-bench",
-                "1",
-                Box::new(Sink),
+    for (ci, label) in CORES.iter().enumerate() {
+        if samples[ci][0][0].is_nan() {
+            println!(
+                "  {:<28} {:>21}  {:>21}",
+                label, "n/a (lib not built)", "n/a"
             );
-            through_pty(p, total, |chunk| term.advance_bytes(chunk))
-        })
-    };
-    row("wezterm (full terminal)", f(&stream), f(&tui));
-
-    // --- termwiz (wezterm's core) ---
-    let f = |p: &Vec<u8>| {
-        stat(9, || {
-            let mut parser = termwiz::escape::parser::Parser::new();
-            through_pty(p, total, |chunk| {
-                parser.parse(chunk, |a| {
-                    std::hint::black_box(a);
-                });
-            })
-        })
-    };
-    row("termwiz (wezterm) parse only", f(&stream), f(&tui));
+            continue;
+        }
+        let st = summarize(&mut samples[ci][0]);
+        let tu = summarize(&mut samples[ci][1]);
+        row(label, st, tu);
+    }
 }
