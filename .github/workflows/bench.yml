@@ -14,6 +14,15 @@ name: Bench (x86-64)
 # one run are the finding; absolutes are not portable off this runner.
 
 on:
+  # Scoped to this file so editing the harness re-validates it, and so the
+  # workflow registers at all: GitHub does not always parse a workflow whose
+  # only triggers are workflow_dispatch and schedule until it has run once.
+  # Deliberately NOT on every push -- a cold run builds the dev shell and
+  # ghostty from source, and gating merges on a shared, noisy runner is exactly
+  # the cross-machine comparison MEASUREMENTS.md warns against.
+  push:
+    paths:
+      - ".github/workflows/bench.yml"
   workflow_dispatch:
     inputs:
       reps:
