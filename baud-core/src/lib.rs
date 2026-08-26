@@ -20,10 +20,10 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    ArenaTail, ByteLen, BytePos, Codepoint, Col, Cols, Content, Count, Csi, Encoding, EraseExtent,
-    Filled, FinalByte, LineSlot, Marker, PackedCell, Param, ParamIdx, Params, Pending, RingPos,
-    Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId, StyleWord, Utf8Acc, View,
-    Width, WinSize,
+    AnsiMode, ArenaTail, ByteLen, BytePos, Codepoint, Col, Cols, Content, Count, Csi, Encoding,
+    EraseExtent, Filled, FinalByte, LineSlot, Marker, ModeBit, Modes, OneBased, PackedCell, Param,
+    ParamIdx, Params, Pending, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte,
+    StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
 };
 
 /// Largest geometry the fixed viewport can hold.
@@ -269,6 +269,11 @@ pub struct Term<'a> {
     style: StyleId,
     style_raw: StyleWord,
     saved: Option<(Row, Col, StyleId, StyleWord)>,
+    /// DECSTBM. Inclusive, and full-screen until `CSI r` says otherwise.
+    scroll_top: Row,
+    scroll_bot: Row,
+    /// A bitset rather than a struct of bools -- see [`Modes`].
+    modes: Modes,
     mode: OpMode,
     pub promotions: Stat,
     pub tmpl_builds: Stat,
@@ -304,6 +309,9 @@ impl<'a> Term<'a> {
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
             saved: None,
+            scroll_top: Row::ZERO,
+            scroll_bot: Row::from_index(rows.clamp(MAX_ROWS).index() - 1),
+            modes: Modes::default(),
             mode,
             promotions: Stat::ZERO,
             tmpl_builds: Stat::ZERO,
@@ -358,6 +366,11 @@ impl<'a> Term<'a> {
         self.rows = r.clamp(MAX_ROWS);
         self.cx = Col::ZERO;
         self.cy = Row::ZERO;
+        // A scrolling region is expressed in rows that may no longer exist.
+        // xterm resets DECSTBM to the full screen on resize; keeping a stale
+        // bottom row would leave the region pointing off the grid.
+        self.scroll_top = Row::ZERO;
+        self.scroll_bot = Row::from_index(self.rows.index() - 1);
         self.clear_screen();
         if over {
             Resized::Truncated {
@@ -409,26 +422,141 @@ impl<'a> Term<'a> {
         LineSlot::of(self.head.plus(self.cy, SB))
     }
 
+    /// IND: down one line, scrolling the region if already at its bottom.
+    ///
+    /// **The column is not touched.** This used to reset `cx`, which made `LF`
+    /// and `ESC D` behave as `NEL`. `[[source: ctlseqs]]` defines IND as index
+    /// only, and LNM (mode 20, reset by default) is what decides whether LF
+    /// also returns to column 1 -- so the old behaviour was LNM permanently on.
     #[inline(always)]
-    fn newline(&mut self) {
-        match self.cy.next(self.rows) {
-            Some(r) => self.cy = r,
-            None => {
-                self.head = self.head.advance(SB);
-                let last = self
-                    .head
-                    .plus(Row::from_index(self.rows.index() - 1), SB)
-                    .index();
-                self.s.nrun[last] = RunCount::ZERO;
-                self.s.promoted[self.rows.index() - 1] = false;
-                let b = PackedCell::empty_with(self.style);
-                let y = Row::from_index(self.rows.index() - 1);
-                self.view().fill_row(y, b);
-            }
+    fn index(&mut self) {
+        if self.cy == self.scroll_bot {
+            self.scroll_region_up(Count::ONE);
+        } else if let Some(r) = self.cy.next(self.rows) {
+            self.cy = r;
         }
+    }
+
+    /// CR + IND: what autowrap does at the right margin, and what NEL is.
+    #[inline(always)]
+    fn wrap(&mut self) {
         self.cx = Col::ZERO;
-        let i = self.line();
-        self.s.nrun[i.index()] = RunCount::ZERO;
+        self.index();
+    }
+
+    /// RI. Up one line, scrolling the region down if already at its top.
+    ///
+    /// Was keyed on row 0 rather than the region top, so `ESC M` inside a
+    /// scrolling region scrolled the whole screen.
+    #[inline(always)]
+    fn reverse_index(&mut self) {
+        if self.cy == self.scroll_top {
+            self.scroll_region_down(Count::ONE);
+        } else if self.cy.index() > 0 {
+            self.cy = self.cy.up(Count::ONE);
+        }
+    }
+
+    /// LF. Adds the carriage return only when LNM is set.
+    #[inline(always)]
+    fn line_feed(&mut self) {
+        self.index();
+        if self.modes.is_set(ModeBit::LineFeedNewLine) {
+            self.cx = Col::ZERO;
+        }
+    }
+
+    /// Scroll the scrolling region up by `n`, blanking what comes in at the
+    /// bottom. The engine of LF-at-region-bottom, SU, and DL.
+    ///
+    /// The full-screen case advances the ring instead of moving cells: O(1)
+    /// against O(rows x cols), and it is what makes streaming ingest fast. A
+    /// region smaller than the screen cannot use it -- rows outside the region
+    /// must not move -- so it pays for the copy.
+    fn scroll_region_up(&mut self, n: Count) {
+        let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
+        if top > bot {
+            return;
+        }
+        let k = n.at_least_one().min(bot + 1 - top);
+        let blank = PackedCell::empty_with(self.style);
+        let last = self.rows.index() - 1;
+        if top == 0 && bot == last {
+            for _ in 0..k {
+                self.head = self.head.advance(SB);
+                let y = Row::from_index(last);
+                self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
+                self.s.promoted[last] = false;
+                self.view().fill_row(y, blank);
+            }
+            return;
+        }
+        let (rt, rb) = (self.scroll_top, self.scroll_bot);
+        self.view().delete_lines_in(rt, n, rb, blank);
+        for y in top..=bot {
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
+        }
+    }
+
+    /// Scroll the scrolling region down by `n`. The engine of RI-at-region-top,
+    /// SD, and IL.
+    fn scroll_region_down(&mut self, n: Count) {
+        let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
+        if top > bot {
+            return;
+        }
+        let blank = PackedCell::empty_with(self.style);
+        let (rt, rb) = (self.scroll_top, self.scroll_bot);
+        self.view().insert_lines_in(rt, n, rb, blank);
+        for y in top..=bot {
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
+        }
+    }
+
+    /// DECSTBM. Sets the region and homes the cursor, per `[[source: ctlseqs]]`.
+    ///
+    /// A region of fewer than two lines is rejected and leaves the previous one
+    /// in place: a one-line region cannot scroll, and applications send
+    /// `CSI r` with no parameters to mean "the whole screen".
+    fn set_scroll_region(&mut self, top: OneBased, bottom: Option<OneBased>) {
+        let last = Row::from_index(self.rows.index() - 1);
+        let t = top.to_row(self.rows);
+        let b = bottom.map_or(last, |v| v.to_row(self.rows));
+        if t.index() >= b.index() {
+            return;
+        }
+        self.scroll_top = t;
+        self.scroll_bot = b;
+        self.cx = Col::ZERO;
+        self.cy = t;
+    }
+
+    /// SM / RM for the unprefixed namespace.
+    ///
+    /// Only modes baud acts on are stored. An unrecognised mode is ignored
+    /// rather than recorded, so a bit can never be set and never read.
+    fn set_ansi_mode(&mut self, m: AnsiMode, on: bool) {
+        match m {
+            AnsiMode::LineFeedNewLine => self.modes.apply(ModeBit::LineFeedNewLine, on),
+            AnsiMode::InsertReplace => self.modes.apply(ModeBit::InsertReplace, on),
+            AnsiMode::Other(_) => {}
+        }
+    }
+
+    fn delete_lines(&mut self, n: Count) {
+        if self.cy.index() < self.scroll_top.index() || self.cy.index() > self.scroll_bot.index() {
+            return;
+        }
+        let blank = PackedCell::empty_with(self.style);
+        let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
+        let (at, rb) = (self.cy, self.scroll_bot);
+        self.view().delete_lines_in(at, n, rb, blank);
+        for y in cy..=bot {
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
+        }
     }
 
     #[inline(always)]
@@ -472,7 +600,7 @@ impl<'a> Term<'a> {
             return;
         }
         if self.cx.try_advance(w, self.cols).is_none() {
-            self.newline();
+            self.wrap();
         }
         self.promote_if_runs();
         self.write_cell(cp);
@@ -497,7 +625,7 @@ impl<'a> Term<'a> {
         while !n.is_zero() {
             let mut room = self.cols.room_at(self.cx).min(n);
             if room.is_empty() {
-                self.newline();
+                self.wrap();
                 room = self.cols.room_at(self.cx).min(n);
             }
             let promoted = self.s.promoted[self.cy.index()];
@@ -628,11 +756,18 @@ impl<'a> Term<'a> {
         self.view().insert_blanks(r, at, n, b);
     }
 
+    /// IL. Bounded by the scrolling region, and a no-op with the cursor
+    /// outside it -- `[[source: ctlseqs]]` defines IL as operating within the
+    /// region. It used to shift to the bottom of the *screen*, which moved rows
+    /// that DECSTBM had placed outside the region.
     fn insert_lines(&mut self, n: Count) {
-        let (cy, rows) = (self.cy.index(), self.rows.index());
-        let k = n.at_least_one().min(rows - cy);
-        let (at, b) = (self.cy, PackedCell::empty_with(self.style));
-        self.view().insert_lines(at, n, b);
+        if self.cy.index() < self.scroll_top.index() || self.cy.index() > self.scroll_bot.index() {
+            return;
+        }
+        let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
+        let k = n.at_least_one().min(bot + 1 - cy);
+        let (at, rb, b) = (self.cy, self.scroll_bot, PackedCell::empty_with(self.style));
+        self.view().insert_lines_in(at, n, rb, b);
         for y in cy..cy + k {
             self.s.promoted[y] = true;
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
@@ -673,6 +808,11 @@ impl<'a> Term<'a> {
             Csi::DeleteChars(c) => self.delete_chars(c),
             Csi::InsertBlanks(c) => self.insert_blanks(c),
             Csi::InsertLines(c) => self.insert_lines(c),
+            Csi::DeleteLines(c) => self.delete_lines(c),
+            Csi::ScrollUp(c) => self.scroll_region_up(c),
+            Csi::ScrollDown(c) => self.scroll_region_down(c),
+            Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
+            Csi::Mode { set, mode } => self.set_ansi_mode(mode, set),
             Csi::Sgr => self.apply_sgr(),
             _ => {}
         }
@@ -683,7 +823,7 @@ impl<'a> Term<'a> {
         match self.st {
             State::Ground => {
                 if b == StreamByte::LF {
-                    self.newline();
+                    self.line_feed();
                 } else if b == StreamByte::CR {
                     self.cx = Col::ZERO;
                 } else if b == StreamByte::ESC {
@@ -963,45 +1103,26 @@ impl<'a> Term<'a> {
                     self.style_raw = sw;
                 }
             }
-            b'M' => {
-                if self.cy.index() == 0 {
-                    self.scroll_down();
-                } else {
-                    self.cy = self.cy.up(Count::ONE);
-                }
-            }
-            b'D' => self.newline(),
-            b'E' => {
-                self.newline();
-                self.cx = Col::ZERO;
-            }
+            b'M' => self.reverse_index(),
+            b'D' => self.index(),
+            b'E' => self.wrap(),
             b'c' => self.reset(),
             _ => {}
         }
     }
 
-    /// Scroll the viewport down one row, opening a blank line at the top.
-    fn scroll_down(&mut self) {
-        let b = PackedCell::empty_with(self.style);
-        let rows = self.rows.index();
-        let mut y = rows;
-        while y > 1 {
-            y -= 1;
-            for x in 0..self.cols.index() {
-                let (src, dst) = (Row::from_index(y - 1), Row::from_index(y));
-                let cell = self.view().get(src, Col::at_index(x));
-                self.view().put(dst, Col::at_index(x), cell);
-            }
-        }
-        self.view().fill_row(Row::ZERO, b);
-    }
-
+    /// RIS. Everything back to power-on state, including the scrolling region
+    /// and the modes -- a region left over across a reset is how an application
+    /// ends up drawing into a window it did not ask for.
     fn reset(&mut self) {
         self.cx = Col::ZERO;
         self.cy = Row::ZERO;
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
         self.saved = None;
+        self.scroll_top = Row::ZERO;
+        self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.modes = Modes::default();
         self.clear_screen();
     }
 

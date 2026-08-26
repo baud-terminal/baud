@@ -1641,7 +1641,20 @@ pub enum Csi {
     InsertBlanks(Count),
     SetScrollRegion {
         top: OneBased,
-        bottom: OneBased,
+        /// `None` when the parameter was omitted, which means the last row --
+        /// bare `CSI r` resets the region to the full screen. `OneBased`
+        /// cannot carry that: `from_param` clamps an absent parameter to 1,
+        /// making it indistinguishable from an explicit `CSI 1;1 r`.
+        bottom: Option<OneBased>,
+    },
+    /// SU, `CSI S`. Scroll the scrolling region up, cursor unmoved.
+    ScrollUp(Count),
+    /// SD, `CSI T`. Scroll the scrolling region down, cursor unmoved.
+    ScrollDown(Count),
+    /// SM / RM, the unprefixed mode namespace.
+    Mode {
+        set: bool,
+        mode: AnsiMode,
     },
     Sgr,
     /// Private (`?`) sequences are a different namespace. `CSI 4 h` and
@@ -1698,13 +1711,25 @@ impl Csi {
                 },
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
+            b'S' => Csi::ScrollUp(p.count(ParamIdx::FIRST)),
+            b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
+            b'h' => Csi::Mode {
+                set: true,
+                mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),
+            },
+            b'l' => Csi::Mode {
+                set: false,
+                mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),
+            },
             b'M' => Csi::DeleteLines(p.count(ParamIdx::FIRST)),
             b'P' => Csi::DeleteChars(p.count(ParamIdx::FIRST)),
             b'X' => Csi::EraseChars(p.count(ParamIdx::FIRST)),
             b'@' => Csi::InsertBlanks(p.count(ParamIdx::FIRST)),
             b'r' => Csi::SetScrollRegion {
                 top: p.one_based(ParamIdx::FIRST),
-                bottom: p.one_based(ParamIdx::SECOND),
+                bottom: p
+                    .at(ParamIdx::SECOND)
+                    .map(|v| OneBased::from_param(Some(v))),
             },
             b'm' => Csi::Sgr,
             _ => Csi::Unsupported {
@@ -1842,6 +1867,84 @@ impl SgrAttr {
             }
             _ => return None,
         })
+    }
+}
+
+/// ANSI modes, the unprefixed `CSI Pm h` / `CSI Pm l` namespace.
+///
+/// A different namespace from [`PrivateMode`]: `CSI 4 h` sets insert mode and
+/// `CSI ? 4 h` sets DECSCLM (smooth scroll). Conflating them is a classic bug,
+/// which is why they are separate types rather than a shared integer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AnsiMode {
+    /// IRM, mode 4. Printing inserts rather than overwrites.
+    InsertReplace,
+    /// LNM, mode 20. When set, LF also performs a carriage return.
+    LineFeedNewLine,
+    Other(Param),
+}
+impl AnsiMode {
+    pub fn from_wire(p: Option<Param>) -> AnsiMode {
+        match p.map_or(0, |x| x.0) {
+            4 => AnsiMode::InsertReplace,
+            20 => AnsiMode::LineFeedNewLine,
+            n => AnsiMode::Other(Param(n)),
+        }
+    }
+}
+
+/// One bit of terminal mode state.
+///
+/// Only the modes baud actually acts on. A mode it parses but does not
+/// implement must NOT appear here: a bit that is set and never read is exactly
+/// the "accepted, did nothing, no way to find out" failure that
+/// `docs/vt-coverage.md` calls `parsed`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ModeBit {
+    /// LNM. Off by default: `[[source: ctlseqs]]` lists mode 20 as reset, so
+    /// LF moves down without returning to column 1.
+    LineFeedNewLine,
+    /// IRM.
+    InsertReplace,
+    /// DECOM, origin mode: cursor addressing is relative to the scroll region.
+    Origin,
+    /// DECAWM, autowrap. Set by default.
+    AutoWrap,
+    /// DECTCEM. Set by default.
+    CursorVisible,
+}
+impl ModeBit {
+    const fn bit(self) -> u16 {
+        1 << (self as u16)
+    }
+}
+
+/// Terminal mode state as a bitset.
+///
+/// A struct of `bool` fields would be the obvious representation and is what
+/// the audit gate exists to prevent: each would be an untyped flag, and
+/// `self.lnm = self.decom` would compile.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Modes(u16);
+impl Default for Modes {
+    /// DECAWM and DECTCEM are set on a fresh terminal; everything else reset.
+    fn default() -> Modes {
+        Modes(ModeBit::AutoWrap.bit() | ModeBit::CursorVisible.bit())
+    }
+}
+impl Modes {
+    pub fn is_set(self, m: ModeBit) -> bool {
+        self.0 & m.bit() != 0
+    }
+    pub fn set(&mut self, m: ModeBit) {
+        self.0 |= m.bit();
+    }
+    pub fn reset(&mut self, m: ModeBit) {
+        self.0 &= !m.bit();
+    }
+    /// `CSI Pm h` and `CSI Pm l` differ only in this bit, so they share a path.
+    pub fn apply(&mut self, m: ModeBit, on: bool) {
+        if on { self.set(m) } else { self.reset(m) }
     }
 }
 
@@ -2198,12 +2301,29 @@ impl<'a> View<'a> {
         }
     }
     /// Scroll rows down from `at`, blanking the opened region. `CSI L`.
+    ///
+    /// Bounded by the last row of the screen. `CSI L` inside a scrolling region
+    /// must stop at the region's bottom instead -- see [`Grid::insert_lines_in`].
     pub fn insert_lines(&mut self, at: Row, n: Count, blank: PackedCell) {
-        let rows = self.rows.index();
-        let (cy, n) = (at.index(), (n.get_raw() as usize).min(rows - at.index()));
-        let s = self.stride.index();
-        let cols = self.cols.index();
-        let mut y = rows;
+        let last = Row::from_index(self.rows.index() - 1);
+        self.insert_lines_in(at, n, last, blank);
+    }
+
+    /// Scroll rows down from `at`, stopping at `bottom` inclusive.
+    ///
+    /// Rows below `bottom` are outside the scrolling region and must not move:
+    /// ECMA-48 defines IL as operating within the region when the cursor is
+    /// inside it, and DECSTBM is what makes the region smaller than the screen
+    /// `[[source: ecma48]]` § 8.3.67. Content scrolled past `bottom` is
+    /// discarded rather than pushed off the screen.
+    pub fn insert_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
+        let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
+        if cy > bot {
+            return;
+        }
+        let n = (n.get_raw() as usize).min(bot + 1 - cy);
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        let mut y = bot + 1;
         while y > cy + n {
             y -= 1;
             for x in 0..cols {
@@ -2211,6 +2331,32 @@ impl<'a> View<'a> {
             }
         }
         for y in cy..cy + n {
+            for x in 0..cols {
+                self.cells[y * s + x] = blank;
+            }
+        }
+    }
+
+    /// Scroll rows up from `at`, stopping at `bottom` inclusive, blanking the
+    /// rows exposed at the bottom. `CSI M` (DL), and the engine of SU and of a
+    /// line feed on the last row of a scrolling region.
+    pub fn delete_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
+        let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
+        if cy > bot {
+            return;
+        }
+        let n = (n.get_raw() as usize).min(bot + 1 - cy);
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        // `cy..(bot + 1 - n)`, not `cy..=(bot - n)`: with n saturated to the
+        // region height, `bot - n` underflows when the whole region is deleted
+        // (n == bot + 1, cy == 0). The half-open form is empty in that case
+        // instead of panicking, which is what DL with a huge count must do.
+        for y in cy..bot + 1 - n {
+            for x in 0..cols {
+                self.cells[y * s + x] = self.cells[(y + n) * s + x];
+            }
+        }
+        for y in bot + 1 - n..=bot {
             for x in 0..cols {
                 self.cells[y * s + x] = blank;
             }

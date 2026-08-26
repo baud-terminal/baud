@@ -29,7 +29,11 @@ pub fn streaming(cap: usize, seq: &mut u64) -> Vec<u8> {
     let mut col = 0usize;
     while b.len() < cap - 96 {
         if col > 70 {
-            b.push(b'\n');
+            // CRLF, not a bare LF. The PTY here is in raw mode, so cfmakeraw has
+            // disabled ONLCR and nothing translates it -- and LF is index only,
+            // since LNM is reset by default. A bare LF would march the text
+            // rightwards until it wrapped, which is not what a terminal receives.
+            b.extend_from_slice(b"\r\n");
             col = 0;
             continue;
         }

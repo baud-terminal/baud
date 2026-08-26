@@ -71,7 +71,7 @@ without these.
 | `0x07` BEL | bell | **todo** |
 | `0x08` BS | backspace | done |
 | `0x09` HT | tab | partial — advances, but no tab stop table (see TBC/HTS) |
-| `0x0A` LF | line feed | done |
+| `0x0A` LF | line feed | done — index only unless LNM |
 | `0x0B` VT | vertical tab | **todo** — treated as LF |
 | `0x0C` FF | form feed | **todo** — treated as LF |
 | `0x0D` CR | carriage return | done |
@@ -84,7 +84,7 @@ without these.
 |---|---|---|
 | `ESC 7` | DECSC save cursor | done |
 | `ESC 8` | DECRC restore cursor | done |
-| `ESC D` | IND index | done |
+| `ESC D` | IND index | done — column preserved (was resetting it) |
 | `ESC E` | NEL next line | done |
 | `ESC M` | RI reverse index | done |
 | `ESC c` | RIS full reset | done |
@@ -112,10 +112,10 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI J` | ED erase in display | done |
 | `CSI K` | EL erase in line | done |
 | `CSI L` | IL insert lines | done |
-| `CSI M` | DL delete lines | **parsed** — dropped in `dispatch` |
+| `CSI M` | DL delete lines | done |
 | `CSI P` | DCH delete chars | done |
-| `CSI S` | SU scroll up | **todo** |
-| `CSI T` | SD scroll down | **todo** |
+| `CSI S` | SU scroll up | done |
+| `CSI T` | SD scroll down | done |
 | `CSI X` | ECH erase chars | done |
 | `CSI Z` | CBT backward tabulation | **todo** |
 | `CSI \`` | HPA char position absolute | **todo** |
@@ -125,11 +125,11 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI d` | VPA line position absolute | **todo** |
 | `CSI e` | VPR line position relative | **todo** |
 | `CSI g` | TBC tab clear | **todo** |
-| `CSI h` | SM set mode | **parsed** |
-| `CSI l` | RM reset mode | **parsed** |
+| `CSI h` | SM set mode | partial — LNM and IRM parsed; IRM not yet acted on |
+| `CSI l` | RM reset mode | partial — as SM |
 | `CSI m` | SGR character attributes | partial — see SGR below |
 | `CSI n` | DSR device status report | **todo** — needs a reply channel |
-| `CSI r` | DECSTBM scroll region | **parsed** — dropped in `dispatch` |
+| `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | **todo** |
 | `CSI ? h` / `CSI ? l` | DECSET / DECRST | **parsed** |
 
