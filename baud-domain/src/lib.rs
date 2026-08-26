@@ -1666,6 +1666,8 @@ pub enum Csi {
         /// making it indistinguishable from an explicit `CSI 1;1 r`.
         bottom: Option<OneBased>,
     },
+    /// REP, `CSI b`. Repeat the preceding graphic character.
+    Repeat(Count),
     /// DA, `CSI c`. Primary Device Attributes: "what are you?".
     DeviceAttributes,
     /// DSR, `CSI n`. `[[source: ctlseqs]]` defines 5 (status) and 6 (CPR); any
@@ -1775,6 +1777,7 @@ impl Csi {
                 },
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
+            b'b' => Csi::Repeat(p.count(ParamIdx::FIRST)),
             b'c' => Csi::DeviceAttributes,
             b'n' => Csi::DeviceStatus(StatusKind::from_param(p.at(ParamIdx::FIRST))),
             b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
@@ -1903,11 +1906,26 @@ impl SgrAttr {
             2 => (SgrAttr::Set(Attrs::DIM), ParamCount(1)),
             3 => (SgrAttr::Set(Attrs::ITALIC), ParamCount(1)),
             4 => (SgrAttr::Set(Attrs::UNDERLINE), ParamCount(1)),
+            // 5 slow blink, 6 rapid blink. `[[source: ecma48]]` § 8.3.117
+            // distinguishes them by rate; a terminal core has no timer and
+            // nothing downstream can use the distinction, so both set BLINK.
+            5 | 6 => (SgrAttr::Set(Attrs::BLINK), ParamCount(1)),
             7 => (SgrAttr::Set(Attrs::REVERSE), ParamCount(1)),
+            8 => (SgrAttr::Set(Attrs::HIDDEN), ParamCount(1)),
+            9 => (SgrAttr::Set(Attrs::STRIKE), ParamCount(1)),
+            // 21 is doubly-underlined in ECMA-48 3rd and in xterm. baud has one
+            // underline bit, so a double underline is an underline -- losing the
+            // doubling is visibly wrong but losing the underline entirely is
+            // worse, and inventing a second bit no renderer reads would be the
+            // "set and never used" failure.
+            21 => (SgrAttr::Set(Attrs::UNDERLINE), ParamCount(1)),
             22 => (SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM)), ParamCount(1)),
             23 => (SgrAttr::Unset(Attrs::ITALIC), ParamCount(1)),
             24 => (SgrAttr::Unset(Attrs::UNDERLINE), ParamCount(1)),
+            25 => (SgrAttr::Unset(Attrs::BLINK), ParamCount(1)),
             27 => (SgrAttr::Unset(Attrs::REVERSE), ParamCount(1)),
+            28 => (SgrAttr::Unset(Attrs::HIDDEN), ParamCount(1)),
+            29 => (SgrAttr::Unset(Attrs::STRIKE), ParamCount(1)),
             30..=37 => (
                 SgrAttr::Fg(Color::Indexed(Chan::from_offset(v, 30))),
                 ParamCount(1),
@@ -1918,6 +1936,18 @@ impl SgrAttr {
             ),
             39 => (SgrAttr::Fg(Color::Default), ParamCount(1)),
             49 => (SgrAttr::Bg(Color::Default), ParamCount(1)),
+            // aixterm bright colours, `[[source: ctlseqs]]` § SGR: "aixterm
+            // colors are the bright versions of the ISO colors". They are
+            // indices 8..15 of the 256-colour palette, so they need no separate
+            // representation -- 90 is index 8, not a new kind of colour.
+            90..=97 => (
+                SgrAttr::Fg(Color::Indexed(Chan::from_offset(v, 90 - 8))),
+                ParamCount(1),
+            ),
+            100..=107 => (
+                SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 100 - 8))),
+                ParamCount(1),
+            ),
             38 | 48 => {
                 let mk = |c| {
                     if v == 38 {
@@ -2110,6 +2140,8 @@ impl StreamByte {
     /// DEL. `[[source: williams]]` gives it the `ignore` action inside escape
     /// and CSI sequences: it neither ends them nor contributes to them.
     pub const DEL: StreamByte = StreamByte(0x7f);
+    /// The intermediate of `ESC # 8` (DECALN).
+    pub const HASH: StreamByte = StreamByte(b'#');
     /// VT. `[[source: ctlseqs]]` treats it as an index, like LF.
     pub const VT: StreamByte = StreamByte(0x0b);
     /// FF. Also an index -- a terminal does not eject a page.

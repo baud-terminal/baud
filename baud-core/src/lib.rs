@@ -332,6 +332,14 @@ pub struct Term<'a> {
     /// Replies dropped because the buffer was full. Counted so a caller that
     /// never drains can find out, instead of losing answers silently.
     pub reply_overflows: Stat,
+    /// The intermediate byte of the `ESC` sequence being parsed.
+    esc_inter: Option<StreamByte>,
+    /// The last graphic character written, for REP.
+    ///
+    /// `[[source: ctlseqs]]`: "Repeat the preceding graphic character Ps
+    /// times". `None` when nothing has been printed yet, in which case REP has
+    /// nothing to repeat and must do nothing rather than repeat a stale cell.
+    last_cp: Option<(Codepoint, Width)>,
     /// The intermediate byte of the CSI being parsed, if any. `CSI ! p` is
     /// DECSTR and `CSI p` is not the same operation.
     csi_inter: Option<StreamByte>,
@@ -376,6 +384,8 @@ impl<'a> Term<'a> {
             reply_len: ByteLen::ZERO,
             reply_overflows: Stat::ZERO,
             csi_inter: None,
+            last_cp: None,
+            esc_inter: None,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
@@ -845,6 +855,7 @@ impl<'a> Term<'a> {
         }
         self.promote_if_runs();
         self.write_cell(cp);
+        self.last_cp = Some((cp, w));
         if w == Width::WIDE {
             let (r, c, st) = (self.cy, self.cx.after(), self.style);
             self.view().put(r, c, PackedCell::wide_tail(st));
@@ -900,6 +911,15 @@ impl<'a> Term<'a> {
                 }
             } else {
                 self.blit(base, off, room);
+            }
+            // The last byte of this run is the newest graphic character, which
+            // is what REP repeats. Set here as well as in put_cp: plain ASCII
+            // never reaches put_cp, so recording it only there would make
+            // `abc CSI 3 b` repeat whatever was printed before the run.
+            if !room.is_empty() {
+                let at = base.index() + off.index() + room.index() - 1;
+                let b = StreamByte::from_stream(self.s.arena[at]);
+                self.last_cp = Some((Codepoint::from_ascii(b), Width::NARROW));
             }
             self.cx += room;
             // With autowrap on, the cursor may sit one past the last column --
@@ -1060,6 +1080,16 @@ impl<'a> Term<'a> {
             // 132-column mode. Claiming VT220 would make applications send
             // sequences baud drops -- under-claiming degrades, over-claiming
             // breaks.
+            Csi::Repeat(c) => {
+                if let Some((cp, w)) = self.last_cp {
+                    // Bounded by the row: a repeat cannot usefully exceed the
+                    // line it is filling, and `CSI 65535 b` should not spin.
+                    let k = c.at_least_one().min(self.cols.index());
+                    for _ in 0..k {
+                        self.put_cp(cp, w);
+                    }
+                }
+            }
             Csi::DeviceAttributes => self.emit(b"\x1b[?6c"),
             Csi::DeviceStatus(Some(baud_domain::StatusKind::Operating)) => self.emit(b"\x1b[0n"),
             Csi::DeviceStatus(Some(baud_domain::StatusKind::CursorPosition)) => {
@@ -1226,6 +1256,7 @@ impl<'a> Term<'a> {
                     // were interpreted as commands.
                     self.st = State::StringIgnore;
                 } else if b.is_esc_intermediate() {
+                    self.esc_inter = Some(b);
                     self.st = State::EscapeIntermediate;
                 } else {
                     // Same two-byte escapes the AVX2 path handles. The two feed
@@ -1236,12 +1267,17 @@ impl<'a> Term<'a> {
                 }
             }
             State::EscapeIntermediate => {
-                // DECALN (`ESC # 8`) and the charset designators are Tier 1
-                // `todo` in docs/vt-coverage.md. What matters here is that the
-                // final byte is consumed rather than printed.
                 if b.is_c0() {
                     self.execute(b);
-                } else if !b.is_esc_intermediate() && b != StreamByte::DEL {
+                } else if b.is_esc_intermediate() {
+                    self.esc_inter = Some(b);
+                } else if b != StreamByte::DEL {
+                    // `ESC # 8` is DECALN. The charset designators
+                    // (`ESC ( <c>`) are consumed and select nothing -- see
+                    // docs/vt-coverage.md for why the mapping is not invented.
+                    if self.esc_inter == Some(StreamByte::HASH) && b.raw_byte() == b'8' {
+                        self.screen_alignment();
+                    }
                     self.st = State::Ground;
                 }
             }
@@ -1529,6 +1565,26 @@ impl<'a> Term<'a> {
             }
             _ => {}
         }
+    }
+
+    /// DECALN, `ESC # 8`.
+    ///
+    /// `[[source: vt510-decaln]]`: "fills the complete screen area with a test
+    /// pattern used for adjusting screen alignment... DECALN sets the margins
+    /// to the extremes of the page, and moves the cursor to the home
+    /// position." The pattern is uppercase E.
+    fn screen_alignment(&mut self) {
+        self.scroll_top = Row::ZERO;
+        self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        let cell = PackedCell::from_ascii(StreamByte::from_stream(b'E'), self.style);
+        for y in 0..self.rows.index() {
+            let r = Row::from_index(y);
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            self.view().fill_row(r, cell);
+        }
+        self.cx = Col::ZERO;
+        self.cy = Row::ZERO;
     }
 
     /// DECSTR. Modes, region, cursor and attributes to their defaults --

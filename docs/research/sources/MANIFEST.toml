@@ -113,3 +113,34 @@ sha256 = "c4cae82f72666e54bcb7f82df4ee1c9e6ce17fd8d969f29ffb36293a507dd36b"
 bytes  = 19930
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-decaln]
+key    = "vt510-decaln"
+title  = "DECALN — Screen Alignment Pattern (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECALN.html"
+file   = "vt510-DECALN.html"
+sha256 = "7d209c9bb034495cf83f42962470e132bc32245fe8ab0171a340a3601a589ea4"
+bytes  = 19404
+status = "retrieved"
+group  = "C"
+
+# DEC Special Graphics glyph mapping. NOT retrieved: vt100.net carries the table
+# as a figure, not as text, so there is no citable machine-readable mapping. The
+# charset designators are consumed and select nothing, and the translation is
+# NOT written from memory -- see docs/vt-coverage.md.
+[sources.dec-special-graphics]
+key    = "dec-special-graphics"
+title  = "DEC Special Graphics character set mapping"
+author = "Digital Equipment Corporation"
+year   = 1983
+venue  = "VT100/VT220 Programmer Reference"
+url    = "https://vt100.net/docs/vt220-rm/table2-4.html"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "Published as a figure/image rather than text; no machine-readable mapping obtained."
+group  = "C"

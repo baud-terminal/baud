@@ -1,16 +1,18 @@
 # baud
 
+<div align="center">
+
 [![crates.io](https://img.shields.io/crates/v/baud?logo=rust&logoColor=white)](https://crates.io/crates/baud)
 [![Downloads](https://img.shields.io/crates/d/baud?logo=rust&logoColor=white)](https://crates.io/crates/baud)
 [![MSRV](https://img.shields.io/crates/msrv/baud?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/i-am-logger/baud/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/i-am-logger/baud/actions/workflows/ci.yml)
 [![docs.rs](https://img.shields.io/docsrs/baud?logo=docsdotrs&logoColor=white)](https://docs.rs/baud)
-[![codecov](https://codecov.io/gh/i-am-logger/baud/branch/master/graph/badge.svg)](https://codecov.io/gh/i-am-logger/baud)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/i-am-logger/baud/badge)](https://scorecard.dev/viewer/?uri=github.com/i-am-logger/baud)
 
 [![Nix](https://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=white)](https://nixos.org)
 [![devenv](https://img.shields.io/badge/devenv-2b2b2b?logo=nixos&logoColor=white)](https://devenv.sh)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
+
+</div>
 
 > A terminal emulator ingest core, and the measurements that produced it.
 
