@@ -87,7 +87,7 @@ in
   '';
 
   scripts.dev-run.exec = ''
-    echo "Running the PTY benchmark (Linux only)..."
+    echo "Running the PTY benchmark..."
     cargo run --release -p baud-bench
   '';
 
@@ -127,7 +127,7 @@ in
       echo "  dev-check     - Check compilation"
       echo "  dev-bare      - Build baud-core for ${bareTarget} (no_std gate)"
       echo "  dev-audit     - Run the type-system audit gate"
-      echo "  dev-run       - Run the PTY benchmark (Linux only)"
+      echo "  dev-run       - Run the PTY benchmark (warns off Linux)"
       echo "  dev-build     - Build the workspace"
       echo ""
     } >&2
