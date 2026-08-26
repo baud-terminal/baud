@@ -201,7 +201,28 @@ const CORES: &[&str] = &[
     "vt100 crate",
     "wezterm (full terminal)",
     "termwiz (wezterm) parse only",
+    "baud (cells, computed)",
+    "baud (cells, templated)",
 ];
+
+/// One rep of baud in a given representation.
+///
+/// The mode is chosen once at startup, so each is a configuration a user could
+/// actually run -- the same status ghostty's -Dsimd flag has. Reporting only
+/// `Runs` under-reports baud on payloads where a materialised viewport wins, and
+/// MEASUREMENTS.md's own baud-alone table shows the modes trade places by
+/// payload: spans lead on streaming, and on TUI all three land within noise.
+fn baud_rep(p: &[u8], total: usize, mode: baud_core::OpMode) -> f64 {
+    let mut st = baud_core::Storage::boxed();
+    let mut t = baud_core::Term::new(&mut st, mode);
+    drive(p, total, |chunk| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
+        unsafe { baud_feed(&mut t, base, fl.len()) };
+        t.commit_read(fl.len());
+    })
+}
 
 /// One rep of one core, with state built fresh exactly as before.
 ///
@@ -217,17 +238,7 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         0 => drive(p, total, |c| {
             std::hint::black_box(c);
         }),
-        1 => {
-            let mut st = baud_core::Storage::boxed();
-            let mut t = baud_core::Term::new(&mut st, baud_core::OpMode::Runs);
-            drive(p, total, |chunk| {
-                let mut slot = t.read_slot();
-                let base = slot.base();
-                let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
-                unsafe { baud_feed(&mut t, base, fl.len()) };
-                t.commit_read(fl.len());
-            })
-        }
+        1 => baud_rep(p, total, baud_core::OpMode::Runs),
         2 => {
             let mut cfg = Config::default();
             cfg.scrolling_history = 10_000;
@@ -289,6 +300,8 @@ fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                 });
             })
         }
+        7 => baud_rep(p, total, baud_core::OpMode::Computed),
+        8 => baud_rep(p, total, baud_core::OpMode::Templated),
         _ => unreachable!(),
     }
 }

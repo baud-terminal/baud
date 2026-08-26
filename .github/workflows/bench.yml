@@ -1,0 +1,100 @@
+name: Bench (x86-64)
+
+# The x86-64 half of the comparison.
+#
+# baud has only ever been measured on two hosts: a Linux Xeon whose numbers
+# predate most of the current code, and an arm64 Mac. Neither can produce a
+# trustworthy x86-64 figure today — the Mac only via Rosetta, which translates
+# AVX2 into NEON and makes any timing a measurement of the translator. This
+# workflow is real x86-64 silicon with a real n_tty, which is the only place
+# where baud's AVX2 path and the tty tax both exist.
+#
+# It does NOT gate anything. A shared GitHub runner is noisy, so the numbers are
+# a tripwire and a cross-host sanity check, not a merge criterion. Ratios within
+# one run are the finding; absolutes are not portable off this runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      reps:
+        description: "median-of-N per core"
+        default: "9"
+  schedule:
+    # Weekly, so drift shows up as a trend rather than as a surprise.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: multibench on x86-64
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v22
+        with:
+          extra-conf: |
+            extra-substituters = https://nix-community.cachix.org https://cache.nixos.org https://devenv.cachix.org
+            extra-trusted-public-keys = nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs= cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # Record what we are actually measuring on. A benchmark without its host
+      # is not a measurement, and this file's whole convention is that every
+      # table carries host, harness, statistic and payload.
+      - name: Host facts
+        run: |
+          echo "### Host" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          uname -srm >> "$GITHUB_STEP_SUMMARY"
+          grep -m1 'model name' /proc/cpuinfo >> "$GITHUB_STEP_SUMMARY"
+          echo "cores: $(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          echo -n "avx2: " >> "$GITHUB_STEP_SUMMARY"
+          grep -qm1 ' avx2 ' /proc/cpuinfo && echo yes >> "$GITHUB_STEP_SUMMARY" || echo NO >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # ghostty's terminal core, built from source as libghostty-vt. Its own
+      # build.zig runs the unicode_tables codegen, which is what used to block
+      # bench-others/ghostty-bench.
+      - name: Build libghostty-vt
+        run: |
+          git clone --depth 1 https://github.com/ghostty-org/ghostty.git /tmp/ghostty
+          cd /tmp/ghostty
+          nix shell nixpkgs#zig_0_16 --command zig build -Demit-lib-vt=true -Doptimize=ReleaseFast || true
+          test -f zig-out/lib/libghostty-vt.a && echo "GHOSTTY_LIB_DIR=/tmp/ghostty/zig-out/lib" >> "$GITHUB_ENV"
+
+      # Both transports. Through a PTY is what a terminal faces; from memory is
+      # the only way to compare parsers, because on a fast core the transport is
+      # most of the measured time — 89% for baud on Darwin.
+      - name: Bench through a real PTY
+        run: |
+          echo "### Through a real PTY (n_tty)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          devenv shell -- cargo run --release -q --manifest-path bench-others/multibench/Cargo.toml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bench from memory
+        env:
+          TRANSPORT: memory
+        run: |
+          echo "### From memory (no PTY)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          devenv shell -- cargo run --release -q --manifest-path bench-others/multibench/Cargo.toml \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # The tty tax on this host, which only Linux can answer: n_tty caps
+      # read(2) at N_TTY_BUF_SIZE-1 regardless of the buffer offered.
+      - name: baud alone, both transports
+        run: |
+          echo "### baud-bench (payload.rs payloads, arbitrary column + ECH/IL/ED)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          devenv shell -- cargo run --release -q -p baud-bench | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

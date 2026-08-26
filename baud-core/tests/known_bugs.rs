@@ -206,3 +206,35 @@ fn fast_paths_fire_on_this_target() {
         "fast path took only {hits}/{total}; not-CSI {not_csi}, boundary {boundary}"
     );
 }
+
+/// `CSI K` erases to end of line and must PRESERVE what is left of the cursor.
+///
+/// erase_line's Runs fast path sets nrun to ZERO, which drops every span on the
+/// line -- including the ones before the cursor. The original code then promoted
+/// and filled [cx, cols), which could have been what repaired that. This pins
+/// the semantics so the optimisation cannot silently trade correctness for
+/// throughput: chunk-invariance compares baud against baud and would not see it.
+#[test]
+fn erase_to_end_preserves_text_left_of_cursor() {
+    for mode in [OpMode::Runs, OpMode::Computed, OpMode::Templated] {
+        let mut s = boxed();
+        let mut t = Term::new(&mut s, mode);
+        // A long line, then CUP to row 1 column 6, then erase to end.
+        // CUP (`H`) deliberately: `CSI G` (CHA) is not among the ~22 operations
+        // baud implements, so a test using it would move no cursor and assert
+        // nothing.
+        feed_all(&mut t, b"ABCDEFGHIJKLMNOP\x1b[1;6H\x1b[K");
+        let v = t.viewport().to_vec();
+
+        let mut blank = boxed();
+        let mut u = Term::new(&mut blank, mode);
+        feed_all(&mut u, b"ABCDE");
+        let want = u.viewport().to_vec();
+
+        assert_eq!(
+            v, want,
+            "{mode:?}: CSI K must leave ABCDE and blank the rest, \
+             not drop the whole line or leave stale cells"
+        );
+    }
+}

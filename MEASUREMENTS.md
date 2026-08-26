@@ -99,12 +99,36 @@ pipeline near 200 MB/s, and a core fast enough to reach that cap is measured as
 
 | core | streaming median [min-max] | TUI median [min-max] |
 |---|---|---|
-| **baud** (spans, **scalar** on this host) | **1699.2** [1152.6-1706.2] | **1076.1** [929.4-1084.8] |
-| ghostty (libghostty-vt, vectorised) | 1121.1 [1110.0-1127.5] | 1047.7 [1033.2-1052.7] |
-| termwiz (wezterm) parse only | 378.9 [377.4-380.5] | 367.4 [365.8-370.6] |
-| alacritty_terminal | 215.7 [213.7-221.8] | 262.5 [258.7-269.4] |
-| vt100 crate | 168.5 [167.1-169.9] | 219.8 [218.4-222.7] |
-| wezterm (full terminal) | 17.8 [17.4-17.9] | 31.4 [31.4-31.5] |
+| **baud** (spans, **scalar** on this host) | **1741.7** [1667.2-1757.6] | **2276.0** [2212.2-2313.3] |
+| ghostty (libghostty-vt, vectorised) | 1123.9 [1115.0-1135.7] | 1062.6 [1034.9-1071.3] |
+| baud (cells, templated) | 1113.3 [1100.0-1118.6] | 1104.1 [1100.4-1117.7] |
+| baud (cells, computed) | 1102.6 [1096.8-1117.2] | 1105.8 [1090.6-1113.8] |
+| termwiz (wezterm) parse only | 352.8 [351.4-353.8] | 343.2 [338.5-344.5] |
+| alacritty_terminal | 225.2 [200.7-234.4] | 275.6 [273.5-277.3] |
+| vt100 crate | 169.6 [167.1-171.1] | 220.1 [219.0-221.6] |
+| wezterm (full terminal) | 17.8 [17.6-18.0] | 32.4 [32.3-32.5] |
+
+baud's three representations are all listed because each is a startup
+configuration a user could run -- the same status ghostty's `-Dsimd` flag has.
+Spans lead on both payloads here; the cell modes are within noise of ghostty.
+
+### Both payloads: a result
+
+Two runs, no range overlaps against any core.
+
+| baud (spans) vs | streaming | TUI redraw |
+|---|---|---|
+| **ghostty** | **1.55x** | **2.14x** |
+| termwiz (parse only, keeps no screen) | 4.9x | 6.6x |
+| alacritty_terminal | 7.7x | 8.3x |
+| vt100 | 10.3x | 10.3x |
+| wezterm (full terminal) | 98x | 70x |
+
+That is with baud on its **scalar** path -- there is no NEON scanner -- against a
+ghostty that vectorises. The advantage is not parser speed.
+
+The TUI figure was 1048.6 until `erase_line` stopped filling a row it had
+already truncated: see "Erase to end of line" below.
 
 ### The tty tax, measured on baud for the first time
 
@@ -120,6 +144,23 @@ PTY; alacritty loses a third, close to the -30% this file already recorded for
 it on Linux; baud loses **89%**, because it is fast enough that the transport is
 essentially all of its measured time. A parser cannot be compared to another
 parser through a channel that neither of them saturates.
+
+### Erase to end of line
+
+`CSI K` on the TUI payload fires once per ~77 input bytes, against a 200-column
+grid. `erase_line` set `nrun` to ZERO for an unpromoted line in `Runs` mode --
+the O(1) truncation that *is* the erase, since the viewport is a projection of
+the spans -- and then promoted the line and filled `[cx, cols)` anyway.
+
+That fill was ~134 cell writes per 77 input bytes: **write amplification of
+roughly 20:1**, against rule #1's <= 1, to blank a row that had already been
+truncated.
+
+Removing it took the TUI figure from 1048.6 to 2276.0 MB/s, 2.17x, and turned a
+tie with ghostty into 2.14x. Pinned by
+`known_bugs.rs::erase_to_end_preserves_text_left_of_cursor`, which asserts in
+all three modes that `CSI K` keeps `[0, cx)` -- chunk-invariance compares baud
+against baud and would not have caught the difference.
 
 ### Streaming: a result
 
