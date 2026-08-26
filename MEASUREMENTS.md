@@ -9,9 +9,10 @@ stated only for rep counts, which is how two tables measuring the same core at
 318 and 204 MB/s sat three lines apart without either being wrong.
 
 Ranges are printed everywhere. **If two ranges overlap there is no result**, and
-saying so is the point of printing them. Two runs of identical code have
-differed here by 9.3%, which is larger than most differences these tables get
-used to argue about.
+saying so is the point of printing them. That is a floor, not a guarantee: runs
+of identical code have differed here by 17% *between* invocations, wider than
+any single run's range, so two non-overlapping ranges from one run are still not
+a result unless the ordering has been varied. See Host B.
 
 Ratios within one table are the finding. Absolute numbers are not portable
 across hosts and the two hosts below are not comparable to each other at all.
