@@ -84,6 +84,75 @@ anything in this repo.
 
 ---
 
+# Host C — x86-64 Linux (GitHub-hosted runner)
+
+*Harness `bench-others/multibench` · median of 9 over 32 MB, interleaved and
+rotated · `.github/workflows/bench.yml`, run 33016512979.*
+
+The only host where baud's **AVX2** path and a real `n_tty` both exist. AVX2 is
+not inferred: `multibench` calls `feed_avx2` unconditionally on x86-64 with no
+runtime detection, so a runner without it would fault rather than measure.
+
+A shared runner is noisy and this is not a merge gate. Ratios within one run are
+the finding; absolutes are not portable off it.
+
+## From memory (no PTY) — the parser comparison
+
+| core | streaming median [min-max] | TUI median [min-max] |
+|---|---|---|
+| **baud** (spans, **AVX2**) | **2023.0** [1980.1-2096.3] | **2684.0** [2616.2-2697.4] |
+| baud (cells, computed) | 1202.0 [1171.9-1217.2] | 1153.3 [1144.7-1170.5] |
+| baud (cells, templated) | 1198.8 [1176.5-1227.3] | 1151.2 [1141.9-1172.2] |
+| ghostty (libghostty-vt) | 969.5 [880.6-994.3] | 998.1 [750.3-1002.5] |
+| alacritty_terminal | 142.7 [115.7-157.6] | 225.9 [172.6-228.8] |
+| vt100 crate | 127.1 [123.1-128.8] | 158.2 [147.3-159.6] |
+| termwiz (wezterm) parse only | 107.5 [106.4-107.6] | 112.5 [111.8-112.6] |
+| wezterm (full terminal) | 13.3 [13.2-13.3] | 26.7 [24.4-26.8] |
+
+No range overlaps against any core, on either payload.
+
+| baud (spans) vs | streaming | TUI redraw |
+|---|---|---|
+| **ghostty** | **2.09x** | **2.69x** |
+| alacritty_terminal | 14.2x | 11.9x |
+| vt100 | 15.9x | 17.0x |
+| termwiz (parse only, keeps no screen) | 18.8x | 23.9x |
+| wezterm (full terminal) | 152x | 100x |
+
+Wider than Host B's 1.55x/2.14x, which is what having a SIMD scanner should
+buy: baud runs AVX2 here and scalar there.
+
+## Through a real PTY — where the advantage disappears
+
+| core | streaming median [min-max] | TUI median [min-max] |
+|---|---|---|
+| ghostty (libghostty-vt) | 232.1 [178.5-239.6] | 221.6 [194.3-245.2] |
+| baud (cells, computed) | 232.0 [222.3-236.5] | 239.5 [219.7-250.2] |
+| baud (cells, templated) | 216.9 [172.1-240.8] | 232.3 [213.2-251.8] |
+| **baud** (spans) | 202.1 [183.2-209.6] | 204.5 [188.7-219.1] |
+| alacritty_terminal | 82.1 [77.4-88.5] | 107.1 [103.7-108.8] |
+| termwiz (wezterm) parse only | 80.1 [79.5-80.9] | 81.2 [78.6-83.3] |
+| vt100 crate | 75.5 [75.2-76.8] | 89.1 [85.8-89.5] |
+| wezterm (full terminal) | 12.3 [12.2-12.5] | 23.4 [22.6-23.6] |
+
+**baud does not beat ghostty through a PTY here**, and this is the honest half of
+the result. Spans drop from 2023 to 202 -- **-90%** -- and every fast core lands
+in a 200-240 MB/s band that is the line discipline, not the parser. baud's cell
+modes reach 232.0/239.5 and tie or edge ghostty; spans, which win by a factor of
+two from memory, come last among the fast cores.
+
+That is the same shape Host B shows without an `n_tty` at all, and it is the
+argument this repo has always made: `read(2)` is capped at `N_TTY_BUF_SIZE - 1`,
+so a core fast enough to saturate the tty is measured as the tty. A parser
+cannot be compared to another parser through a channel neither can saturate.
+
+The corollary is uncomfortable and worth stating: **on today's Linux tty, baud's
+ingest advantage is not reachable by a real terminal.** Realising it needs the
+transport changed -- the custom `tty_ldisc` this file already argues for, or the
+shared-memory path `Storage` being a caller-owned `&mut [u8]` exists to allow.
+
+---
+
 # Host B — macOS arm64 (Apple Silicon)
 
 ## The PTY was the constraint, and it hid every difference
