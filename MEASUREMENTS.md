@@ -85,98 +85,101 @@ anything in this repo.
 
 # Host B — macOS arm64 (Apple Silicon)
 
-*Harness `bench-others/multibench` · statistic **median of 9** with ranges, over
-32 MB · payloads generated inline in `multibench/src/main.rs`.*
+**No baud-vs-ghostty result. The numbers are not stable enough to support one.**
 
-**Not comparable to Host A in any respect.** Darwin has no `n_tty`, so there is
-no `N_TTY_BUF_SIZE` cap on `read(2)` and no tty tax — every core is faster here
-than on the Xeon, and alacritty benefits most because the tax it pays on Linux
-is gone. baud also runs its **scalar** path: there is no NEON scanner.
+Three runs of *identical* baud code on this host gave 195.9, 194.3 and 163.1
+MB/s on streaming — a 17% spread, wider than almost every difference these
+tables get used to argue about. The baud/ghostty verdict flipped with it:
 
-### The ghostty comparison is not like-for-like, and cannot be made so here
+| run | baud streaming | ghostty streaming | verdict |
+|---|---|---|---|
+| 1 | 195.9 [158.6-207.9] | 200.1 [189.6-205.1] | ranges overlap, no result |
+| 3 | 163.1 [155.1-172.7] | 211.8 [194.6-223.4] | no overlap, ghostty ahead |
 
-ghostty is the first competing SIMD parser measured against baud. But
-`ghostty/src/terminal/stream.zig` calls `std.simd.suggestVectorLength` in
-`consumeApcString` (:1046) and `consumeOscString` (:1089) **ungated by
-`build_options.simd`**, so `-Dsimd=false` reduces vectorisation without removing
-it. Every ghostty row below is therefore *ghostty vectorised vs baud scalar*.
-A like-for-like comparison needs x86-64, where baud has AVX2.
+Run 3 differs from run 1 only by a row added *above* baud, which changed run
+order. That is enough to flip the conclusion, so neither conclusion is one.
+Recording it here rather than deleting it, because this project's notes already
+list "orderings that flipped between runs and were reported as findings" as a
+failure that has happened before.
 
-Both ghostty builds are shown because neither is a control.
+What would make this host usable: many more reps, interleaved rather than
+blocked ordering so thermal drift hits every core equally, and a quiet machine.
+None of that has been done.
 
-**ghostty built with `-Dsimd=true` (its default)**
+## The one thing measured here that is not in doubt
 
-| core                          | streaming median [min-max] | TUI median [min-max] |
-|-------------------------------|----------------------------|----------------------|
-| **baud** (spans)              | **195.9** [158.6-207.9]    | **294.4** [233.8-305.7] |
-| ghostty (libghostty-vt)       | 200.1 [189.6-205.1]        | 234.8 [210.9-260.6]  |
-| termwiz (wezterm) parse only  | 157.1 [153.5-159.1]        | 156.0 [151.6-171.0]  |
-| alacritty_terminal            | 147.5 [113.5-155.7]        | 150.9 [149.4-152.5]  |
-| vt100 crate                   | 119.2 [118.6-128.8]        | 168.6 [151.8-170.8]  |
-| wezterm (full terminal)       | 16.8 [15.6-17.3]           | 29.0 [28.5-29.6]     |
+ghostty's terminal core can now be measured against baud at all, in the same
+harness, through the same PTY, on the same payload bytes. That is new -- see
+`bench-others/README.md`. The blocker this repo recorded (ghostty's build-time
+`unicode_tables`) is obsolete: libghostty-vt is a shipped artifact with a C ABI.
 
-**ghostty built with `-Dsimd=false`**
+The gross separations survive any amount of noise:
 
-| core                          | streaming median [min-max] | TUI median [min-max] |
-|-------------------------------|----------------------------|----------------------|
-| **baud** (spans)              | **194.3** [172.3-207.8]    | **265.6** [250.3-279.3] |
-| ghostty (libghostty-vt)       | 208.7 [204.4-218.7]        | 274.2 [256.4-281.3]  |
-| alacritty_terminal            | 142.9 [127.3-151.9]        | 157.1 [152.2-159.9]  |
-| termwiz (wezterm) parse only  | 150.2 [146.9-162.6]        | 154.1 [148.4-160.5]  |
-| vt100 crate                   | 117.0 [113.8-119.9]        | 147.0 [145.1-156.7]  |
-| wezterm (full terminal)       | 17.0 [16.7-17.2]           | 30.0 [29.4-30.9]     |
-
-### What these support, and what they do not
-
-**baud vs ghostty: no result, on all four comparisons.** Every range overlaps,
-in both builds and on both payloads. The medians move in opposite directions
-between the two builds — ghostty 0.98x then 0.93x on streaming, 1.25x then 0.97x
-on TUI — which is what noise looks like, not a trend. The two cores are
-indistinguishable here.
-
-That is worth stating precisely because it is easy to over-claim in either
-direction. baud does not beat ghostty on this host. It also does not lose to it,
-while running no SIMD at all against a vectorised parser. That is consistent
-with the repo's own position that parser speed is not the binding constraint,
-and it is the strongest thing these numbers support.
-
-**ghostty `-Dsimd` on vs off: no result.** Ranges overlap on both payloads and
-the flag trends the wrong way. Consistent with the flag not removing the
-portable-vector paths.
-
-**baud vs alacritty: a real result.** No range overlaps in any of the four
-comparisons.
-
-| | streaming | TUI redraw |
+| core | streaming | TUI redraw |
 |---|---|---|
-| ghostty simd=on run  | 1.33x | 1.95x |
-| ghostty simd=off run | 1.36x | 1.69x |
+| wezterm (full terminal) | 16.1 [15.8-16.3] | 28.4 [28.0-28.7] |
+| vt100 crate | 118.5 [114.1-122.1] | 148.1 [142.6-149.0] |
 
-Much smaller than Host A's ~4x, and the likely reason is the missing tty tax:
-alacritty's Linux deficit is partly line discipline, which Darwin does not
-charge. Unverified — it would need the `alacritty-bench` with/without-PTY split
-re-run on this host to say so properly.
+wezterm's full terminal is an order of magnitude below every other core on both
+payloads, in every run. Everything between alacritty and ghostty is inside the
+noise floor of this host.
 
-**baud vs termwiz: mixed.** Real on TUI (1.89x), no result on streaming (ranges
-touch at 158.6/159.1). termwiz keeps no screen, so it does strictly less work
-than any core it is listed beside.
+## Do not read the discard row as a ceiling
+
+`multibench` prints a `ceiling (discard, no parse)` row. It is **not** an upper
+bound, and the data says so: baud TUI (249.0) and ghostty TUI (272.0) both
+exceed it.
+
+`through_pty` times a producer-consumer pair. With a sink that discards, the
+reader spins and blocks in `read(2)` continuously, so the pair pays more
+scheduler round trips per byte; a sink that does work lets the writer refill
+while the reader parses. The row is a different operating point, not a bound.
+
+This matters because it invalidates the obvious way to compare across harnesses:
+subtracting harness cost as if it were additive. It is not.
+
+## kitty
+
+*Harness `bench-others/kitty-bench` -- Python, same PTY shape, same payload
+bytes dumped by multibench. Median of 9 over 32 MB.*
+
+| core | streaming | TUI redraw |
+|---|---|---|
+| discard, no parse | 189.1 [178.8-201.7] | 190.8 [183.2-199.5] |
+| kitty (`Screen.test_*`) | 101.7 [88.7-119.4] | 121.4 [116.1-135.4] |
+
+kitty's parser is a CPython object and cannot be linked from Rust, so it is
+driven through the same buffer-protocol cycle its own test suite uses. Three
+Python calls per 4096-byte chunk are included in these numbers.
+
+**These are not comparable to the Rust-harness tables above**, and the discard
+row does not make them comparable, for the reason in the previous section. What
+they establish is that kitty's parser runs, through a real PTY, on the same
+bytes -- not where it ranks.
+
+## The tty tax is not measurable here
+
+Darwin has no `n_tty`, so there is no `N_TTY_BUF_SIZE` cap on `read(2)` and no
+line-discipline cost. Every core is faster on this host than on Host A, and
+alacritty gains most because the tax it pays on Linux is absent. That is a
+hypothesis; confirming it needs `alacritty-bench`'s with/without-PTY split run
+here, which has not been done.
+
+baud also runs its **scalar** path on this host -- there is no NEON scanner --
+while ghostty vectorises regardless of build flags, since
+`src/terminal/stream.zig` calls `std.simd.suggestVectorLength` in
+`consumeApcString` (:1046) and `consumeOscString` (:1089) ungated by
+`build_options.simd`. So even with stable numbers, no build configuration on
+this host would be like-for-like.
 
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
 `baud-core` implements ~22 VT operations against alacritty's 66; the
-differential test matches on 13 of 20 cases, so part of every margin above is
-work not being done.
+differential test matches on 13 of 20 cases, so part of every margin is work not
+being done.
 
-Still absent as implementations:
-
-- **kitty.** Its parser is a CPython object — `Parser` is declared
-  `PyObject_HEAD` and `alloc_vt_parser(window_id)` resolves its dispatch target
-  through kitty's global window registry — so it cannot be linked from Rust. It
-  is reachable through `Screen.test_create_write_buffer` /
-  `test_commit_write_buffer` / `test_parse_written_data`, which is the same
-  buffer-protocol cycle baud uses, at a cost of three Python calls per 4096
-  bytes that would have to be measured and reported alongside.
 - **foot.** Linux/Wayland only; cannot be built on Host B at all.
-- **Host A has not been re-run** since `multibench` switched to median-of-9, nor
-  has it ever included ghostty.
+- **Host A has not been re-run** since `multibench` switched to median-of-9, and
+  has never included ghostty. It remains the only host where baud has SIMD and
+  where the tty tax exists.

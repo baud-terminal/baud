@@ -180,11 +180,44 @@ fn main() {
         s += 1;
     }
 
+    // The kitty harness cannot be a Rust core (its parser is a CPython object),
+    // so it runs in Python — and a second implementation of these generators
+    // would be a second thing to keep in sync. Dump the exact bytes instead, so
+    // "same payloads" is a fact rather than a claim.
+    if let Ok(dir) = std::env::var("DUMP_PAYLOADS") {
+        std::fs::write(format!("{dir}/stream.bin"), &stream).expect("write stream.bin");
+        std::fs::write(format!("{dir}/tui.bin"), &tui).expect("write tui.bin");
+        eprintln!(
+            "wrote {}/stream.bin ({} B) and {}/tui.bin ({} B)",
+            dir,
+            stream.len(),
+            dir,
+            tui.len()
+        );
+        return;
+    }
+
     println!("  same payloads, same real PTY, 4096-byte reads, median of 9\n");
     println!(
         "  {:<28} {:>21}  {:>21}",
         "core", "streaming median [min-max]", "TUI median [min-max]"
     );
+
+    // --- harness ceiling ---
+    //
+    // Not a terminal: the same PTY loop with a sink that discards. No core can
+    // exceed it, and what a core costs is its distance from it. This exists
+    // because kitty must be measured in a Python harness (its parser is a
+    // CPython object), and comparing a number from that harness with one from
+    // this one is only meaningful if both report what their own loop costs.
+    let f = |p: &Vec<u8>| {
+        stat(9, || {
+            through_pty(p, total, |c| {
+                std::hint::black_box(c);
+            })
+        })
+    };
+    row("ceiling (discard, no parse)", f(&stream), f(&tui));
 
     // --- baud ---
     let f = |p: &Vec<u8>| {
