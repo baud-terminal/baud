@@ -258,6 +258,7 @@ impl<'a> Term<'a> {
     /// Whatever target feature `S` requires must be available.
     #[inline]
     pub(crate) unsafe fn feed_with<S: Scan>(&mut self, base: BytePos, n: ByteLen) {
+        self.count_in(n);
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
         while i < nn {
@@ -307,6 +308,15 @@ impl<'a> Term<'a> {
     pub fn feed(&mut self, base: BytePos, n: ByteLen) {
         // SAFETY: `Portable` requires no target feature.
         unsafe { self.feed_with::<Portable>(base, n) }
+    }
+
+    /// Bytes ingested, for the amplification denominator.
+    ///
+    /// Counted here rather than inside `feed_with` so both entry points get it
+    /// once per read, not once per scanned block.
+    #[inline(always)]
+    pub(crate) fn count_in(&mut self, n: ByteLen) {
+        self.bytes_in.add(n.index());
     }
 
     /// Ingest, scanning 32 bytes at a time instead of 16.

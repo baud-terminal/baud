@@ -17,16 +17,22 @@ pub(crate) fn bench_t(
     tr: Tr,
 ) {
     let mut v = Vec::with_capacity(reps);
+    let mut amp = (0.0f64, 0.0, 0.0);
     for _ in 0..reps {
-        v.push(run_once_t(store, mode, which, total, avx2, tr).0);
+        let r = run_once_t(store, mode, which, total, avx2, tr);
+        v.push(r.0);
+        amp = r.1;
     }
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     println!(
-        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]",
+        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]   span {:.3}x  cell {:.1}x (blank {:.1}x)",
         label,
         v[reps / 2],
         v[0],
-        v[reps - 1]
+        v[reps - 1],
+        amp.0,
+        amp.1,
+        amp.2
     );
 }
 
@@ -46,11 +52,11 @@ pub(crate) fn bench(
     // diagnostic that caught `StyleId::bucket` taking the wrong bits (112,144
     // interns at 51.6% against 0 at 100%), so a plausible-looking wrong value
     // there is expensive.
-    let (mut promo, mut hits, mut builds) = (Stat::ZERO, Stat::ZERO, Stat::ZERO);
+    let (mut amp, mut hits, mut builds) = ((0.0f64, 0.0, 0.0), Stat::ZERO, Stat::ZERO);
     for _ in 0..reps {
-        let (mbs, p, h, b) = run_once(store, mode, which, total, avx2);
+        let (mbs, a, h, b) = run_once(store, mode, which, total, avx2);
         v.push(mbs);
-        promo = p;
+        amp = a;
         hits = h;
         builds = b;
     }
@@ -72,8 +78,13 @@ pub(crate) fn bench(
         // swap visible rather than merely possible.
         100.0 * hits.ratio_to(builds)
     );
-    if !promo.is_zero() {
-        print!("   promotions {}", promo.count());
-    }
+    // Rule #1, read rather than asserted. `span` is the one it is about: a
+    // run costs `size_of::<Run>()` however many bytes it covers. `cell` cannot
+    // beat 8x for ASCII because a `PackedCell` is eight bytes, and `blank` is
+    // how much of that is scrolling blanking rows rather than storing text.
+    print!(
+        "   span {:.3}x  cell {:.1}x (blank {:.1}x)",
+        amp.0, amp.1, amp.2
+    );
     println!();
 }

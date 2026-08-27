@@ -498,6 +498,15 @@ impl Stat {
     pub fn inc(&mut self) {
         self.0 += 1;
     }
+    /// Add a bulk count.
+    ///
+    /// Write amplification is measured in *bytes*, and a run writes many cells
+    /// at once -- counting one at a time would put an increment inside
+    /// `put_ascii_run`'s loop, which is the loop this project already measured
+    /// a 5% regression in for threading one runtime flag through it.
+    pub fn add(&mut self, n: usize) {
+        self.0 += n as u64;
+    }
     pub fn count(self) -> u64 {
         self.0
     }

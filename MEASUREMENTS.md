@@ -571,6 +571,45 @@ never does. And each is ten seconds of one program on one machine. The
 direction of both errors is the same — reality is at or below these numbers,
 not above.
 
+## Write amplification, measured rather than asserted
+
+Rule #1 -- "bytes written per byte ingested <= 1" -- is the first thing
+`README.md` says every result here is predicted by, and it had **no
+measurement**: the instrumentation that fed it printed `inf x amplification`
+from counters nothing updated and was removed rather than repaired. It is back,
+split into the quantities it was conflating.
+
+| payload | mode | span | cell | of which blanking |
+|---|---|---|---|---|
+| `payload::streaming` | Runs | **0.283x** | 20.7x | 20.7x |
+| `payload::streaming` | Computed | 0.000x | 28.3x | 20.7x |
+| btop | Runs | **0.000x** | 1.9x | 0.0x |
+| asciiquarium | Runs | **0.000x** | 4.5x | 1.4x |
+| vim | Runs | **0.000x** | 12.3x | 9.1x |
+
+**Span and cell are different quantities and only the first is rule #1.** A
+`Run` costs `size_of::<Run>()` however many bytes it covers, so it amortises to
+0.283x. A cell mode cannot compete and is not trying to: one ASCII byte becomes
+an eight-byte `PackedCell`, so 8x is a floor, and reading the rule as covering
+that makes it unsatisfiable by construction. `amplification.rs` asserts both --
+span under 1, and text cells exactly equal to bytes in.
+
+**On the synthetic payload, blanking is 73% of all cell traffic.** Scrolling
+blanks the incoming row across the full width, so 60-column lines on a
+200-column grid blank 200 cells to store 60 characters. That is the cost worth
+attacking, and it is not the storing.
+
+**And the span path is never used by a full-screen application.** All three
+recordings enter the alternate screen and never leave, and `put_run`
+materialises every write there -- "no scrollback" one layer down. So spans
+measure `cat`, logs and shell output; btop, vim and asciiquarium never touch
+them. The 1.47x on spans is a real number about a real workload, and it is not
+the workload a TUI produces.
+
+Real capture is also far cheaper in cells than the synthetic payload suggested
+-- 1.9x for btop against 28.3x for `payload::streaming` -- because a TUI
+repaints what changed rather than every cell, and btop never scrolls at all.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.

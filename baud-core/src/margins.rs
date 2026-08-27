@@ -73,9 +73,9 @@ impl<'a> Term<'a> {
             self.s.promoted[y] = true;
             self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
             if insert {
-                self.view().insert_cells(r, from, n, to, blank);
+                self.insert_cells_counted(r, from, n, to, blank);
             } else {
-                self.view().delete_cells(r, from, n, to, blank);
+                self.delete_cells_counted(r, from, n, to, blank);
             }
         }
     }

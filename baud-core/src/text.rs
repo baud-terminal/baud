@@ -23,7 +23,7 @@ impl<'a> Term<'a> {
     pub(crate) fn write_cell(&mut self, cp: Codepoint) {
         let (r, c, st) = (self.cy, self.cx, self.style);
         let fl = self.flags;
-        self.view().put(r, c, PackedCell::glyph(cp, st, fl));
+        self.put_counted(r, c, PackedCell::glyph(cp, st, fl));
     }
 
     /// Place one decoded codepoint. A 2-wide character at the last column
@@ -83,7 +83,7 @@ impl<'a> Term<'a> {
         if w == Width::WIDE {
             let (r, c, st) = (self.cy, self.cx.after(), self.style);
             let fl = self.flags;
-            self.view().put(r, c, PackedCell::wide_tail(st, fl));
+            self.put_counted(r, c, PackedCell::wide_tail(st, fl));
         }
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
     }
@@ -138,6 +138,7 @@ impl<'a> Term<'a> {
         } else {
             self.rot
         };
+        self.cells_written.add(room.index());
         View::new(vp, stride, cols, rows, rot).put_ascii_run(
             r,
             c,
@@ -164,7 +165,7 @@ impl<'a> Term<'a> {
     pub(crate) fn open_gap(&mut self, n: Count, edge: Col) {
         self.promote_if_runs();
         let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
-        self.view().insert_cells(r, at, n, edge, b);
+        self.insert_cells_counted(r, at, n, edge, b);
     }
 
     #[inline(always)]
@@ -224,6 +225,7 @@ impl<'a> Term<'a> {
                     .with_encoding(Encoding::Ascii)
                     .with_flags(self.flags);
                     self.s.nrun[i.index()] = c.inc();
+                    self.runs_written.inc();
                 } else {
                     self.maxrun_overflows.inc();
                     self.promote();
@@ -281,7 +283,7 @@ impl<'a> Term<'a> {
                     flags: fl,
                 }
                 .with_charset(b, set);
-                self.view().put(rr, cc, cell);
+                self.put_counted(rr, cc, cell);
                 c += 1;
             }
         }
@@ -291,7 +293,7 @@ impl<'a> Term<'a> {
             Col::at_index(c),
             Col::at_index(self.cols.index()),
         );
-        self.view().fill(rr, from, to, blank);
+        self.fill_counted(rr, from, to, blank);
         self.s.promoted[y] = true;
         self.promotions.inc();
     }
@@ -301,5 +303,67 @@ impl<'a> Term<'a> {
         if self.mode == OpMode::Runs && self.screen == Screen::Normal {
             self.promote();
         }
+    }
+}
+
+impl<'a> Term<'a> {
+    /// Counted wrappers around the grid writes.
+    ///
+    /// Sixteen call sites write cells. Instrumenting each by hand is how one
+    /// of them ends up counting the wrong span -- and an amplification figure
+    /// that is quietly low is worse than none, which is what `inf x
+    /// amplification` taught this project once already. The arithmetic lives
+    /// here instead, once per shape, so a wrong count is wrong everywhere and
+    /// therefore visible.
+    #[inline(always)]
+    pub(crate) fn put_counted(&mut self, r: Row, c: Col, cell: PackedCell) {
+        self.cells_written.inc();
+        self.view().put(r, c, cell);
+    }
+
+    #[inline(always)]
+    pub(crate) fn fill_counted(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) {
+        let n = to.index().saturating_sub(from.index());
+        self.cells_written.add(n);
+        self.cells_blanked.add(n);
+        self.view().fill(r, from, to, cell);
+    }
+
+    #[inline(always)]
+    pub(crate) fn fill_row_counted(&mut self, r: Row, cell: PackedCell) {
+        self.cells_written.add(self.cols.index());
+        self.cells_blanked.add(self.cols.index());
+        self.view().fill_row(r, cell);
+    }
+
+    /// Insert and delete rewrite everything from `at` to the margin: the
+    /// shifted cells *and* the blanks that replace them. Counting only `n`
+    /// would miss the shift, which is the expensive half.
+    #[inline(always)]
+    pub(crate) fn insert_cells_counted(
+        &mut self,
+        r: Row,
+        at: Col,
+        n: Count,
+        right: Col,
+        blank: PackedCell,
+    ) {
+        self.cells_written
+            .add(right.index().saturating_sub(at.index()));
+        self.view().insert_cells(r, at, n, right, blank);
+    }
+
+    #[inline(always)]
+    pub(crate) fn delete_cells_counted(
+        &mut self,
+        r: Row,
+        at: Col,
+        n: Count,
+        right: Col,
+        blank: PackedCell,
+    ) {
+        self.cells_written
+            .add(right.index().saturating_sub(at.index()));
+        self.view().delete_cells(r, at, n, right, blank);
     }
 }

@@ -40,7 +40,7 @@ impl<'a> Term<'a> {
                 self.rot = self.rot.advance(1, self.rows);
                 let y = Row::from_index(last);
                 self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
-                self.view().fill_row(y, blank);
+                self.fill_row_counted(y, blank);
             }
             // `promoted` is indexed by screen row and the screen just moved, so
             // every flag now describes the wrong line. Clearing re-derives from

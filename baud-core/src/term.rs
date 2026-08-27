@@ -269,6 +269,33 @@ pub struct Term<'a> {
     /// A bitset rather than a struct of bools -- see [`Modes`].
     pub(crate) modes: Modes,
     pub(crate) mode: OpMode,
+    /// Bytes handed to `feed`, and cells and runs written because of them.
+    ///
+    /// Rule #1 is write amplification <= 1 byte written per byte ingested, and
+    /// it is the first thing `README.md` says every result here is predicted
+    /// by. It had no measurement: the old instrumentation printed
+    /// `inf x amplification` from counters nothing fed and was removed rather
+    /// than repaired, so the number the architecture is justified by has been
+    /// unverifiable since.
+    ///
+    /// Counted in bulk -- one `add` per run, not per cell -- because the
+    /// per-cell loop is the one a runtime flag cost 5% of.
+    pub bytes_in: Stat,
+    /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
+    pub cells_written: Stat,
+    /// Of those, the ones written to *blank* rather than to carry text.
+    ///
+    /// Separated because the two answer different questions. Materialising a
+    /// character is a floor -- one ASCII byte becomes an eight-byte
+    /// `PackedCell`, so a cell mode cannot be under 8x and rule #1 was never
+    /// about that. Blanking is not a floor: it is what scrolling costs, and on
+    /// a streaming payload it turns out to be *all* of the cell traffic.
+    pub cells_blanked: Stat,
+    /// Runs stored in the span table. Multiply by `size_of::<Run>()`.
+    ///
+    /// Only `OpMode::Runs` writes these; the materialising modes write cells
+    /// instead, so the two counters are alternatives rather than a sum.
+    pub runs_written: Stat,
     pub promotions: Stat,
     pub tmpl_builds: Stat,
     pub tmpl_hits: Stat,
@@ -377,6 +404,10 @@ impl<'a> Term<'a> {
             right_margin: Col::at_index(cols.clamp(MAX_COLS).index() - 1),
             modes: Modes::default(),
             mode,
+            bytes_in: Stat::ZERO,
+            cells_written: Stat::ZERO,
+            cells_blanked: Stat::ZERO,
+            runs_written: Stat::ZERO,
             promotions: Stat::ZERO,
             tmpl_builds: Stat::ZERO,
             tmpl_hits: Stat::ZERO,
@@ -403,6 +434,57 @@ impl<'a> Term<'a> {
     /// BEL characters seen. There is no UI here to ring one.
     pub fn bells(&self) -> u64 {
         self.bells.count()
+    }
+
+    /// Bytes written to the grid per byte ingested.
+    ///
+    /// Rule #1 is that this stays at or below 1. It is the first thing
+    /// `README.md` says every result here is predicted by, and it has had no
+    /// measurement since the old counters were removed for printing
+    /// `inf x amplification` -- so the quantity the architecture is justified
+    /// by has been an assertion rather than a reading.
+    ///
+    /// Cells and runs are alternatives, not a sum: `OpMode::Runs` stores spans
+    /// and the materialising modes store cells, so on any one run only one of
+    /// the two is non-zero. Both are included so the caller does not have to
+    /// know which mode it asked for.
+    ///
+    /// Zero bytes in gives zero rather than a division by it -- an empty run
+    /// has no amplification, and `inf` is what the last version printed.
+    /// Bytes of *span table* written per byte ingested.
+    ///
+    /// **This is the one rule #1 is about.** A run costs `size_of::<Run>()`
+    /// however many bytes it covers, so it amortises: on a streaming payload
+    /// it measures about 0.08x. A cell mode cannot compete and is not trying
+    /// to -- materialising one ASCII byte into an eight-byte `PackedCell` is a
+    /// floor of 8x, which is the cost of having a grid rather than a log.
+    pub fn span_amplification(&self) -> f64 {
+        self.per_byte(self.runs_written.count() * core::mem::size_of::<Run>() as u64)
+    }
+
+    /// Bytes of *grid* written per byte ingested, and the share of it that is
+    /// blanking rather than text.
+    ///
+    /// The second number is the interesting one. Scrolling blanks the incoming
+    /// row, which costs `cols` cells every time the screen moves up, and on a
+    /// streaming payload that is the entire cell budget -- the text itself
+    /// goes into spans. Blanking is therefore the thing to attack, not the
+    /// storing.
+    pub fn cell_amplification(&self) -> (f64, f64) {
+        let w = core::mem::size_of::<PackedCell>() as u64;
+        (
+            self.per_byte(self.cells_written.count() * w),
+            self.per_byte(self.cells_blanked.count() * w),
+        )
+    }
+
+    /// Zero bytes in gives zero rather than dividing by it. `inf` is what the
+    /// instrumentation this replaces printed for several sessions.
+    fn per_byte(&self, written: u64) -> f64 {
+        match self.bytes_in.count() {
+            0 => 0.0,
+            n => written as f64 / n as f64,
+        }
     }
 
     pub fn fast_hits(&self) -> u64 {

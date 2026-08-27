@@ -5,7 +5,7 @@ impl<'a> Term<'a> {
     /// cells and a NUL renders as a hole.
     pub(crate) fn clear_screen(&mut self) {
         for y in 0..self.rows.index() {
-            self.view().fill_row(Row::from_index(y), PackedCell::EMPTY);
+            self.fill_row_counted(Row::from_index(y), PackedCell::EMPTY);
         }
     }
 
@@ -27,7 +27,7 @@ impl<'a> Term<'a> {
         self.promote_if_runs();
         let s = e.line_span(self.cx, self.cols);
         let b = PackedCell::empty_with(self.style);
-        self.view().fill(Row::from_index(y), s.from, s.to, b);
+        self.fill_counted(Row::from_index(y), s.from, s.to, b);
     }
 
     /// ED. **The cursor's own row is erased only partially.**
@@ -50,12 +50,12 @@ impl<'a> Term<'a> {
         for y in full.from.index()..full.to.index() {
             let r = Row::from_index(y);
             self.discard_row(r);
-            self.view().fill_row(r, b);
+            self.fill_row_counted(r, b);
         }
         if let Some(s) = e.cursor_span(self.cx, self.cols) {
             let r = self.cy;
             self.discard_row(r);
-            self.view().fill(r, s.from, s.to, b);
+            self.fill_counted(r, s.from, s.to, b);
         }
     }
 
@@ -64,7 +64,7 @@ impl<'a> Term<'a> {
         let b = PackedCell::empty_with(self.style);
         let (r, from) = (self.cy, self.cx);
         let to = Col::at_index(self.cx.index() + n.at_least_one());
-        self.view().fill(r, from, to, b);
+        self.fill_counted(r, from, to, b);
     }
 
     /// DCH. Bounded by the right margin when DECSLRM has set one.
@@ -77,7 +77,7 @@ impl<'a> Term<'a> {
         self.promote_if_runs();
         let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
         let to = self.right_margin.after();
-        self.view().delete_cells(r, at, n, to, b);
+        self.delete_cells_counted(r, at, n, to, b);
     }
 
     /// ICH. Bounded by the right margin, for the same reason as DCH: text
@@ -86,7 +86,7 @@ impl<'a> Term<'a> {
         self.promote_if_runs();
         let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
         let to = self.right_margin.after();
-        self.view().insert_cells(r, at, n, to, b);
+        self.insert_cells_counted(r, at, n, to, b);
     }
 
     /// Is the cell at `(r, c)` protected from a selective erase?
@@ -138,7 +138,7 @@ impl<'a> Term<'a> {
         for x in s.from.index()..s.to.index() {
             let c = Col::at_index(x);
             if !self.is_protected(r, c) {
-                self.view().put(r, c, blank);
+                self.put_counted(r, c, blank);
             }
         }
     }
@@ -171,7 +171,7 @@ impl<'a> Term<'a> {
             let r = Row::from_index(y);
             self.s.promoted[y] = true;
             self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
-            self.view().fill_row(r, cell);
+            self.fill_row_counted(r, cell);
         }
         self.cx = Col::ZERO;
         self.cy = Row::ZERO;
