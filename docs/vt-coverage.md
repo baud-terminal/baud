@@ -543,7 +543,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 58/59 underline colour | done — `StyleWord` grew to sixteen bytes; the *cell* holds a `StyleId` index and did not change |
 | 20 Fraktur, 26/50 proportional, 51-55 framed/encircled/overlined | done — recorded in `Attrs`; 23 clears italic **and** fraktur, 54 clears framed **and** encircled |
 | 56, 57 | **out** — `[[source: ctlseqs]]` assigns them nothing |
-| 60-65 ideogram attributes | **out** — and the reason is measured: five bits are needed and three are free, so they cost widening `Attrs` to `u32`, which is `NSTYLE * 4` bytes. Nothing sends them; the structure is not the obstacle |
+| 60-65 ideogram attributes | **out** — no readable primary source. `[[source: ctlseqs]]`'s SGR section stops before 60, and `[[source: ecma48]]` is a scanned PDF whose text extracts letter-spaced and unsearchable. Writing them from memory is what this project forbids. Bits are *not* the obstacle: three are free and widening `Attrs` costs 256 bytes |
 
 **Fonts moved from `out` to `done` by measuring rather than assuming.** The row
 said they needed cell bits that did not exist. A font is a *rendition*, and

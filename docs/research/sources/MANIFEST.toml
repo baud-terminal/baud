@@ -88,6 +88,11 @@ sha256 = "9577ad2514c411584b274ef7a4b3238c80aa93defbb349b18b8c78f78873f450"
 bytes  = 1607865
 status = "retrieved"
 group  = "C"
+# Checked 2026-08-27: the PDF's text streams inflate, but the content is drawn
+# with per-glyph positioning, so extraction yields letter-spaced fragments
+# ("Operat i ng sy st em") and phrase search does not work. Quotes already
+# cited from it were transcribed by eye from the rendered page; anything new
+# has to be, which is why `SGR 60-65` is out rather than guessed.
 
 [sources.vt510-decom]
 key    = "vt510-decom"
