@@ -91,6 +91,14 @@ pub enum Nrcs {
     Swiss,
     /// `` ` ``, `E` or `6`
     NorwegianDanish,
+    /// `% 6` — Portuguese, VT300.
+    Portuguese,
+    /// `" >` — Greek, VT500.
+    Greek,
+    /// `% 2` — Turkish, VT500.
+    Turkish,
+    /// `% =` — Hebrew, VT500.
+    Hebrew,
 }
 
 /// DEC-defined sets other than the line-drawing one, reachable through a single
@@ -106,6 +114,47 @@ pub enum DecSet {
     JisKatakana,
     /// `J` — JIS-Roman, VT382.
     JisRoman,
+    /// `" 4` — DEC Hebrew, VT500.
+    Hebrew,
+    /// `" ?` — DEC Greek, VT500.
+    Greek,
+    /// `% 0` — DEC Turkish, VT500.
+    Turkish,
+    /// `% 5` — DEC Supplemental Graphics, VT300.
+    SupplementalGraphics,
+    /// `& 4` — DEC Cyrillic, VT500.
+    Cyrillic,
+    /// `% 3` — SCS NRCS, VT500, and `& 5` — DEC Russian, VT500.
+    ///
+    /// `[[source: ctlseqs]]`: "The VT520 reference manual lists a few more, but
+    /// **no documentation has been found for the mappings**." Recognised as
+    /// designations, which is all baud does with any set, so the missing
+    /// mapping costs nothing here.
+    Undocumented,
+}
+
+impl Charset {
+    /// A designation whose final is preceded by a second intermediate:
+    /// `ESC ( % 6` and friends.
+    ///
+    /// Unreachable until the parser kept two intermediates —
+    /// `[[source: williams]]`'s `escape_intermediate` collects them and baud
+    /// overwrote, so the `(` was gone before the final arrived.
+    pub fn from_multi(inter: StreamByte, f: StreamByte) -> Charset {
+        match (inter.raw_byte(), f.raw_byte()) {
+            (b'"', b'>') => Charset::National(Nrcs::Greek),
+            (b'%', b'2') => Charset::National(Nrcs::Turkish),
+            (b'%', b'6') => Charset::National(Nrcs::Portuguese),
+            (b'%', b'=') => Charset::National(Nrcs::Hebrew),
+            (b'"', b'4') => Charset::Dec(DecSet::Hebrew),
+            (b'"', b'?') => Charset::Dec(DecSet::Greek),
+            (b'%', b'0') => Charset::Dec(DecSet::Turkish),
+            (b'%', b'5') => Charset::Dec(DecSet::SupplementalGraphics),
+            (b'&', b'4') => Charset::Dec(DecSet::Cyrillic),
+            (b'%', b'3') | (b'&', b'5') => Charset::Dec(DecSet::Undocumented),
+            _ => Charset::Other,
+        }
+    }
 }
 
 impl Charset {

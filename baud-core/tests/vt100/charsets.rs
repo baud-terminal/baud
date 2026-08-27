@@ -318,3 +318,60 @@ fn charset_aliases_agree_and_distinct_sets_differ() {
 fn an_unlisted_final_is_still_other() {
     assert_eq!(charset(b"\x1b(x"), Charset::Other);
 }
+
+/// **Multi-byte charset finals are reachable, and were not.**
+///
+/// `[[source: ctlseqs]]` lists eleven designations whose final is preceded by a
+/// second intermediate — `ESC ( % 6` for Portuguese, `ESC ( " >` for Greek,
+/// `ESC ( & 4` for DEC Cyrillic. None could be parsed, and not by decision:
+/// `[[source: williams]]`'s `escape_intermediate` *collects* intermediates and
+/// baud kept only the last, so the `(` was overwritten by the `%` and the
+/// G-slot was gone before the final byte arrived.
+#[test]
+fn multi_byte_finals_designate_their_set() {
+    let cases: &[(&[u8], Charset)] = &[
+        (b"\x1b(%6", Charset::National(Nrcs::Portuguese)),
+        (b"\x1b(\">", Charset::National(Nrcs::Greek)),
+        (b"\x1b(%2", Charset::National(Nrcs::Turkish)),
+        (b"\x1b(%=", Charset::National(Nrcs::Hebrew)),
+        (b"\x1b(\"4", Charset::Dec(DecSet::Hebrew)),
+        (b"\x1b(\"?", Charset::Dec(DecSet::Greek)),
+        (b"\x1b(%0", Charset::Dec(DecSet::Turkish)),
+        (b"\x1b(%5", Charset::Dec(DecSet::SupplementalGraphics)),
+        (b"\x1b(&4", Charset::Dec(DecSet::Cyrillic)),
+        (b"\x1b(%3", Charset::Dec(DecSet::Undocumented)),
+        (b"\x1b(&5", Charset::Dec(DecSet::Undocumented)),
+    ];
+    for (bytes, want) in cases {
+        assert_eq!(charset(bytes), *want, "{:02x?}", bytes);
+    }
+}
+
+/// A two-byte final the specification does not list is counted, not recorded.
+///
+/// Recording it as a set would make it look designated; the whole point of
+/// naming the eleven is that a name means the designation was understood.
+#[test]
+fn an_unlisted_multi_byte_final_is_counted() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(b"\x1b(%z"));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(t.unsupported.count(), 1, "counted");
+    assert_eq!(
+        t.charset(),
+        Charset::Other,
+        "and not recorded as a real set"
+    );
+}
+
+/// The single-byte forms still work — two intermediates must not be required.
+#[test]
+fn single_byte_finals_survive_the_two_intermediate_path() {
+    assert_eq!(charset(b"\x1b(0"), Charset::DecGraphics);
+    assert_eq!(charset(b"\x1b(B"), Charset::Ascii);
+    assert_eq!(charset(b"\x1b(K"), Charset::National(Nrcs::German));
+}

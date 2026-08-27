@@ -60,7 +60,7 @@ addition, not a substitution.
 |---|---|---|
 | `ground` | done | |
 | `escape` | done | |
-| `escape_intermediate` | done | final byte consumed; DECALN dispatched |
+| `escape_intermediate` | done | **collects** intermediates, plural — it kept only the last, which made every two-byte charset final unreachable |
 | `csi_entry` | done | its own state — see below |
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
@@ -413,7 +413,8 @@ without these.
 | `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII** |
 | `ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6` | NRCS: Finnish, Swedish, German, French Canadian, French, Italian, Spanish, Dutch, Swiss, Norwegian/Danish | done — each named as its own `Nrcs`; recorded, not translated |
 | `ESC ( < > I J` | DEC Supplemental, Technical, JIS-Katakana, JIS-Roman | done — each named as its own `DecSet` |
-| multi-byte finals `% 6` `" >` `% 2` `% =` `" 4` `" ?` `% 0` `% 5` `& 4` `% 3` `& 5` | **out** — a two-byte final, which `designate` does not parse; they reach `Charset::Other` and are named here rather than lumped in silently |
+| `ESC ( % 6` `" >` `% 2` `% =` | NRCS Portuguese, Greek, Turkish, Hebrew — two-byte finals | done — the parser keeps two intermediates now |
+| `ESC ( " 4` `" ?` `% 0` `% 5` `& 4` `% 3` `& 5` | DEC Hebrew, Greek, Turkish, Supplemental Graphics, Cyrillic, and the two whose mappings ctlseqs says are undocumented | done — designated and named; `% 3` and `& 5` share `DecSet::Undocumented` |
 
 ### CSI operations
 

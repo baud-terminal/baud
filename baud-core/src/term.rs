@@ -250,6 +250,14 @@ pub struct Term<'a> {
     pub reply_overflows: Stat,
     /// The intermediate byte of the `ESC` sequence being parsed.
     pub(crate) esc_inter: Option<StreamByte>,
+    /// The **second** intermediate of an escape sequence.
+    ///
+    /// `[[source: williams]]`'s `escape_intermediate` collects intermediates,
+    /// plural; baud kept only the last, so `ESC ( % 6` overwrote the `(` and
+    /// the G-slot was lost before the final byte arrived. Every multi-byte
+    /// charset final -- Portuguese, Greek, DEC Cyrillic and the rest -- was
+    /// unreachable for that reason rather than by decision.
+    pub(crate) esc_inter2: Option<StreamByte>,
     /// The last graphic character written, for REP.
     ///
     /// `[[source: ctlseqs]]`: "Repeat the preceding graphic character Ps
@@ -331,6 +339,7 @@ impl<'a> Term<'a> {
             csi_inter: None,
             last_cp: None,
             esc_inter: None,
+            esc_inter2: None,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,

@@ -316,6 +316,7 @@ impl<'a> Term<'a> {
                     self.st = State::StringIgnore;
                 } else if b.is_esc_intermediate() {
                     self.esc_inter = Some(b);
+                    self.esc_inter2 = None;
                     self.st = State::EscapeIntermediate;
                 } else {
                     // Same two-byte escapes the AVX2 path handles. The two feed
@@ -329,7 +330,18 @@ impl<'a> Term<'a> {
                 if b.is_c0() {
                     self.execute(b);
                 } else if b.is_esc_intermediate() {
-                    self.esc_inter = Some(b);
+                    // Collected, not overwritten. `[[source: williams]]` says
+                    // "if more than two intermediate characters arrive, the
+                    // parser can just flag this so that the dispatch can be
+                    // turned into a null operation" -- so two are kept and a
+                    // third makes the sequence inert.
+                    if self.esc_inter.is_none() {
+                        self.esc_inter = Some(b);
+                    } else if self.esc_inter2.is_none() {
+                        self.esc_inter2 = Some(b);
+                    } else {
+                        self.esc_inter2 = Some(StreamByte::DEL); // sentinel: too many
+                    }
                 } else if b != StreamByte::DEL {
                     match self.esc_inter {
                         // `ESC # 8` is DECALN.
@@ -374,10 +386,17 @@ impl<'a> Term<'a> {
                         Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'@' => {
                             self.encoding = InputEncoding::Latin1
                         }
-                        // `ESC ( ) * + <C>` designate G0-G3.
+                        // `ESC ( ) * + <C>` designate G0-G3, and
+                        // `ESC ( % 6` designates one whose final is two bytes.
                         Some(i) => {
                             if let Some(slot) = GSlot::from_intermediate(i) {
-                                self.designate(slot, b);
+                                match self.esc_inter2 {
+                                    Some(j) if j != StreamByte::DEL => {
+                                        self.designate_multi(slot, j, b)
+                                    }
+                                    Some(_) => self.unsupported.inc(),
+                                    None => self.designate(slot, b),
+                                }
                             } else {
                                 // Every other intermediate form -- `ESC SP F`
                                 // and `ESC SP G` (S7C1T/S8C1T) most notably --
