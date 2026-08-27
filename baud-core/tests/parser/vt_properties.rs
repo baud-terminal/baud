@@ -162,6 +162,22 @@ enum Op {
     /// `OSC 8` open and close.
     Link(u8),
     Unlink,
+    /// A control string — SOS, PM, APC or a non-DECRQSS DCS — carrying a
+    /// payload that would be commands if it were executed.
+    ///
+    /// The generator emitted none of these. `Op::Osc` covers `OSC`, and
+    /// `Op::Decrqss` covers the one DCS form baud answers, but the
+    /// `sos_pm_apc_string` family had no property coverage at all — and it is
+    /// the family where the bug is not "an operation is missing" but "the
+    /// payload was executed as commands", which is what
+    /// `apc_payload_is_not_executed` pins for one case.
+    ///
+    /// Terminated with the 7-bit `ESC \` only. `9C` is ST's 8-bit spelling,
+    /// but under UTF-8 it is a continuation byte and does *not* terminate —
+    /// correctly, and `docs/vt-coverage.md` records that as deliberate — so
+    /// generating it would swallow the rest of the program and break the
+    /// composability the other properties rely on.
+    ControlString(u8, u8),
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -187,6 +203,22 @@ const C0: [u8; 5] = [0x07, 0x08, 0x09, 0x0a, 0x0d];
 /// Modes in the unprefixed namespace: the two baud acts on, and two it does
 /// not -- an unimplemented mode must stay inert, which is worth generating.
 const ANSI_MODES: [u16; 4] = [4, 20, 2, 12];
+
+/// Control-string payloads, chosen so that executing one would be visible.
+///
+/// The first four contain no `ESC` and must be consumed in silence. The last
+/// two do: `[[source: williams]]` has a bare `ESC` *cancel* a control string,
+/// so those legitimately end the string and run what follows — which is
+/// behaviour worth generating rather than avoiding, since both feeds have to
+/// agree on where the cancel happened.
+const STRING_PAYLOADS: [&str; 6] = [
+    "Gpayload;with=params,and:punctuation",
+    "\x07\x08\x09 bell backspace tab inside a string",
+    "",
+    "q#0;2;0;0;0#0~~@@vv@@~~@@~~$#1?????@@??@@??--#2!14@",
+    "cancelled\x1b[2Jby-an-escape",
+    "\x1b[31mred",
+];
 
 /// Every CSI final this generator emits carrying a parameter.
 ///
@@ -331,6 +363,11 @@ fn op() -> impl Strategy<Value = Op> {
         (0u8..7).prop_map(Op::Decrqss),
         (0u8..4).prop_map(Op::Link),
         Just(Op::Unlink),
+        (
+            prop::sample::select(&[b'X', b'^', b'_', b'P'][..]),
+            0u8..STRING_PAYLOADS.len() as u8,
+        )
+            .prop_map(|(k, p)| Op::ControlString(k, p))
     ]
 }
 
@@ -497,6 +534,12 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             }
             Op::Link(k) => write!(n, "\x1b]8;id={k};http://example.com/{k}\x1b\\").unwrap(),
             Op::Unlink => n.push_str("\x1b]8;;\x1b\\"),
+            Op::ControlString(kind, p) => {
+                n.push('\x1b');
+                n.push(kind as char);
+                n.push_str(STRING_PAYLOADS[usize::from(p)]);
+                n.push_str("\x1b\\");
+            }
         }
         out.extend_from_slice(n.as_bytes());
     }
@@ -881,6 +924,19 @@ fn the_generator_reaches_the_shapes_it_claims() {
         c0[esc..fin].contains(&0x07),
         "CsiWithC0 must splice the C0 *inside* the sequence, got {c0:?}"
     );
+
+    // Control strings: the introducer must be present and the payload must sit
+    // *inside* it, before the ST.
+    for (kind, name) in [(b'X', "SOS"), (b'^', "PM"), (b'_', "APC"), (b'P', "DCS")] {
+        let b = bytes_of(&[Op::ControlString(kind, 0)]);
+        assert_eq!(b[0], 0x1b, "{name} starts with ESC");
+        assert_eq!(b[1], kind, "{name} uses its own introducer");
+        let st = b.windows(2).position(|w| w == b"\x1b\\").expect("ST");
+        assert!(
+            b[2..st].starts_with(b"Gpayload"),
+            "{name} payload must precede the terminator"
+        );
+    }
 
     // And the ideogram aspects are reachable at all, which they were not
     // before: the SGR table stopped at 107.
