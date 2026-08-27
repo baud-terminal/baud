@@ -125,6 +125,40 @@ jobs:
           devenv shell -- cargo test --release -p baud-core --test parser \
             generated_programs_match_on_avx2 -- --nocapture
 
+      # The property above compares `feed_avx2`'s output against `feed`'s, and
+      # would pass unchanged if `feed_avx2` quietly delegated to the portable
+      # scanner -- identical output is what it asserts. So it proves agreement,
+      # not that any AVX2 instruction executed.
+      #
+      # `feed_avx2` calls `feed_with::<Avx2>`, which monomorphises, so the
+      # question is answerable from the binary without touching the hot path:
+      # the specialisation must exist, and its body must contain instructions
+      # only the AVX2 scanner emits. `vpmovmskb` is `_mm256_movemask_epi8`,
+      # which is the single point where an intrinsic's result enters the type
+      # system via `LaneMask::from_movemask`; `Portable` compiles to SSE2 here
+      # and yields `pmovmskb` without the `v`.
+      #
+      # This is `CLAUDE.md`'s "grep for `_mm256` after any port", moved from a
+      # habit into the gate.
+      - name: Prove the AVX2 scanner is not a portable fallback
+        run: |
+          set -euo pipefail
+          BIN=$(devenv shell -- bash -c "ls -t target/release/deps/parser-* | grep -v '\.d$' | head -1")
+          echo "binary: $BIN"
+          devenv shell -- nm "$BIN" > /tmp/syms.txt
+          if ! grep -qE 'feed_with.*Avx2|feed_avx2' /tmp/syms.txt; then
+            echo "::error::no AVX2 specialisation of feed_with in the test binary"
+            exit 1
+          fi
+          devenv shell -- objdump -d "$BIN" > /tmp/dis.txt
+          if ! grep -qE '\bvpmovmskb\b' /tmp/dis.txt; then
+            echo "::error::no vpmovmskb in the binary -- feed_avx2 is not running the AVX2 scanner"
+            grep -cE '\bpmovmskb\b' /tmp/dis.txt | xargs echo "(SSE pmovmskb occurrences:)"
+            exit 1
+          fi
+          grep -cE '\bvpmovmskb\b' /tmp/dis.txt | xargs echo "vpmovmskb occurrences:"
+          grep -cE '\bvpcmpeqb\b' /tmp/dis.txt | xargs echo "vpcmpeqb occurrences:"
+
   release-plz-release:
     name: Release
     runs-on: ubuntu-latest

@@ -234,6 +234,10 @@ fn every_test_named_in_the_docs_exists() {
             "treat_east_asian_ambiguous_width_as_wide",
             "wezterm's config option, cited in note G's comparison",
         ),
+        (
+            "_mm256_movemask_epi8",
+            "an x86 intrinsic, named where CI checks the binary for its              instruction rather than trusting the AVX2 property's output match",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
