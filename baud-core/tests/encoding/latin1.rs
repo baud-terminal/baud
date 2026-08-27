@@ -69,14 +69,26 @@ fn latin1_has_no_ill_formed_bytes() {
     assert_eq!(run(b"\xff").0, vec![0xfffd], "and is ill-formed in UTF-8");
 }
 
-/// `80..9F` are C1 controls in ISO 8859-1, not printable.
+/// `80..9F` are C1 controls in ISO 8859-1, and are **acted on**, not printed.
 ///
-/// baud does not act on 8-bit C1 — it cannot, having chosen UTF-8 as the other
-/// mode — so they are ignored rather than printed. That is xterm's
-/// `CASE_IGNORE`, and what ghostty does citing xterm.
+/// This asserted they were ignored, on the reading that baud "cannot act on
+/// 8-bit C1, having chosen UTF-8 as the other mode". True in UTF-8 and not
+/// here: in Latin-1 there is no multi-byte sequence for `9B` to be part of.
+///
+/// `9B A` is `CSI A` — cursor up — so nothing prints and the cursor does not
+/// move, being already at the top.
 #[test]
-fn latin1_c1_bytes_are_ignored_not_printed() {
-    assert_eq!(run(b"\x1b%@\x9bA").0, vec![0x41], "the 0x9B is dropped");
+fn latin1_c1_bytes_are_controls_not_characters() {
+    assert_eq!(
+        run(b"\x1b%@\x9bA").0,
+        Vec::<u32>::new(),
+        "CSI A prints nothing"
+    );
+    assert_eq!(
+        run(b"\x1b%@\x9bA").0,
+        run(b"\x1b%@\x1b[A").0,
+        "and matches the 7-bit form"
+    );
 }
 
 /// **DECRQM `?1020` reports the live encoding.**
@@ -208,4 +220,60 @@ fn detection_does_not_switch_the_terminal() {
         .and_then(|c| c.content.as_codepoint())
         .map(|c| c.value());
     assert_eq!(last, Some(0xfffd), "0xFF is U+FFFD under UTF-8, not `ÿ`");
+}
+
+// ── 8-bit C1, which only exists outside UTF-8 ───────────────────────────────
+
+/// **`9B` is CSI in ISO 8859-1, and a decode error in UTF-8.**
+///
+/// `docs/vt-coverage.md` lists 8-bit C1 introducers as out, because "they are
+/// UTF-8 continuation bytes". True, and scoped to the encoding without saying
+/// so: baud is not always in UTF-8 any more. In Latin-1 there is no ambiguity
+/// — `9B` cannot be part of a multi-byte sequence, because there are none.
+///
+/// `[[source: ctlseqs]]` calls `ESC [` "a 7-bit equivalent to 8-bit" `9B`, so
+/// the two are the same operation; the implementation dispatches through the
+/// `Escape` state rather than duplicating its table, which is what stops them
+/// drifting apart.
+#[test]
+fn eight_bit_csi_works_in_latin1_and_not_in_utf8() {
+    // `9B 3 1 m` is `CSI 3 1 m` — set foreground red — then `X`.
+    let latin1 = run(b"\x1b%@\x9b31mX");
+    let seven_bit = run(b"\x1b%@\x1b[31mX");
+    assert_eq!(latin1.0, seven_bit.0, "8-bit CSI matches the 7-bit form");
+
+    // The same bytes in UTF-8: `9B` is a stray continuation byte.
+    let utf8 = run(b"\x9b31mX");
+    assert_eq!(
+        utf8.0.first().copied(),
+        Some(0xfffd),
+        "in UTF-8 it is a decode error, not a control"
+    );
+}
+
+/// The other introducers reach their string states.
+#[test]
+fn eight_bit_osc_and_dcs_work_in_latin1() {
+    // `9D` is OSC: set the title, print nothing.
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(b"\x1b%@\x9d0;hi\x07"));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(t.title(), b"hi", "8-bit OSC set the title");
+    assert_eq!(t.cursor().1.index(), 0, "and printed nothing");
+}
+
+/// `9C` is ST, and `98`/`9E`/`9F` open strings that are consumed.
+#[test]
+fn eight_bit_string_terminators_are_honoured() {
+    // `90` DCS ... `9C` ST: the payload must not reach the screen.
+    let g = run(b"\x1b%@\x90q payload \x9cX");
+    assert_eq!(
+        g.0,
+        run(b"\x1b%@X").0,
+        "the DCS payload is consumed, only the X prints"
+    );
 }

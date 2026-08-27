@@ -210,7 +210,8 @@ and picking UTF-8 makes the choice for every byte at once. So:
 |---|---|
 | UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
 | 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
-| 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are UTF-8 continuation bytes; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm, which accept them |
+| 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` — **in UTF-8** | **out** — they are continuation bytes there; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm |
+| the same introducers under `ESC % @` (ISO 8859-1) | done — no multi-byte sequence exists for them to be part of, so `9B` is unambiguously CSI |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
 | combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
@@ -225,7 +226,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
 | ISO 8859-1 input, switched by `ESC % @` / `ESC % G` | done — `InputEncoding`; one byte, one character, no decoder state |
 | encoding detection | done — `InputEncoding::detect` **reports**; it never switches the terminal, and returns `None` when the sample cannot decide |
-| National replacement sets and other legacy charsets | **out** — no escape sequence in scope selects them, and `iconv` transcodes once outside the ingest loop; `InputEncoding` is where they would go |
+| *Translating* the national replacement sets | **out** — the designations are all recognised and named; what is missing is the glyph mapping, and `MANIFEST.toml` has no machine-readable source for one. `iconv` transcodes once outside the ingest loop |
 
 `S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
 "this tells the terminal to send C1 control characters as 8-bit sequences, e.g.,

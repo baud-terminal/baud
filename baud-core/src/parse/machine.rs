@@ -215,11 +215,20 @@ impl<'a> Term<'a> {
                     // Latin-1 letters and must not be read as lead bytes.
                     let w = Width::of(c, self.width.ambiguous);
                     self.put_cp(c, w);
-                } else if self.encoding == InputEncoding::Latin1 {
-                    // `80..9F` in Latin-1 are C1 controls, which baud does not
-                    // act on. Ignored rather than printed, as xterm's
-                    // CASE_IGNORE does and ghostty does citing xterm.
-                    self.unsupported.inc();
+                } else if let Some(fe) = self.encoding.c1_as_escape(b) {
+                    // **8-bit C1, which only exists outside UTF-8.** In UTF-8
+                    // `9B` is a continuation byte and cannot be a control; in
+                    // ISO 8859-1 it is unambiguously CSI. The refusal was
+                    // scoped to the encoding without saying so, and baud is no
+                    // longer always in UTF-8.
+                    //
+                    // Dispatched through the `Escape` state rather than
+                    // duplicating its table: `[[source: ctlseqs]]` calls
+                    // `ESC [` "a 7-bit equivalent to 8-bit" `9B`, so the two
+                    // forms are the same operation and must not be able to
+                    // drift apart.
+                    self.st = State::Escape;
+                    self.control(fe);
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
@@ -466,7 +475,10 @@ impl<'a> Term<'a> {
                 }
             }
             State::DcsPassthrough => {
-                if b == StreamByte::ESC {
+                if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
+                    self.dispatch_dcs();
+                    self.st = self.ground();
+                } else if b == StreamByte::ESC {
                     self.st = State::DcsEsc;
                 } else if b == StreamByte::BEL {
                     self.dispatch_dcs();
@@ -479,7 +491,9 @@ impl<'a> Term<'a> {
                 }
             }
             State::DcsIgnore => {
-                if b == StreamByte::ESC {
+                if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
+                    self.st = self.ground();
+                } else if b == StreamByte::ESC {
                     // Not `DcsEsc`: there is nothing to dispatch, so ST and a
                     // cancel are the same outcome here.
                     self.st = State::Escape;
@@ -524,6 +538,10 @@ impl<'a> Term<'a> {
                 }
             }
             State::StringIgnore => {
+                if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
+                    self.st = self.ground();
+                    return;
+                }
                 // Terminated by ST (`ESC \`) or, as xterm accepts, by BEL.
                 // Any ESC leaves the string; the Escape state decides whether
                 // the next byte is the ST backslash or a fresh sequence, so a
@@ -584,7 +602,13 @@ impl<'a> Term<'a> {
             }
             State::CsiParams => self.csi_param_byte(b),
             State::OscString => {
-                if b == StreamByte::BEL {
+                if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
+                    // `9C` is ST outside UTF-8. Without this the terminator
+                    // became payload and the string never ended.
+                    self.osc_term = StringTerm::St;
+                    self.dispatch_osc();
+                    self.st = self.ground();
+                } else if b == StreamByte::BEL {
                     self.osc_term = StringTerm::Bel;
                     self.dispatch_osc();
                     self.st = self.ground();

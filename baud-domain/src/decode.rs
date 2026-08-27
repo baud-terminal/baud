@@ -105,6 +105,8 @@ impl StreamByte {
     /// sequence is in progress, from any state. Named because `is_c0()` is
     /// `< 0x20` and therefore cannot distinguish them from a C0 to execute.
     /// The intermediate byte of `ESC SP F` / `ESC SP G` (S7C1T / S8C1T).
+    /// `9C` — the 8-bit String Terminator, which exists only outside UTF-8.
+    pub const ST_8BIT: StreamByte = StreamByte(0x9c);
     pub const SP: StreamByte = StreamByte(0x20);
     /// The intermediate byte of `ESC % @` / `ESC % G`.
     pub const PERCENT: StreamByte = StreamByte(0x25);
@@ -419,6 +421,31 @@ impl InputEncoding {
     /// does not act on 8-bit C1 — it cannot, having chosen UTF-8 as the other
     /// mode — so they are ignored rather than printed, which is what xterm's
     /// `CASE_IGNORE` does and what ghostty does citing xterm.
+    /// The 7-bit escape a C1 byte stands for, in a single-byte encoding.
+    ///
+    /// **Only meaningful outside UTF-8**, which is the whole point. In UTF-8
+    /// `9B` is a continuation byte and cannot be a control -- that is why
+    /// `docs/vt-coverage.md` lists 8-bit C1 as out. In ISO 8859-1 it is
+    /// unambiguously CSI, and `[[source: ctlseqs]]` describes the two forms as
+    /// equivalent: `ESC [` is "a 7-bit equivalent to 8-bit" `9B`.
+    ///
+    /// So the refusal was scoped to the encoding without saying so. baud is not
+    /// always in UTF-8 any more.
+    ///
+    /// Returns the byte the sequence would carry after `ESC`, so one table
+    /// serves both forms and they cannot drift.
+    pub fn c1_as_escape(self, b: StreamByte) -> Option<StreamByte> {
+        if self == InputEncoding::Utf8 {
+            return None;
+        }
+        let v = b.raw_byte();
+        // C1 occupies `80..9F`, and its 7-bit form is `ESC` plus the byte
+        // shifted down by 0x40: `9B` is `ESC [`, `9D` is `ESC ]`.
+        (0x80..0xa0)
+            .contains(&v)
+            .then(|| StreamByte::from_stream(v - 0x40))
+    }
+
     pub fn single_byte(self, b: StreamByte) -> Option<Codepoint> {
         match self {
             InputEncoding::Utf8 => None,
