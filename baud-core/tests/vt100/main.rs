@@ -13,5 +13,6 @@ mod cursor;
 mod erase;
 mod irm;
 mod modes;
+mod private_modes;
 mod scrolling;
 mod tabs;

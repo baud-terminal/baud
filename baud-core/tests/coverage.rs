@@ -140,3 +140,62 @@ fn every_done_row_is_mentioned_by_a_test() {
         missing.join("\n  ")
     );
 }
+
+/// Numbers quoted in prose must match the table they describe.
+///
+/// **This exists because the numbers went stale twice.** README, CLAUDE.md and
+/// MEASUREMENTS.md each quote "N rows at done" and README quotes a test count;
+/// after two rounds of protocol work they said 92 and 321 while the truth was
+/// 96 and 355. A number in prose that nothing checks is the same failure as a
+/// coverage claim that nothing checks — this file's whole subject.
+///
+/// The fix is to gate the count, not to remember to update it.
+#[test]
+fn quoted_counts_match_reality() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let doc = fs::read_to_string(format!("{root}/docs/vt-coverage.md")).expect("vt-coverage");
+
+    let done = doc
+        .lines()
+        .filter(|l| l.trim_start().starts_with('|'))
+        .filter(|l| !l.contains("**done**")) // the legend row
+        .filter(|l| {
+            l.trim_matches('|')
+                .split('|')
+                .any(|c| c.trim().split_whitespace().next() == Some("done"))
+        })
+        .count();
+
+    let mut wrong = Vec::new();
+    for f in ["README.md", "CLAUDE.md", "MEASUREMENTS.md"] {
+        let Ok(src) = fs::read_to_string(format!("{root}/{f}")) else {
+            continue;
+        };
+        // Any "<n> rows at **done**" / "<n> operations" claim.
+        for pat in [" rows at **done**", " operations,", " operations."] {
+            let mut rest = src.as_str();
+            while let Some(i) = rest.find(pat) {
+                let head = &rest[..i];
+                let n: String = head
+                    .chars()
+                    .rev()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                if let Ok(claimed) = n.parse::<usize>() {
+                    if claimed != done {
+                        wrong.push(format!("{f}: claims {claimed}, table has {done}"));
+                    }
+                }
+                rest = &rest[i + pat.len()..];
+            }
+        }
+    }
+    assert!(
+        done > 80,
+        "only {done} done rows parsed -- the parser stopped matching the table"
+    );
+    assert!(wrong.is_empty(), "stale counts:\n  {}", wrong.join("\n  "));
+}

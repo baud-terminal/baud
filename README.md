@@ -37,7 +37,7 @@ missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 92 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **VT protocol** | ✅ 110 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid + scrollback** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |
@@ -71,7 +71,7 @@ There is no terminal binary yet — see [Status](#status). What exists is the
 core and the harness that measures it:
 
 ```sh
-devenv shell -- dev-test                       # the suite: 321 tests
+devenv shell -- dev-test                       # the whole suite
 devenv shell -- cargo run --release -p baud-bench   # feed it through a real PTY
 ```
 

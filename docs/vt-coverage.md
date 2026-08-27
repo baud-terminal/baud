@@ -135,7 +135,30 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
-| `CSI ? h` / `CSI ? l` | DECSET / DECRST | done — 20 modes act; multi-parameter forms apply every one |
+| `CSI ? h` / `CSI ? l` | DECSET / DECRST | done — every parameter of a multi-parameter form is applied |
+
+Private modes, one row each. A mode is **done** only when something acts on it;
+for the input-side and renderer-side ones "acting" means an accessor an embedder
+can read, which is the only channel a `no_std` core with no keyboard and no
+renderer has.
+
+| mode | name | status |
+|---|---|---|
+| `?1` | DECCKM cursor keys | done — `Term::cursor_keys_application()` |
+| `?2` | DECANM — **reset enters VT52** | done — see [protocols/vt52.md](protocols/vt52.md) |
+| `?3` | DECCOLM 132 columns | done — clears, resets margins, homes; the *resize* is the caller's, via `Term::resize` |
+| `?4` | DECSCLM smooth scroll | done — `Term::smooth_scroll()` |
+| `?5` | DECSCNM reverse video | done — `Term::reverse_video()` |
+| `?6` | DECOM origin | done |
+| `?7` | DECAWM autowrap | done |
+| `?8` | DECARM auto-repeat | done — `Term::auto_repeat()` |
+| `?12` | cursor blink | done — the blink axis of DECSCUSR, reached by another route |
+| `?25` | DECTCEM cursor visible | done |
+| `?45` | reverse wraparound | done |
+| `?47` | alternate screen, pre-1049 | done — switches buffers, does **not** save the cursor |
+| `?69` | DECLRMM left/right margins | done |
+| `?1034` | meta sends escape | done — `Term::meta_sends_escape()` |
+| `?1001` | highlight tracking | **out** — "requires a cooperating program, else xterm will hang" |
 
 ### SGR
 
