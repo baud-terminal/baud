@@ -320,3 +320,47 @@ impl Utf8Acc {
         Codepoint::decoded(self.0)
     }
 }
+
+/// How incoming bytes are interpreted as characters.
+///
+/// `[[source: ctlseqs]]`: `ESC % G` is "Select UTF-8 character set, ISO 2022"
+/// and `ESC % @` is "Select default character set. That is ISO 8859-1 (ISO
+/// 2022)." An application may switch at any point in the stream, so this is
+/// live state rather than startup configuration.
+///
+/// An enum and not a `bool`, for the reason `baud-domain` is gated at zero bool
+/// fields: `utf8: true` does not say what the alternative is, and there is
+/// more than one alternative in principle.
+///
+/// xterm's `utf8` resource is four-valued and only an explicitly configured
+/// `always` makes these two sequences inert — by default xterm honours them,
+/// which is what baud does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum InputEncoding {
+    /// Multi-byte, and the default. Bytes `80..FF` are lead and continuation
+    /// bytes, so 8-bit C1 controls are unusable — see `docs/vt-coverage.md`.
+    #[default]
+    Utf8,
+    /// ISO 8859-1: every byte is one character, `00..FF` mapping to
+    /// `U+0000..U+00FF`. Single-byte and therefore fixed-width, which is the
+    /// property [`Encoding::is_byte_per_column`] names.
+    Latin1,
+}
+
+impl InputEncoding {
+    /// The character a byte stands for, in a single-byte encoding.
+    ///
+    /// `None` for `80..9F`, which ISO 8859-1 reserves for C1 controls. baud
+    /// does not act on 8-bit C1 — it cannot, having chosen UTF-8 as the other
+    /// mode — so they are ignored rather than printed, which is what xterm's
+    /// `CASE_IGNORE` does and what ghostty does citing xterm.
+    pub fn single_byte(self, b: StreamByte) -> Option<Codepoint> {
+        match self {
+            InputEncoding::Utf8 => None,
+            InputEncoding::Latin1 => {
+                let v = b.raw_byte();
+                (!(0x80..0xa0).contains(&v)).then_some(Codepoint(v as u32))
+            }
+        }
+    }
+}

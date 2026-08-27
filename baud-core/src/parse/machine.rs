@@ -197,6 +197,17 @@ impl<'a> Term<'a> {
                     self.st = State::Escape;
                 } else if b.is_c0() || b == StreamByte::BEL {
                     self.execute(b);
+                } else if let Some(c) = self.encoding.single_byte(b) {
+                    // ISO 8859-1: one byte, one character, no decoder state.
+                    // Placed before the UTF-8 arm because `C2..F4` are ordinary
+                    // Latin-1 letters and must not be read as lead bytes.
+                    let w = Width::of(c, self.width.ambiguous);
+                    self.put_cp(c, w);
+                } else if self.encoding == InputEncoding::Latin1 {
+                    // `80..9F` in Latin-1 are C1 controls, which baud does not
+                    // act on. Ignored rather than printed, as xterm's
+                    // CASE_IGNORE does and ghostty does citing xterm.
+                    self.unsupported.inc();
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
@@ -357,7 +368,12 @@ impl<'a> Term<'a> {
                         // ISO 8859-1" -- asks to leave UTF-8, which baud cannot
                         // do. It falls through to the count below, so an
                         // application can discover the refusal.
-                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'G' => {}
+                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'G' => {
+                            self.encoding = InputEncoding::Utf8
+                        }
+                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'@' => {
+                            self.encoding = InputEncoding::Latin1
+                        }
                         // `ESC ( ) * + <C>` designate G0-G3.
                         Some(i) => {
                             if let Some(slot) = GSlot::from_intermediate(i) {

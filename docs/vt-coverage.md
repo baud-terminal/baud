@@ -200,12 +200,13 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | `Emoji_Presentation=Yes` is two columns | done — regional indicators are EAW `N`, so a flag measured from East Asian Width alone is half-width |
 | DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set; baud has no mode that stops clustering |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
-| `ESC % @` — select ISO 8859-1 | **out** — counted in `Term::unsupported`; baud cannot leave UTF-8 |
-| `CSI ? 1020 $ p` — DECRQM on xterm's read-only `utf8` resource | done — answers `3`, permanently set |
+| `ESC % @` — select ISO 8859-1 | done — switches the live input encoding |
+| `CSI ? 1020 $ p` — DECRQM on xterm's `utf8` resource | done — mirrors the **live** encoding, `1` or `2`, as xterm does |
 | `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
 | `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
-| Legacy single-byte charsets (Latin-1, national replacement sets) | **out** — transcoding is `iconv`'s job, once, outside the ingest loop; baud annotates rather than translates. **Under active reconsideration** — detail below |
+| ISO 8859-1 input, switched by `ESC % @` / `ESC % G` | done — `InputEncoding`; one byte, one character, no decoder state |
+| National replacement sets and other legacy charsets | **out** — no escape sequence in scope selects them, and `iconv` transcodes once outside the ingest loop; `InputEncoding` is where they would go |
 
 `S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
 "this tells the terminal to send C1 control characters as 8-bit sequences, e.g.,
@@ -220,13 +221,13 @@ cannot *parse* an 8-bit introducer — that half is forced by UTF-8 and stands �
 but there was never a reason it could not *emit* one. `C1Transmit` carries the
 choice and CSI, DCS and ST introducers all follow it.
 
-**`?1020` answers `3`, and that is a named divergence from xterm.** xterm answers
-`1`/`2` even though `[[source: ctlseqs]]` marks the resource read-only. baud
-answers `3` (permanently set), because `1` invites an application to send
-`CSI ? 1020 l`, receive no error, and believe it had switched the decoder off —
-the exact failure this document refuses for DECRQM elsewhere. DECRPM has value
-`3` for this case. Follow xterm here only if an application is found that
-mishandles `3`.
+**`?1020` mirrors the live encoding, and that is a correction.** It answered
+`3` — permanently set — for as long as `ESC % @` was refused, which was true
+then. Implementing the switch made it false, so it moved in the same commit.
+A mode report that outlives the fact it reported is precisely the failure this
+document refuses elsewhere, and it is easiest to create by fixing the thing the
+report describes and leaving the report behind. xterm answers `MdBool` from the
+live `screen->utf8_mode` for the same reason.
 
 dtterm's `is2` opens with `ESC SP F`, which is how the conformance fixtures
 caught the first version of this: counting S7C1T as unsupported claimed baud had
@@ -314,7 +315,19 @@ merely off, whereupon it would set it and believe it took effect. The row moved
 when the implementation did, which is the only order that keeps the answer
 true.
 
-**Legacy charsets are the shell's problem, not the terminal's.** baud already
+**ISO 8859-1 is honoured; the rest of the legacy charsets are not.**
+`[[source: ctlseqs]]` gives `ESC % @` and `ESC % G` as the two selectors, and
+both work: `InputEncoding` decides how a byte above `0x7F` is read, and a
+single-byte encoding needs no decoder state at all. This was refused here on
+the grounds that baud "cannot leave UTF-8", which was wrong — the encodings
+differ only in that one rule.
+
+`80..9F` stay ignored in Latin-1 rather than printed: ISO 8859-1 reserves them
+for C1 controls, which baud does not act on, so printing them would invent
+characters the application did not send. That is xterm's `CASE_IGNORE`, and
+what ghostty does citing xterm.
+
+**The rest of the legacy charsets remain out.** baud already
 has the model for the one charset mechanism it does implement: `SCS`
 (`ESC ( 0`) sets `CellFlags::GRAPHICS` and the cell keeps the byte, so a
 renderer with the DEC table loses nothing and baud never guesses a glyph. It

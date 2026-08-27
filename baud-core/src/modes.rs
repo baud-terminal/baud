@@ -287,8 +287,12 @@ impl<'a> Term<'a> {
             };
         }
         match PrivateMode::from_wire(Some(mode)) {
-            // `?1020` is read-only and permanently true here: baud decodes
-            // UTF-8 and has no mode that changes it.
+            // `?1020` mirrors the **live** encoding, which is what xterm does:
+            // `do_dec_rqm` answers `MdBool` from `screen->utf8_mode`. It
+            // answered `PermanentlySet` while `ESC % @` was refused, and that
+            // was true then; implementing the switch made it false, so it moved
+            // in the same commit. A mode report that outlives the fact it
+            // reported is the failure this file exists to prevent.
             //
             // **A named divergence from xterm, and deliberate.** xterm answers
             // this with 1/2 (set/reset) even though its own documentation marks
@@ -297,7 +301,10 @@ impl<'a> Term<'a> {
             // error, and believe UTF-8 decoding had been turned off -- the
             // exact failure `docs/vt-coverage.md` refuses for DECRQM. DECRPM
             // has value 3 for precisely this case.
-            PrivateMode::Utf8Resource => ModeState::PermanentlySet,
+            PrivateMode::Utf8Resource => match self.encoding {
+                InputEncoding::Utf8 => ModeState::Set,
+                InputEncoding::Latin1 => ModeState::Reset,
+            },
             // `?2027` answers 3 for the same reason `?1020` does: baud
             // clusters per `[[source: uax29]]` and has no mode that stops it,
             // so `1` would invite an application to try turning it off.

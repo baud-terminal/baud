@@ -5,5 +5,6 @@
 //! the result is.
 
 mod graphemes;
+mod latin1;
 mod utf8;
 mod width;

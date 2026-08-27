@@ -200,6 +200,8 @@ pub struct Term<'a> {
     /// five of `[[source: uax29]]`'s rules need more than the previous
     /// codepoint -- see [`ClusterBreak`].
     pub(crate) cluster: ClusterBreak,
+    /// How incoming bytes become characters. `ESC % G` / `ESC % @` switch it.
+    pub(crate) encoding: InputEncoding,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -304,6 +306,7 @@ impl<'a> Term<'a> {
             c1: C1Transmit::SevenBit,
             width: WidthTable::default(),
             cluster: ClusterBreak::new(),
+            encoding: InputEncoding::Utf8,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             link: LinkId::NONE,

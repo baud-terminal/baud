@@ -136,48 +136,17 @@ fn well_formed_sequences_still_decode() {
 
 // ── how baud reports its own encoding ───────────────────────────────────────
 
-fn replies(bytes: &[u8]) -> Vec<u8> {
-    let mut s = Storage::boxed();
-    let mut t = Term::new(&mut s, OpMode::Computed);
-    let mut i = 0;
-    while i < bytes.len() {
-        let n = READ_CHUNK.min(bytes.len() - i);
-        let mut slot = t.read_slot();
-        let base = slot.base();
-        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
-        t.feed(base, f.len());
-        t.commit_read(f.len());
-        i += n;
-    }
-    t.reply().to_vec()
-}
-
-/// DECRQM `?1020` answers **3**, permanently set.
+/// `ESC % G` selects UTF-8 and `ESC % @` selects ISO 8859-1. Both are honoured.
 ///
-/// `[[source: ctlseqs]]` marks `?1020` "utf8 resource (read-only)". baud
-/// decodes UTF-8 and has no mode that changes that, so the answer is fixed for
-/// the life of the process.
-///
-/// **A named divergence from xterm.** xterm answers 1/2 here despite marking
-/// the resource read-only. baud answers 3, because 1 invites an application to
-/// send `CSI ? 1020 l`, receive no error, and believe it had switched the
-/// decoder off — the failure `docs/vt-coverage.md` refuses for DECRQM in
-/// exactly these words. DECRPM has value 3 for this case.
+/// Both used to be refusals of a sort: `ESC % G` was counted *satisfied* on the
+/// grounds that baud was always UTF-8, and `ESC % @` was counted unsupported on
+/// the grounds that it could not leave. The second was wrong -- the encodings
+/// differ only in how bytes above `0x7F` are read -- and once it was
+/// implemented, "always UTF-8" stopped being true and the first had to move
+/// with it. Covered in full by `latin1.rs`; asserted here so the two sequences
+/// are not silently dropped.
 #[test]
-fn decrqm_reports_utf8_as_permanently_set() {
-    assert_eq!(
-        replies(b"\x1b[?1020$p"),
-        b"\x1b[?1020;3$y".to_vec(),
-        "?1020 must answer 3 (permanently set)"
-    );
-}
-
-/// `ESC % G` selects UTF-8, which baud already is: satisfied, not refused.
-///
-/// `ESC % @` asks for ISO 8859-1, which baud cannot do, and must stay
-/// countable so an application can discover the refusal.
-#[test]
-fn selecting_utf8_is_satisfied_and_leaving_it_is_refused() {
+fn both_charset_selectors_are_honoured() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
     let feed = |t: &mut Term, bytes: &[u8]| {
@@ -187,16 +156,11 @@ fn selecting_utf8_is_satisfied_and_leaving_it_is_refused() {
         t.feed(base, f.len());
         t.commit_read(f.len());
     };
+    feed(&mut t, b"\x1b%@");
     feed(&mut t, b"\x1b%G");
     assert_eq!(
         t.unsupported.count(),
         0,
-        "ESC % G asks for what baud already does"
-    );
-    feed(&mut t, b"\x1b%@");
-    assert_eq!(
-        t.unsupported.count(),
-        1,
-        "ESC % @ asks to leave UTF-8, which baud refuses -- countably"
+        "neither selector is dropped as unsupported"
     );
 }
