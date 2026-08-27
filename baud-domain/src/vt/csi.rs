@@ -520,3 +520,89 @@ impl ParamCount {
         (self.0 as usize).max(1)
     }
 }
+
+/// Which protocol level introduced an operation.
+///
+/// **Data, not structure.** `Csi` stays one flat enum rather than nesting per
+/// level, and the reason is the parser: dispatch keys on
+/// `(marker, intermediate, final byte)`, which does not partition by level.
+/// `CSI J` is VT100 and `CSI ? J` is VT220 — same final byte. `CSI s` is worse:
+/// it is SCOSC *or* DECSLRM, two operations at two levels, told apart at
+/// runtime by whether DECLRMM is set. Nesting would force it into one arbitrary
+/// home and split the dispatch in two for a distinction the terminal never
+/// branches on.
+///
+/// The one place a protocol *does* change behaviour is VT52, whose bytes
+/// conflict rather than extend — and VT52 is split out, into its own type, its
+/// own module and its own ground state.
+///
+/// So the level lives here, where it can be queried and tested against
+/// `docs/vt-coverage.md`'s tiers, without reshaping the code around a
+/// historical fact.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub enum Level {
+    /// VT100 and ECMA-48: the set every terminal must have.
+    Vt100,
+    /// VT220/VT320: selective erase, status reports, DCS.
+    Vt220,
+    /// VT420: left and right margins, column operations.
+    Vt420,
+    /// xterm extensions in universal use.
+    Xterm,
+}
+
+impl Csi {
+    /// The protocol level this operation belongs to.
+    ///
+    /// `Unsupported` has none — it is the absence of an operation.
+    pub fn level(self) -> Option<Level> {
+        use Csi::*;
+        Some(match self {
+            CursorUp(_)
+            | CursorDown(_)
+            | CursorForward(_)
+            | CursorBack(_)
+            | CursorNextLine(_)
+            | CursorPrevLine(_)
+            | ColumnAbsolute(_)
+            | LineAbsolute(_)
+            | ColumnRelative(_)
+            | LineRelative(_)
+            | CursorPosition { .. }
+            | SaveCursor
+            | RestoreCursor
+            | EraseInDisplay(_)
+            | EraseInLine(_)
+            | EraseChars(_)
+            | InsertBlanks(_)
+            | DeleteChars(_)
+            | InsertLines(_)
+            | DeleteLines(_)
+            | ScrollUp(_)
+            | ScrollDown(_)
+            | SetScrollRegion { .. }
+            | CursorForwardTab(_)
+            | CursorBackTab(_)
+            | TabClear(_)
+            | Mode { .. }
+            | PrivateMode { .. }
+            | Sgr
+            | Repeat(_)
+            | DeviceAttributes
+            | DeviceStatus(_) => Level::Vt100,
+
+            SoftReset
+            | SelectProtection { .. }
+            | SelectiveEraseDisplay(_)
+            | SelectiveEraseLine(_)
+            | RequestMode { .. }
+            | CursorStyle(_) => Level::Vt220,
+
+            SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
+
+            RequestVersion => Level::Xterm,
+
+            Unsupported { .. } => return None,
+        })
+    }
+}

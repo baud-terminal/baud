@@ -16,6 +16,7 @@
 //! Fixtures are `infocmp -1` output, captured verbatim and hash-pinned in
 //! `docs/research/sources/MANIFEST.toml`, from ncurses 6.0.20150808.
 
+mod levels;
 mod terminfo;
 
 use baud_core::*;

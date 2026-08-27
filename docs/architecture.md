@@ -48,6 +48,41 @@ They are separate crates so the boundary is enforced by the compiler rather
 than by discipline: `baud-domain` cannot reach into the core's state because it
 does not know it exists.
 
+## Why each layer is filed differently
+
+Three taxonomies, deliberately, because the layers answer different questions.
+This looks inconsistent until you try to make them agree, and then it does not
+survive contact with `Csi`.
+
+| layer | filed by | example |
+|---|---|---|
+| `baud-domain/src/vt/` | **sequence family** | `csi.rs`, `osc.rs`, `dcs.rs`, `sgr.rs` |
+| `baud-core/src/` | **responsibility** | `cursor.rs`, `erase.rs`, `scroll.rs`, `margins.rs` |
+| `baud-core/tests/` | **protocol level** | `vt100/`, `vt220/`, `vt420/`, `xterm/` |
+| `docs/protocols/` | **protocol level**, plus one page per `$TERM` profile | `vt220.md`, `profiles/rxvt.md` |
+
+**The domain cannot be filed by protocol level.** `Csi` is a single enum with 53
+variants, and they span every level at once: `CursorUp` is VT100,
+`SelectProtection` is VT220, `SetSideMargins` is VT420, `RequestVersion` is
+xterm, and `PrivateMode` carries modes from all four. Rust does not split an
+enum across files, and splitting the *parser* by which DEC model introduced a
+sequence would fragment one match arm set into four.
+
+**The core is filed by responsibility** because that is where the cohesion is.
+`erase_line` serves both EL (VT100) and DECSEL (VT220); they are one operation
+family with a shared implementation, and separating them by vintage would put
+the two halves of one bug in different files.
+
+**Tests and docs are filed by protocol level** because that is what a
+specification *is*. "Does baud do VT220?" is the question a reader asks, and
+`tests/vt220/` is the answer. Protocol level is a historical fact about an
+operation — the right axis for a claim, the wrong one for an implementation.
+
+**VT52 is the exception in every layer**, and it earns it: it is not an earlier
+level of the same protocol but a different one whose bytes *conflict* — `ESC D`
+is cursor-left there and IND here. That is why it has its own module in both
+crates, its own ground state, and its own test directory.
+
 ## Constraints that look arbitrary and are not
 
 Each cost something to learn. Changing one needs a measurement, not an

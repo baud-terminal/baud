@@ -38,6 +38,9 @@ requires that nothing was recognised and dropped:
 | `dtterm` | 58 | ✅ |
 | `nsterm` | 70 | ✅ |
 
+One page each in [profiles/](profiles/), with what the name means and what it
+draws on.
+
 Input capabilities — those whose terminfo name begins with `k`, the keys a
 terminal *sends* — are counted separately and not required. xterm declares 88
 of them and baud has no input path. That is a real gap and it is stated rather
