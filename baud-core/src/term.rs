@@ -532,6 +532,17 @@ impl<'a> Term<'a> {
         RowBlock::leading(self.rows, self.stride()).of(b)
     }
 
+    /// One row of the grid.
+    ///
+    /// **`y` must be below `geometry().1`.** The buffer is `MAX_ROWS` deep and
+    /// the grid is `rows` deep, so an index between them is allocated memory
+    /// that is not part of the screen -- it returns cells rather than an error,
+    /// which is the wrong-shape failure this project rules out for replies.
+    /// `viewport` is the bounded accessor and does not have this edge.
+    ///
+    /// Left as a precondition rather than an `Option` because that is a
+    /// published signature; `row_past_the_grid_is_a_documented_sharp_edge`
+    /// pins the current behaviour so a change to it is deliberate.
     pub fn row(&self, y: Row) -> &[PackedCell] {
         let b = if self.screen == Screen::Alternate {
             &self.s.alt

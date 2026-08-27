@@ -320,3 +320,34 @@ fn the_alt_screen_restore_clamps_like_decrc() {
     assert_eq!(r.index(), 0, "restored row is inside the one-row grid");
     assert!(c.index() <= 1, "and so is the column");
 }
+
+/// **`Term::row` past the last row returns cells, not an error.**
+///
+/// The buffer is `MAX_ROWS` deep and the grid is `rows` deep, so a row index
+/// between them is allocated memory that is not part of the grid: `row(55)` on
+/// a fifty-row screen returns real cells from physical row 55. No panic, no
+/// `None` — silently the wrong data, which is the shape this project rules out
+/// for replies.
+///
+/// Pinned rather than changed. `row` returns `&[PackedCell]`, so making it
+/// answer an out-of-range index honestly means either returning `Option` or
+/// panicking, and both change a published signature or its behaviour. That is
+/// the owner's call, not a fix to slip into a testing pass. `viewport()` is
+/// the bounded accessor and is what the benchmarks and tests use.
+#[test]
+fn row_past_the_grid_is_a_documented_sharp_edge() {
+    let mut s = Storage::boxed();
+    let t = Term::new(&mut s, OpMode::Computed);
+    let (cols, rows) = t.geometry();
+    assert_eq!(rows.index(), 50);
+
+    // In range: the row is `cols` wide.
+    assert_eq!(t.row(Row::from_index(rows.index() - 1)).len(), cols.index());
+
+    // Past the grid but inside the allocation: still a slice, still `cols`
+    // wide, and not part of the screen. If this ever starts returning `None`
+    // or panicking, that is a deliberate API change and this test should be
+    // updated to say so rather than deleted.
+    assert_eq!(t.row(Row::from_index(rows.index())).len(), cols.index());
+    assert_eq!(t.row(Row::from_index(rows.index() + 5)).len(), cols.index());
+}
