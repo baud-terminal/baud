@@ -391,8 +391,9 @@ pub static ZERO: [(u32, u32); 375] = [
     (0xe0100, 0xe01ef),
 ];
 
-/// East Asian Width `W` (Wide) and `F` (Fullwidth): two columns
-/// unconditionally.
+/// Two columns: East Asian Width `W` or `F`, **or**
+/// `Emoji_Presentation=Yes`. Regional indicators are EAW `N` and would
+/// otherwise measure one column, making every flag half-width.
 pub static WIDE: [(u32, u32); 123] = [
     (0x1100, 0x115f),
     (0x231a, 0x231b),
@@ -473,7 +474,7 @@ pub static WIDE: [(u32, u32); 123] = [
     (0x1f0cf, 0x1f0cf),
     (0x1f18e, 0x1f18e),
     (0x1f191, 0x1f19a),
-    (0x1f200, 0x1f202),
+    (0x1f1e6, 0x1f202),
     (0x1f210, 0x1f23b),
     (0x1f240, 0x1f248),
     (0x1f250, 0x1f251),

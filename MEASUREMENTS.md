@@ -465,7 +465,7 @@ PTY, on the same bytes -- not where it ranks.
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
-`docs/vt-coverage.md` carries 126 rows at **done** and none at `todo`. The
+`docs/vt-coverage.md` carries 129 rows at **done** and none at `todo`. The
 operation gap that earlier editions of this file described -- "~22 VT
 operations against alacritty's 66" -- is closed, and every table below
 predating that work is marked with the host and date it was taken on.

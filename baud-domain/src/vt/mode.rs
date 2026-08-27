@@ -221,6 +221,9 @@ pub enum PrivateMode {
     /// cannot be used to change it. baud decodes UTF-8 and nothing else, by
     /// construction, so the answer is fixed for the life of the process.
     Utf8Resource,
+    /// `?2027` — grapheme clustering. baud always clusters, so like
+    /// [`PrivateMode::Utf8Resource`] this is permanent rather than a switch.
+    GraphemeClustering,
     CursorVisible,      // ?25
     BracketedPaste,     // ?2004
     AltScreen,          // ?1049
@@ -286,6 +289,7 @@ impl PrivateMode {
             1006 => PrivateMode::MouseSgr,
             1049 => PrivateMode::AltScreen,
             1020 => PrivateMode::Utf8Resource,
+            2027 => PrivateMode::GraphemeClustering,
             2004 => PrivateMode::BracketedPaste,
             2026 => PrivateMode::SynchronizedOutput,
             n => PrivateMode::Other(Param(n)),

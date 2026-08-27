@@ -231,3 +231,73 @@ fn a_leading_mark_has_no_base_and_is_counted() {
     t.commit_read(f.len());
     assert_eq!(t.marks_dropped.count(), 1, "the orphan mark is counted");
 }
+
+// ── one cluster, one cell ───────────────────────────────────────────────────
+
+fn columns(s: &str) -> usize {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+    t.cursor().1.index()
+}
+
+/// **A ZWJ emoji sequence is one cluster and takes the columns of one.**
+///
+/// Width alone cannot get this right: `U+1F469 U+200D U+1F4BB` is three
+/// codepoints of width 2, 0 and 2, so measuring each independently gives four
+/// columns for a single glyph — and every column of drift desynchronises the
+/// cursor against an application counting the same text with its own rules.
+#[test]
+fn a_zwj_sequence_occupies_one_cluster_of_columns() {
+    assert_eq!(
+        columns("\u{1f469}\u{200d}\u{1f4bb}"),
+        2,
+        "woman technologist"
+    );
+    assert_eq!(columns("\u{1f469}"), 2, "the base emoji alone, for scale");
+}
+
+/// A flag is two regional indicators and one cluster.
+#[test]
+fn a_flag_is_one_cluster() {
+    assert_eq!(columns("\u{1f1ef}\u{1f1f5}"), 2, "one flag");
+    assert_eq!(
+        columns("\u{1f1ef}\u{1f1f5}\u{1f1ef}\u{1f1f5}"),
+        4,
+        "two flags, not one run of four indicators"
+    );
+}
+
+/// An Indic conjunct stays whole (GB9c).
+#[test]
+fn an_indic_conjunct_is_one_cluster() {
+    assert_eq!(columns("\u{915}\u{94d}\u{937}"), 1, "ka + virama + ssa");
+}
+
+/// Clusters do not run together across unrelated text.
+///
+/// The run scanner blits printable ASCII without ever feeding `ClusterBreak`,
+/// so without a reset the emoji after `a` would be judged against the emoji
+/// before it and swallowed into its cluster.
+#[test]
+fn ascii_between_emoji_breaks_the_cluster() {
+    assert_eq!(columns("\u{1f469}a\u{1f469}"), 5, "2 + 1 + 2");
+}
+
+/// And the ordinary cases still measure as they did.
+#[test]
+fn clustering_does_not_disturb_ordinary_text() {
+    assert_eq!(columns("hello"), 5);
+    assert_eq!(columns("中文"), 4);
+    assert_eq!(columns("e\u{301}"), 1, "base plus mark is still one column");
+}

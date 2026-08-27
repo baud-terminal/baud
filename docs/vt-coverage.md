@@ -176,8 +176,9 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
 | combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
-| one cluster per cell (full cluster semantics: ZWJ sequences, flags, conjuncts as a single cell) | **out** — see below |
-| `CSI ? 2027 h/l` / DECRQM `?2027` — grapheme clustering mode | **out** — DECRQM answers `0`, not recognized, because baud does not cluster |
+| one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster | done — `ClusterBreak` consulted in `put_cp`; continuations attach to the base cell |
+| `Emoji_Presentation=Yes` is two columns | done — regional indicators are EAW `N`, so a flag measured from East Asian Width alone is half-width |
+| DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set; baud has no mode that stops clustering |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
 | `ESC % @` — select ISO 8859-1 | **out** — counted in `Term::unsupported`; baud cannot leave UTF-8 |
 | `CSI ? 1020 $ p` — DECRQM on xterm's read-only `utf8` resource | done — answers `3`, permanently set |
@@ -237,10 +238,21 @@ reason the style and link tables do: the key is attacker-supplied, and a page
 can emit as many marks as it likes. `Term::marks` is what a renderer reads;
 `marks_dropped` and `marks_evicted` are how the bound stays visible.
 
-That is the storage question answered for *marks*. It is not answered for full
-cluster semantics — a ZWJ emoji sequence occupying one cell rather than four
-columns — which needs the cell to know its cluster, and `CellFlags` is fully
-allocated: two bits of flags and fourteen of `LinkId`.
+**And the same table answers full cluster semantics, which needed no cell bits
+at all.** The reasoning that said otherwise was looking at the wrong
+constraint: a continuation does not need the *cell* to identify its cluster, it
+needs somewhere to live, and the marks table already is that. `put_cp` asks
+`ClusterBreak` whether a codepoint continues what came before it, and a
+continuation attaches to the base cell instead of taking one of its own. So
+`U+1F469 U+200D U+1F4BB` is two columns rather than four, and a flag is two
+rather than four.
+
+One thing that fell out of it: **regional indicators are East Asian Width `N`**
+— one column — while carrying `Emoji_Presentation=Yes`. A flag measured from
+EAW alone is half as wide as every terminal draws it, and the fix is a property
+lookup rather than a special case. This is the question the deleted
+`EmojiWidth` config was gesturing at, answerable now only because the cluster's
+base is known.
 
 **The segmentation half is done and measured; full cluster storage is not.**
 `ClusterBreak` implements the boundary rules and passes all 766 cases of
@@ -274,11 +286,13 @@ come from and § 4.5 why there is no consensus to conform to: mode 2027 is a
 draft, kitty's text-sizing protocol solves an overlapping problem differently,
 and terminals disagree today.
 
-What matters for honesty is that nothing here *claims* it. DECRQM `?2027`
-answers `0` — not recognized — rather than `2`, which would tell an application
-the mode exists and is merely off, whereupon it would set it and believe it took
-effect. `decrqm_does_not_claim_grapheme_clustering` pins that, and the row
-becomes `3` when clustering lands.
+DECRQM `?2027` therefore answers **`3`**, permanently set, which is what
+`decrqm_reports_grapheme_clustering_as_permanent` pins. It answered `0` — not
+recognized — for as long as clustering was unimplemented, and that was the
+honest answer then: `2` would have told an application the mode existed and was
+merely off, whereupon it would set it and believe it took effect. The row moved
+when the implementation did, which is the only order that keeps the answer
+true.
 
 **Legacy charsets are the shell's problem, not the terminal's.** baud already
 has the model for the one charset mechanism it does implement: `SCS`

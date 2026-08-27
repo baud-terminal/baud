@@ -196,6 +196,10 @@ pub struct Term<'a> {
     /// can set: `[[source: uax11]]` § 5 makes it a property of the *reader's*
     /// context, so it belongs to the embedder.
     pub(crate) width: WidthTable,
+    /// Where cluster boundaries fall. Carried across `put_cp` calls because
+    /// five of `[[source: uax29]]`'s rules need more than the previous
+    /// codepoint -- see [`ClusterBreak`].
+    pub(crate) cluster: ClusterBreak,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -299,6 +303,7 @@ impl<'a> Term<'a> {
             marks_evicted: Stat::ZERO,
             c1: C1Transmit::SevenBit,
             width: WidthTable::default(),
+            cluster: ClusterBreak::new(),
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             link: LinkId::NONE,

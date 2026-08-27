@@ -32,6 +32,22 @@ impl<'a> Term<'a> {
     /// That decision is forced by `try_advance` returning `Option`.
     #[inline(always)]
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {
+        // **Does this codepoint continue the cluster before it?**
+        //
+        // Width alone cannot answer that. A ZWJ emoji sequence is three
+        // codepoints of width 2, 0 and 2, so measuring each on its own gives
+        // `U+1F469 U+200D U+1F4BB` four columns for one glyph. So does a flag:
+        // two regional indicators, two columns each. `[[source: uax29]]` says
+        // where the boundaries are, and `ClusterBreak` implements it against
+        // Unicode's own conformance suite.
+        //
+        // A continuation is attached to the cell before it, exactly as a
+        // combining mark is -- the marks table *is* the cluster continuation
+        // store, which is why this needs no room in `PackedCell`.
+        if !self.cluster.is_break(cp) && self.cx != Col::ZERO {
+            self.attach_mark(cp);
+            return;
+        }
         if w == Width::ZERO {
             // **Attached, not discarded.** This returned early, so every
             // combining mark was silently thrown away: `e` + U+0301 stored `e`
@@ -145,6 +161,11 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     pub(crate) fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
+        // Printable ASCII is blitted and never reaches `put_cp`, so
+        // `ClusterBreak` does not see it. Reset, or an emoji after `a` would be
+        // judged against the emoji before it. One store per *run*, not per
+        // byte, so it is off the per-byte path this file is careful about.
+        self.cluster = ClusterBreak::new();
         // Hoisted: a mode cannot change inside a run, and reading it per
         // iteration cost 12% of streaming throughput -- measured, not guessed.
         let wrap = self.modes.is_set(ModeBit::AutoWrap);

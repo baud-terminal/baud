@@ -298,6 +298,13 @@ impl<'a> Term<'a> {
             // exact failure `docs/vt-coverage.md` refuses for DECRQM. DECRPM
             // has value 3 for precisely this case.
             PrivateMode::Utf8Resource => ModeState::PermanentlySet,
+            // `?2027` answers 3 for the same reason `?1020` does: baud
+            // clusters per `[[source: uax29]]` and has no mode that stops it,
+            // so `1` would invite an application to try turning it off.
+            // It answered `0` while clustering was unimplemented, which was the
+            // honest answer *then* -- saying `2` would have claimed the mode
+            // existed and was merely off.
+            PrivateMode::GraphemeClustering => ModeState::PermanentlySet,
             PrivateMode::Origin => bit_state(self.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.modes, ModeBit::AutoWrap),
             PrivateMode::LeftRightMargin => bit_state(self.modes, ModeBit::SideMargins),

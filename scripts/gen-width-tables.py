@@ -57,10 +57,21 @@ def subtract(ranges, drop):
     return out
 
 
+EMOJI = SRC / "unicode-emoji-data.txt"
+
 eaw = parse(EAW)
 dgc = parse(DGC)
+emoji = parse(EMOJI)
 
-wide = coalesce([(lo, hi) for lo, hi, v in eaw if v in ("W", "F")])
+# East Asian Width W/F, plus everything with Emoji_Presentation=Yes.
+#
+# Both are needed and neither subsumes the other. Regional indicators are EAW
+# `N` -- one column -- yet `Emoji_Presentation`, so a flag measured from EAW
+# alone is half as wide as every terminal draws it.
+wide = coalesce(
+    [(lo, hi) for lo, hi, v in eaw if v in ("W", "F")]
+    + [(lo, hi) for lo, hi, v in emoji if v == "Emoji_Presentation"]
+)
 ambiguous = coalesce([(lo, hi) for lo, hi, v in eaw if v == "A"])
 # Mn (nonspacing mark), Me (enclosing mark), Cf (format) are zero-width.
 zero = coalesce([(lo, hi) for lo, hi, v in dgc if v in ("Mn", "Me", "Cf")])
@@ -105,8 +116,9 @@ parts = [
     emit(
         "WIDE",
         wide,
-        "/// East Asian Width `W` (Wide) and `F` (Fullwidth): two columns\n"
-        "/// unconditionally.",
+        "/// Two columns: East Asian Width `W` or `F`, **or**\n"
+        "/// `Emoji_Presentation=Yes`. Regional indicators are EAW `N` and would\n"
+        "/// otherwise measure one column, making every flag half-width.",
     ),
     emit(
         "AMBIGUOUS",

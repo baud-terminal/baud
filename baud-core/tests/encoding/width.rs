@@ -144,18 +144,18 @@ fn width_tables_match_the_pinned_data() {
     );
 }
 
-/// DECRQM `?2027` answers `0`, not recognized — and that is the honest answer.
+/// DECRQM `?2027` answers `3`, permanently set.
 ///
-/// Mode 2027 is the grapheme-clustering proposal
-/// (`docs/research/notes/g-text-encoding.md` § 4.5). baud does not do grapheme
-/// clustering, so answering `2` ("reset") would tell an application the mode
-/// exists and is off; it would then set it and believe it took effect. That is
-/// the failure `docs/vt-coverage.md` refuses for DECRQM in those words.
+/// Mode 2027 is grapheme clustering. This answered `0` (not recognized) while
+/// clustering was unimplemented, which was the honest answer then: `2` would
+/// have told an application the mode existed and was merely off, whereupon it
+/// would set it and believe it took effect.
 ///
-/// When clustering lands this becomes `3`, permanently set — the shape Windows
-/// Terminal arrived at independently. It is `0` until then.
+/// baud clusters now, per `[[source: uax29]]` and against Unicode's own
+/// conformance suite, and has no mode that stops it — so the answer is `3`, the
+/// shape Windows Terminal arrived at independently.
 #[test]
-fn decrqm_does_not_claim_grapheme_clustering() {
+fn decrqm_reports_grapheme_clustering_as_permanent() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
     let bytes = b"\x1b[?2027$p";
@@ -164,9 +164,23 @@ fn decrqm_does_not_claim_grapheme_clustering() {
     let f = slot.write(StreamByte::slice_from(bytes));
     t.feed(base, f.len());
     t.commit_read(f.len());
-    assert_eq!(
-        t.reply(),
-        b"\x1b[?2027;0$y",
-        "?2027 must answer 0 (not recognized) while clustering is unimplemented"
-    );
+    assert_eq!(t.reply(), b"\x1b[?2027;3$y", "?2027 must answer 3");
+}
+
+/// **`Emoji_Presentation=Yes` is two columns, even where EAW says one.**
+///
+/// Regional indicators are East Asian Width `N` — Neutral, one column — and
+/// carry `Emoji_Presentation`. Measured from EAW alone a flag is half as wide
+/// as every terminal draws it, and the drift is per-flag, so a line of them
+/// walks the cursor steadily out of step with the application.
+///
+/// Both properties are needed and neither subsumes the other: EAW `W`/`F`
+/// covers CJK, which is not emoji, and `Emoji_Presentation` covers this, which
+/// EAW calls neutral.
+#[test]
+fn emoji_presentation_is_wide_even_when_eaw_is_neutral() {
+    // A lone regional indicator: EAW N, Emoji_Presentation yes.
+    assert_eq!(cols("\u{1f1ef}"), 2, "regional indicator renders as emoji");
+    // And a CJK ideograph is still wide for the other reason.
+    assert_eq!(cols("中"), 2, "EAW W, no emoji property");
 }
