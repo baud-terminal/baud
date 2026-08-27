@@ -30,6 +30,27 @@ enum Op {
     /// what to do past the capacity bound. A property is only as good as the
     /// shapes its generator can reach.
     SgrMany(u8, u8),
+    /// An SGR whose parameter list has *holes*: `CSI 1;;4;;;7 m`.
+    ///
+    /// An omitted parameter means its default, which for SGR is 0 (reset).
+    /// Nothing in this generator produced one, so the whole
+    /// empty-parameter path -- `params[i] = None` and every `unwrap_or`
+    /// behind it -- was reachable only from hand-written cases.
+    SgrHoles(u8, u8),
+    /// A CUP whose parameters exceed `Param`'s `u16`.
+    ///
+    /// `Param::push` saturates at 65535 rather than wrapping. The largest
+    /// value this generator could otherwise build is three digits, so the
+    /// saturation was never taken and a wrapping implementation would have
+    /// passed every property here.
+    CupHuge(u8),
+    /// A C0 control *inside* a CSI parameter string.
+    ///
+    /// `[[source: williams]]` executes it and the sequence continues, which
+    /// `a_c0_inside_a_csi_does_not_cancel_it` pins for one case. The
+    /// generator could not interleave one, so the interaction between an
+    /// executed C0 and a half-parsed sequence had no property coverage.
+    CsiWithC0(u8, u8),
     Cup(u8, u8),
     Cuu(u8),
     Cud(u8),
@@ -96,12 +117,24 @@ enum Op {
 
 /// SGR parameters baud implements, so a generated program exercises styles
 /// rather than the "unknown attribute" break.
-const SGR: [u8; 20] = [
+const SGR: [u8; 34] = [
     0, 1, 2, 3, 4, 5, 7, 8, 9, 22, 24, 27, 30, 39, 41, 49, 90, 97, 100, 107,
+    // The attributes ECMA-48 § 8.3.117 defines past 19, which the table
+    // omitted -- so no generated program ever set fraktur, framed, overlined
+    // or an ideogram aspect, and none exercised the parameters that clear two
+    // or five bits at once (23, 54, 65). They were implemented and then only
+    // tested by hand-written cases.
+    20, 23, 26, 50, 51, 52, 53, 54, 55, 60, 61, 62, 63, 64,
 ];
 
 /// Private modes baud acts on, plus two it deliberately ignores -- an ignored
 /// mode must stay inert, and that is worth generating too.
+/// C0 controls that are legal inside a CSI and are *executed* there.
+///
+/// Not the ones that abort it (`CAN`, `SUB`, `ESC`) -- those end the sequence
+/// by design and would make this generate something other than what it means.
+const C0: [u8; 5] = [0x07, 0x08, 0x09, 0x0a, 0x0d];
+
 const MODES: [u16; 11] = [6, 7, 25, 69, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
@@ -125,6 +158,9 @@ fn op() -> impl Strategy<Value = Op> {
         // Deliberately spans the capacity bound: short lists, lists exactly at
         // it, and lists well past it.
         (1u8..2 * ParamIdx::CAPACITY as u8, 0u8..20).prop_map(|(n, off)| Op::SgrMany(n, off)),
+        (1u8..12, 0u8..20).prop_map(|(n, off)| Op::SgrHoles(n, off)),
+        (0u8..4).prop_map(Op::CupHuge),
+        (prop::sample::select(&C0[..]), 0u8..6).prop_map(|(c, at)| Op::CsiWithC0(c, at)),
         (0u8..3).prop_map(Op::Decsca),
         (0u8..3).prop_map(Op::El),
         (0u8..3).prop_map(Op::Ed),
@@ -188,6 +224,40 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
                 continue;
             }
             Op::Cup(r, c) => write!(n, "\x1b[{r};{c}H").unwrap(),
+            Op::SgrHoles(count, off) => {
+                n.push_str("\x1b[");
+                for k in 0..count as usize {
+                    if k > 0 {
+                        n.push(';');
+                    }
+                    // Every third position is left empty, so a list mixes
+                    // present and defaulted parameters rather than being all
+                    // of one kind.
+                    if (k + off as usize) % 3 != 0 {
+                        write!(n, "{}", SGR[(k + off as usize) % SGR.len()]).unwrap();
+                    }
+                }
+                n.push('m');
+            }
+            Op::CupHuge(k) => {
+                let big = ["99999", "65535", "65536", "4294967296"][k as usize % 4];
+                write!(n, "\x1b[{big};{big}H").unwrap();
+            }
+            Op::CsiWithC0(c, at) => {
+                // `CSI 1;2;3 m` with one C0 byte spliced in among the
+                // parameters.
+                n.push_str("\x1b[");
+                for k in 0..6usize {
+                    if k > 0 {
+                        n.push(';');
+                    }
+                    if k == at as usize % 6 {
+                        n.push(c as char);
+                    }
+                    write!(n, "{}", SGR[k % SGR.len()]).unwrap();
+                }
+                n.push('m');
+            }
             Op::Cuu(k) => write!(n, "\x1b[{k}A").unwrap(),
             Op::Cud(k) => write!(n, "\x1b[{k}B").unwrap(),
             Op::Cuf(k) => write!(n, "\x1b[{k}C").unwrap(),
@@ -571,4 +641,50 @@ proptest! {
     fn decsca_alone_is_invisible(ops in program(), p in 0u8..3) {
         prop_assert_eq!(grid(&ops), grid_then(&ops, &[Op::Decsca(p)]));
     }
+}
+
+/// **The generator emits what its variants claim.**
+///
+/// This file's whole lesson is that a property is only as good as the shapes
+/// its generator reaches, and an op that silently emits the wrong bytes is
+/// indistinguishable from one whose shape is simply never buggy. The same
+/// failure as a search probe that cannot match: it looks exactly like a fact.
+///
+/// So each axis added after the parameter-overflow bug is checked here against
+/// the bytes it is supposed to produce, deterministically.
+#[test]
+fn the_generator_reaches_the_shapes_it_claims() {
+    let many = bytes_of(&[Op::SgrMany(40, 0)]);
+    assert_eq!(
+        many.iter().filter(|b| **b == b';').count(),
+        39,
+        "SgrMany(40) must emit forty parameters, crossing CAPACITY {}",
+        ParamIdx::CAPACITY
+    );
+
+    let holes = bytes_of(&[Op::SgrHoles(9, 0)]);
+    assert!(
+        holes.windows(2).any(|w| w == b";;"),
+        "SgrHoles must actually leave a parameter empty, got {:?}",
+        core::str::from_utf8(&holes).unwrap()
+    );
+
+    let huge = bytes_of(&[Op::CupHuge(3)]);
+    assert!(
+        core::str::from_utf8(&huge).unwrap().contains("4294967296"),
+        "CupHuge must exceed Param's u16 so the saturation is taken"
+    );
+
+    let c0 = bytes_of(&[Op::CsiWithC0(0x07, 2)]);
+    let esc = c0.iter().position(|b| *b == 0x1b).unwrap();
+    let fin = c0.iter().position(|b| *b == b'm').unwrap();
+    assert!(
+        c0[esc..fin].contains(&0x07),
+        "CsiWithC0 must splice the C0 *inside* the sequence, got {c0:?}"
+    );
+
+    // And the ideogram aspects are reachable at all, which they were not
+    // before: the SGR table stopped at 107.
+    assert!(SGR.contains(&64), "SGR 64 must be generatable");
+    assert!(SGR.contains(&23), "and the two-bit clears too");
 }
