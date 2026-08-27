@@ -74,6 +74,22 @@ pub const OSC_MAX: usize = 512;
 /// competing with the grid.
 pub const NLINK: usize = 128;
 
+/// Combining marks attached to cells, and the most any one cell may carry.
+///
+/// **A cell has no room for these.** `PackedCell` is eight bytes and that
+/// number is measured; `CellFlags` is fully allocated, two bits of flags and
+/// fourteen of `LinkId`. So the marks live beside the grid rather than in it,
+/// in a direct-mapped table keyed on the cell's position.
+///
+/// Bounded and evicting on collision, for the reason `NLINK` and `NSTYLE` are:
+/// the key is attacker-supplied — a page can emit as many combining marks as it
+/// likes — and a growable table under that pressure is the content-addressing
+/// failure mode `CLAUDE.md` already refuses. A cell whose slot was taken loses
+/// its marks; it does not lose its base character, and nothing grows without
+/// bound.
+///
+pub const NMARK: usize = 512;
+
 pub const LINK_MAX: usize = 256;
 
 pub const READ_CHUNK: usize = baud_domain::SLOT_BYTES;
@@ -168,6 +184,12 @@ pub struct Term<'a> {
     /// this stays zero while replaying every output capability of the terminfo
     /// entries baud claims.
     pub unsupported: Stat,
+    /// Combining marks that could not be stored: no base character, or the
+    /// cell already held [`MARKS_PER_CELL`].
+    pub marks_dropped: Stat,
+    /// Marks displaced from a slot another cell was using. Bounded tables
+    /// evict; counting it is how the bound stays visible.
+    pub marks_evicted: Stat,
     /// Whether replies use 7-bit or 8-bit C1 introducers. Set by S7C1T/S8C1T.
     pub(crate) c1: C1Transmit,
     /// Locale policy for East Asian Ambiguous width. Not a mode an application
@@ -273,6 +295,8 @@ impl<'a> Term<'a> {
             mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
             unsupported: Stat::ZERO,
+            marks_dropped: Stat::ZERO,
+            marks_evicted: Stat::ZERO,
             c1: C1Transmit::SevenBit,
             width: WidthTable::default(),
             g: [Charset::Ascii; 4],

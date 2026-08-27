@@ -298,3 +298,100 @@ impl PackedCell {
         }
     }
 }
+
+/// Combining marks attached to one cell, keyed on where that cell is.
+///
+/// **Not part of [`PackedCell`], deliberately.** The cell is eight measured
+/// bytes with no room, so a grapheme that needs more than one codepoint keeps
+/// its base in the cell and its marks here, found by position.
+///
+/// `len == 0` means the slot is free — a zeroed grid therefore has no marks and
+/// there is nothing to initialise, which is what keeps `Storage` a plain
+/// zeroable block for `new_box_zeroed`.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct MarkSlot {
+    /// Row and column of the cell these attach to. Only meaningful when
+    /// `len > 0`.
+    pub row: u16,
+    pub col: u16,
+    pub len: u16,
+    /// Padding, and it is load-bearing: `{u16,u16,u16,[u32;3]}` would carry two
+    /// bytes of invisible tail padding, which is the unsound-to-reinterpret
+    /// shape `Run::_pad` already exists to avoid.
+    pub _pad: u16,
+    pub cps: [u32; 3],
+}
+
+impl MarkSlot {
+    /// The most marks one cell may carry. Past a base plus two accents, no
+    /// normal orthography stacks further.
+    pub const CAPACITY: usize = 3;
+
+    pub const EMPTY: MarkSlot = MarkSlot {
+        row: 0,
+        col: 0,
+        len: 0,
+        _pad: 0,
+        cps: [0; 3],
+    };
+
+    /// Which slot a cell's marks live in, in a table of `n`.
+    ///
+    /// Direct-mapped, and it takes the **high** bits of the product for the
+    /// same measured reason `StyleId::bucket` does: the low bits of a
+    /// multiplicative hash are the ones that collide, and `& (n-1)` on the
+    /// product is the bug that cost 112,144 interns.
+    ///
+    /// Takes `Row` and `Col` rather than two integers. Passing them the wrong
+    /// way round compiles, and would give a plausible index into the wrong
+    /// slot -- the operands-reversed failure `RowBlock` already exists to
+    /// prevent.
+    pub fn index_of(r: Row, c: Col, n: usize) -> usize {
+        let key = ((r.index() as u64) << 16) ^ (c.index() as u64);
+        (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 55) as usize % n
+    }
+
+    /// An empty slot keyed to this cell.
+    pub fn for_cell(r: Row, c: Col) -> MarkSlot {
+        MarkSlot {
+            row: r.index() as u16,
+            col: c.index() as u16,
+            ..MarkSlot::EMPTY
+        }
+    }
+
+    /// Does this slot hold marks for that cell?
+    ///
+    /// A direct-mapped table can hand back somebody else's slot, so every read
+    /// has to ask. This is the check that `StyleId`'s `tmpl_key` needed and did
+    /// not have, which is how DECSCA protection was read from an evicted style.
+    pub fn is_for(self, r: Row, c: Col) -> bool {
+        !self.is_empty() && self.row == r.index() as u16 && self.col == c.index() as u16
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub fn is_full(self) -> bool {
+        self.len as usize >= MarkSlot::CAPACITY
+    }
+
+    /// Append a mark. `false` when the slot is full, which the caller counts.
+    pub fn push(&mut self, cp: Codepoint) -> bool {
+        if self.is_full() {
+            return false;
+        }
+        self.cps[self.len as usize] = cp.value();
+        self.len += 1;
+        true
+    }
+
+    /// The marks, as codepoints.
+    pub fn marks(&self) -> impl Iterator<Item = Codepoint> + '_ {
+        self.cps[..(self.len as usize).min(MarkSlot::CAPACITY)]
+            .iter()
+            .filter_map(|c| Codepoint::new(*c))
+    }
+}

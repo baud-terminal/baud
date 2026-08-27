@@ -159,3 +159,75 @@ fn grapheme_tables_match_the_pinned_data() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// **A combining mark is attached, not discarded.**
+///
+/// `put_cp` returned early on `Width::ZERO`, so every combining mark was
+/// silently thrown away: `e` + U+0301 stored `e` and the accent was *gone* —
+/// not mis-measured, absent, and unrecoverable by a renderer, a selection or a
+/// copy. A terminal must not lose a character it was sent.
+///
+/// The cell keeps the base and the marks live beside the grid, found by
+/// position, because `PackedCell` is eight measured bytes with no room.
+#[test]
+fn where_a_combining_mark_ends_up() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let bytes = "e\u{301}".as_bytes();
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    let cols = t.cursor().1.index();
+    let cells: Vec<u32> = t.viewport()[..cols.max(1)]
+        .iter()
+        .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+        .collect();
+    assert_eq!(cells, vec![0x65], "one cell, holding the base `e`");
+    let marks: Vec<u32> = t
+        .marks(Row::from_index(0), Col::ZERO)
+        .map(|c| c.value())
+        .collect();
+    assert_eq!(marks, vec![0x301], "and the acute is attached to it");
+    assert_eq!(t.marks_dropped.count(), 0, "nothing was lost");
+}
+
+/// Several marks stack, and a cell with none reports none.
+#[test]
+fn marks_stack_and_do_not_leak_between_cells() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    // `a` + acute + diaeresis, then a plain `b`.
+    let bytes = "a\u{301}\u{308}b".as_bytes();
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    let at = |c: usize| -> Vec<u32> {
+        t.marks(Row::from_index(0), Col::at_index(c))
+            .map(|x| x.value())
+            .collect()
+    };
+    assert_eq!(at(0), vec![0x301, 0x308], "both marks on the `a`");
+    assert_eq!(at(1), Vec::<u32>::new(), "and none on the `b`");
+}
+
+/// A mark with no base character is dropped, and counted.
+///
+/// `[[source: uax29]]` GB1 puts a boundary at start of text, so a leading mark
+/// is its own cluster and there is no cell for it to attach to. Dropping it is
+/// correct; dropping it *silently* would not be.
+#[test]
+fn a_leading_mark_has_no_base_and_is_counted() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let bytes = "\u{301}x".as_bytes();
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(t.marks_dropped.count(), 1, "the orphan mark is counted");
+}

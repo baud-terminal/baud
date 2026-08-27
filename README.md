@@ -36,7 +36,7 @@ missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 125 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **VT protocol** | ✅ 126 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid + scrollback** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |

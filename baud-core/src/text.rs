@@ -33,6 +33,14 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {
         if w == Width::ZERO {
+            // **Attached, not discarded.** This returned early, so every
+            // combining mark was silently thrown away: `e` + U+0301 stored `e`
+            // and the accent was gone -- not mis-measured, absent, and
+            // unrecoverable by a renderer, a selection or a copy.
+            //
+            // Zero-width codepoints are rare next to text, so this is off the
+            // measured path: ASCII never reaches `put_cp` at all.
+            self.attach_mark(cp);
             return;
         }
         if self.cx.try_advance(w, self.cols).is_none() {
@@ -63,6 +71,34 @@ impl<'a> Term<'a> {
             self.view().put(r, c, PackedCell::wide_tail(st, fl));
         }
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
+    }
+
+    /// Attach a zero-width codepoint to the cell the cursor last wrote.
+    ///
+    /// `#[inline(never)]`: `put_cp` is on the decode path and this is the rare
+    /// arm, the same reason `open_gap` and `anywhere_c0` are out of line.
+    #[inline(never)]
+    fn attach_mark(&mut self, cp: Codepoint) {
+        // A mark with nothing before it on the line has no base to attach to.
+        // Dropping it is correct -- `[[source: uax29]]` GB1 puts a boundary at
+        // start of text, so it is its own cluster and there is no cell for it.
+        if self.cx == Col::ZERO {
+            self.marks_dropped.inc();
+            return;
+        }
+        let (r, c) = (self.cy, self.cx.before());
+        let i = MarkSlot::index_of(r, c, NMARK);
+        if !self.s.marks[i].is_for(r, c) {
+            if !self.s.marks[i].is_empty() {
+                // Someone else's marks. Evicting is the bounded-table
+                // contract: the cell that loses them keeps its base character.
+                self.marks_evicted.inc();
+            }
+            self.s.marks[i] = MarkSlot::for_cell(r, c);
+        }
+        if !self.s.marks[i].push(cp) {
+            self.marks_dropped.inc();
+        }
     }
 
     #[inline(always)]

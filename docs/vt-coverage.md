@@ -175,7 +175,8 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are UTF-8 continuation bytes; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm, which accept them |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
-| one cluster per cell (storage) | **out** — see below; the segmentation is measured, the storage is not |
+| combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
+| one cluster per cell (full cluster semantics: ZWJ sequences, flags, conjuncts as a single cell) | **out** — see below |
 | `CSI ? 2027 h/l` / DECRQM `?2027` — grapheme clustering mode | **out** — DECRQM answers `0`, not recognized, because baud does not cluster |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
 | `ESC % @` — select ISO 8859-1 | **out** — counted in `Term::unsupported`; baud cannot leave UTF-8 |
@@ -227,7 +228,21 @@ and one glyph, and baud gives it **four columns**, because the two emoji are
 each East Asian Wide and the joiner is zero. A combining sequence longer than
 one mark has the same shape.
 
-**The segmentation half is now done and measured; the storage half is not.**
+**Combining marks used to be discarded outright.** `put_cp` returned early on
+`Width::ZERO`, so `e` + `U+0301` stored `e` and the accent was gone — not
+mis-measured, *absent*, and unrecoverable by a renderer, a selection or a copy.
+A terminal must not lose a character it was sent. They are stored now, keyed on
+the cell they attach to, in a bounded table that evicts on collision for the
+reason the style and link tables do: the key is attacker-supplied, and a page
+can emit as many marks as it likes. `Term::marks` is what a renderer reads;
+`marks_dropped` and `marks_evicted` are how the bound stays visible.
+
+That is the storage question answered for *marks*. It is not answered for full
+cluster semantics — a ZWJ emoji sequence occupying one cell rather than four
+columns — which needs the cell to know its cluster, and `CellFlags` is fully
+allocated: two bits of flags and fourteen of `LinkId`.
+
+**The segmentation half is done and measured; full cluster storage is not.**
 `ClusterBreak` implements the boundary rules and passes all 766 cases of
 `GraphemeBreakTest.txt`, which is Unicode's own suite written by the people who
 wrote the rules. So the question is no longer "can baud find cluster

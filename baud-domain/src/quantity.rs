@@ -480,6 +480,10 @@ impl Col {
     pub fn after(self) -> Col {
         Col(self.0 + 1)
     }
+    /// The column before this one, saturating at zero.
+    pub fn before(self) -> Col {
+        Col(self.0.saturating_sub(1))
+    }
 }
 
 /// A monotonic event counter. Not a `u64`: a statistic cannot be added to a

@@ -21,6 +21,8 @@ pub struct Storage {
     /// degrading. The core cannot own a PTY -- it is `no_std` with no I/O -- so
     /// this mirrors the input side: the core fills a buffer, the caller drains
     /// it with [`Term::reply`] and writes it wherever the input came from.
+    /// Combining marks, keyed on the cell they attach to. See [`NMARK`].
+    pub marks: [MarkSlot; NMARK],
     pub reply: [u8; REPLY],
     /// Tab stops, one flag per column.
     ///
@@ -105,6 +107,7 @@ impl Storage {
             // Zeroed here and populated by Term::reset_tabs, so `Storage` stays
             // a plain zeroable block for `new_box_zeroed`.
             tabs: [false; MAX_COLS],
+            marks: [MarkSlot::EMPTY; NMARK],
             osc: [0; OSC_MAX],
             title: [0; OSC_MAX],
             icon: [0; OSC_MAX],

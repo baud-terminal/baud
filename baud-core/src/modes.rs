@@ -154,6 +154,21 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// The combining marks attached to a cell, if any.
+    ///
+    /// A renderer needs these to draw `é` as one glyph rather than as `e`: the
+    /// cell holds the base and this holds what combines with it. Empty for the
+    /// overwhelming majority of cells, which is why the marks live in a side
+    /// table rather than in `PackedCell`'s eight measured bytes.
+    pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = Codepoint> + '_ {
+        let slot = &self.s.marks[MarkSlot::index_of(r, c, NMARK)];
+        slot.marks().take(if slot.is_for(r, c) {
+            MarkSlot::CAPACITY
+        } else {
+            0
+        })
+    }
+
     /// East Asian Ambiguous width policy.
     ///
     /// Owned by the embedder, not by the application: `[[source: uax11]]` § 5
