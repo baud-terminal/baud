@@ -398,8 +398,22 @@ impl StyleWord {
     pub fn with_attrs(self, a: Attrs) -> StyleWord {
         StyleWord { attrs: a, ..self }
     }
-    /// Everything that distinguishes one rendition from another, folded into
-    /// one integer for hashing.
+    /// The fields that distinguish one rendition from another, folded into one
+    /// integer for hashing.
+    ///
+    /// **`underline` and `font` are deliberately not in it**, and this used to
+    /// claim they were ("everything that distinguishes one rendition from
+    /// another") after they were added to the word and not to the fold. Two
+    /// renditions differing only in underline colour or font therefore hash to
+    /// the same bucket.
+    ///
+    /// That is a hit-rate cost, not a correctness bug: `intern_style` compares
+    /// the whole `StyleWord` on a hit, so a collision evicts and rebuilds
+    /// rather than returning the wrong style. Folding them in is a plausible
+    /// improvement and is **unmeasured** -- both bench payloads report `styles
+    /// 0 interned / 100% hits`, so nothing here can currently tell the two
+    /// versions apart. It needs a payload that cycles renditions faster than
+    /// `NSTYLE` before it is worth changing.
     pub fn key(self) -> u64 {
         (self.fg.0 as u64) ^ ((self.bg.0 as u64) << 21) ^ ((self.attrs.bits() as u64) << 45)
     }

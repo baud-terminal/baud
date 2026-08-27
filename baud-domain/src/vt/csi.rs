@@ -17,7 +17,20 @@ impl ParamIdx {
     /// `Term::params` is sized from this, so the array and the index cannot
     /// disagree about the limit -- they did when the limit was the literal
     /// `16` written in four places.
-    pub const CAPACITY: usize = 16;
+    ///
+    /// **Derived, not chosen.** The longest parameter list baud has to accept
+    /// is the one baud itself emits: the DECRQSS SGR reply is a leading `0`,
+    /// every attribute in [`Attrs::WIRE`], a font, and three colours in their
+    /// five-parameter direct form. DECRQSS answers with something the
+    /// application can send back verbatim, so a reply the parser cannot re-read
+    /// is a reply that does not round-trip -- and at sixteen it could not.
+    /// Bold plus a foreground, a background and an underline colour is already
+    /// a seventeen-parameter answer, which is an editor drawing an undercurl,
+    /// not a corner case.
+    ///
+    /// Writing a number here instead would put the limit back out of step the
+    /// next time `WIRE` grows, which is exactly how `SGR 60-65` widened it.
+    pub const CAPACITY: usize = 1 + Attrs::WIRE.len() + 1 + 3 * 5;
     /// One position past the last storable parameter.
     ///
     /// [`ParamIdx::next_capped`] saturates here rather than at `CAPACITY`, so

@@ -8,19 +8,22 @@ use crate::*;
 /// the five-part form -- silently, and only for the second attribute in a
 /// sequence.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct SubParams(pub(crate) u16);
+pub struct SubParams(pub(crate) u64);
+
+// One bit per parameter, so the mask has to be at least as wide as the array.
+const _: () = assert!(ParamIdx::CAPACITY <= u64::BITS as usize);
 
 impl SubParams {
     pub const NONE: SubParams = SubParams(0);
     /// Mark parameter `i` as colon-joined to the one before it.
     pub fn mark(self, i: ParamIdx) -> SubParams {
-        match i.raw_index() < 16 {
+        match i.raw_index() < ParamIdx::CAPACITY {
             true => SubParams(self.0 | (1 << i.raw_index())),
             false => self,
         }
     }
     pub fn is_sub(self, i: ParamIdx) -> bool {
-        i.raw_index() < 16 && self.0 & (1 << i.raw_index()) != 0
+        i.raw_index() < ParamIdx::CAPACITY && self.0 & (1 << i.raw_index()) != 0
     }
     /// Realign after dropping the first `k` parameters.
     pub fn drop_first(self, k: ParamIdx) -> SubParams {

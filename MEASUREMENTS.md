@@ -487,6 +487,27 @@ exercise the case" trap in `CLAUDE.md`, and it is *not* worked around here: the
 table above measures code layout, not the style table. Sizing that needs a
 payload that cycles renditions faster than `NSTYLE`, which does not exist yet.
 
+## Widening the CSI parameter array from 16 to 35
+
+Host B (arm64 macOS, portable scanner), 2026-08-27, medians of 9, alternating
+order, 48 MB/rep, real PTY. `Term::params` went from 16 to 35 entries (+76
+bytes) and `SubParams` from `u16` to `u64` (+6), so `Term` grew ~82 bytes.
+
+| row | 16 params | 35 params | 16 range | 35 range |
+|---|---|---|---|---|
+| spans, zero-copy | 195.0 | 198.9 | 182.5-207.8 | 178.1-210.3 |
+| spans + promote hybrid | 219.3 | 219.5 | 211.0-229.9 | 207.8-233.0 |
+| TUI through a PTY | 215.9 | 220.5 | 210.6-232.2 | 211.1-232.7 |
+
+Ranges overlap on every row, so **there is no result**. What would have proven
+it wrong is the TUI rows separating, since that payload is the one carrying
+escape sequences; they do not.
+
+The same caveat as the `Attrs` widening applies and is the reason both entries
+say so: `payload::text` and `payload::tui` send short parameter lists, so this
+measures `Term` getting bigger, not the deeper array being walked. A payload
+that sends 30-parameter SGR does not exist here.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.

@@ -290,3 +290,92 @@ fn a_parameter_after_a_dcs_intermediate_is_ignored() {
         "`DCS $ 1 q` is malformed and must produce no reply"
     );
 }
+
+/// **The widest rendition baud can hold still fits in the reply buffer.**
+///
+/// `Attrs::WIRE` went from 13 entries to 18 when the ideogram aspects landed,
+/// and DECRQSS walks all of it — so the worst-case SGR reply grew by
+/// `;60;61;62;63;64` on top of three truecolour specs and a font. `REPLY` is a
+/// fixed 256 bytes in a core with no allocator, and a truncated reply is the
+/// failure `docs/vt-coverage.md` calls non-negotiable: an application parses
+/// whatever arrives as the report it asked for, so a short answer is worse
+/// than none.
+///
+/// `report_encodings_fit` does not cover this. It pins the *mouse* report as
+/// "the long one" against a hardcoded literal and derives nothing from
+/// `WIRE.len()`, so it would keep passing however wide the rendition grew —
+/// the same shape of blind spot as a search whose probe cannot match.
+///
+/// The assertion is a round-trip rather than a length, because truncation
+/// produces a reply that is still well-formed and merely *shorter than what
+/// was set*, which every "is this a valid CSI" check passes happily.
+#[test]
+fn the_widest_rendition_survives_the_reply_buffer() {
+    // Every attribute in `WIRE`, the ninth alternate font, and all three
+    // colours in their widest spelling.
+    // Split across sequences because `Term::params` holds 16 and all eighteen
+    // attributes plus a font is nineteen parameters. Sending them as one CSI
+    // silently drops the last three, which is what the first version of this
+    // test did — it then failed against the reply builder, which was innocent.
+    const MAXIMAL: &[u8] = b"\x1b[1;2;3;4;5;7;8;9;20;26;51;52;53m\
+\x1b[60;61;62;63;64;19m\
+\x1b[38;2;255;255;255m\x1b[48;2;254;253;252m\x1b[58;2;251;250;249m";
+
+    let mut query = MAXIMAL.to_vec();
+    query.extend_from_slice(b"\x1bP$qm\x1b\\");
+    let reply = replies(&query);
+
+    println!(
+        "REPLY len={} params={} bytes={:?}",
+        reply.len(),
+        reply.iter().filter(|b| **b == b';').count() + 1,
+        String::from_utf8_lossy(&reply)
+    );
+    assert_eq!(&reply[..5], b"\x1bP1$r", "valid, and the header is intact");
+    assert_eq!(
+        &reply[reply.len() - 3..],
+        b"m\x1b\\",
+        "the final byte and ST both survived — truncation eats these first"
+    );
+
+    // The property that matters: replaying the reply reproduces the rendition.
+    let body = &reply[5..reply.len() - 2];
+    let mut replay = b"\x1b[".to_vec();
+    replay.extend_from_slice(body);
+    replay.push(b'X');
+
+    let mut original = MAXIMAL.to_vec();
+    original.push(b'X');
+    assert_eq!(
+        grid(&replay),
+        grid(&original),
+        "the widest reply still round-trips, so nothing was dropped"
+    );
+}
+
+/// The *smallest* rendition whose reply does not round-trip.
+///
+/// Bold plus three truecolours is sixteen parameters going in — it fits — but
+/// the reply spells them back as `0;1;58;2;..;38;2;..;48;2;..`, which is
+/// seventeen. An editor drawing an undercurl in its own colour over truecolour
+/// text is in this state, so this is not a corner.
+#[test]
+fn a_seventeen_parameter_reply_round_trips() {
+    const SET: &[u8] = b"\x1b[1;38;2;10;20;30;48;2;40;50;60;58;2;70;80;90m";
+    let mut query = SET.to_vec();
+    query.extend_from_slice(b"\x1bP$qm\x1b\\");
+    let reply = replies(&query);
+
+    let body = &reply[5..reply.len() - 2];
+    let mut replay = b"\x1b[".to_vec();
+    replay.extend_from_slice(body);
+    replay.push(b'X');
+    let mut original = SET.to_vec();
+    original.push(b'X');
+    assert_eq!(
+        grid(&replay),
+        grid(&original),
+        "reply {:?} did not reproduce the rendition",
+        core::str::from_utf8(body).unwrap()
+    );
+}

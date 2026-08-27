@@ -37,26 +37,40 @@ fn feed_in_chunks(bytes: &[u8], chunk: usize) -> Attrs {
     t.style_of(cell).attrs()
 }
 
-/// The capacity is sixteen, and it is the array's capacity, not a literal.
+/// The capacity is derived from what DECRQSS has to be able to re-read.
+///
+/// Not a chosen number: a leading `0`, every attribute in `Attrs::WIRE`, a
+/// font, and three colours in their five-parameter direct form. Asserting the
+/// derivation rather than the value is the point -- the constant moved from 16
+/// to 35 when the ideogram aspects widened `WIRE`, and a test pinning `16`
+/// would have had to be edited to say so.
 #[test]
-fn the_parameter_limit_is_the_arrays_capacity() {
-    assert_eq!(ParamIdx::CAPACITY, 16);
+fn the_capacity_covers_the_longest_reply_baud_emits() {
+    assert_eq!(ParamIdx::CAPACITY, 1 + Attrs::WIRE.len() + 1 + 3 * 5);
+    assert!(
+        ParamIdx::CAPACITY >= 35,
+        "bold plus three truecolours already answers with seventeen"
+    );
 }
 
-/// **The seventeenth parameter is dropped, not merged into the sixteenth.**
+/// **The parameter past capacity is dropped, not merged into the last one.**
 ///
-/// Fifteen zeroes, then `1` (bold) as the sixteenth and `4` (underline) as the
-/// seventeenth. A clean drop leaves bold set and underline clear. A digit
-/// merge turns the sixteenth into `14` — a font selection — and loses bold,
-/// which is how the bug announced itself.
+/// `CAPACITY - 1` zeroes, then `1` (bold) as the last storable parameter and
+/// `4` (underline) one past it. A clean drop leaves bold set and underline
+/// clear. A digit merge turns the last one into `14` -- a font selection --
+/// and loses bold, which is how the bug announced itself.
 #[test]
-fn the_seventeenth_parameter_is_dropped_not_merged() {
-    let a = feed_in_chunks(b"\x1b[0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;1;4mX", 4096);
-    assert!(
-        a.has(Attrs::BOLD),
-        "the sixteenth parameter survives intact"
-    );
-    assert!(!a.has(Attrs::UNDERLINE), "and the seventeenth is discarded");
+fn the_parameter_past_capacity_is_dropped_not_merged() {
+    let mut p = b"\x1b[".to_vec();
+    for _ in 0..ParamIdx::CAPACITY - 1 {
+        p.extend_from_slice(b"0;");
+    }
+    p.extend_from_slice(b"1;4mX");
+
+    let a = feed_in_chunks(&p, 4096);
+    assert!(a.has(Attrs::BOLD), "the last storable parameter survives");
+    assert!(!a.has(Attrs::UNDERLINE), "and the one past it is discarded");
+    assert_eq!(a, feed_in_chunks(&p, 1), "and both feeds agree");
 }
 
 /// **And it is dropped identically however the bytes are chunked.**
@@ -67,6 +81,8 @@ fn the_seventeenth_parameter_is_dropped_not_merged() {
 fn parameter_overflow_is_chunk_invariant() {
     for payload in [
         &b"\x1b[0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;1;4mX"[..],
+        // Eighteen attributes: inside capacity now, but this is the payload
+        // whose bulk/bytewise split first showed the bug (0xffff vs 0x7fff).
         &b"\x1b[1;2;3;4;5;7;8;9;20;26;51;52;53;60;61;62;63;64mX"[..],
         // Far past the limit, and separators with no digits at all — the shape
         // that would run `nparam` off the end of a `u8` if it did not saturate.
@@ -84,16 +100,16 @@ fn parameter_overflow_is_chunk_invariant() {
     }
 }
 
-/// Sixteen parameters still all arrive — the fix must not cost the last one.
+/// Every storable parameter still applies — the fix must not cost the last one.
 #[test]
-fn all_sixteen_parameters_still_apply() {
+fn every_storable_parameter_still_applies() {
     let a = feed_in_chunks(b"\x1b[1;2;3;4;5;7;8;9;20;26;51;52;53;60;61;62mX", 1);
     for (bit, name) in [
         (Attrs::BOLD, "1"),
         (Attrs::STRIKE, "9"),
         (Attrs::FRAKTUR, "20"),
         (Attrs::OVERLINED, "53"),
-        (Attrs::IDEOGRAM_OVERLINE, "62 — the sixteenth"),
+        (Attrs::IDEOGRAM_OVERLINE, "62"),
     ] {
         assert!(a.has(bit), "SGR {name} applied");
     }

@@ -394,6 +394,40 @@ action — which is the whole reason these are separate states and not one.
 Unlike CSI there is no `[[source: ctlseqs]]` sub-parameter form to accommodate in
 a DCS prefix, so `3A` follows williams unmodified and ends the sequence.
 
+### The parameter limit is 35, and it is derived rather than chosen
+
+A CSI may carry more parameters than a fixed array holds, and discarding the
+excess is a legitimate limit -- every terminal has one, and xterm's `NPARAM` is
+30. What is not legitimate is the two feeds discarding it *differently*.
+
+They did. `fast.rs` accumulates a parameter into a local and stores it only
+under the capacity bound, so an over-capacity parameter was parsed and dropped.
+`machine.rs` wrote each digit straight into `params[nparam - 1]` with `nparam`
+pinned *at* capacity, so the separator was swallowed and the next parameter's
+digits appended to the last stored one: `CSI ...;61;62;63 m` stored 6263 where
+the fast path stored 62. The result therefore depended on where a read boundary
+fell, which is a chunk-invariance bug. `ingest_is_chunk_invariant` did not find
+it because its generator does not emit sequences that long.
+
+| | one read | byte at a time |
+|---|---|---|
+| `CSI 0;0;...;0;1;4 m` | `BOLD` | nothing |
+| `CSI 1;2;...;63;64 m` | `0xffff` | `0x7fff` |
+
+`ParamIdx::next_capped` now saturates one *past* `CAPACITY`, so "capacity
+reached" and "capacity exceeded" stay distinguishable and the digit branch knows
+to stop; `Term::nparams` clamps on the way out. See `tests/sgr/param_overflow.rs`.
+
+The capacity itself is `1 + Attrs::WIRE.len() + 1 + 3 * 5` = **35**, which is
+the longest parameter list baud emits: the DECRQSS SGR reply. Since DECRQSS
+answers with something the application can send back verbatim, a reply the
+parser cannot re-read is a reply that does not round-trip -- and at 16 it could
+not. Bold with a foreground, a background and an underline colour already
+answers with seventeen parameters, which is an editor drawing an undercurl, not
+a corner case. Deriving the constant rather than writing a number is what stops
+it going back out of step the next time `WIRE` grows, which is how it drifted in
+the first place.
+
 ### C0 inside a control string payload is ignored, not stored
 
 `osc_string` takes the *ignore* action on `01-17,19,1C-1F`; only `20-7F` is

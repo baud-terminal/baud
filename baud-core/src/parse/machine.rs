@@ -311,7 +311,7 @@ impl<'a> Term<'a> {
                     return;
                 }
                 if b == StreamByte::CSI_INTRO {
-                    self.params = [None; 16];
+                    self.params = [None; ParamIdx::CAPACITY];
                     self.nparam = ParamIdx::FIRST;
                     self.psub = SubParams::NONE;
                     self.private = Marker::Standard;
@@ -320,7 +320,7 @@ impl<'a> Term<'a> {
                 } else if b == StreamByte::OSC_INTRO {
                     self.st = State::OscString;
                 } else if b == StreamByte::DCS_INTRO {
-                    self.params = [None; 16];
+                    self.params = [None; ParamIdx::CAPACITY];
                     self.nparam = ParamIdx::FIRST;
                     self.psub = SubParams::NONE;
                     self.private = Marker::Standard;

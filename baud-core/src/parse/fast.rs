@@ -167,7 +167,7 @@ impl<'a> Term<'a> {
         }
         let s = i + 2;
 
-        self.params = [None; 16];
+        self.params = [None; ParamIdx::CAPACITY];
         self.nparam = ParamIdx::FIRST;
         self.psub = SubParams::NONE;
         self.private = Marker::Standard;
