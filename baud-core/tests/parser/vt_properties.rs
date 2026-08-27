@@ -88,6 +88,18 @@ enum Op {
     /// `ESC % @` and `ESC % G` — the input encoding.
     SelectLatin1,
     SelectUtf8,
+    /// `CSI <final>` with its parameters **omitted**, so the operation takes
+    /// its default.
+    ///
+    /// Every numeric op above always wrote a number, so of the thirty-one
+    /// finals the generator emits, only `c` was ever sent bare. The default is
+    /// a distinct code path per operation -- CUP defaults to 1;1, SU to 1, SGR
+    /// to 0 -- and this project has already had an off-by-one in exactly that
+    /// kind of arithmetic (CPR).
+    Bare(u8, u8),
+    /// `CSI 99999 <final>`, so `Param::push`'s saturation is taken on a real
+    /// operation rather than only on CUP.
+    Extreme(u8, u8),
     Cup(u8, u8),
     Cuu(u8),
     Cud(u8),
@@ -176,6 +188,58 @@ const C0: [u8; 5] = [0x07, 0x08, 0x09, 0x0a, 0x0d];
 /// not -- an unimplemented mode must stay inert, which is worth generating.
 const ANSI_MODES: [u16; 4] = [4, 20, 2, 12];
 
+/// Every CSI final this generator emits carrying a parameter.
+///
+/// `every_parameterised_final_is_also_sent_bare` keeps this in step with the
+/// ops above: a new parameterised operation that is not listed here is one
+/// whose default path nothing generates.
+/// `(intermediate, final)`; a zero intermediate means none.
+///
+/// The three with one — DECSCUSR `SP q`, DECIC `' }` and DECDC `' ~` — are why
+/// this is a pair and not a byte. Their bare spelling still carries the
+/// intermediate; dropping it would name a different operation, and the first
+/// version of this table did exactly that until
+/// `every_parameterised_final_is_also_sent_bare_and_saturating` named all
+/// three.
+const PARAMETERISED: [(u8, u8); 36] = [
+    (0, b'@'),
+    (0, b'A'),
+    (0, b'B'),
+    (0, b'C'),
+    (0, b'D'),
+    (0, b'E'),
+    (0, b'F'),
+    (0, b'G'),
+    (0, b'H'),
+    (0, b'I'),
+    (0, b'J'),
+    (0, b'K'),
+    (0, b'L'),
+    (0, b'M'),
+    (0, b'P'),
+    (0, b'S'),
+    (0, b'T'),
+    (0, b'X'),
+    (0, b'Z'),
+    (0, b'`'),
+    (0, b'a'),
+    (0, b'b'),
+    (0, b'd'),
+    (0, b'e'),
+    (0, b'g'),
+    (0, b'h'),
+    (0, b'l'),
+    (0, b'm'),
+    (0, b'n'),
+    (0, b'r'),
+    (0, b's'),
+    (0x20, b'q'),
+    (b'\'', b'}'),
+    (b'\'', b'~'),
+    (b'"', b'q'),
+    (b'$', b'p'),
+];
+
 const MODES: [u16; 11] = [6, 7, 25, 69, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
@@ -222,6 +286,8 @@ fn op() -> impl Strategy<Value = Op> {
         Just(Op::Decaln),
         Just(Op::SelectLatin1),
         Just(Op::SelectUtf8),
+        prop::sample::select(&PARAMETERISED[..]).prop_map(|(i, f)| Op::Bare(i, f)),
+        prop::sample::select(&PARAMETERISED[..]).prop_map(|(i, f)| Op::Extreme(i, f)),
         (0u8..3).prop_map(Op::Decsca),
         (0u8..3).prop_map(Op::El),
         (0u8..3).prop_map(Op::Ed),
@@ -320,6 +386,20 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             Op::Decaln => n.push_str("\x1b#8"),
             Op::SelectLatin1 => n.push_str("\x1b%@"),
             Op::SelectUtf8 => n.push_str("\x1b%G"),
+            Op::Bare(i, f) => {
+                n.push_str("\x1b[");
+                if i != 0 {
+                    n.push(i as char);
+                }
+                n.push(f as char);
+            }
+            Op::Extreme(i, f) => {
+                n.push_str("\x1b[99999");
+                if i != 0 {
+                    n.push(i as char);
+                }
+                n.push(f as char);
+            }
             Op::CupHuge(k) => {
                 let big = ["99999", "65535", "65536", "4294967296"][k as usize % 4];
                 write!(n, "\x1b[{big};{big}H").unwrap();
@@ -1216,5 +1296,122 @@ fn every_done_escape_and_osc_is_reachable_by_the_generator() {
         "{} OSC command(s) marked done that no generated program emits:\n  {}",
         missed.len(),
         missed.join("\n  ")
+    );
+}
+
+/// **Every final the generator sends with a parameter, it also sends bare and
+/// saturating.**
+///
+/// Reachability was the first rung: `every_done_form_is_reachable_by_the_
+/// generator` proves each operation is *emitted*. It says nothing about the
+/// values, and for a long time the answer was that every numeric op always
+/// wrote a number — of the thirty-one finals the generator produced, only `c`
+/// was ever sent bare.
+///
+/// A defaulted parameter is a distinct code path per operation, and the
+/// defaults are not uniform: CUP is 1;1, SU is 1, SGR is 0, DECSTBM is the
+/// whole screen. This project has already had an off-by-one in exactly that
+/// arithmetic (CPR), so "the operation was dispatched" is not the same as "the
+/// operation was dispatched with the parameter it would get in the wild".
+///
+/// The saturating case is the other end of the same axis: `Param::push`
+/// saturates at 65535, and until `Op::Extreme` that ceiling was only ever
+/// reached through CUP.
+///
+/// This check derives both sets from the corpus rather than from
+/// `PARAMETERISED`, so adding a parameterised op without listing it fails
+/// here instead of silently narrowing what the properties explore.
+#[test]
+fn every_parameterised_final_is_also_sent_bare_and_saturating() {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{Config, TestRunner};
+    let mut runner = TestRunner::new(Config {
+        cases: 1,
+        ..Config::default()
+    });
+    let strat = program();
+
+    let (mut with_param, mut bare, mut big) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    for _ in 0..4000 {
+        let b = bytes_of(&strat.new_tree(&mut runner).expect("gen").current());
+        let mut i = 0;
+        while i + 1 < b.len() {
+            if b[i] != 0x1b || b[i + 1] != b'[' {
+                i += 1;
+                continue;
+            }
+            let mut j = i + 2;
+            if j < b.len() && matches!(b[j], b'?' | b'>' | b'<' | b'=') {
+                j += 1;
+            }
+            let start = j;
+            let mut digits = 0;
+            while j < b.len() && (b[j].is_ascii_digit() || b[j] == b';' || b[j] == b':') {
+                if b[j].is_ascii_digit() {
+                    digits += 1;
+                } else {
+                    digits = 0;
+                }
+                j += 1;
+            }
+            let run = digits;
+            let had = j > start;
+            let mut inter = 0u8;
+            while j < b.len() && (0x20..=0x2f).contains(&b[j]) {
+                inter = b[j];
+                j += 1;
+            }
+            if j < b.len() && (0x40..=0x7e).contains(&b[j]) {
+                // Only the plain namespace: `?25h` is a mode, and a bare
+                // `CSI ? h` is not a spelling any application sends.
+                if b[i + 2] != b'?' && b[i + 2] != b'>' && b[i + 2] != b'<' && b[i + 2] != b'=' {
+                    let key = (inter, b[j]);
+                    if had {
+                        with_param.insert(key);
+                        if run >= 5 {
+                            big.insert(key);
+                        }
+                    } else {
+                        bare.insert(key);
+                    }
+                }
+                i = j + 1;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    assert!(
+        with_param.len() >= 25,
+        "only {} parameterised finals seen -- the generator shrank and this \
+         check is measuring nothing",
+        with_param.len()
+    );
+
+    let show = |(i, f): &(u8, u8)| match i {
+        0 => format!("CSI {}", *f as char),
+        _ => format!("CSI {} {}", *i as char, *f as char),
+    };
+    let no_default: Vec<String> = with_param.difference(&bare).map(show).collect();
+    assert!(
+        no_default.is_empty(),
+        "{} final(s) only ever sent with a parameter, so no property exercises \
+         their default: {:?}",
+        no_default.len(),
+        no_default
+    );
+
+    let no_big: Vec<String> = with_param.difference(&big).map(show).collect();
+    assert!(
+        no_big.is_empty(),
+        "{} final(s) never sent a saturating value, so `Param::push`'s ceiling \
+         is unexercised for them: {:?}",
+        no_big.len(),
+        no_big
     );
 }
