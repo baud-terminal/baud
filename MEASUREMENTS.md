@@ -462,6 +462,31 @@ Python calls per 4096-byte chunk are included.
 comparable. What these establish is that kitty's parser runs, through a real
 PTY, on the same bytes -- not where it ranks.
 
+## Widening `Attrs` to 32 bits (SGR 60-65)
+
+Host B (arm64 macOS, portable scanner, no `n_tty`), 2026-08-27, `62475f2`
+against `4c0cc92`. Two binaries built from the two commits and run
+**alternating** (old/new, new/old, new/old) so an ordering effect cannot be
+read as a result. Median of 9 per row, 48 MB/rep, real PTY, `payload::text`.
+
+| row | old median | new median | old range | new range |
+|---|---|---|---|---|
+| spans, zero-copy | 200.3 | 201.2 | 186.8-214.5 | 193.6-214.7 |
+| viewport cells, computed | 229.5 | 231.9 | 222.6-247.9 | 226.5-246.4 |
+
+The ranges overlap completely, so **there is no result**: the ideogram aspects
+cost nothing this benchmark can see. What would have proven the change wrong is
+a new range sitting clear of the old one on the cells row, since that is the
+path `StyleWord` is read on; it does not.
+
+**The limitation matters more than the number.** Both payloads report `styles 0
+interned / 208954 hits (100.0%)` -- one rendition for the whole run. `StyleWord`
+went from 16 to 20 bytes and the style table from 1024 to 1280, and a payload
+that interns nothing cannot exercise either. This is the "payloads that don't
+exercise the case" trap in `CLAUDE.md`, and it is *not* worked around here: the
+table above measures code layout, not the style table. Sizing that needs a
+payload that cycles renditions faster than `NSTYLE`, which does not exist yet.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
