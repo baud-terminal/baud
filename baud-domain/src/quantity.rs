@@ -350,37 +350,66 @@ impl Count {
 }
 
 impl Width {
-    /// East Asian Width, from Unicode data. No font input, ever — see
-    /// [`DisplayWidth`] for why that is a wire contract rather than a choice.
-    pub fn of(c: Codepoint) -> Width {
+    /// East Asian Width, from the Unicode data pinned in `MANIFEST.toml`. No
+    /// font input, ever — see [`DisplayWidth`] for why that is a wire contract
+    /// rather than a choice.
+    ///
+    /// The ranges used to be written out by hand: five zero-width ranges and a
+    /// dozen wide ones, each added when something looked wrong. That set was
+    /// not the Unicode property it claimed to be — it covered
+    /// `U+0300..U+036F` but not Arabic, Hebrew or Devanagari combining marks,
+    /// so `بّ` cost two columns and a virama cost one. Against an `ncurses`
+    /// peer computing with `wcwidth`, each of those is a cursor that has
+    /// silently desynchronised. They are generated now, from
+    /// `[[source: uax11]]`'s data file and the general category.
+    ///
+    /// ASCII returns before touching a table, which is the ~94% path.
+    ///
+    /// `#[inline(never)]`, and measured. This is only ever reached from the
+    /// `Utf8` arm of the state machine -- printable ASCII is taken by the run
+    /// scanner and never decoded here -- so inlining it only grows `control`,
+    /// which is reached from the `#[inline(always)]` ingest loop. Letting it
+    /// inline cost ~5% of the streaming cells path (1046.8 [1042.9-1052.4] down
+    /// to 994.0 [985.1-1003.4], ranges not overlapping, ghostty stable across
+    /// both). Same finding as `open_gap` and `anywhere_c0`: what costs is the
+    /// size of what the ingest loop inlines, not the work inside it.
+    #[inline(never)]
+    pub fn of(c: Codepoint, ambiguous: AmbiguousWidth) -> Width {
         let cp = c.value();
-        if cp == 0 {
+        if cp < 0x80 {
+            return if cp == 0 { Width::ZERO } else { Width::NARROW };
+        }
+        if in_ranges(&width_data::ZERO, cp) {
             return Width::ZERO;
         }
-        if (0x300..=0x36f).contains(&cp)
-            || (0x1ab0..=0x1aff).contains(&cp)
-            || (0x20d0..=0x20ff).contains(&cp)
-            || (0xfe00..=0xfe0f).contains(&cp)
-            || (0x200b..=0x200f).contains(&cp)
-        {
-            return Width::ZERO;
+        if in_ranges(&width_data::WIDE, cp) {
+            return Width::WIDE;
         }
-        if cp >= 0x1100
-            && (cp <= 0x115f || cp == 0x2329 || cp == 0x232a
-            || (0x2e80..=0xa4cf).contains(&cp) || (0xac00..=0xd7a3).contains(&cp)
-            || (0xf900..=0xfaff).contains(&cp) || (0xfe30..=0xfe6f).contains(&cp)
-            || (0xff00..=0xff60).contains(&cp) || (0xffe0..=0xffe6).contains(&cp)
-            || (0x1f300..=0x1f64f).contains(&cp)   // Misc Symbols, Emoticons
-            || (0x1f680..=0x1f6ff).contains(&cp)   // Transport and Map  <- was missing
-            || (0x1f7e0..=0x1f7eb).contains(&cp)   // geometric shapes ext
-            || (0x1f90c..=0x1f9ff).contains(&cp)   // Supplemental Symbols
-            || (0x1fa70..=0x1faff).contains(&cp)   // Symbols Extended-A
-            || (0x20000..=0x3fffd).contains(&cp))
-        {
+        // East Asian Ambiguous. `[[source: uax11]]` § 5 says narrow when the
+        // context is unavailable; for a core with no locale it always is, so
+        // narrow is the default and this is the opt-in.
+        if ambiguous == AmbiguousWidth::Wide && in_ranges(&width_data::AMBIGUOUS, cp) {
             return Width::WIDE;
         }
         Width::NARROW
     }
+}
+
+/// Binary search over a sorted, coalesced table of inclusive ranges.
+fn in_ranges(table: &[(u32, u32)], cp: u32) -> bool {
+    let (mut lo, mut hi) = (0usize, table.len());
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        let (a, b) = table[mid];
+        if cp < a {
+            hi = mid;
+        } else if cp > b {
+            lo = mid + 1;
+        } else {
+            return true;
+        }
+    }
+    false
 }
 
 impl Cols {

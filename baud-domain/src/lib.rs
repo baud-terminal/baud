@@ -35,6 +35,7 @@ mod style;
 pub mod unchecked;
 mod vt;
 mod width;
+mod width_data;
 
 pub use brand::*;
 pub use cell::*;

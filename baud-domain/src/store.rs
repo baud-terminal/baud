@@ -294,10 +294,12 @@ impl<'a> Bytes<'a, Printable> {
 }
 
 impl<'a> Bytes<'a, Utf8> {
-    pub fn measure(&self, t: &WidthTable) -> DisplayWidth {
-        let _ = t;
-        DisplayWidth::from_cells(0) // model only
-    }
+    // `measure` lived here and returned `from_cells(0)` behind a `// model
+    // only` comment, taking a `WidthTable` it discarded. Nothing called it. It
+    // is deleted rather than fixed because measuring a stored UTF-8 run is for
+    // reflow, selection and search, none of which exist -- CLAUDE.md lists all
+    // three under "unmeasured, do not assert". An API that answers zero looks
+    // implemented; its absence does not.
     pub fn len(&self) -> ByteLen {
         ByteLen::new(self.raw.len() as u16)
     }

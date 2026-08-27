@@ -241,7 +241,8 @@ impl<'a> Term<'a> {
                         if c == Codepoint::REPLACEMENT {
                             self.replacements.inc();
                         }
-                        self.put_cp(c, Width::of(c));
+                        let w = Width::of(c, self.width.ambiguous);
+                        self.put_cp(c, w);
                     } else {
                         self.st = State::Utf8 {
                             remaining: remaining.dec(),

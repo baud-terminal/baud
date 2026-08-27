@@ -5,3 +5,4 @@
 //! the result is.
 
 mod utf8;
+mod width;

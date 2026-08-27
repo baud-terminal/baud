@@ -39,13 +39,6 @@ impl Decoded {
     }
 }
 
-/// Sum of grapheme widths across a logical line. The only route from a byte
-/// range to a [`DisplayWidth`], so a cached width can never have been computed
-/// from a byte count.
-pub fn measure(units: impl Iterator<Item = Decoded>, _t: &WidthTable) -> DisplayWidth {
-    DisplayWidth::from_cells(units.map(|d| d.width().cells() as u32).sum())
-}
-
 /// One byte as it arrived. Not a number: it has no arithmetic, only
 /// classification. Everything that consumes wire data takes this.
 #[repr(transparent)]

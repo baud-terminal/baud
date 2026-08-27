@@ -1,26 +1,30 @@
 use crate::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Unicode East Asian Width data plus locale policy for ambiguous width and
-/// emoji presentation. Contains no font, and no font type exists in this crate
-/// to put in one.
+/// Locale policy for East Asian Ambiguous width. Contains no font, and no font
+/// type exists in this crate to put in one.
+///
+/// One field, not two. It carried an `emoji: EmojiWidth` as well — whether
+/// `U+FE0F` presentation makes an emoji two columns — and that cannot be
+/// answered per codepoint: `U+FE0F` is `Cf` and therefore zero-width, so the
+/// question is whether the *preceding* character is upgraded, which is a
+/// grapheme-cluster property. baud does not do grapheme clustering yet
+/// (`docs/research/notes/g-text-encoding.md` § 5, recommendation 6, records
+/// why), so the field could never have been read. A setting nothing can act on
+/// is the failure this project already refuses for modes.
+#[derive(Clone, Copy, Default)]
 pub struct WidthTable {
     pub ambiguous: AmbiguousWidth,
-    pub emoji: EmojiWidth,
 }
 
 /// East Asian Ambiguous characters are 1 or 2 columns depending on locale.
-/// Two bools next to each other invite transposition; two enums do not.
-#[derive(Clone, Copy, PartialEq, Eq)]
+///
+/// `[[source: uax11]]` § 5: narrow when the context is unavailable. For a
+/// `no_std` core with no locale it is always unavailable, so `Narrow` is the
+/// default — and it is what xterm does too, whose `cjkWidth` defaults false.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum AmbiguousWidth {
-    Narrow,
-    Wide,
-}
-
-/// Whether `U+FE0F` presentation makes emoji 2 columns. Terminals disagree;
-/// this is config, not font.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum EmojiWidth {
+    #[default]
     Narrow,
     Wide,
 }
@@ -46,14 +50,16 @@ impl DisplayWidth {
     pub(crate) fn cells(self) -> u32 {
         self.0
     }
-    /// Not public: `measure` is the only route from content to a width.
-    pub(crate) fn from_cells(n: u32) -> DisplayWidth {
-        DisplayWidth(n)
-    }
     /// Byte length *is* column count, but only for a byte-per-column encoding.
     /// Callable only where a `Bytes<Printable>` or `Bytes<DecGraphics>` proof
     /// exists, which is what makes it sound.
     pub(crate) fn from_len(n: ByteLen) -> DisplayWidth {
         DisplayWidth(n.index() as u32)
     }
+}
+
+impl WidthTable {
+    pub const DIAG: WidthTable = WidthTable {
+        ambiguous: AmbiguousWidth::Narrow,
+    };
 }

@@ -481,3 +481,29 @@ sha256 = "ddf5a815ab3ddfb335608a417979eda722d5150a12afd12b2c70d55fe2a24326"
 bytes  = 3007065
 status = "retrieved"
 group  = "G"
+
+[sources.eaw-data]
+key    = "eaw-data"
+title  = "EastAsianWidth.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/EastAsianWidth.txt"
+file   = "unicode-eastasianwidth.txt"
+sha256 = "ea7ce50f3444a050333448dffef1cadd9325af55cbb764b4a2280faf52170a33"
+bytes  = 201595
+status = "retrieved"
+group  = "G"
+
+[sources.gc-data]
+key    = "gc-data"
+title  = "DerivedGeneralCategory.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedGeneralCategory.txt"
+file   = "unicode-derivedgeneralcategory.txt"
+sha256 = "d62e5bab70ca74f099343f71224fa051cb1fdd61a1ab45c0488c44cfc0b6102e"
+bytes  = 277514
+status = "retrieved"
+group  = "G"

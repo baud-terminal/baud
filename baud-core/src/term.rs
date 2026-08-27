@@ -170,6 +170,10 @@ pub struct Term<'a> {
     pub unsupported: Stat,
     /// Whether replies use 7-bit or 8-bit C1 introducers. Set by S7C1T/S8C1T.
     pub(crate) c1: C1Transmit,
+    /// Locale policy for East Asian Ambiguous width. Not a mode an application
+    /// can set: `[[source: uax11]]` § 5 makes it a property of the *reader's*
+    /// context, so it belongs to the embedder.
+    pub(crate) width: WidthTable,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -270,6 +274,7 @@ impl<'a> Term<'a> {
             mouse_unencodable: Stat::ZERO,
             unsupported: Stat::ZERO,
             c1: C1Transmit::SevenBit,
+            width: WidthTable::default(),
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             link: LinkId::NONE,

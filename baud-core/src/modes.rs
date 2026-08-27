@@ -154,6 +154,24 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// East Asian Ambiguous width policy.
+    ///
+    /// Owned by the embedder, not by the application: `[[source: uax11]]` § 5
+    /// makes ambiguous width a property of the *reader's* context, and no
+    /// escape sequence carries it. xterm exposes the same choice as the
+    /// `cjkWidth` resource, defaulting false, which is `Narrow` here.
+    ///
+    /// Changing it changes how already-written cells would be measured, so set
+    /// it before feeding, the way a terminal reads its locale at startup.
+    pub fn set_ambiguous_width(&mut self, a: AmbiguousWidth) {
+        self.width.ambiguous = a;
+    }
+
+    /// What [`Term::set_ambiguous_width`] last selected.
+    pub fn ambiguous_width(&self) -> AmbiguousWidth {
+        self.width.ambiguous
+    }
+
     /// Whether the cursor should be drawn. DECTCEM; a renderer needs it.
     pub fn cursor_visible(&self) -> bool {
         self.modes.is_set(ModeBit::CursorVisible)
