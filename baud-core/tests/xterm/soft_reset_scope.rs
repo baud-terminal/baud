@@ -351,3 +351,47 @@ fn row_past_the_grid_is_a_documented_sharp_edge() {
     assert_eq!(t.row(Row::from_index(rows.index())).len(), cols.index());
     assert_eq!(t.row(Row::from_index(rows.index() + 5)).len(), cols.index());
 }
+
+/// `get_row` is the checked half of the pair, and answers honestly.
+///
+/// Additive: it does not change what `row` does, so nothing published moves.
+/// It exists so a caller that cannot prove its index is in range has something
+/// to call that is not silently wrong -- an embedder holding a row count
+/// across a resize, which is the exact staleness that turned a shrink into a
+/// panic in `viewport` and an out-of-grid cursor in DECRC.
+#[test]
+fn get_row_bounds_what_row_takes_on_trust() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let (cols, rows) = t.geometry();
+
+    assert_eq!(
+        t.get_row(Row::from_index(rows.index() - 1)).map(<[_]>::len),
+        Some(cols.index()),
+        "the last row is on the grid"
+    );
+    assert_eq!(
+        t.get_row(Row::from_index(rows.index())),
+        None,
+        "one past it is not, and says so"
+    );
+    assert_eq!(t.get_row(Row::from_index(rows.index() + 5)), None);
+
+    // And it tracks a resize, which is the case it exists for.
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 80,
+        }),
+        Resized::Ok
+    );
+    assert!(
+        t.get_row(Row::from_index(9)).is_some(),
+        "inside the new grid"
+    );
+    assert_eq!(
+        t.get_row(Row::from_index(10)),
+        None,
+        "a row that existed before the shrink does not now"
+    );
+}

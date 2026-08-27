@@ -542,7 +542,8 @@ impl<'a> Term<'a> {
     ///
     /// Left as a precondition rather than an `Option` because that is a
     /// published signature; `row_past_the_grid_is_a_documented_sharp_edge`
-    /// pins the current behaviour so a change to it is deliberate.
+    /// pins the current behaviour so a change to it is deliberate. Use
+    /// [`Term::get_row`] where the index is not already known to be in range.
     pub fn row(&self, y: Row) -> &[PackedCell] {
         let b = if self.screen == Screen::Alternate {
             &self.s.alt
@@ -555,6 +556,24 @@ impl<'a> Term<'a> {
             self.rot
         };
         View::new_ref(b, self.stride(), self.cols, self.rows, rot).row_slice(y)
+    }
+
+    /// One row of the grid, or `None` if `y` is not on it.
+    ///
+    /// The `get`/index pair `slice` already trains everyone on: [`Term::row`]
+    /// takes the index on trust, this one checks it. Worth having because the
+    /// unchecked form does not fail loudly -- the buffer is `MAX_ROWS` deep and
+    /// the grid is `rows` deep, so an index between them is allocated memory
+    /// that is not on screen and comes back looking like cells.
+    ///
+    /// An embedder that caches a row count across a resize is the case this
+    /// exists for, and it is not hypothetical: a stale bound is what turned a
+    /// shrink into a panic in `viewport` and an out-of-grid cursor in DECRC.
+    pub fn get_row(&self, y: Row) -> Option<&[PackedCell]> {
+        match y.index() < self.rows.index() {
+            true => Some(self.row(y)),
+            false => None,
+        }
     }
 
     /// Is the alternate screen showing? `CSI ? 1049`.
