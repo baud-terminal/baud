@@ -61,3 +61,26 @@ This rule is written down because it was broken: `vt-coverage.md` claimed for
 most of the project's life to be verified by a `tests/coverage.rs` that did not
 exist, in the same paragraph where it warned against documentation claiming
 coverage it does not have.
+
+## How these documents are kept true
+
+Nothing here is trusted because someone read it carefully. Four mechanisms fail
+the build instead:
+
+| check | what it holds |
+|---|---|
+| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `partial`, `parsed` or `todo`; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
+| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists |
+| `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
+| `baud-core/tests/readme.rs` | the README's usage example is compiled, and is byte-identical to the block in the file |
+
+Each was written after the corresponding claim turned out to be false. The
+coverage document spent most of this project's life naming `tests/coverage.rs`
+as the thing that kept it honest, in a file that did not exist; a note pointed
+at a vt_parser_states.rs that the SRP split had moved; the README pointed at a
+bench/src/payload.rs that the rename to baud-bench had left behind. (Neither
+path is written in backticks here, because both are gone and the check below
+would rightly flag them — which is the check working on this very paragraph.)
+The
+failure is always the same shape — prose stays put while the thing it names
+moves — and it is mechanical enough that a test can hold it.

@@ -1,0 +1,277 @@
+//! The documentation, checked rather than asserted.
+//!
+//! `tests/coverage.rs` already checks that every **done** row in
+//! `docs/vt-coverage.md` names a tested operation, that no row is unfinished,
+//! and that the counts quoted elsewhere match the table.
+//! `scripts/check-sources.sh` checks that every `[[source: …]]` citation
+//! resolves to a hash-pinned document. This file covers what neither did: that
+//! the docs' *references to the repository itself* are still true.
+//!
+//! Every one of these has been wrong here at least once. `docs/vt-coverage.md`
+//! spent most of this project's life naming `tests/coverage.rs` as the
+//! mechanism that kept it honest, in a file that did not exist; README pointed
+//! at `bench/src/payload.rs` after the crate was renamed to `baud-bench`. The
+//! failure mode is always the same — the prose stays put while the thing it
+//! names moves — and it is exactly the mechanical kind, so a test can hold it.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn root() -> PathBuf {
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+}
+
+/// Every `.md` in the repository, excluding build output.
+fn markdown_files() -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if p.is_dir() {
+                if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
+                    continue;
+                }
+                walk(&p, out);
+            } else if name.ends_with(".md") {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&root(), &mut out);
+    out.sort();
+    out
+}
+
+fn rel(p: &Path) -> String {
+    p.strip_prefix(root())
+        .unwrap_or(p)
+        .display()
+        .to_string()
+        .replace("../", "")
+}
+
+/// **Every relative link in every document resolves to a file that exists.**
+///
+/// Checked mechanically because checking it by eye is how they rot: a link is
+/// only ever followed by someone who does not already know where the thing is,
+/// which is the person least able to tell that it is wrong.
+#[test]
+fn every_relative_link_resolves() {
+    let mut broken = Vec::new();
+    let mut checked = 0usize;
+    for f in markdown_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        let dir = f.parent().unwrap().to_path_buf();
+        // `](target)` — markdown inline links.
+        let mut rest = src.as_str();
+        while let Some(i) = rest.find("](") {
+            rest = &rest[i + 2..];
+            let Some(end) = rest.find(')') else { break };
+            let target = &rest[..end];
+            rest = &rest[end..];
+            // External, anchor-only, or mail: not this test's business.
+            if target.starts_with("http")
+                || target.starts_with('#')
+                || target.starts_with("mailto:")
+                || target.is_empty()
+            {
+                continue;
+            }
+            // Strip any `#anchor`.
+            let path = target.split('#').next().unwrap_or(target);
+            if path.is_empty() {
+                continue;
+            }
+            checked += 1;
+            if !dir.join(path).exists() {
+                broken.push(format!("{} -> {target}", rel(&f)));
+            }
+        }
+    }
+    assert!(
+        checked > 20,
+        "only {checked} links checked -- the link scanner stopped matching"
+    );
+    assert!(
+        broken.is_empty(),
+        "{} broken link(s):\n  {}",
+        broken.len(),
+        broken.join("\n  ")
+    );
+}
+
+/// **Every repository path a document names in backticks exists.**
+///
+/// Documents here cite real paths constantly — `baud-core/src/parse/fast.rs`,
+/// `scripts/check-sources.sh`, `docs/research/notes/g-text-encoding.md` — and
+/// those are load-bearing: they are how a reader gets from a claim to the code
+/// that implements it. A path that has moved turns the claim into folklore.
+///
+/// Only strings that unambiguously *look* like repository paths are checked: a
+/// backticked token containing `/`, starting with a known top-level directory,
+/// and ending in a real file extension. That deliberately misses some and
+/// invents none.
+#[test]
+fn every_repository_path_named_in_the_docs_exists() {
+    const ROOTS: &[&str] = &[
+        "baud-core/",
+        "baud-domain/",
+        "baud-bench/",
+        "bench-others/",
+        "docs/",
+        "scripts/",
+        ".github/",
+        "assets/",
+    ];
+    const EXTS: &[&str] = &[".rs", ".md", ".sh", ".toml", ".nix", ".py", ".yml", ".yaml"];
+    let mut missing = BTreeSet::new();
+    let mut checked = 0usize;
+    for f in markdown_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        for tok in src.split('`').skip(1).step_by(2) {
+            let tok = tok.trim();
+            if !tok.contains('/') || tok.contains(' ') {
+                continue;
+            }
+            if !ROOTS.iter().any(|r| tok.starts_with(r)) {
+                continue;
+            }
+            if !EXTS.iter().any(|e| tok.ends_with(e)) {
+                continue;
+            }
+            for path in expand_braces(tok) {
+                checked += 1;
+                if !root().join(&path).exists() {
+                    missing.insert(format!("{}: {path}", rel(&f)));
+                }
+            }
+        }
+    }
+    assert!(
+        checked > 15,
+        "only {checked} paths checked -- the path scanner stopped matching"
+    );
+    assert!(
+        missing.is_empty(),
+        "{} path(s) named in docs that do not exist:\n  {}",
+        missing.len(),
+        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+    );
+}
+
+/// Expand shell-style `{a,b,c}` shorthand, which the protocol docs use to name
+/// a group of modules in one breath: `baud-core/src/{osc,mouse,modes}.rs`.
+/// Readable, and not a path — so it is expanded rather than banned.
+fn expand_braces(tok: &str) -> Vec<String> {
+    let (Some(open), Some(close)) = (tok.find('{'), tok.find('}')) else {
+        return vec![tok.to_string()];
+    };
+    if close < open {
+        return vec![tok.to_string()];
+    }
+    let (pre, mid, post) = (&tok[..open], &tok[open + 1..close], &tok[close + 1..]);
+    mid.split(',')
+        .map(|m| format!("{pre}{}{post}", m.trim()))
+        .collect()
+}
+
+/// **Every test named in a document exists.**
+///
+/// Documents point at tests by name as evidence — "`no_row_is_unfinished` fails
+/// if one does", "`a_private_marker_after_a_parameter_is_ignored` pins both".
+/// A named test that has been renamed or deleted is a citation to nothing, and
+/// it reads exactly like a citation to something.
+#[test]
+fn every_test_named_in_the_docs_exists() {
+    // Gather every `fn <name>` in the test tree and the source.
+    let mut have = BTreeSet::new();
+    fn collect(dir: &Path, have: &mut BTreeSet<String>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if p.file_name().and_then(|n| n.to_str()) == Some("target") {
+                    continue;
+                }
+                collect(&p, have);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                if let Ok(src) = fs::read_to_string(&p) {
+                    let mut rest = src.as_str();
+                    while let Some(i) = rest.find("fn ") {
+                        rest = &rest[i + 3..];
+                        let name: String = rest
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() {
+                            have.insert(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for d in ["baud-core", "baud-domain"] {
+        collect(&root().join(d), &mut have);
+    }
+
+    // snake_case identifiers in these docs that are deliberately *not* baud
+    // tests. Kept explicit and tiny, as in `coverage.rs`: a growing list here
+    // means the check is being worked around rather than a citation fixed.
+    const NOT_A_TEST: &[(&str, &str)] = &[
+        (
+            "sos_pm_apc_string",
+            "a williams parser state, named in the Tier 0 table",
+        ),
+        (
+            "treat_east_asian_ambiguous_width_as_wide",
+            "wezterm's config option, cited in note G's comparison",
+        ),
+    ];
+
+    let mut missing = BTreeSet::new();
+    let mut checked = 0usize;
+    for f in markdown_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        for tok in src.split('`').skip(1).step_by(2) {
+            let tok = tok.trim();
+            if NOT_A_TEST.iter().any(|(n, _)| *n == tok) {
+                continue;
+            }
+            // A test name: snake_case, several words, no punctuation. The
+            // multi-underscore rule is what keeps this from firing on every
+            // ordinary identifier.
+            if tok.len() < 12
+                || tok.matches('_').count() < 3
+                || !tok
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            {
+                continue;
+            }
+            checked += 1;
+            if !have.contains(tok) {
+                missing.insert(format!("{}: {tok}", rel(&f)));
+            }
+        }
+    }
+    assert!(
+        checked > 10,
+        "only {checked} test names checked -- the scanner stopped matching"
+    );
+    assert!(
+        missing.is_empty(),
+        "{} test(s) named in docs that do not exist:\n  {}",
+        missing.len(),
+        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+    );
+}

@@ -226,8 +226,8 @@ protocol.
 
 ## Where this came from
 
-`docs/protocol-roadmap.md` used to hold the tables above. It was written as
-a roadmap and outlived that: Tiers A, B and C all landed, so every heading
+A file named docs/protocol-roadmap.md, since deleted, used to hold the tables
+above. It was written as a roadmap and outlived that: Tiers A, B and C all landed, so every heading
 read "**done**" and the file described the past while being shaped like a
 plan. The reasoning was worth keeping and the framing was not, so it is
 here — filed under decisions, which is what it always was.

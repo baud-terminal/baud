@@ -75,6 +75,6 @@ compiled.
 ## Claims relied on elsewhere
 
 - `docs/vt-coverage.md` Tier 0: "all thirteen states" plus the `Utf8` addition.
-- `baud-core/tests/vt_parser_states.rs`: the cancel and terminator rules.
+- `baud-core/tests/parser/states.rs`: the cancel and terminator rules.
 - `baud-core/tests/properties.rs::ingest_is_chunk_invariant`: the property the
   state-as-state choice exists to make provable.
