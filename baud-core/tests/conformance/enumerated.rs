@@ -197,3 +197,66 @@ fn the_handler_check_can_actually_fail() {
         "an unimplemented final byte must be counted"
     );
 }
+
+/// **The three standing refusals, each pinned to what it actually refuses.**
+///
+/// `CLAUDE.md` calls these load-bearing, and three times this session a
+/// refusal's stated reason turned out to cover something narrower than what
+/// was refused — the DEC glyph table, X10 mouse reports, and counting the
+/// `OSC 52` request. Each was closable once the reason was read against its
+/// scope instead of as a settled fact.
+///
+/// These three are different in kind, and this records which is which so the
+/// next reader does not have to re-derive it:
+///
+/// * DECRQM and DECRQSS are **implemented**. What is refused is a particular
+///   *answer*, and refusing it is the correct behaviour rather than a gap.
+/// * `?1001` is genuinely not implemented, and the project's invariant for
+///   that is not silence but *countability*.
+#[test]
+fn the_standing_refusals_are_what_they_claim() {
+    let feed = |t: &mut Term, bytes: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(bytes));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+
+    // DECRQM answers `0` for a mode it does not have -- not `2`, which would
+    // say the mode exists and is merely off, whereupon the application would
+    // set it and believe it took effect.
+    let mut s1 = Storage::boxed();
+    let mut t1 = Term::new(&mut s1, OpMode::Computed);
+    feed(&mut t1, b"\x1b[?9999$p");
+    assert_eq!(
+        t1.reply(),
+        b"\x1b[?9999;0$y",
+        "DECRQM is implemented and answers `not recognized`"
+    );
+
+    // DECRQSS answers `1` for valid and `0` for invalid, which is the reverse
+    // of what the DEC manuals say. ctlseqs records the errata and vttest
+    // agrees with it.
+    let mut s2 = Storage::boxed();
+    let mut t2 = Term::new(&mut s2, OpMode::Computed);
+    feed(&mut t2, b"\x1bP$qm\x1b\\");
+    let r = t2.reply();
+    assert!(
+        r.starts_with(b"\x1bP1$r"),
+        "DECRQSS is implemented and answers 1 for a valid request, got {r:02x?}"
+    );
+
+    // `?1001` is not implemented, and is counted rather than dropped in
+    // silence. A terminal a sequence can hang is worse than one that ignores
+    // it -- but ignoring it invisibly is the `parsed` failure.
+    let mut s3 = Storage::boxed();
+    let mut t3 = Term::new(&mut s3, OpMode::Computed);
+    feed(&mut t3, b"\x1b[?1001h");
+    assert_eq!(
+        t3.unsupported.count(),
+        1,
+        "?1001 is refused, and the refusal is visible"
+    );
+    assert!(t3.reply().is_empty(), "and it is not answered");
+}
