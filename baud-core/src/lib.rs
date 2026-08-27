@@ -22,13 +22,14 @@ extern crate alloc;
 pub use baud_domain::{
     AmbiguousWidth, AnsiMode, ArenaTail, Attrs, ByteLen, BytePos, C1Transmit, CellFlags, Chan,
     Charset, ClusterBreak, Codepoint, Col, ColSpan, ColorWord, Cols, Content, Count, Csi,
-    CursorStyle, Dcs, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte, GSlot,
-    InputEncoding, KeypadMode, Lane, LaneMask, Level, LineSlot, LinkId, MarginMode, MarkSlot,
-    Marker, ModeBit, ModeChange, ModeState, Modes, MouseButton, MouseEncoding, MouseEvent,
-    MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params,
-    Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row, RowBlock, Rows, Run,
-    RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, SubParams,
-    TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width, WidthTable, WinSize, XColor,
+    CursorStyle, Dcs, DecSet, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte,
+    GSlot, InputEncoding, KeypadMode, Lane, LaneMask, Level, LineSlot, LinkId, MarginMode,
+    MarkSlot, Marker, ModeBit, ModeChange, ModeState, Modes, MouseButton, MouseEncoding,
+    MouseEvent, MouseKind, MouseMods, MouseTracking, Nrcs, OneBased, Osc, PackedCell, Param,
+    ParamIdx, Params, Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row,
+    RowBlock, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId,
+    StyleWord, SubParams, TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width, WidthTable,
+    WinSize, XColor,
 };
 
 mod charset;

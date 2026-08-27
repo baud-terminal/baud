@@ -85,13 +85,17 @@ fn all_four_slots_are_independent() {
     assert_eq!(charset(b"\x1b(0\x1b)B"), Charset::DecGraphics);
 }
 
-/// A set baud does not distinguish is recorded as `Other`, not silently
-/// treated as ASCII.
+/// A designated set is never silently treated as ASCII.
+///
+/// This asserted `Charset::Other` for `ESC ( <`, back when every set baud did
+/// not translate shared one identity. DEC Supplemental has its own now — the
+/// point the test was making survives, and is stronger: not translating a set
+/// is different from not knowing which set it is.
 #[test]
 fn an_unhandled_set_is_recorded_not_ignored() {
-    assert_eq!(charset(b"\x1b(<"), Charset::Other, "DEC Supplemental");
-    // and it is not the line-drawing set
-    assert_ne!(charset(b"\x1b(<"), Charset::DecGraphics);
+    assert_eq!(charset(b"\x1b(<"), Charset::Dec(DecSet::Supplemental));
+    assert_ne!(charset(b"\x1b(<"), Charset::Ascii, "not silently ASCII");
+    assert_ne!(charset(b"\x1b(<"), Charset::DecGraphics, "not line drawing");
 }
 
 /// `A` is United Kingdom and is reported as such.
@@ -243,4 +247,74 @@ fn uk_is_designated_not_aliased_to_ascii() {
     assert_eq!(t.charset(), Charset::Uk, "UK is reported as UK");
     feed(&mut t, b"\x1b(B");
     assert_eq!(t.charset(), Charset::Ascii, "and `B` returns to ASCII");
+}
+
+/// **Every single-byte charset final `[[source: ctlseqs]]` lists is named.**
+///
+/// They all collapsed into `Charset::Other`, which meant an embedder could not
+/// tell Finnish from a byte baud did not recognise — and "the term *replacement*
+/// says that the character set is formed by replacing some of the characters
+/// with more useful ones for a given language", so *which* one it is decides
+/// which characters change.
+///
+/// Recorded, not translated: the replacements are a glyph mapping and
+/// `MANIFEST.toml` carries no machine-readable DEC source for one. The
+/// distinction this pins is *named but untranslated* versus *indistinguishable
+/// from garbage*.
+#[test]
+fn every_listed_single_byte_final_is_named() {
+    let cases: &[(&[u8], Charset)] = &[
+        (b"\x1b(C", Charset::National(Nrcs::Finnish)),
+        (b"\x1b(5", Charset::National(Nrcs::Finnish)),
+        (b"\x1b(H", Charset::National(Nrcs::Swedish)),
+        (b"\x1b(7", Charset::National(Nrcs::Swedish)),
+        (b"\x1b(K", Charset::National(Nrcs::German)),
+        (b"\x1b(Q", Charset::National(Nrcs::FrenchCanadian)),
+        (b"\x1b(9", Charset::National(Nrcs::FrenchCanadian)),
+        (b"\x1b(R", Charset::National(Nrcs::French)),
+        (b"\x1b(f", Charset::National(Nrcs::French)),
+        (b"\x1b(Y", Charset::National(Nrcs::Italian)),
+        (b"\x1b(Z", Charset::National(Nrcs::Spanish)),
+        (b"\x1b(4", Charset::National(Nrcs::Dutch)),
+        (b"\x1b(=", Charset::National(Nrcs::Swiss)),
+        (b"\x1b(`", Charset::National(Nrcs::NorwegianDanish)),
+        (b"\x1b(E", Charset::National(Nrcs::NorwegianDanish)),
+        (b"\x1b(6", Charset::National(Nrcs::NorwegianDanish)),
+        (b"\x1b(<", Charset::Dec(DecSet::Supplemental)),
+        (b"\x1b(>", Charset::Dec(DecSet::Technical)),
+        (b"\x1b(I", Charset::Dec(DecSet::JisKatakana)),
+        (b"\x1b(J", Charset::Dec(DecSet::JisRoman)),
+    ];
+    for (bytes, want) in cases {
+        assert_eq!(charset(bytes), *want, "{:02x?}", bytes);
+    }
+}
+
+/// The aliases really are aliases, and distinct sets really are distinct.
+#[test]
+fn charset_aliases_agree_and_distinct_sets_differ() {
+    assert_eq!(
+        charset(b"\x1b(C"),
+        charset(b"\x1b(5"),
+        "C and 5 are Finnish"
+    );
+    assert_ne!(
+        charset(b"\x1b(C"),
+        charset(b"\x1b(H"),
+        "Finnish is not Swedish"
+    );
+    assert_ne!(
+        charset(b"\x1b(K"),
+        Charset::Other,
+        "German is recognised, not unknown"
+    );
+}
+
+/// A final byte the specification does not list is still `Other`.
+///
+/// `x` rather than `!`: `21` is an *intermediate* byte, so `ESC ( !` is not a
+/// complete designation at all and never reaches `from_final`.
+#[test]
+fn an_unlisted_final_is_still_other() {
+    assert_eq!(charset(b"\x1b(x"), Charset::Other);
 }

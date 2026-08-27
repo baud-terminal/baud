@@ -41,9 +41,71 @@ pub enum Charset {
     Uk,
     /// `0` — "DEC Special Character and Line Drawing Set, VT100."
     DecGraphics,
+    /// A national replacement set, named. See [`Nrcs`].
+    National(Nrcs),
+    /// `0` is [`Charset::DecGraphics`]; these are the other DEC sets reachable
+    /// through a single final byte.
+    Dec(DecSet),
     /// Designated, recognised, and not translated. See [`CellFlags::GRAPHICS`]
     /// for why translation needs a source baud does not have.
+    ///
+    /// What reaches here now is a final byte `[[source: ctlseqs]]` does not
+    /// list, or one of the **multi-byte** finals — `% 6` Portuguese, `" >`
+    /// Greek, `& 4` DEC Cyrillic and the rest — which need a two-byte final
+    /// that `designate` does not parse. Those are named in
+    /// `docs/vt-coverage.md` rather than silently lumped in here.
     Other,
+}
+
+/// National Replacement Character Sets, from `[[source: ctlseqs]]`'s list of
+/// valid final characters for `ESC ( C`.
+///
+/// **Named rather than folded into [`Charset::Other`].** "The term
+/// *replacement* says that the character set is formed by replacing some of the
+/// characters in a set with more useful ones for a given language" — so which
+/// one it is decides which characters change, and an embedder that asked could
+/// not previously tell Finnish from a byte baud did not recognise.
+///
+/// Recorded and not translated, for the reason `Charset::DecGraphics` is not:
+/// the replacements are a glyph mapping and `MANIFEST.toml` carries no
+/// machine-readable DEC source for one. The cell keeps the byte.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Nrcs {
+    /// `C` or `5`
+    Finnish,
+    /// `H` or `7`
+    Swedish,
+    /// `K`
+    German,
+    /// `Q` or `9`
+    FrenchCanadian,
+    /// `R` or `f`
+    French,
+    /// `Y`
+    Italian,
+    /// `Z`
+    Spanish,
+    /// `4`
+    Dutch,
+    /// `=`
+    Swiss,
+    /// `` ` ``, `E` or `6`
+    NorwegianDanish,
+}
+
+/// DEC-defined sets other than the line-drawing one, reachable through a single
+/// final byte. Same deferral: designated, recorded, not translated.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecSet {
+    /// `<` — DEC Supplemental (VT200), and User Preferred Selection Set
+    /// (VT300), which share a final byte.
+    Supplemental,
+    /// `>` — DEC Technical, VT300.
+    Technical,
+    /// `I` — JIS-Katakana, VT382.
+    JisKatakana,
+    /// `J` — JIS-Roman, VT382.
+    JisRoman,
 }
 
 impl Charset {
@@ -52,6 +114,20 @@ impl Charset {
             b'0' => Charset::DecGraphics,
             b'B' => Charset::Ascii,
             b'A' => Charset::Uk,
+            b'C' | b'5' => Charset::National(Nrcs::Finnish),
+            b'H' | b'7' => Charset::National(Nrcs::Swedish),
+            b'K' => Charset::National(Nrcs::German),
+            b'Q' | b'9' => Charset::National(Nrcs::FrenchCanadian),
+            b'R' | b'f' => Charset::National(Nrcs::French),
+            b'Y' => Charset::National(Nrcs::Italian),
+            b'Z' => Charset::National(Nrcs::Spanish),
+            b'4' => Charset::National(Nrcs::Dutch),
+            b'=' => Charset::National(Nrcs::Swiss),
+            b'`' | b'E' | b'6' => Charset::National(Nrcs::NorwegianDanish),
+            b'<' => Charset::Dec(DecSet::Supplemental),
+            b'>' => Charset::Dec(DecSet::Technical),
+            b'I' => Charset::Dec(DecSet::JisKatakana),
+            b'J' => Charset::Dec(DecSet::JisRoman),
             _ => Charset::Other,
         }
     }
