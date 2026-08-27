@@ -213,10 +213,15 @@ proptest! {
     /// generates. This one splits real ones, which is where the boundary bugs
     /// live -- `fast_csi` bails to the byte-at-a-time machine mid-sequence, and
     /// that handover is only exercised when a valid CSI straddles a read.
+    ///
+    /// `Computed` and `Templated`, not `Runs`: in `Runs` mode `viewport()`
+    /// reports representation, which is chunk-dependent by construction. See
+    /// `properties.rs::promotion_depends_on_chunking_in_runs_mode`, which pins
+    /// the reason.
     #[test]
     fn generated_programs_are_chunk_invariant(ops in program(), a in 1usize..=64) {
         let b = bytes_of(&ops);
-        for m in [OpMode::Runs, OpMode::Computed] {
+        for m in [OpMode::Computed, OpMode::Templated] {
             prop_assert_eq!(drive(&b, a, m), drive(&b, 4096, m));
         }
     }
@@ -243,6 +248,11 @@ proptest! {
 
     /// The cursor is always on the grid, whatever the program did to the
     /// margins, the origin mode or the autowrap flag.
+    ///
+    /// `Term::cursor()` is the reported position, not the internal one: with
+    /// autowrap on, `cx` sits one past the last column as a deferred-wrap
+    /// sentinel, and this property is what established that the sentinel was
+    /// leaking out through CPR as a column that does not exist.
     #[test]
     fn the_cursor_never_leaves_the_grid(ops in program()) {
         let (_, (r, c), _) = drive(&bytes_of(&ops), 4096, OpMode::Computed);

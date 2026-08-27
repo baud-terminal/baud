@@ -557,7 +557,48 @@ impl Default for Content {
 pub struct PackedCell {
     pub content: Content,
     pub style: StyleId,
-    pub _pad: u16,
+    pub flags: CellFlags,
+}
+
+/// Per-cell state that is **not** a rendition.
+///
+/// Lives in what used to be `PackedCell::_pad`, so the cell is still eight
+/// bytes and the measurement behind that width still holds.
+///
+/// The distinction is the point. A rendition is interned: many cells share one
+/// [`StyleId`], and the table behind it is a direct-mapped cache that evicts.
+/// That is tolerable for colour -- an evicted bucket renders wrong until it is
+/// rewritten -- and not tolerable for DECSCA protection, where eviction would
+/// silently expose text an application asked to keep. Anything whose loss is a
+/// correctness bug rather than a cosmetic one belongs here, per cell, where
+/// nothing can evict it.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct CellFlags(u16);
+
+impl CellFlags {
+    pub const NONE: CellFlags = CellFlags(0);
+    /// DECSCA: DECSED and DECSEL may not erase this cell.
+    ///
+    /// `[[source: vt510-decsca]]`: "1 DECSED and DECSEL cannot erase
+    /// characters."
+    pub const PROTECTED: CellFlags = CellFlags(1);
+    pub fn protection(on: bool) -> CellFlags {
+        CellFlags(u16::from(on))
+    }
+    pub fn is_protected(self) -> bool {
+        self.0 & CellFlags::PROTECTED.0 != 0
+    }
+    /// The byte, for the one place a flag set has to survive a round trip
+    /// through [`Run`]'s fixed layout.
+    pub fn bits(self) -> u8 {
+        self.0 as u8
+    }
+    pub fn from_bits(b: u8) -> CellFlags {
+        CellFlags(b as u16)
+    }
 }
 
 /// Materialised rows currently on screen — a projection, never storage.
@@ -1013,13 +1054,27 @@ pub struct Run {
     /// Held as `u8` because not every bit pattern is a valid variant — recover
     /// it with [`Run::encoding`], which is checked.
     pub encoding: u8,
-    pub _pad: [u8; 3],
+    /// [`CellFlags`] as a byte, for the same reason `encoding` is one: the
+    /// struct crosses the mmap boundary and zerocopy will not take a type whose
+    /// bit patterns are not all valid. Recover it with [`Run::flags`].
+    ///
+    /// A run carries the protection so that promoting it to cells does not lose
+    /// it -- the run *is* the storage in `OpMode::Runs`, and a promotion that
+    /// dropped the flag would make protection depend on when the line happened
+    /// to materialise.
+    pub flags: u8,
+    pub _pad: [u8; 2],
 }
 
 impl Run {
     /// Checked: a byte off disk is not necessarily a valid [`Encoding`].
     pub fn encoding(&self) -> Option<Encoding> {
         Encoding::try_read_from_bytes(&[self.encoding]).ok()
+    }
+    /// Unchecked, unlike [`Run::encoding`]: every bit pattern is a valid flag
+    /// set, so there is nothing to reject.
+    pub fn flags(&self) -> CellFlags {
+        CellFlags::from_bits(self.flags)
     }
 }
 
@@ -1570,7 +1625,7 @@ pub trait Source {
 ///
 /// There is no `From<u16> for Row`. The only route is [`OneBased::to_row`],
 /// which subtracts and clamps in one place instead of at twenty call sites.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct OneBased(u16);
 
@@ -1632,6 +1687,59 @@ impl EraseExtent {
             1 => Some(EraseExtent::ToStart),
             2 => Some(EraseExtent::All),
             _ => None,
+        }
+    }
+}
+
+/// An `ESC Fe` sequence, resolved -- the two-byte escapes that carry no
+/// parameters.
+///
+/// The counterpart to [`Csi`], and it exists for the same reason. This dispatch
+/// used to be a `match` on `b'7'`, `b'8'`, `b'M'`, `b'D'`, `b'E'`, `b'c'` and
+/// `b'H'`, which are not the names of anything -- they are the bytes those
+/// operations happen to be spelled with. Every one has a name in the standard,
+/// and a reader should not have to remember that `ESC M` scrolls *down*
+/// (RI, reverse index) while `ESC D` scrolls up.
+///
+/// `Unsupported` is a variant rather than a `_ => {}` arm, on the same
+/// principle as [`Csi`]: what is not implemented stays enumerable.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Esc {
+    /// DECSC — Save Cursor, `ESC 7`.
+    ///
+    /// `[[source: vt510-decsc]]`: saves the cursor position, the SGR
+    /// attributes, the character sets, the wrap flag, the state of DECOM, and
+    /// the selective erase attribute.
+    SaveCursor,
+    /// DECRC — Restore Cursor, `ESC 8`. The inverse of [`Esc::SaveCursor`].
+    RestoreCursor,
+    /// RI — Reverse Index, `ESC M`. Up one line, scrolling the region *down* at
+    /// the top margin.
+    ReverseIndex,
+    /// IND — Index, `ESC D`. Down one line, keeping the column.
+    Index,
+    /// NEL — Next Line, `ESC E`. Down one line *and* to column 1, which is what
+    /// distinguishes it from [`Esc::Index`].
+    NextLine,
+    /// RIS — Reset to Initial State, `ESC c`. A full reset, not a soft one.
+    Reset,
+    /// HTS — Horizontal Tab Set, `ESC H`. Sets a tab stop at the cursor column.
+    TabSet,
+    /// Recognised as an `ESC Fe` and deliberately not acted on.
+    Unsupported,
+}
+
+impl Esc {
+    pub fn parse(b: StreamByte) -> Esc {
+        match b.raw_byte() {
+            b'7' => Esc::SaveCursor,
+            b'8' => Esc::RestoreCursor,
+            b'M' => Esc::ReverseIndex,
+            b'D' => Esc::Index,
+            b'E' => Esc::NextLine,
+            b'c' => Esc::Reset,
+            b'H' => Esc::TabSet,
+            _ => Esc::Unsupported,
         }
     }
 }
@@ -2007,6 +2115,147 @@ impl SgrAttr {
             }
             _ => return None,
         })
+    }
+}
+
+/// What a terminal sends *back*, named by the report rather than by its bytes.
+///
+/// The mirror of [`Csi`]. Parsing has had a type since the beginning; replying
+/// was three byte literals and a hand-rolled decimal formatter at the call
+/// site, which is the same "two quantities confused" shape the newtypes exist
+/// to prevent -- one level up, at the protocol.
+///
+/// `docs/vt-coverage.md` makes one rule non-negotiable: **never answer a query
+/// with the wrong shape**, because an application parses whatever arrives as
+/// the report it asked for. A byte literal cannot enforce that; a variant can.
+/// The final byte, the introducer and the parameter layout are picked by the
+/// variant, so a DSR cannot be answered in a DA's shape, and there is no
+/// spelling of "reply" that does not name the report being sent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Report {
+    /// CPR — Cursor Position Report, `CSI r ; c R`. `[[source: ctlseqs]]`:
+    /// "Report Cursor Position (CPR) [row;column]. Result is CSI r ; c R".
+    ///
+    /// 1-based, like CUP, so the report can be fed straight back as one.
+    CursorPosition { row: OneBased, col: OneBased },
+    /// DSR operating status, `CSI 0 n`. `[[source: ctlseqs]]`: "Status Report.
+    /// Result ("OK") is CSI 0 n".
+    OperatingStatus,
+    /// Primary DA, `CSI ? Ps c`.
+    PrimaryDeviceAttributes(DeviceAttribute),
+}
+
+/// Which terminal baud claims to be, in a Primary DA response.
+///
+/// An enum with one variant on purpose. `[[source: ctlseqs]]` lists the
+/// identities under `CSI Ps c`, and picking one is a promise about *everything*
+/// at that level -- over-claiming makes applications send sequences baud drops,
+/// which is the `parsed` failure by another route. Widening the claim should
+/// cost a deliberate edit here, next to the reason, rather than a changed digit
+/// in a byte string.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DeviceAttribute {
+    /// `CSI ? 6 c`. What baud actually is: DECSTBM (VT100) and IL/DL (VT102).
+    /// It has selective erase, which is VT220, and still answers VT102 --
+    /// one VT220 feature does not buy the level, and it has neither UDKs nor
+    /// NRCS nor 132-column mode.
+    Vt102,
+}
+
+impl DeviceAttribute {
+    /// The `Ps` in `CSI ? Ps c`.
+    fn param(self) -> u16 {
+        match self {
+            DeviceAttribute::Vt102 => 6,
+        }
+    }
+}
+
+/// A rendered [`Report`], owned and fixed-size.
+///
+/// Returned by value rather than written through a `&mut` into the reply
+/// buffer: the core is `no_std` with no allocator, and this keeps the encoding
+/// testable without a `Term` to hang it on.
+pub struct ReportBytes {
+    buf: [u8; Report::MAX_LEN],
+    len: usize,
+}
+
+impl ReportBytes {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+}
+
+impl Report {
+    /// Longest possible encoding: `ESC [` + five digits + `;` + five digits +
+    /// a final byte. Five digits covers `MAX_COLS` and `MAX_ROWS` with room to
+    /// spare, and nothing larger can be a coordinate on this grid.
+    pub const MAX_LEN: usize = 14;
+
+    /// Render the report to bytes.
+    ///
+    /// No allocator and no `format!`. The shape is chosen here, once per
+    /// report, rather than at each call site.
+    pub fn encode(self) -> ReportBytes {
+        let mut e = ReportBytes {
+            buf: [0; Report::MAX_LEN],
+            len: 0,
+        };
+        e.push(0x1b);
+        e.push(b'[');
+        match self {
+            Report::CursorPosition { row, col } => {
+                e.push_num(row.get());
+                e.push(b';');
+                e.push_num(col.get());
+                e.push(b'R');
+            }
+            Report::OperatingStatus => {
+                e.push_num(0);
+                e.push(b'n');
+            }
+            Report::PrimaryDeviceAttributes(d) => {
+                e.push(b'?');
+                e.push_num(d.param());
+                e.push(b'c');
+            }
+        }
+        e
+    }
+}
+
+impl ReportBytes {
+    fn push(&mut self, b: u8) {
+        // Cannot overflow: MAX_LEN is the longest variant, checked by
+        // `report_encodings_fit` in baud-domain's tests.
+        if self.len < Report::MAX_LEN {
+            self.buf[self.len] = b;
+            self.len += 1;
+        }
+    }
+    /// Decimal, most significant digit first.
+    fn push_num(&mut self, v: u16) {
+        const DIGITS: &[u8; 10] = b"0123456789";
+        let mut tmp = [0u8; 5];
+        let mut i = tmp.len();
+        let mut n = v;
+        loop {
+            i -= 1;
+            // Indexed rather than `(n % 10) as u8`: the cast would be another
+            // raw-integer site against the audit budget, and a table lookup
+            // says what it means.
+            tmp[i] = DIGITS[usize::from(n % 10)];
+            n /= 10;
+            if n == 0 || i == 0 {
+                break;
+            }
+        }
+        let mut k = i;
+        while k < tmp.len() {
+            self.push(tmp[k]);
+            k += 1;
+        }
     }
 }
 
@@ -2476,16 +2725,44 @@ impl<'a> View<'a> {
     /// measurement that says this loop's shape is worth 25%. Changing it needs a
     /// benchmark, not a lint fix.
     #[allow(clippy::needless_range_loop)]
-    pub fn put_ascii_run(&mut self, r: Row, at: Col, src: &[u8], style: StyleId) {
+    pub fn put_ascii_run(&mut self, r: Row, at: Col, src: &[u8], style: StyleId, flags: CellFlags) {
         if r.index() >= self.rows.index() {
             return;
         }
         let base = self.at(r, Col::ZERO);
         let start = at.index();
         let n = src.len().min(self.cols.index().saturating_sub(start));
-        for z in 0..n {
-            self.cells[base + start + z] =
-                PackedCell::from_ascii(StreamByte::from_stream(src[z]), style);
+        // Two loops, and the duplication is the point.
+        //
+        // Threading `flags` as a *runtime* value into the per-cell store cost
+        // 5% of the cells path -- 1049.5 MB/s against 1104.2 for the same build
+        // with a constant, ranges not overlapping. With `CellFlags::NONE`
+        // spelled as a literal the compiler folds the whole non-content half
+        // into an immediate and the loop goes back to what it was: the same
+        // build measured 1127.0 [1106.1-1135.9].
+        //
+        // DECSCA is rare -- essentially no application sets it -- so the branch
+        // is hoisted out of the loop and the cost falls on the programs that
+        // actually ask for protection. Same shape as the AutoWrap hoist in
+        // `baud-core`, and for the same measured reason.
+        if flags == CellFlags::NONE {
+            let proto = PackedCell {
+                content: Content::EMPTY,
+                style,
+                flags: CellFlags::NONE,
+            };
+            for z in 0..n {
+                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
+            }
+        } else {
+            let proto = PackedCell {
+                content: Content::EMPTY,
+                style,
+                flags,
+            };
+            for z in 0..n {
+                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
+            }
         }
     }
 
@@ -2603,36 +2880,61 @@ impl PackedCell {
     pub const EMPTY: PackedCell = PackedCell {
         content: Content::EMPTY,
         style: StyleId::DEFAULT,
-        _pad: 0,
+        flags: CellFlags::NONE,
     };
+    /// An erased cell.
+    ///
+    /// Takes no flags on purpose: an erase leaves a position with no character
+    /// in it, and `[[source: vt510-decsca]]` scopes protection to "characters
+    /// that follow the DECSCA function". A blank that inherited the protection
+    /// would make the first selective erase under `DECSCA 1` protect everything
+    /// it had just cleared.
     pub fn empty_with(style: StyleId) -> PackedCell {
         PackedCell {
             content: Content::EMPTY,
             style,
-            _pad: 0,
+            flags: CellFlags::NONE,
         }
     }
     /// A printable ASCII byte. The proof that it is printable is also the proof
     /// that its codepoint equals its byte value.
-    pub fn from_ascii(b: StreamByte, style: StyleId) -> PackedCell {
+    pub fn from_ascii(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         PackedCell {
             content: Content::codepoint(Codepoint::from_ascii(b)),
             style,
-            _pad: 0,
+            flags,
         }
     }
-    pub fn glyph(c: Codepoint, style: StyleId) -> PackedCell {
+    pub fn glyph(c: Codepoint, style: StyleId, flags: CellFlags) -> PackedCell {
         PackedCell {
             content: Content::codepoint(c),
             style,
-            _pad: 0,
+            flags,
         }
     }
-    pub fn wide_tail(style: StyleId) -> PackedCell {
+    pub fn wide_tail(style: StyleId, flags: CellFlags) -> PackedCell {
         PackedCell {
             content: Content::WIDE_TAIL,
             style,
-            _pad: 0,
+            flags,
+        }
+    }
+    pub fn is_protected(self) -> bool {
+        self.flags.is_protected()
+    }
+    /// This cell's style and flags with a different character in it.
+    ///
+    /// The whole point is that the tail is *already assembled*. `PackedCell` is
+    /// `{u32, u16, u8, u8}`, and building one field-by-field inside a per-cell
+    /// loop let the compiler emit four narrow stores instead of one 8-byte one
+    /// -- measured at ~8% of the cells path when the flags byte was carved out
+    /// of the old `_pad`. Hoisting the invariant tail out of the loop and only
+    /// replacing `content` puts it back.
+    #[inline(always)]
+    pub fn with_ascii(self, b: StreamByte) -> PackedCell {
+        PackedCell {
+            content: Content::codepoint(Codepoint::from_ascii(b)),
+            ..self
         }
     }
 }
@@ -2863,15 +3165,16 @@ pub struct StyleWord {
     fg: ColorWord,
     bg: ColorWord,
     attrs: Attrs,
-    /// DECSCA character protection: non-zero when DECSED/DECSEL may **not**
-    /// erase this character.
+    /// Explicit, because zerocopy rejects implicit padding.
     ///
-    /// Deliberately not a bit in `attrs`. `[[source: vt510-decsca]]`: "DECSCA
-    /// does not effect visual character attributes set by the select graphic
-    /// rendition (SGR) function" -- so it must not sit where a renderer reading
-    /// attributes could mistake it for one. It is still part of the interning
-    /// key, so protected and unprotected text are distinct renditions.
-    prot: u16,
+    /// DECSCA protection deliberately does **not** live here.
+    /// `[[source: vt510-decsca]]`: "DECSCA does not effect visual character
+    /// attributes set by the select graphic rendition (SGR) function" -- it is
+    /// not a rendition, so it is not in the rendition. It is a [`CellFlags`]
+    /// bit on the cell instead, which also keeps it out of the interning key:
+    /// protected and unprotected text of the same colour are one style, not
+    /// two, and the 64-entry template cache is not halved by turning DECSCA on.
+    _pad: u16,
 }
 
 impl StyleWord {
@@ -2881,17 +3184,8 @@ impl StyleWord {
         fg: ColorWord::DEFAULT,
         bg: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
-        prot: 0,
+        _pad: 0,
     };
-    pub fn is_protected(self) -> bool {
-        self.prot != 0
-    }
-    pub fn with_protected(self, on: bool) -> StyleWord {
-        StyleWord {
-            prot: u16::from(on),
-            ..self
-        }
-    }
     pub fn fg(self) -> ColorWord {
         self.fg
     }
@@ -2913,10 +3207,7 @@ impl StyleWord {
     /// Everything that distinguishes one rendition from another, folded into
     /// one integer for hashing.
     pub fn key(self) -> u64 {
-        (self.fg.0 as u64)
-            ^ ((self.bg.0 as u64) << 21)
-            ^ ((self.attrs.bits() as u64) << 45)
-            ^ ((self.prot as u64) << 61)
+        (self.fg.0 as u64) ^ ((self.bg.0 as u64) << 21) ^ ((self.attrs.bits() as u64) << 45)
     }
 }
 
@@ -3006,6 +3297,10 @@ impl Run {
     /// through the checked [`Run::encoding`].
     pub fn with_encoding(mut self, e: Encoding) -> Run {
         self.encoding = e as u8;
+        self
+    }
+    pub fn with_flags(mut self, f: CellFlags) -> Run {
+        self.flags = f.bits();
         self
     }
 }

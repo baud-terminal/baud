@@ -154,6 +154,97 @@ fn selective_erase_is_not_confined_to_the_region() {
     assert_eq!(after, grid(b""), "row 0 must be erased despite the region");
 }
 
+/// Protection survives style-table eviction.
+///
+/// The style table is a 64-slot direct-mapped cache: interning a new rendition
+/// overwrites whichever one shared its bucket. Protection therefore cannot be
+/// stored there and looked back up, which is what an earlier version did -- it
+/// answered with whatever style had displaced the original, so protection was
+/// silently lost (or granted to text that never asked for it) as soon as an
+/// application cycled through more than `NSTYLE` renditions. Truecolour
+/// applications do that in ordinary use, not adversarially.
+///
+/// Deterministic: the cycle is forced, not searched for.
+#[test]
+fn protection_survives_style_eviction() {
+    let mut v = b"\x1b[1\"qAB\x1b[0\"q".to_vec();
+    // Four times the table, so every bucket is overwritten several times.
+    for i in 0..(NSTYLE * 4) {
+        v.extend_from_slice(
+            format!("\x1b[38;2;{};{};{}m", i % 251, (i * 7) % 251, i % 97).as_bytes(),
+        );
+    }
+    v.extend_from_slice(b"\x1b[1;1H\x1b[?2K");
+    let after = grid(&v);
+    let only_ab = grid(b"\x1b[1\"qAB");
+    assert_eq!(
+        after[..2],
+        only_ab[..2],
+        "AB must still be protected after the table has turned over"
+    );
+}
+
+/// Exactly the protected cells survive -- not "each cell took one of two
+/// allowed values", which both false-protection and false-erasure satisfy.
+#[test]
+fn selective_erase_spares_exactly_the_protected_cells() {
+    // Alternate protected and unprotected characters across ten columns.
+    let mut v = Vec::new();
+    for i in 0..10 {
+        v.extend_from_slice(if i % 2 == 0 {
+            b"\x1b[1\"q"
+        } else {
+            b"\x1b[0\"q"
+        });
+        v.push(b'a' + i);
+    }
+    let before = grid(&v);
+    v.extend_from_slice(b"\x1b[1;1H\x1b[?2K");
+    let after = grid(&v);
+    let blank = grid(b"")[0];
+    for i in 0..10usize {
+        if i % 2 == 0 {
+            assert_eq!(
+                after[i], before[i],
+                "column {i} was protected and must remain"
+            );
+        } else {
+            assert_eq!(after[i], blank, "column {i} was erasable and must be blank");
+        }
+    }
+}
+
+/// DECSTR returns the protection to normal.
+///
+/// `[[source: vt510-decstr]]`, Table 5-9: "Select character attribute / DECSCA
+/// / Normal (erasable by DECSEL and DECSED)."
+#[test]
+fn decstr_clears_protection() {
+    let after = grid(b"\x1b[1\"q\x1b[!pAB\x1b[1;1H\x1b[?2K");
+    assert_eq!(after, grid(b""), "after DECSTR, AB is erasable again");
+}
+
+/// DECSC saves the protection and DECRC restores it.
+///
+/// `[[source: vt510-decsc]]` lists "Selective erase attribute" among what the
+/// save keeps, so a program can set protection, save, change it, restore, and
+/// find the original in force.
+#[test]
+fn decsc_and_decrc_carry_the_protection() {
+    // Protect, save, unprotect, restore, then write: the write must be
+    // protected because the restore brought DECSCA 1 back.
+    let after = grid(b"\x1b[1\"q\x1b7\x1b[0\"q\x1b8AB\x1b[1;1H\x1b[?2K");
+    let only_ab = grid(b"\x1b[1\"qAB");
+    assert_eq!(
+        after[..2],
+        only_ab[..2],
+        "DECRC must restore the protection"
+    );
+    // And the converse: saving while unprotected restores unprotected.
+    let gone = grid(b"\x1b[0\"q\x1b7\x1b[1\"q\x1b8AB\x1b[1;1H\x1b[?2K");
+    assert_eq!(gone, grid(b""), "DECRC must restore the *saved* state");
+}
+
 /// RIS clears the protection along with the rest of the rendition, so a program
 /// cannot leave the next one with an unerasable screen.
 #[test]

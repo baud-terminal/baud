@@ -183,3 +183,29 @@ sha256 = "d5897c6bade88ce7f03d2933a04eab5d5bc9bff712ac0a298222990497ccdbc2"
 bytes  = 19795
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-decsc]
+key    = "vt510-decsc"
+title  = "DECSC — Save Cursor (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSC.html"
+file   = "vt510-DECSC.html"
+sha256 = "d2248cd54e7fb96fa7360f7ac201ab02212a5a1594df67729081de1737739de1"
+bytes  = 19369
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decstr]
+key    = "vt510-decstr"
+title  = "DECSTR — Soft Terminal Reset (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSTR.html"
+file   = "vt510-DECSTR.html"
+sha256 = "ba3f2f9584a3a9cbf64ee4d1a992b32fded053bc13f92383fce6a2c328c0e065"
+bytes  = 21048
+status = "retrieved"
+group  = "C"

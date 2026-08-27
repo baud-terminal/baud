@@ -20,10 +20,11 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    AnsiMode, ArenaTail, ByteLen, BytePos, Codepoint, Col, Cols, Content, Count, Csi, Encoding,
-    EraseExtent, Filled, FinalByte, LineSlot, Marker, ModeBit, Modes, OneBased, PackedCell, Param,
-    ParamIdx, Params, Pending, PrivateMode, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
-    StreamByte, StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
+    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Codepoint, Col, Cols, Content, Count, Csi,
+    DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte, LineSlot, Marker, ModeBit,
+    Modes, OneBased, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode, Report,
+    ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId,
+    StyleWord, Utf8Acc, View, Width, WinSize,
 };
 
 /// Largest geometry the fixed viewport can hold.
@@ -126,7 +127,8 @@ impl Storage {
             len: ByteLen::ZERO,
             style: StyleId::DEFAULT,
             encoding: 0,
-            _pad: [0; 3],
+            flags: 0,
+            _pad: [0; 2],
         };
         const C: PackedCell = PackedCell::EMPTY;
         Storage {
@@ -312,7 +314,14 @@ pub struct Term<'a> {
     private: Marker,
     style: StyleId,
     style_raw: StyleWord,
-    saved: Option<(Row, Col, StyleId, StyleWord)>,
+    /// DECSCA, and anything else that is per-cell state rather than rendition.
+    ///
+    /// Stamped onto every character written, so protection survives style
+    /// eviction -- `tmpl_key` is a direct-mapped cache with one slot per
+    /// bucket, and reading protection back out of it would answer with
+    /// whichever style displaced the original.
+    flags: CellFlags,
+    saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>,
     /// DECSTBM. Inclusive, and full-screen until `CSI r` says otherwise.
     scroll_top: Row,
     scroll_bot: Row,
@@ -369,6 +378,7 @@ impl<'a> Term<'a> {
             private: Marker::Standard,
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
+            flags: CellFlags::NONE,
             saved: None,
             scroll_top: Row::ZERO,
             scroll_bot: Row::from_index(rows.clamp(MAX_ROWS).index() - 1),
@@ -423,35 +433,15 @@ impl<'a> Term<'a> {
         self.reply_len = ByteLen::from_index(at + bytes.len());
     }
 
-    /// Append a 1-based coordinate as decimal.
+    /// Queue a report.
     ///
-    /// No allocator and no `format!`. Five digits covers MAX_COLS and MAX_ROWS
-    /// with room to spare; anything larger cannot be a coordinate on this grid.
-    fn emit_num(&mut self, v: OneBased) {
-        // A coordinate, not a `usize`. Taking `usize` here tripped the audit --
-        // correctly: it is exactly the "two quantities confused" shape the
-        // newtypes exist to prevent, and a report is where an off-by-one would
-        // be invisible until an application drew in the wrong place.
-        let n = usize::from(v.get());
-        const DIGITS: &[u8; 10] = b"0123456789";
-        let mut buf = [0u8; 5];
-        let mut i = buf.len();
-        let mut v = n;
-        loop {
-            i -= 1;
-            // Indexed, not `(v % 10) as u8`: the cast would be another raw-integer
-            // site against the audit budget, and a table lookup says what it means.
-            buf[i] = DIGITS[v % 10];
-            v /= 10;
-            if v == 0 || i == 0 {
-                break;
-            }
-        }
-        // `buf` is local, so this does not borrow `self`.
-        let (lo, hi) = (i, buf.len());
-        let mut tmp = [0u8; 5];
-        tmp[..hi - lo].copy_from_slice(&buf[lo..hi]);
-        self.emit(&tmp[..hi - lo]);
+    /// The only way to put bytes in the reply buffer that a caller will read as
+    /// an answer. `emit` still exists for the raw append, but every *reply*
+    /// goes through a named [`Report`] -- the shape is chosen by the variant,
+    /// so a DSR cannot be answered with a DA's bytes.
+    fn report(&mut self, r: Report) {
+        let bytes = r.encode();
+        self.emit(bytes.as_bytes());
     }
 
     /// BEL characters seen. There is no UI here to ring one.
@@ -557,8 +547,26 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// Where the cursor is, as the protocol understands it.
+    ///
+    /// Clamped to the last column, which matters in exactly one state. With
+    /// autowrap on, `self.cx` sits one *past* the last column after a character
+    /// lands there -- the deferred-wrap sentinel the next write consumes. That
+    /// position is an implementation device, not a place the protocol has:
+    /// `[[source: vt510-decawm]]` describes the wrap as happening to "graphic
+    /// characters received when the cursor is at the right border of the page",
+    /// so the cursor is *at* the border, not beyond it. A 200-column page has
+    /// no column 201.
+    ///
+    /// This is the difference between an internal flag and an answer. CPR goes
+    /// through here, and reporting a column that does not exist is the
+    /// wrong-shaped reply that `docs/vt-coverage.md` rules out -- an
+    /// application that asks where the cursor is and moves it back gets a
+    /// one-column drift, silently, only on full lines. An embedder drawing the
+    /// cursor would put it off-screen for the same reason.
     pub fn cursor(&self) -> (Row, Col) {
-        (self.cy, self.cx)
+        let last = Col::at_index(self.cols.index() - 1);
+        (self.cy, Col::at_index(self.cx.index().min(last.index())))
     }
     pub fn geometry(&self) -> (Cols, Rows) {
         (self.cols, self.rows)
@@ -669,7 +677,7 @@ impl<'a> Term<'a> {
             return;
         }
         let k = n.at_least_one().min(bot + 1 - top);
-        let blank = self.blank();
+        let blank = PackedCell::empty_with(self.style);
         let last = self.rows.index() - 1;
         if top == 0 && bot == last {
             for _ in 0..k {
@@ -696,7 +704,7 @@ impl<'a> Term<'a> {
         if top > bot {
             return;
         }
-        let blank = self.blank();
+        let blank = PackedCell::empty_with(self.style);
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
         self.view().insert_lines_in(rt, n, rb, blank);
         for y in top..=bot {
@@ -792,36 +800,13 @@ impl<'a> Term<'a> {
         if self.cy.index() < self.scroll_top.index() || self.cy.index() > self.scroll_bot.index() {
             return;
         }
-        let blank = self.blank();
+        let blank = PackedCell::empty_with(self.style);
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let (at, rb) = (self.cy, self.scroll_bot);
         self.view().delete_lines_in(at, n, rb, blank);
         for y in cy..=bot {
             self.s.promoted[y] = true;
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-        }
-    }
-
-    /// The cell an erase leaves behind.
-    ///
-    /// Erase-to-background: the blank carries the current rendition, which is
-    /// why `erase_line` cannot simply write `PackedCell::EMPTY`. But it must
-    /// **not** carry the DECSCA protection. An erased position holds no
-    /// character, and `[[source: vt510-decsca]]` scopes protection to "all
-    /// characters that follow the DECSCA function" -- a position with no
-    /// character in it is not one of them. Carrying it would make the first
-    /// selective erase under `DECSCA 1` protect everything it just cleared, so
-    /// the second one would find nothing left to erase.
-    ///
-    /// Costs an extra intern only while protection is on, which is rare; the
-    /// common path is the already-interned `self.style`.
-    #[inline(always)]
-    fn blank(&mut self) -> PackedCell {
-        if self.style_raw.is_protected() {
-            let id = self.intern_style(self.style_raw.with_protected(false));
-            PackedCell::empty_with(id)
-        } else {
-            PackedCell::empty_with(self.style)
         }
     }
 
@@ -854,7 +839,8 @@ impl<'a> Term<'a> {
     #[inline(always)]
     fn write_cell(&mut self, cp: Codepoint) {
         let (r, c, st) = (self.cy, self.cx, self.style);
-        self.view().put(r, c, PackedCell::glyph(cp, st));
+        let fl = self.flags;
+        self.view().put(r, c, PackedCell::glyph(cp, st, fl));
     }
 
     /// Place one decoded codepoint. A 2-wide character at the last column
@@ -881,7 +867,8 @@ impl<'a> Term<'a> {
         self.last_cp = Some((cp, w));
         if w == Width::WIDE {
             let (r, c, st) = (self.cy, self.cx.after(), self.style);
-            self.view().put(r, c, PackedCell::wide_tail(st));
+            let fl = self.flags;
+            self.view().put(r, c, PackedCell::wide_tail(st, fl));
         }
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
     }
@@ -892,7 +879,14 @@ impl<'a> Term<'a> {
         let (r, c, st) = (self.cy, self.cx, self.style);
         let (stride, cols, rows) = (Cols::from_stride(MAX_COLS), self.cols, self.rows);
         let (arena, vp) = (&self.s.arena, &mut self.s.vp);
-        View::new(vp, stride, cols, rows).put_ascii_run(r, c, &arena[abs..abs + room.index()], st);
+        let fl = self.flags;
+        View::new(vp, stride, cols, rows).put_ascii_run(
+            r,
+            c,
+            &arena[abs..abs + room.index()],
+            st,
+            fl,
+        );
     }
 
     #[inline(always)]
@@ -923,9 +917,11 @@ impl<'a> Term<'a> {
                         len: ByteLen::from_room(room),
                         style: self.style,
                         encoding: 0,
-                        _pad: [0; 3],
+                        flags: 0,
+                        _pad: [0; 2],
                     }
-                    .with_encoding(Encoding::Ascii);
+                    .with_encoding(Encoding::Ascii)
+                    .with_flags(self.flags);
                     self.s.nrun[i.index()] = c.inc();
                 } else {
                     self.maxrun_overflows.inc();
@@ -974,12 +970,12 @@ impl<'a> Term<'a> {
                 }
                 let b = StreamByte::from_stream(self.s.arena[o + z]);
                 let (rr, cc) = (Row::from_index(y), Col::at_index(c));
-                self.view()
-                    .put(rr, cc, PackedCell::from_ascii(b, run.style));
+                let (st, fl) = (run.style, run.flags());
+                self.view().put(rr, cc, PackedCell::from_ascii(b, st, fl));
                 c += 1;
             }
         }
-        let blank = self.blank();
+        let blank = PackedCell::empty_with(self.style);
         let (rr, from, to) = (
             Row::from_index(y),
             Col::at_index(c),
@@ -1018,7 +1014,7 @@ impl<'a> Term<'a> {
             EraseExtent::ToStart => (0, (self.cx.index() + 1).min(self.cols.index())),
             EraseExtent::All => (0, self.cols.index()),
         };
-        let b = self.blank();
+        let b = PackedCell::empty_with(self.style);
         let (rr, f, t) = (Row::from_index(y), Col::at_index(from), Col::at_index(to));
         self.view().fill(rr, f, t, b);
     }
@@ -1029,7 +1025,7 @@ impl<'a> Term<'a> {
             EraseExtent::ToStart => (0, self.cy.index() + 1),
             EraseExtent::All => (0, self.rows.index()),
         };
-        let b = self.blank();
+        let b = PackedCell::empty_with(self.style);
         for y in lo..hi {
             self.view().fill_row(Row::from_index(y), b);
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
@@ -1039,7 +1035,7 @@ impl<'a> Term<'a> {
 
     fn erase_chars(&mut self, n: Count) {
         self.promote_if_runs();
-        let b = self.blank();
+        let b = PackedCell::empty_with(self.style);
         let (r, from) = (self.cy, self.cx);
         let to = Col::at_index(self.cx.index() + n.at_least_one());
         self.view().fill(r, from, to, b);
@@ -1047,13 +1043,13 @@ impl<'a> Term<'a> {
 
     fn delete_chars(&mut self, n: Count) {
         self.promote_if_runs();
-        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
         self.view().delete_chars(r, at, n, b);
     }
 
     fn insert_blanks(&mut self, n: Count) {
         self.promote_if_runs();
-        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
         self.view().insert_blanks(r, at, n, b);
     }
 
@@ -1067,7 +1063,7 @@ impl<'a> Term<'a> {
         }
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let k = n.at_least_one().min(bot + 1 - cy);
-        let (at, rb, b) = (self.cy, self.scroll_bot, self.blank());
+        let (at, rb, b) = (self.cy, self.scroll_bot, PackedCell::empty_with(self.style));
         self.view().insert_lines_in(at, n, rb, b);
         for y in cy..cy + k {
             self.s.promoted[y] = true;
@@ -1097,10 +1093,11 @@ impl<'a> Term<'a> {
         match Csi::parse(marker, self.csi_inter, p, f) {
             Csi::SoftReset => self.soft_reset(),
             Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
-            Csi::SelectProtection { protect } => {
-                self.style_raw = self.style_raw.with_protected(protect);
-                self.style = self.intern_style(self.style_raw);
-            }
+            // `[[source: vt510-decsca]]`: "Ps defines all characters that
+            // follow the DECSCA function as erasable or not erasable". It does
+            // not repaint anything already on screen, and it does not touch the
+            // rendition -- hence a flag, not an SGR fold.
+            Csi::SelectProtection { protect } => self.flags = CellFlags::protection(protect),
             Csi::SelectiveEraseDisplay(e) => self.selective_erase_display(e),
             Csi::SelectiveEraseLine(e) => self.selective_erase_line(e),
             Csi::Repeat(c) => {
@@ -1119,16 +1116,20 @@ impl<'a> Term<'a> {
             // Selective erase is a VT220 feature and has since landed, but a DA
             // identity promises everything at that level, so the answer does
             // not move. Under-claiming degrades, over-claiming breaks.
-            Csi::DeviceAttributes => self.emit(b"\x1b[?6c"),
-            Csi::DeviceStatus(Some(baud_domain::StatusKind::Operating)) => self.emit(b"\x1b[0n"),
+            Csi::DeviceAttributes => {
+                self.report(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102))
+            }
+            Csi::DeviceStatus(Some(baud_domain::StatusKind::Operating)) => {
+                self.report(Report::OperatingStatus)
+            }
             Csi::DeviceStatus(Some(baud_domain::StatusKind::CursorPosition)) => {
-                // CPR is 1-based, like CUP.
-                let (r, c) = (self.cy.one_based(), self.cx.one_based());
-                self.emit(b"\x1b[");
-                self.emit_num(r);
-                self.emit(b";");
-                self.emit_num(c);
-                self.emit(b"R");
+                // 1-based like CUP, and through `cursor()` rather than off
+                // `self.cx` -- the deferred-wrap sentinel is not a column.
+                let (cy, cx) = self.cursor();
+                self.report(Report::CursorPosition {
+                    row: cy.one_based(),
+                    col: cx.one_based(),
+                });
             }
             // A DSR baud does not implement gets no answer. Replying with the
             // wrong report shape is worse than silence: the application parses
@@ -1177,13 +1178,19 @@ impl<'a> Term<'a> {
             }
             Csi::ColumnRelative(c) => self.cx = self.cx.forward(c, self.cols),
             Csi::LineRelative(c) => self.cy = self.confine(self.cy.down(c, self.rows)),
-            Csi::SaveCursor => self.saved = Some((self.cy, self.cx, self.style, self.style_raw)),
+            Csi::SaveCursor => {
+                self.saved = Some((self.cy, self.cx, self.style, self.style_raw, self.flags))
+            }
             Csi::RestoreCursor => {
-                if let Some((r, c, st, sw)) = self.saved {
+                // `[[source: vt510-decsc]]` lists the selective erase
+                // attribute among what DECSC saves, so it is restored here with
+                // the rendition rather than left behind.
+                if let Some((r, c, st, sw, fl)) = self.saved {
                     self.cy = r;
                     self.cx = c;
                     self.style = st;
                     self.style_raw = sw;
+                    self.flags = fl;
                 }
             }
             Csi::InsertLines(c) => self.insert_lines(c),
@@ -1574,36 +1581,43 @@ impl<'a> Term<'a> {
     /// `ESC Fe`: two-byte escapes with no parameters. Shared by both feed paths.
     #[inline(always)]
     fn esc_fe(&mut self, b: StreamByte) {
-        match b.raw_byte() {
-            b'7' => self.saved = Some((self.cy, self.cx, self.style, self.style_raw)),
-            b'8' => {
-                if let Some((r, c, st, sw)) = self.saved {
+        match Esc::parse(b) {
+            Esc::SaveCursor => {
+                self.saved = Some((self.cy, self.cx, self.style, self.style_raw, self.flags))
+            }
+            // `[[source: vt510-decsc]]` lists the selective erase attribute
+            // among what DECSC saves, so it is restored here with the rendition
+            // rather than left behind.
+            Esc::RestoreCursor => {
+                if let Some((r, c, st, sw, fl)) = self.saved {
                     self.cy = r;
                     self.cx = c;
                     self.style = st;
                     self.style_raw = sw;
+                    self.flags = fl;
                 }
             }
-            b'M' => self.reverse_index(),
-            b'D' => self.index(),
-            b'E' => self.wrap(),
-            b'c' => self.reset(),
-            b'H' => {
+            Esc::ReverseIndex => self.reverse_index(),
+            Esc::Index => self.index(),
+            Esc::NextLine => self.wrap(),
+            Esc::Reset => self.reset(),
+            Esc::TabSet => {
                 let x = self.cx.index();
                 self.s.tabs[x] = true;
             }
-            _ => {}
+            Esc::Unsupported => {}
         }
     }
 
     /// Is the cell at `(r, c)` protected from a selective erase?
     ///
-    /// The protection travels with the rendition, so it is read back out of the
-    /// intern table rather than stored per cell -- `PackedCell` is 8 bytes by
-    /// measurement and a protection bit is not worth widening it.
+    /// Read from the cell, not from the style table. An earlier version looked
+    /// the rendition up in `tmpl_key`, which is a direct-mapped cache with one
+    /// slot per bucket: once 64 further styles had been interned, the slot held
+    /// somebody else and the answer was whatever that style happened to say.
+    /// Cell flags fit in what was `PackedCell::_pad`, so this costs nothing.
     fn is_protected(&mut self, r: Row, c: Col) -> bool {
-        let id = self.view().get(r, c).style.index();
-        self.s.tmpl_valid[id] && self.s.tmpl_key[id].is_protected()
+        self.view().get(r, c).is_protected()
     }
 
     /// DECSEL, `CSI ? Ps K`.
@@ -1614,7 +1628,7 @@ impl<'a> Term<'a> {
     fn selective_erase_line(&mut self, e: EraseExtent) {
         self.promote_if_runs();
         let (from, to) = self.erase_span(e);
-        let (y, blank) = (self.cy, self.blank());
+        let (y, blank) = (self.cy, PackedCell::empty_with(self.style));
         for x in from..to {
             let c = Col::at_index(x);
             if !self.is_protected(y, c) {
@@ -1630,7 +1644,7 @@ impl<'a> Term<'a> {
             EraseExtent::ToStart => (0, self.cy.index() + 1),
             EraseExtent::All => (0, self.rows.index()),
         };
-        let blank = self.blank();
+        let blank = PackedCell::empty_with(self.style);
         for y in lo..hi {
             let r = Row::from_index(y);
             self.s.promoted[y] = true;
@@ -1662,7 +1676,10 @@ impl<'a> Term<'a> {
     fn screen_alignment(&mut self) {
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
-        let cell = PackedCell::from_ascii(StreamByte::from_stream(b'E'), self.style);
+        // The pattern is characters, and characters written while DECSCA is
+        // on are protected -- no special case here, so `ESC # 8` followed by a
+        // DECSEL behaves like any other text would.
+        let cell = PackedCell::from_ascii(StreamByte::from_stream(b'E'), self.style, self.flags);
         for y in 0..self.rows.index() {
             let r = Row::from_index(y);
             self.s.promoted[y] = true;
@@ -1681,6 +1698,7 @@ impl<'a> Term<'a> {
         self.cy = Row::ZERO;
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
+        self.flags = CellFlags::NONE;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
@@ -1695,6 +1713,7 @@ impl<'a> Term<'a> {
         self.cy = Row::ZERO;
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
+        self.flags = CellFlags::NONE;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);

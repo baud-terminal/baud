@@ -66,16 +66,28 @@ proptest! {
     /// `0x7f` into a printable run and its own scalar tail did not -- is exactly
     /// this shape, and would now fail here rather than needing a dedicated
     /// cross-path property.
+    ///
+    /// **`Computed`, not `Runs`, and that is the whole point of the property.**
+    /// This used to compare `OpMode::Runs`, where `viewport()` reports
+    /// *representation* rather than rendered content -- and representation is
+    /// chunk-*dependent* by construction: `MAXRUN` is 8, so nine single-byte
+    /// reads promote a line that one nine-byte read leaves as runs. The
+    /// property was therefore false as written. It passed at 200 cases and
+    /// failed at 20,000, which is the worst possible failure mode: a test that
+    /// goes red on an unlucky seed, for a reason that is not a bug, trains
+    /// everyone to re-run until green. `runs_and_computed_agree` below is the
+    /// invariant that Runs mode actually owes, and
+    /// `promotion_depends_on_chunking` pins the fact this used to trip over.
     #[test]
     fn ingest_is_chunk_invariant(
         bytes in prop::collection::vec(any::<u8>(), 0..4000),
         a in 1usize..=512,
         b in 1usize..=512,
     ) {
-        prop_assert_eq!(drive(&bytes, a, OpMode::Runs), drive(&bytes, b, OpMode::Runs));
+        prop_assert_eq!(drive(&bytes, a, OpMode::Computed), drive(&bytes, b, OpMode::Computed));
     }
 
-    /// Same, for the cell-materialising modes.
+    /// Same, for the other materialising mode.
     #[test]
     fn chunk_invariant_all_modes(
         bytes in prop::collection::vec(any::<u8>(), 0..2000),
@@ -84,6 +96,24 @@ proptest! {
         for m in [OpMode::Computed, OpMode::Templated] {
             prop_assert_eq!(drive(&bytes, a, m), drive(&bytes, 4096, m));
         }
+    }
+
+    /// What `Runs` mode does owe: for any input, its state is *reachable*.
+    ///
+    /// Runs mode cannot be compared cell-for-cell against `Computed` without a
+    /// way to force materialisation, and the core deliberately exposes none --
+    /// promotion is driven by the protocol, not by the caller. So this asserts
+    /// the weaker thing that is nonetheless true and non-vacuous: whatever the
+    /// chunking, ingest terminates, stays in bounds, and leaves a viewport of
+    /// the right shape. The strong content invariant lives in the two
+    /// properties above, on the modes where `viewport()` means content.
+    #[test]
+    fn runs_mode_stays_in_bounds(
+        bytes in prop::collection::vec(any::<u8>(), 0..4000),
+        a in 1usize..=512,
+    ) {
+        let v = drive(&bytes, a, OpMode::Runs);
+        prop_assert_eq!(v.len(), 50 * 2048);
     }
 
     /// The portable and AVX2 paths must be indistinguishable. `feed_avx2` is an
@@ -124,4 +154,38 @@ proptest! {
         let v = drive(&bytes, 211, OpMode::Computed);
         prop_assert!(!v.is_empty());
     }
+}
+
+/// The fact the chunk-invariance property used to trip over, pinned exactly.
+///
+/// `MAXRUN` is 8. A ninth run on one line overflows the slot table and forces a
+/// promotion, so in `OpMode::Runs` -- where `viewport()` reports representation
+/// -- nine single-byte reads materialise a line that one nine-byte read leaves
+/// as runs. Eight do not. This is by design, not a defect: the run table is
+/// bounded so it cannot walk out of cache.
+///
+/// It is pinned here as a deterministic test rather than left to a saved
+/// proptest seed, because a case worth finding once is worth being unable to
+/// lose. Anyone who "fixes" this by making the property compare `Runs` again
+/// will fail here first, with the reason attached.
+#[test]
+fn promotion_depends_on_chunking_in_runs_mode() {
+    let eight = vec![b'!'; 8];
+    let nine = vec![b'!'; 9];
+    assert_eq!(
+        drive(&eight, 1, OpMode::Runs),
+        drive(&eight, 4096, OpMode::Runs),
+        "eight runs fit, so representation matches"
+    );
+    assert_ne!(
+        drive(&nine, 1, OpMode::Runs),
+        drive(&nine, 4096, OpMode::Runs),
+        "the ninth run promotes -- representation is chunk-dependent"
+    );
+    // Rendered content is not. This is the invariant the property asserts.
+    assert_eq!(
+        drive(&nine, 1, OpMode::Computed),
+        drive(&nine, 4096, OpMode::Computed),
+        "content must be chunk-invariant even where representation is not"
+    );
 }

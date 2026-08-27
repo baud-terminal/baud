@@ -255,6 +255,24 @@ PTY. Overflow is counted in `reply_overflows`, never silent.
 DA and DSR go through it. `DECRQM` and `XTVERSION` remain **todo**, but they are
 now ordinary work rather than blocked on structure.
 
+Replies are typed. `Report` in `baud-domain` is the mirror of `Csi`: the parse
+side has had a type since the beginning, while the reply side was three byte
+literals and a hand-rolled decimal formatter at the call site. The shape --
+introducer, parameters, final byte -- is now chosen by the variant, so a DSR
+cannot be answered in a DA's shape by editing a string. `ESC Fe` got the same
+treatment as `Esc`: `b'M'` and `b'D'` are not the names of anything, and a
+reader should not have to remember which of them scrolls backwards (RI does).
+
+**CPR reports a column that exists.** With autowrap on, the internal cursor
+sits one *past* the last column after a character lands there -- the
+deferred-wrap sentinel the next write consumes. That is an implementation
+device, not a position: `[[source: vt510-decawm]]` describes the wrap as
+applying to "graphic characters received when the cursor is at the right border
+of the page", so the cursor is *at* the border. baud reported `CSI 1 ; 201 R`
+on a 200-column page until a property test walked into it -- an application
+that saves and restores the cursor would drift one column, silently, only on
+full lines.
+
 Two rules the tests pin, because both failure modes are worse than silence:
 
 * **DA under-claims.** baud answers `CSI ? 6 c` (VT102). It now implements

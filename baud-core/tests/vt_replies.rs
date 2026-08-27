@@ -171,3 +171,69 @@ fn overflow_is_counted_not_silent() {
         "dropped replies must be observable"
     );
 }
+
+/// CPR never reports a column the page does not have.
+///
+/// With autowrap on, a character written into the last column leaves the
+/// internal cursor one *past* it -- the deferred-wrap sentinel the next write
+/// consumes. That sentinel is not a position:
+/// `[[source: vt510-decawm]]` describes the wrap as applying to "graphic
+/// characters received when the cursor is at the right border of the page", so
+/// the cursor is at the border. A 200-column page has no column 201.
+///
+/// This reported `CSI 1 ; 201 R` until a property test walked into it. It is
+/// the wrong-shaped-reply failure exactly: an application that asks where the
+/// cursor is and restores it later drifts by one column, silently, and only on
+/// lines that happen to be full.
+#[test]
+fn cpr_clamps_the_pending_wrap_sentinel() {
+    let full: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let mut q = full.clone();
+    q.extend_from_slice(b"\x1b[6n");
+    assert_eq!(
+        replies(&q),
+        b"\x1b[1;200R",
+        "the last column, not one past it"
+    );
+
+    // The sentinel is still doing its job: the next character wraps.
+    let mut w = full.clone();
+    w.extend_from_slice(b"y\x1b[6n");
+    assert_eq!(
+        replies(&w),
+        b"\x1b[2;2R",
+        "the 201st character wrapped to row 2"
+    );
+}
+
+/// The report round-trips from the pending-wrap state too.
+///
+/// Clamping would be worthless if the reported position could not be restored:
+/// this is the drift the clamp exists to prevent, measured end to end.
+#[test]
+fn cpr_round_trips_from_a_full_line() {
+    let full: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    feed(&mut t, &full);
+    feed(&mut t, b"\x1b[6n");
+    let mut cup = t.reply().to_vec();
+    t.clear_reply();
+    let last = cup.len() - 1;
+    cup[last] = b'H';
+    feed(&mut t, b"\x1b[10;10H");
+    feed(&mut t, &cup);
+    let (r, c) = t.cursor();
+    assert_eq!(
+        (r.index(), c.index()),
+        (0, 199),
+        "restoring the reported position must land back on the last column"
+    );
+}
