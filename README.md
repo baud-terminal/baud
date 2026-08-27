@@ -1,4 +1,11 @@
-# baud
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/baud-lockup-dark.svg">
+  <img alt="baud" src="assets/logo/baud-lockup-light.svg" width="300">
+</picture>
+
+</div>
 
 <div align="center">
 
@@ -14,7 +21,8 @@
 
 </div>
 
-> A terminal emulator ingest core, and the measurements that produced it.
+> A terminal emulator, built from measurements rather than from what reads
+> nicely.
 
 Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage runs
 teletype → glass tty → terminal emulator, and a baud measures how fast symbols
@@ -22,21 +30,56 @@ cross a line — which is what this is about.
 
 ## Status
 
-**This is not a terminal.** It is the byte path — PTY read, through VT parse,
-into a grid — plus the harness that measured it.
+**Under construction, and the hard half is done.** The VT protocol core — the
+part that turns a byte stream from a PTY into a grid — is complete, measured,
+and faster than every implementation it has been compared against. What is
+missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| VT protocol | implemented; 92 operations, [enumerated against primary sources](docs/vt-coverage.md) |
-| Tests | 319, including property tests over generated VT programs |
-| Renderer | **none** |
-| Font shaping | **none** |
-| Input path | **none** — no keyboard, no mouse device |
+| **VT protocol** | ✅ 92 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
+| **Grid + scrollback** | ✅ two storage representations, both measured |
+| **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |
+| Renderer | ⬜ not started — the next thing |
+| Font shaping | ⬜ not started — and the largest unknown in the project |
+| Input path | ⬜ not started — no keyboard or mouse device |
 
-The protocol surface is done. Everything that *draws* it is not. Read
-[Not done](#not-done) before treating any number here as "a faster terminal".
+So: you cannot run this as your terminal today. You can run its core, feed it a
+real escape stream, and measure it — which is what the rest of this file is
+about.
 
-## Quickstart
+## The road to a terminal
+
+Two questions decide whether the measurements above survive contact with a real
+terminal, and they are the next work:
+
+1. **Shaping.** Wire HarfBuzz and a glyph atlas into viewport materialisation,
+   then re-measure on mixed CJK/emoji/ligature content. If throughput holds
+   above ~50% of the kernel ceiling and full-damage frames stay under 2 ms, the
+   rest is engineering. If shaping drops it to 15%, the architecture needs a
+   shaping cache keyed on line content before anything else matters.
+2. **Real streams.** Replay captured sessions (`script -c "vim ..."`) instead of
+   synthetic payloads, and find out whether the margin survives real escape
+   traffic.
+
+After those: renderer, then an input path, then it is a terminal.
+
+## Running it today
+
+There is no terminal binary yet — see [Status](#status). What exists is the
+core and the harness that measures it:
+
+```sh
+devenv shell -- dev-test                       # the suite: 321 tests
+devenv shell -- cargo run --release -p baud-bench   # feed it through a real PTY
+```
+
+## Embedding the core
+
+`baud-core` is a `no_std` library and is usable now — it is the engine the
+terminal will be built on, and it is published because it is useful on its own
+for anything that needs to interpret a VT stream.
 
 ```rust
 use baud_core::{OpMode, Storage, StreamByte, Term};
@@ -86,10 +129,16 @@ interleaved ordering. Full table and every caveat in
 | alacritty_terminal | 174.9 | 264.7 |
 | vt100 crate | 161.2 | 213.9 |
 
-**Read the qualifier.** That is baud's *span* representation. In cell
-storage — which is what you need for a materialised grid — baud measures 1056.5
-/ 963.8 and **ghostty is faster on both**. Both modes ship; which is honest to
-quote depends on what you are building.
+**Read the qualifier.** That is baud's *span* representation, where the result
+is unambiguous — no range overlaps ghostty's on either payload.
+
+In **cell** storage there is no measured margin: across four runs the ranges
+overlapped in 4/4 on streaming and 2/4 on TUI. The *direction* is consistent
+though — ghostty's median was higher in all eight comparisons (sign test
+p = 0.004), by roughly 3–6%. So: level within the noise, with a signal worth
+chasing on the cells path, and not a number either project should quote.
+
+Both modes ship; `OpMode` is fixed at startup.
 
 ## Layout
 

@@ -15,7 +15,11 @@ version = "0.1.0"
 # a flag flip.
 edition = "2021"
 authors = ["i-am-logger"]
-description = "A terminal emulator ingest core, and the measurements that produced it."
+description = "A terminal emulator built from measurements. The VT protocol core, complete and measured."
+# crates.io's equivalent of GitHub topics. Max five keywords, 20 chars each;
+# categories must come from crates.io's fixed list.
+keywords = ["terminal", "vt100", "ansi", "tty", "vte"]
+categories = ["parser-implementations", "no-std", "text-processing"]
 license = "CC-BY-NC-SA-4.0"
 repository = "https://github.com/i-am-logger/baud"
 

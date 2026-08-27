@@ -46,12 +46,41 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
-**What this does and does not say.** In span storage baud is 1.47× ghostty
-streaming and 1.91× on TUI, ranges not overlapping. In cell storage it is
-**0.96× and 0.94× — ghostty is faster**, and that is the honest headline for
-anyone who needs a materialised grid rather than spans. The two modes are a
-configuration choice, not a benchmark selection: `OpMode` is fixed at startup,
-the same status ghostty's `-Dsimd` has.
+**What this does and does not say.**
+
+In **span** storage baud is 1.47× ghostty streaming and 1.91× on TUI. No range
+overlaps, in either run. That is a result.
+
+In **cell** storage there is **no result within a run**, and an earlier edition
+of this file wrongly stated flatly that ghostty was faster. Four runs, same
+session:
+
+| run | streaming ranges overlap | TUI ranges overlap |
+|---|---|---|
+| 1 | yes | yes |
+| 2 | yes | no |
+| 3 | yes | yes |
+| 4 | yes | no |
+
+Streaming overlaps in 4/4. TUI overlaps in 2/4 — an ordering that flips between
+runs, which this project has mistaken for a finding before.
+
+**Across** runs there is a directional signal. Ghostty's median exceeded baud's
+in 8 of 8 comparisons (4 runs × 2 payloads); under a sign test that is
+p = 0.004. The medians:
+
+| | baud (cells) | ghostty |
+|---|---|---|
+| streaming | 1058.2 / 1056.5 / 1062.7 / 1049.5 | 1086.8 / 1101.8 / 1104.6 / 1085.8 |
+| TUI | 977.3 / 963.8 / 948.7 / 964.5 | 1011.2 / 1024.4 / 1022.7 / 1015.9 |
+
+So the honest statement is the two-part one, and neither half stands alone:
+**no measured margin — the ranges overlap — but the direction is consistent and
+favours ghostty on the cells path by roughly 3–6%.** That is a reason to look at
+cell materialisation, not a number to quote.
+
+The two modes are a configuration choice, not a benchmark selection: `OpMode`
+is fixed at startup, the same status ghostty's `-Dsimd` has.
 
 `ceiling (discard, no parse)` measured ~1.68 GB/s here and is *not* an upper
 bound on a parser — see "Do not read the discard row as a ceiling".

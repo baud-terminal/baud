@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The terminal ingest core: PTY bytes through VT parse into a grid, no_std and allocation-free."
+description = "A terminal emulator core: PTY bytes through VT parse into a grid. no_std, allocation-free, 92 VT operations."
 # no_std, no alloc, no dependencies. storage is caller-provided.
 
 [features]
