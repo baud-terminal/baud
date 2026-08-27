@@ -395,3 +395,44 @@ fn get_row_bounds_what_row_takes_on_trust() {
         "a row that existed before the shrink does not now"
     );
 }
+
+/// `stride` is the row pitch, and it is **not** the column count.
+///
+/// Every row is `MAX_COLS` wide in memory however narrow the grid is, so
+/// `viewport().len()` is `rows * stride`, not `rows * cols`. Confusing the two
+/// is the `RowBlock` mistake this project already typed its way out of --
+/// "operands the wrong way round, a plausible number and a silently wrong
+/// slice" -- and it stays true across a resize, which is what makes it usable
+/// as a divisor by an embedder walking rows.
+#[test]
+fn stride_is_the_row_pitch_not_the_column_count() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let (cols, rows) = t.geometry();
+
+    assert_ne!(
+        t.stride(),
+        cols,
+        "a 200-column grid is not 200 wide in memory"
+    );
+    assert_eq!(
+        t.viewport().len(),
+        rows.index() * t.stride().index(),
+        "the viewport is rows by stride"
+    );
+
+    let before = t.stride();
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 7,
+            ws_col: 33,
+        }),
+        Resized::Ok
+    );
+    assert_eq!(
+        t.stride(),
+        before,
+        "the pitch is fixed; the geometry is not"
+    );
+    assert_eq!(t.viewport().len(), 7 * t.stride().index());
+}
