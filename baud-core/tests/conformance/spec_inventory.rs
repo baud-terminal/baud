@@ -796,3 +796,44 @@ fn every_spec_esc_intermediate_form_is_handled_or_counted() {
         silent.join("\n  ")
     );
 }
+
+/// **A final byte the specification gives two arities must mean two things.**
+///
+/// Every other check here asks whether a sequence reached *a* handler. None
+/// asked whether it reached the *right* one, and that is how
+/// `CSI Ps ; Ps ; Ps ; Ps ; Ps T` came to scroll the screen: ctlseqs gives the
+/// final byte `T` to SD with one parameter and to XTHIMOUSE with five, baud
+/// read both as SD, and every "was it dispatched" check said yes. It was
+/// dispatched to the wrong operation.
+///
+/// ctlseqs gives exactly two finals more than one arity -- `T` and `s` -- so
+/// this is a small check rather than a framework. Feeding both arities must
+/// not produce the same state: if it does, one of them is being read as the
+/// other.
+#[test]
+fn a_final_with_two_arities_means_two_things() {
+    // `[[source: ctlseqs]]`, extracted by arity:
+    //   T -> 1 (SD) and 5 (XTHIMOUSE)
+    //   s -> 0 (SCOSC) and 2 (DECSLRM)
+    //
+    // DECSLRM is only honoured with DECLRMM set, so the `s` pair is fed with
+    // `?69h` first -- otherwise both arities *are* SCOSC, correctly, and the
+    // comparison would be measuring the mode rather than the arity.
+    const PAIRS: &[(&[u8], &[u8], &str)] = &[
+        (b"\x1b[1T", b"\x1b[1;2;3;4;5T", "SD against XTHIMOUSE"),
+        (
+            b"\x1b[?69h\x1b[s",
+            b"\x1b[?69h\x1b[1;2s",
+            "SCOSC against DECSLRM",
+        ),
+    ];
+    for (low, high, what) in PAIRS {
+        let a = snapshot(low, false);
+        let b = snapshot(high, false);
+        assert!(
+            a != b,
+            "{what}: both arities left the terminal in the same state, so one \
+             is being read as the other"
+        );
+    }
+}
