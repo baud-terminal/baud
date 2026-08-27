@@ -578,6 +578,52 @@ pub struct PackedCell {
 )]
 pub struct CellFlags(u16);
 
+/// Which hyperlink a cell belongs to, or none.
+///
+/// Zero is "no link", so a zeroed grid has no hyperlinks and there is no
+/// parallel validity array to keep in step -- the same trick `ColorWord`
+/// uses for the default colour.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, Default, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct LinkId(u16);
+
+impl LinkId {
+    pub const NONE: LinkId = LinkId(0);
+    pub fn from_index(i: usize) -> LinkId {
+        LinkId(i as u16)
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Which slot an `OSC 8` link hashes to.
+    ///
+    /// The twin of [`StyleId::bucket`], and it takes the **high** bits for the
+    /// same measured reason: the low bits of a multiplicative hash are the ones
+    /// that collide, and this codebase has already lost a whole style table to
+    /// masking the wrong end.
+    ///
+    /// Slot 0 is reserved for "no link", so the range is `1..buckets`.
+    ///
+    /// The `id` is hashed alongside the URI because the spec lets two runs with
+    /// the same `id` be one logical link across lines; distinct ids must not
+    /// collapse into a single slot merely because their URIs match.
+    pub fn bucket(id: &[u8], uri: &[u8], buckets: usize) -> LinkId {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in id.iter().chain(uri) {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let spread = h.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32;
+        LinkId::from_index(1 + (spread as usize) % (buckets - 1))
+    }
+}
+
 impl CellFlags {
     pub const NONE: CellFlags = CellFlags(0);
     /// DECSCA: DECSED and DECSEL may not erase this cell.
@@ -607,11 +653,37 @@ impl CellFlags {
     pub fn with(self, o: CellFlags) -> CellFlags {
         CellFlags(self.0 | o.0)
     }
+
+    /// Bits 2..16 carry the [`LinkId`].
+    ///
+    /// **The link rides in the spare bits of this word rather than in a field
+    /// of its own, and that is a measured constraint, not a packing game.**
+    /// `CLAUDE.md`: "`PackedCell` is 8 bytes" — going from 4 to 8 already cost
+    /// two points of the kernel ceiling, and a ninth and tenth byte would round
+    /// the cell to twelve. Two flag bits were in use and fourteen were not, so
+    /// a link index fits with 14 bits of room, against `NLINK` of 128.
+    const LINK_SHIFT: u16 = 2;
+
+    pub fn with_link(self, l: LinkId) -> CellFlags {
+        let flags = self.0 & ((1 << CellFlags::LINK_SHIFT) - 1);
+        CellFlags(flags | ((l.index() as u16) << CellFlags::LINK_SHIFT))
+    }
+    pub fn link(self) -> LinkId {
+        LinkId::from_index((self.0 >> CellFlags::LINK_SHIFT) as usize)
+    }
     pub fn protection(on: bool) -> CellFlags {
         CellFlags(u16::from(on))
     }
     pub fn is_protected(self) -> bool {
         self.0 & CellFlags::PROTECTED.0 != 0
+    }
+    /// Just the flag bits, with any link index masked off.
+    ///
+    /// Interning and equality use the whole word, so two cells in different
+    /// links are different cells — which is correct, and is why this exists
+    /// separately for the places that mean *only* the flags.
+    pub fn bare(self) -> CellFlags {
+        CellFlags(self.0 & ((1 << CellFlags::LINK_SHIFT) - 1))
     }
     /// The byte, for the one place a flag set has to survive a round trip
     /// through [`Run`]'s fixed layout.
@@ -1000,6 +1072,14 @@ impl Cols {
     /// Columns remaining at `cx`. The only source of a [`Room`].
     pub fn room_at(self, cx: Col) -> Room {
         Room(self.0.saturating_sub(cx.0))
+    }
+    /// Cells from `cx` up to, but not including, `edge`.
+    ///
+    /// The right-margin form of [`Cols::room_at`]. With DECSLRM unset the edge
+    /// is one past the last column and the two agree, so the write path can
+    /// use this one unconditionally rather than branching per run.
+    pub fn room_until(self, cx: Col, edge: Col) -> Room {
+        Room(edge.index().min(self.0).saturating_sub(cx.index()))
     }
     pub fn index(self) -> usize {
         self.0
@@ -1911,6 +1991,21 @@ pub enum Csi {
     CursorStyle(CursorStyle),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
+    /// DECSLRM, `CSI Pl ; Pr s`.
+    ///
+    /// `[[source: vt510-decslrm]]`: "sets the left and right margins to define
+    /// the scrolling region ... DECSLRM only works when vertical split screen
+    /// mode (DECLRMM) is set." Without DECLRMM the same bytes are SCOSC, which
+    /// is why this cannot be resolved from the sequence alone -- the parser is
+    /// told which mode is in force.
+    SetSideMargins {
+        left: OneBased,
+        right: OneBased,
+    },
+    /// DECIC, `CSI Pn ' }`. Insert columns within the margins.
+    InsertColumns(Count),
+    /// DECDC, `CSI Pn ' ~`. Delete columns within the margins.
+    DeleteColumns(Count),
     /// DECRQM, `CSI Ps $ p` and `CSI ? Ps $ p`. A *question*, answered with
     /// [`Report::ModeStatus`].
     RequestMode {
@@ -1933,6 +2028,32 @@ impl Csi {
     /// `inter` is the intermediate byte, which is part of the operation's
     /// identity: `CSI ! p` is DECSTR and `CSI p` is not the same thing.
     pub fn parse(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
+        Csi::parse_with(marker, inter, p, f, false)
+    }
+
+    /// As [`Csi::parse`], but told whether DECLRMM is set.
+    ///
+    /// `CSI s` is SCOSC normally and DECSLRM when left/right margin mode is on.
+    /// The ambiguity is in the protocol, not in this parser, and it cannot be
+    /// resolved without the mode -- so the mode is a parameter rather than
+    /// something the caller patches up afterwards.
+    pub fn parse_with(
+        marker: Marker,
+        inter: Option<StreamByte>,
+        p: Params<'_>,
+        f: FinalByte,
+        side_margins: bool,
+    ) -> Csi {
+        if side_margins && marker == Marker::Standard && inter.is_none() && f.raw() == b's' {
+            return Csi::SetSideMargins {
+                left: p.one_based(ParamIdx::FIRST),
+                right: p.one_based(ParamIdx::SECOND),
+            };
+        }
+        Csi::parse_inner(marker, inter, p, f)
+    }
+
+    fn parse_inner(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
         if let Some(i) = inter {
             return match (i.raw_byte(), f.raw()) {
                 (b'!', b'p') => Csi::SoftReset,
@@ -1948,6 +2069,9 @@ impl Csi {
                         final_byte: f,
                     },
                 },
+                // `[[source: vt510-decic]]` / `[[source: vt510-decdc]]`.
+                (b'\'', b'}') => Csi::InsertColumns(p.count(ParamIdx::FIRST)),
+                (b'\'', b'~') => Csi::DeleteColumns(p.count(ParamIdx::FIRST)),
                 (b'$', b'p') => Csi::RequestMode {
                     marker,
                     mode: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
@@ -2090,6 +2214,23 @@ impl Attrs {
     pub const REVERSE: Attrs = Attrs(1 << 5);
     pub const HIDDEN: Attrs = Attrs(1 << 6);
     pub const STRIKE: Attrs = Attrs(1 << 7);
+
+    /// Each attribute with the SGR parameter that sets it, in ascending order.
+    ///
+    /// A table rather than a `match` because DECRQSS has to walk *all* of them
+    /// to report the current rendition, and a `match` per bit is the shape that
+    /// silently omits one -- which is how `fold` came to discard every
+    /// attribute except reset and foreground.
+    pub const WIRE: [(Attrs, u8); 8] = [
+        (Attrs::BOLD, 1),
+        (Attrs::DIM, 2),
+        (Attrs::ITALIC, 3),
+        (Attrs::UNDERLINE, 4),
+        (Attrs::BLINK, 5),
+        (Attrs::REVERSE, 7),
+        (Attrs::HIDDEN, 8),
+        (Attrs::STRIKE, 9),
+    ];
 
     /// The raw set, for hashing a rendition.
     pub fn bits(self) -> u16 {
@@ -2286,6 +2427,13 @@ pub enum Osc<'a> {
     /// `OSC 104` — reset the palette. `None` resets every entry, which is what
     /// an omitted parameter means.
     ResetColor(Option<Chan>),
+    /// `OSC 8 ; params ; URI` — a hyperlink.
+    ///
+    /// An empty URI *closes* the current link rather than opening an empty one,
+    /// which is how the [explicit hyperlink spec][osc8] ends a run.
+    ///
+    /// [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+    Hyperlink { id: &'a [u8], uri: &'a [u8] },
     /// `OSC 52` — clipboard. Carried so the core can *refuse* the read
     /// deliberately rather than by omission; see the note on
     /// [`ClipboardOp::Read`].
@@ -2310,6 +2458,66 @@ pub enum ClipboardOp<'a> {
     Read,
 }
 
+/// A DCS (Device Control String), resolved from its parameters and final byte.
+///
+/// `[[source: ctlseqs]]` gives `DCS $ q Pt ST` as DECRQSS, "Request Status
+/// String, VT420 and up", where `Pt` names a setting by the tail of the CSI
+/// that would set it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dcs {
+    /// DECRQSS, `DCS $ q`. The payload names which setting is being asked
+    /// about; see [`StatusTarget`].
+    RequestStatus,
+    /// Recognised as a DCS and deliberately not acted on. The payload is still
+    /// consumed, which is the part that matters for safety.
+    Unsupported,
+}
+
+impl Dcs {
+    pub fn parse(inter: Option<StreamByte>, f: FinalByte) -> Dcs {
+        match (inter.map(|i| i.raw_byte()), f.raw()) {
+            (Some(b'$'), b'q') => Dcs::RequestStatus,
+            _ => Dcs::Unsupported,
+        }
+    }
+}
+
+/// Which setting a DECRQSS asks about.
+///
+/// `[[source: ctlseqs]]` lists the request strings: "m -> SGR, \" p -> DECSCL,
+/// SP q -> DECSCUSR, \" q -> DECSCA, r -> DECSTBM, s -> DECSLRM, ...". baud
+/// answers for the settings it actually has; everything else is
+/// [`StatusTarget::Unknown`] and gets the invalid reply, which is the honest
+/// answer rather than a fallback.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StatusTarget {
+    /// `m` — the current SGR.
+    Sgr,
+    /// `r` — DECSTBM, the top and bottom margins.
+    ScrollRegion,
+    /// `s` — DECSLRM, the left and right margins.
+    SideMargins,
+    /// `SP q` — DECSCUSR.
+    CursorStyle,
+    /// `" q` — DECSCA.
+    Protection,
+    Unknown,
+}
+
+impl StatusTarget {
+    /// Resolve the `Pt` of a DECRQSS.
+    pub fn parse(pt: &[u8]) -> StatusTarget {
+        match pt {
+            b"m" => StatusTarget::Sgr,
+            b"r" => StatusTarget::ScrollRegion,
+            b"s" => StatusTarget::SideMargins,
+            b" q" => StatusTarget::CursorStyle,
+            b"\"q" => StatusTarget::Protection,
+            _ => StatusTarget::Unknown,
+        }
+    }
+}
+
 /// What the numeric keypad sends. DECKPAM / DECKPNM.
 ///
 /// `[[source: ctlseqs]]`: "ESC = Application Keypad (DECKPAM)" and
@@ -2322,6 +2530,20 @@ pub enum KeypadMode {
     /// `SS3`-prefixed sequences, so an application can tell keypad `5` from the
     /// `5` on the top row.
     Application,
+}
+
+/// How mouse events are encoded on the wire, if at all.
+///
+/// `None` is not "mouse is off" -- tracking is a separate mode. It is "no
+/// encoding has been negotiated", and it is the state in which baud reports
+/// nothing: the only other encoding, X10, caps each ordinate at 223 against a
+/// 2048-column grid, so a report from column 400 would name a different cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MouseEncoding {
+    #[default]
+    None,
+    /// `?1006`.
+    Sgr,
 }
 
 /// A mouse button, as the wire encodes it.
@@ -2659,6 +2881,22 @@ impl<'a> Osc<'a> {
                     }
                 }
             }
+            b"8" => {
+                // `OSC 8 ; params ; URI`. The params field carries `id=...`
+                // and is allowed to be empty; the URI is everything after the
+                // second semicolon, and may itself contain semicolons.
+                let mut p = Split::new(rest, b';');
+                let params = p.next().unwrap_or(b"");
+                let uri = if rest.len() > params.len() {
+                    &rest[params.len() + 1..]
+                } else {
+                    b""
+                };
+                Osc::Hyperlink {
+                    id: link_id(params),
+                    uri,
+                }
+            }
             b"52" => {
                 let mut p = Split::new(rest, b';');
                 let (_sel, data) = (p.next(), p.next());
@@ -2671,6 +2909,20 @@ impl<'a> Osc<'a> {
             _ => Osc::Unsupported,
         }
     }
+}
+
+/// The `id=` value out of an `OSC 8` parameter field, if there is one.
+///
+/// Parameters are `key=value` pairs separated by `:`. Only `id` is defined by
+/// the spec; anything else is ignored rather than guessed at.
+fn link_id(params: &[u8]) -> &[u8] {
+    let mut it = Split::new(params, b':');
+    for kv in &mut it {
+        if let Some(v) = strip(kv, b"id=") {
+            return v;
+        }
+    }
+    b""
 }
 
 /// A decimal palette index, 0-255.
@@ -2724,6 +2976,17 @@ impl CursorStyle {
     }
     /// Does this style blink? A renderer needs the two axes even though the
     /// wire encodes them together.
+    /// The `Ps` that selects this style, for reporting it back via DECRQSS.
+    pub fn wire(self) -> u8 {
+        match self {
+            CursorStyle::BlinkingBlock => 1,
+            CursorStyle::SteadyBlock => 2,
+            CursorStyle::BlinkingUnderline => 3,
+            CursorStyle::SteadyUnderline => 4,
+            CursorStyle::BlinkingBar => 5,
+            CursorStyle::SteadyBar => 6,
+        }
+    }
     pub fn blinks(self) -> bool {
         matches!(
             self,
@@ -3068,6 +3331,8 @@ pub enum ModeBit {
     AutoWrap,
     /// DECTCEM. Set by default.
     CursorVisible,
+    /// DECLRMM, `?69`. When set, `CSI s` is DECSLRM rather than SCOSC.
+    SideMargins,
     /// DECSET ?2004. Read by the embedder to decide whether to wrap a paste in
     /// `ESC [ 200 ~` / `ESC [ 201 ~`.
     ///
@@ -3131,6 +3396,8 @@ pub enum PrivateMode {
     BracketedPaste,     // ?2004
     AltScreen,          // ?1049
     SynchronizedOutput, // ?2026
+    /// DECLRMM, `?69`. Left/right margin mode.
+    LeftRightMargin,
     /// `?1000` normal tracking.
     MouseNormal,
     /// `?1002` button-event tracking (adds motion while a button is down).
@@ -3147,6 +3414,7 @@ impl PrivateMode {
             6 => PrivateMode::Origin,
             7 => PrivateMode::AutoWrap,
             25 => PrivateMode::CursorVisible,
+            69 => PrivateMode::LeftRightMargin,
             1000 => PrivateMode::MouseNormal,
             1002 => PrivateMode::MouseButtonEvent,
             1003 => PrivateMode::MouseAnyEvent,
@@ -3574,6 +3842,50 @@ impl<'a> View<'a> {
             self.cells[base + x] = blank;
         }
     }
+    /// Shift left within `[at, right)`, filling at the right edge. `CSI P` with
+    /// a right margin, and the engine of DECDC.
+    ///
+    /// The bounded twin of [`Grid::delete_chars`], for the same reason
+    /// [`Grid::delete_lines_in`] is the bounded twin of the row version: with
+    /// DECSLRM set, a delete must not pull text in from beyond the right
+    /// margin, because that text is outside the scrolling region and is not
+    /// supposed to move.
+    pub fn delete_cells(&mut self, r: Row, at: Col, n: Count, right: Col, blank: PackedCell) {
+        let end = right.index().min(self.cols.index());
+        let cx = at.index();
+        if cx >= end {
+            return;
+        }
+        let n = (n.get_raw() as usize).min(end - cx);
+        let base = self.at(r, Col::ZERO);
+        for x in cx..end - n {
+            self.cells[base + x] = self.cells[base + x + n];
+        }
+        for x in end - n..end {
+            self.cells[base + x] = blank;
+        }
+    }
+
+    /// Shift right within `[at, right)`, inserting blanks. `CSI @` with a right
+    /// margin, and the engine of DECIC.
+    pub fn insert_cells(&mut self, r: Row, at: Col, n: Count, right: Col, blank: PackedCell) {
+        let end = right.index().min(self.cols.index());
+        let cx = at.index();
+        if cx >= end {
+            return;
+        }
+        let n = (n.get_raw() as usize).min(end - cx);
+        let base = self.at(r, Col::ZERO);
+        let mut x = end;
+        while x > cx + n {
+            x -= 1;
+            self.cells[base + x] = self.cells[base + x - n];
+        }
+        for x in cx..cx + n {
+            self.cells[base + x] = blank;
+        }
+    }
+
     /// Scroll rows down from `at`, blanking the opened region. `CSI L`.
     ///
     /// Bounded by the last row of the screen. `CSI L` inside a scrolling region
@@ -3910,6 +4222,10 @@ impl ColorWord {
     /// The RGB triple, when this word holds one. `None` for the default colour
     /// and for palette indices, neither of which names a pixel value on their
     /// own.
+    /// The palette index, when this word holds one.
+    pub fn as_index(self) -> Option<u8> {
+        (self.0 & Self::TAG_INDEXED != 0).then_some(self.0 as u8)
+    }
     pub fn as_rgb(self) -> Option<(u8, u8, u8)> {
         (self.0 & Self::TAG_RGB != 0).then_some((
             (self.0 >> 16) as u8,

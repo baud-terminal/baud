@@ -20,12 +20,13 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col, ColorWord,
-    Cols, Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
-    FinalByte, GSlot, KeypadMode, LineSlot, Marker, ModeBit, ModeState, Modes, MouseButton,
-    MouseEvent, MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx,
-    Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount,
-    Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize, XColor,
+    AnsiMode, ArenaTail, Attrs, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col,
+    ColorWord, Cols, Content, Count, Csi, CursorStyle, Dcs, DeviceAttribute, Encoding, EraseExtent,
+    Esc, Filled, FinalByte, GSlot, KeypadMode, LineSlot, LinkId, Marker, ModeBit, ModeState, Modes,
+    MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods, MouseTracking, OneBased, Osc,
+    PackedCell, Param, ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room,
+    Row, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord,
+    Utf8Acc, View, Width, WinSize, XColor,
 };
 
 /// Whether `level` is the tracking currently selected.
@@ -117,6 +118,20 @@ pub const NSTYLE: usize = 64;
 /// dropping it leaves the previous title showing and the user with no signal.
 /// Sized well past any real title.
 pub const OSC_MAX: usize = 512;
+
+/// Distinct hyperlinks a screen can hold at once, and the longest URI kept.
+///
+/// **Bounded by construction, like the style table and for the same reason.**
+/// `CLAUDE.md` records a growable style table as "the content-addressing
+/// failure mode again": a structure keyed on attacker-supplied content that
+/// grows without limit walks out of cache and then out of memory. A URI is
+/// exactly that kind of key. `NLINK` slots evict on collision, so a page that
+/// cycles through thousands of links costs the same as one with four.
+///
+/// 128 x 256 B is 32 KiB, which fits beside the style table rather than
+/// competing with the grid.
+pub const NLINK: usize = 128;
+pub const LINK_MAX: usize = 256;
 pub const READ_CHUNK: usize = baud_domain::SLOT_BYTES;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -176,6 +191,10 @@ pub struct Storage {
     /// overridden" -- a zeroed `Storage` therefore starts on the built-in
     /// palette, with no separate `is_set` array to keep in step.
     pub palette: [ColorWord; 256],
+    /// Hyperlink URIs, indexed by [`LinkId`]. Slot 0 is "no link", so a zeroed
+    /// `Storage` starts with nothing linked and no separate valid array.
+    pub links: [[u8; LINK_MAX]; NLINK],
+    pub link_len: [ByteLen; NLINK],
     /// The alternate screen buffer, `CSI ? 1049 h`.
     ///
     /// A second full-size grid, which looks expensive and is not: it is 10 MiB
@@ -245,6 +264,8 @@ impl Storage {
             title: [0; OSC_MAX],
             icon: [0; OSC_MAX],
             palette: [ColorWord::DEFAULT; 256],
+            links: [[0; LINK_MAX]; NLINK],
+            link_len: [ByteLen::ZERO; NLINK],
             reply: [0; REPLY],
         }
     }
@@ -276,7 +297,24 @@ enum State {
     /// this into `Escape` loses the payload either way -- which is what the
     /// terminator would have been for.
     OscEsc,
-    /// The payload of DCS, SOS, PM and APC.
+    /// `[[source: williams]]`'s `dcs_entry`: after `ESC P`, collecting
+    /// parameters and intermediates before the final byte selects a handler.
+    DcsEntry,
+    /// `dcs_param` — inside the parameter string.
+    DcsParam,
+    /// `dcs_intermediate`.
+    DcsIntermediate,
+    /// `dcs_passthrough` — the final byte named something baud handles, so the
+    /// data between it and ST is being collected.
+    DcsPassthrough,
+    /// `dcs_ignore` — a malformed or unhandled DCS. The payload is consumed to
+    /// the terminator and discarded, which is the part that keeps it *safe*:
+    /// falling back to Ground mid-string would execute the payload as commands.
+    DcsIgnore,
+    /// An `ESC` arrived inside a DCS payload. Same two continuations as
+    /// [`State::OscEsc`].
+    DcsEsc,
+    /// The payload of SOS, PM and APC.
     ///
     /// Consumed to the string terminator and executed as nothing. This state
     /// not existing was a **correctness and security** bug, not a missing
@@ -440,6 +478,8 @@ pub struct Term<'a> {
     /// when returning information xterm "uses the same terminator used in a
     /// query", so a reply must remember how the question ended.
     osc_term: StringTerm,
+    /// The final byte of the DCS currently being collected.
+    dcs_final: Option<FinalByte>,
     private: Marker,
     style: StyleId,
     style_raw: StyleWord,
@@ -459,8 +499,9 @@ pub struct Term<'a> {
     keypad: KeypadMode,
     /// Which mouse events the application asked to hear about, `?1000/2/3`.
     mouse: MouseTracking,
-    /// `?1006`. Without it baud reports nothing -- see [`Report::MouseSgr`].
-    mouse_sgr: bool,
+    /// The negotiated encoding. Without one baud reports nothing -- see
+    /// [`Report::MouseSgr`].
+    mouse_encoding: MouseEncoding,
     /// Mouse events dropped because no encoding was negotiated.
     ///
     /// Counted rather than silent: an application that enables tracking and
@@ -473,6 +514,8 @@ pub struct Term<'a> {
     /// G2, `ESC + C` G3; SO invokes G1 into GL and SI invokes G0.
     g: [Charset; 4],
     gl: GSlot,
+    /// The hyperlink `OSC 8` opened, if one is open.
+    link: LinkId,
     /// DECSCA protection alone, before the charset is folded in.
     ///
     /// Kept apart from `flags` so that changing either input recomputes the
@@ -490,6 +533,10 @@ pub struct Term<'a> {
     /// DECSTBM. Inclusive, and full-screen until `CSI r` says otherwise.
     scroll_top: Row,
     scroll_bot: Row,
+    /// DECSLRM. Inclusive, and full-width until `CSI Pl ; Pr s` says otherwise
+    /// -- and only then if DECLRMM is set.
+    left_margin: Col,
+    right_margin: Col,
     /// A bitset rather than a struct of bools -- see [`Modes`].
     modes: Modes,
     mode: OpMode,
@@ -546,6 +593,7 @@ impl<'a> Term<'a> {
             title_len: ByteLen::ZERO,
             icon_len: ByteLen::ZERO,
             osc_term: StringTerm::St,
+            dcs_final: None,
             private: Marker::Standard,
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
@@ -554,15 +602,18 @@ impl<'a> Term<'a> {
             alt_saved: None,
             keypad: KeypadMode::Numeric,
             mouse: MouseTracking::Off,
-            mouse_sgr: false,
+            mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
+            link: LinkId::NONE,
             protect: CellFlags::NONE,
             flags: CellFlags::NONE,
             saved: None,
             scroll_top: Row::ZERO,
             scroll_bot: Row::from_index(rows.clamp(MAX_ROWS).index() - 1),
+            left_margin: Col::ZERO,
+            right_margin: Col::at_index(cols.clamp(MAX_COLS).index() - 1),
             modes: Modes::default(),
             mode,
             promotions: Stat::ZERO,
@@ -717,6 +768,7 @@ impl<'a> Term<'a> {
         // bottom row would leave the region pointing off the grid.
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.reset_side_margins();
         self.clear_screen();
         if over {
             Resized::Truncated {
@@ -833,8 +885,13 @@ impl<'a> Term<'a> {
 
     /// CR + IND: what autowrap does at the right margin, and what NEL is.
     #[inline(always)]
+    /// NEL, and the wrap at the right margin.
+    ///
+    /// Returns to the **left margin**, not to column 0. With DECSLRM set, text
+    /// wrapping to column 0 would leave the scrolling region entirely, which is
+    /// the whole thing side margins exist to prevent.
     fn wrap(&mut self) {
-        self.cx = Col::ZERO;
+        self.cx = self.left_margin;
         self.index();
     }
 
@@ -951,6 +1008,17 @@ impl<'a> Term<'a> {
                 self.cy = if on { self.scroll_top } else { Row::ZERO };
             }
             PrivateMode::AutoWrap => self.modes.apply(ModeBit::AutoWrap, on),
+            // `[[source: vt510-decslrm]]`: DECSLRM "only works when vertical
+            // split screen mode (DECLRMM) is set". Turning DECLRMM off puts the
+            // margins back to the page borders -- leaving them set while the
+            // mode that gives them meaning is off would confine writes with
+            // nothing to explain why.
+            PrivateMode::LeftRightMargin => {
+                self.modes.apply(ModeBit::SideMargins, on);
+                if !on {
+                    self.reset_side_margins();
+                }
+            }
             // `[[source: ctlseqs]]` for `?1049 h`: "Save cursor as in DECSC ...
             // After saving the cursor, switch to the Alternate Screen Buffer,
             // clearing it first." And for `?1049 l`: "Use Normal Screen Buffer
@@ -986,7 +1054,13 @@ impl<'a> Term<'a> {
             PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, on),
             PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, on),
             PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, on),
-            PrivateMode::MouseSgr => self.mouse_sgr = on,
+            PrivateMode::MouseSgr => {
+                self.mouse_encoding = if on {
+                    MouseEncoding::Sgr
+                } else {
+                    MouseEncoding::None
+                }
+            }
             PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
             // Still deliberately unrecorded. A bit that is set and never read
@@ -1037,6 +1111,7 @@ impl<'a> Term<'a> {
         match PrivateMode::from_wire(Some(mode)) {
             PrivateMode::Origin => bit_state(self.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.modes, ModeBit::AutoWrap),
+            PrivateMode::LeftRightMargin => bit_state(self.modes, ModeBit::SideMargins),
             PrivateMode::CursorVisible => bit_state(self.modes, ModeBit::CursorVisible),
             PrivateMode::BracketedPaste => bit_state(self.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => bit_state(self.modes, ModeBit::SynchronizedOutput),
@@ -1045,13 +1120,10 @@ impl<'a> Term<'a> {
             PrivateMode::MouseNormal => tracking_state(self.mouse, MouseTracking::Normal),
             PrivateMode::MouseButtonEvent => tracking_state(self.mouse, MouseTracking::ButtonEvent),
             PrivateMode::MouseAnyEvent => tracking_state(self.mouse, MouseTracking::AnyEvent),
-            PrivateMode::MouseSgr => {
-                if self.mouse_sgr {
-                    ModeState::Set
-                } else {
-                    ModeState::Reset
-                }
-            }
+            PrivateMode::MouseSgr => match self.mouse_encoding {
+                MouseEncoding::Sgr => ModeState::Set,
+                MouseEncoding::None => ModeState::Reset,
+            },
             PrivateMode::AltScreen => {
                 if self.screen == Screen::Alternate {
                     ModeState::Set
@@ -1209,8 +1281,12 @@ impl<'a> Term<'a> {
         // Hoisted: a mode cannot change inside a run, and reading it per
         // iteration cost 12% of streaming throughput -- measured, not guessed.
         let wrap = self.modes.is_set(ModeBit::AutoWrap);
+        // Hoisted for the same reason as `wrap`: DECSLRM cannot change inside a
+        // run. With no side margins set this is one past the last column, so
+        // the margin-aware form is also the fast form and there is no branch.
+        let edge = self.right_margin.after();
         while !n.is_zero() {
-            let mut room = self.cols.room_at(self.cx).min(n);
+            let mut room = self.cols.room_until(self.cx, edge).min(n);
             if room.is_empty() {
                 if wrap {
                     self.wrap();
@@ -1218,9 +1294,9 @@ impl<'a> Term<'a> {
                     // DECAWM reset: pin to the last column and let each
                     // remaining byte overwrite it. The last one wins, and the
                     // screen never scrolls.
-                    self.cx = Col::at_index(self.cols.index() - 1);
+                    self.cx = self.right_margin;
                 }
-                room = self.cols.room_at(self.cx).min(n);
+                room = self.cols.room_until(self.cx, edge).min(n);
             }
             // `promoted` and the run table belong to the primary screen. On the
             // alt screen every write is materialised, which is the same thing
@@ -1263,8 +1339,8 @@ impl<'a> Term<'a> {
             // the "wrap is pending" sentinel the next write consumes. With it
             // off there is no pending wrap, so that position is not reachable
             // and the cursor belongs on the last cell.
-            if !wrap && self.cx.index() >= self.cols.index() {
-                self.cx = Col::at_index(self.cols.index() - 1);
+            if !wrap && self.cx.index() > self.right_margin.index() {
+                self.cx = self.right_margin;
             }
             off = off.saturating_add(ByteLen::from_room(room));
             n = n.sub_room(room);
@@ -1359,16 +1435,26 @@ impl<'a> Term<'a> {
         self.view().fill(r, from, to, b);
     }
 
+    /// DCH. Bounded by the right margin when DECSLRM has set one.
+    ///
+    /// Without a margin this is the whole row, which is why the unbounded
+    /// `delete_chars` is no longer called: `right_margin` is the last column by
+    /// default, so one path covers both and there is no second version to keep
+    /// in step.
     fn delete_chars(&mut self, n: Count) {
         self.promote_if_runs();
         let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
-        self.view().delete_chars(r, at, n, b);
+        let to = self.right_margin.after();
+        self.view().delete_cells(r, at, n, to, b);
     }
 
+    /// ICH. Bounded by the right margin, for the same reason as DCH: text
+    /// beyond it is outside the scrolling region and must not be pushed.
     fn insert_blanks(&mut self, n: Count) {
         self.promote_if_runs();
         let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
-        self.view().insert_blanks(r, at, n, b);
+        let to = self.right_margin.after();
+        self.view().insert_cells(r, at, n, to, b);
     }
 
     /// IL. Bounded by the scrolling region, and a no-op with the cursor
@@ -1428,6 +1514,118 @@ impl<'a> Term<'a> {
         ByteLen::from_index(n)
     }
 
+    /// Act on a completed DCS payload.
+    fn dispatch_dcs(&mut self) {
+        let n = self.osc_len.index();
+        let handled = self.dcs_final.map(|f| Dcs::parse(self.csi_inter, f));
+        if handled == Some(Dcs::RequestStatus) {
+            let target = StatusTarget::parse(&self.s.osc[..n]);
+            self.report_status(target);
+        }
+        self.osc_reset();
+        self.dcs_final = None;
+    }
+
+    /// Answer a DECRQSS.
+    ///
+    /// `[[source: ctlseqs]]`: "xterm responds with `DCS 1 $ r Pt ST` for valid
+    /// requests, replacing the Pt with the corresponding CSI string, or
+    /// `DCS 0 $ r ST` for invalid requests."
+    ///
+    /// **1 is valid and 0 is invalid, and the DEC manuals say the opposite.**
+    /// `[[source: ctlseqs]]` records the errata directly: "testing a DEC VT420
+    /// in 1996 showed that the documented code for a valid or invalid response
+    /// to DECRQSS was reversed", and that vttest and DEC STD 070 agree with the
+    /// tested behaviour rather than with the VT420 and VT525 manuals. baud
+    /// follows xterm, which is what applications are written against. Getting
+    /// this backwards would tell every application that every setting it asked
+    /// about is unsupported.
+    ///
+    /// The reply body is the *tail of the CSI that would set it*, so an
+    /// application can echo it straight back.
+    fn report_status(&mut self, t: StatusTarget) {
+        // One place where the DECRQSS shape is written, for the same reason
+        // replies go through `Report`: the introducer, the validity digit and
+        // the terminator must not be spelled at each call site. The body is
+        // variable-length, which is why this is a helper rather than a
+        // `Report` variant over the fixed-size encoder.
+        if t == StatusTarget::Unknown {
+            self.emit(b"\x1bP0$r\x1b\\");
+            return;
+        }
+        self.emit(b"\x1bP1$r");
+        match t {
+            StatusTarget::ScrollRegion => {
+                self.emit_num(self.scroll_top.one_based());
+                self.emit(b";");
+                self.emit_num(self.scroll_bot.one_based());
+                self.emit(b"r");
+            }
+            StatusTarget::SideMargins => {
+                self.emit_num(self.left_margin.one_based());
+                self.emit(b";");
+                self.emit_num(self.right_margin.one_based());
+                self.emit(b"s");
+            }
+            StatusTarget::CursorStyle => {
+                self.emit_dec(self.cursor_style.wire());
+                self.emit(b" q");
+            }
+            StatusTarget::Protection => {
+                self.emit_dec(u8::from(self.protect.is_protected()));
+                self.emit(b"\"q");
+            }
+            StatusTarget::Sgr => {
+                let raw = self.style_raw;
+                self.emit_sgr(raw);
+                self.emit(b"m");
+            }
+            StatusTarget::Unknown => {}
+        }
+        self.emit(b"\x1b\\");
+    }
+
+    /// The current rendition as an SGR parameter string, always starting at 0.
+    ///
+    /// Leading `0` is not padding: DECRQSS answers with something the
+    /// application can send back verbatim, and a string that only *adds*
+    /// attributes would not reproduce the state on a terminal that had others
+    /// set.
+    fn emit_sgr(&mut self, w: StyleWord) {
+        self.emit(b"0");
+        for (bit, code) in Attrs::WIRE {
+            if w.attrs().has(bit) {
+                self.emit(b";");
+                self.emit_dec(code);
+            }
+        }
+        let (fg, bg) = (w.fg(), w.bg());
+        if !fg.is_default() {
+            self.emit(b";");
+            self.emit_colour(fg, 38);
+        }
+        if !bg.is_default() {
+            self.emit(b";");
+            self.emit_colour(bg, 48);
+        }
+    }
+
+    fn emit_colour(&mut self, c: ColorWord, base: u8) {
+        if let Some((r, g, b)) = c.as_rgb() {
+            self.emit_dec(base);
+            self.emit(b";2;");
+            self.emit_dec(r);
+            self.emit(b";");
+            self.emit_dec(g);
+            self.emit(b";");
+            self.emit_dec(b);
+        } else if let Some(i) = c.as_index() {
+            self.emit_dec(base);
+            self.emit(b";5;");
+            self.emit_dec(i);
+        }
+    }
+
     /// Act on a completed OSC payload.
     fn dispatch_osc(&mut self) {
         let n = self.osc_len.index();
@@ -1464,10 +1662,52 @@ impl<'a> Term<'a> {
             // see `ClipboardOp::Read`. Neither gets a reply: answering a
             // clipboard query with anything, including an empty string, tells
             // the application the feature works.
+            Osc::Hyperlink { id, uri } => {
+                // The payload borrows `self.s`, so resolve the slot and the
+                // length before touching the table.
+                let n = uri.len().min(LINK_MAX);
+                if n == 0 {
+                    self.link = LinkId::NONE;
+                } else {
+                    let id = LinkId::bucket(id, uri, NLINK);
+                    let mut tmp = [0u8; LINK_MAX];
+                    tmp[..n].copy_from_slice(&uri[..n]);
+                    self.s.links[id.index()] = tmp;
+                    self.s.link_len[id.index()] = ByteLen::from_index(n);
+                    self.link = id;
+                }
+                self.refresh_flags();
+            }
             Osc::Clipboard(_) => {}
             Osc::Unsupported => {}
         }
         self.osc_reset();
+    }
+
+    /// How `OSC 8` opens and closes a link.
+    ///
+    /// An empty URI closes: the [explicit hyperlink spec][osc8] ends a run with
+    /// `OSC 8 ; ; ST`, and treating that as "a link to nowhere" would make
+    /// every cell after it clickable.
+    ///
+    /// The table is bounded and **evicts on collision**, exactly like the style
+    /// table. A URI is attacker-supplied content used as a key, which
+    /// `CLAUDE.md` names as the content-addressing failure mode; a page cycling
+    /// through thousands of links must cost the same as one with four. An
+    /// evicted link renders as an ordinary cell, the same tolerable degradation
+    /// an evicted style has.
+    ///
+    /// The dispatch is inline in `dispatch_osc` because the URI borrows the
+    /// payload buffer that lives in `self.s`.
+    ///
+    /// [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+    /// The URI a cell links to, if any.
+    pub fn link_uri(&self, l: LinkId) -> Option<&[u8]> {
+        if l.is_none() {
+            return None;
+        }
+        let n = self.s.link_len[l.index()].index();
+        (n > 0).then(|| &self.s.links[l.index()][..n])
     }
 
     /// Reply to `OSC 4 ; c ; ?` in the same shape as the setter.
@@ -1496,6 +1736,26 @@ impl<'a> Term<'a> {
             StringTerm::St => self.emit(b"\x1b\\"),
             StringTerm::Bel => self.emit(b"\x07"),
         }
+    }
+
+    /// A 1-based coordinate as decimal, for a DECRQSS body.
+    ///
+    /// Wider than [`Term::emit_dec`] because a margin can be past column 255.
+    fn emit_num(&mut self, v: OneBased) {
+        const D: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 5];
+        let mut i = buf.len();
+        let mut n = v.get();
+        loop {
+            i -= 1;
+            buf[i] = D[usize::from(n % 10)];
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        let tail = buf;
+        self.emit(&tail[i..]);
     }
 
     fn emit_dec(&mut self, v: u8) {
@@ -1545,7 +1805,8 @@ impl<'a> Term<'a> {
         let n = self.nparam.count_at_least_one();
         let marker = self.private;
         let p = Params::with_subs(&self.params[..n], self.psub);
-        match Csi::parse(marker, self.csi_inter, p, f) {
+        let lrm = self.modes.is_set(ModeBit::SideMargins);
+        match Csi::parse_with(marker, self.csi_inter, p, f, lrm) {
             Csi::SoftReset => self.soft_reset(),
             Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
             // `[[source: vt510-decsca]]`: "Ps defines all characters that
@@ -1584,6 +1845,9 @@ impl<'a> Term<'a> {
             // identity promises everything at that level, so the answer does
             // not move. Under-claiming degrades, over-claiming breaks.
             Csi::RequestVersion => self.report(Report::Version),
+            Csi::SetSideMargins { left, right } => self.set_side_margins(left, right),
+            Csi::InsertColumns(n) => self.insert_columns(n),
+            Csi::DeleteColumns(n) => self.delete_columns(n),
             Csi::DeviceAttributes => {
                 self.report(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102))
             }
@@ -1759,8 +2023,15 @@ impl<'a> Term<'a> {
                     self.st = State::CsiParams;
                 } else if b == StreamByte::OSC_INTRO {
                     self.st = State::OscString;
-                } else if b == StreamByte::DCS_INTRO
-                    || b == StreamByte::SOS_INTRO
+                } else if b == StreamByte::DCS_INTRO {
+                    self.params = [None; 16];
+                    self.nparam = ParamIdx::FIRST;
+                    self.psub = 0;
+                    self.private = Marker::Standard;
+                    self.csi_inter = None;
+                    self.osc_reset();
+                    self.st = State::DcsEntry;
+                } else if b == StreamByte::SOS_INTRO
                     || b == StreamByte::PM_INTRO
                     || b == StreamByte::APC_INTRO
                 {
@@ -1799,6 +2070,75 @@ impl<'a> Term<'a> {
                         None => {}
                     }
                     self.st = State::Ground;
+                }
+            }
+            // `[[source: williams]]`'s dcs_entry / dcs_param / dcs_intermediate.
+            // Collecting the sequence's identity; the final byte decides
+            // whether the data that follows is collected or discarded.
+            State::DcsEntry | State::DcsParam | State::DcsIntermediate => {
+                if let Some(d) = b.as_ascii_digit() {
+                    if self.nparam.is_first() {
+                        self.nparam = self.nparam.next();
+                    }
+                    let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
+                    self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+                    self.st = State::DcsParam;
+                } else if b == StreamByte::SEMICOLON {
+                    if self.nparam.is_first() {
+                        self.nparam = self.nparam.next();
+                    }
+                    if self.nparam.raw_index() < 16 {
+                        self.params[self.nparam.raw_index()] = None;
+                        self.nparam = self.nparam.next();
+                    }
+                    self.st = State::DcsParam;
+                } else if b == StreamByte::QUESTION {
+                    self.private = Marker::Private;
+                } else if b.is_csi_intermediate() {
+                    self.csi_inter = Some(b);
+                    self.st = State::DcsIntermediate;
+                } else if let Some(f) = FinalByte::from_stream(b) {
+                    // The hook: does baud handle this DCS at all? If not the
+                    // payload still has to be consumed, just not kept.
+                    self.dcs_final = Some(f);
+                    self.st = match Dcs::parse(self.csi_inter, f) {
+                        Dcs::Unsupported => State::DcsIgnore,
+                        _ => State::DcsPassthrough,
+                    };
+                } else {
+                    self.st = State::DcsIgnore;
+                }
+            }
+            State::DcsPassthrough => {
+                if b == StreamByte::ESC {
+                    self.st = State::DcsEsc;
+                } else if b == StreamByte::BEL {
+                    self.dispatch_dcs();
+                    self.st = State::Ground;
+                } else {
+                    self.osc_push(b);
+                }
+            }
+            State::DcsIgnore => {
+                if b == StreamByte::ESC {
+                    // Not `DcsEsc`: there is nothing to dispatch, so ST and a
+                    // cancel are the same outcome here.
+                    self.st = State::Escape;
+                } else if b == StreamByte::BEL {
+                    self.st = State::Ground;
+                }
+            }
+            State::DcsEsc => {
+                if b == StreamByte::ST_FINAL {
+                    self.dispatch_dcs();
+                    self.st = State::Ground;
+                } else {
+                    // `[[source: williams]]`: a bare ESC cancels the control
+                    // string. The payload is dropped, not acted on.
+                    self.osc_reset();
+                    self.dcs_final = None;
+                    self.st = State::Escape;
+                    self.control(b);
                 }
             }
             State::OscEsc => {
@@ -2147,6 +2487,85 @@ impl<'a> Term<'a> {
         self.refresh_flags();
     }
 
+    fn reset_side_margins(&mut self) {
+        self.left_margin = Col::ZERO;
+        self.right_margin = Col::at_index(self.cols.index() - 1);
+    }
+
+    /// DECSLRM, `CSI Pl ; Pr s`.
+    ///
+    /// `[[source: vt510-decslrm]]`: "The value of the left margin (Pl) must be
+    /// less than the right margin (Pr) ... The minimum size of the scrolling
+    /// region is two columns ... DECSLRM moves the cursor to column 1, line 1
+    /// of the page."
+    fn set_side_margins(&mut self, left: OneBased, right: OneBased) {
+        let last = self.cols.index() - 1;
+        let l = left.to_col(self.cols).index();
+        let r = right.to_col(self.cols).index();
+        // Reject rather than clamp into something the application did not ask
+        // for: an invalid DECSLRM leaves the margins alone, which is what the
+        // "must be less than" wording requires.
+        if l >= r || r > last {
+            return;
+        }
+        self.left_margin = Col::at_index(l);
+        self.right_margin = Col::at_index(r);
+        self.cx = Col::ZERO;
+        self.cy = Row::ZERO;
+    }
+
+    /// DECIC, `CSI Pn ' }`.
+    ///
+    /// `[[source: vt510-decic]]`: "As columns are inserted, the columns between
+    /// the cursor and the right margin move to the right ... DECIC has no
+    /// effect outside the scrolling margins."
+    fn insert_columns(&mut self, n: Count) {
+        if !self.within_margins() {
+            return;
+        }
+        self.shift_columns(n, true);
+    }
+
+    /// DECDC, `CSI Pn ' ~`. The inverse, filling at the right margin.
+    fn delete_columns(&mut self, n: Count) {
+        if !self.within_margins() {
+            return;
+        }
+        self.shift_columns(n, false);
+    }
+
+    /// Is the cursor inside the scrolling region, in both axes?
+    ///
+    /// DECIC and DECDC are defined only there, and so is the column shifting
+    /// that scrolling does when side margins are set.
+    fn within_margins(&self) -> bool {
+        let (x, y) = (self.cx.index(), self.cy.index());
+        x >= self.left_margin.index()
+            && x <= self.right_margin.index()
+            && y >= self.scroll_top.index()
+            && y <= self.scroll_bot.index()
+    }
+
+    /// Move every row's columns between the cursor and the right margin.
+    ///
+    /// Rows outside the *vertical* region are untouched: DECIC's "scrolling
+    /// region" is the rectangle both margin pairs define, not the full height.
+    fn shift_columns(&mut self, n: Count, insert: bool) {
+        let blank = PackedCell::empty_with(self.style);
+        let (from, to) = (self.cx, self.right_margin.after());
+        let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
+        for y in top..=bot {
+            let r = Row::from_index(y);
+            self.s.promoted[y] = true;
+            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            if insert {
+                self.view().insert_cells(r, from, n, to, blank);
+            } else {
+                self.view().delete_cells(r, from, n, to, blank);
+            }
+        }
+    }
+
     /// Recombine DECSCA protection with the active character set.
     ///
     /// Called whenever either input changes, so the write path can read
@@ -2154,10 +2573,11 @@ impl<'a> Term<'a> {
     /// second load and an OR inside the loop that `put_ascii_run` exists to
     /// keep tight.
     fn refresh_flags(&mut self) {
-        self.flags = match self.g[self.gl.index()] {
+        let base = match self.g[self.gl.index()] {
             Charset::DecGraphics => self.protect.with(CellFlags::GRAPHICS),
             _ => self.protect,
         };
+        self.flags = base.with_link(self.link);
     }
 
     fn set_tracking(&mut self, level: MouseTracking, on: bool) {
@@ -2200,7 +2620,7 @@ impl<'a> Term<'a> {
         if !wanted {
             return false;
         }
-        if !self.mouse_sgr {
+        if self.mouse_encoding == MouseEncoding::None {
             self.mouse_unencodable.inc();
             return false;
         }
@@ -2285,6 +2705,7 @@ impl<'a> Term<'a> {
     fn screen_alignment(&mut self) {
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.reset_side_margins();
         // The pattern is characters, and characters written while DECSCA is
         // on are protected -- no special case here, so `ESC # 8` followed by a
         // DECSEL behaves like any other text would.
@@ -2311,7 +2732,7 @@ impl<'a> Term<'a> {
         self.protect = CellFlags::NONE;
         self.keypad = KeypadMode::Numeric;
         self.mouse = MouseTracking::Off;
-        self.mouse_sgr = false;
+        self.mouse_encoding = MouseEncoding::None;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
@@ -2320,6 +2741,7 @@ impl<'a> Term<'a> {
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.reset_side_margins();
         self.modes = Modes::default();
     }
 
@@ -2335,7 +2757,7 @@ impl<'a> Term<'a> {
         self.protect = CellFlags::NONE;
         self.keypad = KeypadMode::Numeric;
         self.mouse = MouseTracking::Off;
-        self.mouse_sgr = false;
+        self.mouse_encoding = MouseEncoding::None;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
@@ -2344,6 +2766,7 @@ impl<'a> Term<'a> {
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
+        self.reset_side_margins();
         self.modes = Modes::default();
         self.reset_tabs();
         self.clear_screen();

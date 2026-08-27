@@ -209,3 +209,42 @@ sha256 = "ba3f2f9584a3a9cbf64ee4d1a992b32fded053bc13f92383fce6a2c328c0e065"
 bytes  = 21048
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-decslrm]
+key    = "vt510-decslrm"
+title  = "DECSLRM — Set Left and Right Margins (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSLRM.html"
+file   = "vt510-DECSLRM.html"
+sha256 = "96b803e7c14bcd5929b9d36af3c696564e82373d18a69f30a50a57ca85e76d7a"
+bytes  = 20318
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decic]
+key    = "vt510-decic"
+title  = "DECIC — Insert Column (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECIC.html"
+file   = "vt510-DECIC.html"
+sha256 = "0197e93263aaf7e342a07187b12266eceed0e8ae71fbb1fa0e3085f934327724"
+bytes  = 19569
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decdc]
+key    = "vt510-decdc"
+title  = "DECDC — Delete Column (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECDC.html"
+file   = "vt510-DECDC.html"
+sha256 = "046ada33ba8965e9dd42da546784c4166720e8c4ea6bb58e35b0e21a5ad271e8"
+bytes  = 19614
+status = "retrieved"
+group  = "C"

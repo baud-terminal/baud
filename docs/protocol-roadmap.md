@@ -1,8 +1,7 @@
 # Protocols worth adding, and protocols worth refusing
 
-**Status, 2026-08-26: Tier A and Tier B are implemented, except `OSC 8`.**
-Tier C is implemented except the kitty keyboard protocol, which still needs an
-input path baud does not have. `docs/vt-coverage.md` carries the per-row truth;
+**Status, 2026-08-26: Tier A, Tier B and Tier C are implemented**, except the
+kitty keyboard protocol, which still needs an input path baud does not have. `docs/vt-coverage.md` carries the per-row truth;
 this file keeps the *reasoning*, including for the parts now done, because the
 reasons are what a later reader needs in order to not undo them.
 
@@ -54,13 +53,19 @@ now exists.
 already parsed. The payload must be **bounded** — a title is attacker-controlled
 and a `no_std` core cannot grow a buffer.
 
-### 5. OSC 8, hyperlinks — **the one Tier A/B row still open**
+### 5. OSC 8, hyperlinks — **done**
 
 The [explicit hyperlink spec][osc8] rather than ctlseqs. Increasingly assumed by
 `ls`, `gcc`, and test runners. Note the security rule in that spec: a terminal
 must not follow arbitrary schemes.
 
 [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
+
+Implemented with a bounded, evicting link table — the same shape as the style
+table, for the reason `CLAUDE.md` gives: a URI is attacker-supplied content used
+as a key. The link index rides in spare `CellFlags` bits so `PackedCell` stays
+eight bytes. The spec's security note stands as future work for whatever
+*follows* a link: the core stores the URI and does not open anything.
 
 ### 6. OSC 4 / 104, colour palette — **done**
 

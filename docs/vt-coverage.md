@@ -29,7 +29,8 @@ does nothing, and gives the application no way to find out.
 
 Everything below depends on this being right, so it is not a tier of features
 but the substrate. `[[source: williams]]` specifies the DEC ANSI parser as a
-13-state machine; baud currently has 5.
+13-state machine. baud now has all of them; the `Utf8` state below is an
+addition, not a substitution.
 
 | state | in baud | note |
 |---|---|---|
@@ -40,11 +41,11 @@ but the substrate. `[[source: williams]]` specifies the DEC ANSI parser as a
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
 | `csi_ignore` | done | |
-| `dcs_entry` | partial | payload consumed via `StringIgnore`; no DCS dispatch |
-| `dcs_param` | **todo** | |
-| `dcs_intermediate` | **todo** | |
-| `dcs_passthrough` | **todo** | |
-| `dcs_ignore` | **todo** | |
+| `dcs_entry` | done | parameters and intermediates collected |
+| `dcs_param` | done | |
+| `dcs_intermediate` | done | |
+| `dcs_passthrough` | done | payload collected for DECRQSS |
+| `dcs_ignore` | done | unhandled DCS consumed, never executed |
 | `osc_string` | done | payload captured, bounded, and dispatched |
 | `sos_pm_apc_string` | done | payload consumed, never executed |
 
@@ -178,8 +179,8 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 | `CSI ? J` | DECSED selective erase display | done |
 | `CSI ? K` | DECSEL selective erase line | done |
 | `CSI $ p` | DECRQM request mode | done |
-| `CSI s` (DECSLRM) | left/right margins | **todo** |
-| `CSI ' }` / `CSI ' ~` | DECIC / DECDC | **todo** |
+| `CSI s` (DECSLRM) | left/right margins | done — with DECLRMM (`?69`) |
+| `CSI ' }` / `CSI ' ~` | DECIC / DECDC | done |
 
 DECSCA, DECSED and DECSEL land together on purpose: the two erases without the
 protection are silent aliases for ED and EL, and an application that protected a
@@ -207,7 +208,7 @@ In scope because applications assume them, not because DEC specified them.
 |---|---|---|
 | `OSC 0/1/2` | window/icon title | done |
 | `OSC 4` | set colour palette | done — including the `?` query |
-| `OSC 8` | hyperlinks | **todo** |
+| `OSC 8` | hyperlinks | done — bounded, evicting link table |
 | `OSC 52` | clipboard | consumed; **read deliberately refused** — see security note |
 | `OSC 104` | reset palette | done |
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
@@ -313,6 +314,43 @@ Entering twice must not re-save the cursor, or an application that sets the mode
 twice is restored to a position from inside the alt screen. The switch also
 keeps its own saved cursor rather than sharing DECSC's, so a program that does
 both gets each back.
+
+**DCS is dispatched, and DECRQSS answers.** `[[source: ctlseqs]]` gives
+`DCS $ q Pt ST` as Request Status String, answered `DCS 1 $ r Pt ST` when valid
+and `DCS 0 $ r ST` when not. baud reports SGR, DECSTBM, DECSLRM, DECSCUSR and
+DECSCA, and answers *invalid* for everything else — which is the honest answer,
+since a body it made up would be sent straight back to it.
+
+**1 is valid and 0 is invalid, and the DEC manuals say the opposite.** ctlseqs
+records the errata: "testing a DEC VT420 in 1996 showed that the documented code
+for a valid or invalid response to DECRQSS was reversed", with vttest and DEC
+STD 070 agreeing against the VT420 and VT525 manuals. baud follows xterm because
+that is what applications are written against, and there is a test named for it
+so a reader consulting the DEC manual does not "fix" it backwards.
+
+The `dcs_ignore` state is the security-relevant one: an unhandled DCS consumes
+its payload instead of falling through to Ground, where the bytes inside would
+run as commands. The guarantee is precise, and narrower than it first looks — a
+payload containing no `ESC` is inert, and one containing an `ESC` is *cancelled*
+there per `[[source: williams]]`, so what follows is a fresh sequence. A test
+asserted the stronger, wrong version first and was corrected against the spec.
+
+**Left and right margins are real, and `CSI s` is ambiguous.** DECSLRM shares
+its bytes with SCOSC and is told apart only by DECLRMM (`?69`), so the parser is
+given the mode rather than guessing. `[[source: vt510-decslrm]]` requires
+`Pl < Pr`, so an inverted or empty range is *rejected* rather than clamped into
+something the application did not ask for. The margins bound the wrap (text
+resumes at the **left margin**, not column 0), ICH, DCH, and DECIC/DECDC, and
+the write path folds the right margin into the loop bound it already computed —
+so with no margins set there is no extra branch.
+
+**Hyperlinks ride in spare cell bits.** `OSC 8`'s link index lives in the
+fourteen unused bits of `CellFlags`, because `PackedCell` is eight bytes *by
+measurement* and a ninth would round it to twelve. The URI table is bounded at
+`NLINK` and evicts on collision, like the style table and for the reason
+`CLAUDE.md` names: a URI is attacker-supplied content used as a key, and a
+structure keyed on that which grows without limit is the content-addressing
+failure mode. An evicted link renders as an ordinary cell.
 
 **Mouse reporting is SGR-only, and that is a correctness decision.** `?1000`,
 `?1002` and `?1003` select which events an application hears about; `?1006`

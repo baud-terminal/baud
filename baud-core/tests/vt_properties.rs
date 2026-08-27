@@ -73,6 +73,16 @@ enum Op {
     /// SO / SI.
     So,
     Si,
+    /// DECSLRM, `CSI Pl ; Pr s` (DECSLRM only when DECLRMM is on).
+    Decslrm(u8, u8),
+    /// DECIC / DECDC.
+    Decic(u8),
+    Decdc(u8),
+    /// DECRQSS, `DCS $ q Pt ST`.
+    Decrqss(u8),
+    /// `OSC 8` open and close.
+    Link(u8),
+    Unlink,
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -83,7 +93,7 @@ const SGR: [u8; 20] = [
 
 /// Private modes baud acts on, plus two it deliberately ignores -- an ignored
 /// mode must stay inert, and that is worth generating too.
-const MODES: [u16; 10] = [6, 7, 25, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
+const MODES: [u16; 11] = [6, 7, 25, 69, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
@@ -140,6 +150,12 @@ fn op() -> impl Strategy<Value = Op> {
             .prop_map(|(g, c)| Op::Designate(g, c)),
         Just(Op::So),
         Just(Op::Si),
+        (0u8..60, 0u8..60).prop_map(|(a, b)| Op::Decslrm(a, b)),
+        (0u8..6).prop_map(Op::Decic),
+        (0u8..6).prop_map(Op::Decdc),
+        (0u8..7).prop_map(Op::Decrqss),
+        (0u8..4).prop_map(Op::Link),
+        Just(Op::Unlink),
     ]
 }
 
@@ -219,6 +235,15 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             }
             Op::So => n.push('\x0e'),
             Op::Si => n.push('\x0f'),
+            Op::Decslrm(a, b) => write!(n, "\x1b[{a};{b}s").unwrap(),
+            Op::Decic(k) => write!(n, "\x1b[{k}'}}").unwrap(),
+            Op::Decdc(k) => write!(n, "\x1b[{k}'~").unwrap(),
+            Op::Decrqss(k) => {
+                let pt = ["m", "r", "s", " q", "\"q", "\"p", "zz"][usize::from(k)];
+                write!(n, "\x1bP$q{pt}\x1b\\").unwrap();
+            }
+            Op::Link(k) => write!(n, "\x1b]8;id={k};http://example.com/{k}\x1b\\").unwrap(),
+            Op::Unlink => n.push_str("\x1b]8;;\x1b\\"),
         }
         out.extend_from_slice(n.as_bytes());
     }
@@ -326,13 +351,15 @@ proptest! {
         prop_assert!(c < 200, "col {} off the grid", c);
     }
 
-    /// Every reply is a well-formed CSI sequence, and the buffer never grows
-    /// past its bound.
+    /// Every reply is a well-formed control string, of the family its
+    /// introducer promises.
     ///
     /// An application parses whatever arrives as the report it asked for, so a
-    /// malformed reply is worse than no reply. This checks the *shape* of what
-    /// baud sends without re-encoding the reports, which would just restate the
-    /// implementation.
+    /// malformed reply is worse than no reply. baud now answers in three
+    /// families — CSI for DA/DSR/DECRPM/mouse, DCS for DECRQSS and XTVERSION,
+    /// OSC for a colour query — and each has its own shape and terminator.
+    /// This walks the whole buffer, so a reply that ran past its terminator
+    /// would be caught as the *next* one failing to start with ESC.
     #[test]
     fn replies_are_well_formed(ops in program()) {
         let (_, _, reply) = drive(&bytes_of(&ops), 4096, OpMode::Computed);
@@ -341,31 +368,57 @@ proptest! {
         while i < reply.len() {
             prop_assert_eq!(reply[i], 0x1b, "a reply must start with ESC");
             prop_assert!(i + 1 < reply.len(), "a lone ESC is not a reply");
-            prop_assert_eq!(reply[i + 1], b'[', "CSI, not some other introducer");
-            let mut j = i + 2;
-            // The one private reply baud sends is the DA identity, `CSI ? 6 c`.
-            if j < reply.len() && reply[j] == b'?' {
-                j += 1;
+            match reply[i + 1] {
+                b'[' => {
+                    let mut j = i + 2;
+                    // The DA identity carries `?`; the mouse report carries `<`.
+                    if j < reply.len() && (reply[j] == b'?' || reply[j] == b'<') {
+                        j += 1;
+                    }
+                    while j < reply.len()
+                        && (StreamByte::from_stream(reply[j]).as_ascii_digit().is_some()
+                            || reply[j] == b';')
+                    {
+                        j += 1;
+                    }
+                    // Intermediates: DECRPM ends `$ y`.
+                    while j < reply.len()
+                        && StreamByte::from_stream(reply[j]).is_csi_intermediate()
+                    {
+                        j += 1;
+                    }
+                    prop_assert!(j < reply.len(), "unterminated CSI reply");
+                    prop_assert!(
+                        FinalByte::from_stream(StreamByte::from_stream(reply[j])).is_some(),
+                        "a CSI reply must end on a legal final byte"
+                    );
+                    i = j + 1;
+                }
+                // DCS and OSC are string families: consume to the terminator.
+                b'P' | b']' => {
+                    let bel_ok = reply[i + 1] == b']';
+                    let mut j = i + 2;
+                    loop {
+                        prop_assert!(j < reply.len(), "unterminated control string");
+                        if bel_ok && reply[j] == 0x07 {
+                            j += 1;
+                            break;
+                        }
+                        if reply[j] == 0x1b {
+                            prop_assert!(j + 1 < reply.len(), "ESC with no terminator");
+                            prop_assert_eq!(
+                                reply[j + 1], b'\\',
+                                "only ESC-backslash terminates a string reply"
+                            );
+                            j += 2;
+                            break;
+                        }
+                        j += 1;
+                    }
+                    i = j;
+                }
+                other => prop_assert!(false, "unknown reply introducer {}", other),
             }
-            // Parameter string: baud only ever emits digits and separators, so
-            // this is stricter than ECMA-48's `0x30..=0x3f` on purpose.
-            while j < reply.len()
-                && (StreamByte::from_stream(reply[j]).as_ascii_digit().is_some()
-                    || reply[j] == b';')
-            {
-                j += 1;
-            }
-            // Intermediate bytes, `0x20..=0x2f`. DECRPM ends `$ y`, so a
-            // report can legitimately carry one before its final byte.
-            while j < reply.len() && StreamByte::from_stream(reply[j]).is_csi_intermediate() {
-                j += 1;
-            }
-            prop_assert!(j < reply.len(), "unterminated reply");
-            prop_assert!(
-                FinalByte::from_stream(StreamByte::from_stream(reply[j])).is_some(),
-                "a reply must end on a legal final byte"
-            );
-            i = j + 1;
         }
     }
 
