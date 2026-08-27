@@ -118,15 +118,86 @@ fn british_latin1_is_reported_as_uk() {
 
 // ── what reaches the cell ───────────────────────────────────────────────────
 
-/// A byte written under the line-drawing set is marked, and keeps its byte.
+/// **A byte under the line-drawing set is translated, and stays marked.**
+///
+/// This asserted the byte was *untouched*, "the mapping needs a source baud
+/// lacks". The DEC manual's table really is pictures -- `MANIFEST.toml` records
+/// that the page was fetched and checked -- but `[[source: foot-vt100-0]]` is
+/// the same mapping in machine-readable form, cited as foot's rather than as
+/// DEC's, because that is whose judgement it is.
+///
+/// Both halves matter. Translating and dropping the flag would lose where the
+/// character came from; marking without translating loses the character, and
+/// selection and copy hand back `q` where the screen shows `─`.
 #[test]
-fn a_graphics_byte_is_marked_and_unchanged() {
+fn a_graphics_byte_is_translated_and_stays_marked() {
     let (g, _) = run(b"\x1b(0q");
-    assert!(g[0].flags.is_graphics(), "the cell must be marked");
+    assert!(g[0].flags.is_graphics(), "the cell is still marked");
+    assert_eq!(
+        g[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x2500),
+        "`q` is BOX DRAWINGS LIGHT HORIZONTAL"
+    );
+    assert_ne!(g[0].content, run(b"q").0[0].content, "not the raw byte");
+}
+
+/// The whole set, against the pinned table.
+#[test]
+fn the_line_drawing_set_maps_as_the_pinned_source_says() {
+    for (byte, want, name) in [
+        (b'j', 0x2518u32, "up and left"),
+        (b'k', 0x2510, "down and left"),
+        (b'l', 0x250c, "down and right"),
+        (b'm', 0x2514, "up and right"),
+        (b'n', 0x253c, "vertical and horizontal"),
+        (b'q', 0x2500, "horizontal"),
+        (b't', 0x251c, "vertical and right"),
+        (b'u', 0x2524, "vertical and left"),
+        (b'v', 0x2534, "up and horizontal"),
+        (b'w', 0x252c, "down and horizontal"),
+        (b'x', 0x2502, "vertical"),
+        (b'`', 0x25c6, "diamond"),
+        (b'a', 0x2592, "checkerboard"),
+    ] {
+        let mut bytes = b"\x1b(0".to_vec();
+        bytes.push(byte);
+        let (g, _) = run(&bytes);
+        assert_eq!(
+            g[0].content.as_codepoint().map(|c| c.value()),
+            Some(want),
+            "`{}` should be {name}",
+            byte as char
+        );
+    }
+}
+
+/// Bytes outside `` ` ``..`~` are ASCII even under the graphics set.
+#[test]
+fn graphics_leaves_the_rest_of_ascii_alone() {
+    let (g, _) = run(b"\x1b(0A");
     assert_eq!(
         g[0].content,
-        run(b"q").0[0].content,
-        "the byte itself is untouched -- the mapping needs a source baud lacks"
+        run(b"A").0[0].content,
+        "the set differs from ASCII only in 0x60..0x7e"
+    );
+    assert!(g[0].flags.is_graphics(), "still marked, though");
+}
+
+/// The table matches the pinned source.
+#[test]
+fn dec_graphics_table_matches_the_pinned_source() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-dec-graphics.py"))
+        .arg("--check")
+        .current_dir(root)
+        .output()
+        .expect("python3 to run the generator");
+    assert!(
+        out.status.success(),
+        "dec_graphics.rs is stale -- rerun scripts/gen-dec-graphics.py\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 
@@ -212,10 +283,26 @@ fn charset_handling_is_chunk_invariant() {
 }
 
 /// `ESC ( C` is consumed whole: the final byte must not be printed.
+///
+/// Asserted through the cursor rather than the cells. This used to compare
+/// `a ESC ( 0 b` against `ab` cell for cell, which stopped meaning "the `0`
+/// was not printed" the moment `b` began translating to `␉` under the
+/// graphics set -- the comparison would have failed for the right reason and
+/// the wrong one indistinguishably.
 #[test]
 fn the_designator_is_not_printed() {
-    assert_eq!(run(b"a\x1b(0b").0[1].content, run(b"ab").0[1].content);
-    assert_eq!(run(b"a\x1b(Bb").0, run(b"ab").0);
+    // The third cell: if the `0` were printed, something would be in it.
+    assert_eq!(
+        run(b"a\x1b(0b").0[2],
+        run(b"ab").0[2],
+        "nothing follows the `b` -- the designator was consumed whole"
+    );
+    assert_eq!(
+        run(b"a\x1b(0b").0[0],
+        run(b"ab").0[0],
+        "and `a` precedes it"
+    );
+    assert_eq!(run(b"a\x1b(Bb").0, run(b"ab").0, "ASCII is unchanged");
 }
 
 /// **`ESC ( A` is United Kingdom, not ASCII.**

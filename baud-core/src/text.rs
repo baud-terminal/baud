@@ -267,7 +267,7 @@ impl<'a> Term<'a> {
                 let b = StreamByte::from_stream(self.s.arena[o + z]);
                 let (rr, cc) = (Row::from_index(y), Col::at_index(c));
                 let (st, fl) = (run.style, run.flags());
-                self.view().put(rr, cc, PackedCell::from_ascii(b, st, fl));
+                self.view().put(rr, cc, PackedCell::from_wire(b, st, fl));
                 c += 1;
             }
         }

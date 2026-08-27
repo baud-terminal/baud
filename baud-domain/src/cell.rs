@@ -258,6 +258,27 @@ impl PackedCell {
     }
     /// A printable ASCII byte. The proof that it is printable is also the proof
     /// that its codepoint equals its byte value.
+    /// An ASCII byte under whatever character set `flags` says is invoked.
+    ///
+    /// The one constructor for "a byte from the wire became a cell", so the
+    /// DEC Special Graphics translation cannot be applied on one path and
+    /// forgotten on another. `promote` replays stored runs and had exactly that
+    /// shape: the run carries the flags, and translating only in
+    /// `put_ascii_run` would have made a line's content depend on whether it
+    /// had been promoted yet.
+    pub fn from_wire(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
+        let proto = PackedCell {
+            content: Content::EMPTY,
+            style,
+            flags,
+        };
+        if flags.is_graphics() {
+            proto.with_dec_graphics(b)
+        } else {
+            proto.with_ascii(b)
+        }
+    }
+
     pub fn from_ascii(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         PackedCell {
             content: Content::codepoint(Codepoint::from_ascii(b)),
@@ -294,6 +315,29 @@ impl PackedCell {
     pub fn with_ascii(self, b: StreamByte) -> PackedCell {
         PackedCell {
             content: Content::codepoint(Codepoint::from_ascii(b)),
+            ..self
+        }
+    }
+
+    /// The same, under DEC Special Graphics.
+    ///
+    /// **The flag stays set.** Translating and dropping `CellFlags::GRAPHICS`
+    /// would lose where the character came from, and translating without
+    /// storing the result would lose the character -- selection and copy would
+    /// hand back `q` where the screen shows `─`. Both, and neither is lost.
+    ///
+    /// Bytes outside `` ` ``..`~` are unchanged: the set is ASCII everywhere
+    /// else, which is why the table is 31 entries rather than 128.
+    pub fn with_dec_graphics(self, b: StreamByte) -> PackedCell {
+        let v = b.raw_byte();
+        let cp = match v.checked_sub(0x60) {
+            Some(i) if (i as usize) < crate::DEC_GRAPHICS.len() => {
+                Codepoint::decoded(crate::DEC_GRAPHICS[i as usize])
+            }
+            _ => Codepoint::from_ascii(b),
+        };
+        PackedCell {
+            content: Content::codepoint(cp),
             ..self
         }
     }

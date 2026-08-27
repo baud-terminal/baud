@@ -448,7 +448,7 @@ without these.
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
 | `CSI ? 2 l` | DECANM — enter VT52 | done — see [protocols/vt52.md](protocols/vt52.md) |
 | `ESC # 8` | DECALN screen alignment | done |
-| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph tables blocked, see below |
+| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism, and DEC Special Graphics is translated |
 | `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII** |
 | `ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6` | NRCS: Finnish, Swedish, German, French Canadian, French, Italian, Spanish, Dutch, Swiss, Norwegian/Danish | done — each named as its own `Nrcs`; recorded, not translated |
 | `ESC ( < > I J` | DEC Supplemental, Technical, JIS-Katakana, JIS-Roman | done — each named as its own `DecSet` |

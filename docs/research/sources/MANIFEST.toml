@@ -566,3 +566,20 @@ sha256 = "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08"
 bytes  = 1134783
 status = "retrieved"
 group  = "G"
+
+# The mapping DEC's own manual does not give in machine-readable form, from an
+# implementation that does. **Cited as foot's, not as DEC's** -- it is foot's
+# judgement about what DEC's pictures mean, and every other terminal agrees,
+# but agreement between implementations is not a specification.
+[sources.foot-vt100-0]
+key    = "foot-vt100-0"
+title  = "foot 1.21.0, terminal.c -- vt100_0[] DEC Special Graphics mapping"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "C"

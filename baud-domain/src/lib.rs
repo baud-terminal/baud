@@ -21,6 +21,7 @@
 
 mod brand;
 mod cell;
+mod dec_graphics;
 mod decode;
 mod font;
 mod grapheme;
@@ -41,6 +42,7 @@ mod width_data;
 
 pub use brand::*;
 pub use cell::*;
+pub use dec_graphics::*;
 pub use decode::*;
 pub use font::*;
 pub use grapheme::*;

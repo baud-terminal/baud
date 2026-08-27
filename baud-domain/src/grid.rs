@@ -286,6 +286,19 @@ impl<'a> View<'a> {
             for z in 0..n {
                 self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
             }
+        } else if flags.is_graphics() {
+            // A third loop, hoisted for the same measured reason as the second:
+            // `ESC ( 0` is rarer still than DECSCA, so the table lookup lands
+            // on the programs that draw boxes and nowhere else.
+            let proto = PackedCell {
+                content: Content::EMPTY,
+                style,
+                flags,
+            };
+            for z in 0..n {
+                self.cells[base + start + z] =
+                    proto.with_dec_graphics(StreamByte::from_stream(src[z]));
+            }
         } else {
             let proto = PackedCell {
                 content: Content::EMPTY,
