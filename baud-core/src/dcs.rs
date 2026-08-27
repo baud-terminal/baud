@@ -37,10 +37,15 @@ impl<'a> Term<'a> {
         // variable-length, which is why this is a helper rather than a
         // `Report` variant over the fixed-size encoder.
         if t == StatusTarget::Unknown {
-            self.emit(b"\x1bP0$r\x1b\\");
+            let (dcs, st) = (self.c1.dcs(), self.c1.st());
+            self.emit(dcs);
+            self.emit(b"0$r");
+            self.emit(st);
             return;
         }
-        self.emit(b"\x1bP1$r");
+        let dcs = self.c1.dcs();
+        self.emit(dcs);
+        self.emit(b"1$r");
         match t {
             StatusTarget::ScrollRegion => {
                 self.emit_num(self.scroll_top.one_based());
@@ -69,6 +74,7 @@ impl<'a> Term<'a> {
             }
             StatusTarget::Unknown => {}
         }
-        self.emit(b"\x1b\\");
+        let st = self.c1.st();
+        self.emit(st);
     }
 }

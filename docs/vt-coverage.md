@@ -161,24 +161,27 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are continuation bytes; a stray one is a decode error and renders U+FFFD |
 | 7-bit equivalents `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — this is the whole control interface |
-| `ESC SP F` — S7C1T, send 7-bit controls | done — baud always does, so the request is *satisfied* |
-| `ESC SP G` — S8C1T, send 8-bit controls | **out** — counted in `Term::unsupported`, never answered |
+| `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
+| `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
 | Legacy single-byte charsets (Latin-1, national replacement sets) | **out** — see below |
 
-`S7C1T`/`S8C1T` are about what the terminal **sends**, not what it accepts:
-"this tells the terminal to send C1 control characters as 7-bit sequences, e.g.,
-its responses to queries". baud always replies in the 7-bit form, which is
-`S7C1T` and is xterm's default. Emitting `9B` into a UTF-8 stream would make
-baud's own replies invalid UTF-8, and every application parses the 7-bit form.
-`ESC SP G` is therefore refused — but *countably*, which is the part that was
-missing: it used to be swallowed by the escape-intermediate arm in silence.
+`S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
+"this tells the terminal to send C1 control characters as 8-bit sequences, e.g.,
+its responses to queries".
 
-`ESC SP F` is the opposite case and the distinction is not pedantry. It asks for
-7-bit replies, which is what baud sends, so the request is **satisfied** — there
-is nothing to change and nothing withheld. Counting it as unsupported would
-claim baud had refused something it already does. dtterm's `is2` opens with it,
-and the conformance fixture is what drew the line.
+**Sending and accepting are different axes, and conflating them is a mistake
+this document made first.** S8C1T was refused here on the grounds that emitting
+`9B` would make baud's own output invalid UTF-8. That reasoning does not hold: a
+reply is not UTF-8 text, it is a control stream the application asked for by
+sending S8C1T, and an application that asks is prepared to read it. baud still
+cannot *parse* an 8-bit introducer — that half is forced by UTF-8 and stands —
+but there was never a reason it could not *emit* one. `C1Transmit` carries the
+choice and CSI, DCS and ST introducers all follow it.
+
+dtterm's `is2` opens with `ESC SP F`, which is how the conformance fixtures
+caught the first version of this: counting S7C1T as unsupported claimed baud had
+refused something it already did.
 
 **Legacy charsets are the shell's problem, not the terminal's.** baud already
 has the model for the one charset mechanism it does implement: `SCS`

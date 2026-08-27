@@ -168,6 +168,8 @@ pub struct Term<'a> {
     /// this stays zero while replaying every output capability of the terminfo
     /// entries baud claims.
     pub unsupported: Stat,
+    /// Whether replies use 7-bit or 8-bit C1 introducers. Set by S7C1T/S8C1T.
+    pub(crate) c1: C1Transmit,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -267,6 +269,7 @@ impl<'a> Term<'a> {
             mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
             unsupported: Stat::ZERO,
+            c1: C1Transmit::SevenBit,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             link: LinkId::NONE,

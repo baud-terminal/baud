@@ -23,7 +23,7 @@ fn mouse(button: MouseButton, kind: MouseKind, col: usize, row: usize) -> MouseE
 }
 
 fn enc(r: Report) -> Vec<u8> {
-    r.encode().as_bytes().to_vec()
+    r.encode(C1Transmit::SevenBit).as_bytes().to_vec()
 }
 
 /// Build a `OneBased` the way the parser does -- by pushing ASCII digits --

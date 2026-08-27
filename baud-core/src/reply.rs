@@ -37,7 +37,7 @@ impl<'a> Term<'a> {
     /// goes through a named [`Report`] -- the shape is chosen by the variant,
     /// so a DSR cannot be answered with a DA's bytes.
     pub(crate) fn report(&mut self, r: Report) {
-        let bytes = r.encode();
+        let bytes = r.encode(self.c1);
         self.emit(bytes.as_bytes());
     }
 

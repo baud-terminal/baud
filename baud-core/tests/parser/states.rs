@@ -551,16 +551,22 @@ fn the_seven_bit_forms_of_c1_still_work() {
 
 /// An escape sequence baud does not implement is **counted**, not dropped.
 ///
-/// `ESC SP G` is S8C1T, and it asked for something baud will not do. Answering
-/// nothing is right; doing so invisibly is not. `docs/vt-coverage.md`: a
-/// sequence the parser recognises and then drops is worse than one it does not
-/// implement, because the terminal accepts it, does nothing, and gives the
-/// application no way to find out.
+/// `ESC SP L` is "set ANSI conformance level 1, ECMA-43"
+/// (`[[source: ctlseqs]]`), which baud does not implement. Answering nothing is
+/// right; doing so invisibly is not. `docs/vt-coverage.md`: a sequence the
+/// parser recognises and then drops is worse than one it does not implement,
+/// because the terminal accepts it, does nothing, and gives the application no
+/// way to find out.
+///
+/// This test first used `ESC SP G` (S8C1T), on the reasoning that baud would
+/// never send 8-bit replies. That reasoning was wrong — sending and accepting
+/// are different axes — so S8C1T is implemented now and the probe moved to a
+/// sequence that really is out of scope.
 #[test]
 fn an_unimplemented_intermediate_escape_is_counted() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
-    let bytes = b"\x1b G"; // ESC SP G -- S8C1T
+    let bytes = b"\x1b L"; // ESC SP L -- ANSI conformance level 1
     let mut slot = t.read_slot();
     let base = slot.base();
     let f = slot.write(StreamByte::slice_from(bytes));
@@ -569,7 +575,7 @@ fn an_unimplemented_intermediate_escape_is_counted() {
     assert_eq!(
         t.unsupported.count(),
         1,
-        "S8C1T must be counted as unsupported"
+        "ESC SP L must be counted as unsupported"
     );
     assert!(t.reply().is_empty(), "and must not be answered");
 }

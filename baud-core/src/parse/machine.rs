@@ -307,7 +307,16 @@ impl<'a> Term<'a> {
                         // `ESC SP G` (S8C1T) is the opposite and falls through
                         // to the count below: it asks for 8-bit replies, which
                         // would make baud's own output invalid UTF-8.
-                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'F' => {}
+                        // `ESC SP F` / `ESC SP G` -- S7C1T / S8C1T. Both are
+                        // implemented: they select the form baud *sends*, which
+                        // is a different axis from the UTF-8 decoding that makes
+                        // an 8-bit C1 unparseable on the way in.
+                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'F' => {
+                            self.c1 = C1Transmit::SevenBit
+                        }
+                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'G' => {
+                            self.c1 = C1Transmit::EightBit
+                        }
                         // `ESC ( ) * + <C>` designate G0-G3.
                         Some(i) => {
                             if let Some(slot) = GSlot::from_intermediate(i) {

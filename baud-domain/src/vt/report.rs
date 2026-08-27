@@ -128,6 +128,56 @@ impl ReportBytes {
     }
 }
 
+/// Whether the terminal **sends** C1 controls in their 7-bit or 8-bit form.
+///
+/// `[[source: ctlseqs]]`, on `ESC SP G`: "8-bit controls (S8C1T), VT220. This
+/// tells the terminal to send C1 control characters as 8-bit sequences, e.g.,
+/// its responses to queries."
+///
+/// **This is a different axis from what baud accepts, and conflating the two is
+/// a mistake worth naming.** baud decodes UTF-8, so it cannot *parse* an 8-bit
+/// C1 introducer — `9B` is a continuation byte there and nothing else. But a
+/// reply is not UTF-8 text; it is a control stream the application explicitly
+/// asked for by sending S8C1T. Refusing to send what was asked for on the
+/// grounds that baud could not read it back is a category error: the two
+/// directions are independent, and `[[source: ctlseqs]]` describes S7C1T/S8C1T
+/// purely in terms of what the terminal sends.
+///
+/// An enum rather than a `bool`, because a `bool` field is always a missing
+/// two-state enum — and `c1: true` does not say which way round it is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum C1Transmit {
+    /// `ESC [`, `ESC P`, `ESC \`. The default, and xterm's.
+    #[default]
+    SevenBit,
+    /// `9B`, `90`, `9C`.
+    EightBit,
+}
+
+impl C1Transmit {
+    /// CSI: the introducer for a control sequence reply.
+    pub fn csi(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1b[",
+            C1Transmit::EightBit => b"\x9b",
+        }
+    }
+    /// DCS: the introducer for a device control string reply.
+    pub fn dcs(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1bP",
+            C1Transmit::EightBit => b"\x90",
+        }
+    }
+    /// ST: the string terminator.
+    pub fn st(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1b\\",
+            C1Transmit::EightBit => b"\x9c",
+        }
+    }
+}
+
 impl Report {
     /// Longest possible encoding: an SGR mouse report, which is `ESC [ <` then
     /// three five-digit fields, two separators and a final byte. Five digits
@@ -139,13 +189,14 @@ impl Report {
     ///
     /// No allocator and no `format!`. The shape is chosen here, once per
     /// report, rather than at each call site.
-    pub fn encode(self) -> ReportBytes {
+    pub fn encode(self, c1: C1Transmit) -> ReportBytes {
         let mut e = ReportBytes {
             buf: [0; Report::MAX_LEN],
             len: ByteLen::ZERO,
         };
-        e.push(0x1b);
-        e.push(b'[');
+        for b in c1.csi() {
+            e.push(*b);
+        }
         match self {
             Report::CursorPosition { row, col } => {
                 e.push_num(row.get());

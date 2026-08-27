@@ -237,3 +237,56 @@ fn cpr_round_trips_from_a_full_line() {
         "restoring the reported position must land back on the last column"
     );
 }
+
+// ── S7C1T / S8C1T: which form baud *sends* ──────────────────────────────────
+
+/// `ESC SP G` (S8C1T) switches replies to 8-bit C1 introducers.
+///
+/// `[[source: ctlseqs]]`: "8-bit controls (S8C1T), VT220. This tells the
+/// terminal to send C1 control characters as 8-bit sequences, e.g., its
+/// responses to queries."
+///
+/// **This is a different axis from what baud accepts.** baud decodes UTF-8, so
+/// it cannot *parse* an 8-bit introducer — `9B` is a continuation byte there.
+/// But a reply is not UTF-8 text; it is a control stream the application asked
+/// for by sending S8C1T. Refusing to send what was asked for because baud could
+/// not read it back conflates the two directions, and ctlseqs describes
+/// S7C1T/S8C1T purely in terms of what the terminal sends.
+#[test]
+fn s8c1t_switches_replies_to_eight_bit() {
+    let r = replies(b"\x1b G\x1b[c");
+    assert_eq!(
+        r.first(),
+        Some(&0x9b),
+        "CSI must be sent as 9B, got {r:02x?}"
+    );
+    assert_eq!(
+        &r[1..],
+        &replies(b"\x1b[c")[2..],
+        "and the rest of the report is unchanged"
+    );
+}
+
+/// `ESC SP F` (S7C1T) is the default and switches back.
+#[test]
+fn s7c1t_is_the_default_and_switches_back() {
+    assert_eq!(replies(b"\x1b[c").first(), Some(&0x1b), "7-bit by default");
+    assert_eq!(
+        replies(b"\x1b G\x1b F\x1b[c"),
+        replies(b"\x1b[c"),
+        "S8C1T then S7C1T is the default again"
+    );
+}
+
+/// DCS replies carry the mode too — introducer *and* terminator.
+///
+/// DECRQSS answers `DCS 1 $ r ... ST`, so an 8-bit reply must open with `90`
+/// and close with `9C`. Threading the mode into CSI and forgetting DCS would
+/// send an application a reply half in each form.
+#[test]
+fn s8c1t_applies_to_dcs_replies_including_the_terminator() {
+    let r = replies(b"\x1b G\x1bP$qm\x1b\\");
+    assert!(!r.is_empty(), "DECRQSS must still answer");
+    assert_eq!(r.first(), Some(&0x90), "DCS introducer, got {r:02x?}");
+    assert_eq!(r.last(), Some(&0x9c), "ST terminator, got {r:02x?}");
+}
