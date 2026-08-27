@@ -275,14 +275,17 @@ struct Snapshot {
     title: Vec<u8>,
     icon: Vec<u8>,
     bells: u64,
+    palette: Vec<Option<(u8, u8, u8)>>,
 }
 
-/// A prepared terminal: text on two rows and the cursor in the middle.
+/// A prepared terminal: one palette entry set, text on two rows, and the
+/// cursor in the middle.
 ///
 /// A form fed to a *blank* grid at the origin can legitimately do nothing --
 /// `CSI 1 A` at row 0 is a no-op -- so a blank start would report real
-/// operations as silent.
-const PREAMBLE: &[u8] = b"hello world\r\nsecond line\r\n\x1b[2;5H";
+/// operations as silent. The palette entry is there for the same reason:
+/// `OSC 104` resets one, and resetting a colour nobody set changes nothing.
+const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07hello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -337,6 +340,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         bells: t.bells(),
+        palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
     }
 }
 
@@ -478,6 +482,145 @@ fn every_spec_esc_form_is_handled_or_counted() {
         "{} of {} specification ESC forms are consumed in silence:\n  {}",
         silent.len(),
         finals.len(),
+        silent.join("\n  ")
+    );
+}
+
+/// Every `Ps` value ctlseqs lists under `OSC Ps ; Pt`.
+///
+/// The document writes them spaced -- `Ps = 1 0 4` is 104 -- so the digits are
+/// joined rather than parsed as separate numbers.
+fn spec_osc_codes() -> BTreeSet<u32> {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/xterm-ctlseqs.txt"
+    ))
+    .expect("ctlseqs");
+    let mut out = BTreeSet::new();
+    let mut in_osc = false;
+    for line in src.lines() {
+        if line.starts_with("OSC ") {
+            in_osc = true;
+            continue;
+        }
+        // A new top-level section ends the list.
+        if in_osc && !line.starts_with(' ') && !line.trim().is_empty() {
+            in_osc = false;
+        }
+        if !in_osc {
+            continue;
+        }
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("Ps = ") else {
+            continue;
+        };
+        let digits: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == ' ')
+            .filter(|c| c.is_ascii_digit())
+            .collect();
+        if let Ok(n) = digits.parse::<u32>() {
+            out.insert(n);
+        }
+    }
+    out
+}
+
+/// **No `OSC Ps` the specification defines is silently consumed.**
+///
+/// A string protocol needs a different probe from a fixed-length control: the
+/// payload has to be plausible or the operation declines for the wrong reason.
+/// `1` is used, which is a valid colour index for the palette operations and
+/// harmless text for the rest.
+#[test]
+fn every_spec_osc_code_is_handled_or_counted() {
+    let codes = spec_osc_codes();
+    assert!(
+        codes.len() > 15,
+        "only {} OSC codes parsed -- the extractor stopped matching",
+        codes.len()
+    );
+    // Implemented, but with nothing this harness can observe.
+    const UNOBSERVABLE: &[(u32, &str)] = &[(
+        52,
+        "clipboard read answers with silence on purpose -- any reply, empty \
+         included, tells a remote program the feature works",
+    )];
+    let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
+    let mut silent = Vec::new();
+    for ps in &codes {
+        if UNOBSERVABLE.iter().any(|(u, _)| u == ps) {
+            continue;
+        }
+        let mut bytes = b"\x1b]".to_vec();
+        bytes.extend_from_slice(ps.to_string().as_bytes());
+        bytes.extend_from_slice(b";1\x07");
+        let a = snapshot(&bytes, false);
+        let c = snapshot(&bytes, true);
+        if a == bare && c == probed {
+            silent.push(format!("OSC {ps}"));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "{} of {} specification OSC codes are consumed in silence:\n  {}",
+        silent.len(),
+        codes.len(),
+        silent.join("\n  ")
+    );
+}
+
+/// **No `DCS` form the specification defines is silently consumed.**
+///
+/// Each entry is fed with an empty payload and `ST`, which is the shortest
+/// well-formed string of that shape.
+#[test]
+fn every_spec_dcs_form_is_handled_or_counted() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/xterm-ctlseqs.txt"
+    ))
+    .expect("ctlseqs");
+    let mut forms = BTreeSet::new();
+    for line in src.lines() {
+        let Some(rest) = line.strip_prefix("DCS ") else {
+            continue;
+        };
+        let seq = rest.split("  ").next().unwrap_or(rest).trim();
+        // Keep the literal bytes between `DCS` and the payload placeholder:
+        // `$ q`, `! u`, `+ q`. Parameter and payload placeholders are dropped.
+        let lit: Vec<&str> = seq
+            .split_whitespace()
+            .take_while(|t| !t.starts_with("Pt") && !t.starts_with("Ps.."))
+            .filter(|t| !t.starts_with('P') && *t != ";" && *t != "|" && *t != "ST")
+            .collect();
+        if lit.is_empty() || lit.iter().any(|t| t.len() != 1) {
+            continue;
+        }
+        forms.insert(lit.join(""));
+    }
+    assert!(
+        forms.len() > 3,
+        "only {} DCS forms parsed -- the extractor stopped matching",
+        forms.len()
+    );
+    let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
+    let mut silent = Vec::new();
+    for f in &forms {
+        let mut bytes = b"\x1bP".to_vec();
+        bytes.extend_from_slice(f.as_bytes());
+        bytes.extend_from_slice(b"\x1b\\");
+        let a = snapshot(&bytes, false);
+        let c = snapshot(&bytes, true);
+        if a == bare && c == probed {
+            silent.push(format!("DCS {f}"));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "{} of {} specification DCS forms are consumed in silence:\n  {}",
+        silent.len(),
+        forms.len(),
         silent.join("\n  ")
     );
 }
