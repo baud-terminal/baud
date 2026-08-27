@@ -276,6 +276,11 @@ struct Snapshot {
     icon: Vec<u8>,
     bells: u64,
     palette: Vec<Option<(u8, u8, u8)>>,
+    // All four G-slots, not just the invoked one: a designation into G1 is
+    // recorded and was invisible from outside.
+    g: [Charset; 4],
+    encoding: InputEncoding,
+    c1: C1Transmit,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -341,6 +346,14 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         icon: t.icon_name().to_vec(),
         bells: t.bells(),
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
+        g: [
+            t.charset_in(GSlot::G0),
+            t.charset_in(GSlot::G1),
+            t.charset_in(GSlot::G2),
+            t.charset_in(GSlot::G3),
+        ],
+        encoding: t.input_encoding(),
+        c1: t.c1_transmit(),
     }
 }
 
@@ -619,6 +632,165 @@ fn every_spec_dcs_form_is_handled_or_counted() {
     assert!(
         silent.is_empty(),
         "{} of {} specification DCS forms are consumed in silence:\n  {}",
+        silent.len(),
+        forms.len(),
+        silent.join("\n  ")
+    );
+}
+
+/// An `ESC` form with an intermediate: `ESC # 8`, `ESC ( C`, `ESC SP F`,
+/// `ESC % G`.
+///
+/// The plain check above takes only two-byte forms, so this half of the escape
+/// surface -- every charset designation among it -- had nothing but baud's own
+/// table checking it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct EscForm {
+    inter: u8,
+    final_byte: u8,
+}
+
+impl EscForm {
+    fn wire(self) -> Vec<u8> {
+        vec![0x1b, self.inter, self.final_byte]
+    }
+}
+
+/// Parse `ESC <inter> <final>`, expanding the placeholder finals ctlseqs uses.
+///
+/// `ESC ( C` is written with `C` standing for "any of the character sets listed
+/// below", not a literal `C`. Feeding the letter would test nothing, so the
+/// listed finals are substituted -- which is what makes this check cover every
+/// charset designation rather than one arbitrary byte.
+fn parse_esc_form(seq: &str, charset_finals: &BTreeSet<u8>) -> Vec<EscForm> {
+    let Some(rest) = seq.strip_prefix("ESC ") else {
+        return Vec::new();
+    };
+    let toks: Vec<&str> = rest.split_whitespace().collect();
+    if toks.len() != 2 {
+        return Vec::new();
+    }
+    let inter = if toks[0] == "SP" {
+        0x20
+    } else if toks[0].len() == 1 {
+        toks[0].as_bytes()[0]
+    } else {
+        return Vec::new();
+    };
+    if !(0x20..=0x2f).contains(&inter) {
+        return Vec::new();
+    }
+    // `ESC ( C` and friends: `C` is a placeholder for the charset list.
+    if toks[1] == "C" && matches!(inter, b'(' | b')' | b'*' | b'+') {
+        return charset_finals
+            .iter()
+            .map(|f| EscForm {
+                inter,
+                final_byte: *f,
+            })
+            .collect();
+    }
+    if toks[1].len() != 1 {
+        return Vec::new();
+    }
+    let f = toks[1].as_bytes()[0];
+    if !(0x30..=0x7e).contains(&f) {
+        return Vec::new();
+    }
+    vec![EscForm {
+        inter,
+        final_byte: f,
+    }]
+}
+
+/// The single-byte charset finals ctlseqs lists under `ESC ( C`.
+fn charset_finals(src: &str) -> BTreeSet<u8> {
+    let mut out = BTreeSet::new();
+    for line in src.lines() {
+        let t = line.trim();
+        let Some(rest) = t.strip_prefix("C = ") else {
+            continue;
+        };
+        let head: Vec<&str> = rest
+            .split("->")
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect();
+        for tok in head {
+            if tok == "or" {
+                continue;
+            }
+            let b = tok.as_bytes();
+            if b.len() == 1 && (0x30..=0x7e).contains(&b[0]) {
+                out.insert(b[0]);
+            }
+        }
+    }
+    out
+}
+
+/// **No `ESC` form with an intermediate is silently consumed.**
+#[test]
+fn every_spec_esc_intermediate_form_is_handled_or_counted() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/xterm-ctlseqs.txt"
+    ))
+    .expect("ctlseqs");
+    let charsets = charset_finals(&src);
+    assert!(
+        charsets.len() > 10,
+        "only {} charset finals parsed -- the extractor stopped matching",
+        charsets.len()
+    );
+    let mut forms = BTreeSet::new();
+    for line in src.lines() {
+        if !line.starts_with("ESC ") {
+            continue;
+        }
+        let seq = line.split("  ").next().unwrap_or(line).trim();
+        for f in parse_esc_form(seq, &charsets) {
+            forms.insert(f);
+        }
+    }
+    assert!(
+        forms.len() > 20,
+        "only {} intermediate forms parsed -- the extractor stopped matching",
+        forms.len()
+    );
+    // **Satisfied, not silent**, and one category rather than six exceptions:
+    // each asks for what baud already does, so there is nothing to change and
+    // nothing withheld. Same distinction `ESC SP F` forced when the terminfo
+    // fixtures showed dtterm opening with it -- counting a request baud
+    // already meets as unsupported claims a refusal that never happened.
+    let already_true = |f: &EscForm| -> bool {
+        matches!(
+            (f.inter, f.final_byte),
+            // S7C1T: 7-bit replies, the default.
+            (0x20, b'F')
+            // Select UTF-8, the default.
+            | (b'%', b'G')
+            // Designate ASCII into a slot that already holds it.
+            | (b'(' | b')' | b'*' | b'+', b'B')
+        )
+    };
+
+    let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
+    let mut silent = Vec::new();
+    for f in &forms {
+        if already_true(f) {
+            continue;
+        }
+        let a = snapshot(&f.wire(), false);
+        let c = snapshot(&f.wire(), true);
+        if a == bare && c == probed {
+            silent.push(format!("ESC {} {}", f.inter as char, f.final_byte as char));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "{} of {} specification ESC-intermediate forms are consumed in silence:\n  {}",
         silent.len(),
         forms.len(),
         silent.join("\n  ")
