@@ -191,3 +191,44 @@ names is **unverified** -- that needs a differential run, which needs an
 alacritty checkout.
 
 ---
+
+---
+
+## Recommended against, with reasons
+
+Declining is a decision and belongs in the record.
+
+| protocol | why not |
+|---|---|
+| **Highlight tracking** (`CSI ? 1001`) | `[[source: ctlseqs]]`: "this mode requires a cooperating program, else xterm will hang". A terminal that a sequence can hang is worse than one that ignores the sequence. |
+| **Sixel** (`DCS ... q`) | An image format, not a terminal protocol. Large surface, needs a palette and a raster buffer, and it does not interact with the ingest architecture baud exists to test. The `DCS` payload is already consumed safely, which is the part that matters for correctness. |
+| **ReGIS** | Vector graphics. No modern application emits it. |
+| **Kitty graphics** (`APC G`) | Same reasoning as sixel. Note baud already consumes `APC` payloads without executing them, which was a real bug before Tier 0 landed — the protocol is *safe to ignore*, which is the bar. |
+| **DECUDK**, user-defined keys | Input-side, and superseded by the kitty keyboard protocol for anything new. |
+| **National Replacement Character Sets** (DECNRCM) | Superseded by UTF-8. Documented here because `[[source: ctlseqs]]` carries them and a reader will ask. |
+| **Tektronix mode** (`ESC [ ? 3 8 h`) | A different terminal emulated inside this one. Historical. |
+
+---
+
+---
+
+## Still open
+
+**Kitty keyboard protocol** — the one recommendation not implemented. It
+fixes what terminals have never been able to express: Ctrl+Shift
+combinations, key release, and disambiguation of Escape. Input-side, so it
+needs an input path baud does not have — which is the real blocker, not the
+protocol.
+
+[spec](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+
+---
+
+## Where this came from
+
+`docs/protocol-roadmap.md` used to hold the tables above. It was written as
+a roadmap and outlived that: Tiers A, B and C all landed, so every heading
+read "**done**" and the file described the past while being shaped like a
+plan. The reasoning was worth keeping and the framing was not, so it is
+here — filed under decisions, which is what it always was.
+

@@ -9,7 +9,7 @@
 //!
 //! A parser that flattens colons into semicolons reads `Pi` as red and shifts
 //! every channel by one. That is the bug this file exists to prevent, and it is
-//! why `docs/protocol-roadmap.md` called the colon form "the one
+//! why `docs/protocol-decisions.md` calls the colon form "the one
 //! implementations get wrong".
 //!
 //! Colour is compared by observing cells, so these cannot go vacuous if the
