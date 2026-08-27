@@ -22,10 +22,23 @@ pub enum KeypadMode {
 /// *recorded* rather than mistaken for ASCII.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Charset {
-    /// `B` (USASCII), and `A` (British Latin-1), whose difference is one glyph
-    /// baud does not special-case.
+    /// `B` — USASCII, and the default.
     #[default]
     Ascii,
+    /// `A` — "United Kingdom (UK), VT100" (`[[source: ctlseqs]]`).
+    ///
+    /// **Not an alias for [`Charset::Ascii`], which is what it used to be.**
+    /// The two differ in one position, and aliasing them meant `Term::charset`
+    /// reported ASCII to an embedder that had just been told UK — the same
+    /// silent conflation `CSI g` is careful to avoid by leaving unhandled
+    /// parameters inert rather than aliasing them to `0`.
+    ///
+    /// baud records the designation and does not substitute, for the reason
+    /// [`Charset::DecGraphics`] does not: the replacement is a *glyph* mapping,
+    /// and `MANIFEST.toml` carries no machine-readable DEC source for one. The
+    /// cell keeps the byte, so a renderer holding the table loses nothing and
+    /// nothing is guessed.
+    Uk,
     /// `0` — "DEC Special Character and Line Drawing Set, VT100."
     DecGraphics,
     /// Designated, recognised, and not translated. See [`CellFlags::GRAPHICS`]
@@ -37,7 +50,8 @@ impl Charset {
     pub fn from_final(b: StreamByte) -> Charset {
         match b.raw_byte() {
             b'0' => Charset::DecGraphics,
-            b'B' | b'A' => Charset::Ascii,
+            b'B' => Charset::Ascii,
+            b'A' => Charset::Uk,
             _ => Charset::Other,
         }
     }

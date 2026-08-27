@@ -409,7 +409,8 @@ without these.
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
 | `CSI ? 2 l` | DECANM — enter VT52 | done — see [protocols/vt52.md](protocols/vt52.md) |
 | `ESC # 8` | DECALN screen alignment | done |
-| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph table blocked, see below |
+| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph tables blocked, see below |
+| `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII**; the one differing glyph is a renderer's substitution |
 
 ### CSI operations
 

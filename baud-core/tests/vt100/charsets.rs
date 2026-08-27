@@ -94,11 +94,22 @@ fn an_unhandled_set_is_recorded_not_ignored() {
     assert_ne!(charset(b"\x1b(<"), Charset::DecGraphics);
 }
 
-/// `A` (British Latin-1) differs from USASCII by one glyph baud does not
-/// special-case, so it is treated as ASCII rather than as unknown.
+/// `A` is United Kingdom and is reported as such.
+///
+/// This asserted `Charset::Ascii` — that UK was "treated as ASCII rather than
+/// as unknown" — and the reasoning was that the two differ by one glyph baud
+/// does not substitute. True, and beside the point: not substituting a glyph is
+/// a *rendering* decision, while reporting the wrong set to an embedder that
+/// asked is a lie about what the application designated. See
+/// `uk_is_designated_not_aliased_to_ascii`.
 #[test]
-fn british_latin1_is_treated_as_ascii() {
-    assert_eq!(charset(b"\x1b(A"), Charset::Ascii);
+fn british_latin1_is_reported_as_uk() {
+    assert_eq!(charset(b"\x1b(A"), Charset::Uk);
+    assert_ne!(
+        charset(b"\x1b(A"),
+        Charset::Other,
+        "recognised, not unknown"
+    );
 }
 
 // ── what reaches the cell ───────────────────────────────────────────────────
@@ -201,4 +212,35 @@ fn charset_handling_is_chunk_invariant() {
 fn the_designator_is_not_printed() {
     assert_eq!(run(b"a\x1b(0b").0[1].content, run(b"ab").0[1].content);
     assert_eq!(run(b"a\x1b(Bb").0, run(b"ab").0);
+}
+
+/// **`ESC ( A` is United Kingdom, not ASCII.**
+///
+/// `[[source: ctlseqs]]`: "C = A -> United Kingdom (UK), VT100." It was
+/// aliased to `Charset::Ascii`, so an embedder that asked `Term::charset()`
+/// after being sent UK was told ASCII — the designation vanished. That is the
+/// silent conflation `CSI g` avoids by leaving unhandled parameters inert
+/// rather than aliasing them to `0`.
+///
+/// baud records it and does not substitute the one differing glyph, for the
+/// same reason it does not translate DEC Special Graphics: `MANIFEST.toml`
+/// carries no machine-readable DEC source for either mapping. The distinction
+/// that matters is *recorded but not translated* versus *reported as something
+/// else*.
+#[test]
+fn uk_is_designated_not_aliased_to_ascii() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    assert_eq!(t.charset(), Charset::Ascii, "ASCII by default");
+    feed(&mut t, b"\x1b(A");
+    assert_eq!(t.charset(), Charset::Uk, "UK is reported as UK");
+    feed(&mut t, b"\x1b(B");
+    assert_eq!(t.charset(), Charset::Ascii, "and `B` returns to ASCII");
 }
