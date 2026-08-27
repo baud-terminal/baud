@@ -91,7 +91,7 @@ without these.
 | `ESC M` | RI reverse index | done |
 | `ESC c` | RIS full reset | done |
 | `ESC H` | HTS set tab stop | done |
-| `ESC =` / `ESC >` | DECKPAM/DECKPNM | **todo** |
+| `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
 | `ESC # 8` | DECALN screen alignment | done |
 | `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph table blocked, see below |
 
@@ -254,7 +254,11 @@ core fills and the caller drains with `Term::reply()` / `Term::clear_reply()`,
 mirroring the input side -- the core is `no_std` with no I/O, so it cannot own a
 PTY. Overflow is counted in `reply_overflows`, never silent.
 
-DA, DSR and DECRQM go through it. `XTVERSION` remains **todo**.
+DA, DSR, DECRQM and XTVERSION all go through it. XTVERSION is the one report
+that is **not** a CSI — `[[source: ctlseqs]]` gives the response as
+`DCS > | text ST` — which is exactly why the reply side is a typed `Report`
+rather than byte literals: the shape comes from the variant, so the one
+odd-shaped answer cannot be written in the shape of the others by mistake.
 
 DECRQM is worth its own note, because its interesting answer is the negative
 one. `[[source: ctlseqs]]` gives `0` as "not recognized", and baud returns it

@@ -1280,6 +1280,9 @@ impl FinalByte {
 /// site says nothing; this says which namespace.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marker {
+    /// `>` — the secondary namespace, used by XTVERSION and secondary DA.
+    /// Distinct from `?`: `CSI > 0 q` and `CSI ? 0 q` are unrelated.
+    Gt,
     Standard,
     Private,
 }
@@ -1790,6 +1793,11 @@ pub enum Esc {
     NextLine,
     /// RIS — Reset to Initial State, `ESC c`. A full reset, not a soft one.
     Reset,
+    /// DECKPAM — Application Keypad, `ESC =`. `[[source: ctlseqs]]`:
+    /// "ESC = Application Keypad (DECKPAM)."
+    KeypadApplication,
+    /// DECKPNM — Normal Keypad, `ESC >`, VT100.
+    KeypadNumeric,
     /// HTS — Horizontal Tab Set, `ESC H`. Sets a tab stop at the cursor column.
     TabSet,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
@@ -1805,6 +1813,8 @@ impl Esc {
             b'D' => Esc::Index,
             b'E' => Esc::NextLine,
             b'c' => Esc::Reset,
+            b'=' => Esc::KeypadApplication,
+            b'>' => Esc::KeypadNumeric,
             b'H' => Esc::TabSet,
             _ => Esc::Unsupported,
         }
@@ -1899,6 +1909,8 @@ pub enum Csi {
     Sgr,
     /// DECSCUSR, `CSI Ps SP q`. Cursor shape and blink.
     CursorStyle(CursorStyle),
+    /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
+    RequestVersion,
     /// DECRQM, `CSI Ps $ p` and `CSI ? Ps $ p`. A *question*, answered with
     /// [`Report::ModeStatus`].
     RequestMode {
@@ -1940,6 +1952,16 @@ impl Csi {
                     marker,
                     mode: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
                 },
+                _ => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            };
+        }
+        // `CSI > Ps q` -- the `>` is a secondary marker, distinct from `?`.
+        if marker == Marker::Gt && f.raw() == b'q' {
+            return match p.at(ParamIdx::FIRST).map_or(0, |x| x.0) {
+                0 => Csi::RequestVersion,
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -2286,6 +2308,20 @@ pub enum ClipboardOp<'a> {
     /// refusal is a decision recorded in the type rather than a sequence that
     /// happens to fall through.
     Read,
+}
+
+/// What the numeric keypad sends. DECKPAM / DECKPNM.
+///
+/// `[[source: ctlseqs]]`: "ESC = Application Keypad (DECKPAM)" and
+/// "ESC > Normal Keypad (DECKPNM), VT100."
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum KeypadMode {
+    /// Digits and operators, as printed on the keys.
+    #[default]
+    Numeric,
+    /// `SS3`-prefixed sequences, so an application can tell keypad `5` from the
+    /// `5` on the top row.
+    Application,
 }
 
 /// A mouse button, as the wire encodes it.
@@ -2752,6 +2788,16 @@ pub enum Report {
     OperatingStatus,
     /// Primary DA, `CSI ? Ps c`.
     PrimaryDeviceAttributes(DeviceAttribute),
+    /// XTVERSION, the answer to `CSI > 0 q`.
+    ///
+    /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
+    /// response is a DSR sequence identifying the version: `DCS > | text ST`".
+    ///
+    /// The only report here that is not a CSI, which is why the encoder has a
+    /// DCS branch at all. Answering it lets an application feature-detect
+    /// instead of guessing from `$TERM` -- and guessing from `$TERM` is how a
+    /// terminal ends up being sent sequences it does not implement.
+    Version,
     /// DECRPM, the answer to DECRQM: `CSI Ps ; Pm $ y`, or
     /// `CSI ? Ps ; Pm $ y` for the private namespace.
     ///
@@ -2874,6 +2920,21 @@ impl Report {
                 e.push(b';');
                 e.push_num(row.get());
                 e.push(if release { b'm' } else { b'M' });
+            }
+            Report::Version => {
+                // Not a CSI: `DCS > | <text> ST`. The introducer written here
+                // replaces the `ESC [` the encoder starts with, so the branch
+                // rewinds rather than appending.
+                e.len = 0;
+                e.push(0x1b);
+                e.push(b'P');
+                e.push(b'>');
+                e.push(b'|');
+                for &b in b"baud" {
+                    e.push(b);
+                }
+                e.push(0x1b);
+                e.push(b'\\');
             }
             Report::ModeStatus {
                 marker,
@@ -3132,6 +3193,9 @@ impl StreamByte {
     /// loop and not by `is_csi_intermediate`.
     pub const COLON: StreamByte = StreamByte(b':');
     pub const QUESTION: StreamByte = StreamByte(b'?');
+    /// `>`, the secondary CSI marker. A parameter byte like `?`, and a
+    /// different namespace from it.
+    pub const GT: StreamByte = StreamByte(b'>');
     pub const CSI_INTRO: StreamByte = StreamByte(b'[');
     pub const OSC_INTRO: StreamByte = StreamByte(b']');
     /// `ESC P`. Device Control String: a payload that must be consumed, never

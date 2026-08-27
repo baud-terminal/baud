@@ -22,10 +22,10 @@ extern crate alloc;
 pub use baud_domain::{
     AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col, ColorWord,
     Cols, Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
-    FinalByte, GSlot, LineSlot, Marker, ModeBit, ModeState, Modes, MouseButton, MouseEvent,
-    MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params,
-    Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
-    StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize, XColor,
+    FinalByte, GSlot, KeypadMode, LineSlot, Marker, ModeBit, ModeState, Modes, MouseButton,
+    MouseEvent, MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx,
+    Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount,
+    Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize, XColor,
 };
 
 /// Whether `level` is the tracking currently selected.
@@ -453,6 +453,10 @@ pub struct Term<'a> {
     /// saves the cursor, switches screens and restores must get its own saved
     /// cursor back, not the one the switch stashed.
     alt_saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>,
+    /// DECKPAM/DECKPNM. Input-side, so the core records it and an embedder
+    /// reads it -- the keypad sends different sequences in each mode, and
+    /// without it an embedder has no way to know which.
+    keypad: KeypadMode,
     /// Which mouse events the application asked to hear about, `?1000/2/3`.
     mouse: MouseTracking,
     /// `?1006`. Without it baud reports nothing -- see [`Report::MouseSgr`].
@@ -548,6 +552,7 @@ impl<'a> Term<'a> {
             cursor_style: CursorStyle::BlinkingBlock,
             screen: Screen::Normal,
             alt_saved: None,
+            keypad: KeypadMode::Numeric,
             mouse: MouseTracking::Off,
             mouse_sgr: false,
             mouse_unencodable: Stat::ZERO,
@@ -1578,6 +1583,7 @@ impl<'a> Term<'a> {
             // Selective erase is a VT220 feature and has since landed, but a DA
             // identity promises everything at that level, so the answer does
             // not move. Under-claiming degrades, over-claiming breaks.
+            Csi::RequestVersion => self.report(Report::Version),
             Csi::DeviceAttributes => {
                 self.report(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102))
             }
@@ -1859,6 +1865,8 @@ impl<'a> Term<'a> {
                     }
                 } else if b == StreamByte::QUESTION {
                     self.private = Marker::Private;
+                } else if b == StreamByte::GT {
+                    self.private = Marker::Gt;
                 } else if let Some(f) = FinalByte::from_stream(b) {
                     self.dispatch(f);
                     self.st = State::Ground;
@@ -2117,6 +2125,11 @@ impl<'a> Term<'a> {
             Esc::Index => self.index(),
             Esc::NextLine => self.wrap(),
             Esc::Reset => self.reset(),
+            // These were in the fast path's `known` list and then fell through
+            // `Esc::parse` to nothing: recognised, consumed, and dropped, which
+            // is the `parsed` failure docs/vt-coverage.md is built around.
+            Esc::KeypadApplication => self.keypad = KeypadMode::Application,
+            Esc::KeypadNumeric => self.keypad = KeypadMode::Numeric,
             Esc::TabSet => {
                 let x = self.cx.index();
                 self.s.tabs[x] = true;
@@ -2149,6 +2162,11 @@ impl<'a> Term<'a> {
 
     fn set_tracking(&mut self, level: MouseTracking, on: bool) {
         self.mouse = if on { level } else { MouseTracking::Off };
+    }
+
+    /// DECKPAM/DECKPNM: what the numeric keypad should send.
+    pub fn keypad(&self) -> KeypadMode {
+        self.keypad
     }
 
     /// What tracking the application asked for. `?1000/1002/1003`.
@@ -2291,6 +2309,7 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
+        self.keypad = KeypadMode::Numeric;
         self.mouse = MouseTracking::Off;
         self.mouse_sgr = false;
         self.g = [Charset::Ascii; 4];
@@ -2314,6 +2333,7 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
+        self.keypad = KeypadMode::Numeric;
         self.mouse = MouseTracking::Off;
         self.mouse_sgr = false;
         self.g = [Charset::Ascii; 4];
@@ -2409,6 +2429,10 @@ impl<'a> Term<'a> {
                 any = false;
             } else if d == StreamByte::QUESTION {
                 self.private = Marker::Private;
+            } else if d == StreamByte::GT {
+                // Same rule as the portable path: a marker handled in only one
+                // feed is the silent divergence this file keeps having.
+                self.private = Marker::Gt;
             } else if d.is_csi_intermediate() {
                 // Recorded, not skipped. Dropping it here would make the AVX2
                 // path dispatch `CSI ! p` as `CSI p` while the portable path
