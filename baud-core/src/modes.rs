@@ -73,13 +73,12 @@ impl<'a> Term<'a> {
                     self.cy = Row::ZERO;
                 } else if !on && self.screen == Screen::Alternate {
                     self.screen = Screen::Normal;
-                    if let Some((r, c, st, sw, fl)) = self.alt_saved.take() {
-                        self.cy = r;
-                        self.cx = c;
-                        self.style = st;
-                        self.style_raw = sw;
-                        self.flags = fl;
-                    }
+                    // Through the same clamped path as DECRC, because the
+                    // quotation above says this *is* DECRC. The save may
+                    // predate a resize, and an unclamped restore puts `cy`
+                    // outside the grid -- which writes and erases index with.
+                    let saved = self.alt_saved.take();
+                    self.place_saved(saved);
                 }
             }
             // The three tracking modes are a *level*, not three flags: xterm

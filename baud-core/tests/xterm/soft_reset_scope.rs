@@ -242,3 +242,81 @@ fn save_and_restore_round_trips_when_the_grid_has_not_changed() {
         "an unresized restore is exact"
     );
 }
+
+/// **Resizing while on the alternate screen clears the primary too.**
+///
+/// `resize` discards the row rotation, which is only sound if the buffer that
+/// rotation described is cleared with it. `clear_screen` clears whichever
+/// screen is current, so a resize taken on the alternate screen left the
+/// primary holding rotated content with `rot` back at zero: every row
+/// displaced. The path is ordinary — a full-screen application is *on* the
+/// alternate screen, which is when a user resizes the window.
+#[test]
+fn a_resize_on_the_alternate_screen_clears_the_primary_too() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    // Scroll the primary so the rotation is non-zero, then mark it.
+    let payload: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
+    feed(&mut t, &payload);
+    feed(&mut t, b"MARK");
+
+    feed(&mut t, b"\x1b[?1049h");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 20,
+            ws_col: 100,
+        }),
+        Resized::Ok
+    );
+    feed(&mut t, b"\x1b[?1049l");
+
+    assert!(
+        !t.viewport().iter().any(|c| c
+            .content
+            .as_codepoint()
+            .is_some_and(|v| v.value() == u32::from(b'x'))),
+        "the primary must be cleared, not left rotated with the rotation \
+         forgotten"
+    );
+}
+
+/// `?1049 l` restores the cursor through the same clamp DECRC uses.
+///
+/// `[[source: ctlseqs]]` defines it as restoring "cursor as in DECRC", so it
+/// *is* DECRC and must not be a second implementation. It was one, and the
+/// second lacked the clamp — so a save taken before a resize put `cy` outside
+/// the grid, which writes and erases index with.
+#[test]
+fn the_alt_screen_restore_clamps_like_decrc() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    // Park the cursor on row 49, enter the alt screen (which saves it), then
+    // shrink to a single row and come back.
+    feed(&mut t, b"\x1b[50;100H\x1b[?1049h");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 1,
+            ws_col: 1,
+        }),
+        Resized::Ok
+    );
+    feed(&mut t, b"\x1b[?1049l");
+
+    let (r, c) = t.cursor();
+    assert_eq!(r.index(), 0, "restored row is inside the one-row grid");
+    assert!(c.index() <= 1, "and so is the column");
+}

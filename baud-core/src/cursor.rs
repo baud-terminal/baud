@@ -113,7 +113,16 @@ impl<'a> Term<'a> {
     /// `CSI u`'s sibling in the escape table -- and two copies of a clamp is
     /// how one of them comes to lack it.
     pub(crate) fn restore_cursor(&mut self) {
-        let Some((r, c, st, sw, fl)) = self.saved else {
+        self.place_saved(self.saved);
+    }
+
+    /// Apply a saved cursor and rendition, clamped to the current grid.
+    ///
+    /// Shared with `?1049 l`, which `[[source: ctlseqs]]` defines as restoring
+    /// "cursor as in DECRC" -- so it is the same operation and must not be a
+    /// second implementation. It was one, and the second lacked the clamp.
+    pub(crate) fn place_saved(&mut self, saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>) {
+        let Some((r, c, st, sw, fl)) = saved else {
             return;
         };
         self.cy = Row::from_index(r.index().min(self.rows.index() - 1));

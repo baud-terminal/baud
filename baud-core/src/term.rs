@@ -451,7 +451,20 @@ impl<'a> Term<'a> {
         // full-screen application and a user dragging a corner. The grid is
         // cleared here anyway, so there is nothing for a rotation to mean.
         self.rot = RowRot::NONE;
-        self.clear_screen();
+        // **Both buffers, not just the one on screen.**
+        //
+        // Discarding the rotation is only sound if the buffer it described is
+        // cleared too. `clear_screen` clears whichever screen is current, so
+        // resizing while on the alternate screen left the *primary* holding
+        // rotated content with `rot` back at zero -- every row displaced, and
+        // only for applications that resize while in full-screen mode, which
+        // is most of them.
+        let showing = self.screen;
+        for s in [Screen::Normal, Screen::Alternate] {
+            self.screen = s;
+            self.clear_screen();
+        }
+        self.screen = showing;
         if over {
             Resized::Truncated {
                 cols: self.cols,
