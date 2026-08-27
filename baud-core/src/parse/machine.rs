@@ -310,37 +310,39 @@ impl<'a> Term<'a> {
             // `[[source: williams]]`'s dcs_entry / dcs_param / dcs_intermediate.
             // Collecting the sequence's identity; the final byte decides
             // whether the data that follows is collected or discarded.
-            State::DcsEntry | State::DcsParam | State::DcsIntermediate => {
-                if let Some(d) = b.as_ascii_digit() {
-                    if self.nparam.is_first() {
-                        self.nparam = self.nparam.next();
-                    }
-                    let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
-                    self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+            // `[[source: williams]]`'s `dcs_entry`. Split from `dcs_param` for
+            // the same reason `csi_entry` is: `3C-3F` is a private marker here
+            // and an error one byte later. These three were one merged arm and
+            // carried all three of the bugs that merge causes.
+            State::DcsEntry => {
+                if b.is_c0() || b == StreamByte::DEL {
+                    // "C0 controls other than CAN, SUB and ESC are **not
+                    // executed** while recognising the first part of a device
+                    // control string." Note the contrast with a control
+                    // sequence, where the same bytes *are* executed -- same
+                    // byte, different state, different rule, which is why the
+                    // states are separate. They are ignored, and they do not
+                    // consume the marker position.
+                } else if let Some(m) = Marker::from_private(b) {
+                    self.private = m;
                     self.st = State::DcsParam;
-                } else if b == StreamByte::SEMICOLON {
-                    if self.nparam.is_first() {
-                        self.nparam = self.nparam.next();
-                    }
-                    if self.nparam.raw_index() < 16 {
-                        self.params[self.nparam.raw_index()] = None;
-                        self.nparam = self.nparam.next();
-                    }
+                } else {
                     self.st = State::DcsParam;
-                } else if b == StreamByte::QUESTION {
-                    self.private = Marker::Private;
+                    self.dcs_param_byte(b);
+                }
+            }
+            State::DcsParam => self.dcs_param_byte(b),
+            State::DcsIntermediate => {
+                if b.is_c0() || b == StreamByte::DEL {
+                    // ignored, as above
                 } else if b.is_csi_intermediate() {
                     self.csi_inter = Some(b);
-                    self.st = State::DcsIntermediate;
                 } else if let Some(f) = FinalByte::from_stream(b) {
-                    // The hook: does baud handle this DCS at all? If not the
-                    // payload still has to be consumed, just not kept.
-                    self.dcs_final = Some(f);
-                    self.st = match Dcs::parse(self.csi_inter, f) {
-                        Dcs::Unsupported => State::DcsIgnore,
-                        _ => State::DcsPassthrough,
-                    };
+                    self.dcs_hook(f);
                 } else {
+                    // `30-3F` after an intermediate: the parameter string is
+                    // over, so a digit here is malformed. The merged arm walked
+                    // back into `dcs_param` and accepted it.
                     self.st = State::DcsIgnore;
                 }
             }
@@ -350,6 +352,9 @@ impl<'a> Term<'a> {
                 } else if b == StreamByte::BEL {
                     self.dispatch_dcs();
                     self.st = self.ground();
+                } else if b.is_c0() {
+                    // "C0 controls other than CAN, SUB and ESC are ignored
+                    // during reception of the control string."
                 } else {
                     self.osc_push(b);
                 }
@@ -466,6 +471,12 @@ impl<'a> Term<'a> {
                     self.st = self.ground();
                 } else if b == StreamByte::ESC {
                     self.st = State::OscEsc;
+                } else if b.is_c0() {
+                    // `[[source: williams]]`'s `osc_string` takes the *ignore*
+                    // action on `01-17,19,1C-1F`; only `20-7F` is `osc_put`.
+                    // Appending them put raw control bytes into an
+                    // attacker-supplied title -- bytes the terminal had already
+                    // been told to drop.
                 } else {
                     self.osc_push(b);
                 }
@@ -520,6 +531,51 @@ impl<'a> Term<'a> {
             // to Ground, which printed the remainder of the sequence as text.
             self.st = State::CsiIgnore;
         }
+    }
+
+    /// One byte of a DCS parameter string. `[[source: williams]]`'s `dcs_param`,
+    /// shared with `dcs_entry` because they agree on everything but the marker.
+    #[inline]
+    fn dcs_param_byte(&mut self, b: StreamByte) {
+        if b.is_c0() || b == StreamByte::DEL {
+            // Ignored, not executed and not an error. See `State::DcsEntry`.
+        } else if let Some(d) = b.as_ascii_digit() {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
+            self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+        } else if b == StreamByte::SEMICOLON {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            if self.nparam.raw_index() < 16 {
+                self.params[self.nparam.raw_index()] = None;
+                self.nparam = self.nparam.next();
+            }
+        } else if b.is_csi_intermediate() {
+            self.csi_inter = Some(b);
+            self.st = State::DcsIntermediate;
+        } else if let Some(f) = FinalByte::from_stream(b) {
+            self.dcs_hook(f);
+        } else {
+            // `3A` colon and `3C-3F` past first position. williams sends both
+            // to `dcs_ignore`; unlike CSI there is no ctlseqs sub-parameter
+            // form to accommodate here, so the spec rule stands unmodified.
+            self.st = State::DcsIgnore;
+        }
+    }
+
+    /// williams' `hook`: the final byte selects a handler, and an unhandled DCS
+    /// still has to consume its payload rather than fall back to Ground — or
+    /// the payload runs as commands.
+    #[inline]
+    fn dcs_hook(&mut self, f: FinalByte) {
+        self.dcs_final = Some(f);
+        self.st = match Dcs::parse(self.csi_inter, f) {
+            Dcs::Unsupported => State::DcsIgnore,
+            _ => State::DcsPassthrough,
+        };
     }
 
     /// `[[source: williams]]`'s **anywhere** block: the bytes whose meaning does

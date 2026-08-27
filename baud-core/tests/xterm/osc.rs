@@ -263,3 +263,19 @@ fn an_unknown_osc_is_consumed() {
     assert!(o.title.is_empty());
     assert!(o.reply.is_empty());
 }
+
+/// A C0 byte inside an OSC payload is ignored, not stored.
+///
+/// `[[source: williams]]`'s `osc_string` state: `01-17,19,1C-1F` take the
+/// *ignore* action and only `20-7F` take `osc_put`. baud appended everything
+/// that was not BEL or ESC, so a raw control byte landed in the title — an
+/// attacker-supplied string carrying bytes the terminal had already been told
+/// to drop.
+#[test]
+fn a_c0_in_an_osc_payload_is_ignored() {
+    assert_eq!(
+        run(b"\x1b]0;ab\x01cd\x07").title,
+        run(b"\x1b]0;abcd\x07").title,
+        "the SOH must not reach the title"
+    );
+}

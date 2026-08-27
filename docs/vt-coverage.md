@@ -48,9 +48,9 @@ addition, not a substitution.
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
 | `csi_ignore` | done | |
-| `dcs_entry` | done | parameters and intermediates collected |
-| `dcs_param` | done | |
-| `dcs_intermediate` | done | |
+| `dcs_entry` | done | its own state — the marker rule, as `csi_entry` |
+| `dcs_param` | done | C0 **ignored**, not executed |
+| `dcs_intermediate` | done | `30-3F` ends the sequence — the parameter string is over |
 | `dcs_passthrough` | done | payload collected for DECRQSS |
 | `dcs_ignore` | done | unhandled DCS consumed, never executed |
 | `osc_string` | done | payload captured, bounded, and dispatched |
@@ -140,11 +140,41 @@ line-drawing table applies: a glyph written into the grid on a control byte
 would be indistinguishable from text the application sent, and unrecoverable if
 wrong. Cancelling is the part an application can observe.
 
+### The DCS prefix had the same merge, and the same three bugs
+
+`dcs_entry`, `dcs_param` and `dcs_intermediate` were one arm, exactly as the CSI
+states were, and lost exactly the same three rules:
+
+| rule | `[[source: williams]]` | was |
+|---|---|---|
+| `3C-3F` is a marker in `dcs_entry` and an error in `dcs_param` | "Occurrences of 3C to 3F in positions other than the first character of the parameter string cause the entire control sequence to be ignored" | accepted anywhere |
+| `30-3F` after an intermediate is malformed | `dcs_intermediate` sends them to `dcs_ignore` | walked back into `dcs_param` and accepted the digit |
+| C0 in the prefix is **ignored** | "C0 controls other than CAN, SUB and ESC are **not executed** while recognising the first part of a device control string" | sent to `dcs_ignore`, costing the sequence |
+
+Note the third against the CSI rule directly above it: williams says "C0 controls
+are executed immediately during the recognition of a control sequence", and *not*
+executed during a device control string. Same byte, different state, opposite
+action — which is the whole reason these are separate states and not one.
+
+Unlike CSI there is no `[[source: ctlseqs]]` sub-parameter form to accommodate in
+a DCS prefix, so `3A` follows williams unmodified and ends the sequence.
+
+### C0 inside a control string payload is ignored, not stored
+
+`osc_string` takes the *ignore* action on `01-17,19,1C-1F`; only `20-7F` is
+`osc_put`, and the same holds for `dcs_passthrough`. baud appended every byte
+that was not a terminator, so a raw control byte landed in the title — and OSC
+payloads are attacker-supplied, which is why this one is in the threat model
+rather than only in the conformance table.
+
 **This block broke chunk-invariance the moment it landed, and the property
 caught it.** `fast_esc` scans an OSC straight to its terminator, so it could not
 see a cancel in between while the state machine could — the same bytes set a
 title or did not, depending on whether they fit inside one `read(2)`. The fast
-path now declines an OSC payload containing CAN or SUB.
+path now declines any OSC payload containing a C0 byte at all — it cannot
+reproduce either rule, since it scans to the terminator (so it cannot see a
+cancel) and copies the payload wholesale (so it would keep bytes that should be
+dropped).
 `a_cancel_inside_an_osc_is_honoured_in_both_feeds` pins it deterministically
 rather than leaving it to a saved seed.
 

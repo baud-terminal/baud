@@ -39,23 +39,26 @@ impl<'a> Term<'a> {
                     return None;
                 }
             };
-            // `[[source: williams]]`: "the C0 controls CAN and SUB cancel any
-            // escape sequence, control sequence or control string in progress
-            // and return to ground state". This path scans straight to the
-            // terminator, so it cannot see a cancel in between -- and the state
-            // machine can. That is a two-feeds divergence *and* a chunk
-            // invariance break: the same OSC dispatched or dropped depending on
-            // whether it happened to fit in one read. Decline and let the state
-            // machine, which implements the rule, handle it.
+            // Any C0 in the payload sends this to the state machine, because
+            // this path cannot reproduce what williams says about them and the
+            // two feeds must be indistinguishable:
+            //
+            //   * `18` CAN and `1A` SUB *cancel* the string. Scanning straight
+            //     to the terminator cannot see a cancel in between, so the same
+            //     bytes dispatched or dropped depending on whether they fit in
+            //     one read -- a chunk-invariance break, and the property found
+            //     it within seconds.
+            //   * every other C0 is *ignored* rather than stored, and this path
+            //     copies the payload wholesale, so it would keep them.
+            //
+            // One comparison over the payload, not the text: OSC strings are
+            // rare next to graphic characters.
             //
             // One pass over the payload, not the text: OSC strings are rare
             // next to graphic characters, and correctness here is not
             // negotiable -- `chunk_invariant_all_modes` found this within
             // seconds of the anywhere block landing.
-            if self.s.arena[b + s..b + s + off]
-                .iter()
-                .any(|&x| x == StreamByte::CAN.raw_byte() || x == StreamByte::SUB.raw_byte())
-            {
+            if self.s.arena[b + s..b + s + off].iter().any(|&x| x < 0x20) {
                 self.fb_not_csi.inc();
                 return None;
             }

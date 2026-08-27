@@ -223,3 +223,70 @@ fn dcs_is_chunk_invariant() {
 fn text_after_a_dcs_still_prints() {
     assert_eq!(grid(b"\x1bP$qm\x1b\\abc"), grid(b"abc"));
 }
+
+// ── the DCS prefix states, per williams ─────────────────────────────────────
+//
+// `dcs_entry`, `dcs_param` and `dcs_intermediate` were one merged arm, so all
+// three rules that distinguish them were lost — the same merge, and the same
+// three bugs, that `csi_entry` had.
+
+/// A C0 inside the DCS prefix does not discard the sequence.
+///
+/// `[[source: williams]]`: "C0 controls other than CAN, SUB and ESC are **not
+/// executed** while recognising the first part of a device control string."
+/// Not executed *and* not an error — they are ignored, and the sequence
+/// continues. baud sent them to `dcs_ignore`, so a stray NUL silently cost an
+/// application its DECRQSS reply.
+///
+/// Note this differs from a control *sequence*, where williams says "C0
+/// controls are executed immediately". Same byte, different state, different
+/// rule — which is exactly why the states are separate.
+#[test]
+fn a_c0_in_the_dcs_prefix_does_not_discard_it() {
+    assert_eq!(
+        replies(b"\x1bP\x00$qm\x1b\\"),
+        replies(b"\x1bP$qm\x1b\\"),
+        "the NUL must not cost the DECRQSS its reply"
+    );
+    assert!(
+        !replies(b"\x1bP\x00$qm\x1b\\").is_empty(),
+        "and there must be a reply to lose"
+    );
+}
+
+/// DEL likewise.
+#[test]
+fn a_del_in_the_dcs_prefix_does_not_discard_it() {
+    assert_eq!(
+        replies(b"\x1bP\x7f$qm\x1b\\"),
+        replies(b"\x1bP$qm\x1b\\"),
+        "DEL is ignored, not an error"
+    );
+}
+
+/// A private marker is legal only as the first byte of the DCS parameter
+/// string, exactly as in `csi_entry`.
+///
+/// `[[source: williams]]`: "Occurrences of 3C to 3F in positions other than the
+/// first character of the parameter string cause the entire control sequence to
+/// be ignored." The merged arm accepted one anywhere.
+#[test]
+fn a_marker_after_a_dcs_parameter_is_ignored() {
+    assert!(
+        replies(b"\x1bP1?$qm\x1b\\").is_empty(),
+        "`DCS 1 ? $ q` is malformed and must produce no reply"
+    );
+}
+
+/// A parameter after an intermediate is malformed.
+///
+/// williams' `dcs_intermediate` sends `30-3F` to `dcs_ignore`: once an
+/// intermediate has arrived, the parameter string is over. The merged arm
+/// walked back into `dcs_param` and accepted the digit.
+#[test]
+fn a_parameter_after_a_dcs_intermediate_is_ignored() {
+    assert!(
+        replies(b"\x1bP$1qm\x1b\\").is_empty(),
+        "`DCS $ 1 q` is malformed and must produce no reply"
+    );
+}
