@@ -110,8 +110,6 @@ impl SgrAttr {
                 SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 100 - 8))),
                 ParamCount(1),
             ),
-            // `SGR 59` — underline colour back to the default, which is
-            // "follow the foreground".
             26 => (SgrAttr::Set(Attrs::PROPORTIONAL), ParamCount(1)),
             50 => (SgrAttr::Unset(Attrs::PROPORTIONAL), ParamCount(1)),
             51 => (SgrAttr::Set(Attrs::FRAMED), ParamCount(1)),
@@ -123,6 +121,28 @@ impl SgrAttr {
                 ParamCount(1),
             ),
             55 => (SgrAttr::Unset(Attrs::OVERLINED), ParamCount(1)),
+            // `SGR 60-64` — the ideogram aspects, and `65` cancelling all five
+            // at once. `[[source: ecma48]]` § 8.3.117 names each for two edges
+            // ("ideogram underline or right side line") because which edge is
+            // marked follows the writing direction; baud records the aspect
+            // and leaves the edge to a renderer that knows the direction.
+            //
+            // 56-59 are not here: § 8.3.117 reserves 56, 57, 58 and 59 for
+            // future standardization, and baud implements 58/59 as the
+            // underline colour only because `[[source: ctlseqs]]` assigns them
+            // that, which is an extension over ECMA-48 rather than a reading
+            // of it. 56 and 57 nothing assigns, so nothing implements them.
+            60 => (SgrAttr::Set(Attrs::IDEOGRAM_UNDERLINE), ParamCount(1)),
+            61 => (
+                SgrAttr::Set(Attrs::IDEOGRAM_DOUBLE_UNDERLINE),
+                ParamCount(1),
+            ),
+            62 => (SgrAttr::Set(Attrs::IDEOGRAM_OVERLINE), ParamCount(1)),
+            63 => (SgrAttr::Set(Attrs::IDEOGRAM_DOUBLE_OVERLINE), ParamCount(1)),
+            64 => (SgrAttr::Set(Attrs::IDEOGRAM_STRESS), ParamCount(1)),
+            65 => (SgrAttr::Unset(Attrs::IDEOGRAM), ParamCount(1)),
+            // `SGR 59` — underline colour back to the default, which is
+            // "follow the foreground".
             59 => (SgrAttr::Underline(Color::Default), ParamCount(1)),
             // `SGR 58` takes the same two spellings as 38 and 48, which is why
             // it joins them here rather than getting a parallel copy: the

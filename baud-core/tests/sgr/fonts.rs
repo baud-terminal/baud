@@ -6,9 +6,9 @@
 //! assumption about where a font lives.
 //!
 //! A font is a *rendition*, not a property of a cell's content, and rendition
-//! lives in `StyleWord` — which carried sixteen bits of explicit padding, put
-//! there because zerocopy rejects implicit padding. `PackedCell` never had to
-//! grow, and the eight-byte cell was never the constraint.
+//! lives in `StyleWord` — which had explicit padding to spend, put there
+//! because zerocopy rejects implicit padding. `PackedCell` never had to grow,
+//! and the eight-byte cell was never the constraint.
 //!
 //! And "never read" resolves the way it did for charset designations and
 //! `?1001`: baud records the selection and a renderer reads it off the cell's
@@ -118,10 +118,11 @@ fn decrqss_reports_a_non_default_font() {
 ///
 /// Listed **out** with the reason that it "needs a third `ColorWord`, which the
 /// eight-byte rendition has no room for". Two mistakes in one sentence:
-/// `StyleWord` is *twelve* bytes, and `PackedCell` — the eight-byte one — holds
-/// a `StyleId` index rather than a rendition. Growing the rendition to sixteen
-/// costs `NSTYLE * 4` bytes, which is 256 in a 24 MB `Storage`, and costs the
-/// cell nothing. The cell was never being asked.
+/// `StyleWord` is not eight bytes, and `PackedCell` — the eight-byte one —
+/// holds a `StyleId` index rather than a rendition. Each time the rendition
+/// grows it costs `NSTYLE` times the growth, which across the underline colour
+/// and the ideogram aspects totals 512 bytes in a 24 MB `Storage`, and costs
+/// the cell nothing. The cell was never being asked.
 #[test]
 fn sgr_58_sets_the_underline_colour() {
     // Indexed, and the two direct-colour spellings.
@@ -244,4 +245,45 @@ fn decrqss_reports_the_presentation_attributes() {
     for want in ["20", "51", "53"] {
         assert!(s.contains(want), "DECRQSS should name {want}, got {s}");
     }
+}
+
+/// `SGR 26` is a **reservation**, and baud records it without resolving it.
+///
+/// `[[source: ecma48]]` § 8.3.117 does not define 26; it reserves it "for
+/// proportional spacing as specified in CCITT Recommendation T.61", and
+/// reserves 50 for cancelling it. T.61 is not a pinned source here and
+/// proportional spacing is a renderer's decision, so the bit is recorded and
+/// nothing acts on it — which is exactly what a reservation permits, and is
+/// distinct from the "recorded but never read" failure this table exists to
+/// catch, because a renderer reads it off the cell's style.
+///
+/// What must not happen is 26 being treated as a *width* change in the core:
+/// the grid is fixed-pitch, and a cell that silently became narrower would
+/// desynchronise every column after it.
+#[test]
+fn sgr_26_is_recorded_but_changes_no_geometry() {
+    let a = style_at(b"\x1b[26mABC", 0);
+    assert!(a.attrs().has(Attrs::PROPORTIONAL), "26 is recorded");
+
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let bytes = b"\x1b[26mABC";
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    let (_, col) = t.cursor();
+    assert_eq!(
+        col,
+        Col::at_index(3),
+        "three cells advanced, proportional or not"
+    );
+
+    assert!(
+        !style_at(b"\x1b[26m\x1b[50mX", 0)
+            .attrs()
+            .has(Attrs::PROPORTIONAL),
+        "and 50 cancels it"
+    );
 }

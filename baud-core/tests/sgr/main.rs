@@ -6,5 +6,6 @@
 //! other two.
 
 mod fonts;
+mod ideogram;
 mod rep_align;
 mod subparams;

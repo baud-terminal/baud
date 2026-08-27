@@ -15,14 +15,15 @@ impl StyleId {
 
 /// Character rendition bits.
 ///
-/// No public field, no `From<u16>`, no `BitOr<u16>`. `Attrs` and [`LineFlags`]
-/// are both 16-bit sets and would happily OR together as raw integers; here
-/// they cannot meet.
+/// No public field, no `From<u32>`, no `BitOr<u32>`. `Attrs` and [`LineFlags`]
+/// are set types that would happily OR together as raw integers; here they
+/// cannot meet. `Attrs` outgrew `LineFlags`' sixteen bits when the ideogram
+/// aspects landed, which is a second reason they are not interchangeable.
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
 #[repr(transparent)]
-pub struct Attrs(pub(crate) u16);
+pub struct Attrs(pub(crate) u32);
 
 impl Attrs {
     pub const NONE: Attrs = Attrs(0);
@@ -38,6 +39,12 @@ impl Attrs {
     /// `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not fraktur".
     pub const FRAKTUR: Attrs = Attrs(1 << 8);
     /// `SGR 26`, off by `SGR 50`.
+    ///
+    /// `[[source: ecma48]]` § 8.3.117 does not *define* 26 -- it reserves it,
+    /// "for proportional spacing as specified in CCITT Recommendation T.61",
+    /// and reserves 50 for cancelling it. baud records the bit and resolves
+    /// nothing, which is what a reservation permits: spacing is a renderer's
+    /// decision and T.61 is not a pinned source here.
     pub const PROPORTIONAL: Attrs = Attrs(1 << 9);
     /// `SGR 51`, off by `SGR 54`.
     pub const FRAMED: Attrs = Attrs(1 << 10);
@@ -45,6 +52,35 @@ impl Attrs {
     pub const ENCIRCLED: Attrs = Attrs(1 << 11);
     /// `SGR 53`, off by `SGR 55`.
     pub const OVERLINED: Attrs = Attrs(1 << 12);
+    /// `SGR 60`, off by `SGR 65`. `[[source: ecma48]]` § 8.3.117 calls it
+    /// "ideogram underline or right side line" -- one aspect with two names,
+    /// because which edge it marks depends on the writing direction.
+    pub const IDEOGRAM_UNDERLINE: Attrs = Attrs(1 << 13);
+    /// `SGR 61` -- "ideogram double underline or double line on the right
+    /// side", off by `SGR 65`.
+    pub const IDEOGRAM_DOUBLE_UNDERLINE: Attrs = Attrs(1 << 14);
+    /// `SGR 62` -- "ideogram overline or left side line", off by `SGR 65`.
+    pub const IDEOGRAM_OVERLINE: Attrs = Attrs(1 << 15);
+    /// `SGR 63` -- "ideogram double overline or double line on the left side",
+    /// off by `SGR 65`.
+    pub const IDEOGRAM_DOUBLE_OVERLINE: Attrs = Attrs(1 << 16);
+    /// `SGR 64` -- "ideogram stress marking", off by `SGR 65`.
+    pub const IDEOGRAM_STRESS: Attrs = Attrs(1 << 17);
+
+    /// The five aspects `SGR 65` cancels together.
+    ///
+    /// `[[source: ecma48]]` § 8.3.117 defines 65 as cancelling "the effect of
+    /// the rendition aspects established by parameter values 60 to 64" -- one
+    /// parameter clearing five bits, the same shape as 54 clearing framed and
+    /// encircled. A named constant rather than five `without` calls so the
+    /// cancel cannot drift out of step with the set.
+    pub const IDEOGRAM: Attrs = Attrs(
+        Attrs::IDEOGRAM_UNDERLINE.0
+            | Attrs::IDEOGRAM_DOUBLE_UNDERLINE.0
+            | Attrs::IDEOGRAM_OVERLINE.0
+            | Attrs::IDEOGRAM_DOUBLE_OVERLINE.0
+            | Attrs::IDEOGRAM_STRESS.0,
+    );
 
     /// Each attribute with the SGR parameter that sets it, in ascending order.
     ///
@@ -52,7 +88,7 @@ impl Attrs {
     /// to report the current rendition, and a `match` per bit is the shape that
     /// silently omits one -- which is how `fold` came to discard every
     /// attribute except reset and foreground.
-    pub const WIRE: [(Attrs, u8); 13] = [
+    pub const WIRE: [(Attrs, u8); 18] = [
         (Attrs::BOLD, 1),
         (Attrs::DIM, 2),
         (Attrs::ITALIC, 3),
@@ -66,20 +102,30 @@ impl Attrs {
         (Attrs::FRAMED, 51),
         (Attrs::ENCIRCLED, 52),
         (Attrs::OVERLINED, 53),
+        (Attrs::IDEOGRAM_UNDERLINE, 60),
+        (Attrs::IDEOGRAM_DOUBLE_UNDERLINE, 61),
+        (Attrs::IDEOGRAM_OVERLINE, 62),
+        (Attrs::IDEOGRAM_DOUBLE_OVERLINE, 63),
+        (Attrs::IDEOGRAM_STRESS, 64),
     ];
 
-    /// Three bits of the sixteen are still free.
+    /// Fourteen bits of the thirty-two are still free.
     ///
-    /// `SGR 60-65` -- the ideogram attributes -- would need five, so widening
-    /// `Attrs` to `u32` is what they cost, and that is `NSTYLE * 4` bytes: 256
-    /// in a 24 MB `Storage`. They are out because nothing sends them, which is
-    /// a scope decision, and this records that the *structure* is not the
-    /// reason. Saying "there is no room" when there is would be the mistake
-    /// that kept fonts and the underline colour out.
-    const _FREE_BITS: u16 = 3;
+    /// The ideogram aspects needed five and there were three, so `Attrs` went
+    /// to `u32` and `StyleWord` to twenty bytes -- `NSTYLE * 8` = 512 bytes in
+    /// a 24 MB `Storage`, and nothing at all on the cell, which holds a
+    /// `StyleId` index rather than a rendition.
+    ///
+    /// This bit was previously spent on an argument that the aspects were
+    /// out "because nothing sends them", while `docs/vt-coverage.md` gave a
+    /// *different* reason -- that no readable primary source defined them.
+    /// Both were wrong: CJK terminals do send them, and the source read
+    /// perfectly once searched with its own letter-spacing removed. Two
+    /// reasons for one refusal is the signal that neither had been checked.
+    const _FREE_BITS: u32 = 14;
 
     /// The raw set, for hashing a rendition.
-    pub fn bits(self) -> u16 {
+    pub fn bits(self) -> u32 {
         self.0
     }
     pub fn with(self, o: Attrs) -> Attrs {
@@ -230,12 +276,13 @@ pub struct StyleWord {
     /// `SGR 58` — the underline's own colour, defaulting to "follow the
     /// foreground".
     ///
-    /// **This word is twelve bytes, not eight.** `PackedCell` is the eight-byte
-    /// one, and it holds a `StyleId` *index* into the template table rather
-    /// than a rendition — so growing this to sixteen costs `NSTYLE * 4` bytes,
-    /// which is 256 in a 24 MB `Storage`, and costs the cell nothing. The row
-    /// that listed 58/59 as out said the rendition word had no room; it was
-    /// the cell that had no room, and the cell was never being asked.
+    /// **This word is twenty bytes, not eight.** `PackedCell` is the
+    /// eight-byte one, and it holds a `StyleId` *index* into the template
+    /// table rather than a rendition — so each time this grows it costs
+    /// `NSTYLE` times the growth (512 bytes in a 24 MB `Storage` across both
+    /// widenings) and costs the cell nothing. The row that listed 58/59 as out
+    /// said the rendition word had no room; it was the cell that had no room,
+    /// and the cell was never being asked.
     underline: ColorWord,
     attrs: Attrs,
     /// `SGR 10-19` — which font the text is set in.
@@ -253,6 +300,11 @@ pub struct StyleWord {
     /// protected and unprotected text of the same colour are one style, not
     /// two, and the 64-entry template cache is not halved by turning DECSCA on.
     font: FontId,
+    /// Explicit, because `zerocopy`'s `IntoBytes` rejects implicit padding and
+    /// widening `attrs` to `u32` left two bytes of it. The same reason
+    /// `Run::_pad` exists: uninitialised tail bytes leak stack across any
+    /// shm or disk boundary.
+    _pad: u16,
 }
 
 /// Which of the ten fonts `[[source: ctlseqs]]` gives SGR the text is set in.
@@ -263,8 +315,8 @@ pub struct StyleWord {
 /// allocator. Recording it is the channel -- the same one charset designations
 /// and `?1001` use -- and it is read wherever a cell's rendition is read.
 ///
-/// A newtype rather than a bare `u16`, and `repr(transparent)` so the word is
-/// still eight bytes.
+/// A newtype rather than a bare `u16`, and `repr(transparent)` so it adds its
+/// two bytes and no more.
 #[repr(transparent)]
 #[derive(
     Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -308,6 +360,7 @@ impl StyleWord {
         underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
         font: FontId::PRIMARY,
+        _pad: 0,
     };
     /// The underline's own colour. `ColorWord::DEFAULT` means "follow the
     /// foreground", which is what every terminal does without `SGR 58`.

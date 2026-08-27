@@ -541,9 +541,9 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
 | 10-19 fonts | done — recorded in `StyleWord`'s spare bits; `Term::style_of` is how a renderer reads one |
 | 58/59 underline colour | done — `StyleWord` grew to sixteen bytes; the *cell* holds a `StyleId` index and did not change |
-| 20 Fraktur, 26/50 proportional, 51-55 framed/encircled/overlined | done — recorded in `Attrs`; 23 clears italic **and** fraktur, 54 clears framed **and** encircled |
-| 56, 57 | **out** — `[[source: ctlseqs]]` assigns them nothing |
-| 60-65 ideogram attributes | **out** — no readable primary source. `[[source: ctlseqs]]`'s SGR section stops before 60, and `[[source: ecma48]]` is a scanned PDF whose text extracts letter-spaced and unsearchable. Writing them from memory is what this project forbids. Bits are *not* the obstacle: three are free and widening `Attrs` costs 256 bytes |
+| 20 Fraktur, 26/50 proportional, 51-55 framed/encircled/overlined | done — recorded in `Attrs`, all from `[[source: ecma48]]` § 8.3.117; 23 clears italic **and** fraktur, 54 clears framed **and** encircled. 26 is a *reservation* there ("for proportional spacing as specified in CCITT Recommendation T.61"), so baud records the bit and resolves nothing |
+| 56, 57 | **out** — `[[source: ecma48]]` § 8.3.117 reserves 56-59 for future standardization and `[[source: ctlseqs]]` assigns 56 and 57 nothing. 58/59 are done only because ctlseqs assigns *them* the underline colour, which is an extension over ECMA-48 rather than a reading of it. `sgr_56_and_57_are_reserved_and_set_nothing` |
+| 60-65 ideogram attributes | done — `[[source: ecma48]]` § 8.3.117 defines all six: 60-64 are ideogram underline, double underline, overline, double overline and stress marking, each named for two edges because which edge is marked follows the writing direction, and 65 cancels all five. `Attrs` went to `u32` for the five bits. See `tests/sgr/ideogram.rs` |
 
 **Fonts moved from `out` to `done` by measuring rather than assuming.** The row
 said they needed cell bits that did not exist. A font is a *rendition*, and
