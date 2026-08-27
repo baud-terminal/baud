@@ -36,25 +36,35 @@ else
   echo "  ok   baud-core/src: $core (limit 8)"
 fi
 
-for f in baud-core/tests/*.rs baud-bench/src/*.rs baud-difftest/src/main.rs; do
+# baud-bench is an aggregate for the same reason baud-core is: after the SRP
+# split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and
+# per-file limits would have to be re-guessed every time a function moves.
+#
+# Why 12 and not 4: impl_audit.py anchors `^\s+\w+: (usize|bool|...),` to a
+# line, meaning to catch struct fields; rustfmt breaks a long fn signature onto
+# one parameter per line, and `total: usize,` as a parameter is then
+# indistinguishable from a field. The extra hits are all parameters of
+# run_once/run_once_t that were already there, hand-wrapped onto shared lines
+# where the regex could not see them. The limit was raised rather than the
+# formatter disabled, but note the cost: 12 permits more genuinely untyped
+# sites than 4 did. The real fix is to teach impl_audit.py the difference
+# between a field and a parameter.
+bench=0
+for f in $(find baud-bench/src -name '*.rs' | sort); do
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
-  case "$f" in
-  # 4 before treefmt, 12 after, with nothing untyped added. impl_audit.py
-  # anchors `^\s+\w+: (usize|bool|...),` to a line, meaning to catch struct
-  # fields; rustfmt breaks a long fn signature onto one parameter per line, and
-  # `total: usize,` as a parameter is then indistinguishable from a field. The
-  # six new field hits and four new bool hits at lines 22-23, 122-123, 133-135
-  # and 157-159 are all parameters of run_once/run_once_t that were already
-  # there, hand-wrapped onto shared lines where the regex could not see them.
-  #
-  # The limit is raised rather than the formatter disabled, but note what that
-  # costs: 12 permits more genuinely untyped sites than 4 did, and the old
-  # calibration cannot be recovered without unformatting the file. The real fix
-  # is to make impl_audit.py distinguish a field from a parameter.
-  baud-bench/src/main.rs) limit=12 ;;
-  baud-bench/src/payload.rs) limit=2 ;;
-  *) limit=0 ;;
-  esac
+  bench=$((bench + n))
+  [ "$n" -gt 0 ] && echo "  ..   $f: $n"
+done
+if [ "$bench" -gt 14 ]; then
+  echo "  FAIL baud-bench/src: $bench raw-integer sites (limit 14)"
+  fail=1
+else
+  echo "  ok   baud-bench/src: $bench (limit 14)"
+fi
+
+for f in baud-core/tests/*.rs baud-difftest/src/main.rs; do
+  n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
+  limit=0
   if [ "$n" -gt "$limit" ]; then
     echo "  FAIL $f: $n raw-integer sites (limit $limit)"
     fail=1
