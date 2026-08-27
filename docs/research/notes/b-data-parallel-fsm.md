@@ -99,13 +99,34 @@ to come before any implementation.
   asserted it. btop is one escape every 16.5 bytes, asciiquarium one every 5.4.
   That assumption came from the synthetic payload, and it is the assumption the
   convergence argument below rests on.
-- **Convergence is a performance property, not a correctness one, and it is
-  input-dependent** `[[source: dpfsm]]` § 5.2. With the premise above corrected,
-  the question is now sharper rather than answered: on escape-dense input the
-  start states do *not* all behave alike, which is where enumeration should pay
-  — but whether convergence is common enough on VT streams specifically is
-  still unestablished, and `tests/recordings/` is now the corpus to establish it
-  against.
+- **~~Whether convergence is common enough on VT streams is unestablished.~~**
+  Measured, against the recordings, and it is the second precondition met.
+  `tests/convergence.rs` drives eight parsers into deliberately distinct states
+  — ground, escape, CSI entry, CSI params, CSI intermediate, OSC, DCS
+  passthrough, APC — then feeds them the same bytes from 200 sample points and
+  counts how many bytes until all eight agree.
+
+  | recording | converged | mean | worst |
+  |---|---|---|---|
+  | btop | **100%** of 200 | 23.6 B | 153 |
+  | asciiquarium | **100%** | 4.4 B | 12 |
+  | vim | **100%** | 21.6 B | 141 |
+
+  Every sample converged, in tens of bytes. That is what the method needs: the
+  enumeration has to be carried only until the lanes collapse, so a mean of
+  4–24 bytes means one lane suffices again almost immediately.
+
+  The ordering is worth noting because it is the opposite of the intuition this
+  note started with. asciiquarium converges **fastest** (4.4 B) and is the most
+  escape-dense (one every 5.4 B). Dense control sequences force every start
+  through the same few states; it is long printable stretches that keep them
+  apart, because Ground and the string states disagree for as long as the text
+  runs.
+
+  **Both preconditions are now measured and both are favourable**: the state
+  machine takes 57–90% of real bytes, and enumerations collapse within tens of
+  bytes. What remains is not a question about VT streams but about the
+  instruction sequence — the `shuffle` item below.
 - The paper predates AVX-512 and NEON `tbl` being commonplace. Its `shuffle`
   workaround may now be a native gather on both of baud's targets. **Unverified.**
 - **Not read:** the HTML-tokenization result is cited here from

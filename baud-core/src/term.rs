@@ -476,6 +476,25 @@ impl<'a> Term<'a> {
     /// it measures about 0.08x. A cell mode cannot compete and is not trying
     /// to -- materialising one ASCII byte into an eight-byte `PackedCell` is a
     /// floor of 8x, which is the cost of having a grid rather than a log.
+    /// Are two parsers in the same state?
+    ///
+    /// Exposed for one measurement: `notes/b-data-parallel-fsm.md` proposes
+    /// vectorising the state machine by enumerating every possible start state
+    /// at once, and that pays only if runs from different starts **converge**
+    /// quickly -- `[[source: dpfsm]]` § 5.2 says convergence is common and
+    /// convergence to a single state is rare, on their inputs. Whether it holds
+    /// on VT streams is one of that note's open questions, and answering it
+    /// needs to compare two parsers fed the same bytes from different starts.
+    ///
+    /// Equality rather than an identifier on purpose. Convergence is a question
+    /// about *sameness*, so this answers exactly that and leaks neither the
+    /// state space nor its numbering -- and `State` stays `pub(crate)`, which
+    /// it should, because nothing outside the parser has any business
+    /// branching on it.
+    pub fn same_parser_state(&self, other: &Term<'_>) -> bool {
+        self.st == other.st
+    }
+
     /// What share of the input took each of `feed_with`'s three paths.
     ///
     /// `(bulk, sequences, byte-at-a-time)`, summing to 1. The third is the one
