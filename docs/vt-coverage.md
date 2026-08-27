@@ -183,6 +183,15 @@ dtterm's `is2` opens with `ESC SP F`, which is how the conformance fixtures
 caught the first version of this: counting S7C1T as unsupported claimed baud had
 refused something it already did.
 
+> **Open decision, under active research.** The paragraph below states the
+> position baud holds *today* and the reasoning behind it. Accepting other input
+> encodings — with detection — is being reconsidered deliberately, and the
+> literature and terminal survey for it will land in
+> `docs/research/notes/`. Do not treat this as settled; `Encoding` in
+> `baud-domain/src/store.rs` is already the extension point, and its
+> `is_byte_per_column` predicate is written around "fixed-width single-byte
+> encoding", not around ASCII, for exactly this reason.
+
 **Legacy charsets are the shell's problem, not the terminal's.** baud already
 has the model for the one charset mechanism it does implement: `SCS`
 (`ESC ( 0`) sets `CellFlags::GRAPHICS` and the cell keeps the byte, so a
