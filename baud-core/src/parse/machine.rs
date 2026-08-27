@@ -143,6 +143,9 @@ impl<'a> Term<'a> {
             Csi::DeleteLines(c) => self.delete_lines(c),
             Csi::ScrollUp(c) => self.scroll_region_up(c),
             Csi::ScrollDown(c) => self.scroll_region_down(c),
+            // Recognised, not acted on, and counted -- baud has no selection
+            // model to highlight with. Reading it as SD scrolled the screen.
+            Csi::HighlightMouseTracking => self.unsupported.inc(),
             Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
             Csi::Mode { change, .. } => self.apply_ansi_modes(change),
             Csi::Sgr => self.apply_sgr(),

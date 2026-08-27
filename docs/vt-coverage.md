@@ -477,7 +477,8 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI M` | DL delete lines | done |
 | `CSI P` | DCH delete chars | done |
 | `CSI S` | SU scroll up | done — **and it now moves the grid**; see CLAUDE.md on the ring advance |
-| `CSI T` | SD scroll down | done |
+| `CSI T` | SD scroll down | done — **one parameter**; five is XTHIMOUSE |
+| `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | XTHIMOUSE initiate highlight tracking | done — recognised and counted; it used to be read as SD and **scrolled the screen** |
 | `CSI X` | ECH erase chars | done |
 | `CSI Z` | CBT backward tabulation | done |
 | `CSI \`` | HPA char position absolute | done |

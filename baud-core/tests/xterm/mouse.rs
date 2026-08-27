@@ -318,3 +318,65 @@ fn ris_stops_tracking() {
     let s = b"\x1b[?1003h\x1b[?1006h\x1bc";
     assert!(report(s, ev(MouseButton::Left, MouseKind::Press, 0, 0)).is_empty());
 }
+
+/// **`CSI Ps ; Ps ; Ps ; Ps ; Ps T` is XTHIMOUSE, not SD.**
+///
+/// `[[source: ctlseqs]]` gives the final byte `T` to two operations and
+/// separates them by *arity*: one parameter is "Scroll down Ps lines (SD)",
+/// five are "Initiate highlight mouse tracking (XTHIMOUSE)".
+///
+/// baud read the five-parameter form as SD, so an application asking to
+/// highlight a region **scrolled the screen instead** — a visible corruption,
+/// and a silent one: nothing was counted, because SD is implemented and the
+/// sequence dispatched to a real handler.
+///
+/// Found by re-reading the `?1001` refusal against its scope. The stated
+/// hazard is xterm's event loop — "all X events are ignored until the proper
+/// escape sequence is received" — and baud has no event loop to block. What
+/// baud must not do is act on the request as though it were a different
+/// operation.
+#[test]
+fn five_parameter_t_is_not_scroll_down() {
+    let mut t = T {
+        s: Storage::boxed(),
+    };
+    let mut term = Term::new(&mut t.s, OpMode::Computed);
+    feed(&mut term, b"one\r\ntwo\r\nthree\r\n");
+    let rows = |term: &Term| -> Vec<u32> {
+        (0..3)
+            .map(|y| {
+                term.row(Row::from_index(y))[0]
+                    .content
+                    .as_codepoint()
+                    .map_or(0, |c| c.value())
+            })
+            .collect()
+    };
+    let before = rows(&term);
+    feed(&mut term, b"\x1b[1;2;3;4;5T");
+    assert_eq!(rows(&term), before, "XTHIMOUSE must not scroll");
+    assert_eq!(
+        term.unsupported.count(),
+        1,
+        "recognised and refused, not silently mistaken for SD"
+    );
+}
+
+/// One parameter is still SD.
+#[test]
+fn one_parameter_t_is_still_scroll_down() {
+    let mut t = T {
+        s: Storage::boxed(),
+    };
+    let mut term = Term::new(&mut t.s, OpMode::Computed);
+    feed(&mut term, b"one\r\ntwo\r\n\x1b[1T");
+    assert_eq!(
+        term.row(Row::from_index(1))[0]
+            .content
+            .as_codepoint()
+            .map(|c| c.value()),
+        Some(u32::from(b'o')),
+        "SD by one moves `one` down a row"
+    );
+    assert_eq!(term.unsupported.count(), 0, "SD is implemented");
+}

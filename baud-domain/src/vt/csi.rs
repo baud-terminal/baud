@@ -171,6 +171,16 @@ impl<'a> Params<'a> {
     pub(crate) fn at(&self, i: ParamIdx) -> Option<Param> {
         self.v.get(i.0 as usize).copied().flatten()
     }
+    /// How many parameters arrived.
+    ///
+    /// Needed because two different operations share the final byte `T` and
+    /// are told apart only by *arity*: one parameter is SD, five are XTHIMOUSE.
+    pub fn len(&self) -> usize {
+        self.v.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.v.is_empty()
+    }
     pub fn count(&self, i: ParamIdx) -> Count {
         Count::from_param(self.at(i))
     }
@@ -407,6 +417,14 @@ pub enum Csi {
         change: ModeChange,
         mode: PrivateMode,
     },
+    /// `CSI Ps ; Ps ; Ps ; Ps ; Ps T` — XTHIMOUSE.
+    ///
+    /// Recognised so it cannot be mistaken for SD, and not acted on:
+    /// highlighting a region needs a selection model baud does not have. The
+    /// hazard `?1001` carries is xterm's rather than baud's — "all X events are
+    /// ignored until the proper escape sequence is received" describes an event
+    /// loop, and baud has none to block. What baud must not do is *scroll*.
+    HighlightMouseTracking,
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -576,6 +594,13 @@ impl Csi {
             b's' => Csi::SaveCursor,
             b'u' => Csi::RestoreCursor,
             b'S' => Csi::ScrollUp(p.count(ParamIdx::FIRST)),
+            // `[[source: ctlseqs]]` gives `T` to two operations and separates
+            // them by arity: `CSI Ps T` is SD, and
+            // `CSI Ps ; Ps ; Ps ; Ps ; Ps T` is "Initiate highlight mouse
+            // tracking (XTHIMOUSE)". Reading the five-parameter form as SD
+            // *scrolled the screen* when an application asked to highlight --
+            // a visible corruption, and a silent one.
+            b'T' if p.len() >= 5 => Csi::HighlightMouseTracking,
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
             b'h' => Csi::Mode {
                 change: ModeChange::Set,
@@ -733,7 +758,7 @@ impl Csi {
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
 
-            RequestVersion => Level::Xterm,
+            RequestVersion | HighlightMouseTracking => Level::Xterm,
 
             Unsupported { .. } => return None,
         })
