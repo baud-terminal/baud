@@ -4,7 +4,7 @@
 
 ```sh
 cargo build --release                # baud-core + harnesses
-cargo test  --release -p baud-core   # 17 tests: properties, known bugs, perf floors
+cargo test  --release -p baud-core   # the whole suite: VT conformance, properties, known bugs, perf floors, coverage
 bash audit_all.sh                    # the type-system gate
 cargo build --release -p baud-core --target x86_64-unknown-none   # bare metal
 ```

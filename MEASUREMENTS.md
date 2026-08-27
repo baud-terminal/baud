@@ -19,7 +19,50 @@ across hosts and the two hosts below are not comparable to each other at all.
 
 ---
 
-# Host A — Linux x86-64
+# Host D — macOS arm64 (Apple M5 Max) — **current**
+
+*Apple M5 Max, 18 cores, 48 GiB. Darwin 27.0.0 arm64. Commit `2d23dc8`,
+2026-08-27. `bench-others/multibench`, `TRANSPORT=memory`, medians of 9,
+interleaved and rotated ordering. Payloads from `baud-bench/src/payload.rs`,
+generated fresh per write.*
+
+**This is the only section measured against the current implementation.**
+Everything below it predates some or all of the VT protocol work, and each
+older host now says so in its own heading. Host A in particular has never been
+re-run under interleaved ordering, which the ordering section below shows was
+biasing baud by 16–20%.
+
+| core | streaming | TUI |
+|---|---|---|
+| baud (spans) | **1615.6** [1477.2–1639.3] | **1956.6** [1637.5–1980.4] |
+| baud (cells, computed) | 1056.5 [1022.8–1068.1] | 963.8 [928.1–991.0] |
+| baud (cells, templated) | 1053.6 [1011.3–1085.0] | 973.6 [937.0–979.3] |
+| ghostty (libghostty-vt) | 1101.8 [1049.5–1116.9] | 1024.4 [994.0–1027.9] |
+| termwiz (wezterm) parse only | 367.2 [352.5–373.9] | 356.0 [338.6–361.4] |
+| alacritty_terminal | 174.9 [167.7–179.9] | 264.7 [258.7–267.0] |
+| vt100 crate | 161.2 [159.5–165.4] | 213.9 [208.6–218.2] |
+| wezterm (full terminal) | 17.1 [17.0–17.4] | 31.6 [31.0–32.2] |
+
+A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
+1086.8 / 1011.2, baud cells 1058.2 / 977.3.
+
+**What this does and does not say.** In span storage baud is 1.47× ghostty
+streaming and 1.91× on TUI, ranges not overlapping. In cell storage it is
+**0.96× and 0.94× — ghostty is faster**, and that is the honest headline for
+anyone who needs a materialised grid rather than spans. The two modes are a
+configuration choice, not a benchmark selection: `OpMode` is fixed at startup,
+the same status ghostty's `-Dsimd` has.
+
+`ceiling (discard, no parse)` measured ~1.68 GB/s here and is *not* an upper
+bound on a parser — see "Do not read the discard row as a ceiling".
+
+---
+
+# Host A — Linux x86-64 — **superseded**
+
+*Predates the VT protocol work and the interleaved run ordering. Never re-run;
+kept for the architectural findings (arena sweep, representation costs), not for
+the cross-core comparison.*
 
 Single-core Xeon 2.1 GHz, 3 GB RAM, kernel 6.18.44. baud runs its **AVX2**
 scanner here. This is the only host where `n_tty` applies, so it is the only
@@ -84,7 +127,11 @@ anything in this repo.
 
 ---
 
-# Host C — x86-64 Linux (GitHub-hosted runner)
+# Host C — x86-64 Linux (GitHub-hosted runner) — **superseded**
+
+*Predates the VT protocol work. The PTY-transport findings here still hold —
+this box has a real `n_tty` and the current host does not — but the absolute
+throughput figures do not describe the current parser.*
 
 *Harness `bench-others/multibench` · median of 9 over 32 MB, interleaved and
 rotated · `.github/workflows/bench.yml`, run 33016512979.*
@@ -153,7 +200,12 @@ shared-memory path `Storage` being a caller-owned `&mut [u8]` exists to allow.
 
 ---
 
-# Host B — macOS arm64 (Apple Silicon)
+# Host B — macOS arm64 (Apple Silicon) — **superseded**
+
+*Predates DCS dispatch, side margins, OSC 8 and IRM. Three sections below reach
+different verdicts on ghostty; they were taken at different times against
+different code and different transports, and none of them is current. Host D at
+the top of this file is.*
 
 ## The PTY was the constraint, and it hid every difference
 
@@ -273,7 +325,7 @@ Three runs, ratios 1.49x, 1.51x, 1.52x. No range overlaps against any core.
 | wezterm (full terminal) | 95x | none |
 
 That is with baud running its **scalar** path — there is no NEON scanner — against
-a ghostty that vectorises. See `notes/b-data-parallel-fsm.md` for why that is
+a ghostty that vectorises. See `docs/research/notes/b-data-parallel-fsm.md` for why that is
 consistent with parser speed not being where baud's advantage comes from.
 
 ### TUI: not a result
@@ -309,7 +361,7 @@ median, across two runs of each scheme:
 
 baud remains the noisiest core by a wide margin, within runs as well as between
 them: its streaming range spans ~35% against ghostty's ~10%. Unexplained. The
-obvious suspect is `Storage::boxed()`, a ~1.7 MB zeroed allocation built fresh
+obvious suspect is `Storage::boxed()`, a ~24 MB zeroed allocation built fresh
 for each of the nine reps, but that is a hypothesis and has not been tested.
 
 ## baud vs alacritty: a result
@@ -384,9 +436,14 @@ PTY, on the same bytes -- not where it ranks.
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
-`baud-core` implements ~22 VT operations against alacritty's 66; the
-differential test matches on 13 of 20 cases, so part of every margin is work not
-being done.
+`docs/vt-coverage.md` carries 92 rows at **done** and none at `todo`. The
+operation gap that earlier editions of this file described -- "~22 VT
+operations against alacritty's 66" -- is closed, and every table below
+predating that work is marked with the host and date it was taken on.
+
+The differential test's "13 of 20 cases" figure is **stale and has not been
+re-run**: `baud-difftest` needs an alacritty checkout this box does not have.
+It predates every VT commit from the selective-erase work onward.
 
 - **foot.** Linux/Wayland only; cannot be built on Host B at all.
 - **Host A has not been re-run** since `multibench` switched to median-of-9 and

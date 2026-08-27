@@ -16,319 +16,140 @@
 
 > A terminal emulator ingest core, and the measurements that produced it.
 
-Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage this
-sits in runs teletype → glass tty → terminal emulator, and a baud is a measure of
-how fast symbols cross a line — which is what every number below is about.
+Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage runs
+teletype → glass tty → terminal emulator, and a baud measures how fast symbols
+cross a line — which is what this is about.
 
-**This is not a terminal.** It is the byte path — PTY read through VT parse into
-a grid — built from whatever measurement pointed at rather than from what read
-nicely, plus the harness that produced those measurements. Rendering, font
-shaping and the renderer are absent. The VT surface itself is now implemented;
-what is missing is everything that draws it. See [Not done](#not-done) before
-believing any of the numbers mean a faster terminal.
+## Status
 
-## What we're trying to build
+**This is not a terminal.** It is the byte path — PTY read, through VT parse,
+into a grid — plus the harness that measured it.
 
-A terminal emulator that is faster than the existing ones on all four axes at
-once — ingest throughput, input latency, frame rate under full-grid churn, and
-memory — rather than winning one and losing the rest. No shipping terminal holds
-all four today, and the measurements below suggest the reason is not a hard
-tradeoff. It is that each project committed to one architecture early:
-
-| | foot | kitty | ghostty | alacritty |
-|---|---|---|---|---|
-| parser | scalar C | scalar C | **SIMD** (Zig) | scalar (`vte`) |
-| event loop | epoll reactor | poll reactor | **libxev / io_uring** | winit + `polling` |
-| render | CPU raster | GPU | GPU | GPU |
-| grid | cell array | cell array | cell array | cell array |
-
-Nobody has combined byte-span storage, lazy viewport materialisation,
-damage-adaptive dispatch between the CPU and GPU render paths, and an
-unthrottled present. Each piece exists somewhere; the combination doesn't exist
-anywhere. That gap is the thesis.
-
-## The one invariant
-
-Every result in this repo is predicted by two things, and neither is the thing
-people usually optimise:
-
-1. **Write amplification ≤ 1.** Bytes written to memory per byte ingested.
-2. **Working set ≤ cache.** The structures touched per byte must stay resident.
-
-Allocation is a *proxy* for these, not the thing itself. An immutable flat log
-that allocates nothing still cost 22%, because the array grew past cache.
-Content addressing is nothing but indices, and lost 9–23% even at a 100% dedup
-hit rate, because the table it indexes is bigger than what it replaces.
-
-## What's measured
-
-Single-core virtualised Xeon @ 2.1 GHz, 3 GB RAM, kernel 6.18, L2 2 MiB.
-Absolute figures are not bare metal; the ratios are the finding. Re-run on your
-hardware before quoting anything.
-
-### The kernel is the ceiling, and it is not reachable
-
-| | MB/s |
+| | |
 |---|---|
-| pipe, same two processes | 8155 |
-| SIMD scan, isolated | 3383 |
-| scalar state machine, isolated | 596 |
-| **kernel PTY, raw, null reader** | **569** |
-| kernel PTY, `n_tty` cooked | 223 |
+| VT protocol | implemented; 92 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| Tests | 319, including property tests over generated VT programs |
+| Renderer | **none** |
+| Font shaping | **none** |
+| Input path | **none** — no keyboard, no mouse device |
 
-The tty layer costs **14× a pipe** for the same bytes between the same two
-processes. A naive byte-at-a-time state machine already saturates it, so parser
-speed is not the binding constraint — SIMD scanning is 6× past the wall.
+The protocol surface is done. Everything that *draws* it is not. Read
+[Not done](#not-done) before treating any number here as "a faster terminal".
 
-`read(2)` returns **at most 4095 bytes** regardless of the buffer you offer,
-because `N_TTY_BUF_SIZE` is 4096 (`drivers/tty/n_tty.c:59`) and it is a fixed
-array embedded in `struct n_tty_data`. Offering 1 MiB (as alacritty does) gets
-you 4095. That is 4,229 syscalls per 16 MB.
+## Quickstart
 
-Not reachable from userspace: eBPF cannot resize a kernel struct or skip the
-`queue_work()` hop; `splice()` measured *worse* (297 vs 546 MB/s); no sysctl
-exists. `SCHED_FIFO` made p99 latency **50% worse**.
+```rust
+use baud_core::{OpMode, Storage, StreamByte, Term};
 
-### Latency is the display, not the kernel
+// Storage is caller-owned and fixed-size: no allocator on the ingest path.
+let mut store = Storage::boxed();
+let mut term = Term::new(&mut store, OpMode::Computed);
 
-```
-PTY write → echo → read, 20k samples
-  p50 5.7µs   p99 12.3µs   p99.9 31.9µs   max 89µs
+// Feed bytes exactly as they arrive from read(2) — split anywhere.
+let mut slot = term.read_slot();
+let base = slot.base();
+let filled = slot.write(StreamByte::slice_from(b"\x1b[1;32mhello\x1b[m"));
+term.feed(base, filled.len());
+term.commit_read(filled.len());
+
+// A terminal is not write-only: drain anything it owes the host.
+let reply = term.reply(); // e.g. the answer to a DSR
+let cells = term.viewport(); // the materialised grid
 ```
 
-Against a 16,667µs vblank quantum, the entire kernel round trip is **0.04% of
-the input-latency budget**. Latency is won at `wp_tearing_control_v1`, VRR,
-direct scanout, and higher refresh — not in the terminal.
+`OpMode` picks the representation and is fixed at startup:
+`Computed` and `Templated` materialise cells; `Runs` keeps byte spans and
+materialises on demand. In `Runs`, `viewport()` reports *representation*, not
+rendered content — see [architecture](docs/architecture.md).
 
-### Representation is the whole game
+## Why it exists
 
-| grid representation | % of kernel ceiling | memory written per 256 MB in |
+Every result here is predicted by two quantities:
+
+1. **Write amplification ≤ 1** — bytes written to memory per byte ingested.
+2. **Working set ≤ cache** — the structures touched per byte stay resident.
+
+Allocation is a *proxy* for these, not the thing. An immutable flat log that
+allocated nothing still cost 22%, because the array grew past cache.
+
+## The number
+
+*Apple M5 Max, 2026-08-27, commit `2d23dc8`, in-memory transport, medians of 9,
+interleaved ordering. Full table and every caveat in
+[MEASUREMENTS.md](MEASUREMENTS.md).*
+
+| core | streaming | TUI redraw |
 |---|---|---|
-| 16-byte cell `{cp,fg,bg,attr}` | 36% | 3.96 GB |
-| 8-byte cell `{cp,style_id}` | 48% | 1.98 GB |
-| 4-byte codepoints + style spans | 50% | 0.99 GB |
-| byte runs into an arena | 68% | 0.25 GB |
-| **+ zero-copy, 1 MiB arena** | **80%** | 0 |
+| **baud** (spans) | **1615.6** MB/s | **1956.6** MB/s |
+| ghostty (libghostty-vt) | 1101.8 | 1024.4 |
+| termwiz (wezterm) parse only | 367.2 | 356.0 |
+| alacritty_terminal | 174.9 | 264.7 |
+| vt100 crate | 161.2 | 213.9 |
 
-Arena size sweep: 256 KiB → 458, **1 MiB → 479**, 8 MiB → 472, 64 MiB → 441.
-Zero-copy is *slower* than copying if the buffer isn't resident.
-
-### Things that lost
-
-| | vs baseline |
-|---|---|
-| content addressing, 100% dedup rate | −18% |
-| content addressing, unique lines | −23% |
-| immutable flat log, windowed arena | −22% |
-| immutable flat log, true history | −31% |
-| persistent grid, structural sharing | −58% |
-| full cell snapshot per line | −93% |
-| fixed-stride A×B matrix (4 B/cell) | −20% |
-
-Immutable *lines* work. Immutable *grids* do not — the grid is derivable.
-
-### Render is not the constraint
-
-| | per frame | max fps, one core |
-|---|---|---|
-| CPU raster, full damage (DOOM-fire case) | 2.00 ms | 501 |
-| GPU instance build, full grid | 0.025 ms | 40,783 |
-
-foot achieves 199 fps and kitty 273. Neither is render-bound; both are bounded
-by the present path. foot's `render.c:5165` gates on `frame_callback == NULL`
-with the callback created inside the render, so it cannot structurally exceed
-vblank. Viewport→GPU transcode costs 0.19% of a core at 240 fps — there is
-nothing there worth buying with 20% of ingest.
-
-### Against a real terminal, same box, same payload
-
-alacritty's `Term` + `vte`, benchmarked headless. **It is fed from memory with
-no PTY at all; baud pays syscalls and three kernel copies.**
-
-| payload | alacritty_terminal | baud | ratio |
-|---|---|---|---|
-| streaming text | 51.7–87.3 MB/s | 201.1 | ~2.3–3.9× |
-| TUI redraw | 126.0 MB/s | 159.4 | **1.3×** |
-
-Those `baud-core` figures are *after* the port to `baud-domain` types, which added real
-UTF-8 decoding, wide-character handling, and an 8-byte cell holding a full
-codepoint. The pre-port numbers (278.5 / 230.1) were measured against a core
-that advanced the cursor one column per UTF-8 continuation byte and truncated
-`U+1F680` to `U+F680`. They were faster and wrong.
-
-The margin is workload-dependent and that is the thesis confirming itself:
-alacritty is *2.4× faster on TUI than on streaming* because TUI payloads are
-mostly escape sequences and produce fewer cell writes. Its bottleneck is writing
-its `Cell`. baud goes slightly the other way, having no per-cell writes to
-save. Two measurements, opposite directions, one variable.
-
-**The operation gap is closed.** `docs/vt-coverage.md` carries 92 rows at
-**done** and no rows at `todo`: every Tier 1 VT100/ANSI operation, the Tier 2
-VT220/VT420 set including left/right margins, all thirteen parser states of
-`[[source: williams]]`, and the xterm extensions applications actually depend
-on. What alacritty still does that baud does not is damage tracking, selection
-and vi-mode — a different kind of work, not more operations.
-
-What is *deliberately* out of scope is listed with reasons in the same file:
-sixel and kitty graphics, ReGIS, NRCS, Tektronix mode, and `?1001` highlight
-tracking, which `[[source: ctlseqs]]` warns "requires a cooperating program,
-else xterm will hang".
-
-## What of the protocol is implemented
-
-`docs/vt-coverage.md` is the answer, enumerated against primary sources rather
-than summarised. It carries a status per operation, and a row reaches **done**
-only when a test exists that would fail if the operation regressed. 92 rows are
-there now, behind 306 tests across 26 files — unit tests quoting the spec line
-they check, property tests over *generated VT programs* rather than random
-bytes, and performance floors that fail on an architectural mistake.
-
-The status worth knowing about is `parsed`: a sequence the parser recognises and
-then **drops**. That is worse than one it does not implement, because the
-terminal accepts it, does nothing, and gives the application no way to find out.
-Three operations sat in that state — DECSTBM, DL and SM/RM — while this file
-advertised "~22 operations". Two more were found the same way later: SGR's
-`fold` was discarding every attribute except reset and foreground, and
-`ESC =`/`ESC >` were consumed by the fast path and acted on by nobody.
-
-Implemented since: scrolling regions and the operations that share them (DL, SU,
-SD, IL, IND, RI, NEL, LF with real LNM state); cursor positioning (CNL, CPL,
-CHA, HPA, VPA, HPR, VPR, SCOSC, SCORC); a real tab-stop table behind HT, HTS,
-TBC, CHT and CBT; the C0 controls; four missing parser states, including the one
-whose absence let an APC payload execute as commands; DECSTR; DECOM, DECAWM and
-DECTCEM; and a reply channel carrying DA and DSR.
-
-Then, in order: the full SGR attribute set including the ISO 8613-6 colon form
-of direct colour; REP and DECALN; selective erase (DECSCA, DECSED, DECSEL) with
-protection carried per cell; the **alternate screen buffer**, which is what
-lets vim give the shell its scrollback back; OSC dispatch for window titles and
-the colour palette; character set designation with SO/SI; mouse reporting in the
-SGR encoding; DECSCUSR, DECRQM, XTVERSION, bracketed paste and synchronised
-output; DCS dispatch with DECRQSS; left and right margins (DECSLRM) with DECIC
-and DECDC; and `OSC 8` hyperlinks.
-
-Three of those are refusals rather than features, and they are the ones worth
-reading the reasons for: `OSC 52` clipboard *reads* are answered with silence,
-the DEC line-drawing glyph table is not written from memory, and mouse reports
-are not sent in an encoding that cannot express this grid's width.
-
-`docs/protocol-roadmap.md` recommends what to add next and what to decline, with
-reasons for both.
-
-Every claim traces to a source in `docs/research/sources/`, hash-pinned in
-`MANIFEST.toml` and gated by `scripts/check-sources.sh`: xterm's `ctlseqs`,
-Paul Flo Williams' DEC ANSI parser, ECMA-48, and the VT510 programmer
-reference. Control functions are not implemented from memory here — the spec has
-overruled confident guesses more than once, and the commit log says where.
+**Read the qualifier.** That is baud's *span* representation. In cell
+storage — which is what you need for a materialised grid — baud measures 1056.5
+/ 963.8 and **ghostty is faster on both**. Both modes ship; which is honest to
+quote depends on what you are building.
 
 ## Layout
 
 ```
-baud-domain/    #![no_std], no alloc, #![forbid(unsafe_code)]. The type system:
-                every quantity is a type, every invariant the compiler can hold
-                is held by the compiler.
-baud-core/      #![no_std], no alloc. The ingest core, written in those types.
-baud-bench/     std harness. Forks a PTY, generates payloads, times ingest.
-baud-difftest/  Differential test against alacritty's `Term`.
+baud-domain/   the type system: quantities, VT operations, reports. no_std, no unsafe.
+baud-core/     the ingest core: parser, grid, scrollback. no_std, one unsafe block.
+baud-bench/    PTY harness — the numbers above come from here.
+baud-difftest/ differential test against alacritty_terminal.
+bench-others/  the cross-implementation comparison.
 ```
 
-`baud-domain` depends on `zerocopy` (derive only) so records crossing the mmap
-and GPU boundaries have compiler-checked layout; proc macros don't ship in the
-binary. `baud-core` depends on `baud-domain` and nothing else. Its `alloc`
-feature adds `Storage::boxed()` for std callers and is off by default. Both
-build for `x86_64-unknown-none`.
+`baud-core` depends on `baud-domain` and `zerocopy`. Both crates are `no_std`;
+`baud-core` is built for `x86_64-unknown-none` in CI to prove it.
 
-The core builds for `x86_64-unknown-none`. Storage being a caller-owned
-`&mut Storage` is the point, not ceremony: the arena is a `&mut [u8]`, so it can
-equally be a shared-memory mapping another process writes into — which is the
-only route that removes the tty layer from the hot path.
+## Building
 
-## Development
-
-The toolchain is pinned by [devenv](https://devenv.sh) — Rust **nightly**, plus
-the `x86_64-unknown-none` target the `no_std` gate builds against.
-
-```bash
-direnv allow   # or: devenv shell
-
-dev-ci         # full pipeline: treefmt + clippy + check + test + audit
-dev-test       # tests
-dev-bare       # the no_std gate: build baud-core for x86_64-unknown-none
-dev-audit      # the type-system gate (audit_all.sh)
-```
-
-`dev-ci` is not an approximation of CI. `.github/workflows/ci.yml` runs
-`devenv test`, which runs the `tasks."test:*"` set defined in `devenv.nix` —
-the same suite `dev-ci` walks. Add a check by adding a task, never by adding a
-step to the workflow, and the two cannot drift apart.
-
-See [BUILD.md](BUILD.md) for what each gate proves, and [CLAUDE.md](CLAUDE.md)
-for the constants that must not move without a measurement.
-
-## Running
+Requires [Nix](https://nixos.org) and [devenv](https://devenv.sh) — the
+toolchain is nightly-pinned and reproduced from `devenv.nix`.
 
 ```sh
-cargo run --release -p baud-bench              # real PTY, median of 9
-cargo build --release -p baud-core --target x86_64-unknown-none   # no_std proof
-cargo run --release -p baud-difftest           # cell-by-cell diff vs alacritty
+devenv shell -- dev-ci      # the full gate: fmt, sources, clippy, check, test, bare, audit
+devenv shell -- dev-test    # tests only
 ```
 
-`baud-bench` builds and runs on Linux and macOS, x86-64 and aarch64 — but it
-prints a warning off Linux and you should believe it. The tty layer is the thing
-being measured, Darwin has no `n_tty`, and there is no SIMD scanner outside
-x86-64. Nothing measured off Linux is comparable to [MEASUREMENTS.md](MEASUREMENTS.md).
+`dev-ci` is not an approximation of CI: `.github/workflows/ci.yml` runs
+`devenv test`, the same task set. **Add a check by adding a task, never by
+adding a step to the workflow.** The same suite runs on `git push` via a
+pre-push hook.
 
-`baud-difftest` needs an alacritty checkout whose path is set in its manifest,
-so it is excluded from the workspace. `bench-others/` holds the
-cross-implementation harnesses and their requirements.
+More in [BUILD.md](BUILD.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Where to read more
+
+[docs/README.md](docs/README.md) indexes everything. The short version:
+
+| | |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | the data path and why it is shaped this way |
+| [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation |
+| [docs/protocol-decisions.md](docs/protocol-decisions.md) | why the hard calls went the way they did |
+| [MEASUREMENTS.md](MEASUREMENTS.md) | every number, with the host that produced it |
+| [CLAUDE.md](CLAUDE.md) | working notes: what was tried and lost |
+
+Every protocol claim traces to a primary source in `docs/research/sources/`,
+hash-pinned in `MANIFEST.toml` and gated by `scripts/check-sources.sh`. Control
+functions are not implemented from memory here — the spec has overruled
+confident guesses more than once, and the commit log says where.
 
 ## Not done
 
-In rough order of how likely each is to invalidate the above:
-
-- **Font shaping.** Partly measured now, and the shape of the risk changed:
-  a warm glyph-cache hit is **1.1 ns**, a fontconfig fallback resolution is
-  **245 µs** — a 220,000× cliff. Seventeen misses blow a frame at 240 fps. So
-  the risk is not shaping being slow, it is the *miss path*. Warm ASCII×styles
-  at startup from a persisted 10.5 KB table, resolve misses on a worker, and
-  cache negatives.
-- **Grapheme clusters.** `Width` is currently computed per codepoint, and the
-  domain model says it should be per cluster. A variation selector changes the
-  width of the *preceding* codepoint; a ZWJ family sequence is five codepoints
-  rendering as one 2-column glyph. No per-codepoint table can get these right,
-  including `unicode-width`.
-- **The width table itself.** Hand-rolled, and measured **5.6% wrong across
-  194,528 codepoints** against `unicode-width`. Replace with generated Unicode
-  data.
-- **The rest of the VT operations.** `docs/vt-coverage.md` enumerates them by
-  tier with a status each; the count in this section predates that file. Several (`insert_blank_lines`,
-  `delete_chars`, `erase_chars`, scrolling regions) are in-place mutations of
-  completed lines — exactly what span storage is worst at.
-- **Rendering.** No renderer exists. All render figures above are isolated
-  cost models, not a running pipeline.
-- **Reflow on resize.** Unmeasured, and the classic terminal hang. Byte spans
-  should help — rewrapping a span is cheaper than rewrapping cells — but 10,000
-  lines is still 10,000 lines.
-- **Selection, search, OSC 8.** All need random access by `(line, column)` into
-  variable-length spans, which needs an index that fixed-stride arrays don't.
-- **Concurrency.** The publish protocol is free on the write side (measured
-  214.9 vs 215.3), but the payoff — a render thread reading a published head
-  lock-free — cannot be evaluated on a single-core box.
-- **GPU submission floor.** No GPU available. That one number decides whether
-  the renderer needs a CPU/GPU hybrid or can be GPU-only.
-
-## Reproducing the comparison
-
-The synthetic payloads in `bench/src/payload.rs` set the control-to-text ratio
-arbitrarily, and the style-reuse sweep showed the template cache's payoff moves
-with it. Capture real streams before designing around any percentage:
-
-```sh
-script -c "vim src/lib.rs" /tmp/vim.cast
-script -c "htop" /tmp/htop.cast
-```
-
-Then replay those bytes through the harness instead of `payload::tui`.
+- **Rendering and font shaping.** No renderer exists; all render figures in
+  MEASUREMENTS.md are isolated cost models. Shaping is the largest unknown: a
+  warm glyph-cache hit is 1.1 ns and a fontconfig fallback is 245 µs, a
+  220,000× cliff.
+- **Grapheme clusters.** `Width` is per codepoint; it should be per cluster.
+  The width table is hand-rolled and measured 5.6% wrong across 194,528
+  codepoints.
+- **Reflow, selection, search.** All need random access by `(line, column)`
+  into variable-length spans.
+- **Concurrency and GPU.** Unevaluable on the hardware to hand.
 
 ## Releases
 
@@ -338,8 +159,6 @@ a `chore: release` PR that bumps the version and writes `CHANGELOG.md`, and
 **merging that PR is what authorises the publish to crates.io.** Versions are
 never edited by hand — release-plz reads its baseline from crates.io, so a
 manual bump or publish desynchronises it.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Funding
 
