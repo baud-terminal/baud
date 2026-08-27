@@ -46,4 +46,25 @@ for f in baud-core/src/lib.rs baud-core/tests/*.rs baud-bench/src/*.rs baud-diff
     echo "  ok   $f: $n (limit $limit)"
   fi
 done
+
+# baud-domain is exempt from the count above -- a newtype's whole job is to wrap
+# a primitive, so counting them there measures nothing. But that exemption had a
+# hole: it also hid primitives on the crate's *API surface*, and five `bool`
+# fields accumulated inside protocol enums -- `Csi::Mode { set: bool }`,
+# `Csi::SelectProtection { protect: bool }`, `Report::MouseSgr { release: bool }`
+# and two more. Each was precisely the failure `Marker`'s own doc-comment argues
+# against: "a `bool` argument at a call site says nothing".
+#
+# A `bool` *field* is never a newtype internal -- a newtype over bool is
+# `struct X(bool)`, which this pattern does not match -- so zero is the right
+# limit and there is no judgement call in it.
+b=$(grep -cE "^[[:space:]]+[a-z_]+: bool,$" baud-domain/src/lib.rs || true)
+if [ "$b" -gt 0 ]; then
+  echo "  FAIL baud-domain/src/lib.rs: $b bool fields (limit 0) -- use a named two-state enum"
+  grep -nE "^[[:space:]]+[a-z_]+: bool,$" baud-domain/src/lib.rs
+  fail=1
+else
+  echo "  ok   baud-domain/src/lib.rs: 0 bool fields (limit 0)"
+fi
+
 exit $fail

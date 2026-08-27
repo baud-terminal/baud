@@ -22,11 +22,12 @@ extern crate alloc;
 pub use baud_domain::{
     AnsiMode, ArenaTail, Attrs, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col,
     ColorWord, Cols, Content, Count, Csi, CursorStyle, Dcs, DeviceAttribute, Encoding, EraseExtent,
-    Esc, Filled, FinalByte, GSlot, KeypadMode, LineSlot, LinkId, Marker, ModeBit, ModeState, Modes,
-    MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods, MouseTracking, OneBased, Osc,
-    PackedCell, Param, ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room,
-    Row, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord,
-    Utf8Acc, View, Width, WinSize, XColor,
+    Esc, Filled, FinalByte, GSlot, KeypadMode, LineSlot, LinkId, MarginMode, Marker, ModeBit,
+    ModeChange, ModeState, Modes, MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods,
+    MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode,
+    Protection, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
+    StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
+    XColor,
 };
 
 /// Whether `level` is the tracking currently selected.
@@ -1805,16 +1806,19 @@ impl<'a> Term<'a> {
         let n = self.nparam.count_at_least_one();
         let marker = self.private;
         let p = Params::with_subs(&self.params[..n], self.psub);
-        let lrm = self.modes.is_set(ModeBit::SideMargins);
+        let lrm = match self.modes.is_set(ModeBit::SideMargins) {
+            true => MarginMode::On,
+            false => MarginMode::Off,
+        };
         match Csi::parse_with(marker, self.csi_inter, p, f, lrm) {
             Csi::SoftReset => self.soft_reset(),
-            Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
+            Csi::PrivateMode { change, mode } => self.set_private_mode(mode, change.is_set()),
             // `[[source: vt510-decsca]]`: "Ps defines all characters that
             // follow the DECSCA function as erasable or not erasable". It does
             // not repaint anything already on screen, and it does not touch the
             // rendition -- hence a flag, not an SGR fold.
             Csi::SelectProtection { protect } => {
-                self.protect = CellFlags::protection(protect);
+                self.protect = CellFlags::protection(protect.is_protected());
                 self.refresh_flags();
             }
             Csi::CursorStyle(c) => self.cursor_style = c,
@@ -1930,7 +1934,7 @@ impl<'a> Term<'a> {
             Csi::ScrollUp(c) => self.scroll_region_up(c),
             Csi::ScrollDown(c) => self.scroll_region_down(c),
             Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
-            Csi::Mode { set, mode } => self.set_ansi_mode(mode, set),
+            Csi::Mode { change, mode } => self.set_ansi_mode(mode, change.is_set()),
             Csi::Sgr => self.apply_sgr(),
             _ => {}
         }
@@ -2624,12 +2628,7 @@ impl<'a> Term<'a> {
             self.mouse_unencodable.inc();
             return false;
         }
-        self.report(Report::MouseSgr {
-            cb: e.cb(),
-            col: e.col.one_based(),
-            row: e.row.one_based(),
-            release: e.kind == MouseKind::Release,
-        });
+        self.report(Report::MouseSgr(e));
         true
     }
 

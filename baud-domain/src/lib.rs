@@ -1356,6 +1356,70 @@ impl FinalByte {
     }
 }
 
+/// Whether a mode is being turned on or off.
+///
+/// SM/RM and DECSET/DECRST all carry this, and `set: bool` at those call sites
+/// reads as `if set` -- which says nothing about what the other branch is. The
+/// same argument [`Marker`] makes for itself.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ModeChange {
+    Set,
+    Reset,
+}
+
+impl ModeChange {
+    /// `h` sets, `l` resets. The final byte is the only thing that decides.
+    pub fn from_final(f: FinalByte) -> Option<ModeChange> {
+        Some(match f.raw() {
+            b'h' => ModeChange::Set,
+            b'l' => ModeChange::Reset,
+            _ => return None,
+        })
+    }
+    pub fn is_set(self) -> bool {
+        self == ModeChange::Set
+    }
+}
+
+/// DECSCA's two states, `[[source: vt510-decsca]]`.
+///
+/// Named rather than `bool` because the wire has *three* parameter values for
+/// two states -- 0 and 2 both mean erasable -- so "the parameter" and "the
+/// state" are different things and a `bool` would blur them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Protection {
+    /// `Ps = 0` or `Ps = 2`. DECSED and DECSEL may erase this.
+    #[default]
+    Erasable,
+    /// `Ps = 1`. They may not.
+    Protected,
+}
+
+impl Protection {
+    pub fn from_param(p: Option<Param>) -> Protection {
+        match p.map_or(0, |x| x.0) {
+            1 => Protection::Protected,
+            _ => Protection::Erasable,
+        }
+    }
+    pub fn is_protected(self) -> bool {
+        self == Protection::Protected
+    }
+}
+
+/// Whether DECLRMM is in force, which decides how `CSI s` is read.
+///
+/// `CSI s` is SCOSC normally and DECSLRM under DECLRMM. Passing that as a
+/// `bool` to a parser is precisely the "two quantities confused" shape these
+/// types exist to prevent -- there is another `bool` in the same call
+/// (`is_none()` on the intermediate), and nothing would catch them swapped.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MarginMode {
+    #[default]
+    Off,
+    On,
+}
+
 /// Whether a CSI carried the `?` private marker. A `bool` argument at a call
 /// site says nothing; this says which namespace.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1935,7 +1999,7 @@ pub enum Csi {
     /// DECSED/DECSEL. `[[source: vt510-decsca]]`: 1 means they cannot; 0 and 2
     /// mean they can.
     SelectProtection {
-        protect: bool,
+        protect: Protection,
     },
     /// DECSED, `CSI ? Ps J`. Erase in display, erasable characters only.
     SelectiveEraseDisplay(EraseExtent),
@@ -1983,7 +2047,7 @@ pub enum Csi {
     ScrollDown(Count),
     /// SM / RM, the unprefixed mode namespace.
     Mode {
-        set: bool,
+        change: ModeChange,
         mode: AnsiMode,
     },
     Sgr,
@@ -2015,7 +2079,7 @@ pub enum Csi {
     /// Private (`?`) sequences are a different namespace. `CSI 4 h` and
     /// `CSI ? 4 h` are unrelated operations; conflating them is a classic bug.
     PrivateMode {
-        set: bool,
+        change: ModeChange,
         mode: PrivateMode,
     },
     Unsupported {
@@ -2028,7 +2092,7 @@ impl Csi {
     /// `inter` is the intermediate byte, which is part of the operation's
     /// identity: `CSI ! p` is DECSTR and `CSI p` is not the same thing.
     pub fn parse(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
-        Csi::parse_with(marker, inter, p, f, false)
+        Csi::parse_with(marker, inter, p, f, MarginMode::Off)
     }
 
     /// As [`Csi::parse`], but told whether DECLRMM is set.
@@ -2042,9 +2106,13 @@ impl Csi {
         inter: Option<StreamByte>,
         p: Params<'_>,
         f: FinalByte,
-        side_margins: bool,
+        margins: MarginMode,
     ) -> Csi {
-        if side_margins && marker == Marker::Standard && inter.is_none() && f.raw() == b's' {
+        if margins == MarginMode::On
+            && marker == Marker::Standard
+            && inter.is_none()
+            && f.raw() == b's'
+        {
             return Csi::SetSideMargins {
                 left: p.one_based(ParamIdx::FIRST),
                 right: p.one_based(ParamIdx::SECOND),
@@ -2058,7 +2126,7 @@ impl Csi {
             return match (i.raw_byte(), f.raw()) {
                 (b'!', b'p') => Csi::SoftReset,
                 (b'"', b'q') => Csi::SelectProtection {
-                    protect: p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 1,
+                    protect: Protection::from_param(p.at(ParamIdx::FIRST)),
                 },
                 // `CSI Ps SP q` -- the intermediate is a space, which is why
                 // DECSCUSR and DECSCA can share a final byte without colliding.
@@ -2095,11 +2163,11 @@ impl Csi {
         if marker == Marker::Private {
             return match f.raw() {
                 b'h' => Csi::PrivateMode {
-                    set: true,
+                    change: ModeChange::Set,
                     mode: p.mode(ParamIdx::FIRST),
                 },
                 b'l' => Csi::PrivateMode {
-                    set: false,
+                    change: ModeChange::Reset,
                     mode: p.mode(ParamIdx::FIRST),
                 },
                 b'J' => match p.extent(ParamIdx::FIRST) {
@@ -2163,11 +2231,11 @@ impl Csi {
             b'S' => Csi::ScrollUp(p.count(ParamIdx::FIRST)),
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
             b'h' => Csi::Mode {
-                set: true,
+                change: ModeChange::Set,
                 mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),
             },
             b'l' => Csi::Mode {
-                set: false,
+                change: ModeChange::Reset,
                 mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),
             },
             b'M' => Csi::DeleteLines(p.count(ParamIdx::FIRST)),
@@ -3086,12 +3154,7 @@ pub enum Report {
     /// scheme is not a truncated answer, it is a *wrong* one, pointing the
     /// application at some other cell. Under the rule that a wrong answer beats
     /// no answer nowhere, baud reports nothing unless `?1006` is on.
-    MouseSgr {
-        cb: u16,
-        col: OneBased,
-        row: OneBased,
-        release: bool,
-    },
+    MouseSgr(MouseEvent),
 }
 
 /// Which terminal baud claims to be, in a Primary DA response.
@@ -3170,19 +3233,20 @@ impl Report {
                 e.push_num(d.param());
                 e.push(b'c');
             }
-            Report::MouseSgr {
-                cb,
-                col,
-                row,
-                release,
-            } => {
+            Report::MouseSgr(ev) => {
+                // `cb` is computed here rather than passed in: it is a wire
+                // encoding, and the only place that should know how to build
+                // one is the place that writes it to the wire.
                 e.push(b'<');
-                e.push_num(cb);
+                e.push_num(ev.cb());
                 e.push(b';');
-                e.push_num(col.get());
+                e.push_num(ev.col.one_based().get());
                 e.push(b';');
-                e.push_num(row.get());
-                e.push(if release { b'm' } else { b'M' });
+                e.push_num(ev.row.one_based().get());
+                e.push(match ev.kind {
+                    MouseKind::Release => b'm',
+                    _ => b'M',
+                });
             }
             Report::Version => {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here

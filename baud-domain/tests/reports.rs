@@ -11,6 +11,17 @@
 
 use baud_domain::*;
 
+/// A mouse event at 1-based `(col, row)`, built the way the core does.
+fn mouse(button: MouseButton, kind: MouseKind, col: usize, row: usize) -> MouseEvent {
+    MouseEvent {
+        button,
+        mods: MouseMods::NONE,
+        kind,
+        col: Col::at_index(col),
+        row: Row::from_index(row),
+    }
+}
+
 fn enc(r: Report) -> Vec<u8> {
     r.encode().as_bytes().to_vec()
 }
@@ -147,22 +158,22 @@ fn every_report_is_a_well_formed_csi() {
 #[test]
 fn sgr_mouse_reports_have_the_documented_shape() {
     assert_eq!(
-        enc(Report::MouseSgr {
-            cb: 0,
-            col: one(1),
-            row: one(1),
-            release: false
-        }),
+        enc(Report::MouseSgr(mouse(
+            MouseButton::Left,
+            MouseKind::Press,
+            0,
+            0
+        ))),
         b"\x1b[<0;1;1M"
     );
     assert_eq!(
-        enc(Report::MouseSgr {
-            cb: 35,
-            col: one(400),
-            row: one(42),
-            release: true
-        }),
-        b"\x1b[<35;400;42m"
+        enc(Report::MouseSgr(mouse(
+            MouseButton::Right,
+            MouseKind::Release,
+            399,
+            41
+        ))),
+        b"\x1b[<2;400;42m"
     );
 }
 
@@ -175,12 +186,9 @@ fn sgr_mouse_reports_have_the_documented_shape() {
 fn report_encodings_fit() {
     // The mouse report is the long one: `ESC [ <` plus three five-digit
     // fields and two separators and a final byte.
-    let widest = Report::MouseSgr {
-        cb: 65535,
-        col: one(65535),
-        row: one(65535),
-        release: false,
-    };
+    // The widest coordinates the grid can produce: baud-core's MAX_COLS and
+    // MAX_ROWS, spelled here because the domain crate does not depend on them.
+    let widest = Report::MouseSgr(mouse(MouseButton::WheelDown, MouseKind::Motion, 2047, 639));
     let b = enc(widest);
     assert!(
         b.len() <= Report::MAX_LEN,
@@ -189,7 +197,7 @@ fn report_encodings_fit() {
         Report::MAX_LEN
     );
     assert_eq!(*b.last().unwrap(), b'M', "the final byte survived");
-    assert_eq!(b, b"\x1b[<65535;65535;65535M");
+    assert_eq!(b, b"\x1b[<97;2048;640M", "65 (wheel down) + 32 (motion)");
     // And the CPR still fits, which was the previous widest.
     let cpr = enc(Report::CursorPosition {
         row: one(65535),
