@@ -38,11 +38,12 @@ missing is everything between that grid and a window.
 |---|---|
 | **VT protocol** | ✅ 147 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
-| **Grid + scrollback** | ✅ two storage representations, both measured |
+| **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |
-| Renderer | ⬜ not started — the next thing |
+| Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
+| Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
+| Renderer | ⬜ not started |
 | Font shaping | ⬜ not started — and the largest unknown in the project |
-| Input path | ⬜ not started — no keyboard or mouse device |
 
 So: you cannot run this as your terminal today. You can run its core, feed it a
 real escape stream, and measure it — which is what the rest of this file is
