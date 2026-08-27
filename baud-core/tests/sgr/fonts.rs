@@ -111,3 +111,76 @@ fn decrqss_reports_a_non_default_font() {
         String::from_utf8_lossy(&d)
     );
 }
+
+// ── SGR 58/59: the underline's own colour ───────────────────────────────────
+
+/// **`SGR 58` sets the underline colour, in both spellings.**
+///
+/// Listed **out** with the reason that it "needs a third `ColorWord`, which the
+/// eight-byte rendition has no room for". Two mistakes in one sentence:
+/// `StyleWord` is *twelve* bytes, and `PackedCell` — the eight-byte one — holds
+/// a `StyleId` index rather than a rendition. Growing the rendition to sixteen
+/// costs `NSTYLE * 4` bytes, which is 256 in a 24 MB `Storage`, and costs the
+/// cell nothing. The cell was never being asked.
+#[test]
+fn sgr_58_sets_the_underline_colour() {
+    // Indexed, and the two direct-colour spellings.
+    assert_eq!(
+        style_at(b"\x1b[58;5;9mX", 0).underline(),
+        style_at(b"\x1b[38;5;9mX", 0).fg(),
+        "58;5;n names the same colour 38;5;n does"
+    );
+    assert_eq!(
+        style_at(b"\x1b[58;2;10;20;30mX", 0).underline(),
+        style_at(b"\x1b[38;2;10;20;30mX", 0).fg(),
+        "the legacy five-parameter direct form"
+    );
+    assert_eq!(
+        style_at(b"\x1b[58:2::10:20:30mX", 0).underline(),
+        style_at(b"\x1b[38;2;10;20;30mX", 0).fg(),
+        "and the ISO 8613-6 colon form with its ignored colour-space id"
+    );
+}
+
+/// `SGR 59` returns it to the default, which means "follow the foreground".
+#[test]
+fn sgr_59_resets_the_underline_colour() {
+    assert!(
+        style_at(b"\x1b[58;5;9m\x1b[59mX", 0)
+            .underline()
+            .is_default(),
+        "59 restores the default"
+    );
+    assert!(
+        style_at(b"\x1b[58;5;9m\x1b[0mX", 0)
+            .underline()
+            .is_default(),
+        "and so does a full reset"
+    );
+}
+
+/// It is a rendition, so it separates styles and does not disturb the others.
+#[test]
+fn the_underline_colour_is_independent_of_the_foreground() {
+    let a = style_at(b"\x1b[31;58;5;9mX", 0);
+    assert_eq!(a.fg(), style_at(b"\x1b[31mX", 0).fg(), "fg is untouched");
+    assert_ne!(a.underline(), a.fg(), "and the underline is its own colour");
+    assert_ne!(a, style_at(b"\x1b[31mX", 0), "two renditions, not one");
+}
+
+/// DECRQSS reports it, and omits it when it is the default.
+#[test]
+fn decrqss_reports_the_underline_colour() {
+    let r = replies(b"\x1b[58;5;9m\x1bP$qm\x1b\\");
+    assert!(
+        r.windows(2).any(|w| w == b"58"),
+        "DECRQSS names it, got {}",
+        String::from_utf8_lossy(&r)
+    );
+    let d = replies(b"\x1bP$qm\x1b\\");
+    assert!(
+        !d.windows(2).any(|w| w == b"58"),
+        "and omits the default, got {}",
+        String::from_utf8_lossy(&d)
+    );
+}

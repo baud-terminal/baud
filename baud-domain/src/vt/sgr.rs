@@ -37,6 +37,11 @@ pub enum SgrAttr {
     Bg(Color),
     /// `SGR 10-19` — select the primary font or one of nine alternates.
     Font(FontId),
+    /// `SGR 58` / `SGR 59` — the underline's own colour.
+    ///
+    /// `[[source: ctlseqs]]` gives it the same `5;n` and `2;r;g;b` spellings as
+    /// the foreground and background, which is why it shares their parser.
+    Underline(Color),
 }
 
 impl SgrAttr {
@@ -98,13 +103,18 @@ impl SgrAttr {
                 SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 100 - 8))),
                 ParamCount(1),
             ),
-            38 | 48 => {
-                let mk = |c| {
-                    if v == 38 {
-                        SgrAttr::Fg(c)
-                    } else {
-                        SgrAttr::Bg(c)
-                    }
+            // `SGR 59` — underline colour back to the default, which is
+            // "follow the foreground".
+            59 => (SgrAttr::Underline(Color::Default), ParamCount(1)),
+            // `SGR 58` takes the same two spellings as 38 and 48, which is why
+            // it joins them here rather than getting a parallel copy: the
+            // colon/semicolon distinction below is the part that is easy to
+            // get wrong, and one copy of it cannot drift from another.
+            38 | 48 | 58 => {
+                let mk = |c| match v {
+                    38 => SgrAttr::Fg(c),
+                    48 => SgrAttr::Bg(c),
+                    _ => SgrAttr::Underline(c),
                 };
                 // Two spellings, and the difference is not cosmetic.
                 //
@@ -177,6 +187,7 @@ impl SgrAttr {
             SgrAttr::Fg(c) => cur.with_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.with_bg(ColorWord::from_color(c)),
             SgrAttr::Font(f) => cur.with_font(f),
+            SgrAttr::Underline(c) => cur.with_underline(ColorWord::from_color(c)),
         }
     }
 }

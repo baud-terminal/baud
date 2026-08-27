@@ -63,6 +63,12 @@ impl<'a> Term<'a> {
             self.emit(b";");
             self.emit_dec(w.font().sgr());
         }
+        // `SGR 58`, omitted when it is the default for the same reason `10` is:
+        // the answer has to be something the application can send back.
+        if !w.underline().is_default() {
+            self.emit(b";");
+            self.emit_colour(w.underline(), 58);
+        }
         let (fg, bg) = (w.fg(), w.bg());
         if !fg.is_default() {
             self.emit(b";");

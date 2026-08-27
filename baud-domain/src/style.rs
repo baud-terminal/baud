@@ -201,6 +201,16 @@ impl ColorWord {
 pub struct StyleWord {
     fg: ColorWord,
     bg: ColorWord,
+    /// `SGR 58` — the underline's own colour, defaulting to "follow the
+    /// foreground".
+    ///
+    /// **This word is twelve bytes, not eight.** `PackedCell` is the eight-byte
+    /// one, and it holds a `StyleId` *index* into the template table rather
+    /// than a rendition — so growing this to sixteen costs `NSTYLE * 4` bytes,
+    /// which is 256 in a 24 MB `Storage`, and costs the cell nothing. The row
+    /// that listed 58/59 as out said the rendition word had no room; it was
+    /// the cell that had no room, and the cell was never being asked.
+    underline: ColorWord,
     attrs: Attrs,
     /// `SGR 10-19` — which font the text is set in.
     ///
@@ -269,9 +279,21 @@ impl StyleWord {
     pub const DEFAULT: StyleWord = StyleWord {
         fg: ColorWord::DEFAULT,
         bg: ColorWord::DEFAULT,
+        underline: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
         font: FontId::PRIMARY,
     };
+    /// The underline's own colour. `ColorWord::DEFAULT` means "follow the
+    /// foreground", which is what every terminal does without `SGR 58`.
+    pub fn underline(self) -> ColorWord {
+        self.underline
+    }
+    pub fn with_underline(self, c: ColorWord) -> StyleWord {
+        StyleWord {
+            underline: c,
+            ..self
+        }
+    }
     pub fn fg(self) -> ColorWord {
         self.fg
     }
