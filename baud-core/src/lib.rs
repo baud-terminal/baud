@@ -20,12 +20,24 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Codepoint, Col, Cols, Content, Count, Csi,
-    CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte, LineSlot, Marker,
-    ModeBit, ModeState, Modes, OneBased, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode,
-    Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId,
-    StyleWord, Utf8Acc, View, Width, WinSize,
+    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Codepoint, Col, ColorWord, Cols,
+    Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
+    FinalByte, LineSlot, Marker, ModeBit, ModeState, Modes, OneBased, Osc, PackedCell, Param,
+    ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run,
+    RunCount, Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width,
+    WinSize, XColor,
 };
+
+/// Trim a trailing NUL from an OSC string.
+///
+/// Some emitters terminate the payload with a NUL before the real terminator.
+/// Keeping it would put a stray byte in every title.
+fn clip(s: &[u8]) -> &[u8] {
+    match s.last() {
+        Some(0) => &s[..s.len() - 1],
+        _ => s,
+    }
+}
 
 /// [`ModeState`] for one bit, so `mode_state` reads as a table rather than as
 /// eight copies of the same `if`.
@@ -82,6 +94,16 @@ pub enum Screen {
 /// for a burst rather than for one. Overflow is counted, never silent.
 pub const REPLY: usize = 256;
 pub const NSTYLE: usize = 64;
+
+/// Longest OSC payload the core keeps.
+///
+/// Every byte of an OSC is attacker-controlled -- a window title is whatever
+/// the far end of an ssh session sent -- and a `no_std` core cannot grow a
+/// buffer to meet it. Overlong payloads are **truncated, not rejected**: a
+/// 4 KiB title should become a short title, not a dropped sequence, because
+/// dropping it leaves the previous title showing and the user with no signal.
+/// Sized well past any real title.
+pub const OSC_MAX: usize = 512;
 pub const READ_CHUNK: usize = baud_domain::SLOT_BYTES;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -133,6 +155,14 @@ pub struct Storage {
     /// CHT and CBT are meaningless without one, and `HT` after `CSI 3 g` must
     /// run to the right margin rather than to the next multiple of eight.
     pub tabs: [bool; MAX_COLS],
+    /// The OSC payload being accumulated, and the two strings it can become.
+    pub osc: [u8; OSC_MAX],
+    pub title: [u8; OSC_MAX],
+    pub icon: [u8; OSC_MAX],
+    /// Palette overrides from `OSC 4`. `ColorWord::DEFAULT` means "not
+    /// overridden" -- a zeroed `Storage` therefore starts on the built-in
+    /// palette, with no separate `is_set` array to keep in step.
+    pub palette: [ColorWord; 256],
     /// The alternate screen buffer, `CSI ? 1049 h`.
     ///
     /// A second full-size grid, which looks expensive and is not: it is 10 MiB
@@ -198,6 +228,10 @@ impl Storage {
             // Zeroed here and populated by Term::reset_tabs, so `Storage` stays
             // a plain zeroable block for `new_box_zeroed`.
             tabs: [false; MAX_COLS],
+            osc: [0; OSC_MAX],
+            title: [0; OSC_MAX],
+            icon: [0; OSC_MAX],
+            palette: [ColorWord::DEFAULT; 256],
             reply: [0; REPLY],
         }
     }
@@ -220,6 +254,15 @@ enum State {
     /// instead would print the remainder as text.
     CsiIgnore,
     OscString,
+    /// An `ESC` arrived inside an OSC payload.
+    ///
+    /// Its own state because the two continuations differ and both matter:
+    /// `ESC \\` is ST and must **dispatch** the payload, while
+    /// `[[source: williams]]` says a bare `ESC` *cancels* the control string,
+    /// so anything else must discard it and start a fresh sequence. Folding
+    /// this into `Escape` loses the payload either way -- which is what the
+    /// terminator would have been for.
+    OscEsc,
     /// The payload of DCS, SOS, PM and APC.
     ///
     /// Consumed to the string terminator and executed as nothing. This state
@@ -370,6 +413,20 @@ pub struct Term<'a> {
     /// See `Params::is_sub` -- the colon form of direct colour carries an extra
     /// colour-space identifier, so the separator changes the meaning.
     psub: u16,
+    /// Bytes of `s.osc` filled so far, and the lengths of the two strings.
+    osc_len: ByteLen,
+    /// OSC payloads that overflowed `OSC_MAX`.
+    ///
+    /// A counter rather than a flag, matching `reply_overflows`: truncation is
+    /// the correct behaviour but it should never be *invisible*, and a count
+    /// survives the next OSC where a flag would be cleared by it.
+    pub osc_truncations: Stat,
+    title_len: ByteLen,
+    icon_len: ByteLen,
+    /// Which terminator the current OSC arrived with. `[[source: ctlseqs]]`:
+    /// when returning information xterm "uses the same terminator used in a
+    /// query", so a reply must remember how the question ended.
+    osc_term: StringTerm,
     private: Marker,
     style: StyleId,
     style_raw: StyleWord,
@@ -445,6 +502,11 @@ impl<'a> Term<'a> {
             params: [None; 16],
             nparam: ParamIdx::FIRST,
             psub: 0,
+            osc_len: ByteLen::ZERO,
+            osc_truncations: Stat::ZERO,
+            title_len: ByteLen::ZERO,
+            icon_len: ByteLen::ZERO,
+            osc_term: StringTerm::St,
             private: Marker::Standard,
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
@@ -1279,6 +1341,142 @@ impl<'a> Term<'a> {
         self.style = self.intern_style(self.style_raw);
     }
 
+    /// Append one byte to the OSC payload, truncating rather than growing.
+    #[inline(always)]
+    fn osc_push(&mut self, b: StreamByte) {
+        let n = self.osc_len.index();
+        if n < OSC_MAX {
+            self.s.osc[n] = b.raw_byte();
+            self.osc_len = ByteLen::from_index(n + 1);
+        } else {
+            self.osc_truncations.inc();
+        }
+    }
+
+    fn osc_reset(&mut self) {
+        self.osc_len = ByteLen::ZERO;
+    }
+
+    /// Copy a bounded string into one of the two title slots.
+    fn set_string(dst: &mut [u8; OSC_MAX], src: &[u8]) -> ByteLen {
+        let n = src.len().min(OSC_MAX);
+        dst[..n].copy_from_slice(&src[..n]);
+        ByteLen::from_index(n)
+    }
+
+    /// Act on a completed OSC payload.
+    fn dispatch_osc(&mut self) {
+        let n = self.osc_len.index();
+        // Split the borrow: `Osc::parse` borrows the payload while the setters
+        // want `&mut self.s`. Resolve to an owned decision first.
+        let parsed = Osc::parse(&self.s.osc[..n]);
+        match parsed {
+            Osc::SetTitle(t) => {
+                let t = clip(t);
+                self.title_len = Self::set_string(&mut self.s.title, t);
+            }
+            Osc::SetIcon(t) => {
+                let t = clip(t);
+                self.icon_len = Self::set_string(&mut self.s.icon, t);
+            }
+            Osc::SetIconAndTitle(t) => {
+                let t = clip(t);
+                self.title_len = Self::set_string(&mut self.s.title, t);
+                self.icon_len = Self::set_string(&mut self.s.icon, t);
+            }
+            Osc::SetColor { index, spec } => match spec {
+                XColor::Rgb(r, g, b) => self.s.palette[index.index()] = ColorWord::rgb(r, g, b),
+                XColor::Query => self.report_color(index),
+                // A colour *name*. Not resolved, because resolving it needs
+                // X11's rgb.txt and baud has no citable copy -- approximating
+                // it would be guessing at a protocol. Left alone rather than
+                // set to something plausible-but-wrong.
+                XColor::Unresolved(_) => {}
+            },
+            Osc::ResetColor(Some(c)) => self.s.palette[c.index()] = ColorWord::DEFAULT,
+            Osc::ResetColor(None) => self.s.palette = [ColorWord::DEFAULT; 256],
+            // `OSC 52` write is accepted by the protocol but baud has no
+            // clipboard to write to, and a *read* is refused on purpose --
+            // see `ClipboardOp::Read`. Neither gets a reply: answering a
+            // clipboard query with anything, including an empty string, tells
+            // the application the feature works.
+            Osc::Clipboard(_) => {}
+            Osc::Unsupported => {}
+        }
+        self.osc_reset();
+    }
+
+    /// Reply to `OSC 4 ; c ; ?` in the same shape as the setter.
+    ///
+    /// `[[source: ctlseqs]]`: "xterm replies with a control sequence of the
+    /// same form which can be used to set the corresponding color", and it
+    /// "uses the same terminator used in a query".
+    fn report_color(&mut self, index: Chan) {
+        let c = self.s.palette[index.index()];
+        let Some((r, g, b)) = c.as_rgb() else {
+            // Not overridden. baud has no built-in palette table to report --
+            // the renderer owns that -- so it says nothing rather than
+            // inventing a colour the renderer does not use.
+            return;
+        };
+        let term = self.osc_term;
+        self.emit(b"\x1b]4;");
+        self.emit_dec(index.get());
+        self.emit(b";rgb:");
+        self.emit_hex(r);
+        self.emit(b"/");
+        self.emit_hex(g);
+        self.emit(b"/");
+        self.emit_hex(b);
+        match term {
+            StringTerm::St => self.emit(b"\x1b\\"),
+            StringTerm::Bel => self.emit(b"\x07"),
+        }
+    }
+
+    fn emit_dec(&mut self, v: u8) {
+        const D: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 3];
+        let mut i = buf.len();
+        let mut n = v;
+        loop {
+            i -= 1;
+            buf[i] = D[usize::from(n % 10)];
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        let tail = buf;
+        self.emit(&tail[i..]);
+    }
+
+    fn emit_hex(&mut self, v: u8) {
+        const H: &[u8; 16] = b"0123456789abcdef";
+        let hi = H[usize::from(v >> 4)];
+        let lo = H[usize::from(v & 0xf)];
+        self.emit(&[hi, lo]);
+    }
+
+    /// The window title, as the application set it. Bounded by `OSC_MAX`.
+    pub fn title(&self) -> &[u8] {
+        &self.s.title[..self.title_len.index()]
+    }
+
+    /// The icon name. `OSC 1`, and `OSC 0` sets both.
+    pub fn icon_name(&self) -> &[u8] {
+        &self.s.icon[..self.icon_len.index()]
+    }
+
+    /// A palette override from `OSC 4`, if the application set one.
+    ///
+    /// `None` means "use your built-in colour": the core deliberately holds no
+    /// default palette, because the mapping from index to pixels belongs to the
+    /// renderer and a second copy here would be one to keep in step.
+    pub fn palette(&self, index: Chan) -> Option<(u8, u8, u8)> {
+        self.s.palette[index.index()].as_rgb()
+    }
+
     fn dispatch(&mut self, f: FinalByte) {
         let n = self.nparam.count_at_least_one();
         let marker = self.private;
@@ -1520,6 +1718,20 @@ impl<'a> Term<'a> {
                     self.st = State::Ground;
                 }
             }
+            State::OscEsc => {
+                if b == StreamByte::ST_FINAL {
+                    self.osc_term = StringTerm::St;
+                    self.dispatch_osc();
+                    self.st = State::Ground;
+                } else {
+                    // `[[source: williams]]`: "receiving the ESC character will
+                    // cancel the control string". The payload is dropped, not
+                    // dispatched, and the byte begins a new escape.
+                    self.osc_reset();
+                    self.st = State::Escape;
+                    self.control(b);
+                }
+            }
             State::StringIgnore => {
                 // Terminated by ST (`ESC \`) or, as xterm accepts, by BEL.
                 // Any ESC leaves the string; the Escape state decides whether
@@ -1585,9 +1797,13 @@ impl<'a> Term<'a> {
             }
             State::OscString => {
                 if b == StreamByte::BEL {
+                    self.osc_term = StringTerm::Bel;
+                    self.dispatch_osc();
                     self.st = State::Ground;
                 } else if b == StreamByte::ESC {
-                    self.st = State::Escape;
+                    self.st = State::OscEsc;
+                } else {
+                    self.osc_push(b);
                 }
             }
         }
@@ -1756,18 +1972,32 @@ impl<'a> Term<'a> {
             // (`[[source: williams]]`), and what follows is a fresh sequence.
             // Handing that back to the state machine is the whole fix: it
             // already parses the cancel correctly.
-            let used = if term == StreamByte::BEL {
-                s + off + 1 - i
+            let (used, st) = if term == StreamByte::BEL {
+                (s + off + 1 - i, StringTerm::Bel)
             } else if s + off + 1 >= n {
                 self.fb_boundary.inc();
                 return None;
             } else if StreamByte::from_stream(self.s.arena[b + s + off + 1]) == StreamByte::ST_FINAL
             {
-                s + off + 2 - i
+                (s + off + 2 - i, StringTerm::St)
             } else {
                 self.fb_not_csi.inc();
                 return None;
             };
+            // The payload is *dispatched* here, not skipped. Scanning to the
+            // terminator and discarding is what this path used to do, and it
+            // would now mean a title set through the fast path silently did
+            // nothing while the same bytes split across two reads worked --
+            // exactly the two-feeds divergence this file keeps having.
+            self.osc_reset();
+            self.osc_term = st;
+            let payload = off.min(OSC_MAX);
+            if off > OSC_MAX {
+                self.osc_truncations.inc();
+            }
+            self.s.osc[..payload].copy_from_slice(&self.s.arena[b + s..b + s + payload]);
+            self.osc_len = ByteLen::from_index(payload);
+            self.dispatch_osc();
             self.fast_hits.inc();
             return Some(ByteLen::from_index(used));
         }

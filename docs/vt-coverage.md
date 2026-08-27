@@ -45,7 +45,7 @@ but the substrate. `[[source: williams]]` specifies the DEC ANSI parser as a
 | `dcs_intermediate` | **todo** | |
 | `dcs_passthrough` | **todo** | |
 | `dcs_ignore` | **todo** | |
-| `osc_string` | partial | `OscString` consumes to ST but dispatches nothing |
+| `osc_string` | done | payload captured, bounded, and dispatched |
 | `sos_pm_apc_string` | done | payload consumed, never executed |
 
 ~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: DCS, SOS,
@@ -205,11 +205,11 @@ In scope because applications assume them, not because DEC specified them.
 
 | seq | name | status |
 |---|---|---|
-| `OSC 0/1/2` | window/icon title | **todo** |
-| `OSC 4` | set colour palette | **todo** |
+| `OSC 0/1/2` | window/icon title | done |
+| `OSC 4` | set colour palette | done — including the `?` query |
 | `OSC 8` | hyperlinks | **todo** |
-| `OSC 52` | clipboard | **todo** — see security note |
-| `OSC 104` | reset palette | **todo** |
+| `OSC 52` | clipboard | consumed; **read deliberately refused** — see security note |
+| `OSC 104` | reset palette | done |
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1000-1006 h/l` | mouse reporting | **todo** |
@@ -307,6 +307,26 @@ Entering twice must not re-save the cursor, or an application that sets the mode
 twice is restored to a position from inside the alt screen. The switch also
 keeps its own saved cursor rather than sharing DECSC's, so a program that does
 both gets each back.
+
+**OSC payloads are bounded, and truncated rather than dropped.** Every byte of
+an OSC is attacker-controlled -- a window title is whatever the far end of an
+ssh session sent -- and a `no_std` core cannot grow a buffer to meet it. A
+payload over `OSC_MAX` is truncated and the truncation is *counted*
+(`osc_truncations`), because dropping the sequence instead would leave the
+previous title showing with nothing to say why.
+
+Three OSC decisions are refusals, and each is deliberate rather than a gap:
+
+* **`OSC 52` clipboard reads get no answer.** A hostile program on the far end
+  of an ssh session could otherwise read back whatever the user last copied,
+  which may be a password. Answering with anything -- including an empty
+  payload -- tells it the feature works, so the refusal is silence.
+* **Colour *names* are not resolved.** `[[source: ctlseqs]]` allows a name "as
+  per XParseColor", which needs X11's `rgb.txt`; baud has no citable copy, and
+  approximating it would be inventing a protocol. The entry is left alone.
+* **A query for a colour nothing overrode says nothing.** The core holds no
+  built-in palette, because index-to-pixels belongs to the renderer, and a
+  second copy here would be one to keep in step.
 
 **Two modes are recorded for an embedder rather than acted on internally.**
 Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that

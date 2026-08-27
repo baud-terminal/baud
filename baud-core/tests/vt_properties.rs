@@ -66,6 +66,8 @@ enum Op {
     SgrColonRgb(u8, u8, u8, u8),
     /// The colon form of indexed colour.
     SgrColonIdx(u8, u8),
+    /// `OSC Ps ; Pt` with either terminator.
+    Osc(u16, u8, bool),
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -120,6 +122,12 @@ fn op() -> impl Strategy<Value = Op> {
         (any::<bool>(), prop::sample::select(&MODES[..])).prop_map(|(p, m)| Op::Decrqm(p, m)),
         (0u8..3, 0u8..255, 0u8..255, 0u8..255).prop_map(|(i, r, g, b)| Op::SgrColonRgb(i, r, g, b)),
         (prop::sample::select(&[38u8, 48][..]), 0u8..255).prop_map(|(k, n)| Op::SgrColonIdx(k, n)),
+        (
+            prop::sample::select(&[0u16, 1, 2, 4, 52, 104, 777][..]),
+            0u8..8,
+            any::<bool>(),
+        )
+            .prop_map(|(ps, k, st)| Op::Osc(ps, k, st)),
     ]
 }
 
@@ -180,8 +188,29 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             }
             Op::SgrColonRgb(i, r, g, b) => write!(n, "\x1b[38:2:{i}:{r}:{g}:{b}m").unwrap(),
             Op::SgrColonIdx(k, v) => write!(n, "\x1b[{k}:5:{v}m").unwrap(),
+            // Payloads that look like the real thing: a title, a colour spec,
+            // a base64 blob. Terminated both ways.
+            Op::Osc(ps, k, st) => {
+                let body = match ps {
+                    4 => alloc_spec(k),
+                    52 => "c;aGVsbG8=".to_string(),
+                    104 => format!("{k}"),
+                    _ => "t".repeat(usize::from(k) + 1),
+                };
+                write!(n, "\x1b]{ps};{body}").unwrap();
+                n.push_str(if st { "\x1b\\" } else { "\x07" });
+            }
         }
         out.extend_from_slice(n.as_bytes());
+    }
+}
+
+/// A plausible `OSC 4` body, including the query form.
+fn alloc_spec(k: u8) -> String {
+    if k % 4 == 0 {
+        format!("{k};?")
+    } else {
+        format!("{k};rgb:{k:02x}/00/ff")
     }
 }
 

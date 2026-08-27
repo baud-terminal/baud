@@ -2070,7 +2070,7 @@ impl Attrs {
 /// A palette index or an sRGB component. Eight bits by protocol, not by
 /// convenience — SGR encodes both as a single decimal parameter.
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Chan(u8);
 impl Chan {
     /// Saturating: `CSI 38;2;999;0;0m` is malformed input, not an overflow.
@@ -2082,6 +2082,16 @@ impl Chan {
     }
     pub fn get(self) -> u8 {
         self.0
+    }
+    /// A channel that is already eight bits wide -- from an X11 colour spec
+    /// rather than from a CSI parameter.
+    pub fn from_u8(v: u8) -> Chan {
+        Chan(v)
+    }
+    /// As a palette subscript. The palette has exactly 256 entries because a
+    /// `Chan` has exactly 256 values, so this cannot be out of range.
+    pub fn index(self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -2204,6 +2214,252 @@ impl SgrAttr {
             _ => return None,
         })
     }
+}
+
+/// An OSC (Operating System Command) payload, resolved.
+///
+/// `[[source: ctlseqs]]` § "Set Text Parameters" gives the form as
+/// `OSC Ps ; Pt BEL` or `OSC Ps ; Pt ST`, and both terminators are accepted:
+/// "XTerm accepts either BEL or ST for terminating OSC sequences, and when
+/// returning information, uses the same terminator used in a query."
+///
+/// Everything here is attacker-controlled: a window title is whatever the
+/// remote end of an ssh session cared to send. Nothing in this type owns a
+/// growable buffer, and the payload the core keeps is bounded and truncated
+/// rather than rejected -- a title that is too long should be shortened, not
+/// dropped, and must never be a reason to allocate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Osc<'a> {
+    /// `OSC 0` — "Change Icon Name and Window Title to Pt."
+    SetIconAndTitle(&'a [u8]),
+    /// `OSC 1` — "Change Icon Name to Pt."
+    SetIcon(&'a [u8]),
+    /// `OSC 2` — "Change Window Title to Pt."
+    SetTitle(&'a [u8]),
+    /// `OSC 4 ; c ; spec` — "Change Color Number c to the color specified by
+    /// spec." Only the first pair is taken; see [`Osc::parse`].
+    SetColor { index: Chan, spec: XColor<'a> },
+    /// `OSC 104` — reset the palette. `None` resets every entry, which is what
+    /// an omitted parameter means.
+    ResetColor(Option<Chan>),
+    /// `OSC 52` — clipboard. Carried so the core can *refuse* the read
+    /// deliberately rather than by omission; see the note on
+    /// [`ClipboardOp::Read`].
+    Clipboard(ClipboardOp<'a>),
+    /// Recognised as an OSC and not acted on.
+    Unsupported,
+}
+
+/// The two halves of `OSC 52`, kept apart because they have very different
+/// security properties.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ClipboardOp<'a> {
+    /// `OSC 52 ; c ; <base64>` — set the clipboard.
+    Write(&'a [u8]),
+    /// `OSC 52 ; c ; ?` — *read* the clipboard back to the application.
+    ///
+    /// A hostile program on the far end of an ssh session can use this to
+    /// exfiltrate whatever the user last copied, which may be a password. xterm
+    /// disables it by default and so does baud: the variant exists so the
+    /// refusal is a decision recorded in the type rather than a sequence that
+    /// happens to fall through.
+    Read,
+}
+
+/// How a control string ended.
+///
+/// `[[source: ctlseqs]]`: "XTerm accepts either BEL or ST for terminating OSC
+/// sequences, and when returning information, uses the same terminator used in
+/// a query." A reply therefore has to remember which arrived -- a `bool` at
+/// that call site would read as `if self.osc_st`, which says nothing about what
+/// the other branch is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum StringTerm {
+    /// `ESC \`, the terminator ECMA-48 documents and xterm prefers.
+    #[default]
+    St,
+    /// `BEL`, accepted "for legacy applications".
+    Bel,
+}
+
+/// An X11 colour specification, as `XParseColor` accepts it.
+///
+/// `[[source: ctlseqs]]`: "The spec can be a name or RGB specification as per
+/// XParseColor." Names are deliberately *not* resolved -- that needs the X11
+/// `rgb.txt` table, which baud has no citable copy of, and inventing the
+/// mapping would be guessing at a protocol. A name parses to
+/// [`XColor::Unresolved`] and is ignored rather than approximated.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum XColor<'a> {
+    Rgb(Chan, Chan, Chan),
+    /// `?` — a query. The reply must have the same shape as the setter.
+    Query,
+    Unresolved(&'a [u8]),
+}
+
+impl<'a> XColor<'a> {
+    /// `rgb:R/G/B` with 1-4 hex digits per channel, or `#RGB` / `#RRGGBB` /
+    /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`.
+    ///
+    /// Channels are scaled to 8 bits by taking the *high* bits, which is what
+    /// XParseColor does: `rgb:f/f/f` is white, not rgb(15,15,15).
+    pub fn parse(s: &'a [u8]) -> XColor<'a> {
+        if s == b"?" {
+            return XColor::Query;
+        }
+        if let Some(rest) = strip(s, b"rgb:") {
+            let mut it = Split::new(rest, b'/');
+            if let (Some(r), Some(g), Some(b), None) = (it.next(), it.next(), it.next(), it.next())
+            {
+                if let (Some(r), Some(g), Some(b)) = (hex_chan(r), hex_chan(g), hex_chan(b)) {
+                    return XColor::Rgb(r, g, b);
+                }
+            }
+            return XColor::Unresolved(s);
+        }
+        if let Some(rest) = strip(s, b"#") {
+            let n = rest.len();
+            if n % 3 == 0 && (3..=12).contains(&n) {
+                let w = n / 3;
+                if let (Some(r), Some(g), Some(b)) = (
+                    hex_chan(&rest[..w]),
+                    hex_chan(&rest[w..2 * w]),
+                    hex_chan(&rest[2 * w..]),
+                ) {
+                    return XColor::Rgb(r, g, b);
+                }
+            }
+        }
+        XColor::Unresolved(s)
+    }
+}
+
+fn strip<'a>(s: &'a [u8], p: &[u8]) -> Option<&'a [u8]> {
+    (s.len() >= p.len() && &s[..p.len()] == p).then(|| &s[p.len()..])
+}
+
+/// One to four hex digits, scaled to eight bits from the top.
+fn hex_chan(s: &[u8]) -> Option<Chan> {
+    if s.is_empty() || s.len() > 4 {
+        return None;
+    }
+    let mut v: u32 = 0;
+    for &b in s {
+        let d = match b {
+            b'0'..=b'9' => b - b'0',
+            b'a'..=b'f' => b - b'a' + 10,
+            b'A'..=b'F' => b - b'A' + 10,
+            _ => return None,
+        };
+        v = (v << 4) | d as u32;
+    }
+    // Scale so the widest digit run maps its maximum to 255: `f` -> 255,
+    // `ffff` -> 255. Left-align then take the top byte.
+    let bits = s.len() * 4;
+    let max = (1u32 << bits) - 1;
+    Some(Chan::from_u8(((v * 255 + max / 2) / max) as u8))
+}
+
+/// Split a byte slice on a separator without allocating.
+struct Split<'a> {
+    rest: Option<&'a [u8]>,
+    sep: u8,
+}
+
+impl<'a> Split<'a> {
+    fn new(s: &'a [u8], sep: u8) -> Split<'a> {
+        Split { rest: Some(s), sep }
+    }
+}
+
+impl<'a> Iterator for Split<'a> {
+    type Item = &'a [u8];
+    fn next(&mut self) -> Option<&'a [u8]> {
+        let cur = self.rest?;
+        match cur.iter().position(|&b| b == self.sep) {
+            Some(i) => {
+                self.rest = Some(&cur[i + 1..]);
+                Some(&cur[..i])
+            }
+            None => {
+                self.rest = None;
+                Some(cur)
+            }
+        }
+    }
+}
+
+impl<'a> Osc<'a> {
+    /// Resolve an OSC payload -- the bytes between the introducer and the
+    /// string terminator, with neither included.
+    ///
+    /// `OSC 4` may carry "any number of c/spec pairs"; baud takes the first and
+    /// ignores the rest, which is a deliberate under-implementation rather than
+    /// a silent one: applications emit one pair per sequence in practice, and
+    /// handling n pairs means n replies from a fixed reply buffer.
+    pub fn parse(payload: &'a [u8]) -> Osc<'a> {
+        let mut it = Split::new(payload, b';');
+        let Some(ps) = it.next() else {
+            return Osc::Unsupported;
+        };
+        let rest = match payload.len() > ps.len() {
+            true => &payload[ps.len() + 1..],
+            false => &payload[payload.len()..],
+        };
+        match ps {
+            b"0" => Osc::SetIconAndTitle(rest),
+            b"1" => Osc::SetIcon(rest),
+            b"2" => Osc::SetTitle(rest),
+            b"4" => {
+                let mut p = Split::new(rest, b';');
+                match (p.next(), p.next()) {
+                    (Some(c), Some(spec)) => match dec_chan(c) {
+                        Some(index) => Osc::SetColor {
+                            index,
+                            spec: XColor::parse(spec),
+                        },
+                        None => Osc::Unsupported,
+                    },
+                    _ => Osc::Unsupported,
+                }
+            }
+            b"104" => {
+                if rest.is_empty() {
+                    Osc::ResetColor(None)
+                } else {
+                    match dec_chan(rest) {
+                        Some(c) => Osc::ResetColor(Some(c)),
+                        None => Osc::Unsupported,
+                    }
+                }
+            }
+            b"52" => {
+                let mut p = Split::new(rest, b';');
+                let (_sel, data) = (p.next(), p.next());
+                match data {
+                    Some(b"?") => Osc::Clipboard(ClipboardOp::Read),
+                    Some(d) => Osc::Clipboard(ClipboardOp::Write(d)),
+                    None => Osc::Unsupported,
+                }
+            }
+            _ => Osc::Unsupported,
+        }
+    }
+}
+
+/// A decimal palette index, 0-255.
+fn dec_chan(s: &[u8]) -> Option<Chan> {
+    if s.is_empty() || s.len() > 3 {
+        return None;
+    }
+    let mut v: u32 = 0;
+    for &b in s {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        v = v * 10 + (b - b'0') as u32;
+    }
+    (v <= 255).then(|| Chan::from_u8(v as u8))
 }
 
 /// DECSCUSR cursor shapes, `CSI Ps SP q`.
@@ -3351,6 +3607,16 @@ impl ColorWord {
     }
     pub fn is_default(self) -> bool {
         self.0 == 0
+    }
+    /// The RGB triple, when this word holds one. `None` for the default colour
+    /// and for palette indices, neither of which names a pixel value on their
+    /// own.
+    pub fn as_rgb(self) -> Option<(u8, u8, u8)> {
+        (self.0 & Self::TAG_RGB != 0).then_some((
+            (self.0 >> 16) as u8,
+            (self.0 >> 8) as u8,
+            self.0 as u8,
+        ))
     }
     /// The parsed SGR colour, packed.
     pub fn from_color(c: Color) -> ColorWord {
