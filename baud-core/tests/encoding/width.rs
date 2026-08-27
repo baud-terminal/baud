@@ -143,3 +143,30 @@ fn width_tables_match_the_pinned_data() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// DECRQM `?2027` answers `0`, not recognized — and that is the honest answer.
+///
+/// Mode 2027 is the grapheme-clustering proposal
+/// (`docs/research/notes/g-text-encoding.md` § 4.5). baud does not do grapheme
+/// clustering, so answering `2` ("reset") would tell an application the mode
+/// exists and is off; it would then set it and believe it took effect. That is
+/// the failure `docs/vt-coverage.md` refuses for DECRQM in those words.
+///
+/// When clustering lands this becomes `3`, permanently set — the shape Windows
+/// Terminal arrived at independently. It is `0` until then.
+#[test]
+fn decrqm_does_not_claim_grapheme_clustering() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let bytes = b"\x1b[?2027$p";
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(
+        t.reply(),
+        b"\x1b[?2027;0$y",
+        "?2027 must answer 0 (not recognized) while clustering is unimplemented"
+    );
+}

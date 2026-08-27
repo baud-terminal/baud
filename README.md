@@ -21,8 +21,7 @@
 
 </div>
 
-> A terminal emulator. The VT protocol core is complete and measured; the
-> renderer is next.
+> A terminal emulator written in Rust, under construction.
 
 Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage runs
 teletype → glass tty → terminal emulator, and a baud measures how fast symbols
@@ -37,7 +36,7 @@ missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 123 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **VT protocol** | ✅ 124 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid + scrollback** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |
