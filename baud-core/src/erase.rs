@@ -25,14 +25,9 @@ impl<'a> Term<'a> {
             return;
         }
         self.promote_if_runs();
-        let (from, to) = match e {
-            EraseExtent::ToEnd => (self.cx.index(), self.cols.index()),
-            EraseExtent::ToStart => (0, (self.cx.index() + 1).min(self.cols.index())),
-            EraseExtent::All => (0, self.cols.index()),
-        };
+        let s = e.line_span(self.cx, self.cols);
         let b = PackedCell::empty_with(self.style);
-        let (rr, f, t) = (Row::from_index(y), Col::at_index(from), Col::at_index(to));
-        self.view().fill(rr, f, t, b);
+        self.view().fill(Row::from_index(y), s.from, s.to, b);
     }
 
     /// ED. **The cursor's own row is erased only partially.**
@@ -51,28 +46,16 @@ impl<'a> Term<'a> {
     pub(crate) fn erase_display(&mut self, e: EraseExtent) {
         self.promote_if_runs();
         let b = PackedCell::empty_with(self.style);
-        let (cy, rows, cols) = (self.cy.index(), self.rows.index(), self.cols);
-        // Whole rows away from the cursor's row.
-        let (lo, hi) = match e {
-            EraseExtent::ToEnd => (cy + 1, rows),
-            EraseExtent::ToStart => (0, cy),
-            EraseExtent::All => (0, rows),
-        };
-        for y in lo..hi {
-            self.view().fill_row(Row::from_index(y), b);
-            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-            self.s.promoted[y] = true;
+        let full = e.full_rows(self.cy, self.rows);
+        for y in full.from.index()..full.to.index() {
+            let r = Row::from_index(y);
+            self.discard_row(r);
+            self.view().fill_row(r, b);
         }
-        // The cursor's row, split at the cursor.
-        if e != EraseExtent::All {
-            let (from, to) = match e {
-                EraseExtent::ToEnd => (self.cx, Col::at_index(cols.index())),
-                _ => (Col::ZERO, self.cx.after()),
-            };
+        if let Some(s) = e.cursor_span(self.cx, self.cols) {
             let r = self.cy;
-            self.view().fill(r, from, to, b);
-            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
-            self.s.promoted[cy] = true;
+            self.discard_row(r);
+            self.view().fill(r, s.from, s.to, b);
         }
     }
 
@@ -124,14 +107,7 @@ impl<'a> Term<'a> {
     /// outside the scrolling margins".
     pub(crate) fn selective_erase_line(&mut self, e: EraseExtent) {
         self.promote_if_runs();
-        let (from, to) = self.erase_span(e);
-        let (y, blank) = (self.cy, PackedCell::empty_with(self.style));
-        for x in from..to {
-            let c = Col::at_index(x);
-            if !self.is_protected(y, c) {
-                self.view().put(y, c, blank);
-            }
-        }
+        self.selective_wipe(self.cy, e.line_span(self.cx, self.cols));
     }
 
     /// DECSED, `CSI ? Ps J`. Same rule, over the display.
@@ -141,21 +117,13 @@ impl<'a> Term<'a> {
     /// text to the left of it.
     pub(crate) fn selective_erase_display(&mut self, e: EraseExtent) {
         self.promote_if_runs();
-        let (cy, rows, cols) = (self.cy.index(), self.rows.index(), self.cols.index());
-        let (lo, hi) = match e {
-            EraseExtent::ToEnd => (cy + 1, rows),
-            EraseExtent::ToStart => (0, cy),
-            EraseExtent::All => (0, rows),
-        };
-        for y in lo..hi {
-            self.selective_wipe(Row::from_index(y), Col::ZERO, Col::at_index(cols));
+        let full = e.full_rows(self.cy, self.rows);
+        let whole = EraseExtent::All.line_span(self.cx, self.cols);
+        for y in full.from.index()..full.to.index() {
+            self.selective_wipe(Row::from_index(y), whole);
         }
-        if e != EraseExtent::All {
-            let (from, to) = match e {
-                EraseExtent::ToEnd => (self.cx, Col::at_index(cols)),
-                _ => (Col::ZERO, Col::at_index((self.cx.index() + 1).min(cols))),
-            };
-            self.selective_wipe(self.cy, from, to);
+        if let Some(s) = e.cursor_span(self.cx, self.cols) {
+            self.selective_wipe(self.cy, s);
         }
     }
 
@@ -164,11 +132,10 @@ impl<'a> Term<'a> {
     /// Typed rather than three `usize`s: a row index and two column indices are
     /// three different quantities, and passing them in the wrong order compiles
     /// perfectly. The audit refused the `usize` version, correctly.
-    fn selective_wipe(&mut self, r: Row, from: Col, to: Col) {
+    fn selective_wipe(&mut self, r: Row, s: ColSpan) {
         let blank = PackedCell::empty_with(self.style);
-        self.s.promoted[r.index()] = true;
-        self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
-        for x in from.index()..to.index() {
+        self.discard_row(r);
+        for x in s.from.index()..s.to.index() {
             let c = Col::at_index(x);
             if !self.is_protected(r, c) {
                 self.view().put(r, c, blank);
@@ -176,13 +143,14 @@ impl<'a> Term<'a> {
         }
     }
 
-    /// The half-open column span an erase extent names, relative to the cursor.
-    pub(crate) fn erase_span(&self, e: EraseExtent) -> (usize, usize) {
-        match e {
-            EraseExtent::ToEnd => (self.cx.index(), self.cols.index()),
-            EraseExtent::ToStart => (0, (self.cx.index() + 1).min(self.cols.index())),
-            EraseExtent::All => (0, self.cols.index()),
-        }
+    /// Mark a row materialised and drop the spans behind it.
+    ///
+    /// Every bulk erase does these two together, and they must stay together:
+    /// `promoted` without clearing `nrun` leaves a stale run list that a later
+    /// promote would replay over the blanks it just wrote.
+    fn discard_row(&mut self, r: Row) {
+        self.s.promoted[r.index()] = true;
+        self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
     }
 
     /// DECALN, `ESC # 8`.

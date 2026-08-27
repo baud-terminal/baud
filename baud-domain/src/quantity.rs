@@ -420,6 +420,10 @@ impl Row {
     pub fn down(self, c: Count, rows: Rows) -> Row {
         Row((self.0 + c.0 as usize).min(rows.0.saturating_sub(1)))
     }
+    /// One past this row, for a half-open span. Mirrors [`Col::after`].
+    pub fn after(self) -> Row {
+        Row(self.0 + 1)
+    }
 }
 
 impl Count {

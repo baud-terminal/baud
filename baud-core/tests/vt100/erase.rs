@@ -134,3 +134,64 @@ fn erase_is_chunk_invariant() {
         assert_eq!(t.viewport().to_vec(), whole, "differed at chunk {chunk}");
     }
 }
+
+// ── the split has one definition now ────────────────────────────────────────
+
+/// ED and DECSED must agree on where the cursor's row is split.
+///
+/// They computed it independently, and the ECMA-48 § 8.3.39 bug above had to be
+/// fixed in each of them separately — the second one only because someone
+/// remembered it existed. `EraseExtent::full_rows` / `cursor_span` is now the
+/// single definition and this asserts the two stay on it.
+///
+/// With nothing protected, DECSED erases exactly what ED erases: DECSCA decides
+/// *which* cells are eligible, not *where* the boundary falls.
+#[test]
+fn selective_erase_splits_the_row_where_plain_erase_does() {
+    for ps in [b'0', b'1', b'2'] {
+        let mut plain = b"abcdefghij\x1b[1;5H\x1b[".to_vec();
+        plain.push(ps);
+        plain.push(b'J');
+        let mut selective = b"abcdefghij\x1b[1;5H\x1b[?".to_vec();
+        selective.push(ps);
+        selective.push(b'J');
+        assert_eq!(
+            run(&plain),
+            run(&selective),
+            "CSI {} J and CSI ? {} J must split the cursor's row identically",
+            ps as char,
+            ps as char
+        );
+    }
+}
+
+/// Erase-to-start with a pending wrap covers the whole row.
+///
+/// With autowrap on, the cursor legally sits one past the last column — the
+/// deferred-wrap sentinel — so "up to and including the active position" is the
+/// entire row, and `CSI 1 J` must land exactly where `CSI 2 K` does.
+///
+/// Be precise about what this does **not** prove. `ToStart` ends at
+/// `cx.after()`, which is `cols + 1` here; two of the three call sites clamped
+/// that and `erase_display` did not. The difference was invisible, because
+/// `View::fill` clamps `to` again underneath — a downstream guard quietly
+/// covering an upstream inconsistency, which is why it survived. No test could
+/// have caught it from the outside. Consolidating into `line_span` is what
+/// fixes it: one definition, clamped once, and `fill`'s clamp stops being
+/// load-bearing for anything but its own bounds.
+#[test]
+fn erase_to_start_with_a_pending_wrap_covers_the_whole_row() {
+    // `CSI 9999 G` clamps to the last column, so this needs no grid width:
+    // one more character consumes that cell and leaves the wrap pending.
+    let head = b"\x1b[?7h\x1b[9999Gx";
+    let go = |tail: &[u8]| {
+        let mut b = head.to_vec();
+        b.extend_from_slice(tail);
+        run(&b)
+    };
+    assert_eq!(
+        go(b"\x1b[1J"),
+        go(b"\x1b[2K"),
+        "with the wrap pending, erase-to-start covers the whole row"
+    );
+}
