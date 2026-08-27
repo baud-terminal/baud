@@ -22,12 +22,12 @@ extern crate alloc;
 pub use baud_domain::{
     AnsiMode, ArenaTail, Attrs, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col,
     ColorWord, Cols, Content, Count, Csi, CursorStyle, Dcs, DeviceAttribute, Encoding, EraseExtent,
-    Esc, Filled, FinalByte, GSlot, KeypadMode, LineSlot, LinkId, MarginMode, Marker, ModeBit,
-    ModeChange, ModeState, Modes, MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods,
-    MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode,
-    Protection, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
-    StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize,
-    XColor,
+    Esc, Filled, FinalByte, GSlot, KeypadMode, Lane, LaneMask, LineSlot, LinkId, MarginMode,
+    Marker, ModeBit, ModeChange, ModeState, Modes, MouseButton, MouseEncoding, MouseEvent,
+    MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params,
+    Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row, RowBlock, Rows, Run,
+    RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, SubParams,
+    Utf8Acc, View, Width, WinSize, XColor,
 };
 
 /// Whether `level` is the tracking currently selected.
@@ -396,9 +396,9 @@ impl Scan for Portable {
         let hi = Simd::<u8, LANES>::splat(0x7e);
         while i + LANES <= n {
             let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
-            let m = (v.simd_ge(lo) & v.simd_le(hi)).to_bitmask();
-            if m != 0 {
-                return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+            let m = LaneMask::from_movemask((v.simd_ge(lo) & v.simd_le(hi)).to_bitmask() as u32);
+            if let Some(lane) = m.first() {
+                return Some(lane.offset_from(i));
             }
             i += LANES;
         }
@@ -420,9 +420,9 @@ impl Scan for Portable {
         let esc = Simd::<u8, LANES>::splat(0x1b);
         while i + LANES <= n {
             let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
-            let m = (v.simd_eq(bel) | v.simd_eq(esc)).to_bitmask();
-            if m != 0 {
-                return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+            let m = LaneMask::from_movemask((v.simd_eq(bel) | v.simd_eq(esc)).to_bitmask() as u32);
+            if let Some(lane) = m.first() {
+                return Some(lane.offset_from(i));
             }
             i += LANES;
         }
@@ -464,7 +464,7 @@ pub struct Term<'a> {
     /// Bit `i` set when parameter `i` followed a colon rather than a semicolon.
     /// See `Params::is_sub` -- the colon form of direct colour carries an extra
     /// colour-space identifier, so the separator changes the meaning.
-    psub: u16,
+    psub: SubParams,
     /// Bytes of `s.osc` filled so far, and the lengths of the two strings.
     osc_len: ByteLen,
     /// OSC payloads that overflowed `OSC_MAX`.
@@ -588,7 +588,7 @@ impl<'a> Term<'a> {
             st: State::Ground,
             params: [None; 16],
             nparam: ParamIdx::FIRST,
-            psub: 0,
+            psub: SubParams::NONE,
             osc_len: ByteLen::ZERO,
             osc_truncations: Stat::ZERO,
             title_len: ByteLen::ZERO,
@@ -816,7 +816,7 @@ impl<'a> Term<'a> {
         } else {
             &self.s.vp
         };
-        &b[..self.rows.index() * MAX_COLS]
+        RowBlock::leading(self.rows, self.stride()).of(b)
     }
     pub fn row(&self, y: Row) -> &[PackedCell] {
         let b = if self.screen == Screen::Alternate {
@@ -1197,8 +1197,9 @@ impl<'a> Term<'a> {
             self.s.tmpl_key[k] = raw;
             self.tmpl_builds.inc();
             let c = PackedCell::empty_with(StyleId::from_index(k));
-            let a = k * MAX_COLS;
-            self.s.tmpl[a..a + MAX_COLS].fill(c);
+            RowBlock::nth(k, Cols::from_stride(MAX_COLS))
+                .of_mut(&mut self.s.tmpl)
+                .fill(c);
         }
         StyleId::from_index(k)
     }
@@ -1478,13 +1479,19 @@ impl<'a> Term<'a> {
 
     fn apply_sgr(&mut self) {
         let n = self.nparam.count_at_least_one();
-        let mut i = 0usize;
-        while i < n {
-            match baud_domain::SgrAttr::parse(Params::with_subs(&self.params[i..n], self.psub >> i))
-            {
+        // A `ParamIdx`, not a `usize` counter: it indexes the parameter array
+        // *and* realigns the sub-parameter mask, and those two must step
+        // together. Two bare integers here is how the colon form would come to
+        // be read correctly for the first attribute and wrongly for the rest.
+        let mut i = ParamIdx::FIRST;
+        while i.raw_index() < n {
+            match baud_domain::SgrAttr::parse(Params::with_subs(
+                &self.params[i.raw_index()..n],
+                self.psub.drop_first(i),
+            )) {
                 Some((attr, used)) => {
                     self.style_raw = attr.fold(self.style_raw);
-                    i += used.at_least_one();
+                    i = i.advance(used.at_least_one_count());
                 }
                 None => break,
             }
@@ -2021,7 +2028,7 @@ impl<'a> Term<'a> {
                 if b == StreamByte::CSI_INTRO {
                     self.params = [None; 16];
                     self.nparam = ParamIdx::FIRST;
-                    self.psub = 0;
+                    self.psub = SubParams::NONE;
                     self.private = Marker::Standard;
                     self.csi_inter = None;
                     self.st = State::CsiParams;
@@ -2030,7 +2037,7 @@ impl<'a> Term<'a> {
                 } else if b == StreamByte::DCS_INTRO {
                     self.params = [None; 16];
                     self.nparam = ParamIdx::FIRST;
-                    self.psub = 0;
+                    self.psub = SubParams::NONE;
                     self.private = Marker::Standard;
                     self.csi_inter = None;
                     self.osc_reset();
@@ -2202,7 +2209,7 @@ impl<'a> Term<'a> {
                         // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
                         // colour-space identifier that `38;2;r;g;b` does not.
                         if b == StreamByte::COLON {
-                            self.psub |= 1 << self.nparam.raw_index();
+                            self.psub = self.psub.mark(self.nparam);
                         }
                         self.params[self.nparam.raw_index()] = None;
                         self.nparam = self.nparam.next();
@@ -2265,9 +2272,12 @@ impl<'a> Term<'a> {
                 // containing a DEL byte then rendered differently depending on
                 // whether it landed in a 32-byte block or the tail.
                 let d = _mm256_cmpeq_epi8(v, del);
-                let m = _mm256_movemask_epi8(_mm256_or_si256(_mm256_or_si256(lt, hi), d)) as u32;
-                if m != 0 {
-                    return ByteLen::from_lane(i + m.trailing_zeros() as usize);
+                let m = LaneMask::from_movemask(_mm256_movemask_epi8(_mm256_or_si256(
+                    _mm256_or_si256(lt, hi),
+                    d,
+                )) as u32);
+                if let Some(lane) = m.first() {
+                    return lane.offset_from(i);
                 }
                 i += 32;
             }
@@ -2293,12 +2303,12 @@ impl<'a> Term<'a> {
         unsafe {
             while i + 32 <= n {
                 let v = _mm256_loadu_si256(p.add(i) as *const __m256i);
-                let m = _mm256_movemask_epi8(_mm256_and_si256(
+                let m = LaneMask::from_movemask(_mm256_movemask_epi8(_mm256_and_si256(
                     _mm256_cmpgt_epi8(v, lo),
                     _mm256_cmpgt_epi8(hi, v),
-                )) as u32;
-                if m != 0 {
-                    return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+                )) as u32);
+                if let Some(lane) = m.first() {
+                    return Some(lane.offset_from(i));
                 }
                 i += 32;
             }
@@ -2327,12 +2337,12 @@ impl<'a> Term<'a> {
         unsafe {
             while i + 32 <= n {
                 let v = _mm256_loadu_si256(p.add(i) as *const __m256i);
-                let m = _mm256_movemask_epi8(_mm256_or_si256(
+                let m = LaneMask::from_movemask(_mm256_movemask_epi8(_mm256_or_si256(
                     _mm256_cmpeq_epi8(v, bel),
                     _mm256_cmpeq_epi8(v, esc),
-                )) as u32;
-                if m != 0 {
-                    return Some(ByteLen::from_lane(i + m.trailing_zeros() as usize));
+                )) as u32);
+                if let Some(lane) = m.first() {
+                    return Some(lane.offset_from(i));
                 }
                 i += 32;
             }
@@ -2806,7 +2816,7 @@ impl<'a> Term<'a> {
 
         self.params = [None; 16];
         self.nparam = ParamIdx::FIRST;
-        self.psub = 0;
+        self.psub = SubParams::NONE;
         self.private = Marker::Standard;
         self.csi_inter = None;
 
@@ -2830,7 +2840,7 @@ impl<'a> Term<'a> {
         let mut np = ParamIdx::FIRST;
         let mut cur = Param::ZERO;
         let mut any = false;
-        let mut sub: u16 = 0;
+        let mut sub = SubParams::NONE;
         for k in 0..off {
             let d = StreamByte::from_stream(self.s.arena[b + s + k]);
             if let Some(dig) = d.as_ascii_digit() {
@@ -2843,8 +2853,8 @@ impl<'a> Term<'a> {
                     // Same rule as the portable path. Recording it in only one
                     // of the two feeds is the silent-divergence bug this file
                     // has had before -- see the intermediate-byte note below.
-                    if d == StreamByte::COLON && np.raw_index() < 16 {
-                        sub |= 1 << np.raw_index();
+                    if d == StreamByte::COLON {
+                        sub = sub.mark(np);
                     }
                 }
                 cur = Param::ZERO;

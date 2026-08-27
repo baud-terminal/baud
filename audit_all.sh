@@ -7,22 +7,24 @@ set -e
 fail=0
 for f in baud-core/src/lib.rs baud-core/tests/*.rs baud-bench/src/*.rs baud-difftest/src/main.rs; do
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
-  # baud-core/src/lib.rs: 10 permitted, all MAX_COLS as an array dimension
+  # baud-core/src/lib.rs: 8 permitted, and every one is forced by the language
+  # or by an intrinsic rather than chosen:
+  #   3  array dimensions -- `const GRID: usize = MAX_ROWS * MAX_COLS` and the
+  #      two `[PackedCell; NSTYLE * MAX_COLS]`. Rust requires an array length to
+  #      be a `usize` const expression; there is no newtype that can go there.
+  #   5  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
+  #      returns `i32` and `Mask::to_bitmask` returns `u64`; this cast is the
+  #      single point at which an intrinsic's return value enters the type
+  #      system, which is exactly where a cast belongs.
+  #
+  # Was 15. The seven removed were not exemptions that expired -- they were
+  # untyped quantities: a movemask result and a lane index (now `LaneMask` and
+  # `Lane`), a sub-parameter bitmask (`SubParams`), an SGR loop counter that had
+  # to step in lockstep with that mask (`ParamIdx`), and two `rows * stride`
+  # slice computations (`RowBlock`). Do not raise this number to make a change
+  # fit; the remaining eight have nowhere to go.
   case "$f" in
-  # All 10 remaining are structural, not choices:
-  #   7  `const X: usize` — Rust array dimensions must be usize
-  #   1  `arena: [u8; ARENA]` — the wire; bytes are bytes
-  #   4  SIMD lane masks — a movemask result is a bitmask and
-  #      trailing_zeros() on it is a lane index, not a domain quantity
-  #      (scan_avx2, find_final, find_st)
-  # Everything else goes through baud-domain. If this number rises, something
-  # untyped was reintroduced.
-  # 12 -> 15 when the scans became portable. The three added sites are one
-  # `m.trailing_zeros() as usize` per portable scan (run / final_byte / st) --
-  # the same category as the AVX2 lane masks already permitted above. A movemask
-  # result is a bitmask and a lane index is not a domain quantity, so there is
-  # nothing in baud-domain for them to go through.
-  baud-core/src/lib.rs) limit=15 ;;
+  baud-core/src/lib.rs) limit=8 ;;
   # 4 before treefmt, 12 after, with nothing untyped added. impl_audit.py
   # anchors `^\s+\w+: (usize|bool|...),` to a line, meaning to catch struct
   # fields; rustfmt breaks a long fn signature onto one parameter per line, and

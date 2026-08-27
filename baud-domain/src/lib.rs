@@ -978,6 +978,18 @@ impl ParamIdx {
     pub fn next(self) -> ParamIdx {
         ParamIdx(self.0 + 1)
     }
+    /// A parameter position.
+    ///
+    /// Saturating rather than casting: there are at most 16 parameters, so a
+    /// larger index is malformed input and clamping it is what every other
+    /// parameter path here already does.
+    pub fn at(n: usize) -> ParamIdx {
+        ParamIdx(n.min(u8::MAX as usize) as u8)
+    }
+    /// Step forward by however many parameters an attribute consumed.
+    pub fn advance(self, by: ParamCount) -> ParamIdx {
+        ParamIdx(self.0.saturating_add(by.raw()))
+    }
     pub fn plus(self, n: u8) -> ParamIdx {
         ParamIdx(self.0 + n)
     }
@@ -990,6 +1002,13 @@ pub struct ParamCount(u8);
 impl ParamCount {
     pub fn get(self) -> ParamIdx {
         ParamIdx(self.0)
+    }
+    fn raw(self) -> u8 {
+        self.0
+    }
+    /// At least one, so a malformed attribute cannot stall the SGR loop.
+    pub fn at_least_one_count(self) -> ParamCount {
+        ParamCount(self.0.max(1))
     }
 }
 
@@ -1183,6 +1202,44 @@ impl Run {
     }
 }
 
+/// A block of `rows` consecutive rows in a fixed-stride cell buffer.
+///
+/// The `rows * MAX_COLS` arithmetic this replaces appeared twice outside the
+/// [`Grid`] helpers -- once for the visible viewport and once for a template
+/// row -- and both multiply a *count of rows* by a *stride*. Getting the
+/// operands the wrong way round produces a plausible number and a silently
+/// wrong slice, which is the same class of mistake `Grid::at` already exists to
+/// prevent for single cells.
+#[derive(Clone, Copy)]
+pub struct RowBlock {
+    start: usize,
+    len: usize,
+}
+
+impl RowBlock {
+    /// The first `rows` rows.
+    pub fn leading(rows: Rows, stride: Cols) -> RowBlock {
+        RowBlock {
+            start: 0,
+            len: rows.index() * stride.index(),
+        }
+    }
+    /// One row-sized block at row index `n`. Used for the style template table,
+    /// where each style owns one row of pre-filled cells.
+    pub fn nth(n: usize, stride: Cols) -> RowBlock {
+        RowBlock {
+            start: n * stride.index(),
+            len: stride.index(),
+        }
+    }
+    pub fn of<T>(self, buf: &[T]) -> &[T] {
+        &buf[self.start..self.start + self.len]
+    }
+    pub fn of_mut<T>(self, buf: &mut [T]) -> &mut [T] {
+        &mut buf[self.start..self.start + self.len]
+    }
+}
+
 /// Half-open range into the shared run pool.
 #[derive(Clone, Copy)]
 pub struct RunRange {
@@ -1356,6 +1413,74 @@ impl FinalByte {
     }
 }
 
+/// The result of a SIMD movemask: one bit per lane, set where the lane matched.
+///
+/// Typed because two different quantities were being carried as bare integers
+/// here and they are trivially swappable: the *mask* is a bitset over lanes,
+/// and `trailing_zeros()` of it is a lane *index*. Adding a mask to a byte
+/// offset compiles; adding a lane index to one is what the code means. Six
+/// sites across three scanners did this with `as u32` and `as usize`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LaneMask(u32);
+
+impl LaneMask {
+    /// From a `movemask` intrinsic or a portable `Mask::to_bitmask`.
+    pub fn from_movemask(bits: u32) -> LaneMask {
+        LaneMask(bits)
+    }
+    pub fn any(self) -> bool {
+        self.0 != 0
+    }
+    /// The first matching lane, if any. The only way to get an index out.
+    pub fn first(self) -> Option<Lane> {
+        self.any().then(|| Lane(self.0.trailing_zeros() as usize))
+    }
+}
+
+/// Which lane of a SIMD block matched. Not a byte length and not a byte
+/// position -- it only becomes either by being added to the block's base.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Lane(usize);
+
+impl Lane {
+    /// The byte length from the start of a scan to this lane, given how many
+    /// bytes were already consumed by earlier blocks.
+    ///
+    /// The addition lives here so a caller cannot write `lane + something_else`
+    /// and get a plausible-looking number.
+    pub fn offset_from(self, consumed: usize) -> ByteLen {
+        ByteLen::from_index(consumed + self.0)
+    }
+}
+
+/// Which CSI parameters were introduced by a colon rather than a semicolon.
+///
+/// A bitset over [`ParamIdx`], not a `u16`. It is shifted when a parser hands
+/// out a sub-slice of the parameters, and shifting the wrong quantity by the
+/// wrong amount is exactly the mistake that would make `38:2:Pi:r:g:b` read as
+/// the five-part form -- silently, and only for the second attribute in a
+/// sequence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SubParams(u16);
+
+impl SubParams {
+    pub const NONE: SubParams = SubParams(0);
+    /// Mark parameter `i` as colon-joined to the one before it.
+    pub fn mark(self, i: ParamIdx) -> SubParams {
+        match i.raw_index() < 16 {
+            true => SubParams(self.0 | (1 << i.raw_index())),
+            false => self,
+        }
+    }
+    pub fn is_sub(self, i: ParamIdx) -> bool {
+        i.raw_index() < 16 && self.0 & (1 << i.raw_index()) != 0
+    }
+    /// Realign after dropping the first `k` parameters.
+    pub fn drop_first(self, k: ParamIdx) -> SubParams {
+        SubParams(self.0 >> k.raw_index())
+    }
+}
+
 /// Whether a mode is being turned on or off.
 ///
 /// SM/RM and DECSET/DECRST all carry this, and `set: bool` at those call sites
@@ -1445,20 +1570,23 @@ pub struct Params<'a> {
     /// identifier that the semicolon form does not, so `38:2:Pi:r:g:b` has six
     /// sub-parameters where `38;2;r;g;b` has five. A parser that flattens
     /// colons into semicolons reads the `Pi` as red and shifts every channel.
-    sub: u16,
+    sub: SubParams,
 }
 
 impl<'a> Params<'a> {
     pub fn new(p: &'a [Option<Param>]) -> Params<'a> {
-        Params { v: p, sub: 0 }
+        Params {
+            v: p,
+            sub: SubParams::NONE,
+        }
     }
     /// With the sub-parameter mask, as the CSI parser accumulated it.
-    pub fn with_subs(p: &'a [Option<Param>], sub: u16) -> Params<'a> {
+    pub fn with_subs(p: &'a [Option<Param>], sub: SubParams) -> Params<'a> {
         Params { v: p, sub }
     }
     /// Is parameter `i` joined to the one before it by a colon?
     pub fn is_sub(&self, i: ParamIdx) -> bool {
-        i.0 < 16 && self.sub & (1 << i.0) != 0
+        self.sub.is_sub(i)
     }
     /// Length of the colon-joined group that starts at `i`, counting `i`.
     ///
@@ -1474,11 +1602,10 @@ impl<'a> Params<'a> {
         n
     }
     /// Drop the first `k` parameters, keeping the mask aligned.
-    pub fn skip(&self, k: u8) -> Params<'a> {
-        let k = k.min(16);
+    pub fn skip(&self, k: ParamIdx) -> Params<'a> {
         Params {
-            v: &self.v[(k as usize).min(self.v.len())..],
-            sub: self.sub >> k,
+            v: &self.v[k.raw_index().min(self.v.len())..],
+            sub: self.sub.drop_first(k),
         }
     }
     fn at(&self, i: ParamIdx) -> Option<Param> {
@@ -2879,12 +3006,15 @@ fn hex_chan(s: &[u8]) -> Option<Chan> {
 /// Split a byte slice on a separator without allocating.
 struct Split<'a> {
     rest: Option<&'a [u8]>,
-    sep: u8,
+    sep: StreamByte,
 }
 
 impl<'a> Split<'a> {
     fn new(s: &'a [u8], sep: u8) -> Split<'a> {
-        Split { rest: Some(s), sep }
+        Split {
+            rest: Some(s),
+            sep: StreamByte::from_stream(sep),
+        }
     }
 }
 
@@ -2892,7 +3022,10 @@ impl<'a> Iterator for Split<'a> {
     type Item = &'a [u8];
     fn next(&mut self) -> Option<&'a [u8]> {
         let cur = self.rest?;
-        match cur.iter().position(|&b| b == self.sep) {
+        match cur
+            .iter()
+            .position(|&b| StreamByte::from_stream(b) == self.sep)
+        {
             Some(i) => {
                 self.rest = Some(&cur[i + 1..]);
                 Some(&cur[..i])
@@ -3190,12 +3323,12 @@ impl DeviceAttribute {
 /// testable without a `Term` to hang it on.
 pub struct ReportBytes {
     buf: [u8; Report::MAX_LEN],
-    len: usize,
+    len: ByteLen,
 }
 
 impl ReportBytes {
     pub fn as_bytes(&self) -> &[u8] {
-        &self.buf[..self.len]
+        &self.buf[..self.len.index()]
     }
 }
 
@@ -3213,7 +3346,7 @@ impl Report {
     pub fn encode(self) -> ReportBytes {
         let mut e = ReportBytes {
             buf: [0; Report::MAX_LEN],
-            len: 0,
+            len: ByteLen::ZERO,
         };
         e.push(0x1b);
         e.push(b'[');
@@ -3252,7 +3385,7 @@ impl Report {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here
                 // replaces the `ESC [` the encoder starts with, so the branch
                 // rewinds rather than appending.
-                e.len = 0;
+                e.len = ByteLen::ZERO;
                 e.push(0x1b);
                 e.push(b'P');
                 e.push(b'>');
@@ -3286,9 +3419,10 @@ impl ReportBytes {
     fn push(&mut self, b: u8) {
         // Cannot overflow: MAX_LEN is the longest variant, checked by
         // `report_encodings_fit` in baud-domain's tests.
-        if self.len < Report::MAX_LEN {
-            self.buf[self.len] = b;
-            self.len += 1;
+        let n = self.len.index();
+        if n < Report::MAX_LEN {
+            self.buf[n] = b;
+            self.len = ByteLen::from_index(n + 1);
         }
     }
     /// Decimal, most significant digit first.
@@ -3707,7 +3841,7 @@ impl SgrAttr {
     /// with the slice. Dropping the mask here would make every attribute after
     /// the first look like the legacy form.
     pub fn parse_sub(params: Params<'_>, i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
-        SgrAttr::parse(params.skip(i.0))
+        SgrAttr::parse(params.skip(i))
     }
     /// Apply to a packed 24-bit colour + attribute word.
     /// Apply one attribute to the accumulating rendition.
