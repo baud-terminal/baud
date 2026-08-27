@@ -1678,3 +1678,52 @@ fn every_designator_is_reachable() {
         missing.join("\n  ")
     );
 }
+
+proptest! {
+    /// **Resizing between reads is sound, whatever the stream did first.**
+    ///
+    /// `resize` is a public entry point that no generated program could reach,
+    /// because the generator emits bytes and this is an API call. That gap hid
+    /// a crash: `RowRot` is bounded by the row count at the time it was
+    /// advanced, so a shrink could leave it past the new one, and
+    /// `viewport`'s `rotate_left` then panicked with `mid <= self.len()` —
+    /// 41 rows of rotation against a ten-row slice. Scroll a screenful, drag
+    /// the window smaller, read the grid.
+    ///
+    /// The stream is fed in two halves with the resize between them, because
+    /// resizing a terminal that is *mid-sequence* is the case an application
+    /// cannot control: `SIGWINCH` does not wait for a CSI to finish.
+    #[test]
+    fn resize_between_reads_is_sound(
+        before in program(),
+        after in program(),
+        rows in 1u16..=130,
+        cols in 1u16..=260,
+    ) {
+        let mut store = Storage::boxed();
+        let mut t = Term::new(&mut store, OpMode::Computed);
+
+        for (k, part) in [bytes_of(&before), bytes_of(&after)].iter().enumerate() {
+            if k == 1 {
+                let _ = t.resize(&WinSize { ws_row: rows, ws_col: cols });
+            }
+            let mut i = 0;
+            while i < part.len() {
+                let n = READ_CHUNK.min(part.len() - i);
+                let mut slot = t.read_slot();
+                let base = slot.base();
+                let f = slot.write(StreamByte::slice_from(&part[i..i + n]));
+                t.feed(base, f.len());
+                t.commit_read(f.len());
+                i += n;
+            }
+        }
+
+        // Each of these read the rotation, and each panicked before the fix.
+        let (r, c) = t.cursor();
+        let vp_len = t.viewport().len();
+        prop_assert_eq!(vp_len % 2048, 0, "the viewport is whole rows");
+        prop_assert!(r.index() < 130.min(vp_len / 2048).max(1), "cursor row in the resized grid");
+        prop_assert!(c.index() <= 260, "cursor column in the resized grid");
+    }
+}

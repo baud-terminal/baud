@@ -65,6 +65,11 @@ impl<'a> Term<'a> {
         self.reset_side_margins();
         self.modes = Modes::default();
         self.reset_tabs();
+        // Same reason as `resize`: the grid is about to be cleared, so a
+        // rotation has nothing left to describe. RIS cannot panic the way a
+        // shrink can -- it does not change `rows`, so `rot` stays in range --
+        // but leaving it set means a cleared grid still claims to be rotated.
+        self.rot = RowRot::NONE;
         self.clear_screen();
     }
 }

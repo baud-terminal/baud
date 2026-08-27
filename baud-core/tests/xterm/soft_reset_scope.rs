@@ -103,3 +103,142 @@ fn a_hard_reset_still_resets_everything() {
     assert_eq!(tracking, MouseTracking::Off, "RIS clears tracking");
     assert_eq!(reply, b"\x1b[?1006;2$y".to_vec(), "and the encoding");
 }
+
+/// **Shrinking the window after a scroll must not panic.**
+///
+/// `RowRot` is bounded by the row count at the time it was advanced, so a
+/// shrink can leave it at or past the new one. `View::phys` is a single
+/// conditional subtract -- deliberately, because both operands are normally
+/// below `rows` -- so past that point it names a row outside the grid:
+/// `clear_screen` blanks rows nobody can see, and `viewport`'s `rotate_left`
+/// panics outright with `mid <= self.len()`.
+///
+/// The reproduction is a full-screen application and a user dragging a corner.
+/// It was unreachable from the property suite because `resize` was never
+/// called by any generated program -- an entire public entry point with no
+/// coverage, which is why `Op::Resize` now exists.
+#[test]
+fn a_shrink_after_scrolling_does_not_panic() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    // 50 rows: 49 newlines reach the last row, the remainder scroll, so this
+    // leaves the rotation at 41 -- comfortably past the ten rows below.
+    let payload: Vec<u8> = (0..90).flat_map(|_| b"X\r\n".to_vec()).collect();
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(&payload));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 200,
+        }),
+        Resized::Ok
+    );
+
+    // Both of these panicked before the fix.
+    let vp = t.viewport();
+    assert_eq!(vp.len(), 10 * 2048, "ten rows of the fixed stride");
+    // Not `== PackedCell::EMPTY` for every cell: the row stride is `MAX_COLS`
+    // and only `cols` of it is the grid, so the tail is zeroed rather than
+    // blanked. What matters is that no *content* survived into view.
+    assert!(
+        !vp.iter()
+            .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'X'))),
+        "resize clears: no scrolled-off text may remain visible"
+    );
+}
+
+/// Growing is the same hazard from the other side, and must also be clean.
+#[test]
+fn a_grow_after_scrolling_does_not_panic() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let payload: Vec<u8> = (0..90).flat_map(|_| b"Y\r\n".to_vec()).collect();
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(&payload));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 120,
+            ws_col: 200,
+        }),
+        Resized::Ok
+    );
+    let vp = t.viewport();
+    assert_eq!(vp.len(), 120 * 2048);
+    assert!(
+        !vp.iter()
+            .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'Y'))),
+        "and the same growing"
+    );
+}
+
+/// **A cursor saved before a resize is restored into the grid that exists.**
+///
+/// `resize` homes the cursor but cannot touch a position DECSC already stored,
+/// so `ESC 7` on a 50-row screen and `ESC 8` on a one-row screen used to put
+/// `cy` at 49 — outside the grid. That is not only a wrong CPR answer, which
+/// `Term::cursor`'s own doc rules out for the column ("a 200-column page has
+/// no column 201"); writes and erases index with `cy`, and `View::phys` is a
+/// single conditional subtract that assumes it is in range.
+///
+/// Found by `resize_between_reads_is_sound`, which shrank to
+/// `[CupHuge, Decslrm]` / `[Restore]` at one row by one column.
+#[test]
+fn a_cursor_saved_before_a_resize_is_clamped_on_restore() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    feed(&mut t, b"\x1b[99999;99999H\x1b7");
+    assert_eq!(t.cursor().0.index(), 49, "saved from the last row of fifty");
+
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 1,
+            ws_col: 1,
+        }),
+        Resized::Ok
+    );
+    feed(&mut t, b"\x1b8");
+    let (r, c) = t.cursor();
+    assert_eq!(r.index(), 0, "restored row is inside the one-row grid");
+    assert!(c.index() <= 1, "and so is the column");
+}
+
+/// The clamp must not flatten an ordinary save/restore.
+///
+/// `cx` clamps to `cols`, not `cols - 1`, because with autowrap on the cursor
+/// legitimately sits one past the last column until the next write consumes
+/// it. A restore on an unchanged grid has to give that state back.
+#[test]
+fn save_and_restore_round_trips_when_the_grid_has_not_changed() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    feed(&mut t, b"\x1b[10;20H\x1b7\x1b[1;1H");
+    assert_eq!((t.cursor().0.index(), t.cursor().1.index()), (0, 0));
+    feed(&mut t, b"\x1b8");
+    assert_eq!(
+        (t.cursor().0.index(), t.cursor().1.index()),
+        (9, 19),
+        "an unresized restore is exact"
+    );
+}

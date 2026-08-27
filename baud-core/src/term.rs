@@ -439,6 +439,18 @@ impl<'a> Term<'a> {
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
         self.reset_side_margins();
+        // **Before `clear_screen`, and not optional.** `rot` is bounded by the
+        // *old* row count, so shrinking the window can leave it at or past the
+        // new one -- and `View::phys` is a single conditional subtract,
+        // deliberately, because both operands are normally below `rows`. Past
+        // that point it returns a row outside the grid, so `clear_screen`
+        // blanks rows nobody can see and `viewport`'s `rotate_left` panics
+        // outright: 41 rows of rotation against a ten-row slice.
+        //
+        // Scroll a screenful, then make the window smaller: that is a
+        // full-screen application and a user dragging a corner. The grid is
+        // cleared here anyway, so there is nothing for a rotation to mean.
+        self.rot = RowRot::NONE;
         self.clear_screen();
         if over {
             Resized::Truncated {

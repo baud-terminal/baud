@@ -90,3 +90,36 @@ impl<'a> Term<'a> {
         )
     }
 }
+
+impl<'a> Term<'a> {
+    /// DECRC. Restores the cursor and rendition DECSC saved, **clamped to the
+    /// grid that exists now**.
+    ///
+    /// The save may predate a resize, and `resize` homes the cursor but cannot
+    /// touch a position already stored. Restoring row 49 into a one-row grid
+    /// left `cy` outside it, and `cy` is not only a report: writes and erases
+    /// index with it, and `View::phys` is a single conditional subtract that
+    /// assumes it is in range. `Term::cursor` already clamps the *column* for
+    /// exactly this reason -- "a 200-column page has no column 201" -- and the
+    /// row had the same hole with none of the clamping.
+    ///
+    /// `cx` clamps to `cols` rather than `cols - 1` so the deferred-wrap
+    /// sentinel survives a restore on an unchanged grid: with autowrap on, `cx`
+    /// legitimately sits one past the last column until the next write
+    /// consumes it, and flattening that here would turn a saved wrap-pending
+    /// state into an ordinary one.
+    ///
+    /// One implementation because DECRC arrives two ways -- `ESC 8` and
+    /// `CSI u`'s sibling in the escape table -- and two copies of a clamp is
+    /// how one of them comes to lack it.
+    pub(crate) fn restore_cursor(&mut self) {
+        let Some((r, c, st, sw, fl)) = self.saved else {
+            return;
+        };
+        self.cy = Row::from_index(r.index().min(self.rows.index() - 1));
+        self.cx = Col::at_index(c.index().min(self.cols.index()));
+        self.style = st;
+        self.style_raw = sw;
+        self.flags = fl;
+    }
+}

@@ -131,13 +131,7 @@ impl<'a> Term<'a> {
                 // `[[source: vt510-decsc]]` lists the selective erase
                 // attribute among what DECSC saves, so it is restored here with
                 // the rendition rather than left behind.
-                if let Some((r, c, st, sw, fl)) = self.saved {
-                    self.cy = r;
-                    self.cx = c;
-                    self.style = st;
-                    self.style_raw = sw;
-                    self.flags = fl;
-                }
+                self.restore_cursor();
             }
             Csi::InsertLines(c) => self.insert_lines(c),
             Csi::DeleteLines(c) => self.delete_lines(c),
@@ -825,13 +819,7 @@ impl<'a> Term<'a> {
             // among what DECSC saves, so it is restored here with the rendition
             // rather than left behind.
             Esc::RestoreCursor => {
-                if let Some((r, c, st, sw, fl)) = self.saved {
-                    self.cy = r;
-                    self.cx = c;
-                    self.style = st;
-                    self.style_raw = sw;
-                    self.flags = fl;
-                }
+                self.restore_cursor();
             }
             Esc::ReverseIndex => self.reverse_index(),
             Esc::Index => self.index(),
