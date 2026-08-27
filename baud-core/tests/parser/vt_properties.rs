@@ -13,6 +13,7 @@
 //! A model would be a second terminal, and a second terminal has its own bugs.
 
 use baud_core::*;
+use baud_domain::ParamIdx;
 use proptest::prelude::*;
 
 // ── a generator for well-formed sequences ───────────────────────────────────
@@ -21,6 +22,14 @@ use proptest::prelude::*;
 enum Op {
     /// `n` copies of a printable character.
     Text(u8, u8),
+    /// An SGR with *many* parameters, crossing `ParamIdx::CAPACITY`.
+    ///
+    /// `Op::Sgr` emits exactly one parameter, so no generated program ever
+    /// carried a long list -- which is why `generated_programs_are_chunk_
+    /// invariant` passed for the whole time the two feeds disagreed about
+    /// what to do past the capacity bound. A property is only as good as the
+    /// shapes its generator can reach.
+    SgrMany(u8, u8),
     Cup(u8, u8),
     Cuu(u8),
     Cud(u8),
@@ -113,6 +122,9 @@ fn op() -> impl Strategy<Value = Op> {
         Just(Op::Ind),
         Just(Op::Ri),
         prop::sample::select(&SGR[..]).prop_map(Op::Sgr),
+        // Deliberately spans the capacity bound: short lists, lists exactly at
+        // it, and lists well past it.
+        (1u8..2 * ParamIdx::CAPACITY as u8, 0u8..20).prop_map(|(n, off)| Op::SgrMany(n, off)),
         (0u8..3).prop_map(Op::Decsca),
         (0u8..3).prop_map(Op::El),
         (0u8..3).prop_map(Op::Ed),
@@ -190,6 +202,16 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             Op::Ind => n.push_str("\x1bD"),
             Op::Ri => n.push_str("\x1bM"),
             Op::Sgr(p) => write!(n, "\x1b[{p}m").unwrap(),
+            Op::SgrMany(count, off) => {
+                n.push_str("\x1b[");
+                for k in 0..count as usize {
+                    if k > 0 {
+                        n.push(';');
+                    }
+                    write!(n, "{}", SGR[(k + off as usize) % SGR.len()]).unwrap();
+                }
+                n.push('m');
+            }
             Op::Decsca(p) => write!(n, "\x1b[{p}\"q").unwrap(),
             Op::El(p) => write!(n, "\x1b[{p}K").unwrap(),
             Op::Ed(p) => write!(n, "\x1b[{p}J").unwrap(),
