@@ -189,6 +189,27 @@ in
   # worth catching before the commit rather than after.
   git-hooks.hooks = {
     treefmt.enable = true;
+
+    # The same task set CI runs, on pre-push rather than pre-commit.
+    #
+    # This exists because local `dev-ci` green is not evidence CI is green, and
+    # relying on remembering to run it did not work: master sat red while the
+    # local gate passed, because the failure was in a job the local gate does
+    # not have. Pre-push is the right stage -- pre-commit would run the whole
+    # suite on every commit of a stack, and the thing being protected is the
+    # remote, not the reflog.
+    #
+    # Cost: seconds when the dev shell and ./target are warm, a full dev-shell
+    # build when cold. `git push --no-verify` skips it, deliberately -- there
+    # are legitimate reasons to push a branch that does not build yet, and a
+    # gate with no escape hatch gets disabled wholesale instead.
+    dev-ci = {
+      enable = true;
+      name = "dev-ci (full check suite)";
+      entry = "devenv test";
+      stages = [ "pre-push" ];
+      pass_filenames = false;
+    };
   };
 
   # https://devenv.sh/tasks/
