@@ -85,17 +85,27 @@ pub(crate) fn run_once_t(
             libc::fcntl(m, libc::F_SETPIPE_SZ, 1 << 20);
         }
 
-        let is_tui = matches!(which, P::Tui);
         let pid = libc::fork();
         if pid == 0 {
             libc::close(m);
             let mut seq = 0u64;
             let mut sent = 0usize;
             while sent < total {
-                let pl = if is_tui {
-                    payload::tui(1 << 19, &mut seq)
-                } else {
-                    payload::streaming(1 << 20, &mut seq)
+                // A recording is written from the static slice rather than
+                // regenerated: it is a fixed capture, so "fresh per write" has
+                // nothing to freshen. Repetition is the cost, and the banner
+                // says so.
+                let owned;
+                let pl: &[u8] = match which {
+                    P::Replay(rec) => rec,
+                    P::Tui => {
+                        owned = payload::tui(1 << 19, &mut seq);
+                        &owned
+                    }
+                    P::Streaming => {
+                        owned = payload::streaming(1 << 20, &mut seq);
+                        &owned
+                    }
                 };
                 let mut o = 0usize;
                 while o < pl.len() {

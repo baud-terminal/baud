@@ -508,6 +508,41 @@ say so: `payload::text` and `payload::tui` send short parameter lists, so this
 measures `Term` getting bigger, not the deeper array being walked. A payload
 that sends 30-parameter SGR does not exist here.
 
+## Real capture, replayed through a PTY
+
+Host B (arm64 macOS, portable scanner), 2026-08-27, `790272a`. Median of 9,
+48 MB per repetition, `OpMode::Runs`, PTY transport — the same conditions as
+the spans rows above, so these are comparable to them. Three runs, all shown.
+
+| payload | 1 ESC per | run 1 | run 2 | run 3 |
+|---|---|---|---|---|
+| asciiquarium | 5.4 B | 129.0 [127.0-136.5] | 131.7 [128.6-137.1] | 131.2 [128.4-135.6] |
+| btop | 16.5 B | 158.8 [154.8-159.5] | 159.4 [158.3-160.0] | 158.0 [156.9-158.9] |
+| vim | 17.2 B | 158.5 [154.8-167.2] | 161.5 [155.8-166.5] | 155.3 [153.7-166.0] |
+| **`payload::tui`** (synthetic) | — | 235.4 [230.8-258.8] | 239.8 [215.2-253.2] | 228.9 [211.1-237.7] |
+
+**The synthetic TUI payload is optimistic by about a third.** Real capture runs
+at 131-159 MB/s where `payload::tui` reaches 229-240, and the ranges do not
+overlap — btop tops out at 160.0 against the synthetic payload's floor of
+211.1. This is the answer to the question `CLAUDE.md` had open: *replay real
+capture instead of `payload::tui` and find out whether the margin survives*.
+It does not survive intact.
+
+**Throughput tracks escape density, not content.** btop and vim have almost the
+same density (16.5 and 17.2 bytes per escape) and almost the same throughput
+(158.7 and 158.0), despite one being truecolour box-drawing and the other
+scroll regions over CJK and emoji. asciiquarium is three times denser at 5.4
+bytes per escape and is 17% slower. Escapes leave the bulk ASCII path and go
+through the state machine one byte at a time, so the ratio of the two is what
+the number measures.
+
+**Two caveats, both making these an upper bound.** A recording is fixed, so
+filling a 48 MB repetition replays a 138-524 KB capture 90-350 times: caches
+and branch predictors see the same bytes repeatedly, which a live terminal
+never does. And each is ten seconds of one program on one machine. The
+direction of both errors is the same — reality is at or below these numbers,
+not above.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
