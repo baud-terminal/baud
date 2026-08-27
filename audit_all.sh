@@ -5,26 +5,40 @@
 # confused.
 set -e
 fail=0
-for f in baud-core/src/lib.rs baud-core/tests/*.rs baud-bench/src/*.rs baud-difftest/src/main.rs; do
+
+# baud-core is an aggregate, not a file. After the SRP split it is ~20 modules,
+# so naming lib.rs would measure a 60-line file of `mod`/`pub use` and report
+# green for ever -- the "instrumentation outlived what fed it" failure
+# CLAUDE.md records.
+#
+# 8 permitted, and every one is forced by the language or by an intrinsic
+# rather than chosen:
+#   3  array dimensions -- `const GRID: usize = MAX_ROWS * MAX_COLS` and the
+#      two `[PackedCell; NSTYLE * MAX_COLS]`. Rust requires an array length to
+#      be a `usize` const expression; there is no newtype that can go there.
+#   5  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
+#      returns `i32` and `Mask::to_bitmask` returns `u64`; this cast is the
+#      single point at which an intrinsic's return value enters the type
+#      system, which is exactly where a cast belongs.
+#
+# Do not raise this number to make a change fit; the remaining eight have
+# nowhere to go.
+core=0
+for f in $(find baud-core/src -name '*.rs' | sort); do
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
-  # baud-core/src/lib.rs: 8 permitted, and every one is forced by the language
-  # or by an intrinsic rather than chosen:
-  #   3  array dimensions -- `const GRID: usize = MAX_ROWS * MAX_COLS` and the
-  #      two `[PackedCell; NSTYLE * MAX_COLS]`. Rust requires an array length to
-  #      be a `usize` const expression; there is no newtype that can go there.
-  #   5  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
-  #      returns `i32` and `Mask::to_bitmask` returns `u64`; this cast is the
-  #      single point at which an intrinsic's return value enters the type
-  #      system, which is exactly where a cast belongs.
-  #
-  # Was 15. The seven removed were not exemptions that expired -- they were
-  # untyped quantities: a movemask result and a lane index (now `LaneMask` and
-  # `Lane`), a sub-parameter bitmask (`SubParams`), an SGR loop counter that had
-  # to step in lockstep with that mask (`ParamIdx`), and two `rows * stride`
-  # slice computations (`RowBlock`). Do not raise this number to make a change
-  # fit; the remaining eight have nowhere to go.
+  core=$((core + n))
+  [ "$n" -gt 0 ] && echo "  ..   $f: $n"
+done
+if [ "$core" -gt 8 ]; then
+  echo "  FAIL baud-core/src: $core raw-integer sites (limit 8)"
+  fail=1
+else
+  echo "  ok   baud-core/src: $core (limit 8)"
+fi
+
+for f in baud-core/tests/*.rs baud-bench/src/*.rs baud-difftest/src/main.rs; do
+  n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
   case "$f" in
-  baud-core/src/lib.rs) limit=8 ;;
   # 4 before treefmt, 12 after, with nothing untyped added. impl_audit.py
   # anchors `^\s+\w+: (usize|bool|...),` to a line, meaning to catch struct
   # fields; rustfmt breaks a long fn signature onto one parameter per line, and
