@@ -177,6 +177,7 @@ More in [BUILD.md](BUILD.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 | | |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | the data path and why it is shaped this way |
+| [docs/protocols/](docs/protocols/) | one document per protocol level, mirroring the code and tests |
 | [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation |
 | [docs/protocol-decisions.md](docs/protocol-decisions.md) | why the hard calls went the way they did |
 | [MEASUREMENTS.md](MEASUREMENTS.md) | every number, with the host that produced it |
