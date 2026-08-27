@@ -884,6 +884,9 @@ impl ParamIdx {
     pub fn next(self) -> ParamIdx {
         ParamIdx(self.0 + 1)
     }
+    pub fn plus(self, n: u8) -> ParamIdx {
+        ParamIdx(self.0 + n)
+    }
 }
 
 /// How many parameters an SGR attribute consumed.
@@ -1253,7 +1256,7 @@ impl FinalByte {
 
 /// Whether a CSI carried the `?` private marker. A `bool` argument at a call
 /// site says nothing; this says which namespace.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marker {
     Standard,
     Private,
@@ -1261,14 +1264,56 @@ pub enum Marker {
 
 /// CSI parameters as accumulated, with typed accessors. Positional indexing
 /// into a bare slice is how `38;2;r;g;b` gets misread.
-pub struct Params<'a>(&'a [Option<Param>]);
+pub struct Params<'a> {
+    v: &'a [Option<Param>],
+    /// Bit `i` is set when parameter `i` was separated from `i-1` by a **colon**
+    /// rather than a semicolon -- that is, when it is a sub-parameter of the
+    /// same attribute.
+    ///
+    /// `[[source: ctlseqs]]`: "xterm allows either colons (standard) or
+    /// semicolons (legacy) to separate the subparameters". The distinction is
+    /// not cosmetic: the colon form of direct colour carries a colour-space
+    /// identifier that the semicolon form does not, so `38:2:Pi:r:g:b` has six
+    /// sub-parameters where `38;2;r;g;b` has five. A parser that flattens
+    /// colons into semicolons reads the `Pi` as red and shifts every channel.
+    sub: u16,
+}
 
 impl<'a> Params<'a> {
     pub fn new(p: &'a [Option<Param>]) -> Params<'a> {
-        Params(p)
+        Params { v: p, sub: 0 }
+    }
+    /// With the sub-parameter mask, as the CSI parser accumulated it.
+    pub fn with_subs(p: &'a [Option<Param>], sub: u16) -> Params<'a> {
+        Params { v: p, sub }
+    }
+    /// Is parameter `i` joined to the one before it by a colon?
+    pub fn is_sub(&self, i: ParamIdx) -> bool {
+        i.0 < 16 && self.sub & (1 << i.0) != 0
+    }
+    /// Length of the colon-joined group that starts at `i`, counting `i`.
+    ///
+    /// `38:2:0:1:2:3` from index 0 is 6; a bare `38` is 1.
+    pub fn group_len(&self, i: ParamIdx) -> u8 {
+        let mut n: u8 = 1;
+        while (i.0 + n) < 16
+            && ((i.0 + n) as usize) < self.v.len()
+            && self.is_sub(ParamIdx(i.0 + n))
+        {
+            n += 1;
+        }
+        n
+    }
+    /// Drop the first `k` parameters, keeping the mask aligned.
+    pub fn skip(&self, k: u8) -> Params<'a> {
+        let k = k.min(16);
+        Params {
+            v: &self.v[(k as usize).min(self.v.len())..],
+            sub: self.sub >> k,
+        }
     }
     fn at(&self, i: ParamIdx) -> Option<Param> {
-        self.0.get(i.0 as usize).copied().flatten()
+        self.v.get(i.0 as usize).copied().flatten()
     }
     pub fn count(&self, i: ParamIdx) -> Count {
         Count::from_param(self.at(i))
@@ -1283,7 +1328,7 @@ impl<'a> Params<'a> {
         PrivateMode::from_wire(self.at(i))
     }
     pub fn count_of(&self) -> ParamCount {
-        ParamCount(self.0.len().min(255) as u8)
+        ParamCount(self.v.len().min(255) as u8)
     }
 }
 
@@ -1830,6 +1875,14 @@ pub enum Csi {
         mode: AnsiMode,
     },
     Sgr,
+    /// DECSCUSR, `CSI Ps SP q`. Cursor shape and blink.
+    CursorStyle(CursorStyle),
+    /// DECRQM, `CSI Ps $ p` and `CSI ? Ps $ p`. A *question*, answered with
+    /// [`Report::ModeStatus`].
+    RequestMode {
+        marker: Marker,
+        mode: Param,
+    },
     /// Private (`?`) sequences are a different namespace. `CSI 4 h` and
     /// `CSI ? 4 h` are unrelated operations; conflating them is a classic bug.
     PrivateMode {
@@ -1851,6 +1904,19 @@ impl Csi {
                 (b'!', b'p') => Csi::SoftReset,
                 (b'"', b'q') => Csi::SelectProtection {
                     protect: p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 1,
+                },
+                // `CSI Ps SP q` -- the intermediate is a space, which is why
+                // DECSCUSR and DECSCA can share a final byte without colliding.
+                (b' ', b'q') => match CursorStyle::from_param(p.at(ParamIdx::FIRST)) {
+                    Some(c) => Csi::CursorStyle(c),
+                    None => Csi::Unsupported {
+                        marker,
+                        final_byte: f,
+                    },
+                },
+                (b'$', b'p') => Csi::RequestMode {
+                    marker,
+                    mode: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
                 },
                 _ => Csi::Unsupported {
                     marker,
@@ -2097,24 +2163,121 @@ impl SgrAttr {
                         SgrAttr::Bg(c)
                     }
                 };
+                // Two spellings, and the difference is not cosmetic.
+                //
+                // `[[source: ctlseqs]]` gives the ISO 8613-6 form as
+                // `38 : 2 : Pi : Pr : Pg : Pb` -- six sub-parameters, with a
+                // colour-space identifier `Pi` that "is ignored" -- and the
+                // konsole-compatible legacy form as `38 ; 2 ; Pr ; Pg ; Pb`,
+                // five parameters with no `Pi`. Reading the colon form as the
+                // semicolon form takes `Pi` for red and shifts every channel
+                // by one, which is the bug this whole distinction exists to
+                // avoid. Some emitters also write `38:2:r:g:b` with no `Pi`,
+                // so the group length decides rather than the separator alone.
+                let group = params.group_len(ParamIdx::FIRST);
+                let colon_form = group > 1;
                 match params.at(ParamIdx::SECOND).map(|x| x.0) {
-                    Some(5) => (
-                        mk(Color::Indexed(Chan::from_param(params.at(ParamIdx::THIRD)))),
-                        ParamCount(3),
-                    ),
-                    Some(2) => (
-                        mk(Color::Rgb(
-                            Chan::from_param(params.at(ParamIdx::THIRD)),
-                            Chan::from_param(params.at(ParamIdx::FOURTH)),
-                            Chan::from_param(params.at(ParamIdx::FIFTH)),
-                        )),
-                        ParamCount(5),
-                    ),
+                    Some(5) => {
+                        let n = mk(Color::Indexed(Chan::from_param(params.at(ParamIdx::THIRD))));
+                        // The whole colon group is one attribute, however long
+                        // the emitter made it.
+                        (n, ParamCount(if colon_form { group } else { 3 }))
+                    }
+                    Some(2) => {
+                        // Where the channels start: after `Pi` in the six-part
+                        // colon form, immediately in every other spelling.
+                        let base = if colon_form && group >= 6 {
+                            ParamIdx::FOURTH
+                        } else {
+                            ParamIdx::THIRD
+                        };
+                        let c = mk(Color::Rgb(
+                            Chan::from_param(params.at(base)),
+                            Chan::from_param(params.at(base.plus(1))),
+                            Chan::from_param(params.at(base.plus(2))),
+                        ));
+                        (c, ParamCount(if colon_form { group } else { 5 }))
+                    }
                     _ => return None,
                 }
             }
             _ => return None,
         })
+    }
+}
+
+/// DECSCUSR cursor shapes, `CSI Ps SP q`.
+///
+/// `[[source: ctlseqs]]`: "0 -> blinking block. 1 -> blinking block (default).
+/// 2 -> steady block. 3 -> blinking underline. 4 -> steady underline.
+/// 5 -> blinking bar, xterm. 6 -> steady bar, xterm."
+///
+/// Shape and blink are kept as one value rather than split into a shape plus a
+/// flag, because the wire has seven states and only six are a clean product --
+/// 0 and 1 are the same shape, so a split would have to invent a rule for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorStyle {
+    #[default]
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderline,
+    SteadyUnderline,
+    BlinkingBar,
+    SteadyBar,
+}
+
+impl CursorStyle {
+    /// `Ps = 7` ("initial resources") means the power-on style, which for baud
+    /// is the default -- there are no resources to restore from.
+    pub fn from_param(p: Option<Param>) -> Option<CursorStyle> {
+        Some(match p.map_or(0, |x| x.0) {
+            0 | 1 | 7 => CursorStyle::BlinkingBlock,
+            2 => CursorStyle::SteadyBlock,
+            3 => CursorStyle::BlinkingUnderline,
+            4 => CursorStyle::SteadyUnderline,
+            5 => CursorStyle::BlinkingBar,
+            6 => CursorStyle::SteadyBar,
+            _ => return None,
+        })
+    }
+    /// Does this style blink? A renderer needs the two axes even though the
+    /// wire encodes them together.
+    pub fn blinks(self) -> bool {
+        matches!(
+            self,
+            CursorStyle::BlinkingBlock | CursorStyle::BlinkingUnderline | CursorStyle::BlinkingBar
+        )
+    }
+}
+
+/// What DECRQM answers about one mode.
+///
+/// `[[source: ctlseqs]]`: "0 - not recognized, 1 - set, 2 - reset,
+/// 3 - permanently set, 4 - permanently reset".
+///
+/// `NotRecognized` is the important one and it is not a failure case: an
+/// application uses DECRQM precisely to find out whether a mode exists, so
+/// answering 0 for a mode baud does not implement is the *correct* answer.
+/// Answering 2 ("reset") instead would tell it the mode exists and is off,
+/// and it would then set the mode and believe it took effect.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ModeState {
+    NotRecognized,
+    Set,
+    Reset,
+    PermanentlySet,
+    PermanentlyReset,
+}
+
+impl ModeState {
+    fn wire(self) -> u16 {
+        match self {
+            ModeState::NotRecognized => 0,
+            ModeState::Set => 1,
+            ModeState::Reset => 2,
+            ModeState::PermanentlySet => 3,
+            ModeState::PermanentlyReset => 4,
+        }
     }
 }
 
@@ -2143,6 +2306,18 @@ pub enum Report {
     OperatingStatus,
     /// Primary DA, `CSI ? Ps c`.
     PrimaryDeviceAttributes(DeviceAttribute),
+    /// DECRPM, the answer to DECRQM: `CSI Ps ; Pm $ y`, or
+    /// `CSI ? Ps ; Pm $ y` for the private namespace.
+    ///
+    /// The marker is carried because the two namespaces are unrelated: `CSI 4`
+    /// is IRM and `CSI ? 4` is DECSCLM. Answering a private request without the
+    /// `?` would have the application read it as an answer about a different
+    /// mode entirely.
+    ModeStatus {
+        marker: Marker,
+        mode: Param,
+        state: ModeState,
+    },
 }
 
 /// Which terminal baud claims to be, in a Primary DA response.
@@ -2219,6 +2394,20 @@ impl Report {
                 e.push(b'?');
                 e.push_num(d.param());
                 e.push(b'c');
+            }
+            Report::ModeStatus {
+                marker,
+                mode,
+                state,
+            } => {
+                if marker == Marker::Private {
+                    e.push(b'?');
+                }
+                e.push_num(mode.0);
+                e.push(b';');
+                e.push_num(state.wire());
+                e.push(b'$');
+                e.push(b'y');
             }
         }
         e
@@ -2338,6 +2527,20 @@ pub enum ModeBit {
     AutoWrap,
     /// DECTCEM. Set by default.
     CursorVisible,
+    /// DECSET ?2004. Read by the embedder to decide whether to wrap a paste in
+    /// `ESC [ 200 ~` / `ESC [ 201 ~`.
+    ///
+    /// The core has no input path, so "acting on it" means exposing it --
+    /// `Term::bracketed_paste()`. That is not the "set and never read" failure:
+    /// an embedder cannot implement the mode without being told, and without
+    /// the bit a pasted newline executes as typed input, which is the
+    /// paste-jacking class rather than a cosmetic gap.
+    BracketedPaste,
+    /// DECSET ?2026. Read by the renderer to hold the frame.
+    ///
+    /// A *hint*: ignoring it is correct-but-worse, so an embedder that never
+    /// reads it still renders correctly, just with tearing.
+    SynchronizedOutput,
 }
 impl ModeBit {
     const fn bit(self) -> u16 {
@@ -2433,6 +2636,10 @@ impl StreamByte {
     pub const SO: StreamByte = StreamByte(0x0e);
     pub const SI: StreamByte = StreamByte(0x0f);
     pub const SEMICOLON: StreamByte = StreamByte(b';');
+    /// The ISO 8613-6 sub-parameter separator. A *parameter* byte (0x3a), not
+    /// an intermediate -- which is why it must be handled in the parameter
+    /// loop and not by `is_csi_intermediate`.
+    pub const COLON: StreamByte = StreamByte(b':');
     pub const QUESTION: StreamByte = StreamByte(b'?');
     pub const CSI_INTRO: StreamByte = StreamByte(b'[');
     pub const OSC_INTRO: StreamByte = StreamByte(b']');
@@ -2608,6 +2815,12 @@ impl SgrAttr {
     /// Parse the attribute starting at `i`.
     pub fn parse_at(params: &[Option<Param>], i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
         SgrAttr::parse(Params::new(&params[i.0 as usize..]))
+    }
+    /// As [`SgrAttr::parse_at`], but keeping the sub-parameter mask aligned
+    /// with the slice. Dropping the mask here would make every attribute after
+    /// the first look like the legacy form.
+    pub fn parse_sub(params: Params<'_>, i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
+        SgrAttr::parse(params.skip(i.0))
     }
     /// Apply to a packed 24-bit colour + attribute word.
     /// Apply one attribute to the accumulating rendition.

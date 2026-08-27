@@ -153,7 +153,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 30-37, 39 foreground · 40-47, 49 background | done |
 | 90-97, 100-107 aixterm bright | done — palette indices 8..15 |
 | 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done |
-| 38/48 `:5:n` / `:2::r:g:b` sub-parameter form | **todo** — the colon form ISO 8613-6 specifies |
+| 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
 | 10-19 fonts, 20 Fraktur, 26, 50-65 | **out** — no renderer consumes them, and a bit set and never read is the failure this table exists to catch |
 
 **This was the largest `parsed` gap in the codebase and the table did not show
@@ -173,11 +173,11 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 | seq | name | status |
 |---|---|---|
 | `CSI ! p` | DECSTR soft reset | done |
-| `CSI SP q` | DECSCUSR cursor style | **todo** |
+| `CSI SP q` | DECSCUSR cursor style | done |
 | `CSI " q` | DECSCA character protection | done |
 | `CSI ? J` | DECSED selective erase display | done |
 | `CSI ? K` | DECSEL selective erase line | done |
-| `CSI $ p` | DECRQM request mode | **todo** |
+| `CSI $ p` | DECRQM request mode | done |
 | `CSI s` (DECSLRM) | left/right margins | **todo** |
 | `CSI ' }` / `CSI ' ~` | DECIC / DECDC | **todo** |
 
@@ -211,9 +211,9 @@ In scope because applications assume them, not because DEC specified them.
 | `OSC 52` | clipboard | **todo** — see security note |
 | `OSC 104` | reset palette | **todo** |
 | `CSI ? 1049 h/l` | alternate screen buffer | **todo** |
-| `CSI ? 2004 h/l` | bracketed paste | **todo** |
+| `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1000-1006 h/l` | mouse reporting | **todo** |
-| `CSI ? 2026 h/l` | synchronised output | **todo** |
+| `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
 
 ---
@@ -252,8 +252,15 @@ core fills and the caller drains with `Term::reply()` / `Term::clear_reply()`,
 mirroring the input side -- the core is `no_std` with no I/O, so it cannot own a
 PTY. Overflow is counted in `reply_overflows`, never silent.
 
-DA and DSR go through it. `DECRQM` and `XTVERSION` remain **todo**, but they are
-now ordinary work rather than blocked on structure.
+DA, DSR and DECRQM go through it. `XTVERSION` remains **todo**.
+
+DECRQM is worth its own note, because its interesting answer is the negative
+one. `[[source: ctlseqs]]` gives `0` as "not recognized", and baud returns it
+for every mode it does not implement. That is the *correct* answer rather than
+a fallback: an application uses DECRQM precisely to discover whether a mode
+exists, so replying `2` ("reset") would tell it the mode is available and off,
+and it would then set the mode and believe it took effect. The rule against
+answering with the wrong shape extends to answering with the wrong *value*.
 
 Replies are typed. `Report` in `baud-domain` is the mirror of `Csi`: the parse
 side has had a type since the beginning, while the reply side was three byte
@@ -284,6 +291,15 @@ Two rules the tests pin, because both failure modes are worse than silence:
 * **An unsupported DSR gets no answer at all.** Replying with the wrong report
   shape is worse than not replying: the application parses whatever arrives as
   the report it asked for.
+
+**Two modes are recorded for an embedder rather than acted on internally.**
+Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that
+this core cannot itself use -- it has no input path and no renderer. They are
+recorded because `Term::bracketed_paste()` and `Term::synchronized_output()`
+give an embedder the only channel through which either mode can be honoured,
+which is what separates them from the "set and never read" failure. Bracketed
+paste is a security mode, not a cosmetic one: without it a pasted newline is
+delivered as typed input and runs.
 
 **~~No tab stop table.~~** Resolved. `Storage.tabs` is one flag per column,
 defaulted every eight and restored by RIS; `HT`, `HTS`, `TBC`, `CHT` and `CBT`

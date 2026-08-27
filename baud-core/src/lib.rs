@@ -21,11 +21,21 @@ extern crate alloc;
 
 pub use baud_domain::{
     AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Codepoint, Col, Cols, Content, Count, Csi,
-    DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte, LineSlot, Marker, ModeBit,
-    Modes, OneBased, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode, Report,
-    ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId,
+    CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte, LineSlot, Marker,
+    ModeBit, ModeState, Modes, OneBased, PackedCell, Param, ParamIdx, Params, Pending, PrivateMode,
+    Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat, StreamByte, StyleId,
     StyleWord, Utf8Acc, View, Width, WinSize,
 };
+
+/// [`ModeState`] for one bit, so `mode_state` reads as a table rather than as
+/// eight copies of the same `if`.
+fn bit_state(m: Modes, b: ModeBit) -> ModeState {
+    if m.is_set(b) {
+        ModeState::Set
+    } else {
+        ModeState::Reset
+    }
+}
 
 /// Largest geometry the fixed viewport can hold.
 ///
@@ -311,9 +321,15 @@ pub struct Term<'a> {
     st: State,
     params: [Option<Param>; 16],
     nparam: ParamIdx,
+    /// Bit `i` set when parameter `i` followed a colon rather than a semicolon.
+    /// See `Params::is_sub` -- the colon form of direct colour carries an extra
+    /// colour-space identifier, so the separator changes the meaning.
+    psub: u16,
     private: Marker,
     style: StyleId,
     style_raw: StyleWord,
+    /// DECSCUSR. Not a rendition -- it describes the cursor, not the text.
+    cursor_style: CursorStyle,
     /// DECSCA, and anything else that is per-cell state rather than rendition.
     ///
     /// Stamped onto every character written, so protection survives style
@@ -375,9 +391,11 @@ impl<'a> Term<'a> {
             st: State::Ground,
             params: [None; 16],
             nparam: ParamIdx::FIRST,
+            psub: 0,
             private: Marker::Standard,
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
+            cursor_style: CursorStyle::BlinkingBlock,
             flags: CellFlags::NONE,
             saved: None,
             scroll_top: Row::ZERO,
@@ -750,6 +768,11 @@ impl<'a> Term<'a> {
                 self.cy = if on { self.scroll_top } else { Row::ZERO };
             }
             PrivateMode::AutoWrap => self.modes.apply(ModeBit::AutoWrap, on),
+            PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
+            PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
+            // Still deliberately unrecorded. A bit that is set and never read
+            // is the same failure as a sequence parsed and dropped, so a mode
+            // joins `Modes` only when something can act on it.
             _ => {}
         }
     }
@@ -757,6 +780,49 @@ impl<'a> Term<'a> {
     /// Whether the cursor should be drawn. DECTCEM; a renderer needs it.
     pub fn cursor_visible(&self) -> bool {
         self.modes.is_set(ModeBit::CursorVisible)
+    }
+
+    /// The cursor's shape and blink. DECSCUSR.
+    pub fn cursor_style(&self) -> CursorStyle {
+        self.cursor_style
+    }
+
+    /// DECSET ?2004. When set, the embedder must bracket pasted text with
+    /// `ESC [ 200 ~` and `ESC [ 201 ~` so the application can tell a paste from
+    /// typing -- without it, a pasted newline runs as a command.
+    pub fn bracketed_paste(&self) -> bool {
+        self.modes.is_set(ModeBit::BracketedPaste)
+    }
+
+    /// DECSET ?2026. While set, a renderer should keep showing the last
+    /// complete frame instead of drawing a half-applied update.
+    pub fn synchronized_output(&self) -> bool {
+        self.modes.is_set(ModeBit::SynchronizedOutput)
+    }
+
+    /// What DECRQM should answer about `mode` in `marker`'s namespace.
+    ///
+    /// Every mode baud does not implement answers `NotRecognized`, which is the
+    /// honest answer and the useful one: an application asks DECRQM precisely
+    /// to find out whether a mode exists. Saying "reset" about a mode that does
+    /// not exist would tell it the mode is available, and it would then set the
+    /// mode and believe it took effect.
+    fn mode_state(&self, marker: Marker, mode: Param) -> ModeState {
+        if marker != Marker::Private {
+            return match AnsiMode::from_wire(Some(mode)) {
+                AnsiMode::LineFeedNewLine => bit_state(self.modes, ModeBit::LineFeedNewLine),
+                AnsiMode::InsertReplace => bit_state(self.modes, ModeBit::InsertReplace),
+                _ => ModeState::NotRecognized,
+            };
+        }
+        match PrivateMode::from_wire(Some(mode)) {
+            PrivateMode::Origin => bit_state(self.modes, ModeBit::Origin),
+            PrivateMode::AutoWrap => bit_state(self.modes, ModeBit::AutoWrap),
+            PrivateMode::CursorVisible => bit_state(self.modes, ModeBit::CursorVisible),
+            PrivateMode::BracketedPaste => bit_state(self.modes, ModeBit::BracketedPaste),
+            PrivateMode::SynchronizedOutput => bit_state(self.modes, ModeBit::SynchronizedOutput),
+            _ => ModeState::NotRecognized,
+        }
     }
 
     /// Origin for row addressing, and the row a CUP parameter is relative to.
@@ -1075,7 +1141,8 @@ impl<'a> Term<'a> {
         let n = self.nparam.count_at_least_one();
         let mut i = 0usize;
         while i < n {
-            match baud_domain::SgrAttr::parse(Params::new(&self.params[i..n])) {
+            match baud_domain::SgrAttr::parse(Params::with_subs(&self.params[i..n], self.psub >> i))
+            {
                 Some((attr, used)) => {
                     self.style_raw = attr.fold(self.style_raw);
                     i += used.at_least_one();
@@ -1089,7 +1156,7 @@ impl<'a> Term<'a> {
     fn dispatch(&mut self, f: FinalByte) {
         let n = self.nparam.count_at_least_one();
         let marker = self.private;
-        let p = Params::new(&self.params[..n]);
+        let p = Params::with_subs(&self.params[..n], self.psub);
         match Csi::parse(marker, self.csi_inter, p, f) {
             Csi::SoftReset => self.soft_reset(),
             Csi::PrivateMode { set, mode } => self.set_private_mode(mode, set),
@@ -1098,6 +1165,15 @@ impl<'a> Term<'a> {
             // not repaint anything already on screen, and it does not touch the
             // rendition -- hence a flag, not an SGR fold.
             Csi::SelectProtection { protect } => self.flags = CellFlags::protection(protect),
+            Csi::CursorStyle(c) => self.cursor_style = c,
+            Csi::RequestMode { marker, mode } => {
+                let state = self.mode_state(marker, mode);
+                self.report(Report::ModeStatus {
+                    marker,
+                    mode,
+                    state,
+                });
+            }
             Csi::SelectiveEraseDisplay(e) => self.selective_erase_display(e),
             Csi::SelectiveEraseLine(e) => self.selective_erase_line(e),
             Csi::Repeat(c) => {
@@ -1277,6 +1353,7 @@ impl<'a> Term<'a> {
                 if b == StreamByte::CSI_INTRO {
                     self.params = [None; 16];
                     self.nparam = ParamIdx::FIRST;
+                    self.psub = 0;
                     self.private = Marker::Standard;
                     self.csi_inter = None;
                     self.st = State::CsiParams;
@@ -1351,11 +1428,17 @@ impl<'a> Term<'a> {
                     }
                     let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
                     self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
-                } else if b == StreamByte::SEMICOLON {
+                } else if b == StreamByte::SEMICOLON || b == StreamByte::COLON {
                     if self.nparam.is_first() {
                         self.nparam = self.nparam.next();
                     }
                     if self.nparam.raw_index() < 16 {
+                        // A colon opens a *sub*-parameter of the same attribute.
+                        // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
+                        // colour-space identifier that `38;2;r;g;b` does not.
+                        if b == StreamByte::COLON {
+                            self.psub |= 1 << self.nparam.raw_index();
+                        }
                         self.params[self.nparam.raw_index()] = None;
                         self.nparam = self.nparam.next();
                     }
@@ -1699,6 +1782,7 @@ impl<'a> Term<'a> {
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
+        self.cursor_style = CursorStyle::BlinkingBlock;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
@@ -1714,6 +1798,7 @@ impl<'a> Term<'a> {
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
+        self.cursor_style = CursorStyle::BlinkingBlock;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
@@ -1757,6 +1842,7 @@ impl<'a> Term<'a> {
 
         self.params = [None; 16];
         self.nparam = ParamIdx::FIRST;
+        self.psub = 0;
         self.private = Marker::Standard;
         self.csi_inter = None;
 
@@ -1780,15 +1866,22 @@ impl<'a> Term<'a> {
         let mut np = ParamIdx::FIRST;
         let mut cur = Param::ZERO;
         let mut any = false;
+        let mut sub: u16 = 0;
         for k in 0..off {
             let d = StreamByte::from_stream(self.s.arena[b + s + k]);
             if let Some(dig) = d.as_ascii_digit() {
                 cur = cur.push(dig);
                 any = true;
-            } else if d == StreamByte::SEMICOLON {
+            } else if d == StreamByte::SEMICOLON || d == StreamByte::COLON {
                 if np.raw_index() < 16 {
                     self.params[np.raw_index()] = if any { Some(cur) } else { None };
                     np = np.next();
+                    // Same rule as the portable path. Recording it in only one
+                    // of the two feeds is the silent-divergence bug this file
+                    // has had before -- see the intermediate-byte note below.
+                    if d == StreamByte::COLON && np.raw_index() < 16 {
+                        sub |= 1 << np.raw_index();
+                    }
                 }
                 cur = Param::ZERO;
                 any = false;
@@ -1810,6 +1903,7 @@ impl<'a> Term<'a> {
             np = np.next();
         }
         self.nparam = np;
+        self.psub = sub;
 
         let f = FinalByte::from_stream(StreamByte::from_stream(self.s.arena[b + s + off]))?;
         self.dispatch(f);

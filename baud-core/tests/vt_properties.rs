@@ -58,6 +58,14 @@ enum Op {
     Rep(u8),
     Dsr(u8),
     Da,
+    /// DECSCUSR, `CSI Ps SP q`.
+    Decscusr(u8),
+    /// DECRQM, `CSI Ps $ p` / `CSI ? Ps $ p`.
+    Decrqm(bool, u16),
+    /// The ISO 8613-6 colon form of direct colour.
+    SgrColonRgb(u8, u8, u8, u8),
+    /// The colon form of indexed colour.
+    SgrColonIdx(u8, u8),
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -108,6 +116,10 @@ fn op() -> impl Strategy<Value = Op> {
         (0u8..8).prop_map(Op::Rep),
         prop::sample::select(&[5u8, 6, 15][..]).prop_map(Op::Dsr),
         Just(Op::Da),
+        (0u8..9).prop_map(Op::Decscusr),
+        (any::<bool>(), prop::sample::select(&MODES[..])).prop_map(|(p, m)| Op::Decrqm(p, m)),
+        (0u8..3, 0u8..255, 0u8..255, 0u8..255).prop_map(|(i, r, g, b)| Op::SgrColonRgb(i, r, g, b)),
+        (prop::sample::select(&[38u8, 48][..]), 0u8..255).prop_map(|(k, n)| Op::SgrColonIdx(k, n)),
     ]
 }
 
@@ -162,6 +174,12 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             Op::Rep(k) => write!(n, "\x1b[{k}b").unwrap(),
             Op::Dsr(p) => write!(n, "\x1b[{p}n").unwrap(),
             Op::Da => n.push_str("\x1b[c"),
+            Op::Decscusr(p) => write!(n, "\x1b[{p} q").unwrap(),
+            Op::Decrqm(priv_, m) => {
+                write!(n, "\x1b[{}{m}$p", if priv_ { "?" } else { "" }).unwrap()
+            }
+            Op::SgrColonRgb(i, r, g, b) => write!(n, "\x1b[38:2:{i}:{r}:{g}:{b}m").unwrap(),
+            Op::SgrColonIdx(k, v) => write!(n, "\x1b[{k}:5:{v}m").unwrap(),
         }
         out.extend_from_slice(n.as_bytes());
     }
@@ -287,6 +305,11 @@ proptest! {
                 && (StreamByte::from_stream(reply[j]).as_ascii_digit().is_some()
                     || reply[j] == b';')
             {
+                j += 1;
+            }
+            // Intermediate bytes, `0x20..=0x2f`. DECRPM ends `$ y`, so a
+            // report can legitimately carry one before its final byte.
+            while j < reply.len() && StreamByte::from_stream(reply[j]).is_csi_intermediate() {
                 j += 1;
             }
             prop_assert!(j < reply.len(), "unterminated reply");
