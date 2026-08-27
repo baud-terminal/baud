@@ -471,7 +471,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI L` | IL insert lines | done |
 | `CSI M` | DL delete lines | done |
 | `CSI P` | DCH delete chars | done |
-| `CSI S` | SU scroll up | done |
+| `CSI S` | SU scroll up | done — **and it now moves the grid**; see CLAUDE.md on the ring advance |
 | `CSI T` | SD scroll down | done |
 | `CSI X` | ECH erase chars | done |
 | `CSI Z` | CBT backward tabulation | done |

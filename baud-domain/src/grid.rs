@@ -376,15 +376,16 @@ impl<'a> View<'a> {
         // region height, `bot - n` underflows when the whole region is deleted
         // (n == bot + 1, cy == 0). The half-open form is empty in that case
         // instead of panicking, which is what DL with a huge count must do.
+        // `copy_within` per row, not a cell at a time. Rows are strided, so the
+        // block is not contiguous and one memmove cannot do it -- but each row
+        // is, and a scalar loop over 10,000 cells is what made the correct
+        // full-screen scroll cost a third of cell ingest.
         for y in cy..bot + 1 - n {
-            for x in 0..cols {
-                self.cells[y * s + x] = self.cells[(y + n) * s + x];
-            }
+            let (src, dst) = ((y + n) * s, y * s);
+            self.cells.copy_within(src..src + cols, dst);
         }
         for y in bot + 1 - n..=bot {
-            for x in 0..cols {
-                self.cells[y * s + x] = blank;
-            }
+            self.cells[y * s..y * s + cols].fill(blank);
         }
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {

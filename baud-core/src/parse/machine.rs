@@ -74,7 +74,10 @@ impl<'a> Term<'a> {
             // A DSR baud does not implement gets no answer. Replying with the
             // wrong report shape is worse than silence: the application parses
             // it as the report it asked for.
-            Csi::DeviceStatus(None) => {}
+            // ...but it is *counted*. Silence is the right answer to the
+            // application; being unable to tell afterwards that a DSR went
+            // unanswered is not.
+            Csi::DeviceStatus(None) => self.unsupported_param.inc(),
             Csi::CursorPosition { row, col } => {
                 let base = self.origin_row().index();
                 let want = Row::from_index(base + row.to_row(self.rows).index());
@@ -101,7 +104,10 @@ impl<'a> Term<'a> {
                     *stop = false;
                 }
             }
-            Csi::TabClear(None) => {}
+            // `[[source: ctlseqs]]` defines only 0 and 3; the rest are inert
+            // rather than aliased to 0, which is right, and counted rather than
+            // dropped, which they were not.
+            Csi::TabClear(None) => self.unsupported_param.inc(),
             Csi::CursorNextLine(c) => {
                 self.cy = self.confine(self.cy.down(c, self.rows));
                 self.cx = Col::ZERO;

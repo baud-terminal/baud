@@ -368,7 +368,11 @@ impl<'a> Term<'a> {
         match m {
             AnsiMode::LineFeedNewLine => self.modes.apply(ModeBit::LineFeedNewLine, on),
             AnsiMode::InsertReplace => self.modes.apply(ModeBit::InsertReplace, on),
-            AnsiMode::Other(_) => {}
+            // A mode joins `Modes` only when something can act on it -- but an
+            // unknown one is still a sequence accepted and dropped, so it is
+            // counted rather than ignored. The private namespace already did
+            // this; the ANSI one did not.
+            AnsiMode::Other(_) => self.unsupported_param.inc(),
         }
     }
 

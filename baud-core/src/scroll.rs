@@ -21,14 +21,30 @@ impl<'a> Term<'a> {
         // for the line to go. The alternate screen has no scrollback, so it
         // takes the shifting path -- taking the ring path there would scroll
         // the primary screen's history from under it.
-        if top == 0 && bot == last && self.screen == Screen::Normal {
+        //
+        // **And only in `Runs` mode, which is the correction.** `head` indexes
+        // the *run* table; `vp` is indexed by screen row. Advancing the ring
+        // moves which line each row draws from, and in `Runs` that is the whole
+        // answer because the content is the runs. In `Computed` and
+        // `Templated` the content is `vp`, nothing re-derives it, and the
+        // advance moved no cells: the screen kept its old text and only the
+        // bottom row went blank. That is the most common scroll there is --
+        // every line of output past the last row -- and no test looked at what
+        // it left on the screen, because every other test in `scrolling.rs`
+        // sets a region and takes the copying path.
+        if top == 0 && bot == last && self.screen == Screen::Normal && self.mode == OpMode::Runs {
             for _ in 0..k {
                 self.head = self.head.advance(SB);
                 let y = Row::from_index(last);
                 self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
-                self.s.promoted[last] = false;
                 self.view().fill_row(y, blank);
             }
+            // Every promoted row's materialised cells belong to the line that
+            // *was* at that screen position. Clearing the flags re-derives them
+            // from the runs, which the advance has already pointed at the right
+            // lines. Only the last row was cleared before, so a promoted row
+            // kept text from before the scroll.
+            self.s.promoted[..self.rows.index()].fill(false);
             return;
         }
         let (rt, rb) = (self.scroll_top, self.scroll_bot);

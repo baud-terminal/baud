@@ -266,3 +266,83 @@ fn rows_are_full_width() {
         assert_eq!(row.len(), COLS);
     }
 }
+
+// ── the full-screen case, which had no content test ─────────────────────────
+
+/// **A full-screen scroll moves the rendered grid.**
+///
+/// Every other test in this file scrolls a *region* set with DECSTBM, which
+/// takes the copying path. The full-screen case takes a different one — an
+/// O(1) ring advance, which `scroll_region_up` documents as "what makes
+/// streaming ingest fast" — and nothing checked what it left on the screen.
+///
+/// It left the screen alone. The ring advance moves `head`, which indexes the
+/// **run** table; `vp` is indexed by screen row and nothing re-derived it, so
+/// in `Computed` and `Templated` the content never moved and only the bottom
+/// row was blanked. That is the most common scroll there is: every line of
+/// output past the last row.
+#[test]
+fn a_full_screen_scroll_moves_the_grid() {
+    for mode in [OpMode::Computed, OpMode::Templated] {
+        let mut st = Storage::boxed();
+        let mut t = Term::new(&mut st, mode);
+        let rows = t.geometry().1.index();
+        // One distinct letter per row, then one more line to force a scroll.
+        let mut bytes = Vec::new();
+        for i in 0..rows {
+            bytes.push(b'a' + (i % 26) as u8);
+            bytes.extend_from_slice(b"\r\n");
+        }
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let w = slot.write(StreamByte::slice_from(&bytes));
+        t.feed(base, w.len());
+        t.commit_read(w.len());
+
+        let col0: Vec<char> = (0..4)
+            .map(|y| {
+                t.row(Row::from_index(y))[0]
+                    .content
+                    .as_codepoint()
+                    .map_or('.', |x| char::from_u32(x.value()).unwrap_or('?'))
+            })
+            .collect();
+        assert_eq!(
+            col0,
+            vec!['b', 'c', 'd', 'e'],
+            "{mode:?}: after one scroll the top row must be the second line"
+        );
+        // And the row that scrolled in is blank.
+        let last = t.row(Row::from_index(rows - 1))[0];
+        assert!(
+            last.content.is_empty(),
+            "{mode:?}: the row scrolled in must be blank"
+        );
+    }
+}
+
+/// `CSI S` scrolls the full screen too, by the same path.
+#[test]
+fn su_scrolls_the_full_screen() {
+    for mode in [OpMode::Computed, OpMode::Templated] {
+        let mut st = Storage::boxed();
+        let mut t = Term::new(&mut st, mode);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let w = slot.write(StreamByte::slice_from(b"one\r\ntwo\r\nthree\x1b[1S"));
+        t.feed(base, w.len());
+        t.commit_read(w.len());
+        let row0: String = t.row(Row::from_index(0))[..3]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .map_or('.', |x| char::from_u32(x.value()).unwrap_or('?'))
+            })
+            .collect();
+        assert_eq!(
+            row0, "two",
+            "{mode:?}: SU 1 brings the second line to the top"
+        );
+    }
+}

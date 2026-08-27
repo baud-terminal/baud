@@ -184,6 +184,18 @@ pub struct Term<'a> {
     /// this stays zero while replaying every output capability of the terminfo
     /// entries baud claims.
     pub unsupported: Stat,
+    /// Operations baud **recognises** but with a parameter it does not
+    /// implement: `CSI 1 h` is a real SM, and mode 1 is not one baud has.
+    ///
+    /// Separate from [`Term::unsupported`] because the two are different
+    /// questions and conflating them broke both. "I do not know this sequence"
+    /// is what the terminfo conformance suite asks; "I know it but not this
+    /// parameter" is what an inventory against the specification asks. Folding
+    /// the second into the first made rxvt's reset string --
+    /// `CSI 1;3;4;5;6 l`, four modes baud does not implement -- look like a
+    /// conformance failure, when what it really shows is baud declining four
+    /// modes it never claimed.
+    pub unsupported_param: Stat,
     /// Combining marks that could not be stored: no base character, or the
     /// cell already held [`MARKS_PER_CELL`].
     pub marks_dropped: Stat,
@@ -309,6 +321,7 @@ impl<'a> Term<'a> {
             mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
             unsupported: Stat::ZERO,
+            unsupported_param: Stat::ZERO,
             marks_dropped: Stat::ZERO,
             marks_evicted: Stat::ZERO,
             c1: C1Transmit::SevenBit,

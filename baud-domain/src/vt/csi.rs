@@ -495,6 +495,18 @@ impl Csi {
                 },
             };
         }
+        if marker == Marker::Gt {
+            // Every other `>` final. **Not a fallthrough to the standard
+            // table**, which is what it was: `CSI > 1 n` was read as `CSI 1 n`
+            // and answered as a DSR, and `CSI > 1 s` as SCOSC. That is the
+            // wrong-namespace failure the `Lt`/`Equals` guard above already
+            // prevents -- `>` had the same hole and kept it because one final
+            // in the namespace *is* implemented, so the guard looked present.
+            return Csi::Unsupported {
+                marker,
+                final_byte: f,
+            };
+        }
         if marker == Marker::Private {
             return match f.raw() {
                 b'h' => Csi::PrivateMode {
