@@ -462,3 +462,37 @@ fn single_byte_finals_survive_the_two_intermediate_path() {
     assert_eq!(charset(b"\x1b(B"), Charset::Ascii);
     assert_eq!(charset(b"\x1b(K"), Charset::National(Nrcs::German));
 }
+
+/// **The line-drawing table covers the whole set, not part of it.**
+///
+/// DEC Special Graphics differs from ASCII only in `0x60..0x7E`, so 31 entries
+/// is the complete mapping rather than a useful subset. `MANIFEST.toml` still
+/// records `dec-special-graphics` as `gated` — the DEC-authored table was
+/// never obtained in machine-readable form and that stays true — while
+/// `[[source: foot-vt100-0]]` supplies the mapping. Reading the gate as a
+/// missing capability is the confusion this pins.
+#[test]
+fn the_line_drawing_table_covers_the_whole_set() {
+    for byte in 0x60u8..=0x7e {
+        let mut bytes = b"\x1b(0".to_vec();
+        bytes.push(byte);
+        let (g, _) = run(&bytes);
+        let cp = g[0].content.as_codepoint().map(|c| c.value());
+        assert!(
+            cp.is_some_and(|v| v != u32::from(byte)),
+            "0x{byte:02x} `{}` should map to something other than itself",
+            byte as char
+        );
+    }
+    // And nothing outside the range is touched.
+    for byte in [b'A', b'Z', b'0', b'9', b' ', b'_'] {
+        let mut bytes = b"\x1b(0".to_vec();
+        bytes.push(byte);
+        let (g, _) = run(&bytes);
+        assert_eq!(
+            g[0].content.as_codepoint().map(|c| c.value()),
+            Some(u32::from(byte)),
+            "0x{byte:02x} is outside 0x60..0x7e and is ASCII"
+        );
+    }
+}
