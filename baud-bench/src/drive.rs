@@ -11,13 +11,13 @@ pub(crate) fn bench_t(
     label: &str,
     mode: OpMode,
     which: &P,
-    total: usize,
+    total: Bytes,
     reps: usize,
     avx2: bool,
     tr: Tr,
 ) {
     let mut v = Vec::with_capacity(reps);
-    let mut amp = (0.0f64, 0.0, 0.0);
+    let mut amp = Cost::default();
     for _ in 0..reps {
         let r = run_once_t(store, mode, which, total, avx2, tr);
         v.push(r.0);
@@ -25,14 +25,16 @@ pub(crate) fn bench_t(
     }
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     println!(
-        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]   span {:.3}x  cell {:.1}x (blank {:.1}x)",
+        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]   span {:.3}x cell {:.1}x   bulk {:.0}% seq {:.0}% slow {:.0}%",
         label,
         v[reps / 2],
         v[0],
         v[reps - 1],
-        amp.0,
-        amp.1,
-        amp.2
+        amp.span,
+        amp.cell,
+        amp.bulk * 100.0,
+        amp.seq * 100.0,
+        amp.slow * 100.0
     );
 }
 
@@ -41,7 +43,7 @@ pub(crate) fn bench(
     label: &str,
     mode: OpMode,
     which: &P,
-    total: usize,
+    total: Bytes,
     reps: usize,
     avx2: bool,
 ) {
@@ -52,7 +54,7 @@ pub(crate) fn bench(
     // diagnostic that caught `StyleId::bucket` taking the wrong bits (112,144
     // interns at 51.6% against 0 at 100%), so a plausible-looking wrong value
     // there is expensive.
-    let (mut amp, mut hits, mut builds) = ((0.0f64, 0.0, 0.0), Stat::ZERO, Stat::ZERO);
+    let (mut amp, mut hits, mut builds) = (Cost::default(), Stat::ZERO, Stat::ZERO);
     for _ in 0..reps {
         let (mbs, a, h, b) = run_once(store, mode, which, total, avx2);
         v.push(mbs);
@@ -83,8 +85,13 @@ pub(crate) fn bench(
     // beat 8x for ASCII because a `PackedCell` is eight bytes, and `blank` is
     // how much of that is scrolling blanking rows rather than storing text.
     print!(
-        "   span {:.3}x  cell {:.1}x (blank {:.1}x)",
-        amp.0, amp.1, amp.2
+        "   span {:.3}x cell {:.1}x (blank {:.1}x)   bulk {:.0}% seq {:.0}% slow {:.0}%",
+        amp.span,
+        amp.cell,
+        amp.blank,
+        amp.bulk * 100.0,
+        amp.seq * 100.0,
+        amp.slow * 100.0
     );
     println!();
 }

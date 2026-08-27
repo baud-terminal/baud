@@ -33,14 +33,14 @@ const REC_AQUA: &[u8] = include_bytes!("../../baud-core/tests/recordings/asciiqu
 const REC_VIM: &[u8] = include_bytes!("../../baud-core/tests/recordings/vim-unicode.raw");
 
 fn main() {
-    let total = 48usize << 20;
+    let total = Bytes(48 << 20);
     let reps = 9;
     let avx2 = avx2_available();
     let mut store: Box<Storage> = Storage::boxed();
 
     println!(
         "baud-core (no_std core, std harness) — real PTY, {} MB/rep, median of {}",
-        total >> 20,
+        total.index() >> 20,
         reps
     );
     println!(
@@ -129,6 +129,27 @@ fn main() {
         reps,
         avx2,
     );
+
+    // **Is the PTY row measuring baud, or the process feeding it?**
+    //
+    // btop reads 290 MB/s from memory and 160 through a PTY with identical
+    // write amplification -- same work, same stores, 45% of the throughput. That
+    // gap is either the transport or an artifact of this harness: if the child
+    // cannot write fast enough, the parent is starved and the number describes
+    // the writer.
+    //
+    // The null consumer answers it. Same fork, same payload, same transport,
+    // but the parent reads into a scratch buffer and discards. Whatever that
+    // reaches is the ceiling every row below is measured against, and a row
+    // near it is transport-bound rather than parse-bound.
+    println!("\n  transport ceiling: a consumer that only reads and discards");
+    for (label, tr) in [("PTY", Tr::Pty), ("pipe", Tr::Pipe)] {
+        let (mbs, reads, bytes) = null_ceiling(&P::Replay(REC_BTOP), total, tr);
+        println!(
+            "  btop, discarded — {label:<5}{mbs:20.1}   {reads} reads, {:.0} B each",
+            bytes as f64 / reads as f64
+        );
+    }
 
     println!("\n  transport: what does the PTY itself cost?");
     bench_t(

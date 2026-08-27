@@ -138,3 +138,66 @@ fn scroll_blanking_dominates_the_cell_budget() {
          blanked across the full width regardless of how much of it was used"
     );
 }
+
+/// **Where real input actually goes, which is not where the optimisation is.**
+///
+/// `feed_with` has three exits: a bulk printable run through the SIMD scanner,
+/// a complete escape sequence recognised in one go, and everything else one
+/// byte at a time through `control`.
+///
+/// On real capture the bulk scanner -- the one with the AVX2 path and the
+/// `_mm256` intrinsics this repo guards in CI -- handles **10-27%** of bytes.
+/// The escape-sequence path handles 44-80%. That is worth pinning, because the
+/// intuition that a terminal is mostly text is what a synthetic payload
+/// confirms and real capture does not: btop is one escape every 16.5 bytes and
+/// asciiquarium one every 5.4.
+///
+/// The fast path is not *missing*, either -- btop takes it 31,606 times
+/// against 31,683 escapes, 99.8%. The cost is inside it.
+#[test]
+fn real_capture_is_mostly_escape_sequences_not_text() {
+    for (name, min_seq) in [
+        ("btop.raw", 0.5),
+        ("asciiquarium.raw", 0.6),
+        ("vim-unicode.raw", 0.3),
+    ] {
+        let d = std::fs::read(format!(
+            "{}/tests/recordings/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect(name);
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < d.len() {
+            let n = READ_CHUNK.min(d.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&d[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+
+        let (bulk, seq, slow) = t.path_split();
+        assert!(
+            (bulk + seq + slow - 1.0).abs() < 0.01,
+            "{name}: the three paths must account for every byte, got \
+             {bulk:.3} + {seq:.3} + {slow:.3}"
+        );
+        assert!(
+            seq > min_seq,
+            "{name}: sequences took {:.1}% of bytes, expected over {:.0}% -- \
+             if this dropped, either the recording changed or the fast path \
+             stopped being taken",
+            seq * 100.0,
+            min_seq * 100.0
+        );
+        assert!(
+            bulk < 0.4,
+            "{name}: bulk text took {:.1}% -- real capture is not mostly text, \
+             and a payload where it is does not resemble this",
+            bulk * 100.0
+        );
+    }
+}

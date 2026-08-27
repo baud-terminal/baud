@@ -266,6 +266,7 @@ impl<'a> Term<'a> {
                 // SAFETY: caller established whatever S requires.
                 let run = unsafe { S::run(&self.s.arena[b + i..b + nn]) }.index();
                 if run > 0 {
+                    self.bytes_bulk.add(run);
                     self.put_run(base, ByteLen::from_index(i), ByteLen::from_index(run));
                     i += run;
                     continue;
@@ -283,16 +284,19 @@ impl<'a> Term<'a> {
                 let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
                 // SAFETY: caller established whatever S requires.
                 if let Some(used) = unsafe { self.fast_csi::<S>(base, at, lim) } {
+                    self.bytes_seq.add(used.index());
                     i += used.index();
                     continue;
                 }
                 // SAFETY: as above.
                 if let Some(used) = unsafe { self.fast_esc::<S>(base, at, lim) } {
+                    self.bytes_seq.add(used.index());
                     i += used.index();
                     continue;
                 }
             }
             let byte = StreamByte::from_stream(self.s.arena[b + i]);
+            self.bytes_slow.inc();
             self.control(byte);
             i += 1;
         }

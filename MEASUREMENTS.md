@@ -610,6 +610,34 @@ Real capture is also far cheaper in cells than the synthetic payload suggested
 -- 1.9x for btop against 28.3x for `payload::streaming` -- because a TUI
 repaints what changed rather than every cell, and btop never scrolls at all.
 
+## The transport ceiling: what a PTY row can possibly reach
+
+Host B, 2026-08-27. A consumer that only reads and discards -- same fork, same
+payload, same transport, no parser behind it.
+
+| transport | ceiling | reads for 48 MB | bytes per read |
+|---|---|---|---|
+| PTY | **198.6** | 49,152 | **1024** |
+| pipe | **6144.3** | 12,288 | 4096 |
+
+**The Darwin tty returns 1024 bytes per `read(2)`, not 4095.** That is a
+quarter of what `CLAUDE.md`'s `READ_CHUNK` entry describes, which is a Linux
+number, and it caps the PTY at 198.6 MB/s before any parsing happens at all.
+
+Against that ceiling: baud reaches 117-160 through a PTY, 245 through a pipe
+and 278 in memory on the same btop recording, with **identical write
+amplification** in all three -- the same work and the same stores.
+
+So a PTY row here is 60-80% of a ceiling it cannot exceed however fast the
+parser gets, and the pipe ceiling is thirty-one times higher than anything baud
+produces, which makes the pipe and memory columns the ones a parser change
+shows up in. **The PTY column measures the operating system.**
+
+This is why the measurement exists rather than the reasoning: "the PTY costs
+45%" and "the process feeding it cannot keep up" produce the same number, and
+nothing here could tell them apart until a consumer with no parser behind it
+was timed.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.

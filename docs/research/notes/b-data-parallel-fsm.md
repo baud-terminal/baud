@@ -23,6 +23,12 @@ nobody else attacks. Every competitor vectorises *scanning* — finding the next
 interesting byte. ghostty does it, simdjson does it `[[source: simdjson]]` § 3.
 Nobody vectorises the **state machine**, and a VT parser is a state machine.
 
+That was written as an argument. It is now a measurement: on real capture the
+scanner handles **10–27%** of bytes and the state machine **57–90%**, so the
+part nobody attacks is also the part that does most of the work. See "Gaps and
+open questions" below — the table there is the number this note used to say had
+to come before any implementation.
+
 - **Enumerative computation.** Run the transition function from every possible
   start state simultaneously in SIMD lanes, so a chunk boundary no longer
   requires knowing the incoming state `[[source: dpfsm]]` § 1, Fig. 2. baud's
@@ -68,15 +74,38 @@ Nobody vectorises the **state machine**, and a VT parser is a state machine.
 
 ## Gaps and open questions
 
-- **The 3× is against *their* sequential baseline, not against a scanner-based
-  parser.** baud already skips whole printable runs without touching the state
-  machine, so the state machine is not 100% of its cost. What fraction it is has
-  **not been measured** — that measurement must come before any implementation,
-  and it is the number that decides whether this is worth doing at all.
+- **~~What fraction of the cost the state machine is has not been measured.~~**
+  Measured, and it is the number this note said must come first. `Term::
+  path_split` reports what share of input takes each of `feed_with`'s three
+  exits, and the benchmark prints it every run:
+
+  | payload | bulk scan | escape sequences | byte-at-a-time |
+  |---|---|---|---|
+  | `payload::streaming` | **95%** | 2% | 3% |
+  | btop | 19% | 66% | 15% |
+  | asciiquarium | 10% | 80% | 10% |
+  | vim | 27% | 44% | 29% |
+
+  **On real capture the state machine handles 57–90% of bytes, and the scanner
+  everyone vectorises handles 10–27%.** So the technique attacks the majority
+  of real work, and the answer to "is this worth doing at all" is yes.
+
+  The same table is why the question had gone unanswered: against
+  `payload::streaming` the state machine is **5%**, and any measurement taken
+  on it would have said no. The synthetic payload had been the only thing to
+  measure against.
+
+- **~~VT streams are mostly printable text.~~** They are not, and this note
+  asserted it. btop is one escape every 16.5 bytes, asciiquarium one every 5.4.
+  That assumption came from the synthetic payload, and it is the assumption the
+  convergence argument below rests on.
 - **Convergence is a performance property, not a correctness one, and it is
-  input-dependent** `[[source: dpfsm]]` § 5.2. VT streams are mostly printable
-  text, where every start state behaves alike; whether that helps or whether the
-  enumeration is simply redundant work on such input is unestablished.
+  input-dependent** `[[source: dpfsm]]` § 5.2. With the premise above corrected,
+  the question is now sharper rather than answered: on escape-dense input the
+  start states do *not* all behave alike, which is where enumeration should pay
+  — but whether convergence is common enough on VT streams specifically is
+  still unestablished, and `tests/recordings/` is now the corpus to establish it
+  against.
 - The paper predates AVX-512 and NEON `tbl` being commonplace. Its `shuffle`
   workaround may now be a native gather on both of baud's targets. **Unverified.**
 - **Not read:** the HTML-tokenization result is cited here from

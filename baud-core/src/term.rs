@@ -281,6 +281,21 @@ pub struct Term<'a> {
     /// Counted in bulk -- one `add` per run, not per cell -- because the
     /// per-cell loop is the one a runtime flag cost 5% of.
     pub bytes_in: Stat,
+    /// Which of the three paths in `feed_with` those bytes took.
+    ///
+    /// The loop has exactly three exits: a bulk printable run, a complete
+    /// escape sequence recognised in one go, and everything else one byte at a
+    /// time through `control`. Cost attribution needs to know the split,
+    /// because "the parser is slow" and "one path is slow and gets most of the
+    /// bytes" want opposite fixes.
+    ///
+    /// Counted per *iteration*, not per byte -- one `add(run)` rather than
+    /// `run` increments -- so the bulk path pays one add for a whole run.
+    pub bytes_bulk: Stat,
+    /// Bytes consumed by `fast_csi` / `fast_esc`, a sequence at a time.
+    pub bytes_seq: Stat,
+    /// Bytes that reached `control` individually. The expensive path.
+    pub bytes_slow: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -405,6 +420,9 @@ impl<'a> Term<'a> {
             modes: Modes::default(),
             mode,
             bytes_in: Stat::ZERO,
+            bytes_bulk: Stat::ZERO,
+            bytes_seq: Stat::ZERO,
+            bytes_slow: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,
@@ -458,6 +476,24 @@ impl<'a> Term<'a> {
     /// it measures about 0.08x. A cell mode cannot compete and is not trying
     /// to -- materialising one ASCII byte into an eight-byte `PackedCell` is a
     /// floor of 8x, which is the cost of having a grid rather than a log.
+    /// What share of the input took each of `feed_with`'s three paths.
+    ///
+    /// `(bulk, sequences, byte-at-a-time)`, summing to 1. The third is the one
+    /// that costs: it runs the full state machine per byte, and a payload that
+    /// sends most of its bytes there is one the fast paths are missing.
+    pub fn path_split(&self) -> (f64, f64, f64) {
+        let n = self.bytes_in.count();
+        if n == 0 {
+            return (0.0, 0.0, 0.0);
+        }
+        let f = |x: u64| x as f64 / n as f64;
+        (
+            f(self.bytes_bulk.count()),
+            f(self.bytes_seq.count()),
+            f(self.bytes_slow.count()),
+        )
+    }
+
     pub fn span_amplification(&self) -> f64 {
         self.per_byte(self.runs_written.count() * core::mem::size_of::<Run>() as u64)
     }
