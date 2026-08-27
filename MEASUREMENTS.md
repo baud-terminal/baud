@@ -536,6 +536,34 @@ bytes per escape and is 17% slower. Escapes leave the bulk ASCII path and go
 through the state machine one byte at a time, so the ratio of the two is what
 the number measures.
 
+### Separating the transport from the parser
+
+Same host and commit, median of 9, 48 MB a repetition, `OpMode::Runs`.
+`Tr::Memory` copies the payload straight into the slot: no fork, no `read(2)`,
+no line discipline, and the same `READ_CHUNK` slot size, so the parser sees the
+chunking a PTY would give it and nothing else is left.
+
+| recording | memory | pipe | PTY | PTY costs |
+|---|---|---|---|---|
+| btop | 304.0 [298.9-306.3] | 247.7 [235.4-249.0] | 157.2 [156.0-158.9] | **48%** |
+| vim | 220.5 [192.8-221.3] | 174.1 [172.6-175.0] | 158.0 [152.5-168.2] | 28% |
+| asciiquarium | 173.2 [171.9-174.2] | 138.9 [138.0-140.2] | 130.6 [126.9-137.7] | 25% |
+
+**The tty tax is not a constant, it is a fraction of what is left.** btop loses
+nearly half its throughput to the transport; asciiquarium loses a quarter. The
+ordering is the same one escape density predicts: asciiquarium is parse-bound
+at 5.4 bytes per escape, so the syscall is a smaller share of its total, while
+btop at 16.5 spends more of its time waiting on the tty than working.
+
+That also means **the memory column is the one to optimise against** for parser
+work, and the PTY column is the one to quote for a terminal. Comparing a parser
+change measured in memory against a throughput figure measured through a PTY
+would flatter it by up to a factor of two.
+
+The pipe column here is a **64 KiB** pipe, not the 1 MiB one `README.md` quotes:
+`F_SETPIPE_SZ` is Linux-only and this is Darwin, which the harness comments
+already say. It is a third transport, not a faster pipe.
+
 **Two caveats, both making these an upper bound.** A recording is fixed, so
 filling a 48 MB repetition replays a 138-524 KB capture 90-350 times: caches
 and branch predictors see the same bytes repeatedly, which a live terminal

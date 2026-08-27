@@ -42,6 +42,13 @@ unsafe fn feed_dispatch(t: &mut Term, base: BytePos, n: ByteLen, _avx2: bool) {
 pub(crate) enum Tr {
     Pty,
     Pipe,
+    /// No transport at all: the payload is copied straight into the slot.
+    ///
+    /// Not a faster PTY -- a different quantity. There is no fork, no `read(2)`
+    /// and no line discipline, so what is left is the parser and the grid.
+    /// Subtracting it from the PTY row is what "the tty tax" means, and until
+    /// this existed the two could not be separated.
+    Memory,
 }
 
 pub(crate) fn run_once_t(
@@ -52,6 +59,52 @@ pub(crate) fn run_once_t(
     avx2: bool,
     tr: Tr,
 ) -> (f64, u64, u64, u64) {
+    // No transport: the payload is copied into the slot instead of being read
+    // into it, so the slot is still `READ_CHUNK` and the parser sees the
+    // chunking a PTY would give it. Inline rather than a second function
+    // because a second `total` parameter and a second `as f64` are two more
+    // untyped sites, and the budget is a floor.
+    if tr == Tr::Memory {
+        let mut seq = 0u64;
+        let owned;
+        let src: &[u8] = match which {
+            P::Replay(rec) => rec,
+            P::Tui => {
+                owned = payload::tui(1 << 19, &mut seq);
+                &owned
+            }
+            P::Streaming => {
+                owned = payload::streaming(1 << 20, &mut seq);
+                &owned
+            }
+        };
+        let mut t = Term::new(store, mode);
+        let (mut got, mut at) = (0usize, 0usize);
+        let t0 = Instant::now();
+        while got < total {
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let n = READ_CHUNK.min(src.len() - at);
+            let f = slot.write(StreamByte::slice_from(&src[at..at + n]));
+            // SAFETY: as in the transport loop -- `feed_dispatch` takes the
+            // AVX2 entry point only when `avx2` says the CPU has it, which is
+            // established once at startup.
+            unsafe { feed_dispatch(&mut t, base, f.len(), avx2) };
+            t.commit_read(f.len());
+            got += f.len().index();
+            at += n;
+            if at == src.len() {
+                at = 0;
+            }
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        return (
+            got as f64 / dt / 1_048_576.0,
+            t.promotions.count(),
+            t.tmpl_hits.count(),
+            t.tmpl_builds.count(),
+        );
+    }
     unsafe {
         let (mut m, mut s): (libc::c_int, libc::c_int) = (0, 0);
         if tr == Tr::Pty {

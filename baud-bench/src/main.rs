@@ -151,22 +151,29 @@ fn main() {
         avx2,
         Tr::Pipe,
     );
-    println!("\n  real capture, through a PTY — replayed, so warmer than life");
+    println!("\n  real capture — replayed, so warmer than life");
+    println!("  memory has no fork, no read(2) and no ldisc: it is the parser alone.");
     for (name, rec) in [
         ("btop (truecolour, box drawing)", REC_BTOP),
         ("asciiquarium (curses, 16-colour)", REC_AQUA),
         ("vim (scroll regions, CJK/emoji)", REC_VIM),
     ] {
-        bench_t(
-            &mut store,
-            name,
-            OpMode::Runs,
-            &P::Replay(rec),
-            total,
-            reps,
-            avx2,
-            Tr::Pty,
-        );
+        for (tag, tr) in [
+            ("memory", Tr::Memory),
+            ("pipe  ", Tr::Pipe),
+            ("PTY   ", Tr::Pty),
+        ] {
+            bench_t(
+                &mut store,
+                &format!("{name} — {tag}"),
+                OpMode::Runs,
+                &P::Replay(rec),
+                total,
+                reps,
+                avx2,
+                tr,
+            );
+        }
     }
 
     bench_t(
