@@ -15,7 +15,7 @@ version = "0.1.0"
 # a flag flip.
 edition = "2021"
 authors = ["i-am-logger"]
-description = "A terminal emulator built from measurements. The VT protocol core, complete and measured."
+description = "A terminal emulator. The VT protocol core is complete and measured; the renderer is next."
 # crates.io's equivalent of GitHub topics. Max five keywords, 20 chars each;
 # categories must come from crates.io's fixed list.
 keywords = ["terminal", "vt100", "ansi", "tty", "vte"]

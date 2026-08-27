@@ -15,7 +15,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row |
+| **partial** | implemented but known-incomplete; the gap is named in the row — **no row carries this, and `no_row_is_marked_partial` fails if one does** |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -37,7 +37,7 @@ addition, not a substitution.
 | `ground` | done | |
 | `escape` | done | |
 | `escape_intermediate` | done | final byte consumed; DECALN dispatched |
-| `csi_entry` | partial | folded into `CsiParams` |
+| `csi_entry` | done | its own state — see below |
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
 | `csi_ignore` | done | |
@@ -58,6 +58,43 @@ containing no ESC is inert.
 baud adds a `Utf8` state, which `[[source: williams]]` does not have — that
 parser predates UTF-8 and is defined over bytes. Keeping it is deliberate; the
 note in `docs/research/notes/c-vt-parser.md` records why.
+
+### `csi_entry` was folded into `csi_param`, and the fold was the bug
+
+The two states differ in one transition, and it is the one that matters. In
+`csi_entry` the bytes `3C-3F` (`<`, `=`, `>`, `?`) are **collected** as a private
+marker; in `csi_param` those same bytes go to `csi_ignore`. A marker is legal
+only in the position immediately after `CSI`.
+
+Folded into a single state, baud accepted a marker anywhere in the parameter
+string — and then *executed* the result, which is the dangerous direction:
+
+* `CSI 2 ? l` is malformed and must be discarded. baud read it as DECRST 2,
+  reset DECANM and **switched the terminal into VT52 mode** — a protocol change
+  produced by a sequence the spec says to throw away.
+* `CSI 1 ? J` is malformed and must be discarded. baud read it as DECSED and
+  erased the screen.
+
+`a_private_marker_after_a_parameter_is_ignored` and
+`a_marker_after_a_parameter_does_not_erase` pin both. Splitting the state also
+closed two smaller holes in the same arm:
+
+* **C0 inside a control sequence.** `[[source: williams]]` gives `csi_param` an
+  `execute` action on `00-17,19,1C-1F` that returns to the same state. baud had
+  no C0 branch, so a stray NUL fell through to `csi_ignore` and silently
+  cancelled an unrelated SGR. `a_c0_inside_a_csi_does_not_cancel_it` and
+  `the_c0_inside_a_csi_actually_executes` pin the rule and the fact that
+  *execute* means executed, not skipped.
+* **`<` and `=` were dropped silently.** baud recognised only `?` and `>`, so
+  the other two private namespaces fell to `csi_ignore` and vanished without
+  reaching dispatch — a `parsed` failure, invisible to `Term::unsupported`.
+  `Marker` now carries all four. `Csi::parse` rejects `Lt` and `Equals` before
+  the standard table, because falling through would read `CSI < c` as a primary
+  DA and **answer a query in the wrong shape**.
+
+Both feed paths share one definition of the rule (`Marker::from_private`), so
+the fast path and the state machine cannot drift on it — the divergence class
+this parser has had before.
 
 ---
 
@@ -131,7 +168,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
 | `CSI h` | SM set mode | done — LNM and IRM |
 | `CSI l` | RM reset mode | done — as SM |
-| `CSI m` | SGR character attributes | partial — see SGR below |
+| `CSI m` | SGR character attributes | done — see SGR below |
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
@@ -180,6 +217,13 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done |
 | 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
 | 10-19 fonts, 20 Fraktur, 26, 50-65 | **out** — no renderer consumes them, and a bit set and never read is the failure this table exists to catch |
+
+Every SGR parameter above is **done** or **out**; none is partial. `CSI m` used
+to be listed as `partial` on the strength of that last row, which conflated two
+different things. `out` is a scope decision with a reason — storing a font
+selection no renderer can read would be a bit set and never used, which is the
+failure this table exists to catch. `partial` means the row claims something it
+does not do. Nothing here does.
 
 **This was the largest `parsed` gap in the codebase and the table did not show
 it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no

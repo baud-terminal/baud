@@ -21,8 +21,8 @@
 
 </div>
 
-> A terminal emulator, built from measurements rather than from what reads
-> nicely.
+> A terminal emulator. The VT protocol core is complete and measured; the
+> renderer is next.
 
 Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage runs
 teletype → glass tty → terminal emulator, and a baud measures how fast symbols
@@ -37,7 +37,7 @@ missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 110 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **VT protocol** | ✅ 112 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid + scrollback** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |

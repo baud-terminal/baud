@@ -189,12 +189,16 @@ impl<'a> Term<'a> {
                 }
                 cur = Param::ZERO;
                 any = false;
-            } else if d == StreamByte::QUESTION {
-                self.private = Marker::Private;
-            } else if d == StreamByte::GT {
-                // Same rule as the portable path: a marker handled in only one
-                // feed is the silent divergence this file keeps having.
-                self.private = Marker::Gt;
+            } else if let Some(m) = Marker::from_private(d) {
+                // `[[source: williams]]`: `3C-3F` is legal only in `csi_entry`,
+                // which is the byte at k == 0. Past that the whole sequence is
+                // ignored -- decline and let the state machine do it, so the
+                // rule has one implementation rather than two that can drift.
+                if k != 0 {
+                    self.fb_odd_param.inc();
+                    return None;
+                }
+                self.private = m;
             } else if d.is_csi_intermediate() {
                 // Recorded, not skipped. Dropping it here would make the AVX2
                 // path dispatch `CSI ! p` as `CSI p` while the portable path

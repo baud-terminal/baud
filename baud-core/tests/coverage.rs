@@ -199,3 +199,64 @@ fn quoted_counts_match_reality() {
     );
     assert!(wrong.is_empty(), "stale counts:\n  {}", wrong.join("\n  "));
 }
+
+/// **No row is marked `partial`, and this fails if one ever is.**
+///
+/// `partial` means the table claims an operation baud does not fully do. That
+/// is a weaker failure than `parsed` — the row is at least honest — but it is
+/// still a row saying "not finished", and the standing rule for this project is
+/// that the protocol surface has none of those.
+///
+/// Two rows carried it for most of this project's life and neither was benign:
+///
+/// * `csi_entry` ("folded into `CsiParams`") was a real state-machine gap. The
+///   fold dropped Williams' rule that a private marker is legal only in first
+///   position, so `CSI 2 ? l` — malformed, and required to be discarded —
+///   instead executed as DECRST and switched the terminal into VT52 mode.
+/// * `CSI m` was `partial` on the strength of the SGR font group, which is
+///   `out` rather than missing. That one was a vocabulary error: it made the
+///   table under-claim finished work, which is its own kind of untrue.
+///
+/// The distinction the check enforces: `out` is a scope decision with a reason
+/// in the row, `partial` is unfinished work. Do not relabel one as the other to
+/// make this pass — the point is that reaching for `partial` is a signal the
+/// operation is not done, and the fix is the operation.
+#[test]
+fn no_row_is_marked_partial() {
+    let mut bad = Vec::new();
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs");
+    let mut files = vec![format!("{root}/vt-coverage.md")];
+    if let Ok(rd) = fs::read_dir(format!("{root}/protocols")) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == "md") {
+                files.push(p.display().to_string());
+            }
+        }
+    }
+    for f in &files {
+        let Ok(src) = fs::read_to_string(f) else {
+            continue;
+        };
+        for (n, line) in src.lines().enumerate() {
+            let l = line.trim();
+            if !l.starts_with('|') {
+                continue; // prose may discuss the word; only rows assert it
+            }
+            for cell in l.trim_matches('|').split('|') {
+                let c = cell.trim();
+                // `**partial**` is the legend defining the vocabulary, not a
+                // row using it.
+                if c == "partial" || c.starts_with("partial ") || c.starts_with("partial—") {
+                    let name = f.rsplit('/').next().unwrap_or(f);
+                    bad.push(format!("{name}:{}: {l}", n + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "rows marked partial -- finish the operation, do not relabel it:\n  {}",
+        bad.join("\n  ")
+    );
+}

@@ -115,12 +115,45 @@ fn a_truncated_string_does_not_swallow_everything() {
 /// A malformed CSI is consumed to its final byte, not printed.
 #[test]
 fn a_malformed_csi_is_consumed_whole() {
-    // `<` is a private-marker byte in a position baud does not accept; whatever
-    // the reason for rejection, the remainder must not reach the screen.
+    // `<` is a private marker, and `[[source: williams]]` allows those only in
+    // `csi_entry` -- here it arrives after two parameters, so `csi_param` sends
+    // the whole sequence to `csi_ignore`. The `m` is consumed as the final
+    // byte and applies no rendition; ` cd` must print plain.
     assert_eq!(
-        grid(b"ab\x1b[1;2\x00\x01m cd"),
+        grid(b"ab\x1b[1;2<m cd"),
         grid(b"ab cd"),
         "the rest of a bad CSI must not be printed"
+    );
+}
+
+/// A C0 byte inside a control sequence is executed where it appears, and the
+/// sequence carries on.
+///
+/// `[[source: williams]]` gives `csi_param` an `execute` action on
+/// `00-17,19,1C-1F` that returns to the same state. baud had no C0 branch
+/// there, so those bytes fell through to `csi_ignore` and a stray NUL silently
+/// cancelled an unrelated SGR. This test previously asserted that discard as if
+/// it were correct.
+#[test]
+fn a_c0_inside_a_csi_does_not_cancel_it() {
+    assert_eq!(
+        grid(b"\x1b[1;2\x00\x01mcd"),
+        grid(b"\x1b[1;2mcd"),
+        "NUL and SOH must not change what the SGR does"
+    );
+}
+
+/// The executed C0 is not merely skipped — it runs.
+///
+/// A backspace inside the parameter string moves the cursor, which is
+/// observable and is what "execute" means. Skipping it and executing it look
+/// identical on a NUL, so the rule needs a C0 that does something.
+#[test]
+fn the_c0_inside_a_csi_actually_executes() {
+    assert_eq!(
+        cursor(b"abc\x1b[\x08m"),
+        (0, 2),
+        "the BS must have moved the cursor"
     );
 }
 
@@ -260,4 +293,70 @@ fn osc_cancel_is_chunk_invariant() {
             "chunk {c} disagrees with a single read"
         );
     }
+}
+
+// ── csi_entry vs csi_param: a private marker is legal only in first position ──
+
+/// `[[source: williams]]`: `csi_entry` collects `3C-3F` as private markers;
+/// `csi_param` sends the same bytes to `csi_ignore`. A marker is legal **only**
+/// as the first byte after `CSI`.
+///
+/// baud folded `csi_entry` into `CsiParams` — the two states differ in exactly
+/// this transition, and the fold dropped it. The result is not a cosmetic
+/// divergence: the sequence *executes* instead of being ignored, which is the
+/// dangerous direction. `CSI 2 ? l` is a malformed DECRST that must do nothing,
+/// and instead reset DECANM and put the terminal into VT52 mode — a protocol
+/// switch out of a sequence the spec says to discard.
+#[test]
+fn a_private_marker_after_a_parameter_is_ignored() {
+    // Sound the alarm on the worst case first: a protocol switch.
+    // In VT52 mode `ESC A` is cursor-up; in ANSI it is an unknown two-byte
+    // escape and prints nothing. If the grid shows ANSI behaviour, the bogus
+    // DECRST was correctly ignored.
+    let vt52_switched = grid(b"\x1b[2?lX");
+    let never_sent = grid(b"X");
+    assert_eq!(
+        vt52_switched, never_sent,
+        "`CSI 2 ? l` is malformed and must be ignored, not executed as DECRST 2"
+    );
+}
+
+/// The same rule over an erase, which is the destructive case.
+///
+/// `CSI 1 ? J` must not run DECSED. Every cell written before it has to
+/// survive.
+#[test]
+fn a_marker_after_a_parameter_does_not_erase() {
+    let after = grid(b"hello\x1b[1?J");
+    let untouched = grid(b"hello");
+    assert_eq!(
+        after, untouched,
+        "`CSI 1 ? J` is malformed and must be ignored, not executed as DECSED"
+    );
+}
+
+/// A marker in first position still works — the fix must not break the form
+/// that is legal.
+#[test]
+fn a_private_marker_in_first_position_still_dispatches() {
+    let selective = grid(b"hi\x1b[?1J");
+    let plain = grid(b"hi");
+    assert_ne!(
+        selective, plain,
+        "`CSI ? 1 J` is well-formed DECSED and must still execute"
+    );
+}
+
+/// The rest of the malformed sequence is swallowed, not printed.
+///
+/// This is what `csi_ignore` is for, and it is the bug the state originally
+/// fixed: returning to Ground mid-sequence printed the remainder as text.
+#[test]
+fn an_ignored_csi_does_not_print_its_tail() {
+    let ignored = grid(b"\x1b[1?J");
+    let empty = grid(b"");
+    assert_eq!(
+        ignored, empty,
+        "the ignored sequence must leave no text behind"
+    );
 }

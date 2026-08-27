@@ -85,6 +85,35 @@ pub enum Marker {
     Gt,
     Standard,
     Private,
+    /// `<` — `[[source: williams]]` collects `3C-3F` in `csi_entry`, and this
+    /// is one of the two baud does not act on.
+    ///
+    /// Collected rather than discarded so the sequence reaches dispatch and is
+    /// counted in `Term::unsupported`. Sending it to `csi_ignore` instead would
+    /// consume it silently, which is the *parsed and dropped* failure
+    /// `docs/vt-coverage.md` exists to catch: the application is told nothing
+    /// and cannot find out.
+    Lt,
+    /// `=` — the other one. Same reasoning as [`Marker::Lt`].
+    Equals,
+}
+
+impl Marker {
+    /// The private-namespace bytes, `3C-3F`.
+    ///
+    /// `[[source: williams]]` collects these in `csi_entry` and **only** there:
+    /// `csi_param` sends the same bytes to `csi_ignore`, because a marker is
+    /// legal only immediately after `CSI`. Both of baud's feed paths call this,
+    /// so the rule has one definition and the two paths cannot drift.
+    pub fn from_private(b: StreamByte) -> Option<Marker> {
+        Some(match b.raw_byte() {
+            b'<' => Marker::Lt,
+            b'=' => Marker::Equals,
+            b'>' => Marker::Gt,
+            b'?' => Marker::Private,
+            _ => return None,
+        })
+    }
 }
 
 /// CSI parameters as accumulated, with typed accessors. Positional indexing
@@ -336,6 +365,16 @@ impl Csi {
     }
 
     fn parse_inner(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
+        // `<` and `=` open namespaces baud implements nothing in. Falling
+        // through would read them against the *standard* table, so `CSI < c`
+        // would answer a primary DA -- a reply in the wrong shape, which is
+        // worse than silence and is the one thing this parser must never do.
+        if marker == Marker::Lt || marker == Marker::Equals {
+            return Csi::Unsupported {
+                marker,
+                final_byte: f,
+            };
+        }
         if let Some(i) = inter {
             return match (i.raw_byte(), f.raw()) {
                 (b'!', b'p') => Csi::SoftReset,

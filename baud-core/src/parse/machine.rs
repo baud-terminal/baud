@@ -252,7 +252,7 @@ impl<'a> Term<'a> {
                     self.psub = SubParams::NONE;
                     self.private = Marker::Standard;
                     self.csi_inter = None;
-                    self.st = State::CsiParams;
+                    self.st = State::CsiEntry;
                 } else if b == StreamByte::OSC_INTRO {
                     self.st = State::OscString;
                 } else if b == StreamByte::DCS_INTRO {
@@ -423,44 +423,22 @@ impl<'a> Term<'a> {
                     self.st = self.ground();
                 }
             }
-            State::CsiParams => {
-                if let Some(d) = b.as_ascii_digit() {
-                    if self.nparam.is_first() {
-                        self.nparam = self.nparam.next();
-                    }
-                    let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
-                    self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
-                } else if b == StreamByte::SEMICOLON || b == StreamByte::COLON {
-                    if self.nparam.is_first() {
-                        self.nparam = self.nparam.next();
-                    }
-                    if self.nparam.raw_index() < 16 {
-                        // A colon opens a *sub*-parameter of the same attribute.
-                        // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
-                        // colour-space identifier that `38;2;r;g;b` does not.
-                        if b == StreamByte::COLON {
-                            self.psub = self.psub.mark(self.nparam);
-                        }
-                        self.params[self.nparam.raw_index()] = None;
-                        self.nparam = self.nparam.next();
-                    }
-                } else if b == StreamByte::QUESTION {
-                    self.private = Marker::Private;
-                } else if b == StreamByte::GT {
-                    self.private = Marker::Gt;
-                } else if let Some(f) = FinalByte::from_stream(b) {
-                    self.dispatch(f);
-                    self.st = self.ground();
-                } else if b.is_csi_intermediate() {
-                    self.csi_inter = Some(b);
-                    self.st = State::CsiIntermediate;
+            // `[[source: williams]]`'s `csi_entry`. Its whole reason to exist
+            // is the marker rule: `3C-3F` is collected *here* and rejected in
+            // `csi_param`. See `State::CsiEntry`.
+            State::CsiEntry => {
+                if let Some(m) = Marker::from_private(b) {
+                    self.private = m;
+                    self.st = State::CsiParams;
                 } else {
-                    // Malformed. Consume to the final byte rather than
-                    // returning to Ground here, which printed the remainder of
-                    // the sequence as text.
-                    self.st = State::CsiIgnore;
+                    // Everything else behaves exactly as it does one byte
+                    // later, so it is the same code -- the states differ in
+                    // one transition and should differ in one branch.
+                    self.st = State::CsiParams;
+                    self.csi_param_byte(b);
                 }
             }
+            State::CsiParams => self.csi_param_byte(b),
             State::OscString => {
                 if b == StreamByte::BEL {
                     self.osc_term = StringTerm::Bel;
@@ -472,6 +450,55 @@ impl<'a> Term<'a> {
                     self.osc_push(b);
                 }
             }
+        }
+    }
+
+    /// One byte of a CSI parameter string. `[[source: williams]]`'s `csi_param`
+    /// transitions, shared with `csi_entry` because they agree on all of them
+    /// except the private marker.
+    #[inline]
+    fn csi_param_byte(&mut self, b: StreamByte) {
+        if b.is_c0() {
+            // `[[source: williams]]`: C0 inside a control sequence is executed
+            // where it appears and the sequence continues. This used to fall
+            // through to `csi_ignore`, so `CSI 1 <BEL> m` discarded the SGR --
+            // a control character silently cancelling an unrelated operation.
+            self.execute(b);
+        } else if let Some(d) = b.as_ascii_digit() {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
+            self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+        } else if b == StreamByte::SEMICOLON || b == StreamByte::COLON {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            if self.nparam.raw_index() < 16 {
+                // A colon opens a *sub*-parameter of the same attribute.
+                // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
+                // colour-space identifier that `38;2;r;g;b` does not.
+                if b == StreamByte::COLON {
+                    self.psub = self.psub.mark(self.nparam);
+                }
+                self.params[self.nparam.raw_index()] = None;
+                self.nparam = self.nparam.next();
+            }
+        } else if let Some(f) = FinalByte::from_stream(b) {
+            self.dispatch(f);
+            self.st = self.ground();
+        } else if b.is_csi_intermediate() {
+            self.csi_inter = Some(b);
+            self.st = State::CsiIntermediate;
+        } else if b == StreamByte::DEL {
+            // `[[source: williams]]` ignores DEL here: not a parameter, not an
+            // error. Treating it as malformed would discard a valid sequence.
+        } else {
+            // A private marker past first position lands here, which is the
+            // point -- `[[source: williams]]` sends `3C-3F` to `csi_ignore`
+            // from `csi_param`. Consume to the final byte rather than returning
+            // to Ground, which printed the remainder of the sequence as text.
+            self.st = State::CsiIgnore;
         }
     }
 

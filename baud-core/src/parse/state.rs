@@ -8,6 +8,17 @@ pub(crate) enum State {
     /// `escape_intermediate`. Without it `ESC # 8` dropped the `#` and printed
     /// the `8`.
     EscapeIntermediate,
+    /// `[[source: williams]]`'s `csi_entry`: the position *immediately* after
+    /// `CSI`, and the only position where a private marker (`3C-3F`) is legal.
+    ///
+    /// This was folded into [`State::CsiParams`], and the fold is exactly what
+    /// the two states disagree about: `csi_entry` collects `3C-3F`, while
+    /// `csi_param` sends those same bytes to `csi_ignore`. With one state,
+    /// `CSI 2 ? l` was accepted as DECRST and **switched the terminal into VT52
+    /// mode** — a protocol change out of a sequence the spec says to discard —
+    /// and `CSI 1 ? J` erased the screen as DECSED. Executing what should be
+    /// ignored is the dangerous direction, so this is a separate state.
+    CsiEntry,
     CsiParams,
     /// `[[source: williams]]`'s `csi_intermediate`. The intermediate is kept,
     /// so `CSI ! p` (DECSTR) is distinguishable from `CSI p`.
