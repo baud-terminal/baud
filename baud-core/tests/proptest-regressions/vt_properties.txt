@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b625f64dca2b3de08afe3a28cea2005fa72a4f0f67b831ba2774c51582321c87 # shrinks to ops = [SgrMany(36, 0)], a = 1
+cc 2c29dc50e65e3120d4f205a8e5f35f2162136a897e11443f84e391dae61faa9e # shrinks to ops = [S8c1t, Da]
+cc 8f17946b7f2012230beb4c62b8fbc96237d637fdc0cb6bb2cc3aaab661aab149 # shrinks to before = [], inside = [Ris, CsiWithC0(7, 0), El(0)]

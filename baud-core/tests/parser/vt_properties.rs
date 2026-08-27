@@ -73,6 +73,21 @@ enum Op {
     /// DECSTR, `CSI ! p`. The intermediate path -- `csi_intermediate` was one
     /// of the four missing states whose absence was a bug.
     Decstr,
+    /// The nine `ESC` forms `report_escape_reach` found unreachable.
+    Deckpam,
+    Deckpnm,
+    /// HTS, `ESC H` — set a tab stop at the cursor.
+    Hts,
+    /// RIS, `ESC c` — a hard reset.
+    Ris,
+    /// S7C1T / S8C1T, `ESC SP F` and `ESC SP G`.
+    S7c1t,
+    S8c1t,
+    /// DECALN, `ESC # 8`.
+    Decaln,
+    /// `ESC % @` and `ESC % G` — the input encoding.
+    SelectLatin1,
+    SelectUtf8,
     Cup(u8, u8),
     Cuu(u8),
     Cud(u8),
@@ -198,6 +213,15 @@ fn op() -> impl Strategy<Value = Op> {
         prop::sample::select(&ANSI_MODES[..]).prop_map(Op::Sm),
         prop::sample::select(&ANSI_MODES[..]).prop_map(Op::Rm),
         Just(Op::Decstr),
+        Just(Op::Deckpam),
+        Just(Op::Deckpnm),
+        Just(Op::Hts),
+        Just(Op::Ris),
+        Just(Op::S7c1t),
+        Just(Op::S8c1t),
+        Just(Op::Decaln),
+        Just(Op::SelectLatin1),
+        Just(Op::SelectUtf8),
         (0u8..3).prop_map(Op::Decsca),
         (0u8..3).prop_map(Op::El),
         (0u8..3).prop_map(Op::Ed),
@@ -287,6 +311,15 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
             Op::Sm(m) => write!(n, "\x1b[{m}h").unwrap(),
             Op::Rm(m) => write!(n, "\x1b[{m}l").unwrap(),
             Op::Decstr => n.push_str("\x1b[!p"),
+            Op::Deckpam => n.push_str("\x1b="),
+            Op::Deckpnm => n.push_str("\x1b>"),
+            Op::Hts => n.push_str("\x1bH"),
+            Op::Ris => n.push_str("\x1bc"),
+            Op::S7c1t => n.push_str("\x1b F"),
+            Op::S8c1t => n.push_str("\x1b G"),
+            Op::Decaln => n.push_str("\x1b#8"),
+            Op::SelectLatin1 => n.push_str("\x1b%@"),
+            Op::SelectUtf8 => n.push_str("\x1b%G"),
             Op::CupHuge(k) => {
                 let big = ["99999", "65535", "65536", "4294967296"][k as usize % 4];
                 write!(n, "\x1b[{big};{big}H").unwrap();
@@ -506,11 +539,31 @@ proptest! {
         prop_assert!(reply.len() <= 256);
         let mut i = 0;
         while i < reply.len() {
-            prop_assert_eq!(reply[i], 0x1b, "a reply must start with ESC");
-            prop_assert!(i + 1 < reply.len(), "a lone ESC is not a reply");
-            match reply[i + 1] {
+            // After `S8C1T` (`ESC SP G`) baud answers with the 8-bit C1
+            // introducers -- `9B` for CSI, `90` for DCS, `9D` for OSC -- which
+            // is what `docs/vt-coverage.md` says that row does. This assertion
+            // used to require `ESC`, so it was a property about the *default*
+            // encoding wearing the name of a property about replies; it only
+            // ever passed because nothing generated could switch.
+            //
+            // `kind` is the introducer normalised to its 7-bit spelling, and
+            // `body` is where the parameters start in either case.
+            let (kind, body) = match reply[i] {
+                0x1b => {
+                    prop_assert!(i + 1 < reply.len(), "a lone ESC is not a reply");
+                    (reply[i + 1], i + 2)
+                }
+                0x9b => (b'[', i + 1),
+                0x90 => (b'P', i + 1),
+                0x9d => (b']', i + 1),
+                other => {
+                    prop_assert!(false, "unknown reply introducer {}", other);
+                    unreachable!()
+                }
+            };
+            match kind {
                 b'[' => {
-                    let mut j = i + 2;
+                    let mut j = body;
                     // The DA identity carries `?`; the mouse report carries `<`.
                     if j < reply.len() && (reply[j] == b'?' || reply[j] == b'<') {
                         j += 1;
@@ -536,11 +589,16 @@ proptest! {
                 }
                 // DCS and OSC are string families: consume to the terminator.
                 b'P' | b']' => {
-                    let bel_ok = reply[i + 1] == b']';
-                    let mut j = i + 2;
+                    let bel_ok = kind == b']';
+                    let mut j = body;
                     loop {
                         prop_assert!(j < reply.len(), "unterminated control string");
                         if bel_ok && reply[j] == 0x07 {
+                            j += 1;
+                            break;
+                        }
+                        // `9C` is ST's 8-bit spelling, used after S8C1T.
+                        if reply[j] == 0x9c {
                             j += 1;
                             break;
                         }
@@ -669,7 +727,7 @@ proptest! {
         // guarantee that without constraining what else it may do.
         let before: Vec<Op> = before
             .into_iter()
-            .filter(|o| !matches!(o, Op::Decset(1049) | Op::Decrst(1049)))
+            .filter(|o| !matches!(o, Op::Decset(1049) | Op::Decrst(1049) | Op::Ris))
             .collect();
         let baseline = grid(&before);
         let mut v = before.clone();
@@ -678,7 +736,20 @@ proptest! {
         // alt screen, after which it is entitled to write to the primary one.
         // Filtering it is what makes this a test of isolation rather than of
         // the generator. `?1049 h` stays, so re-entering is still exercised.
-        v.extend(inside.iter().copied().filter(|o| !matches!(o, Op::Decrst(1049))));
+        //
+        // `RIS` goes with it, and for the same reason rather than a weaker
+        // one: `ESC c` is an explicit instruction to discard everything, and
+        // xterm's `ReallyReset` calls `FromAlternate` on its `if (full)` path.
+        // Leaving the alt screen is what RIS is *for*. That is precisely the
+        // distinction `DECSTR` failed -- it took the same action without the
+        // same licence, and this property is what caught it, so the filter has
+        // to name RIS specifically and not "any reset".
+        v.extend(
+            inside
+                .iter()
+                .copied()
+                .filter(|o| !matches!(o, Op::Decrst(1049) | Op::Ris)),
+        );
         v.push(Op::Decrst(1049));
         prop_assert_eq!(grid(&v), baseline);
     }
@@ -919,6 +990,230 @@ fn every_done_form_is_reachable_by_the_generator() {
         missed.is_empty(),
         "{} form(s) marked done in docs/vt-coverage.md that no generated \
          program emits, so no property can reach them:\n  {}",
+        missed.len(),
+        missed.join("\n  ")
+    );
+}
+
+/// An `ESC` form: optional intermediate, then the final byte.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+struct Esc {
+    inter: Option<u8>,
+    final_byte: u8,
+}
+
+/// Every `ESC` form in a byte stream, skipping `ESC [`, `ESC ]` and `ESC P`,
+/// which introduce CSI, OSC and DCS rather than being forms themselves.
+fn escapes_in(bytes: &[u8], out: &mut std::collections::BTreeSet<Esc>) {
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] != 0x1b {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        if matches!(bytes[j], b'[' | b']' | b'P' | b'X' | b'^' | b'_') {
+            i += 2;
+            continue;
+        }
+        let mut inter = None;
+        if (0x20..=0x2f).contains(&bytes[j]) {
+            inter = Some(bytes[j]);
+            j += 1;
+        }
+        if j < bytes.len() && (0x30..=0x7e).contains(&bytes[j]) {
+            out.insert(Esc {
+                inter,
+                final_byte: bytes[j],
+            });
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// The `ESC` forms `docs/vt-coverage.md` marks **done**, restricted to rows
+/// that name exactly one form.
+///
+/// The charset-designation rows list a whole family on one line
+/// (`ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ...`), which is a set of finals for one
+/// intermediate rather than a single form; `a_designation_reaches_every_g_slot`
+/// covers those instead.
+fn implemented_escapes() -> std::collections::BTreeSet<Esc> {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("vt-coverage.md");
+    let mut out = std::collections::BTreeSet::new();
+    for line in src.lines() {
+        if !line.starts_with('|') || !line.contains("done") {
+            continue;
+        }
+        for span in line.split('`').skip(1).step_by(2) {
+            let Some(rest) = span.trim().strip_prefix("ESC ") else {
+                continue;
+            };
+            let toks: Vec<&str> = rest.split_whitespace().collect();
+            let (inter, fin) = match toks.len() {
+                1 => (None, toks[0]),
+                2 if toks[0] == "SP" => (Some(0x20u8), toks[1]),
+                2 if toks[0].len() == 1
+                    && (0x20..=0x2f).contains(&toks[0].as_bytes()[0])
+                    && toks[1].len() == 1 =>
+                {
+                    (Some(toks[0].as_bytes()[0]), toks[1])
+                }
+                _ => continue,
+            };
+            let fb = fin.as_bytes();
+            // `ESC P`, `ESC [`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` are the
+            // 7-bit spellings of the C1 *introducers*. They begin a CSI, OSC
+            // or control string rather than being forms in their own right,
+            // and `escapes_in` skips them for the same reason.
+            let introducer =
+                inter.is_none() && matches!(fb[0], b'P' | b'[' | b']' | b'X' | b'^' | b'_');
+            if fb.len() == 1 && (0x30..=0x7e).contains(&fb[0]) && !introducer {
+                out.insert(Esc {
+                    inter,
+                    final_byte: fb[0],
+                });
+            }
+        }
+    }
+    out
+}
+
+/// Every `OSC Ps` in a byte stream.
+fn oscs_in(bytes: &[u8], out: &mut std::collections::BTreeSet<u16>) {
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        let body = if bytes[i] == 0x1b && bytes[i + 1] == b']' {
+            i + 2
+        } else if bytes[i] == 0x9d {
+            i + 1
+        } else {
+            i += 1;
+            continue;
+        };
+        let mut j = body;
+        let mut ps: u32 = 0;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            ps = ps * 10 + u32::from(bytes[j] - b'0');
+            j += 1;
+        }
+        if j > body && ps <= u32::from(u16::MAX) {
+            out.insert(ps as u16);
+        }
+        i = body;
+    }
+}
+
+/// The `OSC Ps` values `docs/vt-coverage.md` marks **done**.
+fn implemented_oscs() -> std::collections::BTreeSet<u16> {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("vt-coverage.md");
+    let mut out = std::collections::BTreeSet::new();
+    for line in src.lines() {
+        if !line.starts_with("| `OSC ") || !line.contains("done") {
+            continue;
+        }
+        let Some(span) = line.split('`').nth(1) else {
+            continue;
+        };
+        let Some(rest) = span.trim().strip_prefix("OSC ") else {
+            continue;
+        };
+        // `OSC 0/1/2` names three commands on one row.
+        for part in rest.split('/') {
+            if let Ok(n) = part.trim().parse::<u16>() {
+                out.insert(n);
+            }
+        }
+    }
+    out
+}
+
+/// **Every `ESC` form and `OSC Ps` the table marks `done` is reachable.**
+///
+/// The companion to `every_done_form_is_reachable_by_the_generator`, which
+/// covers CSI. Splitting the parser's input surface by introducer and checking
+/// each is what turns "the generator might still miss something" into a list.
+///
+/// The ESC pass found nine unreachable when first run -- DECKPAM, DECKPNM,
+/// HTS, RIS, S7C1T, S8C1T, DECALN and the two `ESC %` encoding selectors --
+/// and adding them broke two properties immediately. Neither was a bug in
+/// baud: `replies_are_well_formed` required an `ESC` introducer and so was a
+/// property about the *default* encoding wearing the name of a property about
+/// replies, and the alt-screen isolation property had to be told that RIS
+/// leaving the alt screen is licensed where DECSTR doing it was not.
+///
+/// **DCS is absent by construction, not by omission.** Both `DCS` rows are
+/// `out` -- Sixel and DECUDK -- so there is nothing to enumerate. DECRQSS is
+/// the one DCS form baud answers and it is reached via `Op::Decrqss`; it is
+/// recorded in the parser-state table rather than as a `DCS` row, which is why
+/// it does not appear here.
+#[test]
+fn every_done_escape_and_osc_is_reachable_by_the_generator() {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{Config, TestRunner};
+    let mut runner = TestRunner::new(Config {
+        cases: 1,
+        ..Config::default()
+    });
+    let strat = program();
+    let mut escapes = std::collections::BTreeSet::new();
+    let mut oscs = std::collections::BTreeSet::new();
+    for _ in 0..4000 {
+        let ops = strat.new_tree(&mut runner).expect("gen").current();
+        let b = bytes_of(&ops);
+        escapes_in(&b, &mut escapes);
+        oscs_in(&b, &mut oscs);
+    }
+
+    let claimed_esc = implemented_escapes();
+    assert!(
+        claimed_esc.len() > 12,
+        "parsed only {} done ESC forms -- the table's shape changed and this \
+         check is measuring nothing",
+        claimed_esc.len()
+    );
+    let missed: Vec<String> = claimed_esc
+        .difference(&escapes)
+        .map(|f| {
+            format!(
+                "ESC {}{}",
+                f.inter
+                    .map(|b| format!("{} ", b as char))
+                    .unwrap_or_default(),
+                f.final_byte as char
+            )
+        })
+        .collect();
+    assert!(
+        missed.is_empty(),
+        "{} ESC form(s) marked done that no generated program emits:\n  {}",
+        missed.len(),
+        missed.join("\n  ")
+    );
+
+    let claimed_osc = implemented_oscs();
+    assert!(
+        claimed_osc.len() >= 5,
+        "parsed only {} done OSC commands",
+        claimed_osc.len()
+    );
+    let missed: Vec<String> = claimed_osc
+        .difference(&oscs)
+        .map(|n| format!("OSC {n}"))
+        .collect();
+    assert!(
+        missed.is_empty(),
+        "{} OSC command(s) marked done that no generated program emits:\n  {}",
         missed.len(),
         missed.join("\n  ")
     );
