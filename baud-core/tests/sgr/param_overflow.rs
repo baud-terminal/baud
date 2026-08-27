@@ -114,3 +114,55 @@ fn every_storable_parameter_still_applies() {
         assert!(a.has(bit), "SGR {name} applied");
     }
 }
+
+/// The DCS parameter path has the same bound, and needs the same proof.
+///
+/// `dcs_param_byte` got the identical fix, and every case above drives `CSI`.
+/// No DCS function baud implements takes numeric parameters, so an over-long
+/// prefix is ignored either way and the severity is lower — but this is a path
+/// that was edited, and "the fix is symmetric so it must be fine" is exactly
+/// the reasoning that let `machine.rs` diverge from `fast.rs` in the first
+/// place.
+///
+/// The bound is load-bearing rather than tidy: with it removed this test does
+/// not merely disagree between chunkings, it panics on an out-of-range index,
+/// because `next_capped` lets the position reach `CAPACITY`. No shipped
+/// version could reach that -- the old code pinned the index *at* capacity,
+/// which corrupted instead -- but it means the check cannot be relaxed.
+#[test]
+fn dcs_parameter_overflow_is_chunk_invariant() {
+    let mut p = b"\x1bP".to_vec();
+    for k in 0..2 * ParamIdx::CAPACITY {
+        if k > 0 {
+            p.push(b';');
+        }
+        p.extend_from_slice(b"12");
+    }
+    // A DECRQSS for SGR, behind a parameter prefix far past capacity.
+    p.extend_from_slice(b"$qm\x1b\\");
+
+    let bulk = reply_for(&p, 4096);
+    for chunk in [1, 2, 5, 17] {
+        assert_eq!(
+            reply_for(&p, chunk),
+            bulk,
+            "chunk size {chunk} disagreed with a single read"
+        );
+    }
+}
+
+fn reply_for(bytes: &[u8], chunk: usize) -> Vec<u8> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = chunk.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+    t.reply().to_vec()
+}

@@ -1,6 +1,12 @@
 use crate::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
+// `ParamIdx::PAST_LAST` casts the capacity into the index's `u8`. `Attrs` has
+// free bits left, so `WIRE` can still grow and take `CAPACITY` with it -- and an
+// unguarded cast would wrap rather than fail. `SubParams` carries the parallel
+// assert against `u64::BITS`; neither constant may drift alone.
+const _: () = assert!(ParamIdx::CAPACITY < u8::MAX as usize);
+
 /// Position of a parameter within a CSI sequence.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
