@@ -164,3 +164,38 @@ fn both_charset_selectors_are_honoured() {
         "neither selector is dropped as unsupported"
     );
 }
+
+/// **A stream ending mid-sequence is an open state, not an error.**
+///
+/// `E2 86` is two thirds of `U+2192`. Rendering U+FFFD for it at the end of a
+/// read would be wrong: a terminal cannot know the stream ended, and the third
+/// byte routinely arrives in the next `read(2)`. So nothing is emitted and the
+/// decoder holds the partial sequence.
+///
+/// The flush happens when a byte arrives that *cannot* continue it — here the
+/// `ESC` of a following sequence. Unicode 3.9.5 makes the maximal subpart one
+/// U+FFFD, and the offending byte is then reprocessed rather than eaten, which
+/// is the recovery bug this file already records for `C2 41 42`.
+///
+/// This is pinned because it is the reason three generated properties were
+/// wrong once the generator could emit multi-byte text: they assumed appending
+/// ops to a program was invisible, and against a program ending mid-sequence
+/// it is not.
+#[test]
+fn an_incomplete_sequence_at_the_end_renders_nothing_until_flushed() {
+    assert!(
+        decode(&[0xe2, 0x86]).is_empty(),
+        "pending: nothing is emitted, not even U+FFFD"
+    );
+    assert_eq!(
+        decode(&[0xe2, 0x86, 0x92]),
+        vec![0x2192],
+        "and it completes when the third byte arrives"
+    );
+    assert_eq!(
+        decode(b"\xe2\x86\x1b[0\"q"),
+        vec![FFFD],
+        "a byte that cannot continue it flushes exactly one FFFD, and the \
+         escape is applied rather than printed"
+    );
+}

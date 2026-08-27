@@ -178,6 +178,19 @@ enum Op {
     /// generating it would swallow the rest of the program and break the
     /// composability the other properties rely on.
     ControlString(u8, u8),
+    /// A run of non-ASCII text, valid or malformed.
+    ///
+    /// `Op::Text` emits `0x21..0x7f`, so **no generated program contained a
+    /// multi-byte sequence at all** — and `properties.rs` uses `any::<u8>()`,
+    /// which by this file's own argument essentially never spells a
+    /// well-formed cluster any more than it spells a well-formed CSI.
+    ///
+    /// That left the half of the job `CLAUDE.md` calls "what the bytes between
+    /// the sequences mean" — UTF-8 decoding, width, grapheme clustering —
+    /// covered only by hand-written cases. Chunk invariance is where it bites:
+    /// a multi-byte sequence split across a read boundary is the classic
+    /// terminal bug, and this suite could not produce one.
+    Utf8(u8),
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -211,6 +224,36 @@ const ANSI_MODES: [u16; 4] = [4, 20, 2, 12];
 /// so those legitimately end the string and run what follows — which is
 /// behaviour worth generating rather than avoiding, since both feeds have to
 /// agree on where the cancel happened.
+/// Non-ASCII runs: valid clusters of every width class, and the malformed
+/// forms whose recovery has already been wrong here.
+///
+/// Raw bytes rather than `&str` because half of these are not valid UTF-8 and
+/// could not be written as one. The overlong `E0 80 AF` is the path-traversal
+/// form that used to render `/`; `C2 41` is the truncation whose recovery ate
+/// the valid successor byte.
+const UTF8_RUNS: [&[u8]; 14] = [
+    "é".as_bytes(),
+    "→".as_bytes(),
+    "🚀".as_bytes(),
+    "世界".as_bytes(),
+    // A base with a combining mark, which must attach rather than take a cell.
+    "e\u{301}a\u{308}".as_bytes(),
+    // ZWJ emoji: one cluster, the columns of one.
+    "👨\u{200d}👩\u{200d}👧".as_bytes(),
+    // Regional indicators — EAW Neutral, so width from East Asian Width alone
+    // would make this half a flag.
+    "🇯🇵".as_bytes(),
+    // Devanagari conjunct: marks that the old hand-written table gave columns.
+    "क\u{93f}".as_bytes(),
+    "עִבְרִית".as_bytes(),
+    // Malformed, from here down.
+    &[0xe0, 0x80, 0xaf],
+    &[0xc2, 0x41, 0x42],
+    &[0xe2, 0x86],
+    &[0x80, 0x80],
+    &[0xed, 0xa0, 0x80],
+];
+
 const STRING_PAYLOADS: [&str; 6] = [
     "Gpayload;with=params,and:punctuation",
     "\x07\x08\x09 bell backspace tab inside a string",
@@ -277,6 +320,7 @@ const MODES: [u16; 11] = [6, 7, 25, 69, 1000, 1002, 1003, 1006, 1049, 2004, 2026
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         (0x21u8..0x7f, 1u8..40).prop_map(|(c, n)| Op::Text(c, n)),
+        (0u8..UTF8_RUNS.len() as u8).prop_map(Op::Utf8),
         (0u8..60, 0u8..210).prop_map(|(r, c)| Op::Cup(r, c)),
         (0u8..60).prop_map(Op::Cuu),
         (0u8..60).prop_map(Op::Cud),
@@ -381,6 +425,10 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
     for o in ops {
         n.clear();
         match *o {
+            Op::Utf8(k) => {
+                out.extend_from_slice(UTF8_RUNS[usize::from(k)]);
+                continue;
+            }
             Op::Text(c, k) => {
                 for _ in 0..k {
                     out.push(c);
@@ -583,8 +631,27 @@ fn grid(ops: &[Op]) -> Vec<PackedCell> {
 }
 
 /// Run `ops`, then `extra`, and return the viewport.
+/// Close the decoder before a program is extended.
+///
+/// A program ending mid-UTF-8-sequence is an *open* state: the decoder holds
+/// bytes that the next input either completes or flushes as one U+FFFD. So
+/// `grid(ops)` and `grid(ops ++ extra)` are legitimately different, and worse,
+/// two different suffixes flush at different moments and under whatever
+/// rendition is current -- `[Decsca(1), <E2 86>]` makes one side's flush a
+/// *protected* U+FFFD, which selective erase spares and plain erase does not.
+///
+/// Every composing property below therefore diverges *after* this op, never
+/// before it. It is a plain character rather than something clever because it
+/// has to be identical on both sides and nothing more.
+///
+/// `an_incomplete_sequence_at_the_end_renders_nothing_until_flushed` pins the
+/// behaviour this compensates for; the behaviour is correct and the properties
+/// were the things that were wrong.
+const FLUSH: Op = Op::Text(b'.', 1);
+
 fn grid_then(ops: &[Op], extra: &[Op]) -> Vec<PackedCell> {
     let mut v = ops.to_vec();
+    v.push(FLUSH);
     v.extend_from_slice(extra);
     grid(&v)
 }
@@ -753,7 +820,9 @@ proptest! {
     /// protected cells) or if DECSEL erases something EL does not.
     #[test]
     fn decsel_erases_a_subset_of_el(ops in program(), extent in 0u8..3) {
-        let before = grid(&ops);
+        // Also through `grid_then`, so the baseline carries the same FLUSH the
+        // two erase variants do.
+        let before = grid_then(&ops, &[]);
         let sel = grid_then(&ops, &[Op::Decsel(extent)]);
         let plain = grid_then(&ops, &[Op::El(extent)]);
         for i in 0..before.len() {
@@ -770,7 +839,9 @@ proptest! {
     /// The same, for the display.
     #[test]
     fn decsed_erases_a_subset_of_ed(ops in program(), extent in 0u8..3) {
-        let before = grid(&ops);
+        // Also through `grid_then`, so the baseline carries the same FLUSH the
+        // two erase variants do.
+        let before = grid_then(&ops, &[]);
         let sel = grid_then(&ops, &[Op::Decsed(extent)]);
         let plain = grid_then(&ops, &[Op::Ed(extent)]);
         for i in 0..before.len() {
@@ -852,8 +923,9 @@ proptest! {
             .into_iter()
             .filter(|o| !matches!(o, Op::Decset(1049) | Op::Decrst(1049) | Op::Ris))
             .collect();
-        let baseline = grid(&before);
+        let baseline = grid_then(&before, &[]);
         let mut v = before.clone();
+        v.push(FLUSH);
         v.push(Op::Decset(1049));
         // A `?1049 l` *inside* is not a leak -- it is the program leaving the
         // alt screen, after which it is entitled to write to the primary one.
@@ -881,7 +953,7 @@ proptest! {
     /// not paint.
     #[test]
     fn decsca_alone_is_invisible(ops in program(), p in 0u8..3) {
-        prop_assert_eq!(grid(&ops), grid_then(&ops, &[Op::Decsca(p)]));
+        prop_assert_eq!(grid_then(&ops, &[]), grid_then(&ops, &[Op::Decsca(p)]));
     }
 }
 

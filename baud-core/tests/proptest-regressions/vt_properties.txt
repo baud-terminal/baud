@@ -7,3 +7,6 @@
 cc b625f64dca2b3de08afe3a28cea2005fa72a4f0f67b831ba2774c51582321c87 # shrinks to ops = [SgrMany(36, 0)], a = 1
 cc 2c29dc50e65e3120d4f205a8e5f35f2162136a897e11443f84e391dae61faa9e # shrinks to ops = [S8c1t, Da]
 cc 8f17946b7f2012230beb4c62b8fbc96237d637fdc0cb6bb2cc3aaab661aab149 # shrinks to before = [], inside = [Ris, CsiWithC0(7, 0), El(0)]
+cc f538128b81e3a44fe6e1b2de637b78f892e9b6244bdcc16559dd68ac6ca0f61e # shrinks to ops = [Utf8(11)], p = 0
+cc e79e5341818c24093ce04f2883c2fef346d8e46f98318fb7aece292a4299ef43 # shrinks to before = [Utf8(11)], inside = []
+cc ecd61c894231d062818811e9393d0df3f45f7789a0a1b899735dbca92787df77 # shrinks to ops = [Decsca(1), Utf8(11)], extent = 1
