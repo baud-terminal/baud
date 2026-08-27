@@ -23,6 +23,18 @@ Status values are deliberately blunt:
 A `parsed` row is a bug. It is the state where a terminal accepts a sequence,
 does nothing, and gives the application no way to find out.
 
+**A `done` row cannot quietly become a `parsed` one.**
+`every_done_sequence_reaches_a_handler` synthesises each done row's sequence
+*from this table* and feeds it to a real `Term`; `Term::unsupported` must not
+move. Marking a row done for an operation the parser drops is therefore a test
+failure, not something a reader has to notice. Verified against a planted
+regression rather than assumed.
+
+Be exact about what that does and does not prove. It proves the parser reaches
+a handler for every operation this table claims. It does **not** prove the
+handler is correct — that is what the per-protocol suites are for, and no
+mechanism can prove it in general.
+
 **No row carries `partial`, `parsed` or `todo`, and `no_row_is_unfinished` in
 `baud-core/tests/coverage.rs` fails if one ever does.** `out` is the only status
 that means "not implemented", and it requires a reason in the row. Do not

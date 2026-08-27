@@ -70,6 +70,7 @@ the build instead:
 | check | what it holds |
 |---|---|
 | `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `partial`, `parsed` or `todo`; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
+| `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
 | `baud-core/tests/readme.rs` | the README's usage example is compiled, and is byte-identical to the block in the file |
