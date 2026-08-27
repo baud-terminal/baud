@@ -19,6 +19,12 @@ MANIFEST="$SRC/MANIFEST.toml"
 # Every doc, not just the notes: docs/vt-coverage.md cites sources too, and a
 # gate that only scanned notes/ would have let those citations rot unchecked.
 DOCS="docs"
+# **And the code.** Doc comments in baud-core/ and baud-domain/ cite sources
+# exactly as the notes do, and for most of this project's life nothing checked
+# them -- `vt510-decscpp` was cited from a doc comment and had no manifest entry
+# at all. A citation an engineer reads while changing the code is the one most
+# likely to be acted on, so it is the last one that should go unverified.
+CODE="baud-core baud-domain"
 fail=0
 
 [ -f "$MANIFEST" ] || {
@@ -78,16 +84,21 @@ done
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
 if [ -d "$DOCS" ]; then
-  grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.md' "$DOCS" 2>/dev/null |
-    sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
+  {
+    grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.md' "$DOCS" 2>/dev/null
+    for d in $CODE; do
+      [ -d "$d" ] || continue
+      grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.rs' "$d" 2>/dev/null
+    done
+  } | sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
   while read -r c; do
     [ -n "$c" ] || continue
     grep -qxF "$c" "$tmp/keys" || {
-      echo "  FAIL a note cites [[source: $c]], which the manifest does not carry"
+      echo "  FAIL a doc or doc comment cites [[source: $c]], which the manifest does not carry"
       fail=1
     }
     grep -qxF "$c" "$tmp/gated" && {
-      echo "  FAIL a note cites [[source: $c]], recorded as gated — never read"
+      echo "  FAIL a doc or doc comment cites [[source: $c]], recorded as gated — never read"
       fail=1
     }
   done <"$tmp/cited"

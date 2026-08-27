@@ -22,6 +22,7 @@
 #   D  memory hierarchy and write amplification
 #   E  the tty layer and syscall batching
 #   F  text sequence data structures
+#   G  text encoding, width and grapheme clustering
 
 [sources.simdjson]
 key    = "simdjson"
@@ -398,3 +399,85 @@ sha256 = "030ca24cf4d216ed60b22a260cf7c80825934720254add5e2ace1e4454e6125c"
 bytes  = 2966
 status = "retrieved"
 group  = "C"
+
+[sources.unicode-ch3]
+key    = "unicode-ch3"
+title  = "The Unicode Standard, Version 17.0 — Chapter 3, Conformance"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/"
+file   = "unicode-ch3.html"
+sha256 = "69fef5215c021368a1880d91bc59d7935d13a5455f1373eda17b8818d41b7b41"
+bytes  = 404354
+status = "retrieved"
+group  = "G"
+
+[sources.vt510-decscpp]
+key    = "vt510-decscpp"
+title  = "DECSCPP — Select Columns Per Page (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSCPP.html"
+file   = "vt510-DECSCPP.html"
+sha256 = "6a84f639349a1d4eb937a60a70276089f70d049e62f248c4269bd6077ca44bce"
+bytes  = 21216
+status = "retrieved"
+group  = "C"
+
+[sources.uax11]
+key    = "uax11"
+title  = "UAX #11: East Asian Width, revision 44"
+author = "Ken Lunde, editor; The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Standard Annex"
+url    = "https://www.unicode.org/reports/tr11/tr11-44.html"
+file   = "uax11-east-asian-width.html"
+sha256 = "a82167102910152a30e3a3c4984fd5f9b1d8caf47e5d53dc1e1aef050ba4f25e"
+bytes  = 36530
+status = "retrieved"
+group  = "G"
+
+[sources.uax29]
+key    = "uax29"
+title  = "UAX #29: Unicode Text Segmentation, revision 47"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Standard Annex"
+url    = "https://www.unicode.org/reports/tr29/tr29-47.html"
+file   = "uax29-text-segmentation.html"
+sha256 = "130d4e0d3f9da41bf9ad84bf580b3b92edc83886457cbc5a53b432761fd2c6ed"
+bytes  = 138801
+status = "retrieved"
+group  = "G"
+
+[sources.ecma35]
+key    = "ecma35"
+title  = "ECMA-35: Character Code Structure and Extension Techniques, 6th edition"
+author = "Ecma International"
+year   = 1994
+venue  = "Ecma International standard"
+url    = "https://ecma-international.org/wp-content/uploads/ECMA-35_6th_edition_december_1994.pdf"
+file   = "ecma-35-6th-1994.pdf"
+sha256 = "cd812a506f93bf44e0e6058fe423144c4dea8a64fbc96589cf99bcbe32fc1bf4"
+bytes  = 303826
+status = "retrieved"
+group  = "G"
+
+# A **Final Committee Draft**, not the published standard, and cited as one.
+# Clause numbers shift in the published edition: 11 becomes 12, 12.2 becomes
+# 13.2, 12.5 becomes 13.5. Recorded here so a reader checking a citation against
+# the published ISO text is not surprised by the mismatch.
+[sources.iso10646-fcd]
+key    = "iso10646-fcd"
+title  = "ISO/IEC 10646:2010 (E) Final Committee Draft"
+author = "ISO/IEC JTC 1/SC 2/WG 2"
+year   = 2010
+venue  = "ISO/IEC Final Committee Draft, via unicode.org document register"
+url    = "http://unicode.org/L2/L2010/10038-fcd10646-main.pdf"
+file   = "iso10646-fcd-2010.pdf"
+sha256 = "ddf5a815ab3ddfb335608a417979eda722d5150a12afd12b2c70d55fe2a24326"
+bytes  = 3007065
+status = "retrieved"
+group  = "G"
