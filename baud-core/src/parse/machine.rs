@@ -188,6 +188,9 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     pub(crate) fn control(&mut self, b: StreamByte) {
+        if self.anywhere(b) {
+            return;
+        }
         match self.st {
             State::Ground | State::Vt52Ground => {
                 if b == StreamByte::ESC {
@@ -408,9 +411,17 @@ impl<'a> Term<'a> {
                 }
             }
             State::CsiIntermediate => {
-                if let Some(f) = FinalByte::from_stream(b) {
+                if b.is_c0() {
+                    // williams gives `csi_intermediate` the same execute action
+                    // as `csi_param`. This arm had none, so a C0 fell through
+                    // to `csi_ignore` and discarded the sequence: `CSI ! <NUL>
+                    // p` lost its DECSTR.
+                    self.execute(b);
+                } else if let Some(f) = FinalByte::from_stream(b) {
                     self.dispatch(f);
                     self.st = self.ground();
+                } else if b == StreamByte::DEL {
+                    // ignored, per williams
                 } else if !b.is_csi_intermediate() {
                     self.st = State::CsiIgnore;
                 }
@@ -427,7 +438,16 @@ impl<'a> Term<'a> {
             // is the marker rule: `3C-3F` is collected *here* and rejected in
             // `csi_param`. See `State::CsiEntry`.
             State::CsiEntry => {
-                if let Some(m) = Marker::from_private(b) {
+                if b.is_c0() {
+                    // `[[source: williams]]`: execute and **stay in
+                    // `csi_entry`**. A C0 does not consume the marker
+                    // position, so `CSI <BS> ? J` is still DECSED. Advancing
+                    // to `CsiParams` first would make the marker rule reject
+                    // a marker that is legal.
+                    self.execute(b);
+                } else if b == StreamByte::DEL {
+                    // Ignored, and likewise does not consume the position.
+                } else if let Some(m) = Marker::from_private(b) {
                     self.private = m;
                     self.st = State::CsiParams;
                 } else {
@@ -499,6 +519,84 @@ impl<'a> Term<'a> {
             // from `csi_param`. Consume to the final byte rather than returning
             // to Ground, which printed the remainder of the sequence as text.
             self.st = State::CsiIgnore;
+        }
+    }
+
+    /// `[[source: williams]]`'s **anywhere** block: the bytes whose meaning does
+    /// not depend on which state they arrive in.
+    ///
+    /// Before the match rather than inside each arm, because four arms had
+    /// already forgotten them. `is_c0()` is `b < 0x20`, which *includes* `1B`
+    /// ESC, `18` CAN and `1A` SUB — so every arm that wrote
+    /// `if b.is_c0() { self.execute(b) }` was executing an ESC and staying
+    /// where it was. `CSI 1 ESC [ 2 m` lost its escape and printed `2m`.
+    ///
+    /// The states that decline are the ones that must: inside a control string
+    /// ESC is the first half of ST, so the payload has to survive until the
+    /// next byte decides between *terminator* and *cancel*. Those arms spell
+    /// the rule out themselves and are already right.
+    #[inline(always)]
+    fn anywhere(&mut self, b: StreamByte) -> bool {
+        // Every byte in the block is below 0x20, so one comparison retires the
+        // whole check for all text. This is not premature: `control` is the
+        // byte-at-a-time path, and multibyte text runs through it a byte at a
+        // time, so the naive three comparisons cost **6%** of the streaming
+        // cells path -- 1063.2 [1036.0-1070.5] down to 995.6 [973.3-1020.3],
+        // ranges not overlapping. This file already records a per-byte mode
+        // check costing 4% and a runtime flag costing 5%; the same rule applies
+        // to a per-byte protocol check.
+        if !b.is_c0() {
+            return false;
+        }
+        self.anywhere_c0(b)
+    }
+
+    /// The rare half of [`Term::anywhere`], deliberately out of line.
+    ///
+    /// `#[inline(never)]` for the same measured reason `open_gap` is: `control`
+    /// is reached from the `#[inline(always)]` ingest loop, and growing its
+    /// inlined body costs more than the work in it does. Keeping the gate
+    /// inline and the body out of line is what made this free.
+    #[inline(never)]
+    fn anywhere_c0(&mut self, b: StreamByte) -> bool {
+        if b == StreamByte::CAN || b == StreamByte::SUB {
+            // Abandon whatever is in progress, control strings included. A
+            // payload that cannot be cancelled is the same hazard as one that
+            // is executed, and williams gives both bytes the same action from
+            // every state.
+            if matches!(
+                self.st,
+                State::Ground | State::Vt52Ground | State::Utf8 { .. }
+            ) {
+                return false; // nothing in progress; Ground executes it itself
+            }
+            self.execute(b);
+            self.osc_reset();
+            self.st = self.ground();
+            return true;
+        }
+        if b != StreamByte::ESC {
+            return false;
+        }
+        match self.st {
+            State::Ground
+            | State::Vt52Ground
+            | State::Utf8 { .. }
+            // VT52 coordinates are raw bytes, not a parameter string:
+            // `ESC Y` takes the next two whatever they are.
+            | State::Vt52Row
+            | State::Vt52Col(_)
+            // Control strings: ESC is half of ST.
+            | State::OscString
+            | State::OscEsc
+            | State::DcsPassthrough
+            | State::DcsEsc
+            | State::DcsIgnore
+            | State::StringIgnore => false,
+            _ => {
+                self.st = State::Escape;
+                true
+            }
         }
     }
 

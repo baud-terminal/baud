@@ -108,6 +108,11 @@ impl StreamByte {
     /// DEL. `[[source: williams]]` gives it the `ignore` action inside escape
     /// and CSI sequences: it neither ends them nor contributes to them.
     pub const DEL: StreamByte = StreamByte(0x7f);
+    /// `[[source: williams]]`'s "anywhere" block: CAN and SUB abandon whatever
+    /// sequence is in progress, from any state. Named because `is_c0()` is
+    /// `< 0x20` and therefore cannot distinguish them from a C0 to execute.
+    pub const CAN: StreamByte = StreamByte(0x18);
+    pub const SUB: StreamByte = StreamByte(0x1a);
     /// The intermediate of `ESC # 8` (DECALN).
     pub const HASH: StreamByte = StreamByte(b'#');
     /// VT. `[[source: ctlseqs]]` treats it as an index, like LF.

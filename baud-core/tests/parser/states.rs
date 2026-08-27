@@ -360,3 +360,140 @@ fn an_ignored_csi_does_not_print_its_tail() {
         "the ignored sequence must leave no text behind"
     );
 }
+
+// ── the "anywhere" block: ESC, CAN and SUB ──────────────────────────────────
+
+/// An ESC inside a control sequence **abandons it and starts a new one**.
+///
+/// `[[source: williams]]` puts `1B` in the *anywhere* block, so it overrides
+/// whatever the current state would otherwise do. baud's arms tested
+/// `b.is_c0()`, which is `b < 0x20` and therefore matches ESC — so the ESC was
+/// "executed" and the parser stayed in the parameter string. `CSI 1 ESC [ 2 m`
+/// lost its escape: the `[` was accepted as a final byte, dispatching a
+/// nonsense `CSI 1 [`, and `2m` printed as text.
+#[test]
+fn an_esc_inside_a_csi_starts_a_new_sequence() {
+    assert_eq!(
+        grid(b"\x1b[1\x1b[2mX"),
+        grid(b"\x1b[2mX"),
+        "the ESC abandons `CSI 1` and `CSI 2 m` takes effect"
+    );
+}
+
+/// CAN and SUB abandon the sequence in progress, from any state.
+///
+/// Also in `[[source: williams]]`'s anywhere block, and also swallowed by
+/// `is_c0()`: they were being executed while the parser stayed in the
+/// parameter string, so the sequence completed as if they had not arrived.
+#[test]
+fn can_and_sub_abandon_a_control_sequence() {
+    for b in [0x18u8, 0x1a] {
+        let mut seq = b"\x1b[3".to_vec();
+        seq.push(b);
+        seq.extend_from_slice(b"1mX");
+        assert_eq!(
+            grid(&seq),
+            grid(b"1mX"),
+            "0x{b:02x} must abandon the CSI, leaving `1mX` as text"
+        );
+    }
+}
+
+/// The same rule inside a control string.
+///
+/// A payload that cannot be cancelled is the same hazard as one that is
+/// executed: it swallows the stream until something else ends it.
+#[test]
+fn can_abandons_a_control_string() {
+    assert_eq!(
+        grid(b"\x1b_apc payload\x18X"),
+        grid(b"X"),
+        "CAN must end the APC string and leave the rest of the stream alone"
+    );
+}
+
+/// A C0 in `csi_entry` does not consume the private-marker position.
+///
+/// `[[source: williams]]` has `csi_entry` execute a C0 and **stay in
+/// `csi_entry`**. Advancing to `csi_param` first would apply the marker rule
+/// one byte too early and reject a marker that is legal — turning a valid
+/// DECSED into a discarded sequence.
+#[test]
+fn a_c0_in_csi_entry_does_not_consume_the_marker_position() {
+    // BS is chosen because it is observable: it moves the cursor.
+    assert_eq!(
+        grid(b"hello\x1b[\x08?1J"),
+        grid(b"hello\x08\x1b[?1J"),
+        "`CSI <BS> ? J` must still be DECSED, with the BS executed"
+    );
+}
+
+/// DEL likewise does not consume the marker position.
+#[test]
+fn a_del_in_csi_entry_does_not_consume_the_marker_position() {
+    assert_eq!(
+        grid(b"hello\x1b[\x7f?1J"),
+        grid(b"hello\x1b[?1J"),
+        "`CSI <DEL> ? J` must still be DECSED"
+    );
+}
+
+/// A C0 inside the *intermediate* string does not discard the sequence.
+///
+/// `csi_intermediate` had no C0 branch at all, so a stray byte there fell to
+/// `csi_ignore` and `CSI ! <NUL> p` silently lost its soft reset.
+///
+/// The probe has to make DECSTR's effect *visible*. The first version of this
+/// test compared `CSI ! <NUL> p X` against `CSI ! p X` on a blank screen, where
+/// a soft reset changes nothing observable — so it passed with the bug still in
+/// place. Setting a rendition first is what gives it something to reset.
+#[test]
+fn a_c0_in_csi_intermediate_does_not_discard_the_sequence() {
+    assert_eq!(
+        grid(b"\x1b[31m\x1b[!\x00pX"),
+        grid(b"\x1b[31m\x1b[!pX"),
+        "the NUL must not cancel DECSTR"
+    );
+    assert_ne!(
+        grid(b"\x1b[31m\x1b[!\x00pX"),
+        grid(b"\x1b[31mX"),
+        "and the reset must actually have happened -- X must not still be red"
+    );
+}
+
+/// A cancel inside an OSC payload is honoured whichever feed sees it.
+///
+/// Deterministic pin for a `chunk_invariant_all_modes` failure. When CAN and
+/// SUB started cancelling control strings, `fast_esc` still scanned an OSC
+/// straight to its terminator and dispatched it — so the same bytes set a title
+/// or did not, depending on whether they happened to land inside one `read(2)`.
+///
+/// Feeding one byte at a time forces the state machine; feeding the lot forces
+/// the fast path. They must agree.
+#[test]
+fn a_cancel_inside_an_osc_is_honoured_in_both_feeds() {
+    let bytes = b"\x1b]0;title\x18X";
+    let mut whole = Storage::boxed();
+    let mut t = Term::new(&mut whole, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    let fast = t.viewport().to_vec();
+
+    let mut split = Storage::boxed();
+    let mut u = Term::new(&mut split, OpMode::Computed);
+    for byte in bytes {
+        let mut slot = u.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&[*byte]));
+        u.feed(base, f.len());
+        u.commit_read(f.len());
+    }
+    assert_eq!(
+        fast,
+        u.viewport().to_vec(),
+        "one read and one-byte reads must agree on a cancelled OSC"
+    );
+}

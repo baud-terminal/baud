@@ -200,7 +200,7 @@ fn quoted_counts_match_reality() {
     assert!(wrong.is_empty(), "stale counts:\n  {}", wrong.join("\n  "));
 }
 
-/// **No row is marked `partial`, and this fails if one ever is.**
+/// **No row is `partial`, `parsed` or `todo`, and this fails if one ever is.**
 ///
 /// `partial` means the table claims an operation baud does not fully do. That
 /// is a weaker failure than `parsed` — the row is at least honest — but it is
@@ -222,7 +222,7 @@ fn quoted_counts_match_reality() {
 /// make this pass — the point is that reaching for `partial` is a signal the
 /// operation is not done, and the fix is the operation.
 #[test]
-fn no_row_is_marked_partial() {
+fn no_row_is_unfinished() {
     let mut bad = Vec::new();
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs");
     let mut files = vec![format!("{root}/vt-coverage.md")];
@@ -247,7 +247,13 @@ fn no_row_is_marked_partial() {
                 let c = cell.trim();
                 // `**partial**` is the legend defining the vocabulary, not a
                 // row using it.
-                if c == "partial" || c.starts_with("partial ") || c.starts_with("partial—") {
+                // `parsed` and `todo` are checked here too: vt-coverage.md
+                // says in its own words that "a `parsed` row is a bug", which
+                // is a stronger claim than the one about `partial`, and
+                // nothing was enforcing it.
+                if ["partial", "parsed", "todo"].iter().any(|k| {
+                    c == *k || c.starts_with(&format!("{k} ")) || c.starts_with(&format!("{k}—"))
+                }) {
                     let name = f.rsplit('/').next().unwrap_or(f);
                     bad.push(format!("{name}:{}: {l}", n + 1));
                 }
@@ -256,7 +262,7 @@ fn no_row_is_marked_partial() {
     }
     assert!(
         bad.is_empty(),
-        "rows marked partial -- finish the operation, do not relabel it:\n  {}",
+        "rows marked partial/parsed/todo -- finish the operation, do not relabel it:\n  {}",
         bad.join("\n  ")
     );
 }

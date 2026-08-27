@@ -39,6 +39,26 @@ impl<'a> Term<'a> {
                     return None;
                 }
             };
+            // `[[source: williams]]`: "the C0 controls CAN and SUB cancel any
+            // escape sequence, control sequence or control string in progress
+            // and return to ground state". This path scans straight to the
+            // terminator, so it cannot see a cancel in between -- and the state
+            // machine can. That is a two-feeds divergence *and* a chunk
+            // invariance break: the same OSC dispatched or dropped depending on
+            // whether it happened to fit in one read. Decline and let the state
+            // machine, which implements the rule, handle it.
+            //
+            // One pass over the payload, not the text: OSC strings are rare
+            // next to graphic characters, and correctness here is not
+            // negotiable -- `chunk_invariant_all_modes` found this within
+            // seconds of the anywhere block landing.
+            if self.s.arena[b + s..b + s + off]
+                .iter()
+                .any(|&x| x == StreamByte::CAN.raw_byte() || x == StreamByte::SUB.raw_byte())
+            {
+                self.fb_not_csi.inc();
+                return None;
+            }
             let term = StreamByte::from_stream(self.s.arena[b + s + off]);
             // BEL ends it. ESC only ends it when the next byte is the backslash
             // of ST -- `[[source: ctlseqs]]` line 201 defines ST as `ESC \` and

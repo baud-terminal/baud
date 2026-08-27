@@ -15,13 +15,20 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row — **no row carries this, and `no_row_is_marked_partial` fails if one does** |
+| **partial** | implemented but known-incomplete; the gap is named in the row — **no row carries this** |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
 
 A `parsed` row is a bug. It is the state where a terminal accepts a sequence,
 does nothing, and gives the application no way to find out.
+
+**No row carries `partial`, `parsed` or `todo`, and `no_row_is_unfinished` in
+`baud-core/tests/coverage.rs` fails if one ever does.** `out` is the only status
+that means "not implemented", and it requires a reason in the row. Do not
+relabel an unfinished operation as `out` to satisfy the check: reaching for
+`partial` is the signal that the operation is not done, and the fix is the
+operation.
 
 ---
 
@@ -95,6 +102,51 @@ closed two smaller holes in the same arm:
 Both feed paths share one definition of the rule (`Marker::from_private`), so
 the fast path and the state machine cannot drift on it — the divergence class
 this parser has had before.
+
+### The "anywhere" block
+
+`[[source: williams]]` has a set of transitions that fire *regardless of the
+current state*, and baud had none of them:
+
+> On the VT220, VT420 and VT500, the C0 controls CAN and SUB cancel any escape
+> sequence, control sequence or control string in progress and return to ground
+> state.
+
+`1B` ESC does the same, starting a fresh sequence rather than ending in ground.
+
+Four arms each wrote `if b.is_c0() { self.execute(b) }` — and `is_c0()` is
+`b < 0x20`, which **includes all three**. So an ESC arriving mid-sequence was
+executed and the parser stayed in the parameter string: `CSI 1 ESC [ 2 m` lost
+its escape, dispatched a nonsense `CSI 1 [`, and printed `2m` as text.
+
+It is handled once now, ahead of the state match, so no arm can forget it. The
+states that decline are the ones that must: inside a control string ESC is the
+first half of ST, so the payload has to survive until the next byte decides
+between *terminator* and *cancel*. Those arms already implement that themselves.
+
+| status | |
+|---|---|
+| `18` CAN, `1A` SUB — cancel from any state, control strings included | done |
+| `1B` ESC — abandon and begin a new sequence | done |
+| C0 in `csi_entry` — execute and **stay**, without consuming the marker position | done — `CSI <BS> ? J` is still DECSED |
+| C0 in `csi_intermediate` | done — this arm had no C0 branch, so `CSI ! <NUL> p` lost its DECSTR |
+| `7F` DEL in `csi_entry` / `csi_param` | done — ignored, and does not consume the marker position |
+| SUB additionally displaying the DEC error character `␦` | **out** — see below |
+
+`[[source: williams]]` records that "SUB will also display the error character, a
+reversed question mark". baud cancels but writes nothing. That is a *rendering*
+decision made where no renderer exists, and the same reasoning as the DEC
+line-drawing table applies: a glyph written into the grid on a control byte
+would be indistinguishable from text the application sent, and unrecoverable if
+wrong. Cancelling is the part an application can observe.
+
+**This block broke chunk-invariance the moment it landed, and the property
+caught it.** `fast_esc` scans an OSC straight to its terminator, so it could not
+see a cancel in between while the state machine could — the same bytes set a
+title or did not, depending on whether they fit inside one `read(2)`. The fast
+path now declines an OSC payload containing CAN or SUB.
+`a_cancel_inside_an_osc_is_honoured_in_both_feeds` pins it deterministically
+rather than leaving it to a saved seed.
 
 ---
 
