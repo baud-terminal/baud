@@ -200,7 +200,7 @@ impl<'a> Term<'a> {
                 cur = cur.push(dig);
                 any = true;
             } else if d == StreamByte::SEMICOLON || d == StreamByte::COLON {
-                if np.raw_index() < 16 {
+                if np.raw_index() < ParamIdx::CAPACITY {
                     self.params[np.raw_index()] = if any { Some(cur) } else { None };
                     np = np.next();
                     // Same rule as the portable path. Recording it in only one
@@ -233,7 +233,7 @@ impl<'a> Term<'a> {
                 return None; // something unexpected; let the state machine decide
             }
         }
-        if np.raw_index() < 16 {
+        if np.raw_index() < ParamIdx::CAPACITY {
             self.params[np.raw_index()] = if any { Some(cur) } else { None };
             np = np.next();
         }

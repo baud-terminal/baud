@@ -2,7 +2,7 @@ use crate::*;
 
 impl<'a> Term<'a> {
     pub(crate) fn dispatch(&mut self, f: FinalByte) {
-        let n = self.nparam.count_at_least_one();
+        let n = self.nparams();
         let marker = self.private;
         let p = Params::with_subs(&self.params[..n], self.psub);
         let lrm = match self.modes.is_set(ModeBit::SideMargins) {
@@ -642,13 +642,23 @@ impl<'a> Term<'a> {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
-            let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
-            self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+            // Bounded, because `nparam` can now stand one past capacity. It
+            // used to pin *at* capacity, so after the sixteenth parameter the
+            // separator was swallowed and these digits appended to parameter
+            // sixteen -- `...;61;62;63` set 6263 rather than dropping 63. The
+            // fast path accumulates into a local and only stores under the
+            // same bound, so the two feeds disagreed on where a read boundary
+            // fell: `ingest_is_chunk_invariant` in miniature, and a real one.
+            let i = self.nparam.raw_index() - 1;
+            if i < ParamIdx::CAPACITY {
+                let cur = self.params[i].unwrap_or(Param::ZERO);
+                self.params[i] = Some(cur.push(d));
+            }
         } else if b == StreamByte::SEMICOLON || b == StreamByte::COLON {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
-            if self.nparam.raw_index() < 16 {
+            if self.nparam.raw_index() < ParamIdx::CAPACITY {
                 // A colon opens a *sub*-parameter of the same attribute.
                 // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
                 // colour-space identifier that `38;2;r;g;b` does not.
@@ -656,8 +666,9 @@ impl<'a> Term<'a> {
                     self.psub = self.psub.mark(self.nparam);
                 }
                 self.params[self.nparam.raw_index()] = None;
-                self.nparam = self.nparam.next();
             }
+            // Advance past capacity too, so the digits above know to stop.
+            self.nparam = self.nparam.next_capped();
         } else if let Some(f) = FinalByte::from_stream(b) {
             self.dispatch(f);
             self.st = self.ground();
@@ -686,16 +697,20 @@ impl<'a> Term<'a> {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
-            let cur = self.params[self.nparam.raw_index() - 1].unwrap_or(Param::ZERO);
-            self.params[self.nparam.raw_index() - 1] = Some(cur.push(d));
+            // Bounded for the same reason as `csi_param_byte`.
+            let i = self.nparam.raw_index() - 1;
+            if i < ParamIdx::CAPACITY {
+                let cur = self.params[i].unwrap_or(Param::ZERO);
+                self.params[i] = Some(cur.push(d));
+            }
         } else if b == StreamByte::SEMICOLON {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
-            if self.nparam.raw_index() < 16 {
+            if self.nparam.raw_index() < ParamIdx::CAPACITY {
                 self.params[self.nparam.raw_index()] = None;
-                self.nparam = self.nparam.next();
             }
+            self.nparam = self.nparam.next_capped();
         } else if b.is_csi_intermediate() {
             self.csi_inter = Some(b);
             self.st = State::DcsIntermediate;

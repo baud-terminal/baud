@@ -124,7 +124,13 @@ pub struct Term<'a> {
     pub(crate) cols: Cols,
     pub(crate) rows: Rows,
     pub(crate) st: State,
-    pub(crate) params: [Option<Param>; 16],
+    pub(crate) params: [Option<Param>; ParamIdx::CAPACITY],
+    /// How many parameter positions the current sequence has produced.
+    ///
+    /// **Not** how many are readable: it saturates one past
+    /// [`ParamIdx::CAPACITY`], so "sixteen arrived" and "more than sixteen
+    /// arrived" stay distinguishable. Read it through [`Term::nparams`], never
+    /// directly -- `&self.params[..n]` with the raw value panics.
     pub(crate) nparam: ParamIdx,
     /// Bit `i` set when parameter `i` followed a colon rather than a semicolon.
     /// See `Params::is_sub` -- the colon form of direct colour carries an extra
@@ -303,6 +309,15 @@ pub struct Term<'a> {
 }
 
 impl<'a> Term<'a> {
+    /// How many parameters are readable, clamped to the array's capacity.
+    ///
+    /// `nparam` counts positions *seen* and stands one past capacity when a
+    /// sequence sent more than [`ParamIdx::CAPACITY`] of them, so slicing
+    /// `params` with the raw count panics. Every consumer goes through here.
+    pub(crate) fn nparams(&self) -> usize {
+        self.nparam.count_at_least_one().min(ParamIdx::CAPACITY)
+    }
+
     pub fn new(s: &'a mut Storage, mode: OpMode) -> Self {
         let (cols, rows) = WinSize {
             ws_row: 50,
@@ -318,7 +333,7 @@ impl<'a> Term<'a> {
             cols: cols.clamp(MAX_COLS),
             rows: rows.clamp(MAX_ROWS),
             st: State::Ground,
-            params: [None; 16],
+            params: [None; ParamIdx::CAPACITY],
             nparam: ParamIdx::FIRST,
             psub: SubParams::NONE,
             osc_len: ByteLen::ZERO,

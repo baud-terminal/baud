@@ -35,7 +35,7 @@ impl<'a> Term<'a> {
     }
 
     pub(crate) fn apply_sgr(&mut self) {
-        let n = self.nparam.count_at_least_one();
+        let n = self.nparams();
         // A `ParamIdx`, not a `usize` counter: it indexes the parameter array
         // *and* realigns the sub-parameter mask, and those two must step
         // together. Two bare integers here is how the colon form would come to

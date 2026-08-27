@@ -229,7 +229,7 @@ impl<'a> Term<'a> {
     /// the parameters live in `self`.
     #[inline(never)]
     pub(crate) fn apply_private_modes(&mut self, change: ModeChange) {
-        let (ps, n) = (self.params, self.nparam.count_at_least_one());
+        let (ps, n) = (self.params, self.nparams());
         for p in ps.iter().take(n) {
             self.set_private_mode(PrivateMode::from_wire(*p), change.is_set());
         }
@@ -238,7 +238,7 @@ impl<'a> Term<'a> {
     /// As [`Term::apply_private_modes`], for the unprefixed namespace.
     #[inline(never)]
     pub(crate) fn apply_ansi_modes(&mut self, change: ModeChange) {
-        let (ps, n) = (self.params, self.nparam.count_at_least_one());
+        let (ps, n) = (self.params, self.nparams());
         for p in ps.iter().take(n) {
             self.set_ansi_mode(AnsiMode::from_wire(*p), change.is_set());
         }

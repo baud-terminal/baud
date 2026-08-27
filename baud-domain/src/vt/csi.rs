@@ -12,8 +12,27 @@ impl ParamIdx {
     pub const THIRD: ParamIdx = ParamIdx(2);
     pub const FOURTH: ParamIdx = ParamIdx(3);
     pub const FIFTH: ParamIdx = ParamIdx(4);
+    /// How many parameters a CSI or DCS sequence can hold.
+    ///
+    /// `Term::params` is sized from this, so the array and the index cannot
+    /// disagree about the limit -- they did when the limit was the literal
+    /// `16` written in four places.
+    pub const CAPACITY: usize = 16;
+    /// One position past the last storable parameter.
+    ///
+    /// [`ParamIdx::next_capped`] saturates here rather than at `CAPACITY`, so
+    /// "sixteen parameters arrived" and "more than sixteen arrived" stay
+    /// distinguishable. Pinning at `CAPACITY` is what let a seventeenth
+    /// parameter's digits append to the sixteenth.
+    pub const PAST_LAST: ParamIdx = ParamIdx((ParamIdx::CAPACITY + 1) as u8);
     pub fn next(self) -> ParamIdx {
         ParamIdx(self.0 + 1)
+    }
+    /// Advance, saturating one past capacity so it cannot run away.
+    ///
+    /// A sequence of nothing but separators would otherwise overflow the `u8`.
+    pub fn next_capped(self) -> ParamIdx {
+        ParamIdx(self.0.saturating_add(1).min(ParamIdx::PAST_LAST.0))
     }
     /// A parameter position.
     ///

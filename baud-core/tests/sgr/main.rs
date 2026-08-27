@@ -7,5 +7,6 @@
 
 mod fonts;
 mod ideogram;
+mod param_overflow;
 mod rep_align;
 mod subparams;
