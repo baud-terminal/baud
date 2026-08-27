@@ -23,6 +23,7 @@
 #   E  the tty layer and syscall batching
 #   F  text sequence data structures
 #   G  text encoding, width and grapheme clustering
+#   H  terminal input: key encoding and the extensions to it
 
 [sources.simdjson]
 key    = "simdjson"
@@ -617,3 +618,52 @@ sha256 = "a6c3be7bb162c771a73108a57522ea7af33e7539d1474384ddc5cd6204dc10b6"
 bytes  = 124637
 status = "retrieved"
 group  = "C"
+
+# --- H: terminal input ---------------------------------------------------
+#
+# The output side is enumerated against `ctlseqs` and `ecma48`; the input side
+# has no equivalent single specification. What exists is a base that every
+# terminal implements and two layered proposals to escape its ambiguities, and
+# all three have to be pinned before a key encoder can cite anything.
+#
+# `ctlseqs` already covers the base -- "PC-Style Function Keys", `modifyOtherKeys`
+# and the cursor/keypad application modes -- so it is group C *and* group H, and
+# is not duplicated here.
+
+[sources.fixterms]
+key    = "fixterms"
+title  = "Fix Keyboard Input on Terminals - Please"
+author = "Paul LeoNerd Evans"
+year   = 2012
+venue  = "leonerd.org.uk/hacks/fixterms"
+url    = "http://www.leonerd.org.uk/hacks/fixterms/"
+file   = "fixterms.html"
+sha256 = "9fd202d01bbf0c81c4cf46cc79c639fa3eeb22f52e935149666237be98ae7c6a"
+bytes  = 14693
+status = "retrieved"
+group  = "H"
+# The origin of the `CSI unicode-key-code ; modifiers u` form. It is a
+# *proposal* and says so, which is exactly why it is worth pinning separately
+# from kitty's protocol: kitty extends it, and a claim about "CSI u" needs to
+# name which of the two it means. Retrieved 2026-08-27; the probes `CSI27`,
+# `CSIu` and `1;5u` are present once markup is stripped, which a raw grep for
+# `CSI 27` misses -- the same letter-spacing trap the ECMA-48 note records.
+
+[sources.kitty-keyboard]
+key    = "kitty-keyboard"
+title  = "Comprehensive keyboard handling in terminals"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty documentation"
+url    = "https://sw.kovidgoyal.net/kitty/keyboard-protocol/"
+file   = "kitty-keyboard-protocol.html"
+sha256 = "1178a0b1c861cf31710feca2edec7d3b4e54998e6e4f1da24169ffc5766d9b46"
+bytes  = 240076
+status = "retrieved"
+group  = "H"
+# The progressive-enhancement protocol: `CSI > flags u` to push a mode,
+# `CSI < u` to pop, with flags for disambiguation, event types, alternate keys
+# and associated text. Pinned because it is the only input specification that
+# enumerates its own escape hatch -- an application asks for exactly the
+# enhancements it can parse -- which is the shape baud's output side already
+# uses for DECRQM. Retrieved 2026-08-27.
