@@ -478,7 +478,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI P` | DCH delete chars | done |
 | `CSI S` | SU scroll up | done — **and it now moves the grid**; see CLAUDE.md on the ring advance |
 | `CSI T` | SD scroll down | done — **one parameter**; five is XTHIMOUSE |
-| `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | XTHIMOUSE initiate highlight tracking | done — recognised and counted; it used to be read as SD and **scrolled the screen** |
+| `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | XTHIMOUSE initiate highlight tracking | done — the region is recorded; it used to be read as SD and **scrolled the screen** |
 | `CSI X` | ECH erase chars | done |
 | `CSI Z` | CBT backward tabulation | done |
 | `CSI \`` | HPA char position absolute | done |
@@ -517,7 +517,7 @@ renderer has.
 | `?47` | alternate screen, pre-1049 | done — switches buffers, does **not** save the cursor |
 | `?69` | DECLRMM left/right margins | done |
 | `?1034` | meta sends escape | done — `Term::meta_sends_escape()` |
-| `?1001` | highlight tracking | **out** — "requires a cooperating program, else xterm will hang" |
+| `?1001` | highlight tracking | done — recorded via `Term::highlight_tracking()`; the region via `highlight_region()`. Not drawn: that needs a selection model |
 
 ### SGR
 

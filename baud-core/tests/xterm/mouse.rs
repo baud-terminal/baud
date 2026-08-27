@@ -356,10 +356,50 @@ fn five_parameter_t_is_not_scroll_down() {
     feed(&mut term, b"\x1b[1;2;3;4;5T");
     assert_eq!(rows(&term), before, "XTHIMOUSE must not scroll");
     assert_eq!(
-        term.unsupported.count(),
-        1,
-        "recognised and refused, not silently mistaken for SD"
+        term.highlight_region(),
+        HighlightRegion {
+            func: 1,
+            start_x: 2,
+            start_y: 3,
+            first_row: 4,
+            last_row: 5,
+        },
+        "the region is recorded for an embedder that can highlight"
     );
+}
+
+/// **`?1001` is recorded, with an accessor, like every input-side mode.**
+///
+/// It was refused outright, on the reading that highlight tracking "requires a
+/// cooperating program, else xterm will hang". The hang is an event loop
+/// ignoring events until a reply arrives, and baud has no event loop -- so
+/// whether to wait is the embedder's decision, not baud's to pre-empt.
+///
+/// What baud lacks is a selection model to highlight *with*. That is a reason
+/// not to draw the region, not a reason to discard the request: recording it is
+/// the only channel a `no_std` core with no renderer has, and it is what every
+/// other input-side mode gets.
+#[test]
+fn highlight_tracking_is_recorded_and_reported() {
+    let mut t = T {
+        s: Storage::boxed(),
+    };
+    let mut term = Term::new(&mut t.s, OpMode::Computed);
+    assert_eq!(term.highlight_tracking(), HighlightTracking::Off, "default");
+
+    feed(&mut term, b"\x1b[?1001h");
+    assert_eq!(term.highlight_tracking(), HighlightTracking::On);
+    assert_eq!(term.unsupported.count(), 0, "recognised, not refused");
+
+    // DECRQM tells the truth about it.
+    feed(&mut term, b"\x1b[?1001$p");
+    assert_eq!(term.reply(), b"\x1b[?1001;1$y", "DECRQM reports it set");
+    term.clear_reply();
+
+    feed(&mut term, b"\x1b[?1001l");
+    assert_eq!(term.highlight_tracking(), HighlightTracking::Off);
+    feed(&mut term, b"\x1b[?1001$p");
+    assert_eq!(term.reply(), b"\x1b[?1001;2$y", "and reset");
 }
 
 /// One parameter is still SD.

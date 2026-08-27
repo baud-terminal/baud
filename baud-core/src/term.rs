@@ -170,6 +170,9 @@ pub struct Term<'a> {
     /// The negotiated encoding. Without one baud reports nothing -- see
     /// [`Report::MouseSgr`].
     pub(crate) mouse_encoding: MouseEncoding,
+    /// `?1001`, and the region the application last gave with XTHIMOUSE.
+    pub(crate) highlight: HighlightTracking,
+    pub(crate) highlight_region: HighlightRegion,
     /// Mouse events dropped because no encoding was negotiated.
     ///
     /// Counted rather than silent: an application that enables tracking and
@@ -334,6 +337,8 @@ impl<'a> Term<'a> {
             terminal_mode: TerminalMode::Ansi,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
+            highlight: HighlightTracking::Off,
+            highlight_region: HighlightRegion::default(),
             mouse_unencodable: Stat::ZERO,
             clipboard_reads_refused: Stat::ZERO,
             clipboard_writes_dropped: Stat::ZERO,

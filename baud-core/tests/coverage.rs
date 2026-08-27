@@ -324,8 +324,12 @@ fn every_out_row_states_a_reason() {
             }
         }
     }
+    // The floor guards the *scanner*, not the count. `out` rows are supposed
+    // to become `done` rows over time -- four did this session -- so a
+    // shrinking population is the system working, and only zero would mean the
+    // parser had stopped matching the table.
     assert!(
-        checked > 5,
+        checked > 2,
         "only {checked} out rows checked -- the scanner stopped matching"
     );
     assert!(

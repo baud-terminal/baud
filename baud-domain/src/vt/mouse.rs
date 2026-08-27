@@ -25,6 +25,37 @@ pub enum MouseEncoding {
     Sgr,
 }
 
+/// `?1001` — whether the application asked for highlight tracking.
+///
+/// A two-state enum for the reason `baud-domain` is gated at zero `bool`
+/// fields, and a `Term` field rather than a `ModeBit` because the bitset has
+/// one bit left and this does not need to spend it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HighlightTracking {
+    #[default]
+    Off,
+    On,
+}
+
+/// The region an application gave in `CSI Ps ; Ps ; Ps ; Ps ; Ps T`.
+///
+/// `[[source: ctlseqs]]`: "The parameters are func, startx, starty, firstrow,
+/// and lastrow" — `func` non-zero initiates and zero aborts.
+///
+/// Recorded rather than acted on. Highlighting the region needs a selection
+/// model and a renderer, neither of which baud has; recording it is what lets
+/// an embedder that *does* have them implement the mode. The hazard ctlseqs
+/// warns about — "all X events are ignored until the proper escape sequence is
+/// received" — is an event loop blocking, and baud has none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct HighlightRegion {
+    pub func: u16,
+    pub start_x: u16,
+    pub start_y: u16,
+    pub first_row: u16,
+    pub last_row: u16,
+}
+
 impl MouseEncoding {
     /// The largest ordinate this encoding can name, one-based.
     ///

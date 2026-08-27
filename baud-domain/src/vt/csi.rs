@@ -175,6 +175,18 @@ impl<'a> Params<'a> {
     ///
     /// Needed because two different operations share the final byte `T` and
     /// are told apart only by *arity*: one parameter is SD, five are XTHIMOUSE.
+    /// One parameter as a raw number, with a default when it is absent.
+    ///
+    /// For operations whose parameters are coordinates rather than counts or
+    /// enumerations -- XTHIMOUSE's `func;startx;starty;firstrow;lastrow` --
+    /// where the typed accessors would be the wrong shape.
+    pub fn raw(&self, i: ParamIdx, default: u16) -> u16 {
+        self.v
+            .get(i.raw_index())
+            .copied()
+            .flatten()
+            .map_or(default, |p| p.0)
+    }
     pub fn len(&self) -> usize {
         self.v.len()
     }
@@ -424,7 +436,7 @@ pub enum Csi {
     /// hazard `?1001` carries is xterm's rather than baud's — "all X events are
     /// ignored until the proper escape sequence is received" describes an event
     /// loop, and baud has none to block. What baud must not do is *scroll*.
-    HighlightMouseTracking,
+    HighlightMouseTracking(HighlightRegion),
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -600,7 +612,13 @@ impl Csi {
             // tracking (XTHIMOUSE)". Reading the five-parameter form as SD
             // *scrolled the screen* when an application asked to highlight --
             // a visible corruption, and a silent one.
-            b'T' if p.len() >= 5 => Csi::HighlightMouseTracking,
+            b'T' if p.len() >= 5 => Csi::HighlightMouseTracking(HighlightRegion {
+                func: p.raw(ParamIdx::FIRST, 0),
+                start_x: p.raw(ParamIdx::FIRST.plus(1), 1),
+                start_y: p.raw(ParamIdx::FIRST.plus(2), 1),
+                first_row: p.raw(ParamIdx::FIRST.plus(3), 1),
+                last_row: p.raw(ParamIdx::FIRST.plus(4), 1),
+            }),
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
             b'h' => Csi::Mode {
                 change: ModeChange::Set,
@@ -758,7 +776,7 @@ impl Csi {
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
 
-            RequestVersion | HighlightMouseTracking => Level::Xterm,
+            RequestVersion | HighlightMouseTracking(_) => Level::Xterm,
 
             Unsupported { .. } => return None,
         })

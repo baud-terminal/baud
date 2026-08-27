@@ -5,6 +5,22 @@ impl<'a> Term<'a> {
         self.mouse = if on { level } else { MouseTracking::Off };
     }
 
+    /// Whether `?1001` highlight tracking is on.
+    ///
+    /// An embedder with a selection model can implement it; baud records the
+    /// request and the region and does nothing else. `[[source: ctlseqs]]`'s
+    /// warning that it "requires a cooperating program, else xterm will hang"
+    /// describes an event loop blocking on a reply, and baud has none -- so
+    /// whether to wait is a decision baud does not make.
+    pub fn highlight_tracking(&self) -> HighlightTracking {
+        self.highlight
+    }
+
+    /// The region from the last `CSI Ps ; Ps ; Ps ; Ps ; Ps T`.
+    pub fn highlight_region(&self) -> HighlightRegion {
+        self.highlight_region
+    }
+
     /// What tracking the application asked for. `?1000/1002/1003`.
     pub fn mouse_tracking(&self) -> MouseTracking {
         self.mouse

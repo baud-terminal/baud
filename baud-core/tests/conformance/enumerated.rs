@@ -198,21 +198,20 @@ fn the_handler_check_can_actually_fail() {
     );
 }
 
-/// **The three standing refusals, each pinned to what it actually refuses.**
+/// **The standing refusals, each pinned to what it actually refuses.**
 ///
-/// `CLAUDE.md` calls these load-bearing, and three times this session a
-/// refusal's stated reason turned out to cover something narrower than what
-/// was refused — the DEC glyph table, X10 mouse reports, and counting the
-/// `OSC 52` request. Each was closable once the reason was read against its
-/// scope instead of as a settled fact.
+/// `CLAUDE.md` called six of these load-bearing. Four were closed once the
+/// stated reason was read against its *scope* rather than as a settled fact —
+/// the DEC glyph table, X10 mouse reports, counting the `OSC 52` request, and
+/// `?1001` highlight tracking. In every case the reason survived and the scope
+/// shrank to fit it: baud still does not guess a glyph, still refuses a
+/// position X10 cannot name, still answers a clipboard read with silence, and
+/// still does not draw a highlight.
 ///
-/// These three are different in kind, and this records which is which so the
-/// next reader does not have to re-derive it:
-///
-/// * DECRQM and DECRQSS are **implemented**. What is refused is a particular
-///   *answer*, and refusing it is the correct behaviour rather than a gap.
-/// * `?1001` is genuinely not implemented, and the project's invariant for
-///   that is not silence but *countability*.
+/// The two that remain are not absences at all. DECRQM and DECRQSS are
+/// implemented; what each refuses is a particular *answer*, and refusing it is
+/// the correct behaviour. This records that, so the next reader does not have
+/// to re-derive which kind they are.
 #[test]
 fn the_standing_refusals_are_what_they_claim() {
     let feed = |t: &mut Term, bytes: &[u8]| {
@@ -223,7 +222,7 @@ fn the_standing_refusals_are_what_they_claim() {
         t.commit_read(f.len());
     };
 
-    // DECRQM answers `0` for a mode it does not have -- not `2`, which would
+    // DECRQM answers `0` for a mode it does not have — not `2`, which would
     // say the mode exists and is merely off, whereupon the application would
     // set it and believe it took effect.
     let mut s1 = Storage::boxed();
@@ -235,9 +234,8 @@ fn the_standing_refusals_are_what_they_claim() {
         "DECRQM is implemented and answers `not recognized`"
     );
 
-    // DECRQSS answers `1` for valid and `0` for invalid, which is the reverse
-    // of what the DEC manuals say. ctlseqs records the errata and vttest
-    // agrees with it.
+    // DECRQSS answers `1` for valid and `0` for invalid, the reverse of what
+    // the DEC manuals say. ctlseqs records the errata and vttest agrees.
     let mut s2 = Storage::boxed();
     let mut t2 = Term::new(&mut s2, OpMode::Computed);
     feed(&mut t2, b"\x1bP$qm\x1b\\");
@@ -246,17 +244,4 @@ fn the_standing_refusals_are_what_they_claim() {
         r.starts_with(b"\x1bP1$r"),
         "DECRQSS is implemented and answers 1 for a valid request, got {r:02x?}"
     );
-
-    // `?1001` is not implemented, and is counted rather than dropped in
-    // silence. A terminal a sequence can hang is worse than one that ignores
-    // it -- but ignoring it invisibly is the `parsed` failure.
-    let mut s3 = Storage::boxed();
-    let mut t3 = Term::new(&mut s3, OpMode::Computed);
-    feed(&mut t3, b"\x1b[?1001h");
-    assert_eq!(
-        t3.unsupported.count(),
-        1,
-        "?1001 is refused, and the refusal is visible"
-    );
-    assert!(t3.reply().is_empty(), "and it is not answered");
 }

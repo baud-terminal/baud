@@ -147,6 +147,18 @@ impl<'a> Term<'a> {
                     Screen::Normal
                 };
             }
+            // `?1001`. Recorded with an accessor, which is what every
+            // input-side mode gets: it is the only channel a core with no
+            // keyboard and no renderer has. The hang ctlseqs warns of is an
+            // event loop ignoring events until a reply arrives, and baud has
+            // no event loop -- whether to wait is the embedder's decision.
+            PrivateMode::HighlightTracking => {
+                self.highlight = if on {
+                    HighlightTracking::On
+                } else {
+                    HighlightTracking::Off
+                }
+            }
             PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
             // A mode joins `Modes` only when something can act on it -- but an
@@ -303,6 +315,10 @@ impl<'a> Term<'a> {
             // error, and believe UTF-8 decoding had been turned off -- the
             // exact failure `docs/vt-coverage.md` refuses for DECRQM. DECRPM
             // has value 3 for precisely this case.
+            PrivateMode::HighlightTracking => match self.highlight {
+                HighlightTracking::On => ModeState::Set,
+                HighlightTracking::Off => ModeState::Reset,
+            },
             PrivateMode::Utf8Resource => match self.encoding {
                 InputEncoding::Utf8 => ModeState::Set,
                 InputEncoding::Latin1 => ModeState::Reset,
