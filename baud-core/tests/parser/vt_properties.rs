@@ -231,6 +231,22 @@ const ANSI_MODES: [u16; 4] = [4, 20, 2, 12];
 /// could not be written as one. The overlong `E0 80 AF` is the path-traversal
 /// form that used to render `/`; `C2 41` is the truncation whose recovery ate
 /// the valid successor byte.
+/// Every designator `Charset::from_final` maps to something, plus two it does
+/// not.
+///
+/// The generator offered four -- `0 B A <` -- so eighteen of baud's twenty-two
+/// were never designated by any generated program, and NRCS *translation* is
+/// the path where this session already found a bug: `put_ascii_run` tested
+/// `flags == NONE` before the charset, so German text took the ASCII fast path
+/// untranslated. `every_designator_is_reachable` keeps this in step with
+/// `from_final` rather than with a hand-written list.
+const DESIGNATORS: [u8; 24] = [
+    b'0', b'B', b'A', b'C', b'5', b'H', b'7', b'K', b'Q', b'9', b'R', b'f', b'Y', b'Z', b'4', b'=',
+    b'`', b'E', b'6', b'<', b'>', b'I', b'J',
+    // Not implemented: must designate `Charset::Other` and stay inert.
+    b'~',
+];
+
 const UTF8_RUNS: [&[u8]; 14] = [
     "é".as_bytes(),
     "→".as_bytes(),
@@ -265,7 +281,8 @@ const STRING_PAYLOADS: [&str; 6] = [
 
 /// Every CSI final this generator emits carrying a parameter.
 ///
-/// `every_parameterised_final_is_also_sent_bare` keeps this in step with the
+/// `every_parameterised_final_is_also_sent_bare_and_saturating` keeps this in
+/// step with the
 /// ops above: a new parameterised operation that is not listed here is one
 /// whose default path nothing generates.
 /// `(intermediate, final)`; a zero intermediate means none.
@@ -396,7 +413,7 @@ fn op() -> impl Strategy<Value = Op> {
             .prop_map(|(ps, k, st)| Op::Osc(ps, k, st)),
         (
             prop::sample::select(&[b'(', b')', b'*', b'+'][..]),
-            prop::sample::select(&[b'0', b'B', b'A', b'<'][..]),
+            prop::sample::select(&DESIGNATORS[..]),
         )
             .prop_map(|(g, c)| Op::Designate(g, c)),
         Just(Op::So),
@@ -1246,7 +1263,7 @@ fn escapes_in(bytes: &[u8], out: &mut std::collections::BTreeSet<Esc>) {
 ///
 /// The charset-designation rows list a whole family on one line
 /// (`ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ...`), which is a set of finals for one
-/// intermediate rather than a single form; `a_designation_reaches_every_g_slot`
+/// intermediate rather than a single form; `every_designator_is_reachable`
 /// covers those instead.
 fn implemented_escapes() -> std::collections::BTreeSet<Esc> {
     let src = std::fs::read_to_string(concat!(
@@ -1541,5 +1558,73 @@ fn every_parameterised_final_is_also_sent_bare_and_saturating() {
          is unexercised for them: {:?}",
         no_big.len(),
         no_big
+    );
+}
+
+/// **Every designator baud implements is reached, in every G-slot.**
+///
+/// The charset rows are excluded from the `ESC` reach check because each names
+/// a whole family on one line (`ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ...`), so this
+/// is their equivalent. It derives the expected set from `Charset::from_final`
+/// rather than from `DESIGNATORS`, so adding a designator to the parser and
+/// not to the generator fails here instead of silently narrowing the corpus.
+///
+/// This test was *cited before it was written*: a doc comment above claimed it
+/// covered the charset rows while no such function existed.
+/// `every_test_named_in_the_docs_exists` did not catch it because that scanner
+/// reads markdown, and this was a Rust doc comment — which is the same defect
+/// as a `done` row with no test, one file type over.
+#[test]
+fn every_designator_is_reachable() {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{Config, TestRunner};
+
+    // What the parser implements: every byte `from_final` maps off `Other`.
+    let implemented: std::collections::BTreeSet<u8> = (0x30u8..=0x7e)
+        .filter(|b| {
+            baud_domain::Charset::from_final(StreamByte::from_stream(*b))
+                != baud_domain::Charset::Other
+        })
+        .collect();
+    assert!(
+        implemented.len() >= 20,
+        "only {} designators map off Other -- the mapping changed shape",
+        implemented.len()
+    );
+
+    let mut runner = TestRunner::new(Config {
+        cases: 1,
+        ..Config::default()
+    });
+    let strat = program();
+    let mut seen: std::collections::BTreeSet<(u8, u8)> = std::collections::BTreeSet::new();
+    for _ in 0..4000 {
+        let b = bytes_of(&strat.new_tree(&mut runner).expect("gen").current());
+        let mut i = 0;
+        while i + 2 < b.len() {
+            if b[i] == 0x1b && matches!(b[i + 1], b'(' | b')' | b'*' | b'+') {
+                seen.insert((b[i + 1], b[i + 2]));
+                i += 3;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    let slots = [b'(', b')', b'*', b'+'];
+    let mut missing = Vec::new();
+    for g in slots {
+        for d in &implemented {
+            if !seen.contains(&(g, *d)) {
+                missing.push(format!("ESC {} {}", g as char, *d as char));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "{} designation(s) no generated program makes, so nothing random \
+         exercises their translation:\n  {}",
+        missing.len(),
+        missing.join("\n  ")
     );
 }

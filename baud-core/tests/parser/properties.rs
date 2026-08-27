@@ -75,9 +75,10 @@ proptest! {
     /// property was therefore false as written. It passed at 200 cases and
     /// failed at 20,000, which is the worst possible failure mode: a test that
     /// goes red on an unlucky seed, for a reason that is not a bug, trains
-    /// everyone to re-run until green. `runs_and_computed_agree` below is the
+    /// everyone to re-run until green. `runs_mode_stays_in_bounds` below is the
     /// invariant that Runs mode actually owes, and
-    /// `promotion_depends_on_chunking` pins the fact this used to trip over.
+    /// `promotion_depends_on_chunking_in_runs_mode` pins the fact this used to
+    /// trip over.
     #[test]
     fn ingest_is_chunk_invariant(
         bytes in prop::collection::vec(any::<u8>(), 0..4000),

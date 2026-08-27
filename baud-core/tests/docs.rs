@@ -23,24 +23,47 @@ fn root() -> PathBuf {
 }
 
 /// Every `.md` in the repository, excluding build output.
-fn markdown_files() -> Vec<PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(rd) = fs::read_dir(dir) else { return };
-        for e in rd.flatten() {
-            let p = e.path();
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if p.is_dir() {
-                if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
-                    continue;
-                }
-                walk(&p, out);
-            } else if name.ends_with(".md") {
-                out.push(p);
+/// Markdown **and Rust**, because a test can be cited from either.
+///
+/// It was markdown only, and a doc comment in `vt_properties.rs` claimed
+/// a test covered the charset rows while no such function existed. That is the same defect as a `done` row with no test, one
+/// file type over, and the scanner could not see it.
+///
+/// Rust files are read whole rather than only their `///` lines: a name cited
+/// in an ordinary `//` comment is just as wrong, and the multi-underscore rule
+/// below already keeps this from firing on identifiers.
+fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if p.is_dir() {
+            if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
+                continue;
             }
+            walk(&p, out, want_rust);
+        } else if name.ends_with(".md") || (want_rust && name.ends_with(".rs")) {
+            out.push(p);
         }
     }
+}
+
+fn markdown_files() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    walk(&root(), &mut out);
+    walk(&root(), &mut out, false);
+    out.sort();
+    out
+}
+
+/// Markdown **and Rust**, for the test-name check only.
+///
+/// Links and repository paths are a markdown concern; a `crate::AmbiguousWidth`
+/// in a Rust doc comment is not a path and reading it as one produces noise.
+/// A cited *test* is different: it is just as wrong in a `///` comment as in a
+/// table, and the scanner could not see it.
+fn doc_and_code_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk(&root(), &mut out, true);
     out.sort();
     out
 }
@@ -242,7 +265,7 @@ fn every_test_named_in_the_docs_exists() {
 
     let mut missing = BTreeSet::new();
     let mut checked = 0usize;
-    for f in markdown_files() {
+    for f in doc_and_code_files() {
         let Ok(src) = fs::read_to_string(&f) else {
             continue;
         };
