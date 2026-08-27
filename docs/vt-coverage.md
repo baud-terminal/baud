@@ -140,6 +140,54 @@ line-drawing table applies: a glyph written into the grid on a control byte
 would be indistinguishable from text the application sent, and unrecoverable if
 wrong. Cancelling is the part an application can observe.
 
+### Encoding: UTF-8 only, and 8-bit C1 controls are therefore out
+
+`[[source: williams]]`'s parser has 8-bit C1 controls throughout — `9B` enters
+`csi_entry`, `9D` `osc_string`, `90` `dcs_entry`, `9C` is ST. baud has none of
+them, and a reader comparing against the state diagram will notice. The absence
+is forced rather than chosen:
+
+> a C1 control can be mistaken for badly-formed UTF-8 when the terminal runs in
+> UTF-8 mode because C1 controls are valid continuation bytes of a UTF-8 encoded
+> (multibyte) value […] it is not possible to use a C1 control obtained from
+> decoding the UTF-8 text, because that would require reprocessing the data.
+> — `[[source: ctlseqs]]`
+
+`80-9F` cannot be both a control and a continuation byte. A terminal picks one,
+and picking UTF-8 makes the choice for every byte at once. So:
+
+| | status |
+|---|---|
+| UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
+| 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are continuation bytes; a stray one is a decode error and renders U+FFFD |
+| 7-bit equivalents `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — this is the whole control interface |
+| `ESC SP F` — S7C1T, send 7-bit controls | done — baud always does, so the request is *satisfied* |
+| `ESC SP G` — S8C1T, send 8-bit controls | **out** — counted in `Term::unsupported`, never answered |
+| GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
+| Legacy single-byte charsets (Latin-1, national replacement sets) | **out** — see below |
+
+`S7C1T`/`S8C1T` are about what the terminal **sends**, not what it accepts:
+"this tells the terminal to send C1 control characters as 7-bit sequences, e.g.,
+its responses to queries". baud always replies in the 7-bit form, which is
+`S7C1T` and is xterm's default. Emitting `9B` into a UTF-8 stream would make
+baud's own replies invalid UTF-8, and every application parses the 7-bit form.
+`ESC SP G` is therefore refused — but *countably*, which is the part that was
+missing: it used to be swallowed by the escape-intermediate arm in silence.
+
+`ESC SP F` is the opposite case and the distinction is not pedantry. It asks for
+7-bit replies, which is what baud sends, so the request is **satisfied** — there
+is nothing to change and nothing withheld. Counting it as unsupported would
+claim baud had refused something it already does. dtterm's `is2` opens with it,
+and the conformance fixture is what drew the line.
+
+**Legacy charsets are the shell's problem, not the terminal's.** baud already
+has the model for the one charset mechanism it does implement: `SCS`
+(`ESC ( 0`) sets `CellFlags::GRAPHICS` and the cell keeps the byte, so a
+renderer with the DEC table loses nothing and baud never guesses a glyph. It
+annotates rather than translates. Byte-level transcoding would put a table
+lookup on the per-byte ingest path, against the rule that the working set stays
+in cache — and `iconv` already does it, once, outside the hot loop.
+
 ### The DCS prefix had the same merge, and the same three bugs
 
 `dcs_entry`, `dcs_param` and `dcs_intermediate` were one arm, exactly as the CSI

@@ -296,13 +296,35 @@ impl<'a> Term<'a> {
                         Some(i) if i == StreamByte::HASH && b.raw_byte() == b'8' => {
                             self.screen_alignment()
                         }
+                        // `ESC SP F` is S7C1T: send C1 controls as 7-bit
+                        // sequences. baud always does, so this is *satisfied*,
+                        // not unsupported -- there is nothing to change and
+                        // nothing withheld. dtterm's `is2` opens with it, and
+                        // the conformance fixture is what drew the line:
+                        // counting it as unsupported claimed baud had refused
+                        // something it in fact already does.
+                        //
+                        // `ESC SP G` (S8C1T) is the opposite and falls through
+                        // to the count below: it asks for 8-bit replies, which
+                        // would make baud's own output invalid UTF-8.
+                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'F' => {}
                         // `ESC ( ) * + <C>` designate G0-G3.
                         Some(i) => {
                             if let Some(slot) = GSlot::from_intermediate(i) {
                                 self.designate(slot, b);
+                            } else {
+                                // Every other intermediate form -- `ESC SP F`
+                                // and `ESC SP G` (S7C1T/S8C1T) most notably --
+                                // was consumed and dropped in silence. Counting
+                                // it is the difference between "not
+                                // implemented" and "accepted, did nothing, and
+                                // gave the application no way to find out",
+                                // which is the failure docs/vt-coverage.md is
+                                // built around.
+                                self.unsupported.inc();
                             }
                         }
-                        None => {}
+                        None => self.unsupported.inc(),
                     }
                     self.st = self.ground();
                 }

@@ -497,3 +497,79 @@ fn a_cancel_inside_an_osc_is_honoured_in_both_feeds() {
         "one read and one-byte reads must agree on a cancelled OSC"
     );
 }
+
+// ── 8-bit C1 controls: not recognised, by construction ──────────────────────
+
+/// A single-byte C1 introducer is **not** a control here.
+///
+/// `[[source: williams]]`'s parser has 8-bit C1 controls throughout — `9B` is
+/// csi_entry, `9D` is osc_string, `90` is dcs_entry, `9C` is ST — so a reader
+/// comparing baud against the state diagram will look for them and find
+/// nothing. Their absence is forced, not an omission.
+///
+/// `[[source: ctlseqs]]`: "a C1 control can be mistaken for badly-formed UTF-8
+/// when the terminal runs in UTF-8 mode because C1 controls are valid
+/// continuation bytes of a UTF-8 encoded (multibyte) value", and "it is not
+/// possible to use a C1 control obtained from decoding the UTF-8 text, because
+/// that would require reprocessing the data".
+///
+/// baud decodes UTF-8, so `80-9F` are continuation bytes and nothing else. A
+/// stray one is a decode error and becomes U+FFFD, which is what a UTF-8
+/// terminal must do. The 7-bit forms (`ESC [`, `ESC ]`, `ESC P`, `ESC \`) are
+/// the whole interface, and ctlseqs calls them the "7-bit equivalent" that
+/// exists for exactly this reason.
+#[test]
+fn an_eight_bit_c1_introducer_is_not_a_control() {
+    // If `9B` were CSI, this would erase the screen and print nothing.
+    let eight_bit = grid(b"\x9b2J");
+    let seven_bit = grid(b"\x1b[2J");
+    assert_ne!(
+        eight_bit, seven_bit,
+        "`9B` must not act as CSI -- baud is UTF-8, where it is a continuation byte"
+    );
+    // It is a decode error, so it renders as one, and the rest is text.
+    assert_eq!(
+        eight_bit,
+        grid("\u{fffd}2J".as_bytes()),
+        "a stray continuation byte is U+FFFD, then the remaining bytes are text"
+    );
+}
+
+/// The 7-bit form of every C1 control baud implements still works.
+///
+/// This is the half that has to keep working for the divergence above to be
+/// harmless: applications reach these through `ESC Fe`, which is what ctlseqs
+/// calls the 7-bit equivalent.
+#[test]
+fn the_seven_bit_forms_of_c1_still_work() {
+    assert_ne!(grid(b"hello\x1b[2J"), grid(b"hello"), "ESC [ is CSI");
+    // ESC ] ... BEL is OSC; it sets a title and prints nothing.
+    assert_eq!(grid(b"\x1b]0;t\x07"), grid(b""), "ESC ] is OSC");
+    // ESC P ... ESC \ is DCS; the payload is consumed, never printed.
+    assert_eq!(grid(b"\x1bPq\x1b\\"), grid(b""), "ESC P is DCS");
+}
+
+/// An escape sequence baud does not implement is **counted**, not dropped.
+///
+/// `ESC SP G` is S8C1T, and it asked for something baud will not do. Answering
+/// nothing is right; doing so invisibly is not. `docs/vt-coverage.md`: a
+/// sequence the parser recognises and then drops is worse than one it does not
+/// implement, because the terminal accepts it, does nothing, and gives the
+/// application no way to find out.
+#[test]
+fn an_unimplemented_intermediate_escape_is_counted() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let bytes = b"\x1b G"; // ESC SP G -- S8C1T
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(
+        t.unsupported.count(),
+        1,
+        "S8C1T must be counted as unsupported"
+    );
+    assert!(t.reply().is_empty(), "and must not be answered");
+}
