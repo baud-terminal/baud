@@ -21,8 +21,8 @@ extern crate alloc;
 
 pub use baud_domain::{
     AmbiguousWidth, AnsiMode, ArenaTail, Attrs, ByteLen, BytePos, C1Transmit, CellFlags, Chan,
-    Charset, ClusterBreak, Codepoint, Col, ColSpan, ColorWord, Cols, Content, Count, Csi,
-    CursorStyle, Dcs, DecSet, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte,
+    Charset, ClipboardOp, ClusterBreak, Codepoint, Col, ColSpan, ColorWord, Cols, Content, Count,
+    Csi, CursorStyle, Dcs, DecSet, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte,
     GSlot, InputEncoding, KeypadMode, Lane, LaneMask, Level, LineSlot, LinkId, MarginMode,
     MarkSlot, Marker, ModeBit, ModeChange, ModeState, Modes, MouseButton, MouseEncoding,
     MouseEvent, MouseKind, MouseMods, MouseTracking, Nrcs, OneBased, Osc, PackedCell, Param,

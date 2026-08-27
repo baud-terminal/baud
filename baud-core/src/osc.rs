@@ -87,7 +87,11 @@ impl<'a> Term<'a> {
                 }
                 self.refresh_flags();
             }
-            Osc::Clipboard(_) => {}
+            // Refused, and *counted*. See `Term::clipboard_reads_refused`:
+            // silence is the right answer to the application, and being unable
+            // to tell that one asked is not.
+            Osc::Clipboard(ClipboardOp::Read) => self.clipboard_reads_refused.inc(),
+            Osc::Clipboard(_) => self.clipboard_writes_dropped.inc(),
             Osc::Unsupported => self.unsupported.inc(),
         }
         self.osc_reset();

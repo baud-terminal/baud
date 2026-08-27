@@ -279,3 +279,43 @@ fn a_c0_in_an_osc_payload_is_ignored() {
         "the SOH must not reach the title"
     );
 }
+
+/// **`OSC 52` is refused, and the refusal is countable.**
+///
+/// A clipboard *read* gets no reply, and that is load-bearing: answering with
+/// anything, empty string included, tells a remote program the feature works
+/// and it will keep asking — and what it would read back is whatever the user
+/// last copied, which may be a password.
+///
+/// The silence was also invisible, which is a different thing. An embedder
+/// that wants to implement the clipboard has to know the requests are
+/// arriving, and `docs/vt-coverage.md` refuses "did something, told nobody"
+/// everywhere else.
+#[test]
+fn clipboard_requests_are_refused_but_counted() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let feed = |t: &mut Term, bytes: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(bytes));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    feed(&mut t, b"\x1b]52;c;?\x07");
+    assert_eq!(t.clipboard_reads_refused.count(), 1, "the read is counted");
+    assert!(t.reply().is_empty(), "and answered with silence");
+
+    feed(&mut t, b"\x1b]52;c;aGVsbG8=\x07");
+    assert_eq!(
+        t.clipboard_writes_dropped.count(),
+        1,
+        "the write is counted"
+    );
+    assert!(t.reply().is_empty(), "writes are not answered either");
+    assert_eq!(
+        t.unsupported.count(),
+        0,
+        "OSC 52 is recognised -- refusing is not the same as not knowing"
+    );
+}

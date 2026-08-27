@@ -175,6 +175,19 @@ pub struct Term<'a> {
     /// Counted rather than silent: an application that enables tracking and
     /// gets nothing back should be diagnosable from the outside.
     pub mouse_unencodable: Stat,
+    /// `OSC 52` clipboard reads, which baud refuses on purpose.
+    ///
+    /// **The silence is right and the invisibility was not.** Answering a
+    /// clipboard query with anything, empty string included, tells a remote
+    /// program the feature works and it will keep asking -- so no reply is the
+    /// correct answer to the *application*. Being unable to tell afterwards
+    /// that one was asked is a different thing, and it is the failure
+    /// `docs/vt-coverage.md` refuses everywhere else. An embedder that wants to
+    /// implement the clipboard needs to know the requests are arriving.
+    pub clipboard_reads_refused: Stat,
+    /// `OSC 52` clipboard writes, which baud drops: it has no clipboard, and
+    /// the payload is not kept. Counted for the same reason.
+    pub clipboard_writes_dropped: Stat,
     /// Sequences the parser recognised and did **not** act on.
     ///
     /// This is the `parsed` failure made countable. `docs/vt-coverage.md` calls
@@ -322,6 +335,8 @@ impl<'a> Term<'a> {
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
+            clipboard_reads_refused: Stat::ZERO,
+            clipboard_writes_dropped: Stat::ZERO,
             unsupported: Stat::ZERO,
             unsupported_param: Stat::ZERO,
             marks_dropped: Stat::ZERO,
