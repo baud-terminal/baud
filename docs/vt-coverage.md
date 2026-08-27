@@ -128,8 +128,8 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI d` | VPA line position absolute | done |
 | `CSI e` | VPR line position relative | done |
 | `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
-| `CSI h` | SM set mode | partial — LNM and IRM parsed; IRM not yet acted on |
-| `CSI l` | RM reset mode | partial — as SM |
+| `CSI h` | SM set mode | done — LNM and IRM |
+| `CSI l` | RM reset mode | done — as SM |
 | `CSI m` | SGR character attributes | partial — see SGR below |
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |

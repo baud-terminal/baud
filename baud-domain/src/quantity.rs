@@ -424,8 +424,18 @@ impl Row {
 
 impl Count {
     pub const ONE: Count = Count(1);
+    /// Two cells: what a double-width character occupies, and therefore the
+    /// size of the gap IRM must open for one.
+    pub const TWO: Count = Count(2);
     pub fn get_raw(self) -> u16 {
         self.0
+    }
+    /// As many cells as a run of bytes will fill.
+    ///
+    /// Narrowing only, like [`Room::min`]: a `Room` is already bounded by the
+    /// row, so this cannot manufacture a count larger than the line.
+    pub fn from_room(r: Room) -> Count {
+        Count(r.index().min(u16::MAX as usize) as u16)
     }
 }
 

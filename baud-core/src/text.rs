@@ -47,6 +47,14 @@ impl<'a> Term<'a> {
             self.wrap();
         }
         self.promote_if_runs();
+        if self.modes.is_set(ModeBit::InsertReplace) {
+            let n = match w {
+                Width::WIDE => Count::TWO,
+                _ => Count::ONE,
+            };
+            let edge = self.right_margin.after();
+            self.open_gap(n, edge);
+        }
         self.write_cell(cp);
         self.last_cp = Some((cp, w));
         if w == Width::WIDE {
@@ -80,6 +88,25 @@ impl<'a> Term<'a> {
         );
     }
 
+    /// Shift the line right at the cursor to make room for `n` cells. IRM.
+    ///
+    /// **`#[inline(never)]` and deliberately so.** `put_run` is
+    /// `#[inline(always)]` and is the measured ingest loop; inlining
+    /// `insert_cells` into it cost ~9% of the cells path (1072.6 -> 963.6
+    /// MB/s, ranges not overlapping, with ghostty stable across both runs).
+    /// Insert mode is rare, so the call belongs behind a branch that costs one
+    /// predictable test per run and nothing else.
+    ///
+    /// Insert mode also cannot use the run table: a run records "these bytes,
+    /// at this position", and shifting the tail right invalidates every run
+    /// after the cursor. Promote first, then shift, then write.
+    #[inline(never)]
+    pub(crate) fn open_gap(&mut self, n: Count, edge: Col) {
+        self.promote_if_runs();
+        let (r, at, b) = (self.cy, self.cx, PackedCell::empty_with(self.style));
+        self.view().insert_cells(r, at, n, edge, b);
+    }
+
     #[inline(always)]
     pub(crate) fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
         // Hoisted: a mode cannot change inside a run, and reading it per
@@ -89,6 +116,13 @@ impl<'a> Term<'a> {
         // run. With no side margins set this is one past the last column, so
         // the margin-aware form is also the fast form and there is no branch.
         let edge = self.right_margin.after();
+        // IRM, hoisted for the same reason again. This is the *whole* cost of
+        // insert mode on the replace path: one bool tested once per run, and
+        // the branch below never taken. `[[source: ecma48]]` 8.3.64 defines IRM
+        // as shifting the line right rather than overwriting, and it was
+        // recorded and reported by DECRQM while nothing read it -- so an
+        // application got overwrite and was told it had insert.
+        let insert = self.modes.is_set(ModeBit::InsertReplace);
         while !n.is_zero() {
             let mut room = self.cols.room_until(self.cx, edge).min(n);
             if room.is_empty() {
@@ -101,6 +135,9 @@ impl<'a> Term<'a> {
                     self.cx = self.right_margin;
                 }
                 room = self.cols.room_until(self.cx, edge).min(n);
+            }
+            if insert {
+                self.open_gap(Count::from_room(room), edge);
             }
             // `promoted` and the run table belong to the primary screen. On the
             // alt screen every write is materialised, which is the same thing

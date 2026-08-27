@@ -1,0 +1,188 @@
+//! IRM — Insert/Replace Mode, `CSI 4 h` / `CSI 4 l`.
+//!
+//! `[[source: ecma48]]` § 8.3.64: with IRM set, a graphic character is
+//! *inserted* at the cursor and the characters from there to the end of the
+//! line move right; with it reset the character replaces what is there.
+//!
+//! **This was a live bug, not a missing feature.** `ModeBit::InsertReplace` was
+//! set by SM/RM and reported by DECRQM, and nothing in the write path read it.
+//! An application sent `CSI 4 h`, wrote text expecting insertion, got
+//! overwrite — and DECRQM confirmed the mode was on, so it had no way to find
+//! out. That is two of the three rules `docs/vt-coverage.md` calls
+//! non-negotiable broken at once: *never record a mode you do not act on*, and
+//! *never answer a query with the wrong shape*.
+
+use baud_core::*;
+
+fn grid(bytes: &[u8]) -> Vec<PackedCell> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+    t.viewport().to_vec()
+}
+
+fn replies(bytes: &[u8]) -> Vec<u8> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(bytes));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    t.reply().to_vec()
+}
+
+/// The whole point: text written under IRM pushes what follows to the right.
+#[test]
+fn insert_mode_shifts_the_rest_of_the_line() {
+    // Write "abcd", home, then insert "XY".
+    assert_eq!(
+        grid(b"abcd\x1b[1;1H\x1b[4hXY"),
+        grid(b"XYabcd"),
+        "the tail must move right, not be overwritten"
+    );
+}
+
+/// Reset is overwrite, which is the default and the behaviour before this fix.
+#[test]
+fn replace_mode_overwrites() {
+    assert_eq!(grid(b"abcd\x1b[1;1H\x1b[4lXY"), grid(b"XYcd"));
+    assert_eq!(grid(b"abcd\x1b[1;1HXY"), grid(b"XYcd"), "reset by default");
+}
+
+/// `CSI 4 l` restores overwrite after `CSI 4 h`.
+#[test]
+fn the_mode_can_be_turned_off_again() {
+    assert_eq!(grid(b"abcd\x1b[1;1H\x1b[4h\x1b[4lXY"), grid(b"XYcd"));
+}
+
+/// Inserting mid-line moves only the tail, and leaves the head alone.
+#[test]
+fn inserting_mid_line_moves_only_the_tail() {
+    assert_eq!(grid(b"abcd\x1b[1;3H\x1b[4hZ"), grid(b"abZcd"));
+}
+
+/// At end of line there is nothing to shift, so insert and replace agree.
+#[test]
+fn inserting_at_the_end_matches_replace() {
+    assert_eq!(grid(b"ab\x1b[4hcd"), grid(b"abcd"));
+}
+
+/// Text pushed past the right margin falls off; it does not wrap to row 2.
+///
+/// This is the property that separates IRM from a naive "shift everything":
+/// the line is a fixed width and the far end is lost.
+#[test]
+fn text_pushed_past_the_end_is_discarded() {
+    let long: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let mut v = long.clone();
+    v.extend_from_slice(b"\x1b[1;1H\x1b[4hZ");
+    let after = grid(&v);
+    // Row 1 must still be blank — nothing wrapped onto it.
+    let blank = grid(b"")[0];
+    assert_eq!(after[2048], blank, "nothing may spill onto the next row");
+}
+
+/// IRM respects DECSLRM: the shift stops at the right margin.
+#[test]
+fn insert_stops_at_the_right_margin() {
+    let mut base: Vec<u8> = Vec::new();
+    base.extend(std::iter::repeat(b'a').take(20));
+    let mut v = base.clone();
+    v.extend_from_slice(b"\x1b[?69h\x1b[5;10s\x1b[1;5H\x1b[4hZ");
+    let after = grid(&v);
+    let before = grid(&base);
+    assert_eq!(after[10], before[10], "beyond the margin, untouched");
+    assert_eq!(after[19], before[19]);
+}
+
+/// It applies to the bulk path too, not only to single characters.
+///
+/// Plain ASCII runs never reach the per-codepoint path, so implementing IRM
+/// only there would leave it broken for essentially all real text.
+#[test]
+fn insert_mode_applies_to_bulk_runs() {
+    assert_eq!(grid(b"abcdef\x1b[1;1H\x1b[4hXYZ"), grid(b"XYZabcdef"));
+}
+
+/// A double-width character opens a two-cell gap, not one.
+#[test]
+fn a_wide_character_inserts_two_cells() {
+    let mut v = "ab\x1b[1;1H\x1b[4h".as_bytes().to_vec();
+    v.extend_from_slice("日".as_bytes());
+    assert_eq!(grid(&v), grid("日ab".as_bytes()));
+}
+
+/// DECRQM agreed with the broken behaviour before; it must agree with the
+/// working one now.
+#[test]
+fn decrqm_still_reports_the_mode() {
+    assert_eq!(replies(b"\x1b[4$p"), b"\x1b[4;2$y", "reset at power-on");
+    assert_eq!(replies(b"\x1b[4h\x1b[4$p"), b"\x1b[4;1$y");
+    assert_eq!(replies(b"\x1b[4h\x1b[4l\x1b[4$p"), b"\x1b[4;2$y");
+}
+
+/// RIS and DECSTR return to replace mode, so a crashed program cannot leave the
+/// next one inserting.
+#[test]
+fn resets_restore_replace_mode() {
+    assert_eq!(
+        grid(b"abcd\x1b[1;1H\x1b[4h\x1bcabcd\x1b[1;1HXY"),
+        grid(b"XYcd")
+    );
+    assert_eq!(grid(b"abcd\x1b[1;1H\x1b[4h\x1b[!pXY"), grid(b"XYcd"));
+}
+
+/// Insert mode parses the same however the reads are split.
+#[test]
+fn insert_mode_is_chunk_invariant() {
+    let seq = b"abcdef\x1b[1;1H\x1b[4hXYZ\x1b[4lQ";
+    let whole = grid(seq);
+    for chunk in 1..seq.len() {
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < seq.len() {
+            let n = chunk.min(seq.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&seq[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+        assert_eq!(t.viewport().to_vec(), whole, "differed at chunk {chunk}");
+    }
+}
+
+/// The span-storage mode renders the same as the materialised one.
+///
+/// Insert mode cannot use the run table — a run says "these bytes at this
+/// position", and shifting the tail invalidates every run after the cursor —
+/// so `OpMode::Runs` must promote before inserting. If it did not, the line
+/// would render as though nothing had been inserted.
+#[test]
+fn insert_mode_renders_the_same_in_runs_mode() {
+    let seq = b"abcdef\x1b[1;1H\x1b[4hXYZ";
+    let mut s1 = Storage::boxed();
+    let mut t1 = Term::new(&mut s1, OpMode::Computed);
+    let mut s2 = Storage::boxed();
+    let mut t2 = Term::new(&mut s2, OpMode::Runs);
+    for t in [&mut t1, &mut t2].iter_mut() {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(seq));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    }
+    assert_eq!(t2.viewport().to_vec(), t1.viewport().to_vec());
+}
