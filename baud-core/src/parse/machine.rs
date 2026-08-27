@@ -197,28 +197,56 @@ impl<'a> Term<'a> {
                     self.st = State::Escape;
                 } else if b.is_c0() || b == StreamByte::BEL {
                     self.execute(b);
-                } else if let Some((rem, acc)) = b.utf8_lead() {
+                } else if let Some((rem, acc, min)) = b.utf8_lead() {
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
                         acc: Utf8Acc::lead(acc),
+                        min,
                     };
+                } else if b.is_printable_ascii() {
+                    // Reached only when a byte is *re-fed* here after a failed
+                    // decode: the run scanner takes printable ASCII before the
+                    // state machine ever sees it, so this arm is cold.
+                    //
+                    // Without it, `[[source: unicode-ch3]]` § 3.9.5 was
+                    // violated. A converter "must not consume the successor
+                    // bytes as part of the ill-formed subsequence whenever
+                    // those successor bytes themselves constitute part of a
+                    // well-formed UTF-8 code unit subsequence", and the
+                    // standard names this exact input: `<C2 41 42>` "must not
+                    // return `<U+FFFD>` or `<U+FFFD, U+0042>`". baud returned
+                    // `<U+FFFD, U+FFFD, U+0042>` -- the `A` fell through to the
+                    // not-text arm below and was replaced.
+                    self.put_cp(Codepoint::from_ascii(b), Width::NARROW);
                 } else {
                     // stray continuation byte or 0x7f: not text
                     self.replacements.inc();
                     self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
                 }
             }
-            State::Utf8 { remaining, acc } => match b.utf8_continuation() {
+            State::Utf8 {
+                remaining,
+                acc,
+                min,
+            } => match b.utf8_continuation() {
                 Some(bits) => {
                     let acc = acc.push(bits);
                     if remaining.is_last() {
                         self.st = self.ground();
-                        let c = acc.finish();
+                        // `finish` rejects a non-shortest form. Without that
+                        // check every overlong three- and four-byte sequence
+                        // decoded to a real character -- `E0 80 AF` rendered
+                        // `/`, the path-traversal overlong.
+                        let c = acc.finish(min);
+                        if c == Codepoint::REPLACEMENT {
+                            self.replacements.inc();
+                        }
                         self.put_cp(c, Width::of(c));
                     } else {
                         self.st = State::Utf8 {
                             remaining: remaining.dec(),
                             acc,
+                            min,
                         };
                     }
                 }

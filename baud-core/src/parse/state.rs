@@ -80,8 +80,15 @@ pub(crate) enum State {
     /// could hide `CSI 2 J` inside an APC string and clear the screen.
     StringIgnore,
     /// Mid multi-byte sequence: continuation bytes remaining, and bits so far.
+    /// Mid-sequence in a UTF-8 character.
+    ///
+    /// `min` is the shortest-form floor for the *lead byte's* length, carried
+    /// because `remaining` cannot distinguish "second byte of three" from
+    /// "third byte of four". Without it an overlong decodes to a real
+    /// character -- see [`Utf8Min`].
     Utf8 {
         remaining: Pending,
         acc: Utf8Acc,
+        min: Utf8Min,
     },
 }

@@ -161,13 +161,17 @@ impl StreamByte {
     }
     /// Lead byte of a UTF-8 sequence: how many continuation bytes follow, and
     /// the payload bits. `None` for ASCII and for stray continuation bytes.
-    pub fn utf8_lead(self) -> Option<(u8, u32)> {
+    pub fn utf8_lead(self) -> Option<(u8, u32, Utf8Min)> {
         match self.0 {
-            0xc2..=0xdf => Some((1, (self.0 & 0x1f) as u32)),
-            0xe0..=0xef => Some((2, (self.0 & 0x0f) as u32)),
-            0xf0..=0xf4 => Some((3, (self.0 & 0x07) as u32)),
+            0xc2..=0xdf => Some((1, (self.0 & 0x1f) as u32, Utf8Min::Two)),
+            0xe0..=0xef => Some((2, (self.0 & 0x0f) as u32, Utf8Min::Three)),
+            0xf0..=0xf4 => Some((3, (self.0 & 0x07) as u32, Utf8Min::Four)),
             _ => None,
         }
+    }
+    /// `20..=7E`: a byte that stands for itself.
+    pub fn is_printable_ascii(self) -> bool {
+        (0x20..0x7f).contains(&self.0)
     }
     pub fn utf8_continuation(self) -> Option<u32> {
         (self.0 & 0xc0 == 0x80).then_some((self.0 & 0x3f) as u32)
@@ -244,6 +248,46 @@ impl Codepoint {
     }
 }
 
+/// The smallest codepoint a UTF-8 sequence of a given length may encode.
+///
+/// **This is `[[source: unicode-ch3]]` Table 3-7's second-byte column, said as
+/// the constraint it exists to enforce.** The table narrows the `80..BF`
+/// continuation pattern for exactly four lead bytes — `E0`, `ED`, `F0`, `F4` —
+/// and the standard notes the exceptions "occur only in the second byte of a
+/// sequence". What all four encode is one rule: a sequence must be the
+/// *shortest* form of the value it represents.
+///
+/// baud implemented only the first-byte column, so every overlong three- and
+/// four-byte form decoded to a real character. `E0 80 AF` rendered `/` — the
+/// canonical path-traversal overlong, which a filter checking for a slash would
+/// not have seen. `Codepoint::new` could not catch it, structurally: a
+/// non-shortest form still yields a legal scalar value, so nothing is wrong
+/// with the *result*, only with the encoding of it.
+///
+/// Carried with the sequence rather than derived from the bytes remaining,
+/// because `Pending` cannot tell "second byte of three" from "third byte of
+/// four" — both have two continuations left. Deriving it from `Pending` was the
+/// first attempt and it rejected `F0 90 80 80`, which is U+10000.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Utf8Min {
+    /// `C2..DF`: two bytes, so at least U+0080.
+    Two,
+    /// `E0..EF`: three bytes, so at least U+0800.
+    Three,
+    /// `F0..F4`: four bytes, so at least U+10000.
+    Four,
+}
+
+impl Utf8Min {
+    pub fn floor(self) -> u32 {
+        match self {
+            Utf8Min::Two => 0x80,
+            Utf8Min::Three => 0x800,
+            Utf8Min::Four => 0x1_0000,
+        }
+    }
+}
+
 /// Codepoint bits accumulated mid-sequence, *before* they are known to be a
 /// valid scalar value. Deliberately not a [`Codepoint`] — a partial sequence
 /// has not earned that type yet, and calling it one would be a lie the width
@@ -261,7 +305,15 @@ impl Utf8Acc {
     }
     /// The only exit. Malformed input becomes U+FFFD rather than an invalid
     /// codepoint, so the invariant holds without the caller branching.
-    pub fn finish(self) -> Codepoint {
+    ///
+    /// A value below `min.floor()` is a non-shortest form and is **ill-formed**
+    /// even though it is a perfectly legal scalar value — see [`Utf8Min`].
+    /// Conformance clause C10 requires it be treated as an error rather than
+    /// interpreted as the character it spells.
+    pub fn finish(self, min: Utf8Min) -> Codepoint {
+        if self.0 < min.floor() {
+            return Codepoint::REPLACEMENT;
+        }
         Codepoint::decoded(self.0)
     }
 }
