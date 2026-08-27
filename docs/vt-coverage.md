@@ -159,8 +159,11 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | | status |
 |---|---|
 | UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
-| 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are continuation bytes; a stray one is a decode error and renders U+FFFD |
-| 7-bit equivalents `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — this is the whole control interface |
+| 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
+| 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are UTF-8 continuation bytes; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm, which accept them |
+| `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
+| `ESC % @` — select ISO 8859-1 | **out** — counted in `Term::unsupported`; baud cannot leave UTF-8 |
+| `CSI ? 1020 $ p` — DECRQM on xterm's read-only `utf8` resource | done — answers `3`, permanently set |
 | `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
 | `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
@@ -178,6 +181,14 @@ sending S8C1T, and an application that asks is prepared to read it. baud still
 cannot *parse* an 8-bit introducer — that half is forced by UTF-8 and stands —
 but there was never a reason it could not *emit* one. `C1Transmit` carries the
 choice and CSI, DCS and ST introducers all follow it.
+
+**`?1020` answers `3`, and that is a named divergence from xterm.** xterm answers
+`1`/`2` even though `[[source: ctlseqs]]` marks the resource read-only. baud
+answers `3` (permanently set), because `1` invites an application to send
+`CSI ? 1020 l`, receive no error, and believe it had switched the decoder off —
+the exact failure this document refuses for DECRQM elsewhere. DECRPM has value
+`3` for this case. Follow xterm here only if an application is found that
+mishandles `3`.
 
 dtterm's `is2` opens with `ESC SP F`, which is how the conformance fixtures
 caught the first version of this: counting S7C1T as unsupported claimed baud had

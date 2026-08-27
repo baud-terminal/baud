@@ -113,6 +113,8 @@ impl StreamByte {
     /// `< 0x20` and therefore cannot distinguish them from a C0 to execute.
     /// The intermediate byte of `ESC SP F` / `ESC SP G` (S7C1T / S8C1T).
     pub const SP: StreamByte = StreamByte(0x20);
+    /// The intermediate byte of `ESC % @` / `ESC % G`.
+    pub const PERCENT: StreamByte = StreamByte(0x25);
     pub const CAN: StreamByte = StreamByte(0x18);
     pub const SUB: StreamByte = StreamByte(0x1a);
     /// The intermediate of `ESC # 8` (DECALN).

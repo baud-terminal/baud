@@ -214,6 +214,13 @@ pub enum PrivateMode {
     Origin,
     /// DECAWM, ?7.
     AutoWrap,
+    /// `?1020` — xterm's `utf8` resource, which `[[source: ctlseqs]]` marks
+    /// "**(read-only)**".
+    ///
+    /// Read-only is the whole point: it reports how the terminal decodes and
+    /// cannot be used to change it. baud decodes UTF-8 and nothing else, by
+    /// construction, so the answer is fixed for the life of the process.
+    Utf8Resource,
     CursorVisible,      // ?25
     BracketedPaste,     // ?2004
     AltScreen,          // ?1049
@@ -278,6 +285,7 @@ impl PrivateMode {
             1003 => PrivateMode::MouseAnyEvent,
             1006 => PrivateMode::MouseSgr,
             1049 => PrivateMode::AltScreen,
+            1020 => PrivateMode::Utf8Resource,
             2004 => PrivateMode::BracketedPaste,
             2026 => PrivateMode::SynchronizedOutput,
             n => PrivateMode::Other(Param(n)),

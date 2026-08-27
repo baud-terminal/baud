@@ -345,6 +345,18 @@ impl<'a> Term<'a> {
                         Some(i) if i == StreamByte::SP && b.raw_byte() == b'G' => {
                             self.c1 = C1Transmit::EightBit
                         }
+                        // `ESC % G` selects UTF-8 (`[[source: ctlseqs]]`:
+                        // "Select UTF-8 character set, ISO 2022"). baud always
+                        // decodes UTF-8, so the request is *satisfied* -- the
+                        // same distinction S7C1T draws, and for the same
+                        // reason: counting it as unsupported would claim baud
+                        // refused something it already does.
+                        //
+                        // `ESC % @` -- "Select default character set. That is
+                        // ISO 8859-1" -- asks to leave UTF-8, which baud cannot
+                        // do. It falls through to the count below, so an
+                        // application can discover the refusal.
+                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'G' => {}
                         // `ESC ( ) * + <C>` designate G0-G3.
                         Some(i) => {
                             if let Some(slot) = GSlot::from_intermediate(i) {

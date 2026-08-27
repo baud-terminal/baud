@@ -254,6 +254,17 @@ impl<'a> Term<'a> {
             };
         }
         match PrivateMode::from_wire(Some(mode)) {
+            // `?1020` is read-only and permanently true here: baud decodes
+            // UTF-8 and has no mode that changes it.
+            //
+            // **A named divergence from xterm, and deliberate.** xterm answers
+            // this with 1/2 (set/reset) even though its own documentation marks
+            // the resource read-only. baud answers 3 (permanently set), because
+            // 1 would invite an application to send `CSI ? 1020 l`, get no
+            // error, and believe UTF-8 decoding had been turned off -- the
+            // exact failure `docs/vt-coverage.md` refuses for DECRQM. DECRPM
+            // has value 3 for precisely this case.
+            PrivateMode::Utf8Resource => ModeState::PermanentlySet,
             PrivateMode::Origin => bit_state(self.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.modes, ModeBit::AutoWrap),
             PrivateMode::LeftRightMargin => bit_state(self.modes, ModeBit::SideMargins),
