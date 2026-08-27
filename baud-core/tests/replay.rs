@@ -213,3 +213,82 @@ fn each_recording_carries_what_it_was_chosen_for() {
         "vim-unicode.raw should carry astral-plane emoji"
     );
 }
+
+/// Drive a recording and return everything it made baud say.
+///
+/// `reply()` is a buffer the embedder is expected to drain, so this drains it
+/// per read rather than at the end -- which is also what an embedder does, and
+/// what stops a long stream from overflowing 256 bytes.
+fn replies_from(bytes: &[u8]) -> (Vec<u8>, u64) {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        out.extend_from_slice(t.reply());
+        t.clear_reply();
+        i += n;
+    }
+    (out, t.unsupported.count())
+}
+
+/// **Real input drives the reply channel, and the tests above ignored it.**
+///
+/// Every assertion elsewhere in this file reads the grid. A recording also
+/// makes baud *speak*, and nothing checked what it said: vim's capture carries
+/// three queries, and the replies to them were being dropped on the floor by
+/// the very tests meant to validate real capture.
+///
+/// Two are `CSI 6 n`, answered with CPR. The third is `CSI > c` -- **secondary**
+/// device attributes, not primary -- and the right answer to it is silence,
+/// which is the interesting half.
+#[test]
+fn real_capture_drives_the_reply_channel() {
+    let (replies, unsupported) = replies_from(&load("vim-unicode.raw"));
+
+    assert!(!replies.is_empty(), "vim's capture queries the terminal");
+    let cprs = replies.windows(1).filter(|w| w[0] == b'R').count();
+    assert_eq!(cprs, 2, "two `CSI 6 n` in the recording, two CPR answers");
+    for r in replies.split_inclusive(|b| *b == b'R') {
+        assert_eq!(r[0], 0x1b, "each reply is its own CSI");
+        assert_eq!(r[1], b'[', "and none is an 8-bit introducer here");
+    }
+
+    // **The silence is the point.** `CSI > c` is secondary DA. baud does not
+    // answer it, because an application parses whatever arrives as the report
+    // it asked for and a wrong identity is worse than none -- the same reason
+    // primary DA under-claims as a VT102. What it must not do is drop the
+    // query without trace, so it is counted.
+    assert!(
+        !replies.contains(&b'c'),
+        "secondary DA must not be answered: {:?}",
+        String::from_utf8_lossy(&replies)
+    );
+    assert!(
+        unsupported >= 1,
+        "and it must be counted rather than silently dropped"
+    );
+}
+
+/// The other two recordings ask nothing, and get nothing.
+///
+/// The control for the test above: if `replies_from` were broken and always
+/// returned empty, that test would still pass its silence assertion. This one
+/// fails if the harness stopped collecting.
+#[test]
+fn a_recording_that_asks_nothing_is_answered_with_nothing() {
+    for name in ["btop.raw", "asciiquarium.raw"] {
+        let (replies, _) = replies_from(&load(name));
+        assert!(
+            replies.is_empty(),
+            "{name} contains no queries, so baud should say nothing, got {:?}",
+            String::from_utf8_lossy(&replies)
+        );
+    }
+}

@@ -520,6 +520,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI a` | HPR char position relative | done |
 | `CSI b` | REP repeat preceding char | done |
 | `CSI c` | DA device attributes | done — identifies as VT102 |
+| `CSI > c` | DA2 secondary device attributes | **out** — answered with silence and counted in `unsupported`. `[[source: ctlseqs]]` line 817 shapes the reply as `CSI > Pp ; Pv ; Pc c`, where `Pp` is a terminal *type* and `Pv` a firmware version. baud has neither honestly: it is not a VT220 and has no firmware, and an application parses whatever arrives as the report it asked for. That is the same refusal primary DA makes by under-claiming as a VT102, one step further. Recorded here because real capture proved it is asked for — vim sends it once in `tests/recordings/vim-unicode.raw`, and until that landed the table did not mention DA2 at all. `real_capture_drives_the_reply_channel` pins the silence *and* the count |
 | `CSI d` | VPA line position absolute | done |
 | `CSI e` | VPR line position relative | done |
 | `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
