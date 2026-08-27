@@ -53,19 +53,42 @@ fn table_finals() -> BTreeSet<u8> {
     let mut out = BTreeSet::new();
     for line in src.lines() {
         let l = line.trim();
-        if !l.starts_with("| `CSI") {
+        if !(l.starts_with("| `CSI") || l.starts_with("| ``CSI")) {
             continue;
         }
-        let cell = l.trim_matches('|').split('|').next().unwrap_or("");
-        // HPA's final byte *is* a backtick, written as a markdown escape.
-        // Unescaped to a sentinel **before** splitting, because splitting on
-        // backticks otherwise cuts the escape in half and yields the backslash
-        // as the final byte.
+        let mut cell = l
+            .trim_matches('|')
+            .split('|')
+            .next()
+            .unwrap_or("")
+            .to_string();
+
+        // HPA's final byte *is* a backtick, so its row needs a **double**
+        // backtick code span -- ``CSI ` ``. It was written `` `CSI \` ``
+        // instead, which looks like an escape and is not one: CommonMark does
+        // not process backslash escapes inside a code span, so it rendered as
+        // `CSI \` and named no final byte at all. Both forms are read here;
+        // only the double-backtick one renders.
+        let mut spans: Vec<String> = Vec::new();
+        while let Some(a) = cell.find("``") {
+            let Some(rel) = cell[a + 2..].find("``") else {
+                break;
+            };
+            let b = a + 2 + rel;
+            spans.push(cell[a + 2..b].trim().to_string());
+            cell.replace_range(a..b + 2, " ");
+        }
+
+        // The legacy escaped form, unescaped to a sentinel *before* splitting,
+        // because splitting on backticks otherwise cuts it in half and yields
+        // the backslash as the final byte.
         let cell = cell.replace("\\`", "\u{0}");
         // A cell may name several forms: `CSI H` / `CSI f`. Each backticked
         // span is one, and taking the last token of the joined string missed
         // `H` entirely.
-        for form in cell.split('`').skip(1).step_by(2) {
+        spans.extend(cell.split('`').skip(1).step_by(2).map(|f| f.to_string()));
+
+        for form in spans {
             let form = form.replace('\u{0}', "`");
             if let Some(b) = plain_final(form.trim()) {
                 out.insert(b);

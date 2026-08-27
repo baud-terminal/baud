@@ -516,7 +516,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | XTHIMOUSE initiate highlight tracking | done — the region is recorded; it used to be read as SD and **scrolled the screen** |
 | `CSI X` | ECH erase chars | done |
 | `CSI Z` | CBT backward tabulation | done |
-| `CSI \`` | HPA char position absolute | done |
+| ``CSI ` `` | HPA char position absolute | done |
 | `CSI a` | HPR char position relative | done |
 | `CSI b` | REP repeat preceding char | done |
 | `CSI c` | DA device attributes | done — identifies as VT102 |
@@ -610,7 +610,7 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 
 | seq | name | status |
 |---|---|---|
-| `CSI ! p` | DECSTR soft reset | done |
+| `CSI ! p` | DECSTR soft reset | done — resets the DEC-defined state and **not** the alternate screen, `alt_saved`, mouse tracking or its encoding. Those are xterm extensions, so a DEC list cannot mention them and xterm decides: in `ReallyReset` all four are inside the `if (full)` RIS branch, `FromAlternate` next to `ClearScreen`. baud reset them until 2026-08-27, so a full-screen application recovering with `CSI ! p` was dropped onto the primary screen and lost what `?1049 h` had saved. See `tests/xterm/soft_reset_scope.rs` |
 | `CSI SP q` | DECSCUSR cursor style | done |
 | `CSI " q` | DECSCA character protection | done |
 | `CSI ? J` | DECSED selective erase display | done |

@@ -51,6 +51,28 @@ enum Op {
     /// generator could not interleave one, so the interaction between an
     /// executed C0 and a half-parsed sequence had no property coverage.
     CsiWithC0(u8, u8),
+    /// The eleven `done` forms the generator could not reach, found by
+    /// enumerating `docs/vt-coverage.md` against the corpus rather than by
+    /// guessing. `report_generator_reach` is that enumeration; it now asserts.
+    Cnl(u8),
+    Cpl(u8),
+    Cht(u8),
+    Cbt(u8),
+    /// HPA, `CSI Pn \``.
+    Hpa(u8),
+    Hpr(u8),
+    Vpr(u8),
+    /// TBC, `CSI Ps g`.
+    Tbc(u8),
+    /// SM / RM in the *unprefixed* namespace -- IRM and LNM. `Decset`/`Decrst`
+    /// only ever emitted the `?` form, so plain `h` and `l` were never
+    /// generated at all, and SM/RM is an operation this project has already
+    /// had sitting in the parsed-and-dropped state.
+    Sm(u16),
+    Rm(u16),
+    /// DECSTR, `CSI ! p`. The intermediate path -- `csi_intermediate` was one
+    /// of the four missing states whose absence was a bug.
+    Decstr,
     Cup(u8, u8),
     Cuu(u8),
     Cud(u8),
@@ -135,6 +157,10 @@ const SGR: [u8; 34] = [
 /// by design and would make this generate something other than what it means.
 const C0: [u8; 5] = [0x07, 0x08, 0x09, 0x0a, 0x0d];
 
+/// Modes in the unprefixed namespace: the two baud acts on, and two it does
+/// not -- an unimplemented mode must stay inert, which is worth generating.
+const ANSI_MODES: [u16; 4] = [4, 20, 2, 12];
+
 const MODES: [u16; 11] = [6, 7, 25, 69, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
@@ -161,6 +187,17 @@ fn op() -> impl Strategy<Value = Op> {
         (1u8..12, 0u8..20).prop_map(|(n, off)| Op::SgrHoles(n, off)),
         (0u8..4).prop_map(Op::CupHuge),
         (prop::sample::select(&C0[..]), 0u8..6).prop_map(|(c, at)| Op::CsiWithC0(c, at)),
+        (0u8..60).prop_map(Op::Cnl),
+        (0u8..60).prop_map(Op::Cpl),
+        (0u8..10).prop_map(Op::Cht),
+        (0u8..10).prop_map(Op::Cbt),
+        (0u8..210).prop_map(Op::Hpa),
+        (0u8..210).prop_map(Op::Hpr),
+        (0u8..60).prop_map(Op::Vpr),
+        (0u8..4).prop_map(Op::Tbc),
+        prop::sample::select(&ANSI_MODES[..]).prop_map(Op::Sm),
+        prop::sample::select(&ANSI_MODES[..]).prop_map(Op::Rm),
+        Just(Op::Decstr),
         (0u8..3).prop_map(Op::Decsca),
         (0u8..3).prop_map(Op::El),
         (0u8..3).prop_map(Op::Ed),
@@ -239,6 +276,17 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
                 }
                 n.push('m');
             }
+            Op::Cnl(k) => write!(n, "\x1b[{k}E").unwrap(),
+            Op::Cpl(k) => write!(n, "\x1b[{k}F").unwrap(),
+            Op::Cht(k) => write!(n, "\x1b[{k}I").unwrap(),
+            Op::Cbt(k) => write!(n, "\x1b[{k}Z").unwrap(),
+            Op::Hpa(k) => write!(n, "\x1b[{k}`").unwrap(),
+            Op::Hpr(k) => write!(n, "\x1b[{k}a").unwrap(),
+            Op::Vpr(k) => write!(n, "\x1b[{k}e").unwrap(),
+            Op::Tbc(k) => write!(n, "\x1b[{k}g").unwrap(),
+            Op::Sm(m) => write!(n, "\x1b[{m}h").unwrap(),
+            Op::Rm(m) => write!(n, "\x1b[{m}l").unwrap(),
+            Op::Decstr => n.push_str("\x1b[!p"),
             Op::CupHuge(k) => {
                 let big = ["99999", "65535", "65536", "4294967296"][k as usize % 4];
                 write!(n, "\x1b[{big};{big}H").unwrap();
@@ -687,4 +735,191 @@ fn the_generator_reaches_the_shapes_it_claims() {
     // before: the SGR table stopped at 107.
     assert!(SGR.contains(&64), "SGR 64 must be generatable");
     assert!(SGR.contains(&23), "and the two-bit clears too");
+}
+
+// ---------------------------------------------------------------------------
+// Generator reach, enumerated rather than imagined.
+// ---------------------------------------------------------------------------
+
+/// A CSI form as it appears in the byte stream: optional private marker,
+/// optional intermediate, final byte. Parameters are not part of the identity.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+struct Form {
+    marker: Option<u8>,
+    inter: Option<u8>,
+    final_byte: u8,
+}
+
+/// Every CSI form present in a byte stream.
+fn forms_in(bytes: &[u8], out: &mut std::collections::BTreeSet<Form>) {
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] != 0x1b || bytes[i + 1] != b'[' {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 2;
+        let mut marker = None;
+        if j < bytes.len() && matches!(bytes[j], b'?' | b'>' | b'<' | b'=') {
+            marker = Some(bytes[j]);
+            j += 1;
+        }
+        while j < bytes.len() && (bytes[j].is_ascii_digit() || bytes[j] == b';' || bytes[j] == b':')
+        {
+            j += 1;
+        }
+        let mut inter = None;
+        while j < bytes.len() && (0x20..=0x2f).contains(&bytes[j]) {
+            inter = Some(bytes[j]);
+            j += 1;
+        }
+        if j < bytes.len() && (0x40..=0x7e).contains(&bytes[j]) {
+            out.insert(Form {
+                marker,
+                inter,
+                final_byte: bytes[j],
+            });
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Draw a large deterministic corpus from the same strategy the properties use.
+fn generated_corpus() -> std::collections::BTreeSet<Form> {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{Config, TestRunner};
+    let mut runner = TestRunner::new(Config {
+        cases: 1,
+        ..Config::default()
+    });
+    let mut forms = std::collections::BTreeSet::new();
+    let strat = program();
+    for _ in 0..4000 {
+        let tree = strat.new_tree(&mut runner).expect("generate");
+        let ops = tree.current();
+        forms_in(&bytes_of(&ops), &mut forms);
+    }
+    forms
+}
+
+/// The CSI forms `docs/vt-coverage.md` marks **done**.
+fn implemented_forms() -> std::collections::BTreeSet<Form> {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/vt-coverage.md"
+    ))
+    .expect("vt-coverage.md");
+    let mut out = std::collections::BTreeSet::new();
+    for line in src.lines() {
+        if !line.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = line.split('|').collect();
+        if cells.len() < 3 || !cells[2..].iter().any(|c| c.contains("done")) {
+            continue;
+        }
+        // A backtick final byte (HPA) needs a double-backtick code span, so
+        // strip the delimiters rather than every backtick -- `trim_matches`
+        // would eat the operation's own final byte.
+        let cell = cells[1].trim();
+        let seq = match cell.strip_prefix("``").and_then(|c| c.strip_suffix("``")) {
+            Some(inner) => inner.trim(),
+            None => cell.trim_matches('`'),
+        };
+        let Some(rest) = seq.strip_prefix("CSI ") else {
+            continue;
+        };
+        let toks: Vec<&str> = rest.split_whitespace().collect();
+        let Some((last, head)) = toks.split_last() else {
+            continue;
+        };
+        let fb = last.as_bytes();
+        if fb.len() != 1 || !(0x40..=0x7e).contains(&fb[0]) {
+            continue;
+        }
+        let (mut marker, mut inter) = (None, None);
+        let mut ok = true;
+        for (n, t) in head.iter().enumerate() {
+            let b = t.as_bytes();
+            if *t == "SP" {
+                inter = Some(0x20);
+            } else if t.starts_with('P') || *t == ";" || t.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            } else if b.len() == 1 && n == 0 && matches!(b[0], b'?' | b'>' | b'<' | b'=') {
+                marker = Some(b[0]);
+            } else if b.len() == 1 && (0x20..=0x2f).contains(&b[0]) {
+                inter = Some(b[0]);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if ok {
+            out.insert(Form {
+                marker,
+                inter,
+                final_byte: fb[0],
+            });
+        }
+    }
+    out
+}
+
+/// **Every CSI form the coverage table marks `done` is reachable by the
+/// generator.**
+///
+/// The parameter-overflow bug was invisible to a property suite running 20,000
+/// cases because `Op::Sgr` emitted one parameter and nothing built a longer
+/// list. The fix for *that* bug was one op; the fix for the class is this
+/// test, which enumerates the gap instead of leaving it to whoever thinks to
+/// look.
+///
+/// It reads `docs/vt-coverage.md` and a corpus drawn from the same strategy
+/// the properties use, and requires every claimed form to appear in the
+/// corpus. When first run it found eleven: CNL, CPL, CHT, CBT, HPA, HPR, VPR,
+/// TBC, DECSTR, and -- most worth having -- SM and RM in the *unprefixed*
+/// namespace, because `Decset`/`Decrst` only ever emitted the `?` form. SM/RM
+/// is an operation this project has already had sitting parsed-and-dropped.
+///
+/// It also found a documentation bug: HPA's row was written `` `CSI \`` ``,
+/// and CommonMark does not process backslash escapes inside a code span, so it
+/// rendered as `CSI \` rather than naming the backtick final byte at all.
+///
+/// This is the same direction as `spec_inventory.rs` -- the document checks
+/// the code, rather than the code being described by the document. A row that
+/// says `done` and cannot be generated is a row nothing random will ever
+/// reach.
+#[test]
+fn every_done_form_is_reachable_by_the_generator() {
+    let reached = generated_corpus();
+    let claimed = implemented_forms();
+    assert!(
+        claimed.len() > 30,
+        "parsed only {} done forms from vt-coverage.md -- the table's shape \
+         changed and this check is now measuring nothing",
+        claimed.len()
+    );
+
+    let missed: Vec<String> = claimed
+        .difference(&reached)
+        .map(|f| {
+            format!(
+                "CSI {}{}{}",
+                f.marker
+                    .map(|b| (b as char).to_string())
+                    .unwrap_or_default(),
+                f.inter.map(|b| (b as char).to_string()).unwrap_or_default(),
+                f.final_byte as char
+            )
+        })
+        .collect();
+    assert!(
+        missed.is_empty(),
+        "{} form(s) marked done in docs/vt-coverage.md that no generated \
+         program emits, so no property can reach them:\n  {}",
+        missed.len(),
+        missed.join("\n  ")
+    );
 }
