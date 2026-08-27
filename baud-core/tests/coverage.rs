@@ -266,3 +266,72 @@ fn no_row_is_unfinished() {
         bad.join("\n  ")
     );
 }
+
+/// **Every `out` row gives a reason, in the row.**
+///
+/// `out` is the only status that means "not implemented", and it is what keeps
+/// "nothing is partial" from being a word game: a row can always be moved to
+/// `out` to make the other checks pass. What stops that is the requirement the
+/// legend states — "deliberately not in scope; **the reason is in the row**" —
+/// which was prose nothing enforced.
+///
+/// A bare `**out**` with no reason is now a test failure. This cannot judge
+/// whether a reason is *good*; that is review. It can insist one exists, and
+/// that a scope decision therefore has to be argued somewhere a reader will
+/// find it.
+#[test]
+fn every_out_row_states_a_reason() {
+    let mut bare = Vec::new();
+    let mut checked = 0usize;
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs");
+    let mut files = vec![format!("{root}/vt-coverage.md")];
+    if let Ok(rd) = fs::read_dir(format!("{root}/protocols")) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.extension().is_some_and(|x| x == "md") {
+                files.push(p.display().to_string());
+            }
+        }
+    }
+    for f in &files {
+        let Ok(src) = fs::read_to_string(f) else {
+            continue;
+        };
+        for (n, line) in src.lines().enumerate() {
+            let l = line.trim();
+            if !l.starts_with("| `") && !l.starts_with("| ") {
+                continue;
+            }
+            for cell in l.trim_matches('|').split('|') {
+                let c = cell.trim();
+                if !c.starts_with("**out**") {
+                    continue;
+                }
+                // The legend row defines the vocabulary rather than using it.
+                if l.contains("deliberately not in scope") {
+                    continue;
+                }
+                checked += 1;
+                let reason = c.trim_start_matches("**out**").trim();
+                let reason = reason
+                    .trim_start_matches('—')
+                    .trim_start_matches('-')
+                    .trim();
+                if reason.len() < 12 {
+                    let name = f.rsplit('/').next().unwrap_or(f);
+                    bare.push(format!("{name}:{}: {l}", n + 1));
+                }
+            }
+        }
+    }
+    assert!(
+        checked > 5,
+        "only {checked} out rows checked -- the scanner stopped matching"
+    );
+    assert!(
+        bare.is_empty(),
+        "{} `out` row(s) with no reason -- say why, or implement it:\n  {}",
+        bare.len(),
+        bare.join("\n  ")
+    );
+}

@@ -69,7 +69,7 @@ the build instead:
 
 | check | what it holds |
 |---|---|
-| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `partial`, `parsed` or `todo`; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
+| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `partial`, `parsed` or `todo`; **every `out` row states a reason**; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
 | `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
 | `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |

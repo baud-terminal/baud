@@ -36,7 +36,12 @@ handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
 **No row carries `partial`, `parsed` or `todo`, and `no_row_is_unfinished` in
-`baud-core/tests/coverage.rs` fails if one ever does.** `out` is the only status
+`baud-core/tests/coverage.rs` fails if one ever does.** `out` is the only status that
+means "not implemented", and `every_out_row_states_a_reason` requires each one
+to say why **in the row** — because otherwise "nothing is partial" would be a
+word game, satisfiable by relabelling anything inconvenient as out of scope.
+The check cannot judge whether a reason is *good*; that is review. It can insist
+one exists where a reader will find it. `out` is the only status
 that means "not implemented", and it requires a reason in the row. Do not
 relabel an unfinished operation as `out` to satisfy the check: reaching for
 `partial` is the signal that the operation is not done, and the fix is the
@@ -143,14 +148,29 @@ between *terminator* and *cancel*. Those arms already implement that themselves.
 | C0 in `csi_entry` — execute and **stay**, without consuming the marker position | done — `CSI <BS> ? J` is still DECSED |
 | C0 in `csi_intermediate` | done — this arm had no C0 branch, so `CSI ! <NUL> p` lost its DECSTR |
 | `7F` DEL in `csi_entry` / `csi_param` | done — ignored, and does not consume the marker position |
-| SUB additionally displaying the DEC error character `␦` | **out** — see below |
+| SUB additionally displaying the DEC error character `␦` | **out** — williams says VT220-VT500 hardware does; xterm does not, and baud follows xterm as it does for DECAWM. Detail below |
+
+**The sources disagree, and baud follows xterm — the same call, for the same
+reason, as DECAWM's default.**
 
 `[[source: williams]]` records that "SUB will also display the error character, a
-reversed question mark". baud cancels but writes nothing. That is a *rendering*
-decision made where no renderer exists, and the same reasoning as the DEC
-line-drawing table applies: a glyph written into the grid on a control byte
-would be indistinguishable from text the application sent, and unrecoverable if
-wrong. Cancelling is the part an application can observe.
+reversed question mark", describing VT220 through VT500 hardware.
+`[[source: ctlseqs]]` documents `SUB` nowhere as producing a glyph, and xterm
+does not write one. baud cancels and writes nothing.
+
+The reason given here used to be that this was "a rendering decision made where
+no renderer exists". That was wrong and worth correcting rather than quietly
+restating: baud stores codepoints, not pixels, so writing `U+2426` would be
+storing a *character*, which it does all day. Nothing about the missing renderer
+prevents it. The actual reason is the source conflict, and this file already has
+a precedent for how to resolve one — DECAWM's default is "No autowrap" in the
+VT510 manual and on in xterm, and baud follows xterm because that is what
+applications are written against. Same here.
+
+The cost of being wrong is asymmetric, which settles it. Writing a glyph an
+application did not send is indistinguishable, afterwards, from text it did; not
+writing one loses nothing an application can observe, because the cancellation
+itself is the visible behaviour and is implemented.
 
 ### Encoding: UTF-8 only, and 8-bit C1 controls are therefore out
 
@@ -185,7 +205,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
 | `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
-| Legacy single-byte charsets (Latin-1, national replacement sets) | **out** — see below |
+| Legacy single-byte charsets (Latin-1, national replacement sets) | **out** — transcoding is `iconv`'s job, once, outside the ingest loop; baud annotates rather than translates. **Under active reconsideration** — detail below |
 
 `S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
 "this tells the terminal to send C1 control characters as 8-bit sequences, e.g.,
