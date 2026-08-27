@@ -27,6 +27,7 @@ fail=0
 }
 
 tmp=$(mktemp -d)
+: >"$tmp/unaccounted"
 trap 'rm -rf "$tmp"' EXIT
 
 # key<TAB>file<TAB>sha256<TAB>status, one per [sources.*] block.
@@ -59,14 +60,19 @@ done <"$tmp/entries"
 
 # ── 3: every source file is accounted for ────────────────────────────────────
 cut -f2 "$tmp/entries" | grep -v '^$' | sort -u >"$tmp/known"
-for f in "$SRC"/*; do
-  b=$(basename "$f")
-  [ "$b" = "MANIFEST.toml" ] && continue
+# Recursive: sources are grouped into subdirectories (terminfo/ and, as the
+# corpus grows, one per protocol family), so a top-level-only walk would see a
+# directory it could not account for and, worse, would never check the files
+# inside it. Paths are compared relative to $SRC, matching the manifest's
+# `file` values.
+find "$SRC" -type f ! -name 'MANIFEST.toml' | while read -r f; do
+  b=${f#"$SRC"/}
   grep -qxF "$b" "$tmp/known" || {
     echo "  FAIL $b is in $SRC/ with no manifest entry"
-    fail=1
+    echo x >>"$tmp/unaccounted"
   }
 done
+[ -s "$tmp/unaccounted" ] && fail=1
 
 # ── 4: every citation resolves to a readable source ──────────────────────────
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"

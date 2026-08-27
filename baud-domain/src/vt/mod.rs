@@ -7,6 +7,7 @@ mod mouse;
 mod osc;
 mod report;
 mod sgr;
+mod vt52;
 
 pub use charset::*;
 pub use csi::*;
@@ -17,3 +18,4 @@ pub use mouse::*;
 pub use osc::*;
 pub use report::*;
 pub use sgr::*;
+pub use vt52::*;

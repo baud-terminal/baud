@@ -88,7 +88,7 @@ impl<'a> Term<'a> {
                 self.refresh_flags();
             }
             Osc::Clipboard(_) => {}
-            Osc::Unsupported => {}
+            Osc::Unsupported => self.unsupported.inc(),
         }
         self.osc_reset();
     }

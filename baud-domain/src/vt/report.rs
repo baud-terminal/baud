@@ -41,6 +41,13 @@ pub enum Report {
     OperatingStatus,
     /// Primary DA, `CSI ? Ps c`.
     PrimaryDeviceAttributes(DeviceAttribute),
+    /// The answer to VT52's `ESC Z`: `ESC / Z`.
+    ///
+    /// `[[source: vt510-decanm]]` Table 5-1: "ESC Z Identify (host to
+    /// terminal)" and "ESC /Z Report (terminal to host)". Not a CSI, and not a
+    /// DCS either -- a third shape, which is why replies are a typed `Report`
+    /// rather than byte literals at each call site.
+    Vt52Identity,
     /// XTVERSION, the answer to `CSI > 0 q`.
     ///
     /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
@@ -169,6 +176,12 @@ impl Report {
                     MouseKind::Release => b'm',
                     _ => b'M',
                 });
+            }
+            Report::Vt52Identity => {
+                e.len = ByteLen::ZERO;
+                e.push(0x1b);
+                e.push(b'/');
+                e.push(b'Z');
             }
             Report::Version => {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here

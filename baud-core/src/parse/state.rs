@@ -43,6 +43,23 @@ pub(crate) enum State {
     /// An `ESC` arrived inside a DCS payload. Same two continuations as
     /// [`State::OscEsc`].
     DcsEsc,
+    /// Ground, but in VT52.
+    ///
+    /// A separate variant rather than a flag consulted from `Ground`, and the
+    /// reason is measured: the flag was read in the byte loop and cost **4% of
+    /// the cells path** (baud/ghostty 0.970 -> 0.931 across three runs,
+    /// normalised in-run because the box was thermally drifting). As a state,
+    /// the existing `st == Ground` gates exclude VT52 from the ANSI fast paths
+    /// for free, and the ANSI path pays nothing at all.
+    ///
+    /// The trade is that VT52 text takes the byte-at-a-time path. VT52 is a
+    /// 1975 terminal reached only by an explicit mode switch; the protocol
+    /// everyone actually uses is the one that should be fast.
+    Vt52Ground,
+    /// `ESC Y` in VT52 mode: waiting for the row byte.
+    Vt52Row,
+    /// `ESC Y <row>`: waiting for the column byte.
+    Vt52Col(Vt52Coord),
     /// The payload of SOS, PM and APC.
     ///
     /// Consumed to the string terminator and executed as nothing. This state

@@ -96,12 +96,61 @@ impl<'a> Term<'a> {
                     MouseEncoding::None
                 }
             }
+            // Input-side and rendering modes: recorded, and exposed by the
+            // accessors below. The core has no keyboard and no renderer, so
+            // exposing them *is* acting on them -- an embedder has no other
+            // channel. Same argument as bracketed paste.
+            // DECANM. Reset enters VT52; set returns to ANSI. Note the
+            // inverted sense -- `on` here means "ANSI mode on".
+            PrivateMode::AnsiMode => self.set_terminal_mode(if on {
+                TerminalMode::Ansi
+            } else {
+                TerminalMode::Vt52
+            }),
+            PrivateMode::CursorKeys => self.modes.apply(ModeBit::CursorKeys, on),
+            PrivateMode::SmoothScroll => self.modes.apply(ModeBit::SmoothScroll, on),
+            PrivateMode::ReverseVideo => self.modes.apply(ModeBit::ReverseVideo, on),
+            PrivateMode::AutoRepeat => self.modes.apply(ModeBit::AutoRepeat, on),
+            PrivateMode::MetaSendsEscape => self.modes.apply(ModeBit::MetaSendsEscape, on),
+            // `?45`: backspace at the left margin wraps to the end of the line
+            // above instead of stopping. Acted on in `Term::back`.
+            PrivateMode::ReverseWrap => self.modes.apply(ModeBit::ReverseWrap, on),
+            // `?12` is the blink axis of DECSCUSR, reached by a different
+            // route. Setting it must not change the *shape*, so it maps onto
+            // the current style rather than replacing it.
+            PrivateMode::CursorBlink => self.cursor_style = self.cursor_style.with_blink(on),
+            // DECCOLM. `[[source: vt510-decscpp]]` behaviour that is baud's to
+            // perform -- clear the screen, reset the margins, home the cursor --
+            // happens here. The *resize* does not: geometry is caller-owned
+            // through `Term::resize`, so the request is recorded and
+            // `Term::column_mode()` reports it. Resizing behind the caller's
+            // back would desynchronise it from the application.
+            PrivateMode::Column132 => {
+                self.modes.apply(ModeBit::Column132, on);
+                self.scroll_top = Row::ZERO;
+                self.scroll_bot = Row::from_index(self.rows.index() - 1);
+                self.reset_side_margins();
+                self.cx = Col::ZERO;
+                self.cy = Row::ZERO;
+                self.clear_screen();
+            }
+            // `?47` is the pre-1049 alternate screen: it switches buffers and
+            // does **not** save or restore the cursor. `?1049` exists because
+            // applications kept getting that wrong, so the two are deliberately
+            // not aliases.
+            PrivateMode::AltScreenLegacy => {
+                self.screen = if on {
+                    Screen::Alternate
+                } else {
+                    Screen::Normal
+                };
+            }
             PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
-            // Still deliberately unrecorded. A bit that is set and never read
-            // is the same failure as a sequence parsed and dropped, so a mode
-            // joins `Modes` only when something can act on it.
-            _ => {}
+            // A mode joins `Modes` only when something can act on it -- but an
+            // unknown one is still a sequence accepted and dropped, so it is
+            // counted rather than ignored.
+            _ => self.unsupported.inc(),
         }
     }
 
@@ -120,6 +169,67 @@ impl<'a> Term<'a> {
     /// typing -- without it, a pasted newline runs as a command.
     pub fn bracketed_paste(&self) -> bool {
         self.modes.is_set(ModeBit::BracketedPaste)
+    }
+
+    /// Apply every parameter of a DECSET/DECRST.
+    ///
+    /// `#[inline(never)]`, for the reason `Term::open_gap` carries: `dispatch`
+    /// is inlined into the CSI fast path, and this body copies a 64-byte
+    /// parameter array. Inlining it there enlarges the hot dispatch for the
+    /// benefit of a branch that SGR-heavy streams never take.
+    ///
+    /// The copy is needed because `set_private_mode` takes `&mut self` while
+    /// the parameters live in `self`.
+    #[inline(never)]
+    pub(crate) fn apply_private_modes(&mut self, change: ModeChange) {
+        let (ps, n) = (self.params, self.nparam.count_at_least_one());
+        for p in ps.iter().take(n) {
+            self.set_private_mode(PrivateMode::from_wire(*p), change.is_set());
+        }
+    }
+
+    /// As [`Term::apply_private_modes`], for the unprefixed namespace.
+    #[inline(never)]
+    pub(crate) fn apply_ansi_modes(&mut self, change: ModeChange) {
+        let (ps, n) = (self.params, self.nparam.count_at_least_one());
+        for p in ps.iter().take(n) {
+            self.set_ansi_mode(AnsiMode::from_wire(*p), change.is_set());
+        }
+    }
+
+    /// DECCKM ?1. When set the arrow keys send `SS3 A` rather than `CSI A`.
+    pub fn cursor_keys_application(&self) -> bool {
+        self.modes.is_set(ModeBit::CursorKeys)
+    }
+
+    /// DECSCNM ?5. When set the whole screen renders with fg and bg swapped.
+    pub fn reverse_video(&self) -> bool {
+        self.modes.is_set(ModeBit::ReverseVideo)
+    }
+
+    /// DECSCLM ?4. A hint that scrolling should be smooth rather than jump.
+    pub fn smooth_scroll(&self) -> bool {
+        self.modes.is_set(ModeBit::SmoothScroll)
+    }
+
+    /// DECARM ?8. Whether the keyboard should auto-repeat.
+    pub fn auto_repeat(&self) -> bool {
+        self.modes.is_set(ModeBit::AutoRepeat)
+    }
+
+    /// ?1034. Whether Meta should set the high bit / prefix ESC.
+    pub fn meta_sends_escape(&self) -> bool {
+        self.modes.is_set(ModeBit::MetaSendsEscape)
+    }
+
+    /// DECCOLM ?3. Whether the application asked for 132 columns.
+    ///
+    /// baud does **not** resize itself: geometry is caller-owned through
+    /// [`Term::resize`], and resizing behind the caller would desynchronise it
+    /// from the application. The clear, margin reset and cursor home that
+    /// DECCOLM mandates *do* happen.
+    pub fn column_mode(&self) -> bool {
+        self.modes.is_set(ModeBit::Column132)
     }
 
     /// DECSET ?2026. While set, a renderer should keep showing the last
@@ -147,6 +257,28 @@ impl<'a> Term<'a> {
             PrivateMode::Origin => bit_state(self.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.modes, ModeBit::AutoWrap),
             PrivateMode::LeftRightMargin => bit_state(self.modes, ModeBit::SideMargins),
+            PrivateMode::AnsiMode => match self.terminal_mode {
+                TerminalMode::Ansi => ModeState::Set,
+                TerminalMode::Vt52 => ModeState::Reset,
+            },
+            PrivateMode::CursorKeys => bit_state(self.modes, ModeBit::CursorKeys),
+            PrivateMode::SmoothScroll => bit_state(self.modes, ModeBit::SmoothScroll),
+            PrivateMode::ReverseVideo => bit_state(self.modes, ModeBit::ReverseVideo),
+            PrivateMode::AutoRepeat => bit_state(self.modes, ModeBit::AutoRepeat),
+            PrivateMode::MetaSendsEscape => bit_state(self.modes, ModeBit::MetaSendsEscape),
+            PrivateMode::ReverseWrap => bit_state(self.modes, ModeBit::ReverseWrap),
+            PrivateMode::Column132 => bit_state(self.modes, ModeBit::Column132),
+            PrivateMode::CursorBlink => {
+                if self.cursor_style.blinks() {
+                    ModeState::Set
+                } else {
+                    ModeState::Reset
+                }
+            }
+            PrivateMode::AltScreenLegacy => match self.screen {
+                Screen::Alternate => ModeState::Set,
+                Screen::Normal => ModeState::Reset,
+            },
             PrivateMode::CursorVisible => bit_state(self.modes, ModeBit::CursorVisible),
             PrivateMode::BracketedPaste => bit_state(self.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => bit_state(self.modes, ModeBit::SynchronizedOutput),

@@ -136,6 +136,20 @@ pub enum ModeBit {
     /// the bit a pasted newline executes as typed input, which is the
     /// paste-jacking class rather than a cosmetic gap.
     BracketedPaste,
+    /// DECCKM ?1. Read by an embedder to decide what the arrow keys send.
+    CursorKeys,
+    /// DECSCLM ?4. A rendering hint: scroll smoothly rather than by a line.
+    SmoothScroll,
+    /// DECSCNM ?5. Reverse video across the whole screen.
+    ReverseVideo,
+    /// DECARM ?8. Keyboard auto-repeat.
+    AutoRepeat,
+    /// ?45. Reverse wraparound: backspace at the left margin moves up a line.
+    ReverseWrap,
+    /// ?1034. Meta sets the high bit / sends ESC. Input-side.
+    MetaSendsEscape,
+    /// ?3. 132-column mode requested.
+    Column132,
     /// DECSET ?2026. Read by the renderer to hold the frame.
     ///
     /// A *hint*: ignoring it is correct-but-worse, so an embedder that never
@@ -147,7 +161,18 @@ impl ModeBit {
     const fn bit(self) -> u16 {
         1 << (self as u16)
     }
+    /// The highest-numbered variant. Update when adding one -- the assertion
+    /// below is what makes forgetting a compile error.
+    const LAST: ModeBit = ModeBit::Column132;
 }
+
+/// `Modes` is a `u16`, so a 17th mode bit would shift off the end: `1u16 << 16`
+/// panics in debug and yields nothing useful in release, and the mode would
+/// simply stop working with no diagnostic. Widen `Modes` before adding one.
+const _: () = assert!(
+    (ModeBit::LAST as u16) < 16,
+    "ModeBit has outgrown the u16 bitset in Modes -- widen Modes to u32"
+);
 
 /// Terminal mode state as a bitset.
 ///
@@ -195,6 +220,31 @@ pub enum PrivateMode {
     SynchronizedOutput, // ?2026
     /// DECLRMM, `?69`. Left/right margin mode.
     LeftRightMargin,
+    /// DECANM, `?2`. **Reset** enters VT52 mode; set returns to ANSI.
+    ///
+    /// The polarity is the trap: `CSI ? 2 l` is the sequence that *enters* a
+    /// different protocol.
+    AnsiMode,
+    /// DECCKM, `?1`. Cursor keys send application sequences. Input-side.
+    CursorKeys,
+    /// DECCOLM, `?3`. 132-column mode.
+    Column132,
+    /// DECSCLM, `?4`. Smooth (slow) scroll. A rendering hint.
+    SmoothScroll,
+    /// DECSCNM, `?5`. Reverse video across the whole screen.
+    ReverseVideo,
+    /// DECARM, `?8`. Keyboard auto-repeat. Input-side.
+    AutoRepeat,
+    /// `?12`. Cursor blink -- the other axis of DECSCUSR.
+    CursorBlink,
+    /// `?45`. Reverse wraparound: backspace at the left margin wraps up.
+    ReverseWrap,
+    /// `?47`. The pre-1049 alternate screen: switches buffers but does **not**
+    /// save or restore the cursor, which `?1049` added precisely because
+    /// applications kept getting it wrong.
+    AltScreenLegacy,
+    /// `?1034`. Meta sends escape. Input-side.
+    MetaSendsEscape,
     /// `?1000` normal tracking.
     MouseNormal,
     /// `?1002` button-event tracking (adds motion while a button is down).
@@ -212,7 +262,17 @@ impl PrivateMode {
             6 => PrivateMode::Origin,
             7 => PrivateMode::AutoWrap,
             25 => PrivateMode::CursorVisible,
+            1 => PrivateMode::CursorKeys,
+            2 => PrivateMode::AnsiMode,
+            3 => PrivateMode::Column132,
+            4 => PrivateMode::SmoothScroll,
+            5 => PrivateMode::ReverseVideo,
+            8 => PrivateMode::AutoRepeat,
+            12 => PrivateMode::CursorBlink,
+            45 => PrivateMode::ReverseWrap,
+            47 => PrivateMode::AltScreenLegacy,
             69 => PrivateMode::LeftRightMargin,
+            1034 => PrivateMode::MetaSendsEscape,
             1000 => PrivateMode::MouseNormal,
             1002 => PrivateMode::MouseButtonEvent,
             1003 => PrivateMode::MouseAnyEvent,

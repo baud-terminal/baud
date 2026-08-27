@@ -86,10 +86,21 @@ impl<'a> Term<'a> {
         }
 
         // ESC Fe: two bytes, no parameters.
-        let known = matches!(
-            second.raw_byte(),
-            b'7' | b'8' | b'M' | b'D' | b'E' | b'c' | b'=' | b'>'
-        );
+        //
+        // **Not in VT52 mode.** These bytes mean different things there --
+        // `ESC D` is IND here and cursor-left in VT52 -- so this path must
+        // decline and let the state machine, which knows the mode, dispatch it.
+        // Without this the fast path silently answered in the wrong protocol
+        // whenever a sequence happened to land inside one read: the exact
+        // two-feeds divergence this file has had before.
+        // Belt and braces: the caller already skips this path in VT52 mode.
+        // Kept because `fast_esc` is `pub(crate)` and a future caller might
+        // not.
+        let known = self.terminal_mode == TerminalMode::Ansi
+            && matches!(
+                second.raw_byte(),
+                b'7' | b'8' | b'M' | b'D' | b'E' | b'c' | b'=' | b'>'
+            );
         if known {
             self.esc_fe(second); // one implementation, both paths
             self.fast_hits.inc();
@@ -234,6 +245,10 @@ impl<'a> Term<'a> {
             }
             // complete CSI sequences are handled in bulk; anything straddling
             // the read boundary falls through to the state machine.
+            // No VT52 check here, deliberately. VT52 has its own ground state
+            // (`State::Vt52Ground`), so `st == Ground` already excludes it and
+            // the ANSI path pays nothing. An explicit mode test in this loop
+            // cost 4% of the cells path -- see `State::Vt52Ground`.
             if self.st == State::Ground
                 && StreamByte::from_stream(self.s.arena[b + i]) == StreamByte::ESC
             {

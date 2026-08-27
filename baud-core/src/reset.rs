@@ -12,6 +12,7 @@ impl<'a> Term<'a> {
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
         self.keypad = KeypadMode::Numeric;
+        self.set_terminal_mode(TerminalMode::Ansi);
         self.mouse = MouseTracking::Off;
         self.mouse_encoding = MouseEncoding::None;
         self.g = [Charset::Ascii; 4];
@@ -37,6 +38,7 @@ impl<'a> Term<'a> {
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
         self.keypad = KeypadMode::Numeric;
+        self.set_terminal_mode(TerminalMode::Ansi);
         self.mouse = MouseTracking::Off;
         self.mouse_encoding = MouseEncoding::None;
         self.g = [Charset::Ascii; 4];

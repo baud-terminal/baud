@@ -35,17 +35,44 @@ impl<'a> Term<'a> {
         self.view().fill(rr, f, t, b);
     }
 
+    /// ED. **The cursor's own row is erased only partially.**
+    ///
+    /// `[[source: ecma48]]` 8.3.39: for `Ps = 0`, "the active presentation
+    /// position and the character positions up to the end of the page are put
+    /// into the erased state"; for `Ps = 1`, "the character positions from the
+    /// beginning of the page up to and including the active presentation
+    /// position". The split is at the *cursor*, not at the row boundary.
+    ///
+    /// This erased whole rows, so `CSI 0 J` with the cursor mid-line destroyed
+    /// the text to its left — text the application had every reason to believe
+    /// was safe. It was found by a VT52 test (`ESC J` is the same operation)
+    /// after reading the spec, not by any of the existing ED tests, which only
+    /// ever erased from column 0.
     pub(crate) fn erase_display(&mut self, e: EraseExtent) {
-        let (lo, hi) = match e {
-            EraseExtent::ToEnd => (self.cy.index(), self.rows.index()),
-            EraseExtent::ToStart => (0, self.cy.index() + 1),
-            EraseExtent::All => (0, self.rows.index()),
-        };
+        self.promote_if_runs();
         let b = PackedCell::empty_with(self.style);
+        let (cy, rows, cols) = (self.cy.index(), self.rows.index(), self.cols);
+        // Whole rows away from the cursor's row.
+        let (lo, hi) = match e {
+            EraseExtent::ToEnd => (cy + 1, rows),
+            EraseExtent::ToStart => (0, cy),
+            EraseExtent::All => (0, rows),
+        };
         for y in lo..hi {
             self.view().fill_row(Row::from_index(y), b);
             self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
             self.s.promoted[y] = true;
+        }
+        // The cursor's row, split at the cursor.
+        if e != EraseExtent::All {
+            let (from, to) = match e {
+                EraseExtent::ToEnd => (self.cx, Col::at_index(cols.index())),
+                _ => (Col::ZERO, self.cx.after()),
+            };
+            let r = self.cy;
+            self.view().fill(r, from, to, b);
+            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            self.s.promoted[cy] = true;
         }
     }
 
@@ -108,22 +135,43 @@ impl<'a> Term<'a> {
     }
 
     /// DECSED, `CSI ? Ps J`. Same rule, over the display.
+    ///
+    /// Splits at the cursor for the same reason [`Term::erase_display`] does,
+    /// and had the same bug: it erased the cursor's whole row, including the
+    /// text to the left of it.
     pub(crate) fn selective_erase_display(&mut self, e: EraseExtent) {
+        self.promote_if_runs();
+        let (cy, rows, cols) = (self.cy.index(), self.rows.index(), self.cols.index());
         let (lo, hi) = match e {
-            EraseExtent::ToEnd => (self.cy.index(), self.rows.index()),
-            EraseExtent::ToStart => (0, self.cy.index() + 1),
-            EraseExtent::All => (0, self.rows.index()),
+            EraseExtent::ToEnd => (cy + 1, rows),
+            EraseExtent::ToStart => (0, cy),
+            EraseExtent::All => (0, rows),
         };
-        let blank = PackedCell::empty_with(self.style);
         for y in lo..hi {
-            let r = Row::from_index(y);
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
-            for x in 0..self.cols.index() {
-                let c = Col::at_index(x);
-                if !self.is_protected(r, c) {
-                    self.view().put(r, c, blank);
-                }
+            self.selective_wipe(Row::from_index(y), Col::ZERO, Col::at_index(cols));
+        }
+        if e != EraseExtent::All {
+            let (from, to) = match e {
+                EraseExtent::ToEnd => (self.cx, Col::at_index(cols)),
+                _ => (Col::ZERO, Col::at_index((self.cx.index() + 1).min(cols))),
+            };
+            self.selective_wipe(self.cy, from, to);
+        }
+    }
+
+    /// Erase the unprotected cells of one row across a half-open column span.
+    ///
+    /// Typed rather than three `usize`s: a row index and two column indices are
+    /// three different quantities, and passing them in the wrong order compiles
+    /// perfectly. The audit refused the `usize` version, correctly.
+    fn selective_wipe(&mut self, r: Row, from: Col, to: Col) {
+        let blank = PackedCell::empty_with(self.style);
+        self.s.promoted[r.index()] = true;
+        self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+        for x in from.index()..to.index() {
+            let c = Col::at_index(x);
+            if !self.is_protected(r, c) {
+                self.view().put(r, c, blank);
             }
         }
     }

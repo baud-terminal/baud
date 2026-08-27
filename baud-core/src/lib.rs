@@ -27,7 +27,7 @@ pub use baud_domain::{
     MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params,
     Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row, RowBlock, Rows, Run,
     RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, SubParams,
-    Utf8Acc, View, Width, WinSize, XColor,
+    TerminalMode, Utf8Acc, View, Vt52, Vt52Coord, Width, WinSize, XColor,
 };
 
 mod charset;
@@ -48,6 +48,7 @@ mod style;
 mod tabs;
 mod term;
 mod text;
+mod vt52;
 
 pub(crate) use parse::*;
 pub(crate) use scan::*;

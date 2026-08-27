@@ -116,6 +116,21 @@ impl CursorStyle {
             CursorStyle::SteadyBar => 6,
         }
     }
+    /// The same shape with blinking turned on or off.
+    ///
+    /// `?12` reaches the blink axis by a different route from DECSCUSR, and
+    /// must not change the *shape* on the way — which a plain assignment would.
+    pub fn with_blink(self, on: bool) -> CursorStyle {
+        use CursorStyle::*;
+        match (self, on) {
+            (BlinkingBlock | SteadyBlock, true) => BlinkingBlock,
+            (BlinkingBlock | SteadyBlock, false) => SteadyBlock,
+            (BlinkingUnderline | SteadyUnderline, true) => BlinkingUnderline,
+            (BlinkingUnderline | SteadyUnderline, false) => SteadyUnderline,
+            (BlinkingBar | SteadyBar, true) => BlinkingBar,
+            (BlinkingBar | SteadyBar, false) => SteadyBar,
+        }
+    }
     pub fn blinks(self) -> bool {
         matches!(
             self,

@@ -11,7 +11,12 @@ impl<'a> Term<'a> {
         };
         match Csi::parse_with(marker, self.csi_inter, p, f, lrm) {
             Csi::SoftReset => self.soft_reset(),
-            Csi::PrivateMode { change, mode } => self.set_private_mode(mode, change.is_set()),
+            // `CSI ? 1 ; 3 ; 4 ; 6 l` sets *four* modes, and rxvt's own reset
+            // string is exactly that. Reading only the first parameter left the
+            // rest silently unset -- `CSI ? 7 ; 25 l` reset autowrap and left
+            // the cursor visible. Parameters are copied out first because
+            // `set_private_mode` takes `&mut self`.
+            Csi::PrivateMode { change, .. } => self.apply_private_modes(change),
             // `[[source: vt510-decsca]]`: "Ps defines all characters that
             // follow the DECSCA function as erasable or not erasable". It does
             // not repaint anything already on screen, and it does not touch the
@@ -133,9 +138,14 @@ impl<'a> Term<'a> {
             Csi::ScrollUp(c) => self.scroll_region_up(c),
             Csi::ScrollDown(c) => self.scroll_region_down(c),
             Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
-            Csi::Mode { change, mode } => self.set_ansi_mode(mode, change.is_set()),
+            Csi::Mode { change, .. } => self.apply_ansi_modes(change),
             Csi::Sgr => self.apply_sgr(),
-            _ => {}
+            // Recognised as a CSI and not acted on -- countable, not silent.
+            //
+            // No `_` arm: every variant is now named, so adding one to `Csi`
+            // without handling it here is a compile error rather than a silent
+            // drop. That is the `parsed` failure prevented structurally.
+            Csi::Unsupported { .. } => self.unsupported.inc(),
         }
     }
 
@@ -179,7 +189,7 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub(crate) fn control(&mut self, b: StreamByte) {
         match self.st {
-            State::Ground => {
+            State::Ground | State::Vt52Ground => {
                 if b == StreamByte::ESC {
                     self.st = State::Escape;
                 } else if b.is_c0() || b == StreamByte::BEL {
@@ -199,7 +209,7 @@ impl<'a> Term<'a> {
                 Some(bits) => {
                     let acc = acc.push(bits);
                     if remaining.is_last() {
-                        self.st = State::Ground;
+                        self.st = self.ground();
                         let c = acc.finish();
                         self.put_cp(c, Width::of(c));
                     } else {
@@ -210,13 +220,32 @@ impl<'a> Term<'a> {
                     }
                 }
                 None => {
-                    self.st = State::Ground;
+                    self.st = self.ground();
                     self.replacements.inc();
                     self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
                     self.control(b);
                 }
             },
             State::Escape => {
+                // In VT52 mode the escape table is a different protocol, not a
+                // subset of this one: `ESC D` is cursor-left there and IND
+                // here.
+                //
+                // **Strictly VT52, including `ESC [`.** A VT52 has no CSI, so
+                // allowing one here would be inventing a hybrid terminal that
+                // never existed and that no application targets. The cost is
+                // real and worth stating: the *only* ways out are `ESC <` and
+                // a host-side reset, so a program that enters VT52 and dies
+                // leaves the terminal there. That is how the hardware behaved
+                // and how xterm behaves; `reset(1)` sending `ESC c` does not
+                // help, because `ESC c` is not a VT52 sequence either.
+                if self.terminal_mode == TerminalMode::Vt52 {
+                    self.vt52_dispatch(b);
+                    if self.st == State::Escape {
+                        self.st = self.ground();
+                    }
+                    return;
+                }
                 if b == StreamByte::CSI_INTRO {
                     self.params = [None; 16];
                     self.nparam = ParamIdx::FIRST;
@@ -250,7 +279,7 @@ impl<'a> Term<'a> {
                     // paths must be indistinguishable; `feed_matches_feed_avx2`
                     // in the property suite asserts it.
                     self.esc_fe(b);
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 }
             }
             State::EscapeIntermediate => {
@@ -272,7 +301,7 @@ impl<'a> Term<'a> {
                         }
                         None => {}
                     }
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 }
             }
             // `[[source: williams]]`'s dcs_entry / dcs_param / dcs_intermediate.
@@ -317,7 +346,7 @@ impl<'a> Term<'a> {
                     self.st = State::DcsEsc;
                 } else if b == StreamByte::BEL {
                     self.dispatch_dcs();
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else {
                     self.osc_push(b);
                 }
@@ -328,13 +357,13 @@ impl<'a> Term<'a> {
                     // cancel are the same outcome here.
                     self.st = State::Escape;
                 } else if b == StreamByte::BEL {
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 }
             }
             State::DcsEsc => {
                 if b == StreamByte::ST_FINAL {
                     self.dispatch_dcs();
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else {
                     // `[[source: williams]]`: a bare ESC cancels the control
                     // string. The payload is dropped, not acted on.
@@ -344,11 +373,20 @@ impl<'a> Term<'a> {
                     self.control(b);
                 }
             }
+            // `ESC Y row col` — two bias-0x20 coordinate bytes, collected
+            // here because they are parser state, not parameters.
+            State::Vt52Row => {
+                self.st = State::Vt52Col(Vt52Coord::from_wire(b));
+            }
+            State::Vt52Col(row) => {
+                self.vt52_address(row, b);
+                self.st = self.ground();
+            }
             State::OscEsc => {
                 if b == StreamByte::ST_FINAL {
                     self.osc_term = StringTerm::St;
                     self.dispatch_osc();
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else {
                     // `[[source: williams]]`: "receiving the ESC character will
                     // cancel the control string". The payload is dropped, not
@@ -364,7 +402,7 @@ impl<'a> Term<'a> {
                 // the next byte is the ST backslash or a fresh sequence, so a
                 // truncated string cannot swallow what follows it forever.
                 if b == StreamByte::BEL {
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else if b == StreamByte::ESC {
                     self.st = State::Escape;
                 }
@@ -372,7 +410,7 @@ impl<'a> Term<'a> {
             State::CsiIntermediate => {
                 if let Some(f) = FinalByte::from_stream(b) {
                     self.dispatch(f);
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else if !b.is_csi_intermediate() {
                     self.st = State::CsiIgnore;
                 }
@@ -382,7 +420,7 @@ impl<'a> Term<'a> {
                 if b.is_c0() {
                     self.execute(b);
                 } else if FinalByte::from_stream(b).is_some() {
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 }
             }
             State::CsiParams => {
@@ -412,7 +450,7 @@ impl<'a> Term<'a> {
                     self.private = Marker::Gt;
                 } else if let Some(f) = FinalByte::from_stream(b) {
                     self.dispatch(f);
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else if b.is_csi_intermediate() {
                     self.csi_inter = Some(b);
                     self.st = State::CsiIntermediate;
@@ -427,7 +465,7 @@ impl<'a> Term<'a> {
                 if b == StreamByte::BEL {
                     self.osc_term = StringTerm::Bel;
                     self.dispatch_osc();
-                    self.st = State::Ground;
+                    self.st = self.ground();
                 } else if b == StreamByte::ESC {
                     self.st = State::OscEsc;
                 } else {
@@ -469,7 +507,7 @@ impl<'a> Term<'a> {
                 let x = self.cx.index();
                 self.s.tabs[x] = true;
             }
-            Esc::Unsupported => {}
+            Esc::Unsupported => self.unsupported.inc(),
         }
     }
 }

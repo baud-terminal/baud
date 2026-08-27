@@ -70,12 +70,25 @@ fn decrqm_follows_the_mode() {
 /// answer that dropped the `?` would be read as an answer about IRM.
 #[test]
 fn decrqm_keeps_the_namespaces_apart() {
-    assert_eq!(replies(b"\x1b[4$p"), b"\x1b[4;2$y", "IRM, reset");
+    // `CSI 4` is IRM; `CSI ? 4` is DECSCLM. Both are implemented, and they are
+    // unrelated modes that happen to share a number — so setting one must not
+    // move the other. This used to assert `? 4` was unrecognised, which was
+    // only true while DECSCLM was missing; asserting independence instead
+    // survives implementing it and is the stronger property anyway.
+    assert_eq!(replies(b"\x1b[4$p"), b"\x1b[4;2$y", "IRM starts reset");
     assert_eq!(
         replies(b"\x1b[?4$p"),
-        b"\x1b[?4;0$y",
-        "DECSCLM is not implemented, so: not recognized"
+        b"\x1b[?4;2$y",
+        "DECSCLM starts reset"
     );
+
+    // Set the ANSI one; the private one must not move.
+    assert_eq!(replies(b"\x1b[4h\x1b[4$p"), b"\x1b[4;1$y");
+    assert_eq!(replies(b"\x1b[4h\x1b[?4$p"), b"\x1b[?4;2$y");
+
+    // Set the private one; the ANSI one must not move.
+    assert_eq!(replies(b"\x1b[?4h\x1b[?4$p"), b"\x1b[?4;1$y");
+    assert_eq!(replies(b"\x1b[?4h\x1b[4$p"), b"\x1b[4;2$y");
 }
 
 /// A mode baud does not implement answers 0, "not recognized".

@@ -93,6 +93,7 @@ without these.
 | `ESC c` | RIS full reset | done |
 | `ESC H` | HTS set tab stop | done |
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
+| `CSI ? 2 l` | DECANM — enter VT52 | done — see [protocols/vt52.md](protocols/vt52.md) |
 | `ESC # 8` | DECALN screen alignment | done |
 | `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph table blocked, see below |
 
@@ -134,7 +135,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
 | `CSI r` | DECSTBM scroll region | done |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
-| `CSI ? h` / `CSI ? l` | DECSET / DECRST | partial — DECOM, DECAWM, DECTCEM act; the rest inert by decision |
+| `CSI ? h` / `CSI ? l` | DECSET / DECRST | done — 20 modes act; multi-parameter forms apply every one |
 
 ### SGR
 

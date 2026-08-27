@@ -147,6 +147,8 @@ pub struct Term<'a> {
     /// reads it -- the keypad sends different sequences in each mode, and
     /// without it an embedder has no way to know which.
     pub(crate) keypad: KeypadMode,
+    /// ANSI or VT52. DECANM, `CSI ? 2 l` enters VT52.
+    pub(crate) terminal_mode: TerminalMode,
     /// Which mouse events the application asked to hear about, `?1000/2/3`.
     pub(crate) mouse: MouseTracking,
     /// The negotiated encoding. Without one baud reports nothing -- see
@@ -157,6 +159,15 @@ pub struct Term<'a> {
     /// Counted rather than silent: an application that enables tracking and
     /// gets nothing back should be diagnosable from the outside.
     pub mouse_unencodable: Stat,
+    /// Sequences the parser recognised and did **not** act on.
+    ///
+    /// This is the `parsed` failure made countable. `docs/vt-coverage.md` calls
+    /// a sequence that is accepted, does nothing, and gives the application no
+    /// way to find out "worse than one that is not implemented" -- but until
+    /// now nothing could observe it happening. `tests/conformance/` asserts
+    /// this stays zero while replaying every output capability of the terminfo
+    /// entries baud claims.
+    pub unsupported: Stat,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -251,9 +262,11 @@ impl<'a> Term<'a> {
             screen: Screen::Normal,
             alt_saved: None,
             keypad: KeypadMode::Numeric,
+            terminal_mode: TerminalMode::Ansi,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::None,
             mouse_unencodable: Stat::ZERO,
+            unsupported: Stat::ZERO,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             link: LinkId::NONE,

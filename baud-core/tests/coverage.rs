@@ -67,12 +67,22 @@ fn every_done_row_is_mentioned_by_a_test() {
     .expect("docs/vt-coverage.md must be readable from the test");
 
     // All test sources, concatenated once.
+    // **Recursive.** Tests live in per-protocol directories now
+    // (`tests/vt100/`, `tests/xterm/`, ...), so a flat `read_dir` would see
+    // four cross-cutting files and report almost every row uncovered. It did
+    // exactly that when the directories landed — which is the check working:
+    // it failed loudly rather than quietly measuring nothing.
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
     let mut corpus = String::new();
-    for e in fs::read_dir(dir).expect("tests/ must be readable") {
-        let p = e.expect("dir entry").path();
-        if p.extension().is_some_and(|x| x == "rs") {
-            corpus.push_str(&fs::read_to_string(&p).expect("test source"));
+    let mut stack = vec![std::path::PathBuf::from(dir)];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d).unwrap_or_else(|err| panic!("{}: {err}", d.display())) {
+            let p = e.expect("dir entry").path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                corpus.push_str(&fs::read_to_string(&p).expect("test source"));
+            }
         }
     }
     let corpus = corpus.to_ascii_uppercase();

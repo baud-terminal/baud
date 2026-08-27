@@ -248,3 +248,153 @@ sha256 = "046ada33ba8965e9dd42da546784c4166720e8c4ea6bb58e35b0e21a5ad271e8"
 bytes  = 19614
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-decanm]
+key    = "vt510-decanm"
+title  = "DECANM — ANSI Mode / VT52 escape sequences (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECANM.html"
+file   = "vt510-DECANM.html"
+sha256 = "ecbd337390361787faf15e3ce7f6148f91b74c3690bd42d96786e55ff7d68566"
+bytes  = 20751
+status = "retrieved"
+group  = "C"
+
+# ── terminfo fixtures ──────────────────────────────────────────────────
+# `infocmp -1` output from ncurses 6.0.20150808, captured verbatim. These
+# are the conformance targets: `baud-core/tests/conformance/` replays every
+# output capability of each entry and requires baud to drop none of them.
+# A $TERM value is a capability *profile*, not a protocol -- xterm-256color
+# is xterm with a different colour capability, not a different parser.
+
+[sources.terminfo-ansi]
+key    = "terminfo-ansi"
+title  = "terminfo entry: ansi"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/ansi.ti"
+sha256 = "ff273cfa1907a692f0e14dea28440c34a2114f1b62014054ee8a015f15dd0ffb"
+bytes  = 1393
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-dtterm]
+key    = "terminfo-dtterm"
+title  = "terminfo entry: dtterm"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/dtterm.ti"
+sha256 = "82537170f1fee27b6c29b36d7d4064eb4b5fd2ed2fc668a49b0abef4f10e00e4"
+bytes  = 1586
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-nsterm]
+key    = "terminfo-nsterm"
+title  = "terminfo entry: nsterm"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/nsterm.ti"
+sha256 = "86839adac228ec525e271b23874829946ffb08b1cb736129ff067fbf86664636"
+bytes  = 1986
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-rxvt]
+key    = "terminfo-rxvt"
+title  = "terminfo entry: rxvt"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/rxvt.ti"
+sha256 = "1bc72c1e0192dce2ddc2420977fe7c9c63461f1cce6f7b53d6bfe9e1d9e798bf"
+bytes  = 2405
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-vt100]
+key    = "terminfo-vt100"
+title  = "terminfo entry: vt100"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/vt100.ti"
+sha256 = "6eedd89badb47adfed39cdaa1f9a9f0afd304db85272be22358b4873fa384ead"
+bytes  = 1265
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-vt102]
+key    = "terminfo-vt102"
+title  = "terminfo entry: vt102"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/vt102.ti"
+sha256 = "d7e07673399c5a7ba5717e8187a16881d72a987c13e009a28b64d9cec1332773"
+bytes  = 1297
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-vt52]
+key    = "terminfo-vt52"
+title  = "terminfo entry: vt52"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/vt52.ti"
+sha256 = "93594ae44fc5b3657540d007283e68eb05bf305c4b407abd39b7f6a7b0cc0c1e"
+bytes  = 393
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-xterm-16color]
+key    = "terminfo-xterm-16color"
+title  = "terminfo entry: xterm-16color"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/xterm-16color.ti"
+sha256 = "8119b8aedb65bbdcfe3d4bcaa9085ac8768d3685c64b6bb3b8c13e387bb27d9e"
+bytes  = 3220
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-xterm-256color]
+key    = "terminfo-xterm-256color"
+title  = "terminfo entry: xterm-256color"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/xterm-256color.ti"
+sha256 = "ec52a7879f3b6a857c0cabad5be0caee3558ff06c8363e405ca4aaed1617b7f4"
+bytes  = 3032
+status = "retrieved"
+group  = "C"
+
+[sources.terminfo-xterm]
+key    = "terminfo-xterm"
+title  = "terminfo entry: xterm"
+author = "ncurses 6.0.20150808 (infocmp -1)"
+year   = 2015
+venue  = "ncurses terminfo database"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/xterm.ti"
+sha256 = "030ca24cf4d216ed60b22a260cf7c80825934720254add5e2ace1e4454e6125c"
+bytes  = 2966
+status = "retrieved"
+group  = "C"
