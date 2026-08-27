@@ -257,7 +257,15 @@ impl<'a> View<'a> {
     /// measurement that says this loop's shape is worth 25%. Changing it needs a
     /// benchmark, not a lint fix.
     #[allow(clippy::needless_range_loop)]
-    pub fn put_ascii_run(&mut self, r: Row, at: Col, src: &[u8], style: StyleId, flags: CellFlags) {
+    pub fn put_ascii_run(
+        &mut self,
+        r: Row,
+        at: Col,
+        src: &[u8],
+        style: StyleId,
+        flags: CellFlags,
+        set: Charset,
+    ) {
         if r.index() >= self.rows.index() {
             return;
         }
@@ -277,19 +285,11 @@ impl<'a> View<'a> {
         // is hoisted out of the loop and the cost falls on the programs that
         // actually ask for protection. Same shape as the AutoWrap hoist in
         // `baud-core`, and for the same measured reason.
-        if flags == CellFlags::NONE {
-            let proto = PackedCell {
-                content: Content::EMPTY,
-                style,
-                flags: CellFlags::NONE,
-            };
-            for z in 0..n {
-                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
-            }
-        } else if flags.is_graphics() {
-            // A third loop, hoisted for the same measured reason as the second:
-            // `ESC ( 0` is rarer still than DECSCA, so the table lookup lands
-            // on the programs that draw boxes and nowhere else.
+        // The charset is tested *first*. `flags == NONE` was, and a national
+        // set sets no flag -- only the line-drawing set has one -- so UK and
+        // German text took the ASCII fast path and was never translated. The
+        // graphics set worked only because `refresh_flags` gives it a flag.
+        if set != Charset::Ascii {
             let proto = PackedCell {
                 content: Content::EMPTY,
                 style,
@@ -297,7 +297,16 @@ impl<'a> View<'a> {
             };
             for z in 0..n {
                 self.cells[base + start + z] =
-                    proto.with_dec_graphics(StreamByte::from_stream(src[z]));
+                    proto.with_charset(StreamByte::from_stream(src[z]), set);
+            }
+        } else if flags == CellFlags::NONE {
+            let proto = PackedCell {
+                content: Content::EMPTY,
+                style,
+                flags: CellFlags::NONE,
+            };
+            for z in 0..n {
+                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
             }
         } else {
             let proto = PackedCell {

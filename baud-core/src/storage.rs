@@ -90,8 +90,9 @@ impl Storage {
             len: ByteLen::ZERO,
             style: StyleId::DEFAULT,
             encoding: 0,
+            charset: 0,
             flags: 0,
-            _pad: [0; 2],
+            _pad: [0; 1],
         };
         const C: PackedCell = PackedCell::EMPTY;
         Storage {

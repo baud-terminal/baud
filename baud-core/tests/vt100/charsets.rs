@@ -496,3 +496,109 @@ fn the_line_drawing_table_covers_the_whole_set() {
         );
     }
 }
+
+// ── national replacement sets, translated ───────────────────────────────────
+
+/// **The national sets substitute, they do not merely get named.**
+///
+/// Out with the reason "no machine-readable source for the per-language
+/// substitutions". `[[source: xterm-charsets]]` has them, as `MAP`/`UNI`
+/// macros carrying the Unicode codepoint — 14 sets, 162 substitutions — and
+/// they are cited as xterm's judgement rather than as DEC's, the same way the
+/// line-drawing table is cited as foot's.
+#[test]
+fn the_national_sets_substitute() {
+    // The canonical one: `#` is `£` in the United Kingdom set.
+    let (g, _) = run(b"\x1b(A#");
+    assert_eq!(
+        g[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x00a3),
+        "UK maps 0x23 to POUND SIGN"
+    );
+    // German: `[` is `Ä`, `~` is `ß`.
+    let (g, _) = run(b"\x1b(K[");
+    assert_eq!(
+        g[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x00c4),
+        "German maps 0x5B to A WITH DIAERESIS"
+    );
+    // French: `#` is `£` too, but `@` is `à`.
+    let (g, _) = run(b"\x1b(R@");
+    assert_eq!(
+        g[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x00e0),
+        "French maps 0x40 to A WITH GRAVE"
+    );
+}
+
+/// A byte the set does not replace is itself.
+#[test]
+fn an_unreplaced_byte_is_ascii_under_a_national_set() {
+    let (g, _) = run(b"\x1b(Kx");
+    assert_eq!(
+        g[0].content.as_codepoint().map(|c| c.value()),
+        Some(u32::from(b'x')),
+        "German replaces a handful of positions, not the alphabet"
+    );
+}
+
+/// **The set travels with the run, not with the terminal.**
+///
+/// `OpMode::Runs` stores bytes and materialises them later, so a line written
+/// under German and promoted after the designation changed would be translated
+/// with whatever set was current. `Run::charset` is why it is not — the same
+/// reason the run carries the protection bit.
+#[test]
+fn a_promoted_run_keeps_the_set_it_was_written_under() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Runs);
+    let feed = |t: &mut Term, b: &[u8]| {
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+    };
+    // Write under German, switch back to ASCII, then force materialisation.
+    //
+    // `MAXRUN` is 8, so a ninth run on the line promotes it -- and each run
+    // needs to be a real write, not just a cursor move. Writing nothing was the
+    // first version of this test, and in `OpMode::Runs` `row()` reports
+    // *representation*, so an unpromoted line reads blank and the assertion
+    // failed for the wrong reason. CLAUDE.md warns about exactly this.
+    feed(&mut t, b"\x1b(K[");
+    feed(&mut t, b"\x1b(B");
+    for col in 2..14u16 {
+        let mut b = b"\x1b[1;".to_vec();
+        b.extend_from_slice(col.to_string().as_bytes());
+        b.extend_from_slice(b"Hz");
+        feed(&mut t, &b);
+    }
+    let first = t.row(Row::from_index(0))[0]
+        .content
+        .as_codepoint()
+        .map(|c| c.value());
+    assert_eq!(
+        first,
+        Some(0x00c4),
+        "the `[` written under German is still A WITH DIAERESIS"
+    );
+}
+
+/// The generated tables match the pinned source.
+#[test]
+fn nrcs_tables_match_the_pinned_source() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-nrcs-tables.py"))
+        .arg("--check")
+        .current_dir(root)
+        .output()
+        .expect("python3 to run the generator");
+    assert!(
+        out.status.success(),
+        "nrcs_data.rs is stale -- rerun scripts/gen-nrcs-tables.py\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

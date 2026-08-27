@@ -121,6 +121,9 @@ impl<'a> Term<'a> {
         let abs = base.index() + off.index();
         let (r, c, st) = (self.cy, self.cx, self.style);
         let (stride, cols, rows) = (Cols::from_stride(MAX_COLS), self.cols, self.rows);
+        // Read before the split borrow below: `charset()` reads `self.g`, and
+        // the destructuring holds `self.s` mutably.
+        let set = self.charset();
         let (arena, vp) = (
             &self.s.arena,
             if self.screen == Screen::Alternate {
@@ -141,6 +144,7 @@ impl<'a> Term<'a> {
             &arena[abs..abs + room.index()],
             st,
             fl,
+            set,
         );
     }
 
@@ -213,8 +217,9 @@ impl<'a> Term<'a> {
                         len: ByteLen::from_room(room),
                         style: self.style,
                         encoding: 0,
+                        charset: self.charset().to_u8(),
                         flags: 0,
-                        _pad: [0; 2],
+                        _pad: [0; 1],
                     }
                     .with_encoding(Encoding::Ascii)
                     .with_flags(self.flags);
@@ -267,7 +272,16 @@ impl<'a> Term<'a> {
                 let b = StreamByte::from_stream(self.s.arena[o + z]);
                 let (rr, cc) = (Row::from_index(y), Col::at_index(c));
                 let (st, fl) = (run.style, run.flags());
-                self.view().put(rr, cc, PackedCell::from_wire(b, st, fl));
+                // The run's own set, not whatever is designated now: a line
+                // written under German and promoted later must still be German.
+                let set = Charset::from_u8(run.charset);
+                let cell = PackedCell {
+                    content: Content::EMPTY,
+                    style: st,
+                    flags: fl,
+                }
+                .with_charset(b, set);
+                self.view().put(rr, cc, cell);
                 c += 1;
             }
         }

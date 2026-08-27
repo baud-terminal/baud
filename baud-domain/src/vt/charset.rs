@@ -101,6 +101,48 @@ pub enum Nrcs {
     Hebrew,
 }
 
+impl Nrcs {
+    /// Dense index, for storing a [`Charset`] in one byte.
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Nrcs::Finnish => 0,
+            Nrcs::Swedish => 1,
+            Nrcs::German => 2,
+            Nrcs::FrenchCanadian => 3,
+            Nrcs::French => 4,
+            Nrcs::Italian => 5,
+            Nrcs::Spanish => 6,
+            Nrcs::Dutch => 7,
+            Nrcs::Swiss => 8,
+            Nrcs::NorwegianDanish => 9,
+            Nrcs::Portuguese => 10,
+            Nrcs::Greek => 11,
+            Nrcs::Turkish => 12,
+            Nrcs::Hebrew => 13,
+        }
+    }
+
+    pub fn from_u8(v: u8) -> Option<Nrcs> {
+        Some(match v {
+            0 => Nrcs::Finnish,
+            1 => Nrcs::Swedish,
+            2 => Nrcs::German,
+            3 => Nrcs::FrenchCanadian,
+            4 => Nrcs::French,
+            5 => Nrcs::Italian,
+            6 => Nrcs::Spanish,
+            7 => Nrcs::Dutch,
+            8 => Nrcs::Swiss,
+            9 => Nrcs::NorwegianDanish,
+            10 => Nrcs::Portuguese,
+            11 => Nrcs::Greek,
+            12 => Nrcs::Turkish,
+            13 => Nrcs::Hebrew,
+            _ => return None,
+        })
+    }
+}
+
 /// DEC-defined sets other than the line-drawing one, reachable through a single
 /// final byte. Same deferral: designated, recorded, not translated.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -134,6 +176,52 @@ pub enum DecSet {
 }
 
 impl Charset {
+    /// Recover the set a cell was written under from its flags.
+    ///
+    /// Only the line-drawing set has a flag of its own -- `CellFlags` has no
+    /// spare bits, the link index having taken them -- so this answers
+    /// `DecGraphics` or `Ascii`. The national sets reach the cell through
+    /// `Run::charset` instead, which is where a run records what it was
+    /// written under.
+    pub fn from_flags(f: CellFlags) -> Charset {
+        if f.is_graphics() {
+            Charset::DecGraphics
+        } else {
+            Charset::Ascii
+        }
+    }
+
+    /// The set as one byte, for storing in a [`Run`].
+    ///
+    /// A run has to carry it: `promote` replays stored bytes into cells long
+    /// after the designation that produced them, so a line written under
+    /// German and materialised later would otherwise be translated with
+    /// whatever set happened to be current. That is the same shape as the
+    /// protection bit, which the run carries for the same reason.
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Charset::Ascii => 0,
+            Charset::Uk => 1,
+            Charset::DecGraphics => 2,
+            Charset::Other => 3,
+            Charset::Dec(_) => 4,
+            Charset::National(n) => 16 + n.to_u8(),
+        }
+    }
+
+    /// The inverse. `Ascii` for anything unrecognised, which is the safe
+    /// direction: an unknown byte means "do not translate".
+    pub fn from_u8(v: u8) -> Charset {
+        match v {
+            1 => Charset::Uk,
+            2 => Charset::DecGraphics,
+            3 => Charset::Other,
+            4 => Charset::Dec(DecSet::Supplemental),
+            16.. => Nrcs::from_u8(v - 16).map_or(Charset::Ascii, Charset::National),
+            _ => Charset::Ascii,
+        }
+    }
+
     /// A designation whose final is preceded by a second intermediate:
     /// `ESC ( % 6` and friends.
     ///

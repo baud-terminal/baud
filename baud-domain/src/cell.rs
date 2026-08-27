@@ -272,10 +272,23 @@ impl PackedCell {
             style,
             flags,
         };
-        if flags.is_graphics() {
-            proto.with_dec_graphics(b)
-        } else {
-            proto.with_ascii(b)
+        proto.with_charset(b, Charset::from_flags(flags))
+    }
+
+    /// An ASCII byte under a named character set.
+    ///
+    /// **The one place a wire byte becomes a character.** Every set that
+    /// substitutes anything goes through here, so a path cannot honour DEC
+    /// graphics and forget Finnish -- which is exactly the shape `promote`
+    /// had before `from_wire` existed.
+    pub fn with_charset(self, b: StreamByte, set: Charset) -> PackedCell {
+        match set {
+            Charset::DecGraphics => self.with_dec_graphics(b),
+            Charset::Uk => self.with_nrcs(b, crate::uk_table()),
+            Charset::National(n) => self.with_nrcs(b, crate::nrcs_table(n)),
+            // ASCII, the DEC sets baud does not translate, and anything
+            // unrecognised: the byte stands for itself.
+            _ => self.with_ascii(b),
         }
     }
 
@@ -315,6 +328,22 @@ impl PackedCell {
     pub fn with_ascii(self, b: StreamByte) -> PackedCell {
         PackedCell {
             content: Content::codepoint(Codepoint::from_ascii(b)),
+            ..self
+        }
+    }
+
+    /// The same, under a national replacement set.
+    ///
+    /// Each set replaces a handful of ASCII positions and leaves the rest
+    /// alone, so an unlisted byte is itself.
+    pub fn with_nrcs(self, b: StreamByte, table: &[(u8, u32)]) -> PackedCell {
+        let v = b.raw_byte();
+        let cp = match table.iter().find(|(k, _)| *k == v) {
+            Some((_, cp)) => Codepoint::decoded(*cp),
+            None => Codepoint::from_ascii(b),
+        };
+        PackedCell {
+            content: Content::codepoint(cp),
             ..self
         }
     }

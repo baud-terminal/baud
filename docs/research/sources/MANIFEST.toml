@@ -596,3 +596,20 @@ sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
 bytes  = 143121
 status = "retrieved"
 group  = "C"
+
+# The per-language substitutions no DEC-authored source gives in
+# machine-readable form. **Cited as xterm's, not as DEC's** -- the macros carry
+# the Unicode codepoint alongside each replaced position, and 14 sets of them
+# is 162 substitutions nobody should transcribe by hand.
+[sources.xterm-charsets]
+key    = "xterm-charsets"
+title  = "xterm patch #411, charsets.h -- the NRCS mapping macros"
+author = "Thomas Dickey"
+year   = 2025
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h"
+file   = "xterm-charsets.h"
+sha256 = "a6c3be7bb162c771a73108a57522ea7af33e7539d1474384ddc5cd6204dc10b6"
+bytes  = 124637
+status = "retrieved"
+group  = "C"

@@ -86,6 +86,13 @@ pub struct Run {
     /// Held as `u8` because not every bit pattern is a valid variant — recover
     /// it with [`Run::encoding`], which is checked.
     pub encoding: u8,
+    /// [`Charset`] as a byte, from the padding this struct already carried.
+    ///
+    /// A run has to record what it was written under: `promote` replays it
+    /// into cells long after the designation, so a line written under German
+    /// and materialised later would otherwise be translated with whatever set
+    /// is current. Same reason the protection bit rides along.
+    pub charset: u8,
     /// [`CellFlags`] as a byte, for the same reason `encoding` is one: the
     /// struct crosses the mmap boundary and zerocopy will not take a type whose
     /// bit patterns are not all valid. Recover it with [`Run::flags`].
@@ -95,7 +102,7 @@ pub struct Run {
     /// dropped the flag would make protection depend on when the line happened
     /// to materialise.
     pub flags: u8,
-    pub _pad: [u8; 2],
+    pub _pad: [u8; 1],
 }
 
 impl Run {
