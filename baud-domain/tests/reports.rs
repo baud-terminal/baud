@@ -139,6 +139,33 @@ fn every_report_is_a_well_formed_csi() {
     }
 }
 
+/// An SGR mouse report, `CSI < Cb ; Px ; Py M`.
+///
+/// `[[source: ctlseqs]]`, SGR (1006): "CSI < followed by semicolon-separated
+/// encoded button value, Px and Py ordinates and a final character which is M
+/// for button press and m for button release."
+#[test]
+fn sgr_mouse_reports_have_the_documented_shape() {
+    assert_eq!(
+        enc(Report::MouseSgr {
+            cb: 0,
+            col: one(1),
+            row: one(1),
+            release: false
+        }),
+        b"\x1b[<0;1;1M"
+    );
+    assert_eq!(
+        enc(Report::MouseSgr {
+            cb: 35,
+            col: one(400),
+            row: one(42),
+            release: true
+        }),
+        b"\x1b[<35;400;42m"
+    );
+}
+
 /// The buffer is big enough for the longest report there is.
 ///
 /// `Report::MAX_LEN` is a fixed array size and a silent truncation there would
@@ -146,9 +173,13 @@ fn every_report_is_a_well_formed_csi() {
 /// for forever.
 #[test]
 fn report_encodings_fit() {
-    let widest = Report::CursorPosition {
-        row: one(65535),
+    // The mouse report is the long one: `ESC [ <` plus three five-digit
+    // fields and two separators and a final byte.
+    let widest = Report::MouseSgr {
+        cb: 65535,
         col: one(65535),
+        row: one(65535),
+        release: false,
     };
     let b = enc(widest);
     assert!(
@@ -157,6 +188,12 @@ fn report_encodings_fit() {
         b.len(),
         Report::MAX_LEN
     );
-    assert_eq!(*b.last().unwrap(), b'R', "the final byte survived");
-    assert_eq!(b, b"\x1b[65535;65535R");
+    assert_eq!(*b.last().unwrap(), b'M', "the final byte survived");
+    assert_eq!(b, b"\x1b[<65535;65535;65535M");
+    // And the CPR still fits, which was the previous widest.
+    let cpr = enc(Report::CursorPosition {
+        row: one(65535),
+        col: one(65535),
+    });
+    assert_eq!(cpr, b"\x1b[65535;65535R");
 }

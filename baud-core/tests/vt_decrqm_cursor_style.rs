@@ -85,11 +85,12 @@ fn decrqm_keeps_the_namespaces_apart() {
 /// believe it took effect.
 #[test]
 fn decrqm_says_not_recognized_for_unimplemented_modes() {
-    assert_eq!(
-        replies(b"\x1b[?1000$p"),
-        b"\x1b[?1000;0$y",
-        "mouse: not yet"
-    );
+    // `?1001` is highlight tracking, which baud deliberately does not
+    // implement: `[[source: ctlseqs]]` warns "this mode requires a cooperating
+    // program, else xterm will hang". `?1000` used to be the example here and
+    // moved to "reset" when mouse reporting landed -- which is the point of
+    // the answer being tracked rather than constant.
+    assert_eq!(replies(b"\x1b[?1001$p"), b"\x1b[?1001;0$y");
     assert_eq!(replies(b"\x1b[?9999$p"), b"\x1b[?9999;0$y");
     assert_eq!(replies(b"\x1b[99$p"), b"\x1b[99;0$y");
 }

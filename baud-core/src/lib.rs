@@ -22,11 +22,24 @@ extern crate alloc;
 pub use baud_domain::{
     AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col, ColorWord,
     Cols, Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
-    FinalByte, GSlot, LineSlot, Marker, ModeBit, ModeState, Modes, OneBased, Osc, PackedCell,
-    Param, ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows,
-    Run, RunCount, Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width,
-    WinSize, XColor,
+    FinalByte, GSlot, LineSlot, Marker, ModeBit, ModeState, Modes, MouseButton, MouseEvent,
+    MouseKind, MouseMods, MouseTracking, OneBased, Osc, PackedCell, Param, ParamIdx, Params,
+    Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run, RunCount, Slot, Stat,
+    StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width, WinSize, XColor,
 };
+
+/// Whether `level` is the tracking currently selected.
+///
+/// The three modes are exclusive on the wire, so DECRQM answers "set" only for
+/// the one actually in force -- reporting all three as set would tell an
+/// application it is getting motion events it is not.
+fn tracking_state(cur: MouseTracking, level: MouseTracking) -> ModeState {
+    if cur == level {
+        ModeState::Set
+    } else {
+        ModeState::Reset
+    }
+}
 
 /// Trim a trailing NUL from an OSC string.
 ///
@@ -440,6 +453,15 @@ pub struct Term<'a> {
     /// saves the cursor, switches screens and restores must get its own saved
     /// cursor back, not the one the switch stashed.
     alt_saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>,
+    /// Which mouse events the application asked to hear about, `?1000/2/3`.
+    mouse: MouseTracking,
+    /// `?1006`. Without it baud reports nothing -- see [`Report::MouseSgr`].
+    mouse_sgr: bool,
+    /// Mouse events dropped because no encoding was negotiated.
+    ///
+    /// Counted rather than silent: an application that enables tracking and
+    /// gets nothing back should be diagnosable from the outside.
+    pub mouse_unencodable: Stat,
     /// The four designatable character-set slots, and which one is invoked
     /// into GL.
     ///
@@ -526,6 +548,9 @@ impl<'a> Term<'a> {
             cursor_style: CursorStyle::BlinkingBlock,
             screen: Screen::Normal,
             alt_saved: None,
+            mouse: MouseTracking::Off,
+            mouse_sgr: false,
+            mouse_unencodable: Stat::ZERO,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             protect: CellFlags::NONE,
@@ -949,6 +974,14 @@ impl<'a> Term<'a> {
                     }
                 }
             }
+            // The three tracking modes are a *level*, not three flags: xterm
+            // treats each DECSET as selecting one, and 1003 is a superset of
+            // 1002 which is a superset of 1000. Resetting any of them turns
+            // tracking off, which is what applications expect from `?1000 l`.
+            PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, on),
+            PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, on),
+            PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, on),
+            PrivateMode::MouseSgr => self.mouse_sgr = on,
             PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
             // Still deliberately unrecorded. A bit that is set and never read
@@ -1004,6 +1037,16 @@ impl<'a> Term<'a> {
             PrivateMode::SynchronizedOutput => bit_state(self.modes, ModeBit::SynchronizedOutput),
             // Not a `Modes` bit -- the alt screen is a whole buffer, not a
             // flag -- but it is implemented, so DECRQM must not deny it.
+            PrivateMode::MouseNormal => tracking_state(self.mouse, MouseTracking::Normal),
+            PrivateMode::MouseButtonEvent => tracking_state(self.mouse, MouseTracking::ButtonEvent),
+            PrivateMode::MouseAnyEvent => tracking_state(self.mouse, MouseTracking::AnyEvent),
+            PrivateMode::MouseSgr => {
+                if self.mouse_sgr {
+                    ModeState::Set
+                } else {
+                    ModeState::Reset
+                }
+            }
             PrivateMode::AltScreen => {
                 if self.screen == Screen::Alternate {
                     ModeState::Set
@@ -2104,6 +2147,54 @@ impl<'a> Term<'a> {
         };
     }
 
+    fn set_tracking(&mut self, level: MouseTracking, on: bool) {
+        self.mouse = if on { level } else { MouseTracking::Off };
+    }
+
+    /// What tracking the application asked for. `?1000/1002/1003`.
+    pub fn mouse_tracking(&self) -> MouseTracking {
+        self.mouse
+    }
+
+    /// Queue a mouse report, if the application asked for this kind of event.
+    ///
+    /// Returns whether anything was queued, so an embedder can tell "the
+    /// application does not want this" from "it was sent".
+    ///
+    /// Two gates, and both are refusals rather than omissions:
+    ///
+    /// * The tracking level decides which *kinds* are reported. Motion is
+    ///   dropped under `?1000`, and motion with no button held is dropped under
+    ///   anything below `?1003` -- sending it anyway would flood an application
+    ///   that asked only for clicks.
+    /// * Without `?1006` nothing is reported at all, and `mouse_unencodable`
+    ///   counts it. The X10 encoding caps each ordinate at 223 and baud's grid
+    ///   goes to 2048, so a report from column 400 would not be truncated, it
+    ///   would point at the wrong cell. That is the wrong-shaped answer
+    ///   `docs/vt-coverage.md` rules out.
+    pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
+        let wanted = match (self.mouse, e.kind) {
+            (MouseTracking::Off, _) => false,
+            (MouseTracking::Normal, MouseKind::Motion) => false,
+            (MouseTracking::ButtonEvent, MouseKind::Motion) => e.button != MouseButton::None,
+            _ => true,
+        };
+        if !wanted {
+            return false;
+        }
+        if !self.mouse_sgr {
+            self.mouse_unencodable.inc();
+            return false;
+        }
+        self.report(Report::MouseSgr {
+            cb: e.cb(),
+            col: e.col.one_based(),
+            row: e.row.one_based(),
+            release: e.kind == MouseKind::Release,
+        });
+        true
+    }
+
     /// The character set currently invoked into GL.
     pub fn charset(&self) -> Charset {
         self.g[self.gl.index()]
@@ -2200,6 +2291,8 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
+        self.mouse = MouseTracking::Off;
+        self.mouse_sgr = false;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
@@ -2221,6 +2314,8 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.protect = CellFlags::NONE;
+        self.mouse = MouseTracking::Off;
+        self.mouse_sgr = false;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;

@@ -83,7 +83,7 @@ const SGR: [u8; 20] = [
 
 /// Private modes baud acts on, plus two it deliberately ignores -- an ignored
 /// mode must stay inert, and that is worth generating too.
-const MODES: [u16; 7] = [6, 7, 25, 1000, 1049, 2004, 2026];
+const MODES: [u16; 10] = [6, 7, 25, 1000, 1002, 1003, 1006, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![

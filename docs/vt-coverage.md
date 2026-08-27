@@ -212,7 +212,9 @@ In scope because applications assume them, not because DEC specified them.
 | `OSC 104` | reset palette | done |
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
-| `CSI ? 1000-1006 h/l` | mouse reporting | **todo** |
+| `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
+| `CSI ? 1006 h/l` | SGR mouse encoding | done — the only encoding, see below |
+| `CSI ? 1001 h/l` | highlight tracking | **out of scope** — "requires a cooperating program, else xterm will hang" |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
 
@@ -307,6 +309,22 @@ Entering twice must not re-save the cursor, or an application that sets the mode
 twice is restored to a position from inside the alt screen. The switch also
 keeps its own saved cursor rather than sharing DECSC's, so a program that does
 both gets each back.
+
+**Mouse reporting is SGR-only, and that is a correctness decision.** `?1000`,
+`?1002` and `?1003` select which events an application hears about; `?1006`
+selects the encoding. Without `?1006` baud reports **nothing**, and counts the
+drop in `mouse_unencodable`.
+
+The X10 encoding it declines to use puts each ordinate in one byte at
+`value + 32`, capping it at 223. baud's grid goes to 2048 columns. A report from
+column 400 in that scheme is not a truncated answer — it names a different cell,
+and the application acts on it. That is the wrong-shaped-answer rule applied to
+a report the terminal *sends*, and it is why the counter exists: an application
+that enables tracking and hears silence should be diagnosable from outside.
+
+The core has no input device, so `Term::mouse_report` takes an event in
+`Col`/`Row` and returns whether it was queued. Pixel-to-cell division stays with
+the embedder, which is where the off-by-one would otherwise hide.
 
 **Character sets are designated, invoked and recorded — but not translated.**
 `ESC ( ) * + C` designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte
