@@ -108,21 +108,49 @@ impl<'buf> core::ops::IndexMut<SlotIdx> for SlotRing<'buf> {
 }
 
 /// Read-only counterpart of [`View`].
+/// Rows the grid is rotated by: screen row `y` lives at physical row
+/// `(y + rot) % rows`.
+///
+/// **This is what makes a full-screen scroll O(1).** Scrolling used to advance
+/// `head`, which indexes the run table, and leave the cells alone -- so
+/// `Computed` and `Templated` never scrolled. Copying the grid instead was
+/// correct and cost 45% of cell ingest, because a streaming payload scrolls
+/// every screenful: write amplification around 20:1 against the rule that it
+/// stays at or below 1. Rotating an index costs neither.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub struct RowRot(pub(crate) usize);
+
+impl RowRot {
+    pub const NONE: RowRot = RowRot(0);
+    pub fn advance(self, n: usize, rows: Rows) -> RowRot {
+        RowRot((self.0 + n) % rows.index().max(1))
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
 pub struct ViewRef<'a> {
     cells: &'a [PackedCell],
     stride: Cols,
     cols: Cols,
     rows: Rows,
+    rot: RowRot,
 }
 
 impl<'a> ViewRef<'a> {
+    fn phys(&self, r: Row) -> usize {
+        let rows = self.rows.index();
+        let y = r.index() + self.rot.index();
+        if y >= rows { y - rows } else { y }
+    }
     pub fn row_slice(&self, r: Row) -> &'a [PackedCell] {
-        let a = r.index() * self.stride.index();
+        let a = self.phys(r) * self.stride.index();
         &self.cells[a..a + self.cols.index()]
     }
     pub fn get(&self, r: Row, c: Col) -> PackedCell {
         if r.index() < self.rows.index() && c.index() < self.cols.index() {
-            self.cells[r.index() * self.stride.index() + c.index()]
+            self.cells[self.phys(r) * self.stride.index() + c.index()]
         } else {
             PackedCell::EMPTY
         }
@@ -138,24 +166,39 @@ pub struct View<'a> {
     stride: Cols,
     cols: Cols,
     rows: Rows,
+    rot: RowRot,
 }
 
 impl<'a> View<'a> {
     /// Read-only view. Same addressing, no mutation.
-    pub fn new_ref(cells: &'a [PackedCell], stride: Cols, cols: Cols, rows: Rows) -> ViewRef<'a> {
+    pub fn new_ref(
+        cells: &'a [PackedCell],
+        stride: Cols,
+        cols: Cols,
+        rows: Rows,
+        rot: RowRot,
+    ) -> ViewRef<'a> {
         ViewRef {
             cells,
             stride,
             cols,
             rows,
+            rot,
         }
     }
-    pub fn new(cells: &'a mut [PackedCell], stride: Cols, cols: Cols, rows: Rows) -> View<'a> {
+    pub fn new(
+        cells: &'a mut [PackedCell],
+        stride: Cols,
+        cols: Cols,
+        rows: Rows,
+        rot: RowRot,
+    ) -> View<'a> {
         View {
             cells,
             stride,
             cols,
             rows,
+            rot,
         }
     }
     pub fn cols(&self) -> Cols {
@@ -169,9 +212,23 @@ impl<'a> View<'a> {
         self.rows = rows;
     }
 
+    /// Screen row to physical offset, through the rotation. Every addressing
+    /// path goes here, which is what makes the rotation one line rather than
+    /// twenty-six chances to forget it.
+    #[inline(always)]
+    pub(crate) fn phys(&self, r: Row) -> usize {
+        // A conditional subtract, not `%`. Both operands are below `rows`, so
+        // the sum is below `2 * rows` and one subtraction is enough. The
+        // modulo cost ~16% of the cells path -- it sits on the addressing path
+        // that `put_ascii_run` reaches once per run and `put` once per cell.
+        let rows = self.rows.index();
+        let y = r.index() + self.rot.index();
+        if y >= rows { y - rows } else { y }
+    }
+
     #[inline(always)]
     pub(crate) fn at(&self, r: Row, c: Col) -> usize {
-        r.index() * self.stride.index() + c.index()
+        self.phys(r) * self.stride.index() + c.index()
     }
 
     #[inline(always)]
@@ -352,12 +409,13 @@ impl<'a> View<'a> {
         while y > cy + n {
             y -= 1;
             for x in 0..cols {
-                self.cells[y * s + x] = self.cells[(y - n) * s + x];
+                self.cells[self.phys(Row::from_index(y)) * s + x] =
+                    self.cells[self.phys(Row::from_index(y - n)) * s + x];
             }
         }
         for y in cy..cy + n {
             for x in 0..cols {
-                self.cells[y * s + x] = blank;
+                self.cells[self.phys(Row::from_index(y)) * s + x] = blank;
             }
         }
     }
@@ -381,11 +439,15 @@ impl<'a> View<'a> {
         // is, and a scalar loop over 10,000 cells is what made the correct
         // full-screen scroll cost a third of cell ingest.
         for y in cy..bot + 1 - n {
-            let (src, dst) = ((y + n) * s, y * s);
+            let (src, dst) = (
+                self.phys(Row::from_index(y + n)) * s,
+                self.phys(Row::from_index(y)) * s,
+            );
             self.cells.copy_within(src..src + cols, dst);
         }
         for y in bot + 1 - n..=bot {
-            self.cells[y * s..y * s + cols].fill(blank);
+            let a = self.phys(Row::from_index(y)) * s;
+            self.cells[a..a + cols].fill(blank);
         }
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {

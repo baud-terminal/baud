@@ -102,7 +102,7 @@ fn deccolm_clears_and_records_but_does_not_resize() {
         let mut u = T {
             s: Storage::boxed(),
         };
-        let t2 = Term::new(&mut u.s, OpMode::Computed);
+        let mut t2 = Term::new(&mut u.s, OpMode::Computed);
         t2.viewport().to_vec()
     };
     assert_eq!(term.viewport(), &blank[..], "the screen is cleared");

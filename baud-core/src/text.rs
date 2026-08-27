@@ -8,15 +8,14 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     pub(crate) fn view(&mut self) -> View<'_> {
+        let alt = self.screen == Screen::Alternate;
+        let rot = if alt { RowRot::NONE } else { self.rot };
         View::new(
-            if self.screen == Screen::Alternate {
-                &mut self.s.alt
-            } else {
-                &mut self.s.vp
-            },
+            if alt { &mut self.s.alt } else { &mut self.s.vp },
             Cols::from_stride(MAX_COLS),
             self.cols,
             self.rows,
+            rot,
         )
     }
 
@@ -131,7 +130,12 @@ impl<'a> Term<'a> {
             },
         );
         let fl = self.flags;
-        View::new(vp, stride, cols, rows).put_ascii_run(
+        let rot = if self.screen == Screen::Alternate {
+            RowRot::NONE
+        } else {
+            self.rot
+        };
+        View::new(vp, stride, cols, rows, rot).put_ascii_run(
             r,
             c,
             &arena[abs..abs + room.index()],

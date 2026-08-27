@@ -27,9 +27,9 @@ pub use baud_domain::{
     MarkSlot, Marker, ModeBit, ModeChange, ModeState, Modes, MouseButton, MouseEncoding,
     MouseEvent, MouseKind, MouseMods, MouseTracking, Nrcs, OneBased, Osc, PackedCell, Param,
     ParamIdx, Params, Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row,
-    RowBlock, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId,
-    StyleWord, SubParams, TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width, WidthTable,
-    WinSize, XColor,
+    RowBlock, RowRot, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm,
+    StyleId, StyleWord, SubParams, TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width,
+    WidthTable, WinSize, XColor,
 };
 
 mod charset;

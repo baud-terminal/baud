@@ -32,18 +32,19 @@ impl<'a> Term<'a> {
         // every line of output past the last row -- and no test looked at what
         // it left on the screen, because every other test in `scrolling.rs`
         // sets a region and takes the copying path.
-        if top == 0 && bot == last && self.screen == Screen::Normal && self.mode == OpMode::Runs {
+        if top == 0 && bot == last && self.screen == Screen::Normal {
             for _ in 0..k {
                 self.head = self.head.advance(SB);
+                // Rotate first, then blank what is now the bottom row: the
+                // rotation is what moves the cells, and it costs one addition.
+                self.rot = self.rot.advance(1, self.rows);
                 let y = Row::from_index(last);
                 self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
                 self.view().fill_row(y, blank);
             }
-            // Every promoted row's materialised cells belong to the line that
-            // *was* at that screen position. Clearing the flags re-derives them
-            // from the runs, which the advance has already pointed at the right
-            // lines. Only the last row was cleared before, so a promoted row
-            // kept text from before the scroll.
+            // `promoted` is indexed by screen row and the screen just moved, so
+            // every flag now describes the wrong line. Clearing re-derives from
+            // the runs, which `head` has already pointed at the right ones.
             self.s.promoted[..self.rows.index()].fill(false);
             return;
         }

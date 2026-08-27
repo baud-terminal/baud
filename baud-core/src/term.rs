@@ -270,6 +270,8 @@ pub struct Term<'a> {
     /// charset final -- Portuguese, Greek, DEC Cyrillic and the rest -- was
     /// unreachable for that reason rather than by decision.
     pub(crate) esc_inter2: Option<StreamByte>,
+    /// How far the primary grid is rotated. See [`RowRot`].
+    pub(crate) rot: RowRot,
     /// The last graphic character written, for REP.
     ///
     /// `[[source: ctlseqs]]`: "Repeat the preceding graphic character Ps
@@ -353,6 +355,7 @@ impl<'a> Term<'a> {
             last_cp: None,
             esc_inter: None,
             esc_inter2: None,
+            rot: RowRot::NONE,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
@@ -444,7 +447,23 @@ impl<'a> Term<'a> {
 
     /// The whole materialised region, stride included. Callers wanting a single
     /// row should use [`Term::row`], which is bounds-correct by construction.
-    pub fn viewport(&self) -> &[PackedCell] {
+    /// The visible grid, as one contiguous slice.
+    ///
+    /// **Takes `&mut self`, and that is the whole trick.** A full-screen scroll
+    /// rotates an index rather than moving cells, so ingest never pays for it;
+    /// the rotation has to be undone exactly once before the cells can be
+    /// handed out as a slice, and that happens here. A renderer calls this once
+    /// a frame, where the old code copied the grid once a *scroll* -- which on
+    /// a streaming payload is every screenful, and cost 45% of cell ingest.
+    ///
+    /// `rotate_left` is in-place and allocation-free, which `no_std` requires.
+    pub fn viewport(&mut self) -> &[PackedCell] {
+        if self.screen == Screen::Normal && self.rot != RowRot::NONE {
+            let n = self.rot.index() * self.stride().index();
+            let len = self.rows.index() * self.stride().index();
+            self.s.vp[..len].rotate_left(n);
+            self.rot = RowRot::NONE;
+        }
         let b = if self.screen == Screen::Alternate {
             &self.s.alt
         } else {
@@ -459,7 +478,12 @@ impl<'a> Term<'a> {
         } else {
             &self.s.vp
         };
-        View::new_ref(b, self.stride(), self.cols, self.rows).row_slice(y)
+        let rot = if self.screen == Screen::Alternate {
+            RowRot::NONE
+        } else {
+            self.rot
+        };
+        View::new_ref(b, self.stride(), self.cols, self.rows, rot).row_slice(y)
     }
 
     /// Is the alternate screen showing? `CSI ? 1049`.

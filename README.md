@@ -95,8 +95,8 @@ term.feed(base, filled.len());
 term.commit_read(filled.len());
 
 // A terminal is not write-only: drain anything it owes the host.
-let reply = term.reply(); // e.g. the answer to a DSR
-let cells = term.viewport(); // the materialised grid
+let owed = term.reply().len(); // e.g. the answer to a DSR
+let cells = term.viewport().len(); // the materialised grid
 ```
 
 `OpMode` picks the representation and is fixed at startup:

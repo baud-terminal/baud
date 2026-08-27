@@ -71,28 +71,22 @@ fn spans_ingest_floor() {
 
 /// Cell modes are structurally slower; floor set proportionally.
 ///
-/// **Lowered from 70 to 30, and that is a recorded regression rather than a
-/// relaxed standard.** Full-screen scrolling used an O(1) ring advance that
-/// moved `head` -- which indexes the *run* table -- and left `vp` alone.
-/// `Computed` and `Templated` draw from `vp`, so the screen never scrolled:
-/// old text stayed put and only the bottom row went blank. Correcting it means
-/// copying the grid on every scroll, and a streaming payload scrolls every
-/// screenful, so the copy costs about 45% of cell ingest: 70+ MB/s down to
-/// ~38. That is write amplification of roughly 20:1 against rule #1's <= 1.
+/// **This floor is load-bearing and it caught a real regression.** Full-screen
+/// scrolling used to advance `head` -- which indexes the *run* table -- and
+/// leave `vp` alone, so `Computed` and `Templated` never scrolled: old text
+/// stayed put and only the bottom row blanked. Correcting it by copying the
+/// grid dropped cell ingest to 38 MB/s and tripped this test, because a
+/// streaming payload scrolls every screenful and the copy is write
+/// amplification of roughly 20:1 against rule #1.
 ///
-/// Both halves are true and neither is acceptable on its own: the fast version
-/// did not scroll, and the correct version breaks the invariant the project is
-/// built on. The fix that gets both is a **ring-mapped viewport** -- `vp`
-/// rotated by `head` the way the run table already is, so the O(1) advance
-/// moves cells too. That changes `viewport()` from "a contiguous slice" to "a
-/// projection", which is a design change and not a patch, and it is written up
-/// in `docs/vt-coverage.md`.
-///
-/// Do not raise this floor back to 70 by reverting the scroll fix.
+/// The fix that gets both is `RowRot`: a scroll rotates an index, and
+/// `Term::viewport` undoes the rotation once when a renderer asks for a
+/// contiguous slice. Ingest never pays, and the measured result is ~860 MB/s
+/// -- the same as the version that did not scroll at all.
 #[test]
 fn cells_ingest_floor() {
     let v = throughput(OpMode::Computed);
-    assert!(v > 30.0, "cell ingest {v:.1} MB/s, floor 30");
+    assert!(v > 70.0, "cell ingest {v:.1} MB/s, floor 70");
 }
 
 /// Storage must stay cache-resident. The arena-size sweep peaked at 1 MiB and

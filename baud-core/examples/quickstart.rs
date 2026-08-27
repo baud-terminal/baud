@@ -19,7 +19,7 @@ fn main() {
     term.commit_read(filled.len());
 
     // A terminal is not write-only: drain anything it owes the host.
-    let reply = term.reply(); // e.g. the answer to a DSR
-    let cells = term.viewport(); // the materialised grid
-    println!("{} bytes owed, {} cells", reply.len(), cells.len());
+    let owed = term.reply().len(); // e.g. the answer to a DSR
+    let cells = term.viewport().len(); // the materialised grid
+    println!("{owed} bytes owed, {cells} cells");
 }
