@@ -339,3 +339,51 @@ fn every_out_row_states_a_reason() {
         bare.join("\n  ")
     );
 }
+
+/// **`docs/input-coverage.md`'s row counts still match the source.**
+///
+/// The key tables in that document are extracted from `[[source: ctlseqs]]` by
+/// `scripts/extract-keys.py`, not transcribed. A key table written from memory
+/// is the "guessed table that would be unrecoverable and would look like it
+/// worked" this project refused for DEC line drawing, so the extraction has to
+/// stay live rather than having been run once.
+///
+/// This is the positive control as much as the staleness check: if the
+/// extractor stops matching -- a regex that no longer fires, a source that
+/// reflowed -- it reports zero tables, and zero would otherwise look exactly
+/// like agreement with a document nobody updated.
+#[test]
+fn the_input_key_tables_are_still_extractable() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/extract-keys.py"))
+        .arg("--count")
+        .current_dir(root)
+        .output()
+        .expect("python3 to run the extractor");
+    assert!(out.status.success(), "extract-keys.py failed");
+    let got = String::from_utf8_lossy(&out.stdout);
+    let got = got.trim();
+
+    assert_eq!(
+        got, "10 tables, 112 key rows",
+        "the extraction changed. If `ctlseqs` was re-pinned this is expected \
+         and docs/input-coverage.md needs regenerating; if not, the extractor \
+         stopped matching and is reporting agreement it did not verify."
+    );
+
+    let doc = std::fs::read_to_string(format!("{root}/docs/input-coverage.md"))
+        .expect("docs/input-coverage.md");
+    assert!(
+        doc.contains("**112 key rows**"),
+        "the document's total disagrees with the extractor"
+    );
+    for line in [
+        "2473", "2485", "2498", "2529", "2552", "2628", "2672", "2685", "2703", "2713",
+    ] {
+        assert!(
+            doc.contains(line),
+            "table at ctlseqs line {line} is extracted but not listed in the document"
+        );
+    }
+}
