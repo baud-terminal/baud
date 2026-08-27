@@ -4,7 +4,12 @@ What baud implements, what it does not, and what it has decided not to. Every
 row traces to a primary source in `docs/research/sources/`, cited as
 `[[source: <key>]]` and checked by `scripts/check-sources.sh`.
 
-**And it is checked in both directions.** Every **done** row is fed to a real
+**And it is checked in both directions.** The specification side covers plain
+CSI finals, CSI forms with markers and intermediates, and the `ESC Fe`
+controls — the whole escape surface an application can reach, rather than the
+part baud happened to list.
+
+ Every **done** row is fed to a real
 `Term` and must reach a handler (`enumerated.rs`); and every plain CSI final
 `[[source: ctlseqs]]` defines must be either handled or counted in
 `Term::unsupported` (`spec_inventory.rs`). The second matters because this file

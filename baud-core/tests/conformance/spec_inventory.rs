@@ -391,3 +391,93 @@ fn every_spec_csi_form_is_handled_or_counted() {
         silent.join("\n  ")
     );
 }
+
+/// A plain two-byte `ESC Fe` form: no intermediate.
+///
+/// The list in ctlseqs' "Controls beginning with ESC" mixes single-byte finals
+/// (`ESC D`) with intermediate forms (`ESC # 8`, `ESC ( C`, `ESC SP F`) and
+/// with the 7-bit representations of C1 introducers (`ESC [`, `ESC ]`,
+/// `ESC P`, `ESC \`). The last group are not operations -- they *begin* one --
+/// so they are excluded rather than fed as if they were.
+fn plain_esc(seq: &str) -> Option<u8> {
+    let rest = seq.strip_prefix("ESC ")?;
+    let toks: Vec<&str> = rest.split_whitespace().collect();
+    if toks.len() != 1 || toks[0].len() != 1 {
+        return None;
+    }
+    let b = toks[0].as_bytes()[0];
+    // Introducers: these open CSI, OSC, DCS, SOS, PM and APC. Feeding one
+    // alone leaves the parser mid-sequence, which is not "silently consumed".
+    if matches!(b, b'[' | b']' | b'P' | b'X' | b'^' | b'_' | b'\\') {
+        return None;
+    }
+    (0x30..=0x7e).contains(&b).then_some(b)
+}
+
+/// **No `ESC Fe` the specification defines is silently consumed.**
+///
+/// The CSI inventory found that full-screen scrolling never moved the grid.
+/// This is the same question asked of the other half of the escape surface,
+/// which had only baud's own table to check it.
+#[test]
+fn every_spec_esc_form_is_handled_or_counted() {
+    let src = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/xterm-ctlseqs.txt"
+    ))
+    .expect("ctlseqs");
+    let mut finals = BTreeSet::new();
+    for line in src.lines() {
+        if !line.starts_with("ESC ") {
+            continue;
+        }
+        let seq = line.split("  ").next().unwrap_or(line).trim();
+        if let Some(b) = plain_esc(seq) {
+            finals.insert(b);
+        }
+    }
+    assert!(
+        finals.len() > 8,
+        "only {} ESC finals parsed -- the extractor stopped matching",
+        finals.len()
+    );
+    // Implemented, but their effect is invisible to this harness or genuinely
+    // nil from the prepared state. Each names which.
+    const UNOBSERVABLE: &[(u8, &str)] = &[
+        (
+            b'7',
+            "DECSC saves the cursor; nothing exposes the saved slot",
+        ),
+        (b'8', "DECRC with no prior save restores nothing"),
+        (
+            b'>',
+            "DECKPNM selects the numeric keypad, which is the default",
+        ),
+        (
+            b'H',
+            "HTS sets a tab stop at the cursor; the snapshot has no tab-stop state, \
+             and a stop at the cursor does not move the next tab from there",
+        ),
+    ];
+
+    let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
+    let mut silent = Vec::new();
+    for b in &finals {
+        if UNOBSERVABLE.iter().any(|(u, _)| u == b) {
+            continue;
+        }
+        let bytes = [0x1b, *b];
+        let a = snapshot(&bytes, false);
+        let c = snapshot(&bytes, true);
+        if a == bare && c == probed {
+            silent.push(format!("ESC {}", *b as char));
+        }
+    }
+    assert!(
+        silent.is_empty(),
+        "{} of {} specification ESC forms are consumed in silence:\n  {}",
+        silent.len(),
+        finals.len(),
+        silent.join("\n  ")
+    );
+}
