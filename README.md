@@ -23,9 +23,9 @@ how fast symbols cross a line — which is what every number below is about.
 **This is not a terminal.** It is the byte path — PTY read through VT parse into
 a grid — built from whatever measurement pointed at rather than from what read
 nicely, plus the harness that produced those measurements. Rendering, font
-shaping, and roughly 56 of the 66 VT operations a real terminal implements are
-absent. See [Not done](#not-done) before believing any of the numbers mean a
-faster terminal.
+shaping and the renderer are absent, and so is the last of the VT surface —
+DCS dispatch, left/right margins, `OSC 8`. See [Not done](#not-done) before
+believing any of the numbers mean a faster terminal.
 
 ## What we're trying to build
 
@@ -162,23 +162,32 @@ mostly escape sequences and produce fewer cell writes. Its bottleneck is writing
 its `Cell`. baud goes slightly the other way, having no per-cell writes to
 save. Two measurements, opposite directions, one variable.
 
-**alacritty implements 66 VT operations; `baud-core` implements about 22.** Some of
-the gap is still work not being done — the differential test now matches on
-13 of 20 cases, up from 1, and the nine that differ are named operations
-(`CSI P`, `CSI @`, tab stops, scroll-region edge cases) rather than a fog. It also does damage tracking, selection,
-vi-mode, and hyperlink tracking on every write, which baud does not.
+**The operation gap is largely closed.** `docs/vt-coverage.md` now carries 84
+rows at **done** — every Tier 1 VT100/ANSI operation, the Tier 2 VT220 set, and
+the xterm extensions applications actually depend on. What alacritty still does
+that baud does not is damage tracking, selection, vi-mode and hyperlink tracking
+on every write, which is a different kind of work rather than more operations.
+
+What remains is named rather than vague: DCS dispatch (the payload is consumed
+safely today, but `DECRQSS` is unanswered), left/right margins (DECSLRM) and the
+column insert/delete that ride on them, and `OSC 8` hyperlinks. Each has a row.
 
 ## What of the protocol is implemented
 
 `docs/vt-coverage.md` is the answer, enumerated against primary sources rather
 than summarised. It carries a status per operation, and a row reaches **done**
-only when a test exists that would fail if the operation regressed.
+only when a test exists that would fail if the operation regressed. 84 rows are
+there now, behind 262 tests across 23 files — unit tests quoting the spec line
+they check, property tests over *generated VT programs* rather than random
+bytes, and performance floors that fail on an architectural mistake.
 
 The status worth knowing about is `parsed`: a sequence the parser recognises and
 then **drops**. That is worse than one it does not implement, because the
 terminal accepts it, does nothing, and gives the application no way to find out.
 Three operations sat in that state — DECSTBM, DL and SM/RM — while this file
-advertised "~22 operations".
+advertised "~22 operations". Two more were found the same way later: SGR's
+`fold` was discarding every attribute except reset and foreground, and
+`ESC =`/`ESC >` were consumed by the fast path and acted on by nobody.
 
 Implemented since: scrolling regions and the operations that share them (DL, SU,
 SD, IL, IND, RI, NEL, LF with real LNM state); cursor positioning (CNL, CPL,
@@ -186,6 +195,19 @@ CHA, HPA, VPA, HPR, VPR, SCOSC, SCORC); a real tab-stop table behind HT, HTS,
 TBC, CHT and CBT; the C0 controls; four missing parser states, including the one
 whose absence let an APC payload execute as commands; DECSTR; DECOM, DECAWM and
 DECTCEM; and a reply channel carrying DA and DSR.
+
+Then, in order: the full SGR attribute set including the ISO 8613-6 colon form
+of direct colour; REP and DECALN; selective erase (DECSCA, DECSED, DECSEL) with
+protection carried per cell; the **alternate screen buffer**, which is what
+lets vim give the shell its scrollback back; OSC dispatch for window titles and
+the colour palette; character set designation with SO/SI; mouse reporting in the
+SGR encoding; DECSCUSR, DECRQM, XTVERSION, bracketed paste and synchronised
+output.
+
+Three of those are refusals rather than features, and they are the ones worth
+reading the reasons for: `OSC 52` clipboard *reads* are answered with silence,
+the DEC line-drawing glyph table is not written from memory, and mouse reports
+are not sent in an encoding that cannot express this grid's width.
 
 `docs/protocol-roadmap.md` recommends what to add next and what to decline, with
 reasons for both.
