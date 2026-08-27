@@ -75,7 +75,14 @@ impl SgrAttr {
             // "set and never used" failure.
             21 => (SgrAttr::Set(Attrs::UNDERLINE), ParamCount(1)),
             22 => (SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM)), ParamCount(1)),
-            23 => (SgrAttr::Unset(Attrs::ITALIC), ParamCount(1)),
+            20 => (SgrAttr::Set(Attrs::FRAKTUR), ParamCount(1)),
+            // `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not
+            // fraktur" -- one parameter clearing two attributes, so clearing
+            // only italic would leave fraktur set with no way to turn it off.
+            23 => (
+                SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR)),
+                ParamCount(1),
+            ),
             24 => (SgrAttr::Unset(Attrs::UNDERLINE), ParamCount(1)),
             25 => (SgrAttr::Unset(Attrs::BLINK), ParamCount(1)),
             27 => (SgrAttr::Unset(Attrs::REVERSE), ParamCount(1)),
@@ -105,6 +112,17 @@ impl SgrAttr {
             ),
             // `SGR 59` — underline colour back to the default, which is
             // "follow the foreground".
+            26 => (SgrAttr::Set(Attrs::PROPORTIONAL), ParamCount(1)),
+            50 => (SgrAttr::Unset(Attrs::PROPORTIONAL), ParamCount(1)),
+            51 => (SgrAttr::Set(Attrs::FRAMED), ParamCount(1)),
+            52 => (SgrAttr::Set(Attrs::ENCIRCLED), ParamCount(1)),
+            53 => (SgrAttr::Set(Attrs::OVERLINED), ParamCount(1)),
+            // 54 clears both framed and encircled, as 23 clears two.
+            54 => (
+                SgrAttr::Unset(Attrs::FRAMED.with(Attrs::ENCIRCLED)),
+                ParamCount(1),
+            ),
+            55 => (SgrAttr::Unset(Attrs::OVERLINED), ParamCount(1)),
             59 => (SgrAttr::Underline(Color::Default), ParamCount(1)),
             // `SGR 58` takes the same two spellings as 38 and 48, which is why
             // it joins them here rather than getting a parallel copy: the

@@ -184,3 +184,64 @@ fn decrqss_reports_the_underline_colour() {
         String::from_utf8_lossy(&d)
     );
 }
+
+// ── SGR 20, 26/50, 51-55: the presentation attributes ───────────────────────
+
+/// **Fraktur, proportional spacing, framing and overlining are recorded.**
+///
+/// Out with the reason "no renderer consumes them" — the same reason that kept
+/// fonts out, and it resolves the same way: they are renditions, `Attrs` had
+/// eight free bits, and `Term::style_of` is where a renderer reads one.
+#[test]
+fn the_presentation_attributes_are_recorded() {
+    let has = |bytes: &[u8], a: Attrs| style_at(bytes, 0).attrs().has(a);
+    assert!(has(b"\x1b[20mX", Attrs::FRAKTUR), "20 fraktur");
+    assert!(has(b"\x1b[26mX", Attrs::PROPORTIONAL), "26 proportional");
+    assert!(has(b"\x1b[51mX", Attrs::FRAMED), "51 framed");
+    assert!(has(b"\x1b[52mX", Attrs::ENCIRCLED), "52 encircled");
+    assert!(has(b"\x1b[53mX", Attrs::OVERLINED), "53 overlined");
+}
+
+/// **`SGR 23` clears two attributes, and `SGR 54` clears two.**
+///
+/// `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not fraktur", and
+/// 54 clears framed and encircled together. Clearing only one of each pair
+/// would leave the other set with no parameter that turns it off.
+#[test]
+fn the_shared_reset_parameters_clear_both_attributes() {
+    let a = style_at(b"\x1b[3;20m\x1b[23mX", 0).attrs();
+    assert!(!a.has(Attrs::ITALIC), "23 clears italic");
+    assert!(!a.has(Attrs::FRAKTUR), "and fraktur");
+
+    let b = style_at(b"\x1b[51;52m\x1b[54mX", 0).attrs();
+    assert!(!b.has(Attrs::FRAMED), "54 clears framed");
+    assert!(!b.has(Attrs::ENCIRCLED), "and encircled");
+
+    // 55 clears only overlining, and 50 only proportional spacing.
+    assert!(
+        !style_at(b"\x1b[53m\x1b[55mX", 0)
+            .attrs()
+            .has(Attrs::OVERLINED),
+        "55 clears overlined"
+    );
+    assert!(
+        !style_at(b"\x1b[26m\x1b[50mX", 0)
+            .attrs()
+            .has(Attrs::PROPORTIONAL),
+        "50 clears proportional"
+    );
+}
+
+/// DECRQSS walks every attribute, including the new ones.
+///
+/// `Attrs::WIRE` is a table rather than a `match` precisely so that adding an
+/// attribute cannot forget to report it — which is how `fold` once came to
+/// discard everything except reset and foreground.
+#[test]
+fn decrqss_reports_the_presentation_attributes() {
+    let r = replies(b"\x1b[20;51;53m\x1bP$qm\x1b\\");
+    let s = String::from_utf8_lossy(&r).to_string();
+    for want in ["20", "51", "53"] {
+        assert!(s.contains(want), "DECRQSS should name {want}, got {s}");
+    }
+}

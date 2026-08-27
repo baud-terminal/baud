@@ -34,6 +34,17 @@ impl Attrs {
     pub const REVERSE: Attrs = Attrs(1 << 5);
     pub const HIDDEN: Attrs = Attrs(1 << 6);
     pub const STRIKE: Attrs = Attrs(1 << 7);
+    /// `SGR 20`. Turned off by `SGR 23` along with italic, which is why
+    /// `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not fraktur".
+    pub const FRAKTUR: Attrs = Attrs(1 << 8);
+    /// `SGR 26`, off by `SGR 50`.
+    pub const PROPORTIONAL: Attrs = Attrs(1 << 9);
+    /// `SGR 51`, off by `SGR 54`.
+    pub const FRAMED: Attrs = Attrs(1 << 10);
+    /// `SGR 52`, off by `SGR 54` — the same parameter clears both.
+    pub const ENCIRCLED: Attrs = Attrs(1 << 11);
+    /// `SGR 53`, off by `SGR 55`.
+    pub const OVERLINED: Attrs = Attrs(1 << 12);
 
     /// Each attribute with the SGR parameter that sets it, in ascending order.
     ///
@@ -41,7 +52,7 @@ impl Attrs {
     /// to report the current rendition, and a `match` per bit is the shape that
     /// silently omits one -- which is how `fold` came to discard every
     /// attribute except reset and foreground.
-    pub const WIRE: [(Attrs, u8); 8] = [
+    pub const WIRE: [(Attrs, u8); 13] = [
         (Attrs::BOLD, 1),
         (Attrs::DIM, 2),
         (Attrs::ITALIC, 3),
@@ -50,7 +61,22 @@ impl Attrs {
         (Attrs::REVERSE, 7),
         (Attrs::HIDDEN, 8),
         (Attrs::STRIKE, 9),
+        (Attrs::FRAKTUR, 20),
+        (Attrs::PROPORTIONAL, 26),
+        (Attrs::FRAMED, 51),
+        (Attrs::ENCIRCLED, 52),
+        (Attrs::OVERLINED, 53),
     ];
+
+    /// Three bits of the sixteen are still free.
+    ///
+    /// `SGR 60-65` -- the ideogram attributes -- would need five, so widening
+    /// `Attrs` to `u32` is what they cost, and that is `NSTYLE * 4` bytes: 256
+    /// in a 24 MB `Storage`. They are out because nothing sends them, which is
+    /// a scope decision, and this records that the *structure* is not the
+    /// reason. Saying "there is no room" when there is would be the mistake
+    /// that kept fonts and the underline colour out.
+    const _FREE_BITS: u16 = 3;
 
     /// The raw set, for hashing a rendition.
     pub fn bits(self) -> u16 {
