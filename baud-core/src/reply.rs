@@ -55,6 +55,14 @@ impl<'a> Term<'a> {
                 self.emit_dec(code);
             }
         }
+        // `SGR 10` is the primary font and is the default, so it is emitted
+        // only when it is not -- DECRQSS answers with something the
+        // application can send back verbatim, and a redundant `10` is noise
+        // that a comparison against the default would fail on.
+        if !w.font().is_primary() {
+            self.emit(b";");
+            self.emit_dec(w.font().sgr());
+        }
         let (fg, bg) = (w.fg(), w.bg());
         if !fg.is_default() {
             self.emit(b";");

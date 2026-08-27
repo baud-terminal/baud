@@ -35,6 +35,8 @@ pub enum SgrAttr {
     Unset(Attrs),
     Fg(Color),
     Bg(Color),
+    /// `SGR 10-19` — select the primary font or one of nine alternates.
+    Font(FontId),
 }
 
 impl SgrAttr {
@@ -45,6 +47,11 @@ impl SgrAttr {
         let v = params.at(ParamIdx::FIRST).map_or(0, |x| x.0);
         Some(match v {
             0 => (SgrAttr::Reset, ParamCount(1)),
+            // `SGR 10-19`. Recorded rather than dropped: a font is a rendition,
+            // and it lives in the rendition word's spare bits -- the row that
+            // called this out of scope said fonts needed cell bits, and they
+            // do not.
+            10..=19 => (SgrAttr::Font(FontId::from_sgr(v)?), ParamCount(1)),
             1 => (SgrAttr::Set(Attrs::BOLD), ParamCount(1)),
             2 => (SgrAttr::Set(Attrs::DIM), ParamCount(1)),
             3 => (SgrAttr::Set(Attrs::ITALIC), ParamCount(1)),
@@ -169,6 +176,7 @@ impl SgrAttr {
             SgrAttr::Unset(a) => cur.with_attrs(cur.attrs().without(a)),
             SgrAttr::Fg(c) => cur.with_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.with_bg(ColorWord::from_color(c)),
+            SgrAttr::Font(f) => cur.with_font(f),
         }
     }
 }

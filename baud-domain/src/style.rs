@@ -202,7 +202,12 @@ pub struct StyleWord {
     fg: ColorWord,
     bg: ColorWord,
     attrs: Attrs,
-    /// Explicit, because zerocopy rejects implicit padding.
+    /// `SGR 10-19` — which font the text is set in.
+    ///
+    /// **This word had sixteen bytes of explicit padding and the font row said
+    /// fonts needed cell bits that did not exist.** They do not need cell bits:
+    /// a font is a *rendition*, and rendition lives here, interned, where two
+    /// cells in the same font are one style. `PackedCell` never had to grow.
     ///
     /// DECSCA protection deliberately does **not** live here.
     /// `[[source: vt510-decsca]]`: "DECSCA does not effect visual character
@@ -211,7 +216,51 @@ pub struct StyleWord {
     /// bit on the cell instead, which also keeps it out of the interning key:
     /// protected and unprotected text of the same colour are one style, not
     /// two, and the 64-entry template cache is not halved by turning DECSCA on.
-    _pad: u16,
+    font: FontId,
+}
+
+/// Which of the ten fonts `[[source: ctlseqs]]` gives SGR the text is set in.
+///
+/// `SGR 10` is the primary font and `SGR 11`-`19` the nine alternates. baud
+/// records the selection and does not resolve it: choosing a face is a
+/// renderer's job, and there is no font machinery in a `no_std` core with no
+/// allocator. Recording it is the channel -- the same one charset designations
+/// and `?1001` use -- and it is read wherever a cell's rendition is read.
+///
+/// A newtype rather than a bare `u16`, and `repr(transparent)` so the word is
+/// still eight bytes.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct FontId(u16);
+
+impl FontId {
+    /// `SGR 10`. Zero, so a zeroed style table is the primary font.
+    pub const PRIMARY: FontId = FontId(0);
+
+    /// From an SGR parameter in `10..=19`, or `None` for anything else.
+    pub fn from_sgr(n: u16) -> Option<FontId> {
+        (10..=19).contains(&n).then(|| FontId(n - 10))
+    }
+
+    /// `0` for the primary font, `1..=9` for the alternates.
+    pub fn index(self) -> u16 {
+        self.0
+    }
+
+    /// The SGR parameter that selects it, for DECRQSS.
+    ///
+    /// A `u8` because the range is `10..=19` by construction, so the caller
+    /// does not need a cast -- and `baud-core`'s budget is a floor rather than
+    /// slack, so one there would have to displace something forced.
+    pub fn sgr(self) -> u8 {
+        (self.0 + 10) as u8
+    }
+
+    pub fn is_primary(self) -> bool {
+        self.0 == 0
+    }
 }
 
 impl StyleWord {
@@ -221,13 +270,20 @@ impl StyleWord {
         fg: ColorWord::DEFAULT,
         bg: ColorWord::DEFAULT,
         attrs: Attrs::NONE,
-        _pad: 0,
+        font: FontId::PRIMARY,
     };
     pub fn fg(self) -> ColorWord {
         self.fg
     }
     pub fn bg(self) -> ColorWord {
         self.bg
+    }
+    /// Which font `SGR 10-19` selected.
+    pub fn font(self) -> FontId {
+        self.font
+    }
+    pub fn with_font(self, f: FontId) -> StyleWord {
+        StyleWord { font: f, ..self }
     }
     pub fn attrs(self) -> Attrs {
         self.attrs

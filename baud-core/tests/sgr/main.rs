@@ -5,5 +5,6 @@
 //! form is ISO 8613-6. Filing it under any one of those would misplace the
 //! other two.
 
+mod fonts;
 mod rep_align;
 mod subparams;

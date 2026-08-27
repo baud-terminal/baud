@@ -2,6 +2,22 @@ use crate::*;
 
 impl<'a> Term<'a> {
     #[inline(always)]
+    /// The rendition a cell's [`StyleId`] stands for.
+    ///
+    /// A renderer needs this: the cell carries an index into a 64-entry
+    /// direct-mapped table, and the colours, attributes and font live in the
+    /// table rather than in the cell. Reads the slot back rather than trusting
+    /// the id, because the table evicts on collision -- the same check DECSCA
+    /// protection needed and did not have.
+    pub fn style_of(&self, cell: PackedCell) -> StyleWord {
+        let i = cell.style.index();
+        if self.s.tmpl_valid[i] {
+            self.s.tmpl_key[i]
+        } else {
+            StyleWord::DEFAULT
+        }
+    }
+
     pub(crate) fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         let k = StyleId::bucket(raw, NSTYLE);
         if self.s.tmpl_valid[k] && self.s.tmpl_key[k] == raw {

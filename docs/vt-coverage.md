@@ -539,7 +539,16 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 90-97, 100-107 aixterm bright | done — palette indices 8..15 |
 | 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done |
 | 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
-| 10-19 fonts, 20 Fraktur, 26, 50-65 | **out** — no renderer consumes them, and a bit set and never read is the failure this table exists to catch |
+| 10-19 fonts | done — recorded in `StyleWord`'s spare bits; `Term::style_of` is how a renderer reads one |
+| 20 Fraktur, 26, 50-65 | **out** — 58/59 are an underline *colour* and need a third `ColorWord`, which the eight-byte rendition has no room for; the rest are ideogram and framing attributes no renderer has asked for |
+
+**Fonts moved from `out` to `done` by measuring rather than assuming.** The row
+said they needed cell bits that did not exist. A font is a *rendition*, and
+rendition lives in `StyleWord` -- which carried sixteen bits of explicit
+padding, put there because zerocopy rejects implicit padding. `PackedCell`
+never had to grow, and the eight-byte cell was never the constraint. "A bit set
+and never read" resolved the way it did for charset designations: baud records
+the selection and `Term::style_of` is where a renderer reads it.
 
 Every SGR parameter above is **done** or **out**; none is partial. `CSI m` used
 to be listed as `partial` on the strength of that last row, which conflated two
