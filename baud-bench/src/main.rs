@@ -2,6 +2,7 @@
 //! the kernel tty layer a terminal cannot avoid.
 
 mod drive;
+mod graphemes;
 mod harness;
 
 use drive::*;
@@ -155,4 +156,6 @@ fn main() {
         avx2,
         Tr::Pipe,
     );
+
+    graphemes::run(reps);
 }

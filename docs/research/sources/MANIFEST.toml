@@ -507,3 +507,55 @@ sha256 = "d62e5bab70ca74f099343f71224fa051cb1fdd61a1ab45c0488c44cfc0b6102e"
 bytes  = 277514
 status = "retrieved"
 group  = "G"
+
+[sources.gbp-data]
+key    = "gbp-data"
+title  = "GraphemeBreakProperty.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakProperty.txt"
+file   = "unicode-graphemebreakproperty.txt"
+sha256 = "d6b51d1d2ae5c33b451b7ed994b48f1f4dc62b2272a5831e7fd418514a6bae89"
+bytes  = 99377
+status = "retrieved"
+group  = "G"
+
+[sources.gbtest]
+key    = "gbtest"
+title  = "GraphemeBreakTest.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakTest.txt"
+file   = "unicode-graphemebreaktest.txt"
+sha256 = "e2d134d2c52919bace503ebb6a551c1855fe1a1faec18478c78fff254a1793ec"
+bytes  = 126570
+status = "retrieved"
+group  = "G"
+
+[sources.emoji-data]
+key    = "emoji-data"
+title  = "emoji-data.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt"
+file   = "unicode-emoji-data.txt"
+sha256 = "2cb2bb9455cda83e8481541ecf5b6dfda66a3bb89efa3fa7c5297eccf607b72b"
+bytes  = 107324
+status = "retrieved"
+group  = "G"
+
+[sources.dcp-data]
+key    = "dcp-data"
+title  = "DerivedCoreProperties.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt"
+file   = "unicode-derivedcoreproperties.txt"
+sha256 = "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08"
+bytes  = 1134783
+status = "retrieved"
+group  = "G"

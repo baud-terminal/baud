@@ -174,7 +174,8 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` | **out** — they are UTF-8 continuation bytes; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm, which accept them |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
-| grapheme clustering (UAX #29 extended clusters, one cluster per cell) | **out** — see below |
+| UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
+| one cluster per cell (storage) | **out** — see below; the segmentation is measured, the storage is not |
 | `CSI ? 2027 h/l` / DECRQM `?2027` — grapheme clustering mode | **out** — DECRQM answers `0`, not recognized, because baud does not cluster |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
 | `ESC % @` — select ISO 8859-1 | **out** — counted in `Term::unsupported`; baud cannot leave UTF-8 |
@@ -226,14 +227,37 @@ and one glyph, and baud gives it **four columns**, because the two emoji are
 each East Asian Wide and the joiner is zero. A combining sequence longer than
 one mark has the same shape.
 
-It stays out for now, and the reason is a measurement that does not exist yet
-rather than a principle. `PackedCell` is eight bytes and that number is
-measured; a cluster needs storage the cell does not have, so it means a side
-table keyed per cell, and the cost of that against the working-set rule is
-**unmeasured**. `docs/research/notes/g-text-encoding.md` § 4.4 sets out where
-the bytes would come from and § 4.5 why there is no consensus to conform to:
-mode 2027 is a draft, kitty's text-sizing protocol solves an overlapping
-problem differently, and terminals disagree today.
+**The segmentation half is now done and measured; the storage half is not.**
+`ClusterBreak` implements the boundary rules and passes all 766 cases of
+`GraphemeBreakTest.txt`, which is Unicode's own suite written by the people who
+wrote the rules. So the question is no longer "can baud find cluster
+boundaries" but "what would it cost to act on them", and half of that now has a
+number:
+
+| corpus | width only | + UAX #29 breaks | cost |
+|---|---|---|---|
+| ASCII | 1119.6 Mcp/s | 338.3 | −70% |
+| Latin + combining | 509.4 | 128.0 | −75% |
+| CJK | 168.8 | 56.6 | −66% |
+| emoji ZWJ, flags, Indic conjuncts | 156.0 | 50.1 | −68% |
+
+Read the ASCII row with care: it measures a path ingest never takes. Printable
+ASCII is blitted by the run scanner and never becomes a `Codepoint` at all, so
+segmentation would cost nothing on it. The number that matters is CJK — **169 to
+57 Mcp/s, about 3x on the non-ASCII decode path**, which at three bytes per
+codepoint is roughly 500 MB/s down to 170.
+
+That is a real cost and not a disqualifying one. What still has no number is
+**storage**: `PackedCell` is eight measured bytes and a cluster does not fit, so
+it means a side table keyed per cell — the shape `OSC 8` links already use, with
+the index riding in spare `CellFlags` bits — and the cost of that against the
+working-set rule is untested. That is the remaining blocker, and it is now
+stated precisely rather than as "unmeasured" covering both halves.
+
+`docs/research/notes/g-text-encoding.md` § 4.4 sets out where the bytes would
+come from and § 4.5 why there is no consensus to conform to: mode 2027 is a
+draft, kitty's text-sizing protocol solves an overlapping problem differently,
+and terminals disagree today.
 
 What matters for honesty is that nothing here *claims* it. DECRQM `?2027`
 answers `0` — not recognized — rather than `2`, which would tell an application

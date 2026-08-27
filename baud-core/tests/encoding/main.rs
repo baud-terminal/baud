@@ -4,5 +4,6 @@
 //! that are: whether they decode, what happens when they do not, and how wide
 //! the result is.
 
+mod graphemes;
 mod utf8;
 mod width;
