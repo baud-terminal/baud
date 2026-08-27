@@ -4,6 +4,19 @@ What baud implements, what it does not, and what it has decided not to. Every
 row traces to a primary source in `docs/research/sources/`, cited as
 `[[source: <key>]]` and checked by `scripts/check-sources.sh`.
 
+**And it is checked in both directions.** Every **done** row is fed to a real
+`Term` and must reach a handler (`enumerated.rs`); and every plain CSI final
+`[[source: ctlseqs]]` defines must be either handled or counted in
+`Term::unsupported` (`spec_inventory.rs`). The second matters because this file
+is *baud's own* enumeration: an operation the specification defines and baud
+never listed is invisible here — not `todo`, not `out`, absent — and checking
+the table against the code cannot see a row nobody wrote.
+
+The scope subset is deliberate and the check accommodates it rather than
+demanding parity: ctlseqs documents far more than baud commits to, so the
+requirement is not that every operation be implemented. It is that none be
+*silently consumed*.
+
 **This file is the scope definition.** "Implement the VT protocol" is not a
 statement with a truth value until the surface is enumerated, because the
 surface is not finite in any useful sense: `[[source: ctlseqs]]` documents 117

@@ -18,6 +18,7 @@
 
 mod enumerated;
 mod levels;
+mod spec_inventory;
 mod terminfo;
 
 use baud_core::*;
