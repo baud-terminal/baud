@@ -8,10 +8,33 @@ use crate::*;
 /// 2048-column grid, so a report from column 400 would name a different cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MouseEncoding {
+    /// The original protocol, and the default: no mode turns it on, it is what
+    /// `?1000` gives you without `?1005`, `?1006` or `?1015`.
+    ///
+    /// `[[source: ctlseqs]]`: "The original X10 mouse protocol limits the Cx
+    /// and Cy ordinates to 223 (=255 - 32)." baud's grid goes to 2048, so a
+    /// report from column 400 has no encoding here -- and the byte it would
+    /// produce names a *different cell* rather than a truncated one, which is
+    /// the wrong-shaped answer `docs/vt-coverage.md` rules out. Those events
+    /// are dropped and counted in `mouse_unencodable`; the ones that fit are
+    /// sent, which is every position on any terminal anyone actually runs.
     #[default]
-    None,
-    /// `?1006`.
+    X10,
+    /// `?1006`. No limit worth the name, and the only encoding baud emits
+    /// beyond 223.
     Sgr,
+}
+
+impl MouseEncoding {
+    /// The largest ordinate this encoding can name, one-based.
+    ///
+    /// `None` for SGR: it writes decimal, so the limit is the grid's.
+    pub fn max_ordinate(self) -> Option<u16> {
+        match self {
+            MouseEncoding::X10 => Some(223),
+            MouseEncoding::Sgr => None,
+        }
+    }
 }
 
 /// A mouse button, as the wire encodes it.

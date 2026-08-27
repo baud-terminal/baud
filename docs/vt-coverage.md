@@ -603,7 +603,8 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
-| `CSI ? 1006 h/l` | SGR mouse encoding | done — the only encoding, see below |
+| `CSI ? 1006 h/l` | SGR mouse encoding | done — no ordinate limit; see below |
+| X10 mouse encoding (`ESC [ M Cb Cx Cy`) | the default, what `?1000` gives without `?1006` | done — positions past 223 refused and counted, not truncated |
 | `CSI ? 1001 h/l` | highlight tracking | **out of scope** — "requires a cooperating program, else xterm will hang" |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |

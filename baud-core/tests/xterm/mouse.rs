@@ -164,20 +164,69 @@ fn nothing_is_reported_without_tracking() {
     );
 }
 
-/// Tracking without `?1006` reports nothing, and the drop is **counted**.
+/// **Tracking without `?1006` reports X10, which is the original protocol.**
 ///
-/// An application that enables `?1000` alone and gets silence should be
-/// diagnosable from outside rather than left guessing.
+/// This asserted that nothing was reported at all, on the reasoning that X10
+/// caps each ordinate at 223 against a 2048-column grid and a report from
+/// column 400 would name a different cell. True of column 400, and not a
+/// reason to refuse the encoding: an application speaking the original
+/// protocol on an 80x24 screen was getting silence where every byte was
+/// encodable.
+///
+/// `[[source: ctlseqs]]`: "The original X10 mouse protocol limits the Cx and Cy
+/// ordinates to 223 (=255 - 32)." Positions within it are sent; the rest are
+/// refused, below.
 #[test]
-fn tracking_without_sgr_is_counted_not_silent() {
+fn tracking_without_sgr_reports_x10() {
     let mut t = T {
         s: Storage::boxed(),
     };
     let mut term = Term::new(&mut t.s, OpMode::Computed);
     feed(&mut term, b"\x1b[?1000h");
-    assert!(!term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 0)));
-    assert!(term.reply().is_empty(), "no wrong-shaped X10 report");
+    assert!(term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 0)));
+    // `ESC [ M` then Cb, Cx, Cy, each biased by 32. Row and column are
+    // one-based on the wire, so (0,0) is (1,1) is byte 33.
+    assert_eq!(term.reply(), b"\x1b[M\x20\x21\x21", "X10 press at 1,1");
+    assert_eq!(term.mouse_unencodable.count(), 0, "nothing was dropped");
+}
+
+/// **A position X10 cannot name is refused, not truncated.**
+///
+/// The byte for column 400 would wrap to a small value and point at a
+/// different cell, which is worse than saying nothing: the application would
+/// act on a confident wrong answer. Dropped and counted.
+#[test]
+fn x10_refuses_a_position_it_cannot_encode() {
+    let mut t = T {
+        s: Storage::boxed(),
+    };
+    let mut term = Term::new(&mut t.s, OpMode::Computed);
+    feed(&mut term, b"\x1b[?1000h");
+    assert!(!term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 400)));
+    assert!(term.reply().is_empty(), "no wrong-shaped report");
     assert_eq!(term.mouse_unencodable.count(), 1, "the drop is visible");
+
+    // The same position under `?1006` is fine: SGR writes decimal.
+    feed(&mut term, b"\x1b[?1006h");
+    assert!(term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 400)));
+    assert!(!term.reply().is_empty(), "SGR has no such limit");
+}
+
+/// The boundary is 223 inclusive, one-based, as the specification states.
+#[test]
+fn x10_encodes_up_to_223_inclusive() {
+    let mut t = T {
+        s: Storage::boxed(),
+    };
+    let mut term = Term::new(&mut t.s, OpMode::Computed);
+    feed(&mut term, b"\x1b[?1000h");
+    // Zero-based 222 is one-based 223: the last encodable column.
+    assert!(term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 222)));
+    term.clear_reply();
+    assert!(
+        !term.mouse_report(ev(MouseButton::Left, MouseKind::Press, 0, 223)),
+        "one-based 224 is past the limit"
+    );
 }
 
 /// `?1000` reports presses and releases but not motion.

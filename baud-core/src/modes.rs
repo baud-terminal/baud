@@ -90,10 +90,12 @@ impl<'a> Term<'a> {
             PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, on),
             PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, on),
             PrivateMode::MouseSgr => {
+                // Resetting `?1006` returns to X10, which is the protocol's
+                // default rather than "off" -- there is no off.
                 self.mouse_encoding = if on {
                     MouseEncoding::Sgr
                 } else {
-                    MouseEncoding::None
+                    MouseEncoding::X10
                 }
             }
             // Input-side and rendering modes: recorded, and exposed by the
@@ -347,7 +349,7 @@ impl<'a> Term<'a> {
             PrivateMode::MouseAnyEvent => tracking_state(self.mouse, MouseTracking::AnyEvent),
             PrivateMode::MouseSgr => match self.mouse_encoding {
                 MouseEncoding::Sgr => ModeState::Set,
-                MouseEncoding::None => ModeState::Reset,
+                MouseEncoding::X10 => ModeState::Reset,
             },
             PrivateMode::AltScreen => {
                 if self.screen == Screen::Alternate {

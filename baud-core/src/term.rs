@@ -333,7 +333,7 @@ impl<'a> Term<'a> {
             keypad: KeypadMode::Numeric,
             terminal_mode: TerminalMode::Ansi,
             mouse: MouseTracking::Off,
-            mouse_encoding: MouseEncoding::None,
+            mouse_encoding: MouseEncoding::X10,
             mouse_unencodable: Stat::ZERO,
             clipboard_reads_refused: Stat::ZERO,
             clipboard_writes_dropped: Stat::ZERO,

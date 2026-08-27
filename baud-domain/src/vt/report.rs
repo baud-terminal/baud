@@ -84,6 +84,9 @@ pub enum Report {
     /// application at some other cell. Under the rule that a wrong answer beats
     /// no answer nowhere, baud reports nothing unless `?1006` is on.
     MouseSgr(MouseEvent),
+    /// `ESC [ M Cb Cx Cy`, each ordinate offset by 32. See
+    /// [`MouseEncoding::X10`] for why the caller must check the range first.
+    MouseX10(MouseEvent),
 }
 
 /// Which terminal baud claims to be, in a Primary DA response.
@@ -227,6 +230,15 @@ impl Report {
                     MouseKind::Release => b'm',
                     _ => b'M',
                 });
+            }
+            Report::MouseX10(ev) => {
+                // `ESC [ M` then three bytes, each ordinate biased by 32. The
+                // caller has already refused anything past 223: encoding it
+                // here would wrap and name a different cell.
+                e.push(b'M');
+                e.push((ev.cb() as u8).wrapping_add(32));
+                e.push((ev.col.one_based().get() as u8).wrapping_add(32));
+                e.push((ev.row.one_based().get() as u8).wrapping_add(32));
             }
             Report::Vt52Identity => {
                 e.len = ByteLen::ZERO;

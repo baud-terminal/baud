@@ -21,11 +21,18 @@ impl<'a> Term<'a> {
     ///   dropped under `?1000`, and motion with no button held is dropped under
     ///   anything below `?1003` -- sending it anyway would flood an application
     ///   that asked only for clicks.
-    /// * Without `?1006` nothing is reported at all, and `mouse_unencodable`
-    ///   counts it. The X10 encoding caps each ordinate at 223 and baud's grid
-    ///   goes to 2048, so a report from column 400 would not be truncated, it
-    ///   would point at the wrong cell. That is the wrong-shaped answer
-    ///   `docs/vt-coverage.md` rules out.
+    /// * The *position* has to be encodable. X10 -- the default, and what
+    ///   `?1000` gives without `?1006` -- caps each ordinate at 223 against a
+    ///   2048-column grid, so a report from column 400 has no encoding: the
+    ///   byte it would produce names a different cell rather than a truncated
+    ///   one, which is the wrong-shaped answer `docs/vt-coverage.md` rules out.
+    ///   Those are dropped and counted in `mouse_unencodable`. Everything that
+    ///   fits is sent.
+    ///
+    ///   This used to report *nothing at all* without `?1006`, on that same
+    ///   reasoning. It is a reason not to encode out of range, not a reason to
+    ///   refuse the encoding: an application speaking the original protocol on
+    ///   an 80x24 screen was getting silence where every byte was encodable.
     pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
         let wanted = match (self.mouse, e.kind) {
             (MouseTracking::Off, _) => false,
@@ -36,9 +43,19 @@ impl<'a> Term<'a> {
         if !wanted {
             return false;
         }
-        if self.mouse_encoding == MouseEncoding::None {
-            self.mouse_unencodable.inc();
-            return false;
+        // The encoding decides whether this *position* can be named. X10 caps
+        // each ordinate at 223, so a report from column 400 has no encoding --
+        // and the byte it would produce points at a different cell rather than
+        // a truncated one. Refused and counted; the positions that fit are
+        // sent, which is every one on a terminal anyone actually runs.
+        if let Some(max) = self.mouse_encoding.max_ordinate() {
+            let (r, c) = (e.row.one_based().get(), e.col.one_based().get());
+            if r > max || c > max {
+                self.mouse_unencodable.inc();
+                return false;
+            }
+            self.report(Report::MouseX10(e));
+            return true;
         }
         self.report(Report::MouseSgr(e));
         true

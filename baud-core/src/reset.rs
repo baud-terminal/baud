@@ -14,7 +14,7 @@ impl<'a> Term<'a> {
         self.keypad = KeypadMode::Numeric;
         self.set_terminal_mode(TerminalMode::Ansi);
         self.mouse = MouseTracking::Off;
-        self.mouse_encoding = MouseEncoding::None;
+        self.mouse_encoding = MouseEncoding::X10;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
@@ -40,7 +40,7 @@ impl<'a> Term<'a> {
         self.keypad = KeypadMode::Numeric;
         self.set_terminal_mode(TerminalMode::Ansi);
         self.mouse = MouseTracking::Off;
-        self.mouse_encoding = MouseEncoding::None;
+        self.mouse_encoding = MouseEncoding::X10;
         self.g = [Charset::Ascii; 4];
         self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
