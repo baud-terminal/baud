@@ -206,6 +206,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
 | ISO 8859-1 input, switched by `ESC % @` / `ESC % G` | done — `InputEncoding`; one byte, one character, no decoder state |
+| encoding detection | done — `InputEncoding::detect` **reports**; it never switches the terminal, and returns `None` when the sample cannot decide |
 | National replacement sets and other legacy charsets | **out** — no escape sequence in scope selects them, and `iconv` transcodes once outside the ingest loop; `InputEncoding` is where they would go |
 
 `S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
@@ -321,6 +322,26 @@ both work: `InputEncoding` decides how a byte above `0x7F` is read, and a
 single-byte encoding needs no decoder state at all. This was refused here on
 the grounds that baud "cannot leave UTF-8", which was wrong — the encodings
 differ only in that one rule.
+
+**Detection reports; it does not switch.** `InputEncoding::detect` takes a
+sample and answers one of three things, and the third is the interesting one:
+
+* a UTF-8 BOM at offset zero is a signature, and decisive;
+* anything ill-formed as UTF-8 rules UTF-8 out — ISO 8859-1 has no ill-formed
+  bytes, all 256 are characters, so it is what *remains* rather than a guess;
+* a sample of nothing but ASCII returns **`None`**, because the two encodings
+  agree on every byte below `0x80`.
+
+That third case is why detection cannot be a default. Most of what a terminal
+sees is ASCII and decides nothing, and a rule that answered anyway would be
+inventing evidence. Nothing in baud calls `detect` — an embedder does, and
+decides — because guessing an encoding wrong corrupts text silently and gives
+the application no way to find out, which is the failure this document refuses
+everywhere else. xterm makes it a resource for the same reason.
+
+A sequence truncated by the end of the sample is not evidence either: the next
+read may complete it, and treating it as ill-formed would make the answer depend
+on where the read boundary fell.
 
 `80..9F` stay ignored in Latin-1 rather than printed: ISO 8859-1 reserves them
 for C1 controls, which baud does not act on, so printing them would invent

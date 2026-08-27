@@ -348,6 +348,71 @@ pub enum InputEncoding {
 }
 
 impl InputEncoding {
+    /// The UTF-8 byte-order mark, `EF BB BF`.
+    ///
+    /// Unicode calls it a signature when it appears at the start of a stream.
+    /// Mid-stream the same codepoint is `U+FEFF` ZERO WIDTH NO-BREAK SPACE and
+    /// is text, which is why this is only meaningful at offset zero.
+    pub const BOM: [u8; 3] = [0xef, 0xbb, 0xbf];
+
+    /// Which encoding a sample is in, or `None` when the sample cannot say.
+    ///
+    /// **It reports; it does not switch.** Nothing in baud calls this — an
+    /// embedder does, and decides. Guessing an encoding wrong corrupts text
+    /// silently and gives the application no way to find out, which is the
+    /// failure this project refuses everywhere else, so the guess is not
+    /// baud's to make. xterm makes it a resource for the same reason.
+    ///
+    /// The three answers, and why the third is not a cop-out:
+    ///
+    /// * A UTF-8 BOM at offset zero is a signature, and decisive.
+    /// * A byte sequence that is ill-formed UTF-8 rules UTF-8 out. ISO 8859-1
+    ///   has no ill-formed bytes at all -- every one of the 256 is a character
+    ///   -- so it is what remains.
+    /// * A sample of nothing but ASCII returns **`None`**, because the two
+    ///   encodings agree on every byte below `0x80`. There is no evidence
+    ///   either way, and answering anyway would be inventing one. This is the
+    ///   common case for a terminal, and it is why detection cannot be a
+    ///   default: most of what a terminal sees decides nothing.
+    pub fn detect(sample: &[u8]) -> Option<InputEncoding> {
+        if sample.starts_with(&InputEncoding::BOM) {
+            return Some(InputEncoding::Utf8);
+        }
+        let mut saw_multibyte = false;
+        let mut i = 0;
+        while i < sample.len() {
+            let b = StreamByte::from_stream(sample[i]);
+            let Some((rem, acc, min)) = b.utf8_lead() else {
+                if sample[i] < 0x80 {
+                    i += 1;
+                    continue;
+                }
+                // A lead byte UTF-8 has no encoding for, or a stray
+                // continuation. Latin-1 reads it as a character.
+                return Some(InputEncoding::Latin1);
+            };
+            let n = rem as usize;
+            if i + n >= sample.len() {
+                // Truncated at the end of the sample: not evidence either way.
+                break;
+            }
+            let mut v = Utf8Acc::lead(acc);
+            for k in 1..=n {
+                match StreamByte::from_stream(sample[i + k]).utf8_continuation() {
+                    Some(bits) => v = v.push(bits),
+                    None => return Some(InputEncoding::Latin1),
+                }
+            }
+            if v.finish(min) == Codepoint::REPLACEMENT {
+                // Overlong, surrogate, or out of range -- ill-formed UTF-8.
+                return Some(InputEncoding::Latin1);
+            }
+            saw_multibyte = true;
+            i += n + 1;
+        }
+        saw_multibyte.then_some(InputEncoding::Utf8)
+    }
+
     /// The character a byte stands for, in a single-byte encoding.
     ///
     /// `None` for `80..9F`, which ISO 8859-1 reserves for C1 controls. baud
