@@ -191,6 +191,21 @@ enum Op {
     /// a multi-byte sequence split across a read boundary is the classic
     /// terminal bug, and this suite could not produce one.
     Utf8(u8),
+    /// A self-contained excursion into **VT52 mode**: `CSI ? 2 l`, some VT52
+    /// commands, then `ESC <` back to ANSI.
+    ///
+    /// DECANM was not in `MODES`, so no generated program ever left ANSI, and
+    /// the whole VT52 command set — fourteen operations including `ESC Y`
+    /// direct addressing, which needs its own parser sub-state to collect two
+    /// bias-`0x20` coordinate bytes — was unreachable from every property here.
+    ///
+    /// Self-contained on purpose. VT52 changes how *all* subsequent bytes
+    /// parse: `ESC [` is not a CSI introducer there. A program left in VT52
+    /// would make every composing property diverge for a reason that is not a
+    /// bug, the same way RIS and a pending UTF-8 sequence did. Entering and
+    /// leaving in one op keeps the terminal in a known state at the boundary
+    /// while still driving the sub-state inside it.
+    Vt52Block(u8),
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -245,6 +260,23 @@ const DESIGNATORS: [u8; 24] = [
     b'`', b'E', b'6', b'<', b'>', b'I', b'J',
     // Not implemented: must designate `Charset::Other` and stay inert.
     b'~',
+];
+
+/// What to do while in VT52 mode.
+///
+/// `ESC Y` takes two bias-`0x20` bytes, so `\x1bY\x20\x20` is row 0 column 0
+/// and `\x1bY\x28\x2f` is row 8 column 15 -- the coordinates are the point,
+/// because collecting them is a parser sub-state nothing else reaches.
+/// `ESC Z` is answered, so `replies_are_well_formed` sees VT52 replies too.
+const VT52_RUNS: [&[u8]; 8] = [
+    b"\x1bA\x1bB\x1bC\x1bD",
+    b"\x1bH\x1bI",
+    b"\x1bY\x20\x20text",
+    b"\x1bY\x28\x2ftext",
+    b"\x1bJ",
+    b"\x1bK",
+    b"\x1bF\x1bG",
+    b"\x1bZ",
 ];
 
 const UTF8_RUNS: [&[u8]; 14] = [
@@ -338,6 +370,7 @@ fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         (0x21u8..0x7f, 1u8..40).prop_map(|(c, n)| Op::Text(c, n)),
         (0u8..UTF8_RUNS.len() as u8).prop_map(Op::Utf8),
+        (0u8..VT52_RUNS.len() as u8).prop_map(Op::Vt52Block),
         (0u8..60, 0u8..210).prop_map(|(r, c)| Op::Cup(r, c)),
         (0u8..60).prop_map(Op::Cuu),
         (0u8..60).prop_map(Op::Cud),
@@ -444,6 +477,12 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
         match *o {
             Op::Utf8(k) => {
                 out.extend_from_slice(UTF8_RUNS[usize::from(k)]);
+                continue;
+            }
+            Op::Vt52Block(k) => {
+                out.extend_from_slice(b"\x1b[?2l");
+                out.extend_from_slice(VT52_RUNS[usize::from(k)]);
+                out.extend_from_slice(b"\x1b<");
                 continue;
             }
             Op::Text(c, k) => {
@@ -793,6 +832,17 @@ proptest! {
                         "a CSI reply must end on a legal final byte"
                     );
                     i = j + 1;
+                }
+                // VT52's identity, `ESC / Z`. The one reply that is neither a
+                // CSI nor a control string, because in VT52 mode there is no
+                // CSI to answer with -- xterm's `CASE_DECID` emits `ESC`, `/`
+                // and the id byte. This arm did not exist while nothing could
+                // enter VT52 mode, so the property was about ANSI replies
+                // under the name of a property about replies.
+                b'/' => {
+                    prop_assert!(body < reply.len(), "ESC / with no identity byte");
+                    prop_assert_eq!(reply[body], b'Z', "baud identifies as a VT52");
+                    i = body + 1;
                 }
                 // DCS and OSC are string families: consume to the terminator.
                 b'P' | b']' => {
