@@ -58,7 +58,7 @@ pub(crate) fn run_once_t(
     total: usize,
     avx2: bool,
     tr: Tr,
-) -> (f64, u64, u64, u64) {
+) -> (f64, Stat, Stat, Stat) {
     // No transport: the payload is copied into the slot instead of being read
     // into it, so the slot is still `READ_CHUNK` and the parser sees the
     // chunking a PTY would give it. Inline rather than a second function
@@ -100,9 +100,9 @@ pub(crate) fn run_once_t(
         let dt = t0.elapsed().as_secs_f64();
         return (
             got as f64 / dt / 1_048_576.0,
-            t.promotions.count(),
-            t.tmpl_hits.count(),
-            t.tmpl_builds.count(),
+            t.promotions,
+            t.tmpl_hits,
+            t.tmpl_builds,
         );
     }
     unsafe {
@@ -202,9 +202,9 @@ pub(crate) fn run_once_t(
         libc::close(m);
         (
             got as f64 / dt / 1_048_576.0,
-            t.promotions.count(),
-            t.tmpl_hits.count(),
-            t.tmpl_builds.count(),
+            t.promotions,
+            t.tmpl_hits,
+            t.tmpl_builds,
         )
     }
 }
@@ -215,6 +215,6 @@ pub(crate) fn run_once(
     which: &P,
     total: usize,
     avx2: bool,
-) -> (f64, u64, u64, u64) {
+) -> (f64, Stat, Stat, Stat) {
     run_once_t(store, mode, which, total, avx2, Tr::Pty)
 }

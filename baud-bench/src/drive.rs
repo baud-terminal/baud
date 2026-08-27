@@ -40,7 +40,13 @@ pub(crate) fn bench(
     avx2: bool,
 ) {
     let mut v = Vec::with_capacity(reps);
-    let (mut promo, mut hits, mut builds) = (0u64, 0u64, 0u64);
+    // `Stat`, not three bare `u64`s. `hits` and `builds` are adjacent, the
+    // same width, and feed a *ratio* -- transposing them silently reports the
+    // inverse hit rate, which looks entirely plausible. That rate is the
+    // diagnostic that caught `StyleId::bucket` taking the wrong bits (112,144
+    // interns at 51.6% against 0 at 100%), so a plausible-looking wrong value
+    // there is expensive.
+    let (mut promo, mut hits, mut builds) = (Stat::ZERO, Stat::ZERO, Stat::ZERO);
     for _ in 0..reps {
         let (mbs, p, h, b) = run_once(store, mode, which, total, avx2);
         v.push(mbs);
@@ -58,12 +64,16 @@ pub(crate) fn bench(
     );
     print!(
         "   styles {} interned / {} hits ({:.1}%)",
-        builds,
-        hits,
-        100.0 * hits as f64 / (hits + builds).max(1) as f64
+        builds.count(),
+        hits.count(),
+        // `ratio_to` rather than the division written out again: it is the
+        // helper this repo already wrote for hit rates, it saturates at zero
+        // instead of dividing by it, and naming both operands is what makes a
+        // swap visible rather than merely possible.
+        100.0 * hits.ratio_to(builds)
     );
-    if promo > 0 {
-        print!("   promotions {}", promo);
+    if !promo.is_zero() {
+        print!("   promotions {}", promo.count());
     }
     println!();
 }
