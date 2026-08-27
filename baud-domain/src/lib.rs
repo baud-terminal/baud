@@ -585,6 +585,28 @@ impl CellFlags {
     /// `[[source: vt510-decsca]]`: "1 DECSED and DECSEL cannot erase
     /// characters."
     pub const PROTECTED: CellFlags = CellFlags(1);
+    /// The byte in this cell was written while the DEC Special Character and
+    /// Line Drawing Set was invoked into GL.
+    ///
+    /// The cell keeps the byte the application sent, plus this flag, rather
+    /// than a translated codepoint. That is deliberate and it is a *sourcing*
+    /// decision, not a design preference: `[[source: ctlseqs]]` names the set
+    /// (`C = 0 -> DEC Special Character and Line Drawing Set, VT100`) but does
+    /// not give the byte-to-glyph mapping, and `MANIFEST.toml` records
+    /// `dec-special-graphics` as `gated` -- vt100.net publishes the table as a
+    /// figure, so no claim may rest on it. Translating here would mean writing
+    /// the table from memory, which this project has been wrong about before.
+    ///
+    /// Carrying the flag loses nothing: a renderer that has the table has
+    /// everything it needs, and one that does not can say so. Translating to a
+    /// guessed codepoint would be unrecoverable.
+    pub const GRAPHICS: CellFlags = CellFlags(2);
+    pub fn is_graphics(self) -> bool {
+        self.0 & CellFlags::GRAPHICS.0 != 0
+    }
+    pub fn with(self, o: CellFlags) -> CellFlags {
+        CellFlags(self.0 | o.0)
+    }
     pub fn protection(on: bool) -> CellFlags {
         CellFlags(u16::from(on))
     }
@@ -2266,6 +2288,61 @@ pub enum ClipboardOp<'a> {
     Read,
 }
 
+/// A character set designated into one of the G0-G3 slots.
+///
+/// `[[source: ctlseqs]]` lists the final characters for `ESC ( C` and friends.
+/// baud distinguishes only the two that change behaviour here -- ASCII and the
+/// line-drawing set -- and keeps the rest as `Other` so that designating one is
+/// *recorded* rather than mistaken for ASCII.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Charset {
+    /// `B` (USASCII), and `A` (British Latin-1), whose difference is one glyph
+    /// baud does not special-case.
+    #[default]
+    Ascii,
+    /// `0` — "DEC Special Character and Line Drawing Set, VT100."
+    DecGraphics,
+    /// Designated, recognised, and not translated. See [`CellFlags::GRAPHICS`]
+    /// for why translation needs a source baud does not have.
+    Other,
+}
+
+impl Charset {
+    pub fn from_final(b: StreamByte) -> Charset {
+        match b.raw_byte() {
+            b'0' => Charset::DecGraphics,
+            b'B' | b'A' => Charset::Ascii,
+            _ => Charset::Other,
+        }
+    }
+}
+
+/// Which G-slot an `ESC ( ) * +` designates.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GSlot {
+    G0,
+    G1,
+    G2,
+    G3,
+}
+
+impl GSlot {
+    /// The intermediate byte that selects the slot: `(` is G0, `)` G1, `*` G2,
+    /// `+` G3.
+    pub fn from_intermediate(b: StreamByte) -> Option<GSlot> {
+        Some(match b.raw_byte() {
+            b'(' => GSlot::G0,
+            b')' => GSlot::G1,
+            b'*' => GSlot::G2,
+            b'+' => GSlot::G3,
+            _ => return None,
+        })
+    }
+    pub fn index(self) -> usize {
+        self as usize
+    }
+}
+
 /// How a control string ended.
 ///
 /// `[[source: ctlseqs]]`: "XTerm accepts either BEL or ST for terminating OSC
@@ -2892,6 +2969,7 @@ impl StreamByte {
     pub const SO: StreamByte = StreamByte(0x0e);
     pub const SI: StreamByte = StreamByte(0x0f);
     pub const SEMICOLON: StreamByte = StreamByte(b';');
+
     /// The ISO 8613-6 sub-parameter separator. A *parameter* byte (0x3a), not
     /// an intermediate -- which is why it must be handled in the parameter
     /// loop and not by `is_csi_intermediate`.

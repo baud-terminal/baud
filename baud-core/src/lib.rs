@@ -20,11 +20,11 @@
 extern crate alloc;
 
 pub use baud_domain::{
-    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Codepoint, Col, ColorWord, Cols,
-    Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
-    FinalByte, LineSlot, Marker, ModeBit, ModeState, Modes, OneBased, Osc, PackedCell, Param,
-    ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows, Run,
-    RunCount, Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width,
+    AnsiMode, ArenaTail, ByteLen, BytePos, CellFlags, Chan, Charset, Codepoint, Col, ColorWord,
+    Cols, Content, Count, Csi, CursorStyle, DeviceAttribute, Encoding, EraseExtent, Esc, Filled,
+    FinalByte, GSlot, LineSlot, Marker, ModeBit, ModeState, Modes, OneBased, Osc, PackedCell,
+    Param, ParamIdx, Params, Pending, PrivateMode, Report, ReportBytes, RingPos, Room, Row, Rows,
+    Run, RunCount, Slot, Stat, StreamByte, StringTerm, StyleId, StyleWord, Utf8Acc, View, Width,
     WinSize, XColor,
 };
 
@@ -440,6 +440,19 @@ pub struct Term<'a> {
     /// saves the cursor, switches screens and restores must get its own saved
     /// cursor back, not the one the switch stashed.
     alt_saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>,
+    /// The four designatable character-set slots, and which one is invoked
+    /// into GL.
+    ///
+    /// `[[source: ctlseqs]]`: `ESC ( C` designates G0, `ESC ) C` G1, `ESC * C`
+    /// G2, `ESC + C` G3; SO invokes G1 into GL and SI invokes G0.
+    g: [Charset; 4],
+    gl: GSlot,
+    /// DECSCA protection alone, before the charset is folded in.
+    ///
+    /// Kept apart from `flags` so that changing either input recomputes the
+    /// combination in one place -- `flags` is read on the hot path and must
+    /// stay a single load.
+    protect: CellFlags,
     /// DECSCA, and anything else that is per-cell state rather than rendition.
     ///
     /// Stamped onto every character written, so protection survives style
@@ -513,6 +526,9 @@ impl<'a> Term<'a> {
             cursor_style: CursorStyle::BlinkingBlock,
             screen: Screen::Normal,
             alt_saved: None,
+            g: [Charset::Ascii; 4],
+            gl: GSlot::G0,
+            protect: CellFlags::NONE,
             flags: CellFlags::NONE,
             saved: None,
             scroll_top: Row::ZERO,
@@ -1488,7 +1504,10 @@ impl<'a> Term<'a> {
             // follow the DECSCA function as erasable or not erasable". It does
             // not repaint anything already on screen, and it does not touch the
             // rendition -- hence a flag, not an SGR fold.
-            Csi::SelectProtection { protect } => self.flags = CellFlags::protection(protect),
+            Csi::SelectProtection { protect } => {
+                self.protect = CellFlags::protection(protect);
+                self.refresh_flags();
+            }
             Csi::CursorStyle(c) => self.cursor_style = c,
             Csi::RequestMode { marker, mode } => {
                 let state = self.mode_state(marker, mode);
@@ -1625,6 +1644,14 @@ impl<'a> Term<'a> {
             // Both are an index. A terminal does not eject a page, and they were
             // being dropped, so a stream containing VT lost the line break.
             self.index();
+        } else if b == StreamByte::SO {
+            // `[[source: ctlseqs]]`: "Switch to Alternate Character Set (Ctrl-N
+            // is Shift Out or LS1)."
+            self.gl = GSlot::G1;
+            self.refresh_flags();
+        } else if b == StreamByte::SI {
+            self.gl = GSlot::G0;
+            self.refresh_flags();
         } else if b == StreamByte::BEL {
             // No UI here to ring one, so count it. A core that silently drops
             // BEL leaves an embedder no way to implement one.
@@ -1709,11 +1736,18 @@ impl<'a> Term<'a> {
                 } else if b.is_esc_intermediate() {
                     self.esc_inter = Some(b);
                 } else if b != StreamByte::DEL {
-                    // `ESC # 8` is DECALN. The charset designators
-                    // (`ESC ( <c>`) are consumed and select nothing -- see
-                    // docs/vt-coverage.md for why the mapping is not invented.
-                    if self.esc_inter == Some(StreamByte::HASH) && b.raw_byte() == b'8' {
-                        self.screen_alignment();
+                    match self.esc_inter {
+                        // `ESC # 8` is DECALN.
+                        Some(i) if i == StreamByte::HASH && b.raw_byte() == b'8' => {
+                            self.screen_alignment()
+                        }
+                        // `ESC ( ) * + <C>` designate G0-G3.
+                        Some(i) => {
+                            if let Some(slot) = GSlot::from_intermediate(i) {
+                                self.designate(slot, b);
+                            }
+                        }
+                        None => {}
                     }
                     self.st = State::Ground;
                 }
@@ -2048,6 +2082,33 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// `ESC ( ) * + <C>` — designate a character set into a G-slot.
+    ///
+    /// Designating does not change what is displayed until the slot is invoked
+    /// into GL by SO/SI, which is why this only records.
+    fn designate(&mut self, slot: GSlot, c: StreamByte) {
+        self.g[slot.index()] = Charset::from_final(c);
+        self.refresh_flags();
+    }
+
+    /// Recombine DECSCA protection with the active character set.
+    ///
+    /// Called whenever either input changes, so the write path can read
+    /// `self.flags` as one value. Doing this per cell instead would put a
+    /// second load and an OR inside the loop that `put_ascii_run` exists to
+    /// keep tight.
+    fn refresh_flags(&mut self) {
+        self.flags = match self.g[self.gl.index()] {
+            Charset::DecGraphics => self.protect.with(CellFlags::GRAPHICS),
+            _ => self.protect,
+        };
+    }
+
+    /// The character set currently invoked into GL.
+    pub fn charset(&self) -> Charset {
+        self.g[self.gl.index()]
+    }
+
     /// Is the cell at `(r, c)` protected from a selective erase?
     ///
     /// Read from the cell, not from the style table. An earlier version looked
@@ -2138,6 +2199,9 @@ impl<'a> Term<'a> {
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
+        self.protect = CellFlags::NONE;
+        self.g = [Charset::Ascii; 4];
+        self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
         self.screen = Screen::Normal;
         self.alt_saved = None;
@@ -2156,6 +2220,9 @@ impl<'a> Term<'a> {
         self.style = StyleId::DEFAULT;
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
+        self.protect = CellFlags::NONE;
+        self.g = [Charset::Ascii; 4];
+        self.gl = GSlot::G0;
         self.cursor_style = CursorStyle::BlinkingBlock;
         self.screen = Screen::Normal;
         self.alt_saved = None;

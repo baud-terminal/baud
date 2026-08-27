@@ -77,8 +77,8 @@ without these.
 | `0x0B` VT | vertical tab | done — index |
 | `0x0C` FF | form feed | done — index |
 | `0x0D` CR | carriage return | done |
-| `0x0E` SO | shift out (G1) | **todo** |
-| `0x0F` SI | shift in (G0) | **todo** |
+| `0x0E` SO | shift out (G1) | done |
+| `0x0F` SI | shift in (G0) | done |
 
 ### ESC sequences
 
@@ -93,7 +93,7 @@ without these.
 | `ESC H` | HTS set tab stop | done |
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | **todo** |
 | `ESC # 8` | DECALN screen alignment | done |
-| `ESC ( ` / `ESC ) ` | charset designate G0/G1 | **todo** |
+| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism; glyph table blocked, see below |
 
 ### CSI operations
 
@@ -307,6 +307,30 @@ Entering twice must not re-save the cursor, or an application that sets the mode
 twice is restored to a position from inside the alt screen. The switch also
 keeps its own saved cursor rather than sharing DECSC's, so a program that does
 both gets each back.
+
+**Character sets are designated, invoked and recorded — but not translated.**
+`ESC ( ) * + C` designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte
+written while the DEC Special Character and Line Drawing Set is active is
+carried to the cell **as the byte the application sent, flagged**
+(`CellFlags::GRAPHICS`) rather than as a translated codepoint.
+
+That is a sourcing decision, not a design preference. `[[source: ctlseqs]]`
+names the set — "C = 0 -> DEC Special Character and Line Drawing Set, VT100" —
+but gives no byte-to-glyph mapping, and `MANIFEST.toml` records
+`dec-special-graphics` as **gated**: vt100.net publishes the table as a figure,
+so no claim may rest on it. Writing the table from memory is exactly what
+"Do not implement a control function from memory" forbids, and this project has
+been overruled by the spec on smaller things.
+
+Carrying the flag loses nothing recoverable: a renderer holding the table has
+the byte and the fact that it is a graphics byte, which is everything it needs.
+Translating to a guessed codepoint would be unrecoverable, and it would be the
+`parsed`-status failure in its worst form — the terminal would look like it
+worked. When a citable table is obtained, the mapping is a renderer change and
+these tests do not move.
+
+Sets baud does not distinguish are recorded as `Charset::Other` rather than
+folded into ASCII, so designating DEC Supplemental is not mistaken for a no-op.
 
 **OSC payloads are bounded, and truncated rather than dropped.** Every byte of
 an OSC is attacker-controlled -- a window title is whatever the far end of an

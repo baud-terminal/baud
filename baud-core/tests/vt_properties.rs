@@ -68,6 +68,11 @@ enum Op {
     SgrColonIdx(u8, u8),
     /// `OSC Ps ; Pt` with either terminator.
     Osc(u16, u8, bool),
+    /// `ESC ( ) * + C` — designate a character set.
+    Designate(u8, u8),
+    /// SO / SI.
+    So,
+    Si,
 }
 
 /// SGR parameters baud implements, so a generated program exercises styles
@@ -128,6 +133,13 @@ fn op() -> impl Strategy<Value = Op> {
             any::<bool>(),
         )
             .prop_map(|(ps, k, st)| Op::Osc(ps, k, st)),
+        (
+            prop::sample::select(&[b'(', b')', b'*', b'+'][..]),
+            prop::sample::select(&[b'0', b'B', b'A', b'<'][..]),
+        )
+            .prop_map(|(g, c)| Op::Designate(g, c)),
+        Just(Op::So),
+        Just(Op::Si),
     ]
 }
 
@@ -200,6 +212,13 @@ fn emit(ops: &[Op], out: &mut Vec<u8>) {
                 write!(n, "\x1b]{ps};{body}").unwrap();
                 n.push_str(if st { "\x1b\\" } else { "\x07" });
             }
+            Op::Designate(g, c) => {
+                n.push('\x1b');
+                n.push(char::from(g));
+                n.push(char::from(c));
+            }
+            Op::So => n.push('\x0e'),
+            Op::Si => n.push('\x0f'),
         }
         out.extend_from_slice(n.as_bytes());
     }
