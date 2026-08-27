@@ -76,7 +76,7 @@ const SGR: [u8; 20] = [
 
 /// Private modes baud acts on, plus two it deliberately ignores -- an ignored
 /// mode must stay inert, and that is worth generating too.
-const MODES: [u16; 6] = [6, 7, 25, 1000, 1049, 2004];
+const MODES: [u16; 7] = [6, 7, 25, 1000, 1049, 2004, 2026];
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
@@ -408,6 +408,38 @@ proptest! {
             grid_then(&ops, &[Op::Ed(2), Op::Sgr(41), Op::Decsed(2)]),
             grid_then(&ops, &[Op::Ed(2), Op::Sgr(41), Op::Ed(2)])
         );
+    }
+
+    /// Anything done on the alternate screen leaves the primary screen exactly
+    /// as it was.
+    ///
+    /// The whole reason the alt screen is worth a second 10 MiB buffer. This
+    /// runs an arbitrary program, snapshots the primary screen, then runs a
+    /// second arbitrary program entirely inside an alt-screen switch and checks
+    /// the primary came back byte-identical.
+    #[test]
+    fn the_alt_screen_never_leaks_into_the_primary(
+        before in program(),
+        inside in program(),
+    ) {
+        // The prefix must leave the terminal on the *primary* screen, or the
+        // baseline is a snapshot of the alt screen and the comparison is
+        // meaningless. Filtering the switch out of it is the simplest way to
+        // guarantee that without constraining what else it may do.
+        let before: Vec<Op> = before
+            .into_iter()
+            .filter(|o| !matches!(o, Op::Decset(1049) | Op::Decrst(1049)))
+            .collect();
+        let baseline = grid(&before);
+        let mut v = before.clone();
+        v.push(Op::Decset(1049));
+        // A `?1049 l` *inside* is not a leak -- it is the program leaving the
+        // alt screen, after which it is entitled to write to the primary one.
+        // Filtering it is what makes this a test of isolation rather than of
+        // the generator. `?1049 h` stays, so re-entering is still exercised.
+        v.extend(inside.iter().copied().filter(|o| !matches!(o, Op::Decrst(1049))));
+        v.push(Op::Decrst(1049));
+        prop_assert_eq!(grid(&v), baseline);
     }
 
     /// DECSCA on its own changes nothing on screen. It arms the erases; it does

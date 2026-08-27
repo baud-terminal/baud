@@ -210,7 +210,7 @@ In scope because applications assume them, not because DEC specified them.
 | `OSC 8` | hyperlinks | **todo** |
 | `OSC 52` | clipboard | **todo** — see security note |
 | `OSC 104` | reset palette | **todo** |
-| `CSI ? 1049 h/l` | alternate screen buffer | **todo** |
+| `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1000-1006 h/l` | mouse reporting | **todo** |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
@@ -291,6 +291,22 @@ Two rules the tests pin, because both failure modes are worse than silence:
 * **An unsupported DSR gets no answer at all.** Replying with the wrong report
   shape is worse than not replying: the application parses whatever arrives as
   the report it asked for.
+
+**The alternate screen is a second buffer, not a mode bit.** `?1049` switches
+`Term` between two full grids, saving the cursor on the way in and restoring it
+on the way out, per `[[source: ctlseqs]]`. Two things make it cheaper than it
+looks. It has no scrollback -- no ring, no run table, no promotion -- so
+`OpMode::Runs` materialises directly there, and the O(1) ring-advance fast path
+in `scroll_region_up` is deliberately not taken on it: that path retires a line
+by moving the scrollback window, and using it on the alt screen would scroll the
+primary screen's history from under it. And the second grid is 10 MiB of
+*virtual* space that a terminal never running a full-screen program never faults
+in.
+
+Entering twice must not re-save the cursor, or an application that sets the mode
+twice is restored to a position from inside the alt screen. The switch also
+keeps its own saved cursor rather than sharing DECSC's, so a program that does
+both gets each back.
 
 **Two modes are recorded for an embedder rather than acted on internally.**
 Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that

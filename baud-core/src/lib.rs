@@ -57,6 +57,24 @@ pub const SB: usize = 10_000;
 pub const ARENA: usize = 1 << 20;
 pub const MAXRUN: usize = 8;
 
+/// Cells in one screen buffer.
+///
+/// Named because two buffers must be the same size -- switching screens is a
+/// pointer swap and nothing rechecks the geometry -- and because `vp` and `alt`
+/// having literally the same expression is the invariant, not a coincidence.
+pub const GRID: usize = MAX_ROWS * MAX_COLS;
+
+/// Which screen buffer is active.
+///
+/// `[[source: ctlseqs]]` calls them the Normal and Alternate Screen Buffers. A
+/// `bool` at these call sites would read as `if self.alt`, which says nothing
+/// about what the other branch is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Screen {
+    Normal,
+    Alternate,
+}
+
 /// Bytes of pending reply the core will hold for the caller.
 ///
 /// Queries are rare and their answers are short -- the longest baud produces is
@@ -96,7 +114,7 @@ pub struct Storage {
     pub arena: [u8; ARENA],
     pub runs: [Run; SB * MAXRUN],
     pub nrun: [RunCount; SB],
-    pub vp: [PackedCell; MAX_ROWS * MAX_COLS],
+    pub vp: [PackedCell; GRID],
     pub promoted: [bool; MAX_ROWS],
     pub tmpl: [PackedCell; NSTYLE * MAX_COLS],
     pub tmpl_key: [StyleWord; NSTYLE],
@@ -115,12 +133,38 @@ pub struct Storage {
     /// CHT and CBT are meaningless without one, and `HT` after `CSI 3 g` must
     /// run to the right margin rather than to the next multiple of eight.
     pub tabs: [bool; MAX_COLS],
+    /// The alternate screen buffer, `CSI ? 1049 h`.
+    ///
+    /// A second full-size grid, which looks expensive and is not: it is 10 MiB
+    /// of *virtual* address space, and MEASUREMENTS.md records that untouched
+    /// pages of this arena cost ~0.3 MB resident. A terminal that never runs a
+    /// full-screen program never faults most of it in.
+    ///
+    /// Placed last, on principle rather than on a measurement.
+    ///
+    /// Putting it straight after `vp` pushes every small hot structure --
+    /// `promoted`, `tmpl`, `tabs`, `reply` -- 10 MiB further from the grid,
+    /// and an erase touches the grid, `promoted` and `nrun` together. Keeping
+    /// them adjacent is what "working set <= cache" asks for.
+    ///
+    /// **The benchmark did not resolve it.** Both placements were measured
+    /// same-session: streaming showed no difference either way, and the TUI
+    /// cells figures moved by more than the placement could explain while
+    /// ghostty moved 2% in the same runs. Ranges overlap or the control drifted,
+    /// so there is no result -- this ordering is the reasoned default, not a
+    /// measured win, and it should not be quoted as one.
+    ///
+    /// It has **no scrollback**, which is what makes it cheaper than the
+    /// primary screen rather than merely as expensive: no ring, no run table,
+    /// no promotion. `[[source: ctlseqs]]` is explicit that switching clears
+    /// it, so nothing here needs to survive a switch.
+    pub alt: [PackedCell; GRID],
 }
 
 impl Storage {
     /// Allocate zeroed on the heap without a stack temporary.
     ///
-    /// `Box::new(Storage::zeroed())` builds ~14 MB on the stack before moving
+    /// `Box::new(Storage::zeroed())` builds ~24 MB on the stack before moving
     /// it; LLVM elides that copy sometimes and not others, and a test thread
     /// overflowed on it. This is the only construction path callers should use
     /// — and it means no test or harness hand-rolls `vec![0u8; size_of::<..>()]`
@@ -145,7 +189,8 @@ impl Storage {
             arena: [0; ARENA],
             runs: [R; SB * MAXRUN],
             nrun: [RunCount::ZERO; SB],
-            vp: [C; MAX_ROWS * MAX_COLS],
+            vp: [C; GRID],
+            alt: [C; GRID],
             promoted: [false; MAX_ROWS],
             tmpl: [C; NSTYLE * MAX_COLS],
             tmpl_key: [StyleWord::DEFAULT; NSTYLE],
@@ -330,6 +375,14 @@ pub struct Term<'a> {
     style_raw: StyleWord,
     /// DECSCUSR. Not a rendition -- it describes the cursor, not the text.
     cursor_style: CursorStyle,
+    /// Which buffer writes and reads go to.
+    screen: Screen,
+    /// The cursor DECSC-style state saved when switching *to* the alt screen.
+    ///
+    /// Separate from `saved`, which belongs to DECSC/DECRC: an application that
+    /// saves the cursor, switches screens and restores must get its own saved
+    /// cursor back, not the one the switch stashed.
+    alt_saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>,
     /// DECSCA, and anything else that is per-cell state rather than rendition.
     ///
     /// Stamped onto every character written, so protection survives style
@@ -396,6 +449,8 @@ impl<'a> Term<'a> {
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
             cursor_style: CursorStyle::BlinkingBlock,
+            screen: Screen::Normal,
+            alt_saved: None,
             flags: CellFlags::NONE,
             saved: None,
             scroll_top: Row::ZERO,
@@ -595,10 +650,25 @@ impl<'a> Term<'a> {
     /// The whole materialised region, stride included. Callers wanting a single
     /// row should use [`Term::row`], which is bounds-correct by construction.
     pub fn viewport(&self) -> &[PackedCell] {
-        &self.s.vp[..self.rows.index() * MAX_COLS]
+        let b = if self.screen == Screen::Alternate {
+            &self.s.alt
+        } else {
+            &self.s.vp
+        };
+        &b[..self.rows.index() * MAX_COLS]
     }
     pub fn row(&self, y: Row) -> &[PackedCell] {
-        View::new_ref(&self.s.vp, self.stride(), self.cols, self.rows).row_slice(y)
+        let b = if self.screen == Screen::Alternate {
+            &self.s.alt
+        } else {
+            &self.s.vp
+        };
+        View::new_ref(b, self.stride(), self.cols, self.rows).row_slice(y)
+    }
+
+    /// Is the alternate screen showing? `CSI ? 1049`.
+    pub fn screen(&self) -> Screen {
+        self.screen
     }
 
     #[inline(always)]
@@ -697,7 +767,12 @@ impl<'a> Term<'a> {
         let k = n.at_least_one().min(bot + 1 - top);
         let blank = PackedCell::empty_with(self.style);
         let last = self.rows.index() - 1;
-        if top == 0 && bot == last {
+        // The O(1) ring advance *is* the scrollback: it retires the top line by
+        // moving the window, which is only meaningful when there is somewhere
+        // for the line to go. The alternate screen has no scrollback, so it
+        // takes the shifting path -- taking the ring path there would scroll
+        // the primary screen's history from under it.
+        if top == 0 && bot == last && self.screen == Screen::Normal {
             for _ in 0..k {
                 self.head = self.head.advance(SB);
                 let y = Row::from_index(last);
@@ -768,6 +843,34 @@ impl<'a> Term<'a> {
                 self.cy = if on { self.scroll_top } else { Row::ZERO };
             }
             PrivateMode::AutoWrap => self.modes.apply(ModeBit::AutoWrap, on),
+            // `[[source: ctlseqs]]` for `?1049 h`: "Save cursor as in DECSC ...
+            // After saving the cursor, switch to the Alternate Screen Buffer,
+            // clearing it first." And for `?1049 l`: "Use Normal Screen Buffer
+            // and restore cursor as in DECRC."
+            //
+            // Idempotent in both directions. A second `?1049 h` must not
+            // re-save the cursor over the one it saved on the way in, or an
+            // application that sets the mode twice loses the position it will
+            // be restored to.
+            PrivateMode::AltScreen => {
+                if on && self.screen == Screen::Normal {
+                    self.alt_saved =
+                        Some((self.cy, self.cx, self.style, self.style_raw, self.flags));
+                    self.screen = Screen::Alternate;
+                    self.clear_screen();
+                    self.cx = Col::ZERO;
+                    self.cy = Row::ZERO;
+                } else if !on && self.screen == Screen::Alternate {
+                    self.screen = Screen::Normal;
+                    if let Some((r, c, st, sw, fl)) = self.alt_saved.take() {
+                        self.cy = r;
+                        self.cx = c;
+                        self.style = st;
+                        self.style_raw = sw;
+                        self.flags = fl;
+                    }
+                }
+            }
             PrivateMode::BracketedPaste => self.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => self.modes.apply(ModeBit::SynchronizedOutput, on),
             // Still deliberately unrecorded. A bit that is set and never read
@@ -821,6 +924,15 @@ impl<'a> Term<'a> {
             PrivateMode::CursorVisible => bit_state(self.modes, ModeBit::CursorVisible),
             PrivateMode::BracketedPaste => bit_state(self.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => bit_state(self.modes, ModeBit::SynchronizedOutput),
+            // Not a `Modes` bit -- the alt screen is a whole buffer, not a
+            // flag -- but it is implemented, so DECRQM must not deny it.
+            PrivateMode::AltScreen => {
+                if self.screen == Screen::Alternate {
+                    ModeState::Set
+                } else {
+                    ModeState::Reset
+                }
+            }
             _ => ModeState::NotRecognized,
         }
     }
@@ -895,7 +1007,11 @@ impl<'a> Term<'a> {
     #[inline(always)]
     fn view(&mut self) -> View<'_> {
         View::new(
-            &mut self.s.vp,
+            if self.screen == Screen::Alternate {
+                &mut self.s.alt
+            } else {
+                &mut self.s.vp
+            },
             Cols::from_stride(MAX_COLS),
             self.cols,
             self.rows,
@@ -944,7 +1060,14 @@ impl<'a> Term<'a> {
         let abs = base.index() + off.index();
         let (r, c, st) = (self.cy, self.cx, self.style);
         let (stride, cols, rows) = (Cols::from_stride(MAX_COLS), self.cols, self.rows);
-        let (arena, vp) = (&self.s.arena, &mut self.s.vp);
+        let (arena, vp) = (
+            &self.s.arena,
+            if self.screen == Screen::Alternate {
+                &mut self.s.alt
+            } else {
+                &mut self.s.vp
+            },
+        );
         let fl = self.flags;
         View::new(vp, stride, cols, rows).put_ascii_run(
             r,
@@ -973,7 +1096,10 @@ impl<'a> Term<'a> {
                 }
                 room = self.cols.room_at(self.cx).min(n);
             }
-            let promoted = self.s.promoted[self.cy.index()];
+            // `promoted` and the run table belong to the primary screen. On the
+            // alt screen every write is materialised, which is the same thing
+            // "no scrollback" means one layer down.
+            let promoted = self.screen == Screen::Alternate || self.s.promoted[self.cy.index()];
             if self.mode == OpMode::Runs && !promoted {
                 let i = self.line();
                 let c = self.s.nrun[i.index()];
@@ -1054,7 +1180,7 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     fn promote_if_runs(&mut self) {
-        if self.mode == OpMode::Runs {
+        if self.mode == OpMode::Runs && self.screen == Screen::Normal {
             self.promote();
         }
     }
@@ -1783,6 +1909,8 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.cursor_style = CursorStyle::BlinkingBlock;
+        self.screen = Screen::Normal;
+        self.alt_saved = None;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
@@ -1799,6 +1927,8 @@ impl<'a> Term<'a> {
         self.style_raw = StyleWord::DEFAULT;
         self.flags = CellFlags::NONE;
         self.cursor_style = CursorStyle::BlinkingBlock;
+        self.screen = Screen::Normal;
+        self.alt_saved = None;
         self.saved = None;
         self.scroll_top = Row::ZERO;
         self.scroll_bot = Row::from_index(self.rows.index() - 1);
