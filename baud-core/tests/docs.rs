@@ -275,3 +275,91 @@ fn every_test_named_in_the_docs_exists() {
         missing.into_iter().collect::<Vec<_>>().join("\n  ")
     );
 }
+
+/// **Nothing is listed as absent that the coverage table marks done.**
+///
+/// This is the class that got past every other check. `CLAUDE.md` listed
+/// `OSC 8` under "Unmeasured — do not assert", beside reflow and selection, as
+/// something still needing random access into variable-length spans. Hyperlinks
+/// are implemented: the link index rides in spare `CellFlags` bits and `NLINK`
+/// slots evict on collision. An agent reading that list would conclude they
+/// were unbuilt, and might build them a second time.
+///
+/// No path was broken and no test name was stale, so `every_relative_link_
+/// resolves` and friends all passed. The document was simply *wrong about the
+/// code*, which is the one thing they cannot see — and it is the exact failure
+/// `vt-coverage.md` exists to prevent, one file over.
+///
+/// The check is narrow on purpose: a mnemonic named in a "not done" section
+/// that also has a **done** row in the coverage table is a contradiction
+/// between two documents in the same repository, and one of them is wrong.
+#[test]
+fn nothing_disclaimed_is_also_marked_done() {
+    let root = root();
+    let coverage = fs::read_to_string(root.join("docs/vt-coverage.md")).expect("vt-coverage.md");
+
+    // Mnemonics with a `done` row.
+    let mut done = BTreeSet::new();
+    for line in coverage.lines() {
+        let l = line.trim();
+        if !l.starts_with('|') || !l.contains("| done") {
+            continue;
+        }
+        for tok in l.split(|c: char| !c.is_ascii_alphanumeric()) {
+            if tok.len() >= 3
+                && tok.len() <= 8
+                && tok
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                && tok.chars().any(|c| c.is_ascii_uppercase())
+            {
+                done.insert(tok.to_string());
+            }
+        }
+    }
+    assert!(
+        done.len() > 20,
+        "only {} done mnemonics parsed -- the parser stopped matching",
+        done.len()
+    );
+
+    // Sections that claim something is *not* there.
+    const DISCLAIMERS: &[&str] = &[
+        "## Unmeasured — do not assert",
+        "## Things already tried that lost",
+    ];
+    let mut contradictions = Vec::new();
+    for f in ["CLAUDE.md", "docs/vt-coverage.md", "README.md"] {
+        let Ok(src) = fs::read_to_string(root.join(f)) else {
+            continue;
+        };
+        for start in DISCLAIMERS {
+            let Some(i) = src.find(start) else { continue };
+            let rest = &src[i + start.len()..];
+            let end = rest.find("\n## ").unwrap_or(rest.len());
+            let section = &rest[..end];
+            for (n, line) in section.lines().enumerate() {
+                // Struck-through entries are records of things that *were*
+                // true, and say so.
+                if line.contains("~~") {
+                    continue;
+                }
+                for tok in line.split(|c: char| !c.is_ascii_alphanumeric()) {
+                    if done.contains(tok) {
+                        contradictions.push(format!(
+                            "{f}: {start:?} names `{tok}`, which vt-coverage.md marks done\n      {}",
+                            line.trim()
+                        ));
+                        let _ = n;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        contradictions.is_empty(),
+        "{} contradiction(s) between a disclaimer and the coverage table:\n  {}",
+        contradictions.len(),
+        contradictions.join("\n  ")
+    );
+}
