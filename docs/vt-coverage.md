@@ -253,14 +253,27 @@ dtterm's `is2` opens with `ESC SP F`, which is how the conformance fixtures
 caught the first version of this: counting S7C1T as unsupported claimed baud had
 refused something it already did.
 
-> **Open decision, under active research.** The paragraph below states the
-> position baud holds *today* and the reasoning behind it. Accepting other input
-> encodings — with detection — is being reconsidered deliberately, and the
-> literature and terminal survey for it will land in
-> `docs/research/notes/`. Do not treat this as settled; `Encoding` in
-> `baud-domain/src/store.rs` is already the extension point, and its
-> `is_byte_per_column` predicate is written around "fixed-width single-byte
-> encoding", not around ASCII, for exactly this reason.
+> **~~Open decision, under active research; the survey will land in
+> `docs/research/notes/`.~~** It landed: `notes/g-text-encoding.md`, which this
+> file already cites below. Its § 3 table surveys seven terminals, and the
+> `ESC % G` / `ESC % @` column is the answer — **xterm supports the selectors,
+> gated on `wide_chars`; kitty, ghostty, alacritty, wezterm, foot and Windows
+> Terminal have no entry at all.** kitty says why in the same table: "there is
+> no actual advantage… now that UTF-8 encoding is universal".
+>
+> So baud, honouring both selectors, matches xterm and exceeds every other
+> terminal surveyed. **No further encoding is indicated by the evidence**, and
+> adding one would put baud alone in a dimension no application uses: a program
+> emitting Shift-JIS converts to UTF-8 itself, because every terminal it might
+> run in requires that.
+>
+> `Encoding` in `baud-domain/src/store.rs` remains the extension point, and its
+> `is_byte_per_column` predicate is still written around "fixed-width
+> single-byte encoding" rather than around ASCII — so if a user ever does ask,
+> the shape is an embedder-supplied 256-entry table, which covers every ISO
+> 8859 part, the Windows code pages and KOI8 with one mechanism. That is a
+> different thing from a protocol feature and would not be selected by an
+> escape sequence, because none exists to select it.
 
 **~~Grapheme clustering is out, and it is the largest thing on this page that
 is.~~** It is done, and this paragraph contradicted the two below it for as long
