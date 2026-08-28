@@ -11,3 +11,4 @@ cc f538128b81e3a44fe6e1b2de637b78f892e9b6244bdcc16559dd68ac6ca0f61e # shrinks to
 cc e79e5341818c24093ce04f2883c2fef346d8e46f98318fb7aece292a4299ef43 # shrinks to before = [Utf8(11)], inside = []
 cc ecd61c894231d062818811e9393d0df3f45f7789a0a1b899735dbca92787df77 # shrinks to ops = [Decsca(1), Utf8(11)], extent = 1
 cc ae33b7bef7e6d193274b5b57c134d9a5bfe664389814fea012efb071f08ba028 # shrinks to before = [CupHuge(0), Decslrm(0, 0)], after = [Restore], rows = 1, cols = 1
+cc e8068fe476569343552e7a9639996c9ce358a5708d4453f100c126159c0bdaf9 # shrinks to ops = [Utf8(2), Cr], extent = 0

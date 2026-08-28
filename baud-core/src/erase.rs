@@ -138,7 +138,12 @@ impl<'a> Term<'a> {
     fn selective_wipe(&mut self, r: Row, s: ColSpan) {
         let blank = PackedCell::empty_with(self.style);
         self.discard_row(r);
-        for x in s.from.index()..s.to.index() {
+        // Same widening as a plain erase, or the two disagree on a span that
+        // starts or ends inside a double-width character -- which is what
+        // `without_decsca_selective_equals_plain` reported as soon as `fill`
+        // began snapping and this did not.
+        let (from, to) = self.view().snap_span(r, s.from, s.to);
+        for x in from.index()..to.index() {
             let c = Col::at_index(x);
             if !self.is_protected(r, c) {
                 self.put_counted(r, c, blank);

@@ -395,9 +395,68 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Fill a half-open column span of one row. Clamped to the visible width.
+    /// Widen a half-open column span so it covers **whole characters**.
+    ///
+    /// A double-width character is stored as a lead cell and a
+    /// `Content::WIDE_TAIL`. An operation whose boundary falls between the two
+    /// leaves an orphan -- a lead claiming two columns that owns one, or a tail
+    /// with nothing in front of it -- and a renderer has no coherent way to
+    /// draw either. `[[source: ghostty-screen]]`'s `eraseChars` states the rule
+    /// baud was missing: "if our last cell is a wide char then we need to also
+    /// clear the cell beyond it since **we can't just split a wide char**", and
+    /// its `deleteChars` does the same.
+    ///
+    /// Both ends, because both were wrong. A start sitting **on** a tail
+    /// belongs to the lead before it; an end whose first excluded cell **is** a
+    /// tail is excluding the partner of a lead it included.
+    ///
+    /// One place rather than at each operation, for the reason this crate
+    /// already applies to `phys`: the range operations are `fill`,
+    /// `delete_chars`, `insert_blanks`, `delete_cells` and `insert_cells`, and
+    /// five call sites each remembering a two-line invariant is five chances to
+    /// forget it.
+    /// [`Grid::snap`] for callers outside this type, in `Col`s.
+    ///
+    /// `Term::selective_wipe` needs it: DECSEL walks the span cell by cell
+    /// testing each for protection, so it never reaches `fill` and would not
+    /// otherwise widen. `without_decsca_selective_equals_plain` found that at
+    /// 20,000 cases the moment plain erase started snapping and selective did
+    /// not -- the two must agree when nothing is protected, and a property that
+    /// compares two implementations catches exactly the divergence a
+    /// hand-written test would have had to predict.
+    pub fn snap_span(&self, r: Row, from: Col, to: Col) -> (Col, Col) {
+        let (a, b) = self.snap(r, from, to);
+        (Col::at_index(a), Col::at_index(b))
+    }
+
+    fn snap(&self, r: Row, from: Col, to: Col) -> (usize, usize) {
+        let cols = self.cols.index();
+        let (mut a, mut b) = (from.index().min(cols), to.index().min(cols));
+        if a >= b {
+            return (a, b);
+        }
+        let base = self.at(r, Col::ZERO);
+        if a > 0 && self.cells[base + a].content.is_wide_tail() {
+            a -= 1;
+        }
+        if b < cols && self.cells[base + b].content.is_wide_tail() {
+            b += 1;
+        }
+        (a, b)
+    }
+
+    /// Fill a half-open column span of one row. Clamped to the visible width,
+    /// and widened to whole characters by [`Grid::snap`].
     pub fn fill(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) {
-        let (a, b) = (from.index(), to.index().min(self.cols.index()));
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let (a, b) = self.snap(r, from, to);
+        self.fill_raw(r, a, b, cell);
+    }
+
+    /// The unsnapped fill, for spans already known to be whole rows.
+    fn fill_raw(&mut self, r: Row, a: usize, b: usize, cell: PackedCell) {
         if r.index() >= self.rows.index() || a >= b {
             return;
         }
@@ -406,13 +465,26 @@ impl<'a> View<'a> {
         // per cell, and it lowers to a vector store rather than a scalar one.
         self.cells[base + a..base + b].fill(cell);
     }
+
+    /// **Deliberately not through `fill`.** A whole row cannot split a
+    /// character -- column 0 is never a tail and there is no cell past the last
+    /// -- so the snap could only ever be two compares that never fire, on the
+    /// path that carries 73-85% of all cell writes. Blanking pays nothing for
+    /// an invariant it cannot violate.
     pub fn fill_row(&mut self, r: Row, cell: PackedCell) {
-        self.fill(r, Col::ZERO, Col::at_index(self.cols.index()), cell);
+        self.fill_raw(r, 0, self.cols.index(), cell);
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
     pub fn delete_chars(&mut self, r: Row, at: Col, n: Count, blank: PackedCell) {
         let cols = self.cols.index();
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
+        // The deleted span is what must cover whole characters: shifting from
+        // the middle of a pair drags a lone tail leftwards into a cell with no
+        // lead in front of it.
+        let (cx, n) = {
+            let (a, b) = self.snap(r, Col::at_index(cx), Col::at_index(cx + n));
+            (a, b - a)
+        };
         let base = self.at(r, Col::ZERO);
         for x in cx..cols - n {
             self.cells[base + x] = self.cells[base + x + n];
@@ -425,6 +497,13 @@ impl<'a> View<'a> {
     pub fn insert_blanks(&mut self, r: Row, at: Col, n: Count, blank: PackedCell) {
         let cols = self.cols.index();
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
+        // Inserting *at* a tail would put blanks between a lead and its
+        // partner. `[[source: ghostty-screen]]`'s `insertBlanks` erases the
+        // character in that case; snapping the start back to the lead moves the
+        // whole pair instead, which keeps the text rather than deleting it and
+        // leaves no orphan either way.
+        let cx = self.snap(r, Col::at_index(cx), Col::at_index(cx + 1)).0;
+        let n = n.min(cols - cx);
         let base = self.at(r, Col::ZERO);
         let mut x = cols;
         while x > cx + n {
@@ -450,6 +529,16 @@ impl<'a> View<'a> {
             return;
         }
         let n = (n.get_raw() as usize).min(end - cx);
+        // **The deleted span, not the surviving one.** Both boundaries can
+        // split a character: a start on a tail orphans the lead in front of it,
+        // and an end on a lead drags that lead's tail leftwards to sit against
+        // something else. `snap` widens the span so neither happens, which is
+        // `[[source: ghostty-screen]]`'s `deleteChars` rule -- "we can't just
+        // split a wide char".
+        let (cx, n) = {
+            let (a, b) = self.snap(r, Col::at_index(cx), Col::at_index(cx + n));
+            (a, (b - a).min(end - a))
+        };
         let base = self.at(r, Col::ZERO);
         for x in cx..end - n {
             self.cells[base + x] = self.cells[base + x + n];
@@ -467,8 +556,21 @@ impl<'a> View<'a> {
         if cx >= end {
             return;
         }
+        // Inserting *at* a tail would put blanks between a lead and its
+        // partner. Snapping the start back to the lead moves the whole pair
+        // instead, which keeps the character rather than deleting it and
+        // leaves no orphan either way.
+        let cx = self.snap(r, Col::at_index(cx), Col::at_index(cx + 1)).0;
         let n = (n.get_raw() as usize).min(end - cx);
         let base = self.at(r, Col::ZERO);
+        // **The character shifted off the right edge takes its partner with
+        // it.** The cell at `end - n` is pushed past `end` and lost; if it is a
+        // tail, its lead lands at `end - 1` with nothing after it.
+        // `[[source: ghostty-screen]]`'s `insertBlanks` clears that cell for
+        // the same reason. Read before the shift, because the shift overwrites
+        // the evidence.
+        let orphans_at_edge =
+            end >= n + 1 && n > 0 && self.cells[base + end - n].content.is_wide_tail();
         let mut x = end;
         while x > cx + n {
             x -= 1;
@@ -476,6 +578,9 @@ impl<'a> View<'a> {
         }
         for x in cx..cx + n {
             self.cells[base + x] = blank;
+        }
+        if orphans_at_edge {
+            self.cells[base + end - 1] = blank;
         }
     }
 

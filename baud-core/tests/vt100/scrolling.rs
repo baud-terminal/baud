@@ -758,3 +758,90 @@ fn index_on_the_alternate_screen_leaves_the_primary_intact() {
         );
     }
 }
+
+/// Row 0 rendered with blanks as `.` and wide tails as `#`.
+///
+/// **Blanks must be visible.** `Content::EMPTY` is a reserved value above
+/// U+10FFFF and deliberately not U+0020, so the usual
+/// `filter_map(as_codepoint)` projection *deletes* blanks rather than showing
+/// them -- which makes "erased the wrong columns" and "erased the right ones"
+/// produce the same string whenever the blanks are not trailing.
+fn wide_row(bytes: &[u8], n: usize) -> String {
+    let rows = rows_of(OpMode::Computed, bytes);
+    rows[0][..n]
+        .iter()
+        .map(|c| match c.content.as_codepoint() {
+            Some(x) => char::from_u32(x.value()).unwrap_or('?'),
+            None if c.content.is_wide_tail() => '#',
+            None => '.',
+        })
+        .collect()
+}
+
+/// **No operation may split a double-width character.**
+///
+/// A wide character is a lead cell plus a `WIDE_TAIL`. An operation whose
+/// boundary falls between them leaves an orphan: a lead claiming two columns
+/// that owns one, or a tail with nothing in front of it. A renderer has no
+/// coherent way to draw either.
+///
+/// `[[source: ghostty-screen]]` states the rule in `eraseChars` -- "if our last
+/// cell is a wide char then we need to also clear the cell beyond it since we
+/// can't just split a wide char" -- and applies it again in `deleteChars` and
+/// `insertBlanks`.
+///
+/// **Every one of these cases was wrong**, and none was caught, because the
+/// entire operation suite ran on one-column text: one test in the whole of
+/// `vt100/` used a wide character before this. The recordings had the same hole
+/// -- btop is 14.5% multi-byte with *zero* wide codepoints, and vim was the
+/// only file with any, and it never scrolls.
+#[test]
+fn no_operation_splits_a_double_width_character() {
+    const BASE: &str = "\x1b[1;1H日本語ab";
+    // (name, sequence after the text, expected first ten columns)
+    let cases: &[(&str, &str, &str)] = &[
+        ("baseline", "", "日#本#語#ab.."),
+        // EL from inside the first character takes the whole of it.
+        ("EL to end, from a tail", "\x1b[1;2H\x1b[K", ".........."),
+        ("EL to end, from a lead", "\x1b[1;3H\x1b[K", "日#........"),
+        // EL-to-start is inclusive of the cursor, so from a lead it must also
+        // take that lead's tail: columns 1-4, not 1-3.
+        (
+            "EL to start, from a tail",
+            "\x1b[1;2H\x1b[1K",
+            "..本#語#ab..",
+        ),
+        (
+            "EL to start, from a lead",
+            "\x1b[1;3H\x1b[1K",
+            "....語#ab..",
+        ),
+        // ECH of one cell erases the character it lands in, both halves.
+        ("ECH 1 on a lead", "\x1b[1;1H\x1b[1X", "..本#語#ab.."),
+        ("ECH 1 on a tail", "\x1b[1;2H\x1b[1X", "..本#語#ab.."),
+        // DCH shifts left; deleting half a pair would drag a lone tail in.
+        ("DCH 1 on a lead", "\x1b[1;1H\x1b[1P", "本#語#ab...."),
+        ("DCH 1 on a tail", "\x1b[1;2H\x1b[1P", "本#語#ab...."),
+        // ICH shifts right and must move whole characters, never insert
+        // between a lead and its tail.
+        ("ICH 1 on a lead", "\x1b[1;1H\x1b[1@", ".日#本#語#ab."),
+        ("ICH 1 on a tail", "\x1b[1;2H\x1b[1@", ".日#本#語#ab."),
+    ];
+    for (name, seq, want) in cases {
+        let bytes = format!("{BASE}{seq}");
+        let got = wide_row(bytes.as_bytes(), 10);
+        assert_eq!(&got, want, "{name}: got {got:?}, want {want:?}");
+        // The invariant behind every row above, stated once so a new case
+        // cannot be added with a hand-written expectation that is itself wrong:
+        // a tail has a lead before it, and no lead is left without its tail.
+        let cells: Vec<char> = got.chars().collect();
+        for (i, c) in cells.iter().enumerate() {
+            if *c == '#' {
+                assert!(
+                    i > 0 && cells[i - 1] != '#' && cells[i - 1] != '.',
+                    "{name}: orphaned wide tail at column {i} in {got:?}"
+                );
+            }
+        }
+    }
+}
