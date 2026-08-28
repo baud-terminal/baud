@@ -157,9 +157,35 @@ Two things stand between here and there, and neither is fatal:
 
 ## Gaps and open questions
 
-- **Not read:** the paper's § on how the lookup tables are derived, which is
-  what an implementation actually needs. Only the cost tables and the rule list
-  have been read so far.
+- **~~Not read: how the lookup tables are derived.~~** Read, and the tables
+  now exist. `[[source: utf8-lookup]]` § 5 builds three 16-entry tables indexed
+  by the high and low nibbles of the first byte and the high nibble of the
+  second; bits 0-6 encode Table 8's seven error patterns, and a bit set in all
+  three ANDed lookups means the pair is invalid. Bit 7 marks a continuation
+  pair, which § 6.2 uses for the long forms and which is not itself an error.
+
+  `scripts/gen-utf8-tables.py` derives them, **and does not transcribe them**.
+  A wrong entry here does not look wrong -- it makes the validator *accept*
+  invalid UTF-8, and `E0 80 AF` decoding to `/` is a bug this project has
+  already had. So the seven patterns are written as predicates, the tables fall
+  out by construction, and all **65,536 byte pairs** are checked against a
+  reference decoder written from the definition of UTF-8 rather than from the
+  patterns, so agreement is evidence instead of tautology.
+
+  It earned that on the first run, catching an error a transcription would have
+  shipped: `F4 80`..`F4 8F` is `U+100000..U+10FFFF` and valid, and a
+  too-large pattern of "lo(b1) >= 4 and any continuation" rejects it. Table 8
+  row 6 reads `10|01...11` -- the continuation's high nibble is 9, A or B, and
+  8 belongs to row 5 with the overlong four-byte form.
+
+      HI1: 01 01 01 01 01 01 01 01 00 00 00 00 06 02 1a 62
+      LO1: 37 07 03 03 43 63 63 63 63 63 63 63 63 6b 63 63
+      HI2: 02 02 02 02 02 02 02 02 35 55 4d 4d 02 02 02 02
+
+  What remains before code: § 6.2's rule for 3- and 4-byte sequences, which the
+  two-byte tables do not cover, and deciding where a block validator sits
+  relative to `fast_utf8` -- validation is not decoding, and baud needs the
+  codepoint.
 - **NEON.** Whether the arm64 form carries the same ratio is unmeasured here,
   and this box is the one the project measures on.
 - **~~How many bytes reach the decoder, per payload.~~** Measured.
