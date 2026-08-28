@@ -114,10 +114,25 @@ correctness with a different instruction count.
   have been read so far.
 - **NEON.** Whether the arm64 form carries the same ratio is unmeasured here,
   and this box is the one the project measures on.
-- **How many bytes reach the decoder, per payload.** This is the first thing
-  to measure and it needs no implementation: a counter in the decode path,
-  read on `payload::streaming` and on each recording. On streaming the answer
-  is probably ~5% and the opportunity is correspondingly small; on the vim
-  recording, which carries CJK and emoji, it could be most of the text. Until
-  that number exists, the size of this win is unknown and should not be
-  estimated -- which is the rule this project already applies to shaping.
+- **~~How many bytes reach the decoder, per payload.~~** Measured.
+  `Term::utf8_share` counts bytes entering a multi-byte lead or continuation --
+  not `bytes_slow`, which is mostly control sequences:
+
+  | payload | reaches the decoder |
+  |---|---|
+  | `payload::streaming` | **0.0%** |
+  | `payload::tui` | 0.0% |
+  | asciiquarium | 0.0% |
+  | **btop** | **14.5%** |
+  | **vim (CJK/emoji)** | **28.2%** |
+
+  **This note's own estimate was wrong, and wrong for the reason this project
+  already records.** It reasoned from `payload::streaming` -- pure ASCII, so
+  0% -- and concluded the opportunity was "correspondingly small". Real
+  terminal output is not ASCII: btop draws with `U+250x` box characters and vim
+  with CJK, and both are three bytes in UTF-8. That is "payloads that don't
+  exercise the case" from `CLAUDE.md`'s measurement-failure list, applied to a
+  research estimate instead of a benchmark.
+
+  So 14-28% of real bytes go through a decoder `[[source: utf8-lookup]]` prices
+  at 7 instructions per byte against lookup's <1. That is worth building.

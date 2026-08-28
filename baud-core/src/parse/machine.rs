@@ -224,6 +224,7 @@ impl<'a> Term<'a> {
                     self.st = State::Escape;
                     self.control(fe);
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
+                    self.bytes_utf8.inc();
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
                         acc: Utf8Acc::lead(acc),
@@ -256,6 +257,7 @@ impl<'a> Term<'a> {
                 min,
             } => match b.utf8_continuation() {
                 Some(bits) => {
+                    self.bytes_utf8.inc();
                     let acc = acc.push(bits);
                     if remaining.is_last() {
                         self.st = self.ground();

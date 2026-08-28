@@ -25,7 +25,7 @@ pub(crate) fn bench_t(
     }
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
     println!(
-        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]   span {:.3}x cell {:.1}x   bulk {:.0}% seq {:.0}% slow {:.0}%",
+        "  {:<34} {:7.1}  [{:5.1}-{:5.1}]   span {:.3}x cell {:.1}x   bulk {:.0}% seq {:.0}% slow {:.0}% utf8 {:.1}%",
         label,
         v[reps / 2],
         v[0],
@@ -34,7 +34,8 @@ pub(crate) fn bench_t(
         amp.cell,
         amp.bulk * 100.0,
         amp.seq * 100.0,
-        amp.slow * 100.0
+        amp.slow * 100.0,
+        amp.utf8 * 100.0
     );
 }
 
@@ -85,14 +86,15 @@ pub(crate) fn bench(
     // beat 8x for ASCII because a `PackedCell` is eight bytes, and `blank` is
     // how much of that is scrolling blanking rows rather than storing text.
     print!(
-        "   read {:.0}B   span {:.3}x cell {:.1}x (blank {:.1}x)   bulk {:.0}% seq {:.0}% slow {:.0}%",
+        "   read {:.0}B   span {:.3}x cell {:.1}x (blank {:.1}x)   bulk {:.0}% seq {:.0}% slow {:.0}% utf8 {:.1}%",
         amp.read,
         amp.span,
         amp.cell,
         amp.blank,
         amp.bulk * 100.0,
         amp.seq * 100.0,
-        amp.slow * 100.0
+        amp.slow * 100.0,
+        amp.utf8 * 100.0
     );
     println!();
 }

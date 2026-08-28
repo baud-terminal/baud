@@ -72,6 +72,10 @@ pub(crate) struct Cost {
     pub(crate) bulk: f64,
     pub(crate) seq: f64,
     pub(crate) slow: f64,
+    /// Share of input that reaches the **UTF-8 decoder**, which is the only
+    /// part a vectorised validator could speed up. Distinct from `slow`: most
+    /// byte-at-a-time input is control sequences, not text.
+    pub(crate) utf8: f64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -257,6 +261,7 @@ fn cost_of(t: &Term) -> Cost {
         bulk,
         seq,
         slow,
+        utf8: t.utf8_share(),
     }
 }
 

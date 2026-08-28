@@ -300,6 +300,16 @@ pub struct Term<'a> {
     pub bytes_seq: Stat,
     /// Bytes that reached `control` individually. The expensive path.
     pub bytes_slow: Stat,
+    /// Bytes that reach the **UTF-8 decoder** -- a multi-byte lead or one of
+    /// its continuations.
+    ///
+    /// Not the same as `bytes_slow`. A byte can take the byte-at-a-time path
+    /// for many reasons and most of them are control sequences; this counts
+    /// only the ones a vectorised UTF-8 validator could ever speed up, which
+    /// is what sizes `docs/research/notes/a-simd-parsing.md`'s proposal.
+    /// ASCII is excluded on purpose: it is one compare and never enters the
+    /// accumulator.
+    pub bytes_utf8: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -428,6 +438,7 @@ impl<'a> Term<'a> {
             bytes_bulk: Stat::ZERO,
             bytes_seq: Stat::ZERO,
             bytes_slow: Stat::ZERO,
+            bytes_utf8: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,
@@ -516,6 +527,18 @@ impl<'a> Term<'a> {
             f(self.bytes_seq.count()),
             f(self.bytes_slow.count()),
         )
+    }
+
+    /// The share of input that reaches the UTF-8 decoder.
+    ///
+    /// The number that decides whether a vectorised validator is worth
+    /// building: the literature's 10x applies to these bytes and no others.
+    pub fn utf8_share(&self) -> f64 {
+        let n = self.bytes_in.count();
+        match n {
+            0 => 0.0,
+            _ => self.bytes_utf8.count() as f64 / n as f64,
+        }
     }
 
     /// Mean bytes per `read(2)`. The transport's batching, not the parser's.
