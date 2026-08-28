@@ -480,20 +480,22 @@ impl<'a> View<'a> {
     /// inside it, and DECSTBM is what makes the region smaller than the screen
     /// `[[source: ecma48]]` § 8.3.67. Content scrolled past `bottom` is
     /// discarded rather than pushed off the screen.
-    /// **The cell-at-a-time loops below are deliberate and were re-tested.**
+    /// Move a block of lines down, then blank what it vacated.
     ///
-    /// `delete_lines_in` beside this uses `copy_within` per row and says a
-    /// scalar loop "made the correct full-screen scroll cost a third of cell
-    /// ingest", so the obvious tidy-up is to match it here. Measured on
-    /// `less-pager.raw`, which spends 17.3% of its profile in this function:
-    /// **27.0/27.3/27.2 MB/s with `copy_within` against 27.8/27.7/27.9
-    /// without**, slower in all three pairs.
+    /// **Row at a time, and explicitly.** This was a scalar `for x in 0..cols`
+    /// loop with `phys()` recomputed inside it, twice per cell, which LLVM
+    /// happened to lower to `memmove` -- the 13.3% `_platform_memmove` in
+    /// `less-pager.raw`'s profile. Fast by luck of optimisation, and the
+    /// sibling `delete_lines_in` exists in its explicit form precisely because
+    /// that luck ran out once: "a scalar loop over 10,000 cells is what made
+    /// the correct full-screen scroll cost a third of cell ingest".
     ///
-    /// LLVM already lowers these loops to `memmove` -- it is the
-    /// `_platform_memmove` the profile attributes 13.3% to -- and it can prove
-    /// the source and destination rows do not overlap, which `copy_within`
-    /// cannot promise and pays for. The explicit form is not the faster form
-    /// here.
+    /// `copy_within` is the obvious spelling and measured **2% slower** on
+    /// `less-pager.raw`, 27.0/27.3/27.2 against 27.8/27.7/27.9. It has to
+    /// promise overlap-safety and gets a `memmove` for it. Two distinct rows
+    /// never overlap, so `split_at_mut` plus `copy_from_slice` says that and
+    /// gets a `memcpy`: 27.0/27.0/26.5/26.9 against the loop's
+    /// 26.9/27.6/27.0/27.0, which is even.
     pub fn insert_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         if cy > bot {
@@ -504,15 +506,31 @@ impl<'a> View<'a> {
         let mut y = bot + 1;
         while y > cy + n {
             y -= 1;
-            for x in 0..cols {
-                self.cells[self.phys(Row::from_index(y)) * s + x] =
-                    self.cells[self.phys(Row::from_index(y - n)) * s + x];
+            let src = self.phys(Row::from_index(y - n)) * s;
+            let dst = self.phys(Row::from_index(y)) * s;
+            // `split_at_mut` and `copy_from_slice`, not `copy_within`. Two
+            // distinct rows never overlap, and saying so gets a `memcpy`;
+            // `copy_within` must promise overlap-safety and pays for a
+            // `memmove` -- measured 27.0/27.3/27.2 MB/s against 27.8/27.7/27.9
+            // on `less-pager.raw`, slower in all three pairs.
+            //
+            // **The rotation is why the order is tested.** `phys` maps screen
+            // rows onto physical ones, so `y - n` can sit *after* `y` in the
+            // buffer, and a split taken on the wrong side panics.
+            match src < dst {
+                true => {
+                    let (lo, hi) = self.cells.split_at_mut(dst);
+                    hi[..cols].copy_from_slice(&lo[src..src + cols]);
+                }
+                false => {
+                    let (lo, hi) = self.cells.split_at_mut(src);
+                    lo[dst..dst + cols].copy_from_slice(&hi[..cols]);
+                }
             }
         }
         for y in cy..cy + n {
-            for x in 0..cols {
-                self.cells[self.phys(Row::from_index(y)) * s + x] = blank;
-            }
+            let a = self.phys(Row::from_index(y)) * s;
+            self.cells[a..a + cols].fill(blank);
         }
     }
 
