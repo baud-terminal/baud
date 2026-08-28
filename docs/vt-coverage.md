@@ -573,7 +573,9 @@ renderer has.
 | `?45` | reverse wraparound | done |
 | `?47` | alternate screen, pre-1049 | done — switches buffers, does **not** save the cursor |
 | `?69` | DECLRMM left/right margins | done |
-| `?1034` | meta sends escape | done — `Term::meta_sends_escape()` |
+| `?1034` | eightBitInput — Alt/Meta add 128 | done — `Term::eight_bit_input()`, applied by `Term::key` under ISO 8859-1 only. What terminfo's `smm`/`rmm` send |
+| `?1036` | metaSendsEscape — Meta prefixes `ESC` | done — `Term::meta_sends_escape()`, **set** at power-on |
+| `?1039` | altSendsEscape — Alt prefixes `ESC` | done — `Term::alt_sends_escape()`, **set** at power-on |
 | `?1001` | highlight tracking | done — recorded via `Term::highlight_tracking()`; the region via `highlight_region()`. Not drawn: that needs a selection model |
 
 ### SGR

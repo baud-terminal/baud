@@ -146,8 +146,24 @@ pub enum ModeBit {
     AutoRepeat,
     /// ?45. Reverse wraparound: backspace at the left margin moves up a line.
     ReverseWrap,
-    /// ?1034. Meta sets the high bit / sends ESC. Input-side.
+    /// `?1036` metaSendsEscape. Whether the Meta modifier prefixes `ESC`.
+    /// Input-side, read by `Term::key`.
     MetaSendsEscape,
+    /// `?1034` eightBitInput. Whether Alt/Meta set the eighth bit instead.
+    ///
+    /// The other branch of `[[source: ctlseqs]]` line 2337, and the one
+    /// terminfo reaches: `smm` and `rmm` are `CSI ? 1034 h` / `l` in every
+    /// `xterm*` entry. Acted on only under ISO 8859-1, because adding 128 to a
+    /// byte under UTF-8 produces a continuation byte rather than a character --
+    /// which is why the `ESC` prefix is the default rather than this.
+    EightBitInput,
+    /// `?1039` altSendsEscape. Whether the Alt modifier prefixes `ESC`.
+    ///
+    /// A separate bit from [`ModeBit::MetaSendsEscape`] because
+    /// `[[source: ctlseqs]]` line 2337 gives them separate columns and four of
+    /// its sixteen rows disagree between them. Collapsing the two would make
+    /// `?1039 l` silently turn Meta off as well.
+    AltSendsEscape,
     /// ?3. 132-column mode requested.
     Column132,
     /// DECSET ?2026. Read by the renderer to hold the frame.
@@ -158,20 +174,31 @@ pub enum ModeBit {
 }
 
 impl ModeBit {
-    const fn bit(self) -> u16 {
-        1 << (self as u16)
+    const fn bit(self) -> u32 {
+        1 << (self as u32)
     }
-    /// The highest-numbered variant. Update when adding one -- the assertion
-    /// below is what makes forgetting a compile error.
-    const LAST: ModeBit = ModeBit::Column132;
+    /// The highest-numbered variant, which is the **last one declared** --
+    /// discriminants follow declaration order, so this must be updated when a
+    /// variant is appended and not when one is inserted alphabetically.
+    ///
+    /// It said `Column132` for as long as `SynchronizedOutput` had existed
+    /// after it, so the assertion below was guarding a variant that was not the
+    /// highest. Benign at fourteen bits and not at sixteen, which is where the
+    /// bitset now sits: this is the same "instrumentation outlived what fed it"
+    /// shape `CLAUDE.md` records, and it stops firing exactly when it matters.
+    const LAST: ModeBit = ModeBit::AltSendsEscape;
 }
 
-/// `Modes` is a `u16`, so a 17th mode bit would shift off the end: `1u16 << 16`
+/// `Modes` is a `u32`, so a 33rd mode bit would shift off the end: `1u32 << 32`
 /// panics in debug and yields nothing useful in release, and the mode would
 /// simply stop working with no diagnostic. Widen `Modes` before adding one.
+///
+/// It was a `u16` and the seventeenth bit is what widened it -- `?1034`, the
+/// mode terminfo's `smm`/`rmm` send. The instruction cost is the same: a bit
+/// test against a register-width immediate either way.
 const _: () = assert!(
-    (ModeBit::LAST as u16) < 16,
-    "ModeBit has outgrown the u16 bitset in Modes -- widen Modes to u32"
+    (ModeBit::LAST as u32) < 32,
+    "ModeBit has outgrown the u32 bitset in Modes -- widen Modes to u64"
 );
 
 /// Terminal mode state as a bitset.
@@ -180,12 +207,26 @@ const _: () = assert!(
 /// the audit gate exists to prevent: each would be an untyped flag, and
 /// `self.lnm = self.decom` would compile.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Modes(pub(crate) u16);
+pub struct Modes(pub(crate) u32);
 
 impl Default for Modes {
-    /// DECAWM and DECTCEM are set on a fresh terminal; everything else reset.
+    /// DECAWM and DECTCEM are set on a fresh terminal, and so are both
+    /// `ESC`-prefix modes.
+    ///
+    /// **The prefix defaults are baud's choice, not the specification's.**
+    /// `[[source: ctlseqs]]` documents `?1036` and `?1039` and gives the full
+    /// truth table at line 2337, but states no default for either resource.
+    /// `[[source: foot-meta-defaults]]` does: `meta.esc_prefix = true` in both the
+    /// constructor and the reset path. baud follows it, because the
+    /// alternative the table offers -- adding 128 -- cannot work under UTF-8,
+    /// where a byte above 127 is a continuation byte rather than a character.
     fn default() -> Modes {
-        Modes(ModeBit::AutoWrap.bit() | ModeBit::CursorVisible.bit())
+        Modes(
+            ModeBit::AutoWrap.bit()
+                | ModeBit::CursorVisible.bit()
+                | ModeBit::MetaSendsEscape.bit()
+                | ModeBit::AltSendsEscape.bit(),
+        )
     }
 }
 
@@ -255,8 +296,19 @@ pub enum PrivateMode {
     /// save or restore the cursor, which `?1049` added precisely because
     /// applications kept getting it wrong.
     AltScreenLegacy,
-    /// `?1034`. Meta sends escape. Input-side.
+    /// `?1036` metaSendsEscape: Meta prefixes `ESC`.
+    ///
+    /// **Not `?1034`, which this was.** `[[source: ctlseqs]]` line 995 gives
+    /// `?1034` as `eightBitInput` -- *set the eighth bit* -- and line 1000
+    /// gives `?1036` as `metaSendsEscape`. They are opposite halves of the
+    /// same truth table, and baud implemented the second under the first one's
+    /// number. Nothing read the bit until `Term::key` did, so it was the
+    /// `parsed` failure until an encoder made it a wrong answer.
     MetaSendsEscape,
+    /// `?1034` eightBitInput: Alt/Meta add 128 rather than prefixing `ESC`.
+    EightBitInput,
+    /// `?1039` altSendsEscape: Alt prefixes `ESC`.
+    AltSendsEscape,
     /// `?1000` normal tracking.
     MouseNormal,
     /// `?1002` button-event tracking (adds motion while a button is down).
@@ -284,7 +336,9 @@ impl PrivateMode {
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
             69 => PrivateMode::LeftRightMargin,
-            1034 => PrivateMode::MetaSendsEscape,
+            1034 => PrivateMode::EightBitInput,
+            1036 => PrivateMode::MetaSendsEscape,
+            1039 => PrivateMode::AltSendsEscape,
             1000 => PrivateMode::MouseNormal,
             1002 => PrivateMode::MouseButtonEvent,
             1003 => PrivateMode::MouseAnyEvent,

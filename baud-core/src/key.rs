@@ -39,8 +39,125 @@ impl<'a> Term<'a> {
             KeyCode::PageUp => self.tilde_key(5, e.mods),
             KeyCode::PageDown => self.tilde_key(6, e.mods),
             KeyCode::Function(f) => self.function_key(f, e.mods),
-            _ => return false,
+            KeyCode::Char(cp) => return self.text_key(cp, e.mods),
+            // `[[source: ctlseqs]]` line 253: BS is Ctrl-H. Which byte the
+            // *Backspace key* sends is a different question -- DECBKM (`?67`)
+            // chooses, and baud does not implement it, so this is xterm's
+            // default with `backarrowKey` false. `docs/input-coverage.md`
+            // records the mode as absent rather than the key as wrong.
+            KeyCode::Backspace => self.emit(&[0x7f]),
+            KeyCode::Escape => self.emit(&[0x1b]),
+            KeyCode::Tab => match e.mods.has(Modifiers::SHIFT) {
+                // CBT. Shift-Tab is the one text key that is a sequence, and
+                // it is `CSI Z` rather than a modified HT.
+                true => {
+                    let csi = self.c1.csi();
+                    self.emit(csi);
+                    self.emit(b"Z");
+                }
+                false => self.emit(&[0x09]),
+            },
+            KeyCode::Enter => {
+                // LNM. `[[source: ctlseqs]]` makes the mode govern what LF
+                // *does* on output; on input it is what Return sends, and the
+                // two are the same question asked from either end.
+                self.emit(&[0x0d]);
+                if self.modes.is_set(ModeBit::LineFeedNewLine) {
+                    self.emit(&[0x0a]);
+                }
+            }
         }
+        true
+    }
+
+    /// A key that produces text.
+    ///
+    /// Two modifiers change the bytes rather than adding a parameter, and this
+    /// layer has no way to say "Control was held" other than by sending a
+    /// different character -- which is exactly the ambiguity
+    /// `[[source: fixterms]]` exists to remove, and why `CSI u` is the next
+    /// layer rather than a nicety.
+    fn text_key(&mut self, cp: Codepoint, mods: Modifiers) -> bool {
+        // Control folds the character into `0x00..0x1f`: `@` through `_` and
+        // the lowercase letters differ from their control code by bit 6 alone.
+        // Anything else has no control form and Control is simply dropped,
+        // which is what a terminal does and what an application cannot detect.
+        let base = match mods.has(Modifiers::CTRL) {
+            true => match cp.value() {
+                v @ (0x40..=0x5f | 0x61..=0x7a) => u8::try_from(v & 0x1f).ok(),
+                0x20 => Some(0x00),
+                0x3f => Some(0x7f),
+                _ => None,
+            },
+            false => None,
+        };
+
+        // `[[source: ctlseqs]]` line 2325 gives two ways for either modifier to
+        // apply -- prefix `ESC`, or add 128 -- and line 2337's table has a
+        // separate column per modifier: `?1039` for Alt, `?1036` for Meta.
+        // They are asked independently here because four of that table's
+        // sixteen rows disagree between them.
+        //
+        // The table's other branch -- `shift`, meaning add 128 -- is `?1034`
+        // eightBitInput, and it applies only under ISO 8859-1. Under UTF-8 a
+        // byte above 127 is a continuation byte rather than a character, so
+        // shifting there would send something no application can decode.
+        let modded = mods.has(Modifiers::ALT) || mods.has(Modifiers::META);
+        let esc = (mods.has(Modifiers::ALT) && self.alt_sends_escape())
+            || (mods.has(Modifiers::META) && self.meta_sends_escape());
+        // Once, not once per modifier: `ESC ESC x` is Escape then Alt-x.
+        if esc {
+            self.emit(&[0x1b]);
+        }
+        // The prefix wins where both modes are set, which is what the table's
+        // last four rows say: with both resources ON every modified row is
+        // `ESC x`, and none of them is the shifted form.
+        let shift = modded
+            && !esc
+            && self.eight_bit_input()
+            && self.input_encoding() == InputEncoding::Latin1;
+
+        // A control code is always one byte and always below 128, so the shift
+        // is unconditional here. `Meta-Ctrl-A` becomes `0x81`, which under
+        // ISO 8859-1 is a C1 control -- and baud accepts 8-bit C1 controls in
+        // exactly that encoding, so the two halves agree.
+        if let Some(b) = base {
+            self.emit(&[b | if shift { 0x80 } else { 0 }]);
+            return true;
+        }
+
+        let v = cp.value();
+        // **Under ISO 8859-1 the keyboard sends ISO 8859-1.** `ESC % @`
+        // switches how baud *decodes*, and an encoder that kept emitting UTF-8
+        // would break the round trip that makes the mode useful: the
+        // application set the encoding, and would read `é` back as two
+        // characters. Symmetric with `?1020`, which reports the live encoding
+        // rather than a compile-time one.
+        if self.input_encoding() == InputEncoding::Latin1 {
+            // One byte per character by definition. Above `U+00FF` there is no
+            // byte, and no key on a Latin-1 keyboard produces one -- so this
+            // sends nothing rather than sending UTF-8 the application would
+            // misread. Same rule as answering a query with the wrong shape.
+            let Ok(b) = u8::try_from(v) else {
+                return false;
+            };
+            // `[[source: ctlseqs]]` line 2331: "shift the key from codes 0-127
+            // to 128-255". A character already above 127 has no shifted form.
+            self.emit(&[b | if shift && b < 0x80 { 0x80 } else { 0 }]);
+            return true;
+        }
+
+        let Some(c) = char::from_u32(v) else {
+            return false;
+        };
+        let mut buf = [0u8; 4];
+        let bytes = c.encode_utf8(&mut buf).as_bytes();
+        // `emit` borrows self mutably; the buffer is local, so copy the length
+        // out first rather than holding the borrow.
+        let n = bytes.len();
+        let mut owned = [0u8; 4];
+        owned[..n].copy_from_slice(bytes);
+        self.emit(&owned[..n]);
         true
     }
 

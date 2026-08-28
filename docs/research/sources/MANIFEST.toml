@@ -602,6 +602,25 @@ bytes  = 143121
 status = "retrieved"
 group  = "C"
 
+# The default `[[source: ctlseqs]]` documents `?1036`/`?1039` without stating.
+# ctlseqs gives the full truth table at line 2337 and no default for either
+# resource, so the choice would otherwise be a remembered one. **Cited as
+# foot's, not as xterm's** -- it is one implementation's answer, and the same
+# file under a second key because the scope of a citation is the claim it
+# carries, not the bytes it lives in.
+[sources.foot-meta-defaults]
+key    = "foot-meta-defaults"
+title  = "foot 1.21.0, terminal.c -- meta.esc_prefix / meta.eight_bit defaults"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "C"
+
 # The per-language substitutions no DEC-authored source gives in
 # machine-readable form. **Cited as xterm's, not as DEC's** -- the macros carry
 # the Unicode codepoint alongside each replaced position, and 14 sets of them

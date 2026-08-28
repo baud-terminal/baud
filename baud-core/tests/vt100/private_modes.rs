@@ -42,6 +42,10 @@ fn with(bytes: &[u8], f: impl Fn(&Term) -> bool) -> bool {
 /// Table-driven because the property is the same for all of them and writing it
 /// six times invites one to be subtly different. `?1`, `?4`, `?5`, `?8` and
 /// `?1034` are pure state; the interesting ones get their own test below.
+///
+/// `?1036` and `?1039` are *not* here, and that is the point: they default
+/// **set**, so a table that asserts "off at power-on" would have to special-case
+/// them. `key_encode.rs` covers them with the reason for the default.
 #[test]
 fn each_mode_defaults_off_and_toggles() {
     type Get = fn(&Term) -> bool;
@@ -50,7 +54,9 @@ fn each_mode_defaults_off_and_toggles() {
         ("?4 DECSCLM", b"\x1b[?4", |t| t.smooth_scroll()),
         ("?5 DECSCNM", b"\x1b[?5", |t| t.reverse_video()),
         ("?8 DECARM", b"\x1b[?8", |t| t.auto_repeat()),
-        ("?1034 meta", b"\x1b[?1034", |t| t.meta_sends_escape()),
+        ("?1034 eightBitInput", b"\x1b[?1034", |t| {
+            t.eight_bit_input()
+        }),
     ];
     for (name, prefix, get) in cases {
         let set = [prefix, b"h".as_slice()].concat();
@@ -63,8 +69,9 @@ fn each_mode_defaults_off_and_toggles() {
 
 /// The modes are independent: setting one must not move another.
 ///
-/// They share a `u16` bitset, so a wrong shift would silently alias two of them
-/// — and `ModeBit` is at 15 of its 16 bits.
+/// They share a `u32` bitset, so a wrong shift would silently alias two of
+/// them. It was a `u16` at 15 of 16 bits until `?1034`, `?1036` and `?1039`
+/// stopped being one bit under one number, which took it to 17 and widened it.
 #[test]
 fn the_modes_do_not_alias_each_other() {
     let all = b"\x1b[?1h";
@@ -72,11 +79,29 @@ fn the_modes_do_not_alias_each_other() {
     assert!(!with(all, |t| t.smooth_scroll()), "?1 must not set ?4");
     assert!(!with(all, |t| t.reverse_video()), "?1 must not set ?5");
     assert!(!with(all, |t| t.auto_repeat()), "?1 must not set ?8");
-    assert!(!with(all, |t| t.meta_sends_escape()));
+    assert!(!with(all, |t| t.eight_bit_input()));
     // And the reverse direction.
     let m = b"\x1b[?1034h";
-    assert!(with(m, |t| t.meta_sends_escape()));
+    assert!(with(m, |t| t.eight_bit_input()));
     assert!(!with(m, |t| t.cursor_keys_application()));
+    // The three that were one bit. `?1034` must not disturb either prefix, and
+    // turning one prefix off must leave the other alone -- four of the sixteen
+    // rows of `[[source: ctlseqs]]` line 2337 distinguish them.
+    assert!(
+        with(m, |t| t.meta_sends_escape()),
+        "?1034 h left ?1036 alone"
+    );
+    assert!(
+        with(m, |t| t.alt_sends_escape()),
+        "?1034 h left ?1039 alone"
+    );
+    let off = b"\x1b[?1039l";
+    assert!(!with(off, |t| t.alt_sends_escape()));
+    assert!(
+        with(off, |t| t.meta_sends_escape()),
+        "?1039 l left ?1036 alone"
+    );
+    assert!(!with(off, |t| t.eight_bit_input()));
 }
 
 /// `?3` DECCOLM does the clearing the spec mandates, but does **not** resize.
@@ -184,14 +209,14 @@ fn a_multi_parameter_form_applies_to_all_of_them() {
     assert!(term.smooth_scroll(), "?4");
     assert!(term.reverse_video(), "?5");
     assert!(term.auto_repeat(), "?8");
-    assert!(term.meta_sends_escape(), "?1034");
+    assert!(term.eight_bit_input(), "?1034");
 
     feed(&mut term, b"\x1b[?1;4;5;8;1034l");
     assert!(!term.cursor_keys_application(), "?1 reset");
     assert!(!term.smooth_scroll(), "?4 reset");
     assert!(!term.reverse_video(), "?5 reset");
     assert!(!term.auto_repeat(), "?8 reset");
-    assert!(!term.meta_sends_escape(), "?1034 reset");
+    assert!(!term.eight_bit_input(), "?1034 reset");
 }
 
 /// RIS clears every one, so a crashed program cannot strand the next.
@@ -202,6 +227,13 @@ fn ris_clears_them_all() {
     assert!(!with(after, |t| t.smooth_scroll()));
     assert!(!with(after, |t| t.reverse_video()));
     assert!(!with(after, |t| t.auto_repeat()));
-    assert!(!with(after, |t| t.meta_sends_escape()));
+    assert!(!with(after, |t| t.eight_bit_input()));
     assert!(!with(after, |t| t.column_mode()));
+    // RIS restores, and restoring is not the same as clearing: `?1036` and
+    // `?1039` are set at power-on, so the fixed point is *on*. A reset that
+    // cleared them would leave the next program without an ESC prefix and no
+    // way to know why.
+    let after = b"\x1b[?1036;1039l\x1bc";
+    assert!(with(after, |t| t.meta_sends_escape()));
+    assert!(with(after, |t| t.alt_sends_escape()));
 }

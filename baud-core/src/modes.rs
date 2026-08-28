@@ -113,6 +113,8 @@ impl<'a> Term<'a> {
             PrivateMode::ReverseVideo => self.modes.apply(ModeBit::ReverseVideo, on),
             PrivateMode::AutoRepeat => self.modes.apply(ModeBit::AutoRepeat, on),
             PrivateMode::MetaSendsEscape => self.modes.apply(ModeBit::MetaSendsEscape, on),
+            PrivateMode::AltSendsEscape => self.modes.apply(ModeBit::AltSendsEscape, on),
+            PrivateMode::EightBitInput => self.modes.apply(ModeBit::EightBitInput, on),
             // `?45`: backspace at the left margin wraps to the end of the line
             // above instead of stopping. Acted on in `Term::back`.
             PrivateMode::ReverseWrap => self.modes.apply(ModeBit::ReverseWrap, on),
@@ -263,9 +265,35 @@ impl<'a> Term<'a> {
         self.modes.is_set(ModeBit::AutoRepeat)
     }
 
-    /// ?1034. Whether Meta should set the high bit / prefix ESC.
+    /// `?1036`. Whether the Meta modifier prefixes `ESC`. Read by
+    /// [`Term::key`], and set on a fresh terminal.
     pub fn meta_sends_escape(&self) -> bool {
         self.modes.is_set(ModeBit::MetaSendsEscape)
+    }
+
+    /// `?1039`. Whether the Alt modifier prefixes `ESC`. Read by
+    /// [`Term::key`], and set on a fresh terminal.
+    ///
+    /// Separate from [`Term::meta_sends_escape`] because `[[source: ctlseqs]]`
+    /// line 2337 gives the two resources separate columns.
+    pub fn alt_sends_escape(&self) -> bool {
+        self.modes.is_set(ModeBit::AltSendsEscape)
+    }
+
+    /// `?1034`. Whether Alt/Meta add 128 rather than prefixing `ESC`.
+    ///
+    /// This is what terminfo's `smm` and `rmm` send, which is why it is
+    /// implemented rather than refused: every `xterm*` entry carries them, so
+    /// leaving `?1034` unrecognised left two capabilities of the corpus
+    /// dropped, and `tests/conformance` counted them.
+    ///
+    /// **Reading it is not the same as acting on it.** [`Term::key`] applies
+    /// the shift only under [`InputEncoding::Latin1`]: a byte above 127 is a
+    /// character there and a continuation byte under UTF-8, so applying it in
+    /// UTF-8 would send something no application can decode. The mode is
+    /// recorded and reported truthfully in both, and the encoding decides.
+    pub fn eight_bit_input(&self) -> bool {
+        self.modes.is_set(ModeBit::EightBitInput)
     }
 
     /// DECCOLM ?3. Whether the application asked for 132 columns.
@@ -341,6 +369,8 @@ impl<'a> Term<'a> {
             PrivateMode::ReverseVideo => bit_state(self.modes, ModeBit::ReverseVideo),
             PrivateMode::AutoRepeat => bit_state(self.modes, ModeBit::AutoRepeat),
             PrivateMode::MetaSendsEscape => bit_state(self.modes, ModeBit::MetaSendsEscape),
+            PrivateMode::AltSendsEscape => bit_state(self.modes, ModeBit::AltSendsEscape),
+            PrivateMode::EightBitInput => bit_state(self.modes, ModeBit::EightBitInput),
             PrivateMode::ReverseWrap => bit_state(self.modes, ModeBit::ReverseWrap),
             PrivateMode::Column132 => bit_state(self.modes, ModeBit::Column132),
             PrivateMode::CursorBlink => {
