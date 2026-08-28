@@ -35,4 +35,16 @@ pub(crate) trait Scan {
 /// Lane width. 16 bytes is what every SIMD ISA this targets has natively;
 /// asking `core::simd` for more emits multiple registers per step and measured
 /// no better.
+///
+/// **Re-tested for `run` specifically, which was scalar until it was
+/// vectorised and so was never covered by the sentence above.** 32 lanes
+/// measured *worse* on the streaming payload -- 1313/1374/1338 against
+/// 1342/1410/1396 -- and flat on btop. Two NEON registers per step buys
+/// nothing when the run being scanned averages ~32 bytes, because the loop
+/// exits in its first or second iteration either way.
+///
+/// **aarch64 was the platform that had been paying for the scalar loop.**
+/// x86-64 with AVX2 has always had `scan_avx2`, 32 bytes a step; the scalar
+/// `run` was in `Portable`, which is what aarch64 uses -- so the machine this
+/// project is developed and measured on was the one running the slow path.
 pub(crate) const LANES: usize = 16;
