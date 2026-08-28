@@ -52,6 +52,34 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
+## The 5% at `036a432` does not reproduce in isolation
+
+*`baud-bench/src/bin/ingest.rs`, `payload::streaming`, `OpMode::Runs`, 3000
+reps (~3 GB) per run, ten interleaved pairs, both binaries built from the same
+source at `036a432` and its parent.*
+
+| pair | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| before (s) | 2.07 | 1.99 | 1.99 | 2.00 | 1.98 | 2.04 | 1.99 | 2.02 | 2.01 | 2.02 |
+| after (s) | 2.02 | 1.99 | 1.98 | 1.99 | 2.22 | 2.01 | 2.01 | 2.01 | 2.00 | 2.08 |
+
+**Identical.** ~3 GB in ~2.0 s is ~1500 MB/s, the same regime multibench
+reports for the spans row, so this is not a different workload measured
+differently -- it is the same work with baud alone in the process.
+
+The 5% was measured in `bench-others/multibench`, which links six terminal
+implementations into one binary. Adding 528 bytes to baud moves everything
+after it. That is the leading explanation for this class of anomaly now, and it
+fits what nothing else did: they appear on changes that cannot execute, they
+take opposite signs on the spans and cells rows, and every mechanism tried
+against baud's own code -- inlining, read batching, different work, `State`
+size, code size -- has been ruled out.
+
+**Not concluded.** One anomaly has been re-tested this way and the isolated
+harness differs from multibench in more than its binary. The width tables at 5%
+and blanking at 38% should be re-run under `ingest` before this is treated as
+settled.
+
 ## Outlining the cold Ground arms: neutral, and how nearly it wasn't
 
 *`a5a7c61` against its parent, multibench, `TRANSPORT=memory`, medians of 9,
