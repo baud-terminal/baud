@@ -52,6 +52,32 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
+## The width tables: ~1.7% real, and about two thirds was the harness
+
+*`ingest`, `payload::streaming`, `OpMode::Computed` — the path the 5% was
+recorded on — 3000 reps per run, sixteen interleaved pairs of `a4cecba`
+against its parent.*
+
+| | median | slower in |
+|---|---|---|
+| hand-written ranges | **3.03 s** | 4 of 16 |
+| generated from Unicode data | **3.08 s** | **12 of 16** |
+
+~1.7%, one-tailed sign test p = 0.038. `CLAUDE.md` recorded 5% from multibench.
+
+**Two anomalies, two different answers**, which is why both were re-run rather
+than one generalised from the other:
+
+| anomaly | in multibench | with baud alone |
+|---|---|---|
+| `036a432` overlong UTF-8 | −5% | **0%** |
+| `a4cecba` width tables | −5% | **−1.7%** |
+
+So the comparison binary inflates these and does not invent all of them. The
+residual is a real cost to anyone linking baud, and 5.4 KB of rodata on a
+payload that never calls `Width::of` is still unexplained — just smaller than
+the number this project has been carrying.
+
 ## The 5% at `036a432` does not reproduce in isolation
 
 *`baud-bench/src/bin/ingest.rs`, `payload::streaming`, `OpMode::Runs`, 3000
