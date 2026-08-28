@@ -18,6 +18,45 @@ fn geometry() -> (Cols, Rows) {
     .geometry()
 }
 
+/// Pure CJK, no escapes at all: **every** byte goes through the UTF-8 decoder.
+///
+/// The synthetic payloads are ASCII, so `Term::utf8_share` reports 0.0% for
+/// both and neither can price the decode path. This one exists to answer one
+/// question -- what does baud cost per byte on multi-byte text? -- against
+/// `streaming`, which answers it for ASCII. The gap between them is the decode
+/// path's own cost, and it is what `[[source: utf8-lookup]]`'s 0.97
+/// instructions per byte has to be compared against. Quoting the paper's 7.0
+/// as baud's baseline was wrong: that is a standalone validator that runs its
+/// state machine over ASCII too, which baud never does.
+///
+/// Three bytes per character and two columns per character, so a 200-column
+/// row is 100 characters and 300 bytes. Deliberately without SGR: mixing in
+/// escapes would measure the state machine again rather than the decoder.
+pub fn cjk(cap: usize, _seq: &mut u64) -> Vec<u8> {
+    // Common hanzi, all in U+4E00..U+9FFF -- three bytes in UTF-8, East Asian
+    // Wide, so the width table and the cluster break both do real work.
+    const W: [&str; 8] = [
+        "終端", "文字", "解析", "画面", "行列", "描画", "入力", "出力",
+    ];
+    let (cols, _rows) = geometry();
+    let mut b = Vec::with_capacity(cap);
+    let mut col = 0usize;
+    let mut i = 0usize;
+    while b.len() < cap - 96 {
+        if col > cols.index() - 8 {
+            b.extend_from_slice(b"\r\n");
+            col = 0;
+            continue;
+        }
+        let w = W[i % W.len()];
+        i += 1;
+        b.extend_from_slice(w.as_bytes());
+        // Two columns per CJK character.
+        col += 2 * w.chars().count();
+    }
+    b
+}
+
 /// Bulk text: mostly printable, SGR roughly every 37 bytes, wraps near col 70.
 /// Models `cat`, build output, log tailing.
 pub fn streaming(cap: usize, seq: &mut u64) -> Vec<u8> {

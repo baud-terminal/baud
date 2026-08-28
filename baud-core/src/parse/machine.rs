@@ -193,6 +193,31 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
+    /// The two Ground arms that ordinary text never reaches.
+    ///
+    /// `#[cold]` and `#[inline(never)]` so they do not sit in `feed_with`'s
+    /// instruction stream: the scanner takes printable ASCII before the state
+    /// machine sees it, so the first arm is reached only when a byte is
+    /// *re-fed* after a failed decode, and the second only on malformed input.
+    #[cold]
+    #[inline(never)]
+    fn ground_uncommon(&mut self, b: StreamByte) {
+        if b.is_printable_ascii() {
+            // `[[source: unicode-ch3]]` § 3.9.5: a converter "must not consume
+            // the successor bytes as part of the ill-formed subsequence
+            // whenever those successor bytes themselves constitute part of a
+            // well-formed UTF-8 code unit subsequence". The standard names this
+            // input -- `<C2 41 42>` "must not return `<U+FFFD>` or
+            // `<U+FFFD, U+0042>`" -- and baud returned `<U+FFFD, U+FFFD,
+            // U+0042>`, the `A` having fallen through to the not-text arm.
+            self.put_cp(Codepoint::from_ascii(b), Width::NARROW);
+        } else {
+            // stray continuation byte or 0x7f: not text
+            self.replacements.inc();
+            self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
+        }
+    }
+
     pub(crate) fn control(&mut self, b: StreamByte) {
         if self.anywhere(b) {
             return;
@@ -230,25 +255,15 @@ impl<'a> Term<'a> {
                         acc: Utf8Acc::lead(acc),
                         min,
                     };
-                } else if b.is_printable_ascii() {
-                    // Reached only when a byte is *re-fed* here after a failed
-                    // decode: the run scanner takes printable ASCII before the
-                    // state machine ever sees it, so this arm is cold.
-                    //
-                    // Without it, `[[source: unicode-ch3]]` § 3.9.5 was
-                    // violated. A converter "must not consume the successor
-                    // bytes as part of the ill-formed subsequence whenever
-                    // those successor bytes themselves constitute part of a
-                    // well-formed UTF-8 code unit subsequence", and the
-                    // standard names this exact input: `<C2 41 42>` "must not
-                    // return `<U+FFFD>` or `<U+FFFD, U+0042>`". baud returned
-                    // `<U+FFFD, U+FFFD, U+0042>` -- the `A` fell through to the
-                    // not-text arm below and was replaced.
-                    self.put_cp(Codepoint::from_ascii(b), Width::NARROW);
                 } else {
-                    // stray continuation byte or 0x7f: not text
-                    self.replacements.inc();
-                    self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
+                    // **Both remaining arms are cold and outlined.** Neither is
+                    // reachable on ordinary text: printable ASCII is taken by
+                    // the run scanner before the state machine sees it, and a
+                    // stray continuation is malformed input. Left inline they
+                    // still cost, because `control` is inlined into `feed_with`
+                    // -- adding the first of them grew it 11,260 -> 11,788 in
+                    // `036a432`, against a ~5% loss on the spans path.
+                    self.ground_uncommon(b);
                 }
             }
             State::Utf8 {
