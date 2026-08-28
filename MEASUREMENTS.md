@@ -205,6 +205,41 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## Both classification tables are tries now: CJK 122 -> 194, and the gap is 4.3x
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
+`OpMode::Computed`, medians of 40 reps, four to five interleaved rounds with
+the first discarded.*
+
+| payload, cells | ranges | `Width::of` trie | `+ GraphemeClass::of` trie | total |
+|---|---|---|---|---|
+| `utf8/cat-cjk.raw` | 114 | 142 | **194** | **+70%** |
+| `utf8/less-cjk.raw` | 120 | 154 | **205** | **+71%** |
+| `utf8/vim-unicode.raw` | 232 | 297 | **348** | **+50%** |
+| `utf8/btop.raw` | 419 | 500 | **551** | **+32%** |
+| `payload::streaming` | ~1224 | ~1253 | ~1251 | flat |
+| `ascii/cat-scroll.raw` | ~814 | ~819 | ~841 | flat |
+
+Both were binary searches over sorted range tables, consulted once per
+non-ASCII codepoint: `Width::of` ran up to three of them across 677 ranges,
+`GraphemeClass::of` one over 1,386. Together they were **38%** of the CJK path
+and about eleven data-dependent branches each.
+
+Both are now two-stage tries indexed by `cp >> 8`. Width is 11,712 bytes
+against 5.4 KB of ranges; grapheme is 16,000 against ~16,632, so that one is
+*smaller* than what it replaced. The shape matters more than the size: Han is
+82 **contiguous** stage-1 entries where the search was eleven scattered probes,
+which is what rule #2 is about.
+
+**The gap between CJK and the same workload in ASCII is now 4.3x, from 6.1x.**
+What remains is the per-codepoint write itself -- CJK cannot use
+`put_ascii_run` -- which is the bulk path this file still records as unmeasured.
+
+**cat-cjk beat the ceiling arm measured for it**, +36% against a predicted
++29%, because that arm was measured against a baseline that still had the slow
+`Width::of` in it. A ceiling bounds the build it was measured on, not every
+later one.
+
 ## Where the CJK 6x actually goes: Unicode classification, not the cell write
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `xctrace --template
