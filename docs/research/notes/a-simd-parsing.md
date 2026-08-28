@@ -51,10 +51,28 @@ for this 5%, and the two must not be welded together.
 | **finite-state** | **7.0** | 7.0 | 7.0 | 7.0 |
 | **lookup** | **0.21** | 0.97 | 0.97 | 0.97 |
 
-**baud's decoder is the finite-state row.** `Utf8Acc`/`Utf8Min` carry decoder
-state across bytes and the parser advances it one byte at a time, which is that
-algorithm exactly — and the table says it pays 7.0 instructions per byte
-whatever the input, including for ASCII, where the alternatives collapse.
+**baud's decoder is *not* the finite-state row, and this note said it was.**
+§ 5 describes that row as a standalone validator which runs its state machine
+over every byte — that is why it costs 7.0 even on ASCII, "whatever the input".
+baud does two things that machine does not:
+
+* **ASCII never reaches the decoder.** `S::run` takes printable ASCII into
+  `put_ascii_run` before the state machine sees it, which is what `utf8_share`
+  reporting **0.0%** on `payload::streaming` measures. The 7.0-on-ASCII column
+  describes work baud does not do.
+* **Validation is fused with decoding.** baud does not validate and then
+  decode; `utf8_continuation` and `finish`'s floor check happen once, as part
+  of producing the codepoint. The paper's validators produce a yes/no and no
+  codepoint at all.
+
+Architecturally baud is closest to the paper's **branchy-ascii** — a wide ASCII
+bulk test plus a branchy path for the remainder — which § 7 finds "almost twice
+as fast as branchy" on ASCII-heavy files for exactly that reason.
+
+So **the 7.0-to-0.97 comparison never described baud**, and quoting it as this
+opportunity's size was a category error: a standalone whole-input validator
+against a fused, ASCII-bypassing decoder. It is the fourth precondition in this
+corpus checked only after it had been relied on.
 
 The paper's own summary: the lookup algorithm "outperforms UTF-8 validation
 routines used in many libraries and languages by more than 10 times using
@@ -89,12 +107,19 @@ dispatch overhead, not decode instructions -- but it establishes the shape a
 vectorised version needs: a place in `feed_with` where a run of text is handled
 outside the state machine.
 
-**The remaining prize is 0.97 against 7.0.** Those are `[[source: utf8-lookup]]`
-Table 13's figures for multi-byte input, and they are the same algorithm as the
-0.21 -- 0.21 is simply its cost when the input is ASCII. baud cannot reach 0.21
-on CJK because multi-byte inherently costs more, but 0.97 against a
-finite-state decoder's 7.0 is roughly sevenfold on the 14.5% and 28.2% of bytes
-measured above.
+**What is left is unsized, and smaller than this note claimed.** The dispatch
+overhead was the large, measurable part and `fast_utf8` has taken it. What a
+block validator could still remove is the per-character validation *inside* the
+fused decode -- a handful of masks and one floor comparison -- while
+`Width::of`, the cluster break and the cell write are untouched by any UTF-8
+algorithm and are plausibly the larger share of what remains.
+
+Sizing that needs a profile of the **recordings alone**, and the harness cannot
+currently produce one: `baud-bench` runs the synthetic payloads in the same
+process, so a `dtrace` sample is dominated by `put_ascii_run` and everything of
+interest is inlined into `feed_with`. Until that exists, the remaining upside
+is **unmeasured, and this note will not estimate it** -- estimating it from a
+payload that does not exercise it is the mistake made here once already.
 
 Two things stand between here and there, and neither is fatal:
 
@@ -149,7 +174,8 @@ Two things stand between here and there, and neither is fatal:
 
 | claim | source | where |
 |---|---|---|
-| A finite-state UTF-8 validator costs ~7 instructions per byte on all inputs | `[[source: utf8-lookup]]` | Table 13 |
+| A **standalone** finite-state UTF-8 validator costs ~7 instructions per byte on all inputs, ASCII included — a machine baud is not | `[[source: utf8-lookup]]` | Table 13, § 5 |
+| `branchy-ascii` — a wide ASCII bulk test plus a branchy remainder, which is baud's shape — is almost twice `branchy` on ASCII-heavy files | `[[source: utf8-lookup]]` | § 7 |
 | The lookup algorithm costs 0.21 instructions per byte on ASCII and <1 on any input | `[[source: utf8-lookup]]` | Table 13, Abstract |
 | It is >10× faster than routines in common libraries, using commonly available SIMD | `[[source: utf8-lookup]]` | Abstract |
 | The validation rules are Too Short, Too Long, Overlong, Too Large, Surrogate | `[[source: utf8-lookup]]` | § 3 |
