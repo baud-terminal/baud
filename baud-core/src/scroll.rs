@@ -126,6 +126,32 @@ impl<'a> Term<'a> {
             return;
         }
         let blank = PackedCell::empty_with(self.style);
+        // The mirror of `scroll_region_up`'s alternate-screen branch, and it
+        // exists for the same reason: `less-pager.raw` holds 147 `ESC M`, and
+        // with the upward path rotating they were the *whole* of the 53.8x
+        // amplification left over -- 147 x 49 rows x 200 cells per pass.
+        //
+        // Alternate screen only, again. Retreating the primary's `rot` without
+        // retreating `head` desynchronises the run table from the addressing,
+        // which is exactly the bug that made full-screen scrolling not scroll;
+        // and retreating `head` would resurrect a scrollback line where the
+        // protocol says a *blank* enters. The alternate screen has no ring, so
+        // neither question arises.
+        //
+        // Retreating by `k` maps screen row 0 onto the physical row that was
+        // the bottom one, which is the row the protocol discards -- so blanking
+        // row 0 after the retreat blanks exactly the recycled row.
+        let last = self.rows.index() - 1;
+        if top == 0 && bot == last && self.screen == Screen::Alternate {
+            let k = n.at_least_one().min(bot + 1 - top);
+            for _ in 0..k {
+                self.alt_rot = self.alt_rot.retreat(1, self.rows);
+                self.fill_row_counted(Row::ZERO, blank);
+                self.cells_scroll.add(self.cols.index());
+                self.scrolls.inc();
+            }
+            return;
+        }
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
         self.count_line_block(rt, rb, n);
         self.view().insert_lines_in(rt, n, rb, blank);

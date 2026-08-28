@@ -125,6 +125,21 @@ impl RowRot {
     pub fn advance(self, n: usize, rows: Rows) -> RowRot {
         RowRot((self.0 + n) % rows.index().max(1))
     }
+    /// The other direction, for a screen that scrolls **down**: RI at the top
+    /// of the region, SD, IL.
+    ///
+    /// Spelled as a forward advance by `rows - n` rather than a subtraction,
+    /// because `self.0` is unsigned and `rot - n` underflows to a vast number
+    /// that `%` then turns into a plausible row. `n` is reduced first so
+    /// `rows - n` cannot itself be `rows`.
+    ///
+    /// `%` here and a conditional subtract in `View::phys`: this runs once per
+    /// scroll, `phys` runs once per addressed row, and the modulo was worth
+    /// ~4% there.
+    pub fn retreat(self, n: usize, rows: Rows) -> RowRot {
+        let r = rows.index().max(1);
+        RowRot((self.0 + (r - n % r)) % r)
+    }
     pub fn index(self) -> usize {
         self.0
     }

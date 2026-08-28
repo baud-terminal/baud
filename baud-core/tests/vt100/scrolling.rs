@@ -524,13 +524,22 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
     // them in `less-pager.raw` -- and the one no test reached. It scrolls the
     // full screen with no region set, which is the branch a fast path takes.
     let script: &[(&str, fn(&mut Model))] = &[
+        // **`RI` first, while every row still holds text.** Done after a few
+        // newlines instead, the row the bottom recycles to the top is already
+        // blank, so blanking the *wrong* row leaves a blank either way and the
+        // assertion cannot tell. That is not hypothetical: this test passed
+        // with `fill_row_counted(last)` in place of `fill_row_counted(ZERO)`
+        // until the script was reordered.
+        ("\x1b[1;1H", |m| m.cy = 0),
+        ("\x1bM", |m| m.down(1)),
+        ("\x1bM", |m| m.down(1)),
         ("\x1b[50;1H", |m| m.cy = 49),
         ("\n", |m| m.up(1)),
         ("\n", |m| m.up(1)),
         ("\n", |m| m.up(1)),
-        // `RI` at the top row scrolls the other way.
+        // And `RI` again once the bottom is blank, so both orderings are
+        // covered rather than swapped for each other.
         ("\x1b[1;1H", |m| m.cy = 0),
-        ("\x1bM", |m| m.down(1)),
         ("\x1bM", |m| m.down(1)),
         // Then the region operations, to prove the fast path and the copying
         // path agree with each other inside one session.
