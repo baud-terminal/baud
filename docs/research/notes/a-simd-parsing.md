@@ -178,14 +178,35 @@ Two things stand between here and there, and neither is fatal:
   row 6 reads `10|01...11` -- the continuation's high nibble is 9, A or B, and
   8 belongs to row 5 with the overlong four-byte form.
 
-      HI1: 01 01 01 01 01 01 01 01 00 00 00 00 06 02 1a 62
-      LO1: 37 07 03 03 43 63 63 63 63 63 63 63 63 6b 63 63
-      HI2: 02 02 02 02 02 02 02 02 35 55 4d 4d 02 02 02 02
+      HI1: 01 01 01 01 01 01 01 01 80 80 80 80 06 02 1a 62
+      LO1: b7 87 83 83 c3 e3 e3 e3 e3 e3 e3 e3 e3 eb e3 e3
+      HI2: 02 02 02 02 02 02 02 02 b5 d5 cd cd 02 02 02 02
 
-  What remains before code: § 6.2's rule for 3- and 4-byte sequences, which the
-  two-byte tables do not cover, and deciding where a block validator sits
-  relative to `fast_utf8` -- validation is not decoding, and baud needs the
-  codepoint.
+  **§ 6.2's long-form rule is implemented too**, so the generator now models the
+  whole validator rather than half of it: "we expect two continuations if the
+  previous byte matches `111|`, or if the byte before that matches `1111|`",
+  compared against where two continuations actually occur (bit 7). If the two
+  disagree anywhere, the input is invalid.
+
+  Two things there are easy to get wrong and both were:
+
+  * **"Previous" is previous to the *pair*, not to the index.** The pair judged
+    at `i` is `(data[i-1], data[i])`, so the byte before it is `data[i-2]`.
+    Reading it as `data[i-1]` rejects `E0 A0 80` -- U+0800, valid.
+  * **Bit 7 is not an error.** It records that a pair is two continuations,
+    which is what § 6.2 counts. Masking it into the error test rejects every
+    three- and four-byte character.
+
+  Verified against CPython's decoder -- an independent oracle, not one written
+  beside the thing it checks -- over **all 10,321,920 complete three-byte
+  strings**, every complete one- and two-byte string, and 122,496 four-byte
+  boundary combinations. Strings ending mid-sequence are excluded and counted,
+  because the block validator is not responsible for them: that is what
+  `State::Utf8` carries across a read boundary and what `fast_utf8` declines.
+
+  What remains before code: deciding where a block validator sits relative to
+  `fast_utf8`. Validation is not decoding, and baud needs the codepoint, the
+  width and a cell out the other side.
 - **NEON.** Whether the arm64 form carries the same ratio is unmeasured here,
   and this box is the one the project measures on.
 - **~~How many bytes reach the decoder, per payload.~~** Measured.
