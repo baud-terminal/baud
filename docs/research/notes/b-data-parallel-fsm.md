@@ -84,26 +84,32 @@ state**, chosen deliberately over transition tables:
 > instructions to perform vectorized bit operations to further accelerate the
 > performance." `[[source: hyperscan]]` § 4.2
 
-**baud's state count makes this almost free.** `[[source: williams]]` has
-thirteen states; the whole set is a `u16` mask, and a transition is a shift and
-an or rather than a gather. Hyperscan sets its DFA/NFA threshold at 16,384
-states -- baud is three orders of magnitude below the point where that engine
-starts to struggle.
+**And it does not apply to baud, which this note claimed it did.** The claim
+was that baud's thirteen states fit a `u16` mask so a transition becomes a
+shift and an or. That is true and useless: `Term::st` is a *single* `State`,
+because `[[source: williams]]`'s parser is a **DFA**. The set of live states
+always has exactly one member, so a state bitmask holds exactly one bit and
+there is nothing for a vectorised bit operation to do.
 
-That is a **different and cheaper proposal than § 4.2's enumeration above**,
-and the difference matters:
+Hyperscan's bit-based NFA earns its keep where regex alternation makes many
+states live at once -- that is the "look up a transition table for each current
+state in a serialized manner" it is avoiding, and a DFA never has more than one
+current state to look up. Reading a technique's *benefit* without checking that
+its *precondition* holds is how the cache story in note D got written, and this
+is the same error one note over.
 
-* the enumerative method runs one lane per possible start state and keeps the
-  lane that started correctly, which is what buys chunk-parallelism;
-* a bit-based NFA tracks the *set* of live states in one register and needs no
-  lanes at all. It does not parallelise across chunks; it makes each step
-  cheaper.
+So the applicable technique is the one this note already had: § 4.2's
+composition of **transition functions**, not tracking of state sets. A
+transition function over thirteen states is a map `13 -> 13`, which is sixteen
+bytes -- one lane per state, value is the next state -- and composing two of
+them is exactly `compose(f, g)[i] = g[f[i]]`, a single `pshufb` or NEON `tbl`.
+That is what "one or two shuffle operations per input symbol" means, and
+thirteen states in a sixteen-lane register is why the substitute is natural
+here rather than a compromise.
 
-They compose -- the enumeration's per-lane step could itself be the bit-based
-one -- but the second is implementable on its own, against baud's existing
-sequential structure, with no change to `ingest_is_chunk_invariant`. **That
-makes it the thing to try first**, and this note previously had no such
-increment: it proposed the harder half and nothing else.
+What Hyperscan does contribute is corroboration rather than a technique: its
+decomposition into "a series of string and finite automata matching" is the
+split baud already has between the scanner and the state machine.
 
 Hyperscan's other technique, graph decomposition into "a series of string and
 finite automata matching", is the split baud already has between the scanner
@@ -133,8 +139,7 @@ and the state machine, so it confirms the architecture rather than changing it.
 | Transition composition is associative, enabling pairwise folding | `[[source: dpfsm]]` | § 2.2, § 5.1 |
 | Convergence between start states is common; convergence to a *single* state is rare | `[[source: dpfsm]]` | § 5.2 |
 | HTML tokenization — the closest analogue to VT parsing — was >2× a baseline | `[[source: simdjson]]` | § 2.1, citing [22] |
-| A bit-based NFA, one bit per state, outperforms byte-array transition tables and vectorises with SIMD bit operations | `[[source: hyperscan]]` | § 4.2 |
-| Hyperscan's own DFA/NFA size threshold is 16,384 states | `[[source: hyperscan]]` | § 4.2 |
+| A bit-based NFA, one bit per state, outperforms byte-array transition tables — **for an NFA**, which baud's parser is not | `[[source: hyperscan]]` | § 4.2 |
 | Regex matching decomposes into string matching plus finite automata | `[[source: hyperscan]]` | Abstract |
 
 ## Gaps and open questions
