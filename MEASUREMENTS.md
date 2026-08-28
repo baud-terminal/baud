@@ -205,6 +205,51 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## Where the CJK 6x actually goes: Unicode classification, not the cell write
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `xctrace --template
+'CPU Profiler'` over `ingest cat-cjk 60 cells`, then two ceiling arms measured
+with `ingest`, three interleaved rounds, first discarded.*
+
+Leaf frames, cat-cjk:
+
+| | share |
+|---|---|
+| `ingest::main` (the ingest loop, everything inlined into it) | 37.1% |
+| **`ClusterBreak::is_break`** | **27.1%** |
+| **`Width::of`** | **9.4%** |
+| `View::clear_partners` | 6.5% |
+| `View::put_ascii_run` | 6.5% |
+| `Term::control` | 2.9% |
+| `View::fill_row` | 2.9% |
+| `grapheme::lookup` | 1.8% |
+
+Classification is **38%** of the CJK path. Both functions binary-search sorted
+range tables -- `BREAK_PROPERTY` is **1,386 ranges**, about eleven
+data-dependent branches per codepoint, and `Width::of` runs up to *three* such
+searches (zero-width, wide, ambiguous).
+
+Ceiling arms, each replacing one function with a constant. The output is wrong;
+they bound the win the way `null_ceiling` bounds the PTY:
+
+| payload, cells | real | `GraphemeClass::of` O(1) | `Width::of` O(1) |
+|---|---|---|---|
+| `utf8/cat-cjk.raw` | 112 | 144 (**+29%**) | 148 (**+32%**) |
+| `utf8/less-cjk.raw` | 120 | 155 (**+29%**) | 161 (**+34%**) |
+| `utf8/vim-unicode.raw` | 232 | 281 (**+21%**) | 310 (**+33%**) |
+
+**`Width::of` has the larger ceiling despite the smaller profile share**, which
+is what three searches against one predicts and what the profile alone would
+not have told you.
+
+**And it is not the cell write, which was the first hypothesis and was wrong.**
+`put_cp` built **three** `View`s per codepoint -- one for the orphan repair,
+one for the glyph, one for a wide character's tail -- and `CLAUDE.md` records
+constructing a view in a per-cell loop as a mistake already made and measured
+here. Folding them into one measured **flat** on cat-cjk, less-cjk, vim, btop
+and streaming, every range overlapping. The construction is not the cost; the
+classification is.
+
 ## CJK is 6x slower than ASCII, and the corpus could not show it
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commit: `6d37d1f`.

@@ -26,11 +26,45 @@ impl<'a> Term<'a> {
         )
     }
 
+    /// Write one decoded codepoint at the cursor: the orphan repair, the
+    /// glyph, and a wide character's tail, through **one** `View`.
+    ///
+    /// It was three. `clear_partners_counted`, `write_cell` and the tail's
+    /// `put_counted` each built their own four-field borrow, per codepoint, on
+    /// the path that carries every non-ASCII character -- and `CLAUDE.md`
+    /// records constructing a view inside a per-cell loop as a mistake this
+    /// project has already made once and measured.
+    ///
+    /// ASCII never arrives here; it goes through `blit` and `put_ascii_run`.
+    /// So this is the CJK path, which `MEASUREMENTS.md` puts at six times the
+    /// cost of the same workload in ASCII.
     #[inline(always)]
-    pub(crate) fn write_cell(&mut self, cp: Codepoint) {
-        let (r, c, st) = (self.cy, self.cx, self.style);
-        let fl = self.flags;
-        self.put_counted(r, c, PackedCell::glyph(cp, st, fl));
+    pub(crate) fn write_cell(&mut self, cp: Codepoint, w: Width) {
+        let (r, c, st, fl) = (self.cy, self.cx, self.style, self.flags);
+        let wide = w == Width::WIDE;
+        let n = match wide {
+            true => 2,
+            false => 1,
+        };
+        self.cells_written.add(n);
+        #[cfg(feature = "instrument")]
+        self.cells_single.add(n);
+        let span_end = match wide {
+            true => c.after().after(),
+            false => c.after(),
+        };
+        let blank = PackedCell::empty_with(st);
+        let mut v = self.view();
+        // **Clear whatever this write is about to orphan**, before writing it.
+        // Overwriting a lead leaves its tail behind; overwriting a tail leaves
+        // its lead claiming two columns it no longer owns; a wide character
+        // landing on a tail does both. A range operation widens instead, but a
+        // write has its own length and cannot.
+        v.clear_partners(r, c, span_end, blank);
+        v.put(r, c, PackedCell::glyph(cp, st, fl));
+        if wide {
+            v.put(r, c.after(), PackedCell::wide_tail(st, fl));
+        }
     }
 
     /// Place one decoded codepoint. A 2-wide character at the last column
@@ -71,7 +105,13 @@ impl<'a> Term<'a> {
                 // cursor stays put. No wrap, and therefore no scroll.
                 self.cx = Col::at_index(self.cols.index() - 1);
                 self.promote_if_runs();
-                self.write_cell(cp);
+                // `Width::ONE`, deliberately, whatever `w` says: there is one
+                // column left and a two-cell character cannot be written into
+                // it. Passing `w` would put a lead in the last column with its
+                // tail off the end of the row -- an orphan by construction, and
+                // the invariant `no_operation_splits_a_double_width_character`
+                // exists to rule out.
+                self.write_cell(cp, Width::NARROW);
                 return;
             }
             self.wrap();
@@ -85,24 +125,8 @@ impl<'a> Term<'a> {
             let edge = self.right_margin.after();
             self.open_gap(n, edge);
         }
-        // **Clear whatever this write is about to orphan.** Overwriting a
-        // lead leaves its tail behind; overwriting a tail leaves its lead
-        // claiming two columns it no longer owns; a wide character landing on a
-        // tail does both. The range operations widen instead, but a write has
-        // its own length and cannot.
-        let (r, from) = (self.cy, self.cx);
-        let span_end = match w {
-            Width::WIDE => from.after().after(),
-            _ => from.after(),
-        };
-        self.clear_partners_counted(r, from, span_end);
-        self.write_cell(cp);
+        self.write_cell(cp, w);
         self.last_cp = Some((cp, w));
-        if w == Width::WIDE {
-            let (r, c, st) = (self.cy, self.cx.after(), self.style);
-            let fl = self.flags;
-            self.put_counted(r, c, PackedCell::wide_tail(st, fl));
-        }
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
     }
 
@@ -358,20 +382,6 @@ impl<'a> Term<'a> {
         #[cfg(feature = "instrument")]
         self.cells_fill.add(n);
         self.view().fill(r, from, to, cell);
-    }
-
-    /// Blank the orphaned half of any character a write is about to cut.
-    ///
-    /// Off `put_ascii_run`'s path on purpose: the bulk run does this inline
-    /// against the `base` it has already computed, because a second
-    /// `self.view()` per run measured **-6 to -9%** across streaming, cat,
-    /// btop and cat-cjk. `CLAUDE.md` already records the shape -- "a
-    /// view/borrow helper was constructed inside a per-cell loop" -- and this
-    /// was the same mistake one level out, per *run* rather than per cell.
-    #[inline(always)]
-    pub(crate) fn clear_partners_counted(&mut self, r: Row, from: Col, to: Col) {
-        let blank = PackedCell::empty_with(self.style);
-        self.view().clear_partners(r, from, to, blank);
     }
 
     #[inline(always)]
