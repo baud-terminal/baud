@@ -82,6 +82,13 @@ fn main() {
         "btop" => recording("btop.raw"),
         "asciiquarium" => recording("asciiquarium.raw"),
         "vim" => recording("vim-unicode.raw"),
+        // The three added after `Term::scrolls` showed the first three
+        // recordings scroll essentially never -- 0, 0 and 20 -- while
+        // blanking is 73% of `payload::streaming`'s cell writes. Every
+        // decision about scrolling rested on a synthetic payload.
+        "cat" => recording("cat-scroll.raw"),
+        "less" => recording("less-pager.raw"),
+        "git" => recording("git-log.raw"),
         other => panic!("unknown payload {other}"),
     };
 

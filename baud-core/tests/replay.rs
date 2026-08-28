@@ -53,13 +53,20 @@ struct Recording {
     sum: Checksum,
 }
 
-/// The three recordings, pinned.
+/// The recordings, pinned.
 ///
 /// Each was chosen for a stream the others do not produce: btop is truecolour
 /// and box drawing with dense repaints, asciiquarium is curses cursor
 /// addressing with 16-colour SGR, and vim carries scroll regions along with
 /// CJK, emoji, ZWJ, RTL and combining marks.
-const RECORDINGS: [Recording; 3] = [
+///
+/// **The last three were added because `Term::scrolls` said the first three do
+/// not scroll** -- btop 0, vim 0, asciiquarium 20 -- while blanking is 73% of
+/// `payload::streaming`'s cell writes. Every decision about scrolling rested on
+/// a synthetic payload. `cat-scroll` is text with no escapes at all,
+/// `git-log` is colour over scrolling text, and `less-pager` repaints by
+/// erasing: 213 cells written per input byte, the slowest workload baud has.
+const RECORDINGS: [Recording; 6] = [
     Recording {
         name: "btop.raw",
         len: RecordingBytes(524_288),
@@ -74,6 +81,21 @@ const RECORDINGS: [Recording; 3] = [
         name: "vim-unicode.raw",
         len: RecordingBytes(138_571),
         sum: Checksum(0x9adb_71fe_a342_20d4),
+    },
+    Recording {
+        name: "cat-scroll.raw",
+        len: RecordingBytes(448_460),
+        sum: Checksum(0xd921_7330_1c22_56d7),
+    },
+    Recording {
+        name: "git-log.raw",
+        len: RecordingBytes(501_185),
+        sum: Checksum(0x2695_6f3e_6193_1bf5),
+    },
+    Recording {
+        name: "less-pager.raw",
+        len: RecordingBytes(30_146),
+        sum: Checksum(0x289e_1539_54c9_7b45),
     },
 ];
 

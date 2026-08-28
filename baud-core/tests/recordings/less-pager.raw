@@ -1,0 +1,639 @@
+[?1049h[50;1H[?1h=use crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// `ESC ( ) * + <C>` — designate a character set into a G-slot.[m
+    ///[m
+    /// Designating does not change what is displayed until the slot is invoked[m
+    /// into GL by SO/SI, which is why this only records.[m
+    pub(crate) fn designate(&mut self, slot: GSlot, c: StreamByte) {[m
+        self.g[slot.index()] = Charset::from_final(c);[m
+        self.refresh_flags();[m
+    }[m
+[m
+    /// `ESC ( % 6` — designate a set whose final takes two bytes.[m
+    pub(crate) fn designate_multi(&mut self, slot: GSlot, inter: StreamByte, c: StreamByte) {[m
+        let set = Charset::from_multi(inter, c);[m
+        if set == Charset::Other {[m
+            // A two-byte final the specification does not list. Counted rather[m
+            // than recorded, so it cannot look designated.[m
+            self.unsupported.inc();[m
+        }[m
+        self.g[slot.index()] = set;[m
+        self.refresh_flags();[m
+    }[m
+[m
+    /// The set designated into one G-slot, invoked or not.[m
+    ///[m
+    /// `Term::charset` reports GL only, so a designation into G1, G2 or G3 was[m
+    /// invisible from outside -- `ESC ) 0` recorded the line-drawing set and[m
+    /// nothing could observe that it had. A renderer needs all four, because[m
+    /// SO/SI can invoke any of them without another designation.[m
+    pub fn charset_in(&self, slot: GSlot) -> Charset {[m
+        self.g[slot.index()][m
+    }[m
+[m
+    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.[m
+    pub fn input_encoding(&self) -> InputEncoding {[m
+        self.encoding[m
+    }[m
+[m
+    /// Whether replies use 7-bit or 8-bit C1 introducers. S7C1T / S8C1T.[m
+    pub fn c1_transmit(&self) -> C1Transmit {[m
+        self.c1[m
+    }[m
+[m
+    /// The character set currently invoked into GL.[m
+    pub fn charset(&self) -> Charset {[m
+        self.g[self.gl.index()][m
+    }[m
+}[m
+[7m/tmp/big.txt[27m[K[Kuse crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// IND: down one line, scrolling the region if already at its bottom.[m
+    ///[m
+    /// **The column is not touched.** This used to reset `cx`, which made `LF`[m
+    /// and `ESC D` behave as `NEL`. `[[source: ctlseqs]]` defines IND as index[m
+    /// only, and LNM (mode 20, reset by default) is what decides whether LF[m
+    /// also returns to column 1 -- so the old behaviour was LNM permanently on.[m
+    #[inline(always)][m
+    pub(crate) fn index(&mut self) {[m
+        if self.cy == self.scroll_bot {[m
+            self.scroll_region_up(Count::ONE);[m
+        } else if let Some(r) = self.cy.next(self.rows) {[m
+            self.cy = r;[m
+        }[m
+        // The destination line starts empty of spans.[m
+        //[m
+        // Load-bearing for chunk invariance, not tidiness: without it runs[m
+        // accumulate on a line across index operations, so whether MAXRUN[m
+        // overflows -- and therefore whether the line gets promoted -- depends[m
+        // on how the input happened to be split into reads. Dropping this line[m
+        // broke ingest_is_chunk_invariant.[m
+        //[m
+        // KNOWN GAP: this also means IND onto an *existing* unpromoted line[m
+        // discards its spans, where the spec moves the cursor without touching[m
+        // content. Recorded in docs/vt-coverage.md rather than fixed here,[m
+        // because fixing it means bounding run growth some other way and that[m
+        // needs its own measurement.[m
+        let i = self.line();[m
+        self.s.nrun[i.index()] = RunCount::ZERO;[m
+    }[m
+[m
+    /// CR + IND: what autowrap does at the right margin, and what NEL is.[m
+    #[inline(always)][m
+    /// NEL, and the wrap at the right margin.[m
+    ///[m
+    /// Returns to the **left margin**, not to column 0. With DECSLRM set, text[m
+    /// wrapping to column 0 would leave the scrolling region entirely, which is[m
+    /// the whole thing side margins exist to prevent.[m
+    pub(crate) fn wrap(&mut self) {[m
+        self.cx = self.left_margin;[m
+        self.index();[m
+    }[m
+[m
+    /// RI. Up one line, scrolling the region down if already at its top.[m
+    ///[m
+    /// Was keyed on row 0 rather than the region top, so `ESC M` inside a[m
+    /// scrolling region scrolled the whole screen.[m
+:[K[K:[K[K    #[inline(always)][m
+    pub(crate) fn reverse_index(&mut self) {[m
+        if self.cy == self.scroll_top {[m
+            self.scroll_region_down(Count::ONE);[m
+        } else if self.cy.index() > 0 {[m
+            self.cy = self.cy.up(Count::ONE);[m
+        }[m
+    }[m
+[m
+    /// LF. Adds the carriage return only when LNM is set.[m
+    #[inline(always)][m
+    pub(crate) fn line_feed(&mut self) {[m
+        self.index();[m
+        if self.modes.is_set(ModeBit::LineFeedNewLine) {[m
+            self.cx = Col::ZERO;[m
+        }[m
+    }[m
+[m
+    /// Origin for row addressing, and the row a CUP parameter is relative to.[m
+    ///[m
+    /// `[[source: vt510-decom]]`: "When DECOM is set, the home cursor position[m
+    /// is at the upper-left corner of the screen, within the margins. The[m
+    /// starting point for line numbers depends on the current top margin[m
+    /// setting. The cursor cannot move outside of the margins."[m
+    pub(crate) fn origin_row(&self) -> Row {[m
+        if self.modes.is_set(ModeBit::Origin) {[m
+            self.scroll_top[m
+        } else {[m
+            Row::ZERO[m
+        }[m
+    }[m
+[m
+    /// Clamp a row to the margins when DECOM confines the cursor to them.[m
+    pub(crate) fn confine(&self, r: Row) -> Row {[m
+        if !self.modes.is_set(ModeBit::Origin) {[m
+            return r;[m
+        }[m
+        Row::from_index([m
+            r.index()[m
+                .clamp(self.scroll_top.index(), self.scroll_bot.index()),[m
+        )[m
+    }[m
+}[m
+[m
+impl<'a> Term<'a> {[m
+    /// DECRC. Restores the cursor and rendition DECSC saved, **clamped to the[m
+    /// grid that exists now**.[m
+    ///[m
+    /// The save may predate a resize, and `resize` homes the cursor but cannot[m
+:[K[K:[K[K    /// touch a position already stored. Restoring row 49 into a one-row grid[m
+    /// left `cy` outside it, and `cy` is not only a report: writes and erases[m
+    /// index with it, and `View::phys` is a single conditional subtract that[m
+    /// assumes it is in range. `Term::cursor` already clamps the *column* for[m
+    /// exactly this reason -- "a 200-column page has no column 201" -- and the[m
+    /// row had the same hole with none of the clamping.[m
+    ///[m
+    /// `cx` clamps to `cols` rather than `cols - 1` so the deferred-wrap[m
+    /// sentinel survives a restore on an unchanged grid: with autowrap on, `cx`[m
+    /// legitimately sits one past the last column until the next write[m
+    /// consumes it, and flattening that here would turn a saved wrap-pending[m
+    /// state into an ordinary one.[m
+    ///[m
+    /// One implementation because DECRC arrives two ways -- `ESC 8` and[m
+    /// `CSI u`'s sibling in the escape table -- and two copies of a clamp is[m
+    /// how one of them comes to lack it.[m
+    pub(crate) fn restore_cursor(&mut self) {[m
+        self.place_saved(self.saved);[m
+    }[m
+[m
+    /// Apply a saved cursor and rendition, clamped to the current grid.[m
+    ///[m
+    /// Shared with `?1049 l`, which `[[source: ctlseqs]]` defines as restoring[m
+    /// "cursor as in DECRC" -- so it is the same operation and must not be a[m
+    /// second implementation. It was one, and the second lacked the clamp.[m
+    pub(crate) fn place_saved(&mut self, saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>) {[m
+        let Some((r, c, st, sw, fl)) = saved else {[m
+            return;[m
+        };[m
+        self.cy = Row::from_index(r.index().min(self.rows.index() - 1));[m
+        self.cx = Col::at_index(c.index().min(self.cols.index()));[m
+        self.style = st;[m
+        self.style_raw = sw;[m
+        self.flags = fl;[m
+    }[m
+}[m
+use crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// Act on a completed DCS payload.[m
+    pub(crate) fn dispatch_dcs(&mut self) {[m
+        let n = self.osc_len.index();[m
+        let handled = self.dcs_final.map(|f| Dcs::parse(self.csi_inter, f));[m
+        if handled == Some(Dcs::RequestStatus) {[m
+            let target = StatusTarget::parse(&self.s.osc[..n]);[m
+            self.report_status(target);[m
+        }[m
+        self.osc_reset();[m
+        self.dcs_final = None;[m
+:[K[K:[K[K    }[m
+[m
+    /// Answer a DECRQSS.[m
+    ///[m
+    /// `[[source: ctlseqs]]`: "xterm responds with `DCS 1 $ r Pt ST` for valid[m
+    /// requests, replacing the Pt with the corresponding CSI string, or[m
+    /// `DCS 0 $ r ST` for invalid requests."[m
+    ///[m
+    /// **1 is valid and 0 is invalid, and the DEC manuals say the opposite.**[m
+    /// `[[source: ctlseqs]]` records the errata directly: "testing a DEC VT420[m
+    /// in 1996 showed that the documented code for a valid or invalid response[m
+    /// to DECRQSS was reversed", and that vttest and DEC STD 070 agree with the[m
+    /// tested behaviour rather than with the VT420 and VT525 manuals. baud[m
+    /// follows xterm, which is what applications are written against. Getting[m
+    /// this backwards would tell every application that every setting it asked[m
+    /// about is unsupported.[m
+    ///[m
+    /// The reply body is the *tail of the CSI that would set it*, so an[m
+    /// application can echo it straight back.[m
+    pub(crate) fn report_status(&mut self, t: StatusTarget) {[m
+        // One place where the DECRQSS shape is written, for the same reason[m
+        // replies go through `Report`: the introducer, the validity digit and[m
+        // the terminator must not be spelled at each call site. The body is[m
+        // variable-length, which is why this is a helper rather than a[m
+        // `Report` variant over the fixed-size encoder.[m
+        if t == StatusTarget::Unknown {[m
+            let (dcs, st) = (self.c1.dcs(), self.c1.st());[m
+            self.emit(dcs);[m
+            self.emit(b"0$r");[m
+            self.emit(st);[m
+            return;[m
+        }[m
+        let dcs = self.c1.dcs();[m
+        self.emit(dcs);[m
+        self.emit(b"1$r");[m
+        match t {[m
+            StatusTarget::ScrollRegion => {[m
+                self.emit_num(self.scroll_top.one_based());[m
+                self.emit(b";");[m
+                self.emit_num(self.scroll_bot.one_based());[m
+                self.emit(b"r");[m
+            }[m
+            StatusTarget::SideMargins => {[m
+                self.emit_num(self.left_margin.one_based());[m
+                self.emit(b";");[m
+                self.emit_num(self.right_margin.one_based());[m
+                self.emit(b"s");[m
+            }[m
+            StatusTarget::CursorStyle => {[m
+:[K[K:[K[K                self.emit_dec(self.cursor_style.wire());[m
+                self.emit(b" q");[m
+            }[m
+            StatusTarget::Protection => {[m
+                self.emit_dec(u8::from(self.protect.is_protected()));[m
+                self.emit(b"\"q");[m
+            }[m
+            StatusTarget::Sgr => {[m
+                let raw = self.style_raw;[m
+                self.emit_sgr(raw);[m
+                self.emit(b"m");[m
+            }[m
+            StatusTarget::Unknown => {}[m
+        }[m
+        let st = self.c1.st();[m
+        self.emit(st);[m
+    }[m
+}[m
+use crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// A fresh screen is spaces, not NULs. Terminals compare equal on blank[m
+    /// cells and a NUL renders as a hole.[m
+    pub(crate) fn clear_screen(&mut self) {[m
+        for y in 0..self.rows.index() {[m
+            self.fill_row_counted(Row::from_index(y), PackedCell::EMPTY);[m
+        }[m
+    }[m
+[m
+    pub(crate) fn erase_line(&mut self, e: EraseExtent) {[m
+        let y = self.cy.index();[m
+        // Erase-to-end of an unpromoted line in Runs mode IS the truncation of[m
+        // its span list: there is nothing after nrun to erase, and the viewport[m
+        // is a projection of the spans. Promoting and filling afterwards[m
+        // materialises a row only to blank it.[m
+        //[m
+        // On the TUI payload this is ~134 cell writes per 77 input bytes -- a[m
+        // CSI K per line against a 200-column grid -- which is write[m
+        // amplification of roughly 20:1 against rule #1's <= 1.[m
+        if self.mode == OpMode::Runs && !self.s.promoted[y] && e == EraseExtent::ToEnd {[m
+            let i = self.line();[m
+            self.s.nrun[i.index()] = RunCount::ZERO;[m
+            return;[m
+        }[m
+        self.promote_if_runs();[m
+        let s = e.line_span(self.cx, self.cols);[m
+        let b = PackedCell::empty_with(self.style);[m
+        self.fill_counted(Row::from_index(y), s.from, s.to, b);[m
+    }[m
+:[K[K:[K[K[HM            StatusTarget::CursorStyle => {[m
+[HM            }[m
+[HM                self.emit(b"s");[m
+[HM                self.emit_num(self.right_margin.one_based());[m
+[HM                self.emit(b";");[m
+[HM                self.emit_num(self.left_margin.one_based());[m
+[HM            StatusTarget::SideMargins => {[m
+[HM            }[m
+[HM                self.emit(b"r");[m
+[HM                self.emit_num(self.scroll_bot.one_based());[m
+[HM                self.emit(b";");[m
+[HM                self.emit_num(self.scroll_top.one_based());[m
+[HM            StatusTarget::ScrollRegion => {[m
+[HM        match t {[m
+[HM        self.emit(b"1$r");[m
+[HM        self.emit(dcs);[m
+[HM        let dcs = self.c1.dcs();[m
+[HM        }[m
+[HM            return;[m
+[HM            self.emit(st);[m
+[HM            self.emit(b"0$r");[m
+[HM            self.emit(dcs);[m
+[HM            let (dcs, st) = (self.c1.dcs(), self.c1.st());[m
+[HM        if t == StatusTarget::Unknown {[m
+[HM        // `Report` variant over the fixed-size encoder.[m
+[HM        // variable-length, which is why this is a helper rather than a[m
+[HM        // the terminator must not be spelled at each call site. The body is[m
+[HM        // replies go through `Report`: the introducer, the validity digit and[m
+[HM        // One place where the DECRQSS shape is written, for the same reason[m
+[HM    pub(crate) fn report_status(&mut self, t: StatusTarget) {[m
+[HM    /// application can echo it straight back.[m
+[HM    /// The reply body is the *tail of the CSI that would set it*, so an[m
+[HM    ///[m
+[HM    /// about is unsupported.[m
+[HM    /// this backwards would tell every application that every setting it asked[m
+[HM    /// follows xterm, which is what applications are written against. Getting[m
+[HM    /// tested behaviour rather than with the VT420 and VT525 manuals. baud[m
+[HM    /// to DECRQSS was reversed", and that vttest and DEC STD 070 agree with the[m
+[HM    /// in 1996 showed that the documented code for a valid or invalid response[m
+[HM    /// `[[source: ctlseqs]]` records the errata directly: "testing a DEC VT420[m
+[HM    /// **1 is valid and 0 is invalid, and the DEC manuals say the opposite.**[m
+[HM    ///[m
+[HM    /// `DCS 0 $ r ST` for invalid requests."[m
+[HM    /// requests, replacing the Pt with the corresponding CSI string, or[m
+[HM    /// `[[source: ctlseqs]]`: "xterm responds with `DCS 1 $ r Pt ST` for valid[m
+[HM    ///[m
+[HM    /// Answer a DECRQSS.[m
+[HM[m
+[HM    }[m
+[50;1H[K:[K[K:[K[K[HM        self.dcs_final = None;[m
+[HM        self.osc_reset();[m
+[HM        }[m
+[HM            self.report_status(target);[m
+[HM            let target = StatusTarget::parse(&self.s.osc[..n]);[m
+[HM        if handled == Some(Dcs::RequestStatus) {[m
+[HM        let handled = self.dcs_final.map(|f| Dcs::parse(self.csi_inter, f));[m
+[HM        let n = self.osc_len.index();[m
+[HM    pub(crate) fn dispatch_dcs(&mut self) {[m
+[HM    /// Act on a completed DCS payload.[m
+[HMimpl<'a> Term<'a> {[m
+[HM[m
+[HMuse crate::*;[m
+[HM}[m
+[HM    }[m
+[HM        self.flags = fl;[m
+[HM        self.style_raw = sw;[m
+[HM        self.style = st;[m
+[HM        self.cx = Col::at_index(c.index().min(self.cols.index()));[m
+[HM        self.cy = Row::from_index(r.index().min(self.rows.index() - 1));[m
+[HM        };[m
+[HM            return;[m
+[HM        let Some((r, c, st, sw, fl)) = saved else {[m
+[HM    pub(crate) fn place_saved(&mut self, saved: Option<(Row, Col, StyleId, StyleWord, CellFlags)>) {[m
+[HM    /// second implementation. It was one, and the second lacked the clamp.[m
+[HM    /// "cursor as in DECRC" -- so it is the same operation and must not be a[m
+[HM    /// Shared with `?1049 l`, which `[[source: ctlseqs]]` defines as restoring[m
+[HM    ///[m
+[HM    /// Apply a saved cursor and rendition, clamped to the current grid.[m
+[HM[m
+[HM    }[m
+[HM        self.place_saved(self.saved);[m
+[HM    pub(crate) fn restore_cursor(&mut self) {[m
+[HM    /// how one of them comes to lack it.[m
+[HM    /// `CSI u`'s sibling in the escape table -- and two copies of a clamp is[m
+[HM    /// One implementation because DECRC arrives two ways -- `ESC 8` and[m
+[HM    ///[m
+[HM    /// state into an ordinary one.[m
+[HM    /// consumes it, and flattening that here would turn a saved wrap-pending[m
+[HM    /// legitimately sits one past the last column until the next write[m
+[HM    /// sentinel survives a restore on an unchanged grid: with autowrap on, `cx`[m
+[HM    /// `cx` clamps to `cols` rather than `cols - 1` so the deferred-wrap[m
+[HM    ///[m
+[HM    /// row had the same hole with none of the clamping.[m
+[HM    /// exactly this reason -- "a 200-column page has no column 201" -- and the[m
+[HM    /// assumes it is in range. `Term::cursor` already clamps the *column* for[m
+[HM    /// index with it, and `View::phys` is a single conditional subtract that[m
+[HM    /// left `cy` outside it, and `cy` is not only a report: writes and erases[m
+[HM    /// touch a position already stored. Restoring row 49 into a one-row grid[m
+[50;1H[K:[K[K:[K[K    }[m
+[m
+    /// Answer a DECRQSS.[m
+    ///[m
+    /// `[[source: ctlseqs]]`: "xterm responds with `DCS 1 $ r Pt ST` for valid[m
+    /// requests, replacing the Pt with the corresponding CSI string, or[m
+    /// `DCS 0 $ r ST` for invalid requests."[m
+    ///[m
+    /// **1 is valid and 0 is invalid, and the DEC manuals say the opposite.**[m
+    /// `[[source: ctlseqs]]` records the errata directly: "testing a DEC VT420[m
+    /// in 1996 showed that the documented code for a valid or invalid response[m
+    /// to DECRQSS was reversed", and that vttest and DEC STD 070 agree with the[m
+    /// tested behaviour rather than with the VT420 and VT525 manuals. baud[m
+    /// follows xterm, which is what applications are written against. Getting[m
+    /// this backwards would tell every application that every setting it asked[m
+    /// about is unsupported.[m
+    ///[m
+    /// The reply body is the *tail of the CSI that would set it*, so an[m
+    /// application can echo it straight back.[m
+    pub(crate) fn report_status(&mut self, t: StatusTarget) {[m
+        // One place where the DECRQSS shape is written, for the same reason[m
+        // replies go through `Report`: the introducer, the validity digit and[m
+        // the terminator must not be spelled at each call site. The body is[m
+        // variable-length, which is why this is a helper rather than a[m
+        // `Report` variant over the fixed-size encoder.[m
+        if t == StatusTarget::Unknown {[m
+            let (dcs, st) = (self.c1.dcs(), self.c1.st());[m
+            self.emit(dcs);[m
+            self.emit(b"0$r");[m
+            self.emit(st);[m
+            return;[m
+        }[m
+        let dcs = self.c1.dcs();[m
+        self.emit(dcs);[m
+        self.emit(b"1$r");[m
+        match t {[m
+            StatusTarget::ScrollRegion => {[m
+                self.emit_num(self.scroll_top.one_based());[m
+                self.emit(b";");[m
+                self.emit_num(self.scroll_bot.one_based());[m
+                self.emit(b"r");[m
+            }[m
+            StatusTarget::SideMargins => {[m
+                self.emit_num(self.left_margin.one_based());[m
+                self.emit(b";");[m
+                self.emit_num(self.right_margin.one_based());[m
+                self.emit(b"s");[m
+            }[m
+            StatusTarget::CursorStyle => {[m
+:[K[K:[K[K                self.emit_dec(self.cursor_style.wire());[m
+                self.emit(b" q");[m
+            }[m
+            StatusTarget::Protection => {[m
+                self.emit_dec(u8::from(self.protect.is_protected()));[m
+                self.emit(b"\"q");[m
+            }[m
+            StatusTarget::Sgr => {[m
+                let raw = self.style_raw;[m
+                self.emit_sgr(raw);[m
+                self.emit(b"m");[m
+            }[m
+            StatusTarget::Unknown => {}[m
+        }[m
+        let st = self.c1.st();[m
+        self.emit(st);[m
+    }[m
+}[m
+use crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// A fresh screen is spaces, not NULs. Terminals compare equal on blank[m
+    /// cells and a NUL renders as a hole.[m
+    pub(crate) fn clear_screen(&mut self) {[m
+        for y in 0..self.rows.index() {[m
+            self.fill_row_counted(Row::from_index(y), PackedCell::EMPTY);[m
+        }[m
+    }[m
+[m
+    pub(crate) fn erase_line(&mut self, e: EraseExtent) {[m
+        let y = self.cy.index();[m
+        // Erase-to-end of an unpromoted line in Runs mode IS the truncation of[m
+        // its span list: there is nothing after nrun to erase, and the viewport[m
+        // is a projection of the spans. Promoting and filling afterwards[m
+        // materialises a row only to blank it.[m
+        //[m
+        // On the TUI payload this is ~134 cell writes per 77 input bytes -- a[m
+        // CSI K per line against a 200-column grid -- which is write[m
+        // amplification of roughly 20:1 against rule #1's <= 1.[m
+        if self.mode == OpMode::Runs && !self.s.promoted[y] && e == EraseExtent::ToEnd {[m
+            let i = self.line();[m
+            self.s.nrun[i.index()] = RunCount::ZERO;[m
+            return;[m
+        }[m
+        self.promote_if_runs();[m
+        let s = e.line_span(self.cx, self.cols);[m
+        let b = PackedCell::empty_with(self.style);[m
+        self.fill_counted(Row::from_index(y), s.from, s.to, b);[m
+    }[m
+:[K[K:[K[K...skipping...
+    pub ambiguous: AmbiguousWidth,[m
+}[m
+[m
+/// East Asian Ambiguous characters are 1 or 2 columns depending on locale.[m
+///[m
+/// `[[source: uax11]]` § 5: narrow when the context is unavailable. For a[m
+/// `no_std` core with no locale it is always unavailable, so `Narrow` is the[m
+/// default — and it is what xterm does too, whose `cjkWidth` defaults false.[m
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)][m
+pub enum AmbiguousWidth {[m
+    #[default][m
+    Narrow,[m
+    Wide,[m
+}[m
+[m
+/// Width in cells.[m
+///[m
+/// Font-independent by wire contract, not preference: `ncurses` on the far end[m
+/// computes columns with `wcwidth`, so a terminal using font advances would[m
+/// drift from the application's model of the screen. Verified against[m
+/// alacritty, whose model crate has no font dependency at all.[m
+///[m
+/// Consequence encoded below: [`DisplayWidth::measure`] takes a [`WidthTable`][m
+/// and nothing else. A font change cannot invalidate a cached width, because a[m
+/// font never entered the computation.[m
+#[derive(Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)][m
+#[repr(transparent)][m
+pub struct DisplayWidth(pub(crate) u32);[m
+[m
+impl DisplayWidth {[m
+    pub const ZERO: DisplayWidth = DisplayWidth(0);[m
+    /// The only constructor. Caching this measured 14 us against 2223 us to[m
+    /// recompute from bytes, for 15k lines — 4 bytes per line.[m
+    pub(crate) fn cells(self) -> u32 {[m
+        self.0[m
+    }[m
+    /// Byte length *is* column count, but only for a byte-per-column encoding.[m
+    /// Callable only where a `Bytes<Printable>` or `Bytes<DecGraphics>` proof[m
+    /// exists, which is what makes it sound.[m
+    pub(crate) fn from_len(n: ByteLen) -> DisplayWidth {[m
+        DisplayWidth(n.index() as u32)[m
+    }[m
+}[m
+[m
+impl WidthTable {[m
+    pub const DIAG: WidthTable = WidthTable {[m
+        ambiguous: AmbiguousWidth::Narrow,[m
+    };[m
+}[m
+[7m(END)[27m[K[K[7m(END)[27m[K[K[H[2J[HM}[m
+[HM    }[m
+[HM        self.g[self.gl.index()][m
+[HM    pub fn charset(&self) -> Charset {[m
+[HM    /// The character set currently invoked into GL.[m
+[HM[m
+[HM    }[m
+[HM        self.c1[m
+[HM    pub fn c1_transmit(&self) -> C1Transmit {[m
+[HM    /// Whether replies use 7-bit or 8-bit C1 introducers. S7C1T / S8C1T.[m
+[HM[m
+[HM    }[m
+[HM        self.encoding[m
+[HM    pub fn input_encoding(&self) -> InputEncoding {[m
+[HM    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.[m
+[HM[m
+[HM    }[m
+[HM        self.g[slot.index()][m
+[HM    pub fn charset_in(&self, slot: GSlot) -> Charset {[m
+[HM    /// SO/SI can invoke any of them without another designation.[m
+[HM    /// nothing could observe that it had. A renderer needs all four, because[m
+[HM    /// invisible from outside -- `ESC ) 0` recorded the line-drawing set and[m
+[HM    /// `Term::charset` reports GL only, so a designation into G1, G2 or G3 was[m
+[HM    ///[m
+[HM    /// The set designated into one G-slot, invoked or not.[m
+[HM[m
+[HM    }[m
+[HM        self.refresh_flags();[m
+[HM        self.g[slot.index()] = set;[m
+[HM        }[m
+[HM            self.unsupported.inc();[m
+[HM            // than recorded, so it cannot look designated.[m
+[HM            // A two-byte final the specification does not list. Counted rather[m
+[HM        if set == Charset::Other {[m
+[HM        let set = Charset::from_multi(inter, c);[m
+[HM    pub(crate) fn designate_multi(&mut self, slot: GSlot, inter: StreamByte, c: StreamByte) {[m
+[HM    /// `ESC ( % 6` — designate a set whose final takes two bytes.[m
+[HM[m
+[HM    }[m
+[HM        self.refresh_flags();[m
+[HM        self.g[slot.index()] = Charset::from_final(c);[m
+[HM    pub(crate) fn designate(&mut self, slot: GSlot, c: StreamByte) {[m
+[HM    /// into GL by SO/SI, which is why this only records.[m
+[HM    /// Designating does not change what is displayed until the slot is invoked[m
+[HM    ///[m
+[HM    /// `ESC ( ) * + <C>` — designate a character set into a G-slot.[m
+[HMimpl<'a> Term<'a> {[m
+[HM[m
+[HMuse crate::*;[m
+[50;1H[K:[K[K:[K[Kuse crate::*;[m
+[m
+impl<'a> Term<'a> {[m
+    /// IND: down one line, scrolling the region if already at its bottom.[m
+    ///[m
+    /// **The column is not touched.** This used to reset `cx`, which made `LF`[m
+    /// and `ESC D` behave as `NEL`. `[[source: ctlseqs]]` defines IND as index[m
+    /// only, and LNM (mode 20, reset by default) is what decides whether LF[m
+    /// also returns to column 1 -- so the old behaviour was LNM permanently on.[m
+    #[inline(always)][m
+    pub(crate) fn index(&mut self) {[m
+        if self.cy == self.scroll_bot {[m
+            self.scroll_region_up(Count::ONE);[m
+        } else if let Some(r) = self.cy.next(self.rows) {[m
+            self.cy = r;[m
+        }[m
+        // The destination line starts empty of spans.[m
+        //[m
+        // Load-bearing for chunk invariance, not tidiness: without it runs[m
+        // accumulate on a line across index operations, so whether MAXRUN[m
+        // overflows -- and therefore whether the line gets promoted -- depends[m
+        // on how the input happened to be split into reads. Dropping this line[m
+        // broke ingest_is_chunk_invariant.[m
+        //[m
+        // KNOWN GAP: this also means IND onto an *existing* unpromoted line[m
+        // discards its spans, where the spec moves the cursor without touching[m
+        // content. Recorded in docs/vt-coverage.md rather than fixed here,[m
+        // because fixing it means bounding run growth some other way and that[m
+        // needs its own measurement.[m
+        let i = self.line();[m
+        self.s.nrun[i.index()] = RunCount::ZERO;[m
+    }[m
+[m
+    /// CR + IND: what autowrap does at the right margin, and what NEL is.[m
+    #[inline(always)][m
+    /// NEL, and the wrap at the right margin.[m
+    ///[m
+    /// Returns to the **left margin**, not to column 0. With DECSLRM set, text[m
+    /// wrapping to column 0 would leave the scrolling region entirely, which is[m
+    /// the whole thing side margins exist to prevent.[m
+    pub(crate) fn wrap(&mut self) {[m
+        self.cx = self.left_margin;[m
+        self.index();[m
+    }[m
+[m
+    /// RI. Up one line, scrolling the region down if already at its top.[m
+    ///[m
+    /// Was keyed on row 0 rather than the region top, so `ESC M` inside a[m
+    /// scrolling region scrolled the whole screen.[m
+:[K[K:[K
