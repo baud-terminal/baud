@@ -78,6 +78,17 @@ impl<'a> Term<'a> {
             let edge = self.right_margin.after();
             self.open_gap(n, edge);
         }
+        // **Clear whatever this write is about to orphan.** Overwriting a
+        // lead leaves its tail behind; overwriting a tail leaves its lead
+        // claiming two columns it no longer owns; a wide character landing on a
+        // tail does both. The range operations widen instead, but a write has
+        // its own length and cannot.
+        let (r, from) = (self.cy, self.cx);
+        let span_end = match w {
+            Width::WIDE => from.after().after(),
+            _ => from.after(),
+        };
+        self.clear_partners_counted(r, from, span_end);
         self.write_cell(cp);
         self.last_cp = Some((cp, w));
         if w == Width::WIDE {
@@ -343,6 +354,20 @@ impl<'a> Term<'a> {
         #[cfg(feature = "instrument")]
         self.cells_fill.add(n);
         self.view().fill(r, from, to, cell);
+    }
+
+    /// Blank the orphaned half of any character a write is about to cut.
+    ///
+    /// Off `put_ascii_run`'s path on purpose: the bulk run does this inline
+    /// against the `base` it has already computed, because a second
+    /// `self.view()` per run measured **-6 to -9%** across streaming, cat,
+    /// btop and cat-cjk. `CLAUDE.md` already records the shape -- "a
+    /// view/borrow helper was constructed inside a per-cell loop" -- and this
+    /// was the same mistake one level out, per *run* rather than per cell.
+    #[inline(always)]
+    pub(crate) fn clear_partners_counted(&mut self, r: Row, from: Col, to: Col) {
+        let blank = PackedCell::empty_with(self.style);
+        self.view().clear_partners(r, from, to, blank);
     }
 
     #[inline(always)]

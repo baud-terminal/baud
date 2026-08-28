@@ -845,3 +845,43 @@ fn no_operation_splits_a_double_width_character() {
         }
     }
 }
+
+/// **Overwriting half a character clears the other half.**
+///
+/// The companion to `no_operation_splits_a_double_width_character`, and a
+/// distinct class: a range operation can be *widened* to cover whole
+/// characters, but a write has its own length and cannot. The partner is
+/// cleared instead.
+///
+/// Both write paths, because they are different code and only one of them is
+/// the common one. ASCII never reaches `put_cp` at all -- it goes through
+/// `blit` and `put_ascii_run` -- so fixing the per-codepoint path alone would
+/// have fixed the rare case and left essentially all real text broken.
+#[test]
+fn overwriting_half_a_wide_character_clears_the_other_half() {
+    const BASE: &str = "\x1b[1;1H日本語ab";
+    // `Ａ` is U+FF21, fullwidth: a *wide* character landing on a tail orphans
+    // the lead behind it and the tail of whatever it covers, both at once.
+    let cases: &[(&str, &str, &str)] = &[
+        ("ASCII over a lead", "\x1b[1;1HX", "X.本#語#ab.."),
+        ("ASCII over a tail", "\x1b[1;2HX", ".X本#語#ab.."),
+        // Exactly covers the pair it replaces, so nothing is orphaned: the
+        // rule is "clear what is cut", not "clear a neighbour".
+        ("wide over a lead", "\x1b[1;1H\u{ff21}", "Ａ#本#語#ab.."),
+        ("wide over a tail", "\x1b[1;2H\u{ff21}", ".Ａ#.語#ab.."),
+    ];
+    for (name, seq, want) in cases {
+        let bytes = format!("{BASE}{seq}");
+        let got = wide_row(bytes.as_bytes(), 10);
+        assert_eq!(&got, want, "{name}: got {got:?}, want {want:?}");
+        let cells: Vec<char> = got.chars().collect();
+        for (i, c) in cells.iter().enumerate() {
+            if *c == '#' {
+                assert!(
+                    i > 0 && cells[i - 1] != '#' && cells[i - 1] != '.',
+                    "{name}: orphaned wide tail at column {i} in {got:?}"
+                );
+            }
+        }
+    }
+}
