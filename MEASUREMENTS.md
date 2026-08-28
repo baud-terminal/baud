@@ -26,7 +26,16 @@ across hosts and the two hosts below are not comparable to each other at all.
 interleaved and rotated ordering. Payloads from `baud-bench/src/payload.rs`,
 generated fresh per write.*
 
-**This is the only section measured against the current implementation.**
+> [!WARNING]
+> **Superseded on the streaming payload. See "Open regression: streaming lost
+> two thirds" below.** Re-measured 2026-08-27 on the same box in the same
+> session, `2d23dc8` reproduces this table (spans 1708.6, cells 1096.8) and
+> `cb9078e` does not (spans **578.4**, cells **584.4**), with ghostty flat at
+> 1120.9 / 1132.4 as the control. The TUI column is roughly intact. The cause
+> is not yet identified; the numbers below are what `2d23dc8` measured and are
+> **not** what the code does today.
+
+**This section is measured against `2d23dc8`, not against HEAD.**
 Everything below it predates some or all of the VT protocol work, and each
 older host now says so in its own heading. Host A in particular has never been
 re-run under interleaved ordering, which the ordering section below shows was
@@ -46,10 +55,44 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
+## Open regression: streaming lost two thirds, and TUI did not
+
+*Apple M5 Max, 2026-08-27, same session, `bench-others/multibench`,
+`TRANSPORT=memory`, medians of 9, interleaved and rotated. ghostty is the
+control: it is built from an unchanged checkout and moved 1%.*
+
+| streaming, in-memory | `2d23dc8` | `cb9078e` (HEAD) | |
+|---|---|---|---|
+| baud (spans) | **1708.6** [1339.4–1744.0] | **578.4** [410.0–585.6] | −66% |
+| baud (cells, computed) | **1096.8** [1072.4–1103.8] | **584.4** [570.9–591.8] | −47% |
+| ghostty — *control* | 1120.9 [1110.3–1127.4] | 1132.4 [1119.5–1147.3] | +1% |
+
+| TUI, in-memory | `2d23dc8` | `cb9078e` (HEAD) | |
+|---|---|---|---|
+| baud (spans) | 1999.2 [1713.4–2056.9] | 1847.8 [1796.7–1911.3] | −8% |
+| baud (cells, computed) | 945.7 [934.1–962.7] | 778.4 [761.9–786.8] | −18% |
+| ghostty — *control* | 1050.9 [1032.7–1057.5] | 1049.4 [1030.1–1060.1] | 0% |
+
+No range overlaps on streaming, in either representation. This is a result,
+and it is a regression.
+
+**How it went unnoticed is the more useful half.** The A/B that should have
+caught it was run on `baud-bench`, which reports ~230 MB/s for *both* commits
+and resolves nothing — its variance swamps a 3× effect. Every increment since
+`2d23dc8` was checked against a harness that could not see this, while the
+harness that could was only ever run when a number was being quoted. A gate
+that runs on demand is not a gate.
+
+The bisect is in progress. What is already ruled out: **it is not the input
+work.** `fd8ad9a` and `cb9078e` measure the same (546.0 / 578.4 spans, ranges
+overlapping), so the regression is older than the encoder, and the mode-bitset
+widening from `u16` to `u32` cost nothing.
+
 **What this does and does not say.**
 
-In **span** storage baud is 1.47× ghostty streaming and 1.91× on TUI. No range
-overlaps, in either run. That is a result.
+In **span** storage baud was 1.47× ghostty streaming and 1.91× on TUI **at
+`2d23dc8`**. No range overlapped, in either run. That was a result; on
+streaming it is no longer the current one.
 
 In **cell** storage there is **no result within a run**, and an earlier edition
 of this file wrongly stated flatly that ghostty was faster. Four runs, same

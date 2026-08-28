@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [1.47× ghostty on spans](#the-number); level on cells |
+| **Throughput** | ⚠️ [1.47× ghostty on spans at `2d23dc8`](#the-number) — but streaming has since regressed 66%, cause not yet found |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -121,6 +121,19 @@ allocated nothing still cost 22%, because the array grew past cache.
 interleaved ordering. Full table and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
 
+> [!WARNING]
+> **The streaming column is not what the code does today.** Re-measured on the
+> same box in the same session, HEAD gives **578.4** MB/s on spans and 584.4 on
+> cells against ghostty's unchanged 1132.4 — so streaming has lost about two
+> thirds since this table was taken, and on that payload baud is now *behind*
+> ghostty rather than ahead. TUI is roughly intact. The cause is not yet
+> identified and the bisect is running; see
+> [MEASUREMENTS.md](MEASUREMENTS.md#open-regression-streaming-lost-two-thirds-and-tui-did-not).
+> The table below is left as measured rather than deleted, because what it is
+> being compared against is the point.
+
+
+
 | core | streaming | TUI redraw |
 |---|---|---|
 | **baud** (spans) | **1615.6** MB/s | **1956.6** MB/s |
@@ -129,8 +142,9 @@ interleaved ordering. Full table and every caveat in
 | alacritty_terminal | 174.9 | 264.7 |
 | vt100 crate | 161.2 | 213.9 |
 
-**Read the qualifier.** That is baud's *span* representation, where the result
-is unambiguous — no range overlaps ghostty's on either payload.
+**Read the qualifier.** That is baud's *span* representation at `2d23dc8`,
+where the result was unambiguous — no range overlapped ghostty's on either
+payload. It no longer holds on streaming; see the warning above.
 
 In **cell** storage there is no measured margin: across four runs the ranges
 overlapped in 4/4 on streaming and 2/4 on TUI. The *direction* is consistent
