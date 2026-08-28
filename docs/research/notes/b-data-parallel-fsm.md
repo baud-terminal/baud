@@ -197,6 +197,29 @@ and the state machine, so it confirms the architecture rather than changing it.
   machine takes 57–90% of real bytes, and enumerations collapse within tens of
   bytes. What remains is not a question about VT streams but about the
   instruction sequence — the `shuffle` item below.
+- **The precondition nobody has checked: williams' transitions carry
+  *actions*, and composition loses them.** `[[source: dpfsm]]`'s method
+  composes transition *functions*, which yields the state you end in. baud's
+  machine does not merely move between states -- 31 call sites in
+  `machine.rs` execute, print, collect, accumulate parameters and dispatch
+  **on the transition**, and those actions are the entire point: they are what
+  writes cells.
+
+  So knowing the end state of a 16-byte block is not the same as having
+  processed it. The paper handles output for Huffman decoding and HTML
+  tokenization, so this is answerable rather than fatal, but **how** is the
+  thing to read before any of this is designed, and this note has never said
+  so. It proposed the method for three revisions while quietly assuming a
+  pure DFA.
+
+  The shape of a possible answer, unverified: most bytes inside a control
+  sequence produce *no* action -- parameter digits are collected, not acted on
+  -- so a vectorised pass might establish where each sequence ends and which
+  parameters it carries, leaving only the dispatches to run in order. That is
+  a scanner with more structure rather than a parallel state machine, and it
+  is a different proposal from this note's. Do not start until the actions
+  question has an answer from § 5 or § 6.
+
 - **Where the bytes actually are, measured.** `Term::utf8_share` and
   `Term::path_split` together rank the three levers on real capture, and the
   state machine wins on every recording:
