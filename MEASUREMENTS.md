@@ -105,6 +105,49 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## A used-extent mark would skip 72-82% of blanking — and the synthetic payload says 16%
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commit: `f1d09dc` plus
+a throwaway counter in `fill_row_counted`, since reverted. Counts, not timings:
+every recording replayed twice in `OpMode::Computed`, in-memory.*
+
+The measurement implements alacritty's algorithm (`[[source: alacritty-row]]`,
+`Row::reset`) and counts what it would save rather than timing it: if the
+**last** cell of the row already equals the incoming blank the template is
+unchanged, so only the extent glyphs reached needs rewriting; otherwise the
+whole row does.
+
+| payload | cells blanked | would still need writing | **skipped** |
+|---|---|---|---|
+| `payload::streaming` | 5,418,200 | 4,561,743 | **16%** |
+| `ascii/cat-scroll.raw` | 4,660,200 | 858,008 | **82%** |
+| `ascii/less-pager.raw` | 315,912 | 69,495 | **78%** |
+| `ascii/git-log.raw` | 3,423,000 | 946,386 | **72%** |
+| `utf8/cat-cjk.raw` | 1,680,200 | 387,943 | **77%** |
+| `utf8/less-cjk.raw` | 505,076 | 110,480 | **78%** |
+| `ascii/asciiquarium.raw` | 135,306 | 42,309 | **69%** |
+| `utf8/btop.raw` | 20,000 | 20,000 | **0%** |
+
+**The synthetic payload is the pessimistic case, and `CLAUDE.md` assumed the
+opposite.** That file records `payload::streaming` as the vim-like workload
+with the headroom, and blanking optimisation as payload-specific. Measured at
+the moment of each blank, streaming skips **16%** and every real scrolling
+capture skips **72-82%** -- because streaming emits an SGR every 232 bytes, so
+its template keeps changing and the O(1) check keeps failing. btop's 0% is its
+startup clear and nothing else; it never scrolls.
+
+Combined with blanking being 51-61% of the cells path on scrolling workloads,
+the expected gain on cat, less and git is roughly 0.77 x 0.55 ~= **40%**.
+
+**A first version of this measurement was wrong in the interesting direction.**
+It found the extent with `rposition(|c| *c != PackedCell::EMPTY)`, comparing
+whole cells including style, and reported streaming at **0%** and everything
+else at 72-82%. That is the scan-before-blank failure recorded elsewhere in
+this file wearing a different hat: a row previously blanked under a colour does
+not equal the *default* blank, so it counts as full of text. A high-water mark
+records where glyphs reached and is immune to that, which is the whole reason
+it is the surviving proposal -- so the measurement had to be immune too.
+
 ## CJK is 6x slower than ASCII, and the corpus could not show it
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commit: `6d37d1f`.
