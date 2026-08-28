@@ -201,3 +201,69 @@ fn real_capture_is_mostly_escape_sequences_not_text() {
         );
     }
 }
+
+/// **How much of a row carries content, which is what blanking wastes.**
+///
+/// Scrolling blanks the incoming row across the full width. Whether that is
+/// waste depends entirely on the workload, and the three recordings disagree
+/// completely -- which is why this is measured per recording rather than
+/// argued once:
+///
+/// | recording | mean used width | waste |
+/// |---|---|---|
+/// | asciiquarium | 200 of 200 | none |
+/// | btop | 144 of 200 | 28%, but it never scrolls |
+/// | vim | 70 of 200 | 65% |
+///
+/// So narrowing the blank would halve vim's cell traffic and do nothing at all
+/// for asciiquarium. A single number for "the cost of blanking" would have
+/// hidden that, and the synthetic payload -- 60-column lines on a 200-column
+/// grid -- resembles only the vim case.
+#[test]
+fn how_much_of_a_row_is_actually_used() {
+    for (name, lo, hi) in [
+        ("asciiquarium.raw", 0.95, 1.01),
+        ("btop.raw", 0.60, 0.85),
+        ("vim-unicode.raw", 0.20, 0.50),
+    ] {
+        let d = std::fs::read(format!(
+            "{}/tests/recordings/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect(name);
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < d.len() {
+            let n = READ_CHUNK.min(d.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&d[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+
+        let (cols, rows) = t.geometry();
+        let stride = t.stride().index();
+        let vp = t.viewport();
+        let used: usize = (0..rows.index())
+            .map(|y| {
+                vp[y * stride..y * stride + cols.index()]
+                    .iter()
+                    .rposition(|c| *c != PackedCell::EMPTY)
+                    .map_or(0, |p| p + 1)
+            })
+            .sum();
+        let share = used as f64 / (rows.index() * cols.index()) as f64;
+        assert!(
+            share > lo && share < hi,
+            "{name}: rows are {:.0}% used, expected {:.0}-{:.0}%. This is the \
+             headroom a narrower blank would recover, and it is workload \
+             specific -- if it moved, the recording changed.",
+            share * 100.0,
+            lo * 100.0,
+            hi * 100.0
+        );
+    }
+}
