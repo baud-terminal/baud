@@ -295,9 +295,11 @@ impl<'a> View<'a> {
                 style,
                 flags,
             };
-            for z in 0..n {
-                self.cells[base + start + z] =
-                    proto.with_charset(StreamByte::from_stream(src[z]), set);
+            for (d, &b) in self.cells[base + start..base + start + n]
+                .iter_mut()
+                .zip(&src[..n])
+            {
+                *d = proto.with_charset(StreamByte::from_stream(b), set);
             }
         } else if flags == CellFlags::NONE {
             let proto = PackedCell {
@@ -305,8 +307,11 @@ impl<'a> View<'a> {
                 style,
                 flags: CellFlags::NONE,
             };
-            for z in 0..n {
-                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
+            for (d, &b) in self.cells[base + start..base + start + n]
+                .iter_mut()
+                .zip(&src[..n])
+            {
+                *d = proto.with_ascii(StreamByte::from_stream(b));
             }
         } else {
             let proto = PackedCell {
@@ -314,8 +319,11 @@ impl<'a> View<'a> {
                 style,
                 flags,
             };
-            for z in 0..n {
-                self.cells[base + start + z] = proto.with_ascii(StreamByte::from_stream(src[z]));
+            for (d, &b) in self.cells[base + start..base + start + n]
+                .iter_mut()
+                .zip(&src[..n])
+            {
+                *d = proto.with_ascii(StreamByte::from_stream(b));
             }
         }
     }
@@ -327,9 +335,9 @@ impl<'a> View<'a> {
             return;
         }
         let base = self.at(r, Col::ZERO);
-        for x in a..b {
-            self.cells[base + x] = cell;
-        }
+        // `slice::fill`, not an indexed loop: one bounds check instead of one
+        // per cell, and it lowers to a vector store rather than a scalar one.
+        self.cells[base + a..base + b].fill(cell);
     }
     pub fn fill_row(&mut self, r: Row, cell: PackedCell) {
         self.fill(r, Col::ZERO, Col::at_index(self.cols.index()), cell);
