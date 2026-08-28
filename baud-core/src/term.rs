@@ -49,7 +49,32 @@ pub enum Screen {
 /// for a burst rather than for one. Overflow is counted, never silent.
 pub const REPLY: usize = 256;
 
-pub const NSTYLE: usize = 64;
+/// Slots in the style table, direct-mapped and evicting on collision.
+///
+/// **It was 64, and 64 made cells report colours they were never written
+/// with.** `PackedCell` holds a `StyleId` index and `Term::style_of` reads the
+/// slot back, so an evicted slot repaints history: a row of 200 distinct
+/// truecolour cells -- what a gradient renders -- had **141 of 200** reading
+/// back a different real colour. Not a blank, not the default: somebody
+/// else's. `a_full_style_table_makes_cells_report_the_wrong_colour` pins it,
+/// and 1024 is where that row reaches zero (512 leaves 3, 256 leaves 50).
+///
+/// **Bounded is still the design.** A growable table keyed on attacker-supplied
+/// content is the content-addressing failure this repo already refuses. What
+/// changed is the price of a slot: `NSTYLE` used to size `tmpl` as well, one
+/// full-width row of cells each, so 1024 slots would have been 16 MB. With
+/// `tmpl` gone -- it was written on every miss and read by nothing -- a slot is
+/// a `StyleWord` and a bool, so this is about 13 KB of a 24 MB `Storage`.
+///
+/// Throughput is unchanged: btop measured 466.9/465.5/477.8 against
+/// 410.0/452.1/465.7 at 64, and asciiquarium flat. Reducing misses buys little
+/// now precisely because a miss no longer fills anything -- deleting `tmpl`
+/// already took that win, and this takes the correctness half.
+///
+/// The bound is real and worth stating: a row wider than about a thousand
+/// *distinct* renditions still evicts. `MAX_COLS` is 2048, so a 2048-column
+/// gradient would. A 200-column one no longer does.
+pub const NSTYLE: usize = 1024;
 
 /// Longest OSC payload the core keeps.
 ///

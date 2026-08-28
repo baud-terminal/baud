@@ -152,3 +152,55 @@ fn unimplemented_private_modes_are_inert() {
     // Bracketed paste, alt screen, mouse: parsed, deliberately no effect here.
     assert_eq!(term(b"\x1b[?2004h\x1b[?1049h\x1b[?1000habc"), (0, 3));
 }
+
+/// **Eviction makes a cell report a colour it was never written with.**
+///
+/// `PackedCell` holds a `StyleId` index into a direct-mapped table that evicts
+/// on collision, and `Term::style_of` reads the slot back to answer what a cell
+/// looks like. When a later style lands in the same slot, every earlier cell
+/// pointing at it starts reporting the newcomer's rendition -- not a blank, not
+/// a default, but a different real colour.
+///
+/// btop draws in truecolour and interns 109,274 styles against 799,360 SGR
+/// dispatches at `NSTYLE = 64`: a 13.7% miss rate, and every miss is an
+/// eviction that silently repaints history.
+#[test]
+fn a_full_style_table_makes_cells_report_the_wrong_colour() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    // One distinct truecolour foreground per column, then read them all back.
+    let n = 200usize;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"\x1b[1;1H");
+    for i in 0..n {
+        let (r, g, bl) = (i % 256, (i * 7) % 256, (i * 13) % 256);
+        b.extend_from_slice(format!("\x1b[38;2;{r};{g};{bl}mX").as_bytes());
+    }
+    let mut i = 0;
+    while i < b.len() {
+        let k = READ_CHUNK.min(b.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&b[i..i + k]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += k;
+    }
+
+    let row = t.row(Row::from_index(0));
+    let mut wrong = 0usize;
+    for i in 0..n {
+        let (r, g, bl) = (i % 256, (i * 7) % 256, (i * 13) % 256);
+        // `Chan::from_offset(v, 0)` is the public way in; `Param` is private.
+        let chan = |v: usize| Chan::from_offset(v as u16, 0);
+        let want = ColorWord::rgb(chan(r), chan(g), chan(bl));
+        if t.style_of(row[i]).fg() != want {
+            wrong += 1;
+        }
+    }
+    assert_eq!(
+        wrong, 0,
+        "{wrong} of {n} cells report a foreground they were never written \
+         with, because the style table evicted their slot"
+    );
+}
