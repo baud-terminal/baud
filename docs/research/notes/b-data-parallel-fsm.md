@@ -1,6 +1,6 @@
 # Data-parallel finite-state machines — vectorising the parser itself
 
-> **Group:** B · **Sources:** `[[source: dpfsm]]`, `[[source: simdjson]]` · **Status:** partial
+> **Group:** B · **Sources:** `[[source: dpfsm]]`, `[[source: simdjson]]`, `[[source: hyperscan]]` · **Status:** partial
 
 ## What it is
 
@@ -46,6 +46,35 @@ to come before any implementation.
   § 2.2, § 5.1. That is what turns the technique from "parallel across cores"
   into "parallel within one core", which is what baud needs — the measured
   bottleneck is single-core ingest, not a lack of threads.
+
+## Nothing here is implemented yet
+
+Worth stating plainly, because the sections above read like a design. **baud
+vectorises scanning, not the state machine.** The `Scan` trait is three
+functions -- `run`, `final_byte`, `st` -- and every one of them answers "where
+is the next interesting byte". `feed_with` uses them to skip ahead and then
+falls back to `control(byte)`, one byte at a time, for everything they cannot
+skip. That is the same thing ghostty and simdjson do, and it is the 10-27% of
+real bytes measured above.
+
+The enumerative method is a proposal. Its two preconditions are now measured
+and favourable; no line of it exists.
+
+## The production counterpart
+
+`[[source: hyperscan]]` is the same problem taken to production: a vectorised
+automaton engine by one of simdjson's authors, measured against real workloads
+rather than benchmarks chosen for it. It is wanted here because note B's case
+otherwise rests on one academic result and an argument.
+
+Its decomposition is also the interesting part for baud: string matching in
+SIMD, automata for what is left. That is already the split baud has between the
+scanner and the state machine -- so the question Hyperscan answers is not
+"should the two be separate" but "how much of what looks like automaton work
+can be moved across the line".
+
+**Unread.** Retrieved and hash-pinned, and the probes fire, but no claim in this
+note rests on it yet.
 
 ## What baud explicitly rejects
 

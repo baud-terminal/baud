@@ -619,6 +619,51 @@ bytes  = 124637
 status = "retrieved"
 group  = "C"
 
+[sources.hyperscan]
+key    = "hyperscan"
+title  = "Hyperscan: A Fast Multi-pattern Regex Matcher for Modern CPUs"
+author = "Xiang Wang, Yang Hong, Harry Chang, KyoungSoo Park, Geoff Langdale, Jiayu Hu, Heqing Zhu"
+year   = 2019
+venue  = "NSDI '19, pp. 631-648"
+url    = "https://www.usenix.org/system/files/nsdi19-wang-xiang.pdf"
+file   = "hyperscan-nsdi19.pdf"
+sha256 = "9e2f46b33ef313204abc091b78fb51870294905f4df04eeaa4a12b11eae1859b"
+bytes  = 2272848
+status = "retrieved"
+group  = "B"
+# The production counterpart to `[[source: dpfsm]]`'s method paper: a
+# vectorised automaton engine that shipped and is measured against real
+# workloads, by one of simdjson's authors. Wanted because note B's proposal is
+# currently backed by one academic result and a hypothesis, and because
+# Hyperscan's *decomposition* -- string matching in SIMD, automata for what is
+# left -- is the same split baud already has between the scanner and the state
+# machine. Retrieved 2026-08-27; probes `hyperscan`, `simd`, `automat`,
+# `bitwise` and `parallel` all present.
+
+[sources.parabix]
+key    = "parabix"
+title  = "Bitwise Data Parallelism in Regular Expression Matching"
+author = "Robert D. Cameron et al."
+year   = 2014
+venue  = "PACT '14"
+url    = "https://ieeexplore.ieee.org/document/7855895/"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "IEEE Xplore, subscription. The SFU and archive.org copies both 404 or return HTML."
+group  = "B"
+# **Not citable.** Recorded because it is the third leg of the argument in note
+# B -- transposing input to bit-planes so the automaton runs as boolean
+# operations over bitstreams -- and its absence should be visible rather than
+# looking like it was never considered.
+#
+# Two arXiv identifiers were tried and both were the wrong paper: 1407.2062 is
+# Nick Salter on Atiyah and Kodaira, 1412.3232 is Pauli blockade in carbon
+# nanotubes. Both would have been pinned as a SIMD source had the positive
+# control not been run on the extracted text first. Guessing an identifier is
+# the same failure as a guessed table, and the control is what caught it.
+
 # --- H: terminal input ---------------------------------------------------
 #
 # The output side is enumerated against `ctlseqs` and `ecma48`; the input side
