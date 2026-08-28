@@ -262,13 +262,21 @@ refused something it already did.
 > `is_byte_per_column` predicate is written around "fixed-width single-byte
 > encoding", not around ASCII, for exactly this reason.
 
-**Grapheme clustering is out, and it is the largest thing on this page that
-is.** `[[source: uax29]]` defines the extended grapheme cluster — the unit a
-*user* would call a character — and baud stores one codepoint per cell. The
-consequence is arithmetic, not opinion: `U+1F469 U+200D U+1F4BB` is one cluster
-and one glyph, and baud gives it **four columns**, because the two emoji are
-each East Asian Wide and the joiner is zero. A combining sequence longer than
-one mark has the same shape.
+**~~Grapheme clustering is out, and it is the largest thing on this page that
+is.~~** It is done, and this paragraph contradicted the two below it for as long
+as they have existed — the opening said `U+1F469 U+200D U+1F4BB` gets **four**
+columns and the closing said two. The closing is right.
+
+`[[source: uax29]]` defines the extended grapheme cluster, the unit a *user*
+would call a character. `Grapheme::is_break` implements it against the generated
+break-property tables, including `InCB` for Indic conjuncts and
+`Extended_Pictographic` for emoji sequences, and `tests/encoding/graphemes.rs`
+runs every case of `GraphemeBreakTest.txt`.
+
+The stale half is left visible rather than deleted because of what it was:
+a *correct description of the old behaviour* that outlived it. Nothing flagged
+it — `no_row_is_unfinished` reads table rows, not prose, so a paragraph can
+claim the opposite of the paragraph after it indefinitely.
 
 **Combining marks used to be discarded outright.** `put_cp` returned early on
 `Width::ZERO`, so `e` + `U+0301` stored `e` and the accent was gone — not
