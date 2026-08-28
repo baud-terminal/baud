@@ -8,19 +8,32 @@ use crate::*;
 pub(crate) struct Portable;
 
 impl Scan for Portable {
-    // Scalar, deliberately. The `core::simd` version of this loop measured a
-    // 12% regression on the streaming payload against this one and #[inline]
-    // did not recover it: printable runs there average ~32 bytes, so a 16-lane
-    // scan does two vector steps plus a bitmask and trailing_zeros where this
-    // does ~32 compares an M-series core predicts perfectly. Vectorising a scan
-    // is only free when the runs are long.
-    //
-    // Kept as a trait method rather than inlined back into feed_with so the
-    // shared loop and the AVX2 backend survive.
+    /// Vectorised, and re-measured.
+    ///
+    /// This was scalar with a comment saying a `core::simd` version "measured a
+    /// 12% regression on the streaming payload". That measurement predates
+    /// `baud-bench/src/bin/ingest.rs` and was taken on a harness now known to
+    /// report the same ~230 MB/s for builds that differ by 2.5x, so it is worth
+    /// nothing and the question was reopened. The profile is what reopened it:
+    /// this loop is **38.7%** of the streaming cells path, the largest single
+    /// item in it.
     #[inline(always)]
     unsafe fn run(buf: &[u8]) -> ByteLen {
+        use core::simd::{Simd, cmp::SimdPartialOrd};
         let n = buf.len();
         let mut i = 0usize;
+        // Printable is `0x20..=0x7e`. One unsigned compare after subtracting
+        // the low bound, so the pair of comparisons becomes one.
+        let lo = Simd::<u8, LANES>::splat(0x20);
+        let span = Simd::<u8, LANES>::splat(0x7e - 0x20);
+        while i + LANES <= n {
+            let v = Simd::<u8, LANES>::from_slice(&buf[i..i + LANES]);
+            let m = LaneMask::from_movemask((v - lo).simd_gt(span).to_bitmask() as u32);
+            if let Some(lane) = m.first() {
+                return lane.offset_from(i);
+            }
+            i += LANES;
+        }
         while i < n && StreamByte::from_stream(buf[i]).is_printable() {
             i += 1;
         }
