@@ -155,10 +155,45 @@ by a `StyleId`, with no refcount to release. So ghostty's 4x is not a number
 baud can expect to inherit, and citing it as if it were would be the
 cross-implementation version of comparing across machines.
 
-## What this changes for baud
+## What this changed for baud
 
-Nothing yet — no code here rests on this note. What it removes is the reason
-the change was refused:
+**Implemented.** `RowExtent` is the mark, `Grid::fill_row` reads it, and the
+result is less-pager **+37%**, cat-scroll **+16%**, git-log **+6%**, with
+cat-scroll's write amplification going 6.1x to 1.9x. `MEASUREMENTS.md` carries
+the table.
+
+Three things this note got right, and one it did not.
+
+**Right: the invariant is maintainable in one place.** The marks live in
+`View`, so every mutator bumps them and the line moves permute rows and marks
+in the same loop. `Term::viewport` is the single site outside `Grid` that
+changes which physical row holds which content, and it rotates the marks with
+the rows.
+
+**Right: alacritty's one-cell template test is what makes it work.** baud's two
+scan attempts lost at -24% and -66% with identical `cells_blanked`; a single
+load of the row's last cell has no such failure mode.
+
+**Wrong, and it is the interesting part: "it records where text reached" is not
+the invariant.** The mark records **where the row stops being uniform**, and
+the two differ. `ECH` at the last column writes a *styled* blank: no glyph, but
+it does not match the default blanks in front of it. Treating the mark as a
+glyph position let it fall to zero there, leaving the row non-uniform behind
+its own mark, so the next full clear skipped the row.
+`a_cleared_screen_is_fully_erasable` caught it at 20,000 cases. The rule that
+holds is that a fill running to the end of a row sets the mark to exactly where
+that fill started — which *raises* it when the fill starts late, and no
+description of the mark as "how far the text goes" would ever suggest that.
+
+**The cost was underestimated.** This note treated the saving as the only
+question. Maintaining the mark with nothing reading it measures **-7 to -8%**:
+`View` gains a sixth field and every write touches a second array. On
+`payload::streaming` that exactly cancels the 16% of blanking it skips, so the
+synthetic payload measures flat.
+
+## What it removed, which was the point
+
+The reason the change was refused:
 
 * The invariant is maintainable in **one** place, not sixteen, and baud already
   uses that pattern for `RowRot`.
