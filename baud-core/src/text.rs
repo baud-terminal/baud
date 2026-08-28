@@ -348,7 +348,13 @@ impl<'a> Term<'a> {
         self.cells_blanked.add(self.cols.index());
         #[cfg(feature = "instrument")]
         self.cells_fill.add(self.cols.index());
+        // The counters above still fire under `ceiling-no-blank`, so the two
+        // arms report identical cell attribution and a difference in *work*
+        // shows up as a difference in throughput alone.
+        #[cfg(not(feature = "ceiling-no-blank"))]
         self.view().fill_row(r, cell);
+        #[cfg(feature = "ceiling-no-blank")]
+        let _ = (r, cell);
     }
 
     /// Insert and delete rewrite everything from `at` to the margin: the

@@ -64,6 +64,37 @@ while IFS=$'\t' read -r key file sha status; do
   fi
 done <"$tmp/entries"
 
+# ── 2b: every sha256 is well-formed ─────────────────────────────────────────
+# An `external` entry names a file this repo does not hold, so (2) cannot
+# re-hash it and a malformed digest there is invisible. This check caught a
+# literal placeholder -- `sha256 = "9c07f2a0a0a0a0a0"` -- in the commit that
+# added it, on an entry a note already cited. It is the cheap half of a
+# verification that cannot be done in full.
+# `cut`, not `read`: tab is an IFS *whitespace* character, so `read` collapses
+# a run of them and every entry with an empty `file` shifts a column left. The
+# first version of this check read `status` as the digest and reported
+# apple-cpu-guide's perfectly good 64 hex chars as "8 chars, want 64" -- a
+# probe firing on the wrong data, which is the failure mode this repo already
+# records twice. `cut -f` keeps empty fields.
+while IFS= read -r line; do
+  key=$(printf '%s' "$line" | cut -f1)
+  sha=$(printf '%s' "$line" | cut -f3)
+  status=$(printf '%s' "$line" | cut -f4)
+  [ -n "$key" ] || continue
+  # `gated` means never obtained, so there is nothing to have hashed.
+  [ "$status" = "gated" ] && continue
+  case "$sha" in
+  [0-9a-f]*) [ "${#sha}" -eq 64 ] || {
+    echo "  FAIL $key: sha256 is ${#sha} chars, want 64"
+    fail=1
+  } ;;
+  *)
+    echo "  FAIL $key: sha256 is not lowercase hex: '$sha'"
+    fail=1
+    ;;
+  esac
+done <"$tmp/entries"
+
 # ── 3: every source file is accounted for ────────────────────────────────────
 cut -f2 "$tmp/entries" | grep -v '^$' | sort -u >"$tmp/known"
 # Recursive: sources are grouped into subdirectories (terminfo/ and, as the
