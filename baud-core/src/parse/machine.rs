@@ -146,7 +146,10 @@ impl<'a> Term<'a> {
             Csi::HighlightMouseTracking(r) => self.highlight_region = r,
             Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
             Csi::Mode { change, .. } => self.apply_ansi_modes(change),
-            Csi::Sgr => self.apply_sgr(),
+            Csi::Sgr => {
+                self.sgr_dispatches.inc();
+                self.apply_sgr()
+            }
             // Recognised as a CSI and not acted on -- countable, not silent.
             //
             // No `_` arm: every variant is now named, so adding one to `Csi`

@@ -137,4 +137,11 @@ fn main() {
         t.scrolls.count(),
         t.cells_scroll.count(),
     );
+    println!(
+        "  of those {} are SGR ({:.0}%); styles {} interned / {} hits",
+        t.sgr_dispatches.count(),
+        100.0 * t.sgr_dispatches.count() as f64 / t.dispatches.count().max(1) as f64,
+        t.tmpl_builds.count(),
+        t.tmpl_hits.count(),
+    );
 }

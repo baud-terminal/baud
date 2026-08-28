@@ -26,10 +26,6 @@ impl<'a> Term<'a> {
             self.s.tmpl_valid[k] = true;
             self.s.tmpl_key[k] = raw;
             self.tmpl_builds.inc();
-            let c = PackedCell::empty_with(StyleId::from_index(k));
-            RowBlock::nth(k, Cols::from_stride(MAX_COLS))
-                .of_mut(&mut self.s.tmpl)
-                .fill(c);
         }
         StyleId::from_index(k)
     }

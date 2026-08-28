@@ -357,6 +357,13 @@ pub struct Term<'a> {
     /// *lower* than real capture's. This is what turns that ratio into a cost
     /// per dispatch.
     pub dispatches: Stat,
+    /// SGR dispatches, the subset that only changes the rendition.
+    ///
+    /// Separated because the profile says the *arms* of `dispatch` cost 20% of
+    /// btop's cells path and `Csi::parse_with` only 6%, so which arm runs is
+    /// the question. btop draws in truecolour, so the guess is SGR -- and a
+    /// guess about which arm is hot is exactly what a counter settles.
+    pub sgr_dispatches: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -493,6 +500,7 @@ impl<'a> Term<'a> {
             cells_scroll: Stat::ZERO,
             scrolls: Stat::ZERO,
             dispatches: Stat::ZERO,
+            sgr_dispatches: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,
