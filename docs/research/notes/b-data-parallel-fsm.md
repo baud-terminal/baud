@@ -18,8 +18,10 @@ speedups to 21× on 8 cores `[[source: dpfsm]]` Abstract.
 
 ## What baud takes
 
-This is the one technique in the corpus so far that attacks the part of baud
-nobody else attacks. Every competitor vectorises *scanning* — finding the next
+This was carried as the one technique in the corpus that attacks the part of
+baud nobody else attacks. **Its central assumption turns out to be one baud
+cannot satisfy** -- see "Gaps and open questions". What follows is left as
+written, because what it was believed to offer is the point. Every competitor vectorises *scanning* — finding the next
 interesting byte. ghostty does it, simdjson does it `[[source: simdjson]]` § 3.
 Nobody vectorises the **state machine**, and a VT parser is a state machine.
 
@@ -133,6 +135,7 @@ and the state machine, so it confirms the architecture rather than changing it.
 
 | claim | source | where |
 |---|---|---|
+| The method assumes the Mealy action function **can be invoked out of order** | `[[source: dpfsm]]` | § 2.1 |
 | Enumerating all start states breaks the cross-iteration dependence in an FSM | `[[source: dpfsm]]` | Abstract, § 1 |
 | Up to 3× over optimised sequential baselines, single core | `[[source: dpfsm]]` | Abstract |
 | Costs one or two `shuffle` ops per input symbol | `[[source: dpfsm]]` | § 4.2 |
@@ -197,28 +200,50 @@ and the state machine, so it confirms the architecture rather than changing it.
   machine takes 57–90% of real bytes, and enumerations collapse within tens of
   bytes. What remains is not a question about VT streams but about the
   instruction sequence — the `shuffle` item below.
-- **The precondition nobody has checked: williams' transitions carry
-  *actions*, and composition loses them.** `[[source: dpfsm]]`'s method
+- **~~The precondition nobody has checked~~ — checked, and the method's own
+  assumption is one baud cannot satisfy.** `[[source: dpfsm]]` § 2.1:
+
+  > "This paper uses the Mealy formalism [20] and assumes the existence of a
+  > function that is invoked with the current input symbol s_i and the state
+  > q_i reached after reading that symbol. In the context of parallelizing
+  > FSMs, **we will make a simplistic assumption that the function can be
+  > invoked out of order.** Modifying sequential clients of FSMs to satisfy
+  > this assumption [...]"
+
+  **A terminal's actions cannot be invoked out of order.** Print-then-scroll is
+  not scroll-then-print; writing cell A then B is not writing B then A; an SGR
+  applies to what follows it and nothing before. Ordering is not an
+  implementation detail of a VT parser, it is the semantics. Satisfying the
+  assumption would mean buffering every action and replaying it in order, which
+  reintroduces the sequential dependence the method exists to remove, or
+  proving the actions commute, which they do not.
+
+  So **this note's central proposal does not apply to baud's parser as a
+  whole**, and it has been carried as "the one technique that attacks the part
+  nobody else attacks" through every revision without the assumption being
+  read. The 3x and the 21x are real results about FSMs whose clients tolerate
+  out-of-order invocation. baud's does not.
+
+  **What survives is narrower and still worth having.** Scanning carries no
+  actions: finding where a control sequence begins and ends, and which bytes
+  are parameters, is pure classification. An enumerative pass could establish
+  those boundaries over a block, leaving only the dispatches to run in order —
+  and the dispatches are the minority of bytes, because parameter digits are
+  collected rather than acted on. That is a better-structured scanner rather
+  than a parallel state machine, it is a *different* proposal from the one
+  above, and it has no measurement yet.
+
+- ~~williams' transitions carry *actions*, and composition loses them.~~ `[[source: dpfsm]]`'s method
   composes transition *functions*, which yields the state you end in. baud's
   machine does not merely move between states -- 31 call sites in
   `machine.rs` execute, print, collect, accumulate parameters and dispatch
   **on the transition**, and those actions are the entire point: they are what
   writes cells.
 
-  So knowing the end state of a 16-byte block is not the same as having
-  processed it. The paper handles output for Huffman decoding and HTML
-  tokenization, so this is answerable rather than fatal, but **how** is the
-  thing to read before any of this is designed, and this note has never said
-  so. It proposed the method for three revisions while quietly assuming a
-  pure DFA.
-
-  The shape of a possible answer, unverified: most bytes inside a control
-  sequence produce *no* action -- parameter digits are collected, not acted on
-  -- so a vectorised pass might establish where each sequence ends and which
-  parameters it carries, leaving only the dispatches to run in order. That is
-  a scanner with more structure rather than a parallel state machine, and it
-  is a different proposal from this note's. Do not start until the actions
-  question has an answer from § 5 or § 6.
+  31 call sites in `machine.rs` execute, print, collect, accumulate parameters
+  and dispatch **on the transition**, and those actions are what write cells.
+  Knowing the end state of a sixteen-byte block is not the same as having
+  processed it. Answered above.
 
 - **Where the bytes actually are, measured.** `Term::utf8_share` and
   `Term::path_split` together rank the three levers on real capture, and the
