@@ -105,7 +105,54 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## The alternate screen scrolls by rotating: less-pager 26x
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commits: `b09529e`
+(before) through `4903295` (after). `ingest`, `OpMode::Computed`, medians of 40
+reps, five interleaved A/B rounds with the first discarded, in-memory transport,
+`baud-core/tests/recordings/less-pager.raw` replayed whole.*
+
+| less-pager, cells | before | up-path only | both directions |
+|---|---|---|---|
+| throughput | 26.1 / 26.2 / 26.1 / 26.3 | 99.1 / 99.4 / 98.5 / 99.8 | **692.1 / 704.8 / 678.5 / 697.7** |
+| amplification | 213.4x | 53.8x | **6.0x** |
+| fill share of cells | 100% | 98% | 86% |
+
+**26x end to end, and the amplification lands on the number that was predicted
+before the change.** cat-scroll -- the same workload on the primary screen --
+runs at 6.1x, so a pager is now an ordinary scrolling payload rather than the
+corpus outlier it was.
+
+`scroll_region_up`'s O(1) rotation was gated on `Screen::Normal`. The gate was
+collateral: the fast path advances `head`, which is the scrollback and is
+meaningless on the alternate screen, and advances `rot`, which is the
+addressing and is not. Every full-screen application lives on the alternate
+screen, so every one of them was copying rows.
+
+**The falsifier was stated before the first change and half-fired, which is
+what made the second one findable.** The prediction was amplification falling
+to ~6x; the up-path alone delivered 53.8x. The 47.8x difference was attributed
+rather than shrugged at -- 147 `ESC M` x 49 rows x 200 cells is ~1.47M of the
+1.62M cells per pass still measured -- and `scroll_region_down` got the mirror
+treatment. A prediction that had merely been "it should get faster" would have
+banked the 3.9x and stopped.
+
+**Every other payload is flat, in both directions.** btop, vim, asciiquarium,
+cat-scroll, git-log and `payload::streaming`, every range overlapping across
+two or three interleaved rounds. btop and vim report zero scrolls; the rest
+scroll on the primary. By this file's rule that is no result, and it is the
+intended one -- the change should be invisible everywhere it does not apply.
+
 ## The ceiling on zero-copy line moves: 22x on a pager
+
+> **Superseded as a plan, not as a measurement.** The 22x ceiling below is
+> real. What was wrong was the attribution: `less-pager.raw` sets **no**
+> scrolling region (638 `LF`, 147 `ESC M`, zero `CSI r`), so every line move
+> was a full-screen scroll that `RowRot` already handled -- and reached
+> `insert_lines_in` only because the fast path excluded the alternate screen.
+> Extending the rotation there took the recording to **697.7 MB/s** and 6.0x
+> amplification, collecting the ceiling without a permutation table. See the
+> alternate-screen rows further down.
 
 *`ingest`, `OpMode::Computed`, medians of 60 reps. The "no moves" arm deletes
 the row-copy loops from `insert_lines_in` and `delete_lines_in` and keeps the
