@@ -210,6 +210,41 @@ impl ClusterBreak {
             return;
         }
 
+        // **Above the guard, every codepoint paid two binary searches to learn
+        // it is neither an emoji nor an Indic consonant.** `LOOKBACK_BLOCKS`
+        // is one bit per 32 codepoints, set when the block holds any entry of
+        // the four lookback tables; 391 of 34,816 are set, so 98.9% of the
+        // space answers here. btop draws with `U+2500..U+257F` and profiled at
+        // 12-13% in `is_break`.
+        //
+        // 32 codepoints a bit and not 256, because `U+25xx` holds box drawing
+        // *and* emoji -- `U+25AA`, `U+25B6`, `U+25FB..FE` -- so a wider block
+        // cannot separate them.
+        let blk = (cp >> 5) as usize;
+        let listed = grapheme_data::LOOKBACK_BLOCKS
+            .get(blk / 64)
+            .is_some_and(|w| w & (1u64 << (blk % 64)) != 0);
+        if !listed {
+            // Exactly what the four searches below would have concluded: not
+            // pictographic, not a consonant, not a linker, not an extend. The
+            // `in_run` arms survive because they do not depend on a lookup.
+            self.ri = if cur == RegionalIndicator && brk {
+                RiParity::Odd
+            } else {
+                RiParity::Even
+            };
+            let in_run = self.pict == PictLookback::Pictographic;
+            self.pict = if in_run && cur == Extend {
+                PictLookback::Pictographic
+            } else if in_run && cur == Zwj {
+                PictLookback::PictographicZwj
+            } else {
+                PictLookback::None
+            };
+            self.incb = IncbLookback::None;
+            return;
+        }
+
         // A boundary resets the parity, so a third indicator starts a new pair
         // rather than extending the flag before it.
         // An indicator that *paired* (no boundary before it) closes the pair

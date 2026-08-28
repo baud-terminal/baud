@@ -107,6 +107,39 @@ lines += [f"    (0x{a:04x}, 0x{b:04x}, GraphemeClass::{c})," for a, b, c in rows
 lines.append("];")
 parts.append("\n".join(lines))
 
+# A membership bitmap over the four *lookback* tables, at 32 codepoints a bit.
+#
+# `ClusterBreak::advance` runs for every codepoint and, above the `cp < 0xa9`
+# guard, did two unconditional binary searches -- `EXTENDED_PICTOGRAPHIC` and
+# `INCB_CONSONANT` -- to learn that an ordinary character is neither an emoji
+# nor an Indic consonant. btop draws with `U+2500..U+257F` and paid both on
+# every box-drawing character.
+#
+# 32 rather than 256 codepoints a bit because the block matters: `U+25xx`
+# contains box drawing *and* emoji (`U+25AA`, `U+25B6`, `U+25FB..FE`), so a
+# 256-wide block cannot separate them and a 32-wide one can.
+LOOKBACK_SHIFT = 5
+LB_N = 0x110000 >> LOOKBACK_SHIFT
+lb = [0] * ((LB_N + 63) // 64)
+for tbl in (ext["Extended_Pictographic"],
+            incb_raw.get("Consonant", []),
+            incb_raw.get("Linker", []),
+            incb_raw.get("Extend", [])):
+    for a, b in coalesce(tbl):
+        for blk in range(a >> LOOKBACK_SHIFT, (b >> LOOKBACK_SHIFT) + 1):
+            lb[blk // 64] |= 1 << (blk % 64)
+lb_set = sum(bin(w).count("1") for w in lb)
+lines = [f"/// One bit per {1 << LOOKBACK_SHIFT} codepoints: set when the block holds any",
+         "/// entry of the four lookback tables `ClusterBreak::advance` consults.",
+         "///",
+         "/// A clear bit means the codepoint is in none of them, so all four",
+         "/// searches are skipped -- `advance` ran two of them unconditionally for",
+         f"/// every codepoint above `U+00A9`. {lb_set} of {LB_N} blocks are set.",
+         f"pub static LOOKBACK_BLOCKS: [u64; {len(lb)}] = ["]
+lines += [f"    0x{w:016x}," for w in lb]
+lines.append("];")
+parts.append("\n".join(lines))
+
 parts.append(emit_ranges("EXTENDED_PICTOGRAPHIC", ext["Extended_Pictographic"],
     "/// `Extended_Pictographic`, from emoji-data.txt. GB11 needs it: an emoji\n"
     "/// joined by ZWJ to another emoji is **one** cluster."))
