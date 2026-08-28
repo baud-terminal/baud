@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [1.19× ghostty on spans, 1.05× on cells](#the-number) — ahead in both representations, on both payloads |
+| **Throughput** | ✅ [1.57× ghostty on spans, 1.34× on cells](#the-number) — ahead in both representations, on both payloads |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -124,15 +124,15 @@ checkout and is the control. Full table and every caveat in
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **1332.2 / 1317.3** MB/s | **1878.5 / 1899.5** MB/s |
-| **baud** (cells, computed) | **1180.7 / 1169.6** | **1266.0 / 1274.3** |
-| ghostty (libghostty-vt) | 1119.3 / 1129.5 | 1049.9 / 1054.9 |
-| termwiz (wezterm) parse only | 382.2 / 382.5 | 368.3 / 368.8 |
-| alacritty_terminal | 223.1 / 221.7 | 269.8 / 271.1 |
-| vt100 crate | 169.7 / 168.8 | 219.6 / 220.2 |
-| wezterm (full terminal) | 17.9 / 17.8 | 32.8 / 32.6 |
+| **baud** (spans) | **1760.5 / 1729.1** MB/s | **2827.0 / 2766.5** MB/s |
+| **baud** (cells, computed) | **1500.0 / 1488.1** | **1871.8 / 1858.6** |
+| ghostty (libghostty-vt) | 1119.8 / 1108.3 | 1049.7 / 1038.9 |
+| termwiz (wezterm) parse only | 377.3 / 369.8 | 364.6 / 358.3 |
+| alacritty_terminal | 217.9 / 206.6 | 271.8 / 270.0 |
+| vt100 crate | 167.7 / 167.3 | 218.7 / 214.6 |
+| wezterm (full terminal) | 17.5 / 17.4 | 32.5 / 31.9 |
 
-**Spans: 1.19x ghostty streaming, 1.79x TUI. Cells: 1.05x and 1.21x.**
+**Spans: 1.57x ghostty streaming, 2.69x TUI. Cells: 1.34x and 1.78x.**
 
 **These payloads are ASCII, and that understates the recent work.**
 `Term::utf8_share` reports 0.0% for both, so neither exercises the UTF-8
@@ -141,6 +141,15 @@ changes are worth far more -- btop's cells path went from 306 to ~440 MB/s in
 one session -- and `MEASUREMENTS.md` carries those separately. A synthetic
 payload is the wrong instrument for anything that only non-ASCII text
 reaches.
+
+**The largest single change was deleting a measurement, not writing code.**
+`Scan::run` was a scalar byte loop carrying a comment that a `core::simd`
+version had "measured a 12% regression". That measurement was taken on a
+harness which reports the same ~230 MB/s for builds differing by 2.5x, and it
+had kept the hottest loop in the project scalar. Re-measured properly it is
+**+41% on spans**. The old claim was half right and generalised: runs really
+are short on escape-dense capture, where the vector version is flat -- but not
+on text, which is what `cat`, logs and build output are.
 
 **Cells used to be the weak half and no longer is.** Earlier editions of this
 file said "level on cells", then "behind on cells" at 908 against 1124 -- both
