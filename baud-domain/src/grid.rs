@@ -489,21 +489,21 @@ impl<'a> View<'a> {
         if r.index() >= self.rows.index() {
             return;
         }
-        let (a, b) = (from.index().min(self.cols.index()), to.index());
-        let (sa, sb) = self.snap(r, from, to);
-        let base = self.at(r, Col::ZERO);
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        let cols = self.cols.index();
+        let (a, b) = (from.index().min(cols), to.index().min(cols));
+        let (sa, sb) = self.snap_at(base, from.index(), to.index());
         if sa < a {
             self.cells[base + sa] = blank;
         }
-        if sb > b.min(self.cols.index()) {
+        if sb > b {
             self.cells[base + sb - 1] = blank;
             // **Past the mark, so the mark must move.** Everything beyond the
-            // extent has to stay equal to the blank that was last written
-            // across the row, or the O(1) "has the template changed" test that
-            // reads the *last* cell stops implying anything about the cells
-            // before it. This writes one cell at `sb - 1`, which can be past
-            // the extent, so the extent follows it.
-            self.reached(r, sb);
+            // extent has to stay equal to the blank last written across the
+            // row, or the O(1) "has the template changed" test that reads the
+            // *last* cell stops implying anything about the cells before it.
+            self.used[p] = self.used[p].reached(sb);
         }
     }
 
@@ -522,12 +522,23 @@ impl<'a> View<'a> {
     }
 
     fn snap(&self, r: Row, from: Col, to: Col) -> (usize, usize) {
+        let base = self.at(r, Col::ZERO);
+        self.snap_at(base, from.index(), to.index())
+    }
+
+    /// The boundary rule itself, against a row base the caller already has.
+    ///
+    /// Split out so `clear_partners` -- which runs once per non-ASCII
+    /// codepoint -- computes `phys` **once**. Going through `snap` cost three
+    /// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
+    /// 7% of the CJK path for two loads and two compares of actual work.
+    #[inline(always)]
+    fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
         let cols = self.cols.index();
-        let (mut a, mut b) = (from.index().min(cols), to.index().min(cols));
+        let (mut a, mut b) = (a.min(cols), b.min(cols));
         if a >= b {
             return (a, b);
         }
-        let base = self.at(r, Col::ZERO);
         if a > 0 && self.cells[base + a].content.is_wide_tail() {
             a -= 1;
         }

@@ -163,9 +163,55 @@ impl ClusterBreak {
     pub fn is_break(&mut self, c: Codepoint) -> bool {
         let cur = GraphemeClass::of(c);
         let cp = c.value();
+        // **An ordinary character after an ordinary character, with no lookback
+        // live.** Han, kana and most punctuation are all `Other`, so this is
+        // the shape a page of CJK text has, and both halves below are provably
+        // no-ops for it:
+        //
+        // * `decide` falls through every rule to GB999 (`Any ÷ Any`). GB3-9b
+        //   need a `Control`, a Hangul class, an `Extend`, a `Zwj`, a
+        //   `SpacingMark` or a `Prepend` on one side; GB9c and GB11 need the
+        //   `incb`/`pict` lookbacks, which this requires to be clear; GB12/13
+        //   need a regional indicator.
+        // * `advance` writes back exactly what is already there: `prev` is
+        //   already `Other`, `ri` stays `Even` because `cur` is not a regional
+        //   indicator, `pict` stays `None` because the run it would continue is
+        //   not open, and `incb` is set to `None`.
+        //
+        // `listed` is not optional. Emoji are class `Other` *and*
+        // `Extended_Pictographic`, so without it a rocket would take this path
+        // and never open a pictographic run -- which is GB11, and every ZWJ
+        // sequence.
+        if cur == GraphemeClass::Other
+            && self.prev == Some(GraphemeClass::Other)
+            && self.ri == RiParity::Even
+            && self.pict == PictLookback::None
+            && self.incb == IncbLookback::None
+            && !Self::listed(cp)
+        {
+            return true;
+        }
         let brk = self.decide(cur, cp);
         self.advance(cur, cp, brk);
         brk
+    }
+
+    /// Is `cp` in a 32-codepoint block holding any lookback-table entry?
+    ///
+    /// One bit per 32 codepoints, set when the block holds an entry of the four
+    /// lookback tables; 391 of 34,816 are set, so 98.9% of the space answers
+    /// here rather than in four binary searches. 32 and not 256 because
+    /// `U+25xx` holds box drawing *and* emoji -- `U+25AA`, `U+25B6`,
+    /// `U+25FB..FE` -- so a wider block cannot separate them.
+    #[inline(always)]
+    fn listed(cp: u32) -> bool {
+        if cp < 0xa9 {
+            return false;
+        }
+        let blk = (cp >> 5) as usize;
+        grapheme_data::LOOKBACK_BLOCKS
+            .get(blk / 64)
+            .is_some_and(|w| w & (1u64 << (blk % 64)) != 0)
     }
 
     fn decide(&self, cur: GraphemeClass, cp: u32) -> bool {
@@ -246,11 +292,7 @@ impl ClusterBreak {
         // 32 codepoints a bit and not 256, because `U+25xx` holds box drawing
         // *and* emoji -- `U+25AA`, `U+25B6`, `U+25FB..FE` -- so a wider block
         // cannot separate them.
-        let blk = (cp >> 5) as usize;
-        let listed = grapheme_data::LOOKBACK_BLOCKS
-            .get(blk / 64)
-            .is_some_and(|w| w & (1u64 << (blk % 64)) != 0);
-        if !listed {
+        if !Self::listed(cp) {
             // Exactly what the four searches below would have concluded: not
             // pictographic, not a consonant, not a linker, not an extend. The
             // `in_run` arms survive because they do not depend on a lookup.
