@@ -480,6 +480,20 @@ impl<'a> View<'a> {
     /// inside it, and DECSTBM is what makes the region smaller than the screen
     /// `[[source: ecma48]]` § 8.3.67. Content scrolled past `bottom` is
     /// discarded rather than pushed off the screen.
+    /// **The cell-at-a-time loops below are deliberate and were re-tested.**
+    ///
+    /// `delete_lines_in` beside this uses `copy_within` per row and says a
+    /// scalar loop "made the correct full-screen scroll cost a third of cell
+    /// ingest", so the obvious tidy-up is to match it here. Measured on
+    /// `less-pager.raw`, which spends 17.3% of its profile in this function:
+    /// **27.0/27.3/27.2 MB/s with `copy_within` against 27.8/27.7/27.9
+    /// without**, slower in all three pairs.
+    ///
+    /// LLVM already lowers these loops to `memmove` -- it is the
+    /// `_platform_memmove` the profile attributes 13.3% to -- and it can prove
+    /// the source and destination rows do not overlap, which `copy_within`
+    /// cannot promise and pays for. The explicit form is not the faster form
+    /// here.
     pub fn insert_lines_in(&mut self, at: Row, n: Count, bottom: Row, blank: PackedCell) {
         let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
         if cy > bot {
