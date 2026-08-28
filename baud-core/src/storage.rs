@@ -11,7 +11,6 @@ pub struct Storage {
     pub nrun: [RunCount; SB],
     pub vp: [PackedCell; GRID],
     pub promoted: [bool; MAX_ROWS],
-    pub tmpl: [PackedCell; NSTYLE * MAX_COLS],
     pub tmpl_key: [StyleWord; NSTYLE],
     pub tmpl_valid: [bool; NSTYLE],
     /// Bytes the terminal owes the host.
@@ -102,7 +101,6 @@ impl Storage {
             vp: [C; GRID],
             alt: [C; GRID],
             promoted: [false; MAX_ROWS],
-            tmpl: [C; NSTYLE * MAX_COLS],
             tmpl_key: [StyleWord::DEFAULT; NSTYLE],
             tmpl_valid: [false; NSTYLE],
             // Zeroed here and populated by Term::reset_tabs, so `Storage` stays
