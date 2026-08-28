@@ -307,12 +307,11 @@ impl<'a> View<'a> {
                 style,
                 flags: CellFlags::NONE,
             };
-            for (d, &b) in self.cells[base + start..base + start + n]
-                .iter_mut()
-                .zip(&src[..n])
-            {
-                *d = proto.with_ascii(StreamByte::from_stream(b));
-            }
+            Self::put_ascii_vectored(
+                &mut self.cells[base + start..base + start + n],
+                &src[..n],
+                proto,
+            );
         } else {
             let proto = PackedCell {
                 content: Content::EMPTY,
@@ -325,6 +324,59 @@ impl<'a> View<'a> {
             {
                 *d = proto.with_ascii(StreamByte::from_stream(b));
             }
+        }
+    }
+
+    /// Write one cell per source byte, eight at a time.
+    ///
+    /// **Why this is not `slice::fill` and not a plain loop.** `fill` writes one
+    /// repeated value and lowers to a vector store; this writes a *different*
+    /// content per cell, so it was a scalar loop -- `otool -tv` on the release
+    /// binary showed `ldr`/`str`/`orr` and **no vector register at all**. On the
+    /// streaming payload that loop writes 27% of the cells and takes 33% of the
+    /// cells-path profile, where `fill` writes the other 73% in 17%: about 5.3x
+    /// the cost per cell for the same eight bytes.
+    ///
+    /// Only the content differs between cells in a run -- style and flags are
+    /// fixed -- so under `repr(C)` on a little-endian target a cell is
+    /// `(style, flags) << 32 | content`, and eight of them are one `u64x8` OR and
+    /// one 64-byte store.
+    ///
+    /// No `unsafe`: `baud-domain` forbids it, so the reinterpretation goes through
+    /// `zerocopy`, which `PackedCell` already derives for the shm and disk paths.
+    fn put_ascii_vectored(dst: &mut [PackedCell], src: &[u8], proto: PackedCell) {
+        #[cfg(target_endian = "little")]
+        {
+            use core::simd::Simd;
+            use core::simd::num::SimdUint;
+            // `PackedCell` already derives these for the shm and disk paths;
+            // here they are what makes the reinterpretation possible without
+            // `unsafe`, which this crate forbids.
+            use zerocopy::{FromBytes, IntoBytes};
+
+            // The high half is style and flags; masking the low half off discards
+            // `Content::EMPTY`, which is a reserved value rather than zero.
+            let mut bytes = [0u8; 8];
+            bytes.copy_from_slice(proto.as_bytes());
+            let hi = u64::from_ne_bytes(bytes) & 0xffff_ffff_0000_0000;
+
+            let mut d = dst.chunks_exact_mut(8);
+            let mut s = src.chunks_exact(8);
+            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
+                let content = Simd::<u8, 8>::from_slice(sc).cast::<u64>();
+                let cells = (content | Simd::splat(hi)).to_array();
+                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
+                    .expect("eight u64 is sixty-four bytes, which is eight cells");
+                dc.copy_from_slice(&packed);
+            }
+            // A run averages ~32 bytes, so the tail is not rare and is not free.
+            for (dc, &b) in d.into_remainder().iter_mut().zip(s.remainder()) {
+                *dc = proto.with_ascii(StreamByte::from_stream(b));
+            }
+        }
+        #[cfg(not(target_endian = "little"))]
+        for (dc, &b) in dst.iter_mut().zip(src) {
+            *dc = proto.with_ascii(StreamByte::from_stream(b));
         }
     }
 

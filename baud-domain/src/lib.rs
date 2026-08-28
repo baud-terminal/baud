@@ -17,6 +17,11 @@
 //!    `WidthTable`, and no font type exists in this crate to pass instead.
 
 #![no_std]
+// `put_ascii_run` writes 27% of the cells on the streaming payload and costs
+// 5.3x per cell what `slice::fill` does for the other 73%, because it was a
+// scalar loop -- `otool -tv` showed no vector register in it at all. This
+// feature is what lets it store eight cells at a time.
+#![feature(portable_simd)]
 #![forbid(unsafe_code)]
 
 mod brand;

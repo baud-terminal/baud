@@ -112,10 +112,22 @@ fn main() {
         .collect();
     rates.sort_by(|a, b| a.partial_cmp(b).expect("no NaN: every rep took time"));
     let (lo, med, hi) = (rates[0], rates[rates.len() / 2], rates[rates.len() - 1]);
+    let (bulk, single, fill) = t.cell_attribution();
     println!(
         "{which} {mode}: {med:.1} MB/s [{lo:.1}-{hi:.1}] over {reps} reps, \
          {fed} bytes, utf8 {:.1}%, {}",
         t.utf8_share() * 100.0,
         power_source(),
+    );
+    // Where the cells came from. `cells_written` alone gives amplification and
+    // not its shape, and the three paths cost very different amounts per cell.
+    println!(
+        "  cells {} written ({:.1}x per byte): bulk {:.0}%, single {:.0}%, \
+         fill {:.0}%",
+        t.cells_written.count(),
+        t.cells_written.count() as f64 / fed as f64,
+        bulk * 100.0,
+        single * 100.0,
+        fill * 100.0,
     );
 }

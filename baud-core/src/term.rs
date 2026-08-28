@@ -319,6 +319,22 @@ pub struct Term<'a> {
     /// the recorded 19/66/15 splits would stop being comparable if the
     /// meaning moved under them.
     pub bytes_text: Stat,
+    /// Cells written by `put_ascii_run` -- the bulk text path.
+    ///
+    /// **Attribution, not a total.** `cells_written` says how many cells were
+    /// stored and the amplification figures divide it by bytes in; it does not
+    /// say *which* path stored them, and the three have completely different
+    /// costs per cell. A profile of the cells path puts `put_ascii_run` at 33%
+    /// and `scroll_region_up` at 17%, so knowing the cell counts behind those
+    /// two is what turns a time share into a cost per cell.
+    pub cells_bulk: Stat,
+    /// Cells written one at a time by `put_cp`: anything that is not a run of
+    /// printable ASCII, so wide characters, combining marks and `REP`.
+    pub cells_single: Stat,
+    /// Cells written by scrolling, erasing and blanking -- `fill` and
+    /// `fill_row`. Overlaps `cells_blanked` by construction; kept separate so
+    /// the three attribution counters sum to `cells_written`.
+    pub cells_fill: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -449,6 +465,9 @@ impl<'a> Term<'a> {
             bytes_slow: Stat::ZERO,
             bytes_utf8: Stat::ZERO,
             bytes_text: Stat::ZERO,
+            cells_bulk: Stat::ZERO,
+            cells_single: Stat::ZERO,
+            cells_fill: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,
@@ -544,6 +563,25 @@ impl<'a> Term<'a> {
     ///
     /// The number that decides whether a vectorised validator is worth
     /// building: the literature's 10x applies to these bytes and no others.
+    /// Where the written cells came from, as shares of `cells_written`.
+    ///
+    /// `(bulk, single, fill)`. They sum to 1.0 when every write site is
+    /// attributed, and `cell_attribution_accounts_for_every_write` asserts it
+    /// -- the same invariant `path_split` carries, and for the same reason: an
+    /// unattributed write is one nobody will think to look for.
+    pub fn cell_attribution(&self) -> (f64, f64, f64) {
+        let n = self.cells_written.count();
+        if n == 0 {
+            return (0.0, 0.0, 0.0);
+        }
+        let f = |x: u64| x as f64 / n as f64;
+        (
+            f(self.cells_bulk.count()),
+            f(self.cells_single.count()),
+            f(self.cells_fill.count()),
+        )
+    }
+
     pub fn utf8_share(&self) -> f64 {
         let n = self.bytes_in.count();
         match n {

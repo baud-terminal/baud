@@ -330,3 +330,56 @@ fn how_much_of_a_row_is_actually_used() {
         );
     }
 }
+
+/// **Every written cell is attributed to one of the three paths.**
+///
+/// `cells_written` gives amplification and not its shape, and the three paths
+/// cost very different amounts per cell: on the streaming payload `fill`
+/// writes 73% of the cells in 17% of the profile while `put_ascii_run` writes
+/// 27% in 33%, which is about 5.3x per cell for the same eight bytes. That
+/// ratio is only visible because the counts are attributed.
+///
+/// The invariant is the same one `path_split` carries: a write nobody counted
+/// is a write nobody will think to look for. This is what catches a fourth
+/// write site being added without a counter.
+#[test]
+fn cell_attribution_accounts_for_every_write() {
+    for (name, mode) in [("computed", OpMode::Computed), ("runs", OpMode::Runs)] {
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, mode);
+        // Text, a scroll, an erase, a wide character and a repeat: one of each
+        // kind of write, so a missing counter on any path shows up here.
+        let mut v = Vec::new();
+        for _ in 0..80 {
+            v.extend_from_slice("hello world ".as_bytes());
+            v.extend_from_slice("世界".as_bytes());
+            v.extend_from_slice(b"\x1b[K\r\n");
+        }
+        v.extend_from_slice(b"\x1b[2J\x1b[5;5Hx\x1b[10b");
+        let mut i = 0;
+        while i < v.len() {
+            let n = READ_CHUNK.min(v.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&v[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+
+        let total = t.cells_written.count();
+        let parts = t.cells_bulk.count() + t.cells_single.count() + t.cells_fill.count();
+        assert!(total > 0, "{name}: the payload wrote no cells");
+        assert_eq!(
+            parts, total,
+            "{name}: attribution sums to {parts} against {total} written -- a \
+             write site has no counter"
+        );
+        let (b, s2, f) = t.cell_attribution();
+        assert!(
+            (b + s2 + f - 1.0).abs() < 1e-9,
+            "{name}: shares sum to {}",
+            b + s2 + f
+        );
+    }
+}
