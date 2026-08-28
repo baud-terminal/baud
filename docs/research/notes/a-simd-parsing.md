@@ -101,13 +101,32 @@ Two things stand between here and there, and neither is fatal:
 * **Lookup validates; baud must decode.** It answers well-formed or not, and
   baud needs the codepoint, the width and a cell. simdutf builds decoding on
   the same technique, so this is a matter of reading how rather than whether.
-* **Block algorithms need runs.** The portable scanner's own comment records
-  that vectorising the ASCII scan *lost 12%* because printable runs average
-  ~32 bytes: "vectorising a scan is only free when the runs are long". CJK
-  paragraphs and box-drawing rows are long runs; scattered accented characters
-  in otherwise-ASCII text are not. **Measure the run-length distribution of
-  non-ASCII text before building**, the same way `utf8_share` was measured
-  before this note claimed a size.
+* **~~Block algorithms need runs.~~** Measured, by `scripts/utf8-runs.py`,
+  over the checked-in recordings:
+
+  | recording | mean run | p50 | p90 | multi-byte bytes | **in runs >=16** | in runs >=32 |
+  |---|---|---|---|---|---|---|
+  | btop | 15.5 | 10 | 29 | 76,032 | **96.9%** | 71.1% |
+  | vim | 15.1 | 10 | 22 | 39,086 | **69.2%** | 48.3% |
+  | asciiquarium | 4.4 | 4 | 7 | 0 | — | — |
+
+  **The mean is the misleading statistic and the byte share is the honest
+  one.** Runs average ~15 bytes, shorter than the ~32 that made vectorising the
+  ASCII scan lose 12%. But multi-byte bytes are not spread evenly across runs;
+  they *cluster in the long ones*, so 96.9% of btop's live in a run of at least
+  sixteen. Counting runs says "too short", counting bytes-in-runs says the
+  opposite, and the second is what a block decoder actually processes.
+
+  The bar is also far lower than the ASCII case. That scan was replacing about
+  one branch-predicted compare per byte; this replaces a decoder
+  `[[source: utf8-lookup]]` puts at 7.0 instructions per byte.
+
+* **Portability is not an obstacle, which was assumed rather than checked.**
+  The algorithm needs `pshufb`; `core::simd`'s `swizzle_dyn` is that operation
+  and lowers to NEON `tbl` on aarch64 and SSSE3 on x86-64. So this can be one
+  portable implementation behind the existing `Scan` trait rather than a third
+  entry point beside `feed` and `feed_avx2`, and -- unlike `scan_avx2` -- it
+  would be *testable on the machine this project is developed on*.
 
 ## What this note does not claim
 
