@@ -37,6 +37,30 @@ impl<'a> Term<'a> {
         self.scrolls.add(k);
     }
 
+    /// Screen rows `from..to` now live in the cells, so the run table no longer
+    /// describes them: mark them promoted and drop their runs.
+    ///
+    /// **A no-op on the alternate screen, and that is the correctness half.**
+    /// `head` indexes the *primary's* run ring and does not move while the
+    /// alternate screen is showing, so `head.plus(y)` names a primary line;
+    /// `promoted` is indexed by screen row and is likewise the primary's. Every
+    /// copying line-move ran this unconditionally, so a region scroll inside
+    /// the alternate screen zeroed the run counts of whatever the primary was
+    /// holding underneath -- and `?1049 l` handed back a blank screen.
+    ///
+    /// That round trip is what every full-screen application does. In
+    /// `OpMode::Runs` the probe is four lines: write text, `?1049 h`,
+    /// `CSI 5;40r`, `CSI S`, `?1049 l`, and row 0 comes back empty.
+    ///
+    /// Nothing is lost by skipping it, because there is nothing to invalidate:
+    /// `blit` treats the alternate screen as always promoted, so text there
+    /// never enters the run table in the first place.
+    fn invalidate_runs(&mut self, from: Row, to: Row) {
+        for y in from.index()..to.index() {
+            self.discard_row(Row::from_index(y));
+        }
+    }
+
     pub(crate) fn scroll_region_up(&mut self, n: Count) {
         let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
         if top > bot {
@@ -112,10 +136,7 @@ impl<'a> Term<'a> {
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
         self.count_line_block(rt, rb, n);
         self.view().delete_lines_in(rt, n, rb, blank);
-        for y in top..=bot {
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-        }
+        self.invalidate_runs(Row::from_index(top), Row::from_index(bot + 1));
     }
 
     /// Scroll the scrolling region down by `n`. The engine of RI-at-region-top,
@@ -155,10 +176,7 @@ impl<'a> Term<'a> {
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
         self.count_line_block(rt, rb, n);
         self.view().insert_lines_in(rt, n, rb, blank);
-        for y in top..=bot {
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-        }
+        self.invalidate_runs(Row::from_index(top), Row::from_index(bot + 1));
     }
 
     /// DECSTBM. Sets the region and homes the cursor, per `[[source: ctlseqs]]`.
@@ -188,10 +206,7 @@ impl<'a> Term<'a> {
         let (at, rb) = (self.cy, self.scroll_bot);
         self.count_line_block(at, rb, n);
         self.view().delete_lines_in(at, n, rb, blank);
-        for y in cy..=bot {
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-        }
+        self.invalidate_runs(Row::from_index(cy), Row::from_index(bot + 1));
     }
 
     /// IL. Bounded by the scrolling region, and a no-op with the cursor
@@ -207,9 +222,6 @@ impl<'a> Term<'a> {
         let (at, rb, b) = (self.cy, self.scroll_bot, PackedCell::empty_with(self.style));
         self.count_line_block(at, rb, n);
         self.view().insert_lines_in(at, n, rb, b);
-        for y in cy..cy + k {
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(Row::from_index(y), SB).index()] = RunCount::ZERO;
-        }
+        self.invalidate_runs(Row::from_index(cy), Row::from_index(cy + k));
     }
 }

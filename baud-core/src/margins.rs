@@ -70,8 +70,7 @@ impl<'a> Term<'a> {
         let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
         for y in top..=bot {
             let r = Row::from_index(y);
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            self.discard_row(r);
             if insert {
                 self.insert_cells_counted(r, from, n, to, blank);
             } else {

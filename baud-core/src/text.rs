@@ -211,7 +211,7 @@ impl<'a> Term<'a> {
             // `promoted` and the run table belong to the primary screen. On the
             // alt screen every write is materialised, which is the same thing
             // "no scrollback" means one layer down.
-            let promoted = self.screen == Screen::Alternate || self.s.promoted[self.cy.index()];
+            let promoted = self.row_is_promoted(self.cy);
             if self.mode == OpMode::Runs && !promoted {
                 let i = self.line();
                 let c = self.s.nrun[i.index()];
@@ -261,7 +261,9 @@ impl<'a> Term<'a> {
 
     pub(crate) fn promote(&mut self) {
         let y = self.cy.index();
-        if self.s.promoted[y] {
+        // `row_is_promoted`, not the raw flag: on the alternate screen there
+        // are no spans to replay into the cells, so this is already done.
+        if self.row_is_promoted(self.cy) {
             return;
         }
         let i = self.line();

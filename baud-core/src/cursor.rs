@@ -27,8 +27,15 @@ impl<'a> Term<'a> {
         // content. Recorded in docs/vt-coverage.md rather than fixed here,
         // because fixing it means bounding run growth some other way and that
         // needs its own measurement.
-        let i = self.line();
-        self.s.nrun[i.index()] = RunCount::ZERO;
+        //
+        // And not on the alternate screen, which has no run table: `line()` is
+        // `head.plus(cy)` and `head` is the *primary's* ring position, so an
+        // `IND` there would drop a run count belonging to whatever the primary
+        // is holding underneath. Same rule as `discard_row`.
+        if self.screen != Screen::Alternate {
+            let i = self.line();
+            self.s.nrun[i.index()] = RunCount::ZERO;
+        }
     }
 
     /// CR + IND: what autowrap does at the right margin, and what NEL is.

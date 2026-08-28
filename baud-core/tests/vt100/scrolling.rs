@@ -593,3 +593,168 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
         );
     }
 }
+/// **A round trip through the alternate screen leaves the primary alone.**
+///
+/// A regression guard, and deliberately narrower than the bug that prompted it.
+///
+/// Every copying line-move used to run its run-table invalidation
+/// unconditionally: `self.s.promoted[y] = true` and `self.s.nrun[head.plus(y)]
+/// = RunCount::ZERO`, while `head` indexes the *primary's* ring and does not
+/// move during an alternate-screen session. So a region scroll inside the
+/// alternate screen wrote over the primary's bookkeeping. `invalidate_runs`
+/// now returns early on the alternate screen, where there is nothing to
+/// invalidate -- `blit` treats that screen as always promoted, so text there
+/// never enters the run table.
+///
+/// **The state bug is real and this test does not prove it**, which is worth
+/// saying plainly. In `OpMode::Runs` nothing renders spans -- `Term::row` and
+/// `viewport` read cells -- so a zeroed run count is invisible to every public
+/// accessor, and an attempt to write the failing test instead reproduced the
+/// harness trap `CLAUDE.md` records: a `Runs` viewport shows representation,
+/// so *every* case came back empty including the one that did nothing at all.
+/// What is checkable is that the round trip is content-preserving in
+/// `Computed`, and that is what this asserts.
+#[test]
+fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {
+    const ROWS: usize = 50;
+    let mut b: Vec<u8> = Vec::new();
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        b.extend_from_slice(format!("row{y:02}").as_bytes());
+    }
+    // Into the alternate screen, then every line-moving shape it has: a
+    // region scroll (the copying path), a full-screen scroll (the rotation),
+    // and `IL`/`DL` inside a region.
+    b.extend_from_slice(b"\x1b[?1049h");
+    b.extend_from_slice(b"\x1b[5;40r");
+    for _ in 0..8 {
+        b.extend_from_slice(b"\x1b[S");
+    }
+    b.extend_from_slice(b"\x1b[10;1H\x1b[4L\x1b[3M");
+    b.extend_from_slice(b"\x1b[1;50r");
+    b.extend_from_slice(b"\x1b[50;1H\n\n\n");
+    b.extend_from_slice(b"\x1b[1;1H\x1bM\x1bM");
+    b.extend_from_slice(b"\x1b[?1049l");
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, row) in rows.iter().enumerate().take(ROWS) {
+        let got: String = row
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            got,
+            format!("row{y:02}"),
+            "primary row {y} after a full session in the alternate screen"
+        );
+    }
+}
+/// **Every erase works on the alternate screen, in both modes.**
+///
+/// `OpMode::Runs` is the point. `erase_line`'s fast path -- erase-to-end of an
+/// *unpromoted* line is the truncation of its span list, not a fill -- read
+/// `s.promoted[y]` raw, and that flag belongs to the primary screen. On the
+/// alternate screen it was false for every row, so `CSI K` took the span path,
+/// zeroed a run count belonging to the primary underneath, and returned
+/// **without erasing anything**: `HELLO WORLD` survived an erase-to-end from
+/// column 6.
+///
+/// Nothing caught it because every erase test ran on the primary, and the
+/// alternate screen is where every full-screen application does its erasing.
+///
+/// Each case is checked in `Computed` too. `Computed` was already correct, so
+/// the pair is what makes the assertion about the *mode* rather than about the
+/// operation -- a fix that broke `Computed` to satisfy `Runs` would show up
+/// here rather than pass.
+#[test]
+fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
+    // A blank is rendered as `.` rather than dropped. `Content::EMPTY` is a
+    // reserved value above U+10FFFF and deliberately *not* U+0020, so the
+    // usual `filter_map(as_codepoint)` projection deletes blanks instead of
+    // showing them -- which makes "erased the wrong columns" and "erased the
+    // right ones" produce the same string whenever the blanks are not
+    // trailing. The first draft of this test asserted `"      WORLD"` and got
+    // `"WORLD"` for that reason.
+    //
+    // (name, bytes after the text, expected first 12 columns)
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("EL to end", b"\x1b[1;6H\x1b[K", "HELLO......."),
+        ("EL to start", b"\x1b[1;6H\x1b[1K", "......WORLD."),
+        ("EL whole line", b"\x1b[1;6H\x1b[2K", "............"),
+        ("ED to end", b"\x1b[1;6H\x1b[J", "HELLO......."),
+        ("ED whole screen", b"\x1b[1;6H\x1b[2J", "............"),
+        ("ECH 3", b"\x1b[1;6H\x1b[3X", "HELLO...RLD."),
+    ];
+    for (name, tail, want) in cases {
+        for mode in [OpMode::Runs, OpMode::Computed] {
+            let mut b: Vec<u8> = b"\x1b[?1049h\x1b[1;1HHELLO WORLD".to_vec();
+            b.extend_from_slice(tail);
+            let rows = rows_of(mode, &b);
+            let got: String = rows[0]
+                .iter()
+                .take(12)
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|x| char::from_u32(x.value()))
+                        .unwrap_or('.')
+                })
+                .collect();
+            assert_eq!(
+                got, *want,
+                "{name} on the alternate screen in {mode:?}: got {got:?}, want {want:?}"
+            );
+        }
+    }
+}
+
+/// **`IND` on the alternate screen does not drop a primary run count.**
+///
+/// `next_line` clears the destination line's spans, which is load-bearing for
+/// chunk invariance. It indexes with `line()` -- `head.plus(cy)` -- and `head`
+/// is the primary's ring position, unmoved for the whole alternate-screen
+/// session. Scrolling a screenful of `IND` in the alternate screen therefore
+/// zeroed a screenful of the primary's run counts.
+///
+/// Asserted through rendered content in `Computed`, which is what this harness
+/// can see; see `the_alt_screen_never_writes_the_primarys_run_table` for the
+/// check that covers the state directly.
+#[test]
+fn index_on_the_alternate_screen_leaves_the_primary_intact() {
+    const ROWS: usize = 50;
+    let mut b: Vec<u8> = Vec::new();
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        b.extend_from_slice(format!("row{y:02}").as_bytes());
+    }
+    b.extend_from_slice(b"\x1b[?1049h\x1b[50;1H");
+    for _ in 0..60 {
+        b.extend_from_slice(b"\x1bD");
+    }
+    b.extend_from_slice(b"\x1b[?1049l");
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, row) in rows.iter().enumerate().take(ROWS) {
+        let got: String = row
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            got,
+            format!("row{y:02}"),
+            "primary row {y} after 60 IND in the alternate screen"
+        );
+    }
+}

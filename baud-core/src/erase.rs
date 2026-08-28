@@ -19,7 +19,10 @@ impl<'a> Term<'a> {
         // On the TUI payload this is ~134 cell writes per 77 input bytes -- a
         // CSI K per line against a 200-column grid -- which is write
         // amplification of roughly 20:1 against rule #1's <= 1.
-        if self.mode == OpMode::Runs && !self.s.promoted[y] && e == EraseExtent::ToEnd {
+        if self.mode == OpMode::Runs
+            && !self.row_is_promoted(Row::from_index(y))
+            && e == EraseExtent::ToEnd
+        {
             let i = self.line();
             self.s.nrun[i.index()] = RunCount::ZERO;
             return;
@@ -148,9 +151,38 @@ impl<'a> Term<'a> {
     /// Every bulk erase does these two together, and they must stay together:
     /// `promoted` without clearing `nrun` leaves a stale run list that a later
     /// promote would replay over the blanks it just wrote.
-    fn discard_row(&mut self, r: Row) {
+    /// **A no-op on the alternate screen, and that is the correctness half.**
+    /// `head` indexes the *primary's* run ring and does not move during an
+    /// alternate-screen session, and `promoted` is the primary's too, so every
+    /// one of these writes lands on whatever the primary is holding
+    /// underneath. Nothing is lost by skipping it: `blit` materialises every
+    /// write on the alternate screen, so no text there ever enters the run
+    /// table -- which is what [`Term::row_is_promoted`] says the other way
+    /// round.
+    ///
+    /// Six call sites used to spell this pair inline -- the four line-moves,
+    /// DECALN and DECIC/DECDC -- and each was an independent chance to get the
+    /// screen test wrong. They go through here now, for the same reason
+    /// `Term::active_rot` exists.
+    pub(crate) fn discard_row(&mut self, r: Row) {
+        if self.screen == Screen::Alternate {
+            return;
+        }
         self.s.promoted[r.index()] = true;
         self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+    }
+
+    /// Is this screen row materialised in the cells?
+    ///
+    /// **Always true on the alternate screen**, which has no run table: `blit`
+    /// materialises every write there. Reading `s.promoted[y]` directly
+    /// instead is a live bug rather than a style point -- `erase_line`'s
+    /// "truncate the span list" fast path did exactly that, so in
+    /// `OpMode::Runs` a `CSI K` on the alternate screen took the span path,
+    /// zeroed a *primary* run count, and returned without erasing anything:
+    /// `HELLO WORLD` survived an erase-to-end from column 6.
+    pub(crate) fn row_is_promoted(&self, r: Row) -> bool {
+        self.screen == Screen::Alternate || self.s.promoted[r.index()]
     }
 
     /// DECALN, `ESC # 8`.
@@ -169,8 +201,7 @@ impl<'a> Term<'a> {
         let cell = PackedCell::from_ascii(StreamByte::from_stream(b'E'), self.style, self.flags);
         for y in 0..self.rows.index() {
             let r = Row::from_index(y);
-            self.s.promoted[y] = true;
-            self.s.nrun[self.head.plus(r, SB).index()] = RunCount::ZERO;
+            self.discard_row(r);
             self.fill_row_counted(r, cell);
         }
         self.cx = Col::ZERO;
