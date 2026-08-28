@@ -205,6 +205,44 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## The whole CJK line, end to end: 122 -> 222 MB/s, and where it stopped
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
+`OpMode::Computed`, medians of 40 reps, interleaved, first round discarded.*
+
+Four changes, each measured against the one before it:
+
+| | cat-cjk | payload::cjk | vim | btop |
+|---|---|---|---|---|
+| start | 122 | — | 246 | 452 |
+| `Width::of` trie | 142 | — | 297 | 500 |
+| `GraphemeClass::of` trie | 194 | 233 | 348 | 551 |
+| ordinary-run fast path | 200 | 263 | 355 | 565 |
+| **`clear_partners` inlined** | **222** | **303** | **400** | **610** |
+| | **+82%** | **+30%** | **+63%** | **+35%** |
+
+**Where it stops, and why.** After the last change the profile is 65% inside
+`ingest::main` -- everything worth inlining is inlined into the ingest loop,
+and the profiler cannot separate it further without outlining, which this file
+already records as overstating per-call costs. `is_break` is 10.9%, `Width::of`
+6.2%, `fill_row` 6.2%. There is no longer a single item worth attacking.
+
+The gap between CJK and the same workload in ASCII is **4.0x**, from 6.1x.
+
+**Three measurements about where cost is not, which is the transferable part:**
+
+* Folding three `View` constructions per codepoint into one: **flat**.
+* Computing `phys` once in `clear_partners` instead of three times: **flat**.
+* Adding `#[inline(always)]` to `clear_partners`: **+11%**.
+* Adding `#[inline(always)]` to `GraphemeClass::of` and `Width::of`: **flat**.
+
+LLVM eliminates redundant address arithmetic freely, and inlining a small pure
+function is something it already does. What it does not do on its own judgement
+is inline a `pub fn` taking `&mut self` with side effects, and that call was
+26% of pure-Han throughput by a ceiling arm. **Look at the call boundary, not
+at the arithmetic inside it** -- and a function that appears as its own leaf
+frame in a profile is telling you it was not inlined.
+
 ## Both classification tables are tries now: CJK 122 -> 194, and the gap is 4.3x
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
