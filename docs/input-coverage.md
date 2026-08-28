@@ -3,8 +3,8 @@
 What baud must **send**, enumerated against primary sources, in the same shape
 as `vt-coverage.md` does for what it receives.
 
-Nothing here is implemented yet beyond the mouse reports the parser already
-needed, so almost every row is `todo`. That is a phase that has not started,
+The base layer has started: `Term::key` encodes the cursor keys and Home/End,
+in both DECCKM modes, with modifiers. Most rows are still `todo`. That is a phase that has not started,
 not work left half-done: `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
 A `todo` row here has neither because it has no code.
@@ -34,8 +34,8 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 
 | ctlseqs line | table | rows | status |
 |---|---|---|---|
-| 2473 | cursor keys, normal vs application (DECCKM) | 4 | todo |
-| 2485 | Home / End, normal vs application | 2 | todo |
+| 2473 | cursor keys, normal vs application (DECCKM) | 4 | **done** — `Term::key`, both modes, modifiers force `CSI`. `cursor_keys_match_the_specifications_table` |
+| 2485 | Home / End, normal vs application | 2 | **done** — same path; ctlseqs puts them in the arrows' table |
 | 2498 | keypad, numeric vs application (DECKPAM) | 24 | todo |
 | 2529 | 12 function keys and special-purpose keys | 12 | todo |
 | 2552 | the deprecated F1-F5 forms | 4 | todo — deprecated upstream; recorded so the choice is explicit |

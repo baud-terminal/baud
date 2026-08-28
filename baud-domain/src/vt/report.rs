@@ -172,6 +172,19 @@ impl C1Transmit {
             C1Transmit::EightBit => b"\x90",
         }
     }
+    /// SS3: the single-shift the cursor and keypad keys use in application
+    /// mode.
+    ///
+    /// `[[source: ctlseqs]]` line 2473 gives `CSI A` for a cursor key in normal
+    /// mode and `SS3 A` in application mode -- so an encoder needs both
+    /// introducers, and which one it picks is DECCKM's business rather than
+    /// this type's.
+    pub fn ss3(self) -> &'static [u8] {
+        match self {
+            C1Transmit::SevenBit => b"\x1bO",
+            C1Transmit::EightBit => b"\x8f",
+        }
+    }
     /// ST: the string terminator.
     pub fn st(self) -> &'static [u8] {
         match self {
