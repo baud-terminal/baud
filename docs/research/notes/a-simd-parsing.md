@@ -80,6 +80,35 @@ correctness with a different instruction count.
   rather than a specification to re-read.
 * **ASCII is the common case and the one that gains most.** 0.21 against 7.0.
 
+## What the scalar half already bought
+
+`fast_utf8` decodes one complete sequence in place instead of paying three or
+four `control` dispatches. Measured, non-overlapping: **btop +7.5%, vim +7.1%**
+(`MEASUREMENTS.md`). That is not the lookup algorithm -- it removes
+dispatch overhead, not decode instructions -- but it establishes the shape a
+vectorised version needs: a place in `feed_with` where a run of text is handled
+outside the state machine.
+
+**The remaining prize is 0.97 against 7.0.** Those are `[[source: utf8-lookup]]`
+Table 13's figures for multi-byte input, and they are the same algorithm as the
+0.21 -- 0.21 is simply its cost when the input is ASCII. baud cannot reach 0.21
+on CJK because multi-byte inherently costs more, but 0.97 against a
+finite-state decoder's 7.0 is roughly sevenfold on the 14.5% and 28.2% of bytes
+measured above.
+
+Two things stand between here and there, and neither is fatal:
+
+* **Lookup validates; baud must decode.** It answers well-formed or not, and
+  baud needs the codepoint, the width and a cell. simdutf builds decoding on
+  the same technique, so this is a matter of reading how rather than whether.
+* **Block algorithms need runs.** The portable scanner's own comment records
+  that vectorising the ASCII scan *lost 12%* because printable runs average
+  ~32 bytes: "vectorising a scan is only free when the runs are long". CJK
+  paragraphs and box-drawing rows are long runs; scattered accented characters
+  in otherwise-ASCII text are not. **Measure the run-length distribution of
+  non-ASCII text before building**, the same way `utf8_share` was measured
+  before this note claimed a size.
+
 ## What this note does not claim
 
 * **Nothing is implemented.** As with `[[source: dpfsm]]` in note B, this is a

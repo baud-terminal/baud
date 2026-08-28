@@ -52,6 +52,32 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
+## `fast_utf8`: decoding a character without a dispatch per byte
+
+*Apple M5 Max, 2026-08-27, `5ae7df4` against its parent, `baud-bench` memory
+transport, medians of 9, three runs interleaved with both builds warm before
+any timing. Payloads are the real recordings, because the synthetic ones
+contain no multi-byte text at all.*
+
+| recording | before | after | |
+|---|---|---|---|
+| btop (box drawing, `U+250x`) | 284.9 / 289.1 / 291.6 | **309.2 / 310.8 / 315.7** | **+7.5%** |
+| vim (CJK, emoji) | 212.7 / 209.9 / 217.1 | **227.9 / 220.3 / 230.0** | **+7.1%** |
+
+Every median after exceeds every median before, on both recordings. The sets do
+not overlap.
+
+**Why the synthetic payloads cannot show this.** `payload::streaming` and
+`payload::tui` are pure ASCII -- `Term::utf8_share` reports 0.0% for both -- so
+they never execute the path at all. This is the "payloads that don't exercise
+the case" entry in `CLAUDE.md`'s own list, and it is why the first estimate of
+this opportunity was ~5% and wrong: it was reasoned from streaming.
+
+**A first attempt at this measurement was discarded**, and the reason is worth
+keeping: it interleaved `git stash` with the timing, so a rebuild ran
+concurrently with a benchmark. It produced 131.7 and 172.8 for an arm whose
+real value is ~289. Both builds are now warm before any run starts.
+
 ## Open regression: streaming lost two thirds, and TUI did not
 
 *Apple M5 Max, 2026-08-27, same session, `bench-others/multibench`,
