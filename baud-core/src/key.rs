@@ -204,8 +204,11 @@ impl<'a> Term<'a> {
     ///
     /// **The PC-style table, not the VT220 one.** ctlseqs gives both -- line
     /// 2498 for a Sun/PC keypad and line 2628 for the VT102/VT220 keypad
-    /// reached through `sunKeyboard` -- and they disagree on eleven of the
-    /// twenty-four rows. baud sends the first, which is the same choice
+    /// reached through `sunKeyboard` -- and they disagree on most of the
+    /// twenty-four rows. The exact count is derived from the two tables by
+    /// `the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends`
+    /// rather than written here: a number restated in a comment is one that
+    /// goes quietly wrong if a later edition of ctlseqs reconciles them. baud sends the first, which is the same choice
     /// already made for Home and End, and for the same reason: sending both
     /// would be sending two different keys, and xterm's default is the one
     /// applications are built against.
