@@ -112,30 +112,51 @@ fn materialising_a_cell_costs_eight_bytes_per_ascii_byte() {
     );
 }
 
-/// **Blanking on scroll costs more than the text does.**
+/// **Blanking is bounded by what the row actually held.**
 ///
-/// The finding that restoring the measurement produced. Scrolling blanks the
-/// incoming row across the full width, so a payload of 60-column lines on a
-/// 200-column grid blanks 200 cells to store 60 characters -- and the blanking
-/// is roughly three times the cost of the text.
+/// `fill_row` used to write the full width whatever the row contained, so a
+/// payload of 60-column lines on a 200-column grid blanked 200 cells to store
+/// 60 characters. It now scans and writes only what differs from the blank.
 ///
-/// Pinned as a *ratio* rather than an absolute so it survives a geometry
-/// change, and asserted loosely because the point is the order of magnitude,
-/// not the digits. If blanking ever stops dominating, this failing is the
-/// news.
+/// Compared against the *blank*, not against `PackedCell::EMPTY`: the blank
+/// carries the current style, so a row that is already empty still needs
+/// writing when a background colour is set, and comparing against EMPTY would
+/// skip exactly that case.
+///
+/// In `OpMode::Runs` the effect is total rather than partial -- text lives in
+/// the span table and never reaches the cells, so after the startup clear the
+/// row already equals the blank and nothing is written at all. That is why the
+/// count below is one screen and not one per scroll.
 #[test]
-fn scroll_blanking_dominates_the_cell_budget() {
-    let (_, cell, blank) = drive(&lines(1000, 60), OpMode::Computed);
-    assert!(
-        blank / cell > 0.5,
-        "blanking is {blank:.1}x of {cell:.1}x total -- it used to be the \
-         majority, and if it no longer is, something changed"
+fn blanking_writes_only_what_the_row_held() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Runs);
+    let mut v = Vec::new();
+    for _ in 0..20_000 {
+        v.extend(std::iter::repeat_n(b'x', 60));
+        v.extend_from_slice(b"\r\n");
+    }
+    let mut i = 0;
+    while i < v.len() {
+        let n = READ_CHUNK.min(v.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&v[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+
+    assert_eq!(
+        t.cells_blanked.count(),
+        10_000,
+        "twenty thousand scrolled lines should blank one screen -- the startup \
+         clear -- and nothing after it, because in Runs mode the cells were \
+         never written to begin with"
     );
-    let text = cell - blank;
     assert!(
-        blank > text * 2.0,
-        "blanking {blank:.1}x against text {text:.1}x: the incoming row is \
-         blanked across the full width regardless of how much of it was used"
+        t.runs_written.count() > 20_000,
+        "and the text went to the span table instead"
     );
 }
 

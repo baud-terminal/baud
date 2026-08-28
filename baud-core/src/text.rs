@@ -329,11 +329,30 @@ impl<'a> Term<'a> {
         self.view().fill(r, from, to, cell);
     }
 
+    /// **Variant A: scan, then blank only what differs.**
+    ///
+    /// Blanking writes the full width whether or not the row was that wide,
+    /// and `how_much_of_a_row_is_actually_used` measures the waste: vim uses
+    /// 70 columns of 200, asciiquarium uses all 200. This trades a read for
+    /// the writes it avoids.
+    ///
+    /// Compared against `cell`, **not** `PackedCell::EMPTY`. The blank carries
+    /// the current style -- `empty_with(self.style)` -- so a row already empty
+    /// still needs writing when a background colour is set, and comparing
+    /// against EMPTY would skip exactly that case.
     #[inline(always)]
     pub(crate) fn fill_row_counted(&mut self, r: Row, cell: PackedCell) {
-        self.cells_written.add(self.cols.index());
-        self.cells_blanked.add(self.cols.index());
-        self.view().fill_row(r, cell);
+        let n = self
+            .row(r)
+            .iter()
+            .rposition(|c| *c != cell)
+            .map_or(0, |p| p + 1);
+        if n == 0 {
+            return;
+        }
+        self.cells_written.add(n);
+        self.cells_blanked.add(n);
+        self.view().fill(r, Col::ZERO, Col::at_index(n), cell);
     }
 
     /// Insert and delete rewrite everything from `at` to the margin: the
