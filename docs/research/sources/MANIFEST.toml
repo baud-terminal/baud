@@ -623,6 +623,24 @@ group  = "C"
 # is a mirror of Apple's PDF and is cited as such -- Apple's own download at
 # developer.apple.com/download/apple-silicon-cpu-optimization-guide/ requires a
 # developer login, which is why the mirror is what carries a checkable hash.
+# Fetched because a measurement pointed at it. Profiling the gradual erosion
+# between `2d23dc8` and `9f6ddc3` on multibench, the largest single step is
+# `036a432` -- "Reject overlong UTF-8" -- at about 5%. This paper's Table 13
+# prices exactly that work, and puts baud's kind of decoder at 7 instructions
+# per byte against the lookup algorithm's 0.21 on ASCII.
+[sources.utf8-lookup]
+key    = "utf8-lookup"
+title  = "Validating UTF-8 In Less Than One Instruction Per Byte"
+author = "John Keiser and Daniel Lemire"
+year   = 2021
+venue  = "Software: Practice and Experience 51(5), 950-964"
+url    = "https://arxiv.org/pdf/2010.03090"
+file   = "keiser-lemire-2020-utf8.pdf"
+sha256 = "228853ab8a5d1ce41b93a3051e36e26b38a7af0301d5b343e2fd473ac8577690"
+bytes  = 378973
+status = "retrieved"
+group  = "A"
+
 [sources.apple-cpu-guide]
 key    = "apple-cpu-guide"
 title  = "Apple Silicon CPU Optimization Guide, version 3.0"

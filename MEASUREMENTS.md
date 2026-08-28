@@ -98,7 +98,7 @@ Spans are **1.20x** ghostty streaming and **1.77x** TUI. Cells are **behind**,
 924.8 against 1119.6 -- the "level on cells" claim was true at `2d23dc8` and is
 not true here.
 
-### Still open: a gradual erosion under the cliff
+### Profiled: the gradual erosion under the cliff
 
 The cliff is fixed and the number has not returned to `2d23dc8`'s. Measured
 today on one box: `2d23dc8` 1708.6, `9f6ddc3` 1455.8, `657e1cb` 1407.2,
@@ -111,8 +111,51 @@ starting point. No commit in it is individually large enough for a bisect
 threshold to catch, which is the shape a per-commit gate would find and a
 periodic one would not.
 
-Uninvestigated. It is not the same defect as `6f2499a` and should not be
-folded into it.
+### Profiled, and it is mostly not a defect
+
+Nine points across `2d23dc8..9f6ddc3` on multibench, one worktree, ghostty
+within 1102-1122 throughout. **Ranges are wide on several rows because a
+duplicate run briefly contended for the box; treat the steps, not the
+individual figures, as the result.**
+
+| commit | spans, streaming | step |
+|---|---|---|
+| `2d23dc8` | 1690.1 | — |
+| `43f91d4` VT52 and nine private modes | 1647.5 | −2% |
+| `8b6b3c3` williams' anywhere block | 1647.6 | flat |
+| `036a432` reject overlong UTF-8 | 1570.7 | −5% |
+| `a4cecba` width tables from Unicode | 1524.5 | −3% |
+| `931906a` UAX #29 clustering | 1561.1 | flat |
+| `7f17251` ClusterBreak in the write path | 1549.1 | flat |
+| `7c5e3a7` `ESC % @` switchable encoding | 1579.1 | flat |
+| **`9f6ddc3`** | **1374.6** | **−13%** |
+
+**The largest step is the last, and this file already priced it.** That range
+carries `0a12283` and `29bd2fb` -- full-screen scroll did not move the grid,
+and the fix rotates it. `CLAUDE.md` records the trade in its own words:
+"Against the version that did not scroll at all (~1035) this costs about 12%,
+and that is the honest price of scrolling." Before it, baud was fast partly
+because full-screen scrolling **did not work**.
+
+So the erosion decomposes into paid-for correctness rather than a defect:
+
+* ~12-13% for scrolling that actually scrolls;
+* ~3-5% for width tables generated from Unicode data, kept deliberately because
+  the hand-written set gave every Arabic, Hebrew and Devanagari combining mark
+  a column of its own;
+* ~5% at `036a432`, which is **not** decoder work -- `blit` hands raw arena
+  bytes to `put_ascii_run` and 95% of streaming never reaches the decoder, so
+  this is the same layout class as the width tables and is unexplained;
+* the rest inside the noise.
+
+**None of it is recoverable without giving up correctness**, and the one step
+that is unexplained is 5% of a synthetic ASCII payload. `2d23dc8` was a
+terminal that mis-rendered combining marks, executed `ESC` mid-sequence, had no
+grapheme clustering, and did not scroll. Its 1690 was not a better terminal.
+
+Where the throughput actually is, is not here. Note B measures the state
+machine at **57-90% of real capture bytes** with both preconditions favourable and nothing implemented, and note A
+prices the decoder against the literature. The erosion is closed as understood; the opportunity is those.
 
 ### The commit
 

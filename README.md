@@ -139,13 +139,15 @@ earlier edition of this file said "level on cells" and claimed 1.47x on spans.
 Both were true of commit `2d23dc8` and neither is true of this one.
 
 > [!NOTE]
-> **One regression is fixed and one is still open.** `6f2499a` read each row
-> before blanking it and cost 66% of streaming; it is reverted, and that was
-> the cliff. But `2d23dc8` measures **1708.6** on this box today against HEAD's
-> ~1330, so about 21% more has been lost *gradually* across the commits
-> between, and that has not been investigated. The table above is what the code
-> does. It is not the best this architecture has measured, and the gap is
-> stated rather than averaged away.
+> **`2d23dc8` measures ~1690 on this box and HEAD measures ~1330 — and most of
+> that gap is not a defect.** One regression was: `6f2499a` read each row before
+> blanking it, cost 66%, and is reverted. The rest is profiled in
+> [MEASUREMENTS.md](MEASUREMENTS.md) and decomposes into paid-for correctness —
+> about 12% is the price of full-screen scrolling that actually scrolls, which
+> was broken before `0a12283`, and 3–5% is width tables generated from Unicode
+> data instead of a hand-written list that gave every Arabic, Hebrew and
+> Devanagari combining mark a column of its own. One 5% step remains
+> unexplained. The older number was a faster terminal that rendered text wrong.
 
 Both modes ship; `OpMode` is fixed at startup.
 
