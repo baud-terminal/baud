@@ -265,6 +265,10 @@ fn every_test_named_in_the_docs_exists() {
             "wezterm's config option, cited in note G's comparison",
         ),
         (
+            "_vte_row_data_get",
+            "VTE's C accessor, quoted in note F where it returns NULL past the              row's stored length",
+        ),
+        (
             "_mm256_movemask_epi8",
             "an x86 intrinsic, named where CI checks the binary for its              instruction rather than trusting the AVX2 property's output match",
         ),
