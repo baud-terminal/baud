@@ -61,6 +61,36 @@ impl<'a> Term<'a> {
         // every line of output past the last row -- and no test looked at what
         // it left on the screen, because every other test in `scrolling.rs`
         // sets a region and takes the copying path.
+        // **The alternate screen gets the rotation without the ring.** The two
+        // halves of the primary's fast path are separable: `head` is the
+        // scrollback and `rot` is the addressing, and the alternate screen
+        // wants only the second. Excluding it from the whole branch was
+        // collateral -- the ring advance is meaningless there, and the rotation
+        // went with it.
+        //
+        // It is *simpler* than the primary's, not a copy. `blit` treats the
+        // alternate screen as always promoted, so text there never reaches the
+        // run table: there is no `nrun` to zero and no `promoted` to re-derive,
+        // only cells and the index that addresses them.
+        //
+        // What it cost to leave out: `less-pager.raw` is 638 newlines in the
+        // alternate screen and measured **213x** cell amplification against
+        // rule #1's <= 1, because each of those copied 49 rows of 200 cells.
+        // `cat-scroll.raw` does the same thing on the primary at 6.1x.
+        if top == 0 && bot == last && self.screen == Screen::Alternate {
+            for _ in 0..k {
+                self.alt_rot = self.alt_rot.advance(1, self.rows);
+                // Counted exactly as the primary's path counts it. A fast path
+                // that stops feeding the counters reports an improvement it did
+                // not make -- "instrumentation outlived what fed it" is already
+                // in this repo's history, and it hid the style-hash bug for as
+                // long as it was printing garbage.
+                self.fill_row_counted(Row::from_index(last), blank);
+                self.cells_scroll.add(self.cols.index());
+                self.scrolls.inc();
+            }
+            return;
+        }
         if top == 0 && bot == last && self.screen == Screen::Normal {
             for _ in 0..k {
                 self.head = self.head.advance(SB);

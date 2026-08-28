@@ -488,3 +488,99 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
         );
     }
 }
+
+/// **The same script, in the alternate screen.**
+///
+/// This file had no alternate-screen scroll test at all, which is precisely the
+/// gap that hid the original full-screen bug: `CLAUDE.md` records that every
+/// test here "sets a region with DECSTBM first, which takes the copying path,
+/// so the most common scroll there is had no content test at all". The
+/// alternate screen is the same hole one screen over -- and it is where every
+/// full-screen application lives, so it is the screen a pager, an editor or a
+/// TUI actually scrolls on.
+///
+/// Written *before* the alternate screen gets a rotation fast path, and green
+/// on the copying path, so that a green result afterwards is evidence about the
+/// rotation rather than about the test.
+///
+/// `OpMode::Computed`, not `Runs`: in `Runs` a viewport reports representation
+/// and not rendered content, which is the harness trap `CLAUDE.md` names.
+#[test]
+fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
+    const ROWS: usize = 50;
+    let mut m = Model::new(ROWS);
+    // `?1049 h` first: everything after it happens on the alternate buffer,
+    // and entering it clears the screen, so the markers must be written after.
+    let mut b: Vec<u8> = b"\x1b[?1049h".to_vec();
+
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        let text = format!("row{y:02}");
+        b.extend_from_slice(text.as_bytes());
+        m.rows[y] = text;
+    }
+
+    // Plain `LF` at the last row is the case the recording is full of -- 638 of
+    // them in `less-pager.raw` -- and the one no test reached. It scrolls the
+    // full screen with no region set, which is the branch a fast path takes.
+    let script: &[(&str, fn(&mut Model))] = &[
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        // `RI` at the top row scrolls the other way.
+        ("\x1b[1;1H", |m| m.cy = 0),
+        ("\x1bM", |m| m.down(1)),
+        ("\x1bM", |m| m.down(1)),
+        // Then the region operations, to prove the fast path and the copying
+        // path agree with each other inside one session.
+        ("\x1b[5;40r", |m| {
+            m.top = 4;
+            m.bot = 39;
+            m.cy = 4;
+        }),
+        ("\x1b[10;1H", |m| m.cy = 9),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[2M", |m| m.delete(2)),
+        ("\x1b[4S", |m| m.up(4)),
+        ("\x1b[2T", |m| m.down(2)),
+        // Back to the full screen, then more plain newlines: a fast path that
+        // is only correct from a clean start would pass without this.
+        ("\x1b[1;50r", |m| {
+            m.top = 0;
+            m.bot = 49;
+            m.cy = 0;
+        }),
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        ("\x1b[20;1H", |m| m.cy = 19),
+        ("\x1b[6M", |m| m.delete(6)),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+    ];
+    for (bytes, apply) in script {
+        b.extend_from_slice(bytes.as_bytes());
+        apply(&mut m);
+    }
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, want) in m.rows.iter().enumerate() {
+        let got: String = rows[y]
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            &got, want,
+            "alternate screen, row {y} after the script: baud has {got:?}, \
+             the model says {want:?}"
+        );
+    }
+}

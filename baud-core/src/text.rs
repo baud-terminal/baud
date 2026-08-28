@@ -9,7 +9,7 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub(crate) fn view(&mut self) -> View<'_> {
         let alt = self.screen == Screen::Alternate;
-        let rot = if alt { RowRot::NONE } else { self.rot };
+        let rot = self.active_rot();
         View::new(
             if alt { &mut self.s.alt } else { &mut self.s.vp },
             Cols::from_stride(MAX_COLS),
@@ -124,6 +124,12 @@ impl<'a> Term<'a> {
         // Read before the split borrow below: `charset()` reads `self.g`, and
         // the destructuring holds `self.s` mutably.
         let set = self.charset();
+        // Same reason as `charset` above: `active_rot` takes `&self`, and the
+        // destructuring below holds `self.s` mutably. **It is read here rather
+        // than spelled inline so the buffer choice and the rotation come from
+        // one decision** -- picking `s.alt` while reading the primary's
+        // rotation compiles and displaces every row.
+        let rot = self.active_rot();
         let (arena, vp) = (
             &self.s.arena,
             if self.screen == Screen::Alternate {
@@ -133,11 +139,6 @@ impl<'a> Term<'a> {
             },
         );
         let fl = self.flags;
-        let rot = if self.screen == Screen::Alternate {
-            RowRot::NONE
-        } else {
-            self.rot
-        };
         self.cells_written.add(room.index());
         #[cfg(feature = "instrument")]
         self.cells_bulk.add(room.index());

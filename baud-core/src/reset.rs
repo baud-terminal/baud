@@ -69,7 +69,7 @@ impl<'a> Term<'a> {
         // rotation has nothing left to describe. RIS cannot panic the way a
         // shrink can -- it does not change `rows`, so `rot` stays in range --
         // but leaving it set means a cleared grid still claims to be rotated.
-        self.rot = RowRot::NONE;
+        self.clear_rotations();
         self.clear_screen();
     }
 }

@@ -68,6 +68,13 @@ impl<'a> Term<'a> {
                     self.alt_saved =
                         Some((self.cy, self.cx, self.style, self.style_raw, self.flags));
                     self.screen = Screen::Alternate;
+                    // The buffer is about to be cleared, so a rotation left
+                    // over from the last time this application was in the
+                    // alternate screen has nothing to describe. Blanks rotate
+                    // to blanks, so this is tidiness rather than a fix -- but
+                    // an invariant that holds only by accident is one the next
+                    // change breaks.
+                    self.alt_rot = RowRot::NONE;
                     self.clear_screen();
                     self.cx = Col::ZERO;
                     self.cy = Row::ZERO;

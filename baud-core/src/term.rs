@@ -428,7 +428,20 @@ pub struct Term<'a> {
     /// unreachable for that reason rather than by decision.
     pub(crate) esc_inter2: Option<StreamByte>,
     /// How far the primary grid is rotated. See [`RowRot`].
+    ///
+    /// **Read it through [`Term::active_rot`], not directly.** There are two
+    /// buffers and two rotations, and the failure mode is not "a site forgot to
+    /// rotate" -- it is a site that picks `s.alt` and reads `self.rot`, which
+    /// compiles and displaces every row. `active_rot` is the one place that
+    /// pairs the choice with the buffer, the same argument `View::phys` already
+    /// won for the rotation itself.
     pub(crate) rot: RowRot,
+    /// How far the *alternate* grid is rotated.
+    ///
+    /// Separate from `rot` because the two buffers scroll independently: an
+    /// application enters the alternate screen, scrolls it for an hour, and the
+    /// primary underneath must come back exactly as it was.
+    pub(crate) alt_rot: RowRot,
     /// The last graphic character written, for REP.
     ///
     /// `[[source: ctlseqs]]`: "Repeat the preceding graphic character Ps
@@ -543,6 +556,7 @@ impl<'a> Term<'a> {
             esc_inter: None,
             esc_inter2: None,
             rot: RowRot::NONE,
+            alt_rot: RowRot::NONE,
             fb_not_csi: Stat::ZERO,
             fb_boundary: Stat::ZERO,
             fb_odd_param: Stat::ZERO,
@@ -730,7 +744,7 @@ impl<'a> Term<'a> {
         // Scroll a screenful, then make the window smaller: that is a
         // full-screen application and a user dragging a corner. The grid is
         // cleared here anyway, so there is nothing for a rotation to mean.
-        self.rot = RowRot::NONE;
+        self.clear_rotations();
         // **Both buffers, not just the one on screen.**
         //
         // Discarding the rotation is only sound if the buffer it described is
@@ -798,11 +812,19 @@ impl<'a> Term<'a> {
     ///
     /// `rotate_left` is in-place and allocation-free, which `no_std` requires.
     pub fn viewport(&mut self) -> &[PackedCell] {
-        if self.screen == Screen::Normal && self.rot != RowRot::NONE {
-            let n = self.rot.index() * self.stride().index();
+        // Both screens, each against its own rotation. The alternate buffer
+        // gained one when full-screen scrolling there stopped copying, and a
+        // `viewport` that only un-rotated the primary would hand a renderer
+        // the alternate screen's rows in ring order -- which is what a torn
+        // grid looks like.
+        if self.active_rot() != RowRot::NONE {
+            let n = self.active_rot().index() * self.stride().index();
             let len = self.rows.index() * self.stride().index();
-            self.s.vp[..len].rotate_left(n);
-            self.rot = RowRot::NONE;
+            match self.screen {
+                Screen::Normal => self.s.vp[..len].rotate_left(n),
+                Screen::Alternate => self.s.alt[..len].rotate_left(n),
+            }
+            self.set_active_rot(RowRot::NONE);
         }
         let b = if self.screen == Screen::Alternate {
             &self.s.alt
@@ -810,6 +832,40 @@ impl<'a> Term<'a> {
             &self.s.vp
         };
         RowBlock::leading(self.rows, self.stride()).of(b)
+    }
+
+    /// The rotation of the buffer that is currently on screen.
+    ///
+    /// **The single place that pairs a rotation with a buffer.** Every other
+    /// site picks `s.alt` or `s.vp` and asks this which rotation goes with it,
+    /// so the two cannot disagree. Before the alternate screen had a rotation
+    /// of its own these sites all spelled it `RowRot::NONE` inline, and adding
+    /// a second field without this would have given each of them an
+    /// independent chance to read the wrong one.
+    pub(crate) fn active_rot(&self) -> RowRot {
+        match self.screen {
+            Screen::Normal => self.rot,
+            Screen::Alternate => self.alt_rot,
+        }
+    }
+
+    pub(crate) fn set_active_rot(&mut self, r: RowRot) {
+        match self.screen {
+            Screen::Normal => self.rot = r,
+            Screen::Alternate => self.alt_rot = r,
+        }
+    }
+
+    /// Discard **both** rotations.
+    ///
+    /// For `resize` and RIS, which clear both buffers: a rotation describes a
+    /// buffer's contents, and a cleared buffer has none to describe. Doing only
+    /// the visible one is the bug `resize` already records for the primary --
+    /// resizing while on the alternate screen left the other holding rotated
+    /// content with its rotation back at zero.
+    pub(crate) fn clear_rotations(&mut self) {
+        self.rot = RowRot::NONE;
+        self.alt_rot = RowRot::NONE;
     }
 
     /// One row of the grid.
@@ -830,12 +886,7 @@ impl<'a> Term<'a> {
         } else {
             &self.s.vp
         };
-        let rot = if self.screen == Screen::Alternate {
-            RowRot::NONE
-        } else {
-            self.rot
-        };
-        View::new_ref(b, self.stride(), self.cols, self.rows, rot).row_slice(y)
+        View::new_ref(b, self.stride(), self.cols, self.rows, self.active_rot()).row_slice(y)
     }
 
     /// One row of the grid, or `None` if `y` is not on it.
