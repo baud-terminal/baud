@@ -608,6 +608,34 @@ group  = "C"
 # foot's, not as xterm's** -- it is one implementation's answer, and the same
 # file under a second key because the scope of a citation is the claim it
 # carries, not the bytes it lives in.
+# **The memory-system source group D was declared and empty.** Every claim this
+# repo has made about caches, write amplification and access patterns rested on
+# its own benchmark and on argument; the group existed in the legend above with
+# nothing in it. This is the first entry, and it went in because an inferred
+# mechanism -- "a full-line write avoids the fill a read forces" -- turned out
+# to be **wrong on this hardware**: Apple documents the L1D as write-allocate,
+# so the store allocates too. A measurement plus a plausible story is how this
+# file's other anomalies got their wrong first explanations.
+#
+# `external`, not `retrieved`: every page is stamped "Registered Developer Use
+# Only", so it must not be committed to a public repository. Read and hashed;
+# re-fetch from the url and check the sha256 to read it again. The GitHub copy
+# is a mirror of Apple's PDF and is cited as such -- Apple's own download at
+# developer.apple.com/download/apple-silicon-cpu-optimization-guide/ requires a
+# developer login, which is why the mirror is what carries a checkable hash.
+[sources.apple-cpu-guide]
+key    = "apple-cpu-guide"
+title  = "Apple Silicon CPU Optimization Guide, version 3.0"
+author = "Apple Inc."
+year   = 2024
+venue  = "Apple Developer"
+url    = "https://github.com/hyf6661669/ARM_documents/raw/main/Apple%20Silicon%20CPU%20Optimization%20Guide,%203.0.pdf"
+file   = ""
+sha256 = "1943c55ce35a83569c5b59c3e27091d85a9fcfc20a34d440c1d4a4326589ca3d"
+bytes  = 2294990
+status = "external"
+group  = "D"
+
 [sources.foot-meta-defaults]
 key    = "foot-meta-defaults"
 title  = "foot 1.21.0, terminal.c -- meta.esc_prefix / meta.eight_bit defaults"

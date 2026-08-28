@@ -83,10 +83,95 @@ and resolves nothing — its variance swamps a 3× effect. Every increment since
 harness that could was only ever run when a number was being quoted. A gate
 that runs on demand is not a gate.
 
-The bisect is in progress. What is already ruled out: **it is not the input
-work.** `fd8ad9a` and `cb9078e` measure the same (546.0 / 578.4 spans, ranges
-overlapping), so the regression is older than the encoder, and the mode-bitset
-widening from `u16` to `u32` cost nothing.
+### The commit
+
+`6f2499a`, "Bound scroll blanking to what the row held". The bisect is a clean
+cliff rather than a staged decline, which is worth stating because a staged one
+would mean naming a single commit was wrong:
+
+| commit | spans, streaming |
+|---|---|
+| `9f6ddc3` | 1455.8 |
+| `657e1cb` | 1407.2 |
+| `886ce9e` | 1382.6 |
+| `ac0ed98` — parent | 1368.2 |
+| **`6f2499a`** | **558.4** |
+| `56240a4` | 532.9 |
+
+Confirmed against its parent, interleaved, three pairs in one session:
+
+| pair | `ac0ed98` | `6f2499a` | ghostty — *control* |
+|---|---|---|---|
+| 1 | 1412.5 [875.8–1424.6] | 573.9 [420.0–575.4] | 1149.6 / 1129.2 |
+| 2 | 1361.9 [1346.7–1386.3] | 562.4 [423.0–566.9] | 1125.5 / 1123.6 |
+| 3 | 1361.0 [753.0–1390.6] | 559.7 [514.8–568.0] | 1126.1 / 1129.3 |
+
+### The fix, and what the arms rule out
+
+Three variants of `fill_row_counted`, interleaved, three rounds each, rebuilt
+between every arm. ghostty stayed within 1105.5-1136.2 across all nine runs.
+
+| arm | spans, streaming | cells, computed |
+|---|---|---|
+| **head** — scan, shortened write, two `View` borrows | 520.2 / 568.8 / 567.1 | 549.7 / 576.7 / 576.8 |
+| **C2** — same, but scan and fill share one borrow | 559.5 / 530.4 / 537.3 | 576.6 / 551.7 / 564.9 |
+| **C1** — no scan, unconditional full-row write | **1334.0 / 1387.9 / 1402.4** | **920.9 / 945.9 / 946.6** |
+
+**C2 refutes the obvious explanation.** The tempting story was the `blit`
+failure this repo already records — a `View` helper rebuilt inside a loop,
+since `Term::row` constructs a four-field borrow and `view()` then constructs a
+second. Hoisting them into one borrow moved nothing: C2 tracks head in every
+round. It was also a weak story on its arithmetic, `blit`'s being per *cell*
+and this per *row blank*, roughly 1/200th the frequency.
+
+So the cost is in the scan-and-shorten itself, and C1 is the fix.
+
+**Which half of it, though, is still open**, and the two readings sound absurd
+in opposite directions:
+
+* the **read** costs — a backwards `rposition` over 1600 bytes per scroll,
+  against a prefetcher that streams forwards; or
+* the **shortened write** costs — writing `n` cells instead of the full row.
+
+The second is not the strawman it looks like. `CLAUDE.md` already records a
+measurement pointing that way: a variant that skipped blanking *entirely*,
+strictly less work, measured 142-150 against 213-229. Writing less was slower
+there too, and that anomaly is still unexplained.
+
+`C3` (forward scan, shortened write) and `C4` (backwards scan, full write)
+separate them. Until those land this stays recorded as two candidates rather
+than resolved, because this file already carries two anomalies named by
+measurement and does not need a third named by intuition.
+
+**`0e7cb84` is reverted by association, not separately measured.** It added the
+same `rposition` pattern to `fill_counted`, the `EL`/`ED` erase paths, after
+the bisect boundary. C1 reverts both functions, so the erase-path scan's own
+cost is untested.
+
+**The mechanism is not isolated, and two candidates changed together.**
+`fill_row_counted` and `fill_counted` both gained a backwards `rposition` scan
+of the row before every blank, reached through `Term::row` — which builds a
+four-field `View` borrow with bounds checks, after which `view()` builds a
+second one to do the fill. So the diff added *both* a reversed 200-cell read
+per scroll and a doubled view construction, and either could dominate.
+
+The tempting story is that this is the `blit` failure this repo already
+records — a view helper rebuilt inside a loop. It is a weak story on its own:
+`blit`'s was per *cell* and this is per *row blank*, roughly 1/200th the
+frequency. The reversed access direction over 200 cells per scroll is the more
+plausible dominant term. Naming one without separating them would make this the
+third open anomaly in this repo recorded as a confident guess.
+
+**What the commit's own message says is the useful part.** It reported
+"baseline medians 185/203/214 against 226/214/227, higher in all three rounds,
+but the ranges overlap. By this repo's rule that is not a result" — correct
+reasoning applied to the wrong instrument. Those are `baud-bench` numbers, and
+`baud-bench` reports ~230 MB/s for two commits that differ by 2.5× here. The
+change looked free because the only harness pointed at it could not see it.
+
+Also ruled out: **it is not the input work.** `fd8ad9a` and `cb9078e` measure
+the same (546.0 / 578.4 spans, ranges overlapping), so the regression predates
+the encoder, and the mode-bitset widening from `u16` to `u32` cost nothing.
 
 **What this does and does not say.**
 
