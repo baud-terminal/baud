@@ -1,3 +1,10 @@
+#![deny(dead_code)]
+// A test whose `#[test]` is lost still compiles, still satisfies
+// `every_test_named_in_the_docs_exists` -- which looks for `fn <name>`, not for
+// the attribute -- and silently stops running. That happened to
+// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, whose
+// assertion was wrong for two commits without anyone finding out. The
+// compiler's own dead-code analysis is the check that catches it.
 //! Rule #1, as a test rather than a sentence.
 //!
 //! `README.md` opens by saying every result here is predicted by two
@@ -144,6 +151,7 @@ fn materialising_a_cell_costs_eight_bytes_per_ascii_byte() {
 /// decision not to take it. **Do not re-implement the scan without a
 /// multibench A/B** -- `baud-bench` reports ~230 MB/s for both variants and
 /// cannot see this at all, which is exactly how it shipped.
+#[test]
 fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Runs);
@@ -163,12 +171,18 @@ fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
         i += n;
     }
 
-    // 20,000 scrolls plus the startup clear, 200 columns each. The bounded
-    // version made this 10_000 -- one screen -- and that is the number this
-    // test asserted until the four arms above priced it.
+    // 20,001 rows of 200 columns, and the arithmetic is worth writing out
+    // because guessing it is how this assertion was wrong:
+    //
+    //   * 50 rows for the startup clear;
+    //   * 19,951 scrolls -- the first 49 newlines fill a 50-row screen without
+    //     scrolling, so 20,000 - 49 of them scroll and each blanks one row.
+    //
+    // The bounded version made this 10_000 -- one screen -- and that is what
+    // this test asserted until the four arms in the doc comment priced it.
     assert_eq!(
         t.cells_blanked.count(),
-        (20_000 + 50) * 200,
+        20_001 * 200,
         "every scroll blanks its full incoming row, including in Runs mode \
          where the cells were never written -- the read needed to avoid it \
          costs more than the writes it saves"

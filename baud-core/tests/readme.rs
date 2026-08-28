@@ -1,3 +1,10 @@
+#![deny(dead_code)]
+// A test whose `#[test]` is lost still compiles, still satisfies
+// `every_test_named_in_the_docs_exists` -- which looks for `fn <name>`, not for
+// the attribute -- and silently stops running. That happened to
+// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, whose
+// assertion was wrong for two commits without anyone finding out. The
+// compiler's own dead-code analysis is the check that catches it.
 //! The README's Rust example is the example file, not a copy of it.
 //!
 //! A usage snippet that does not compile is the same class of false claim as a

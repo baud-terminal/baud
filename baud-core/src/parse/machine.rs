@@ -195,12 +195,14 @@ impl<'a> Term<'a> {
     #[inline(always)]
     /// The two Ground arms that ordinary text never reaches.
     ///
-    /// `#[cold]` and `#[inline(never)]` so they do not sit in `feed_with`'s
-    /// instruction stream: the scanner takes printable ASCII before the state
-    /// machine sees it, so the first arm is reached only when a byte is
-    /// *re-fed* after a failed decode, and the second only on malformed input.
+    /// `#[cold]` so it does not sit in `feed_with`'s instruction stream: the
+    /// scanner takes printable ASCII before the state machine sees it, so the
+    /// first arm is reached only when a byte is *re-fed* after a failed
+    /// decode, and the second only on malformed input.
+    ///
+    /// `#[cold]` alone -- adding `#[inline(never)]` beside it is an unused
+    /// attribute, because cold already implies it here.
     #[cold]
-    #[inline(never)]
     fn ground_uncommon(&mut self, b: StreamByte) {
         if b.is_printable_ascii() {
             // `[[source: unicode-ch3]]` § 3.9.5: a converter "must not consume

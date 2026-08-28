@@ -32,6 +32,8 @@ fn geometry() -> (Cols, Rows) {
 /// Three bytes per character and two columns per character, so a 200-column
 /// row is 100 characters and 300 bytes. Deliberately without SGR: mixing in
 /// escapes would measure the state machine again rather than the decoder.
+#[allow(dead_code)] // used by the `ingest` binary; `main.rs` compiles this
+// file separately and does not call it.
 pub fn cjk(cap: usize, _seq: &mut u64) -> Vec<u8> {
     // Common hanzi, all in U+4E00..U+9FFF -- three bytes in UTF-8, East Asian
     // Wide, so the width table and the cluster break both do real work.
