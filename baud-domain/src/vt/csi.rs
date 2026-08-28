@@ -96,6 +96,14 @@ pub struct Param(pub(crate) u16);
 
 impl Param {
     pub const ZERO: Param = Param(0);
+    /// The value, for an encoder that has to write it out.
+    ///
+    /// `u16` because that is what a parameter *is* -- `push` saturates at
+    /// 65535 -- and narrowing it here would silently truncate the very
+    /// saturation the parser is careful to produce.
+    pub fn value(self) -> u16 {
+        self.0
+    }
     pub fn push(self, d: Digit) -> Param {
         Param(self.0.saturating_mul(10).saturating_add(d.0 as u16))
     }

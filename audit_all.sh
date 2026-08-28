@@ -24,16 +24,38 @@ fail=0
 # Do not raise this number to make a change fit; the remaining eight have
 # nowhere to go.
 core=0
+sig=0
 for f in $(find baud-core/src -name '*.rs' | sort); do
-  n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
+  out=$(python3 impl_audit.py "$f")
+  n=$(echo "$out" | grep '^  total' | awk '{print $2}')
+  m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
   core=$((core + n))
-  [ "$n" -gt 0 ] && echo "  ..   $f: $n"
+  sig=$((sig + m))
+  [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
 if [ "$core" -gt 8 ]; then
   echo "  FAIL baud-core/src: $core raw-integer sites (limit 8)"
   fail=1
 else
   echo "  ok   baud-core/src: $core (limit 8)"
+fi
+
+# **A second gate, because the first could not see these.** The rule above
+# matched `usize` only, and only on `&mut self` methods, so it reported 0 for a
+# file carrying `final_byte: u8`, `param: u8`, `-> Option<u8>` and an
+# `app: bool`. Widening it found 13 more across baud-core that had never been
+# counted.
+#
+# 13 is a FLOOR TO DRIVE DOWN, not slack, and it is deliberately not folded
+# into the 8: that limit was calibrated against the narrower detector, and
+# raising it to fit a wider one is the move this repo's notes forbid. Every one
+# of the 13 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
+# for it. `key.rs` went from 8 to 0 by using them; the rest can too.
+if [ "$sig" -gt 13 ]; then
+  echo "  FAIL baud-core/src signatures: $sig raw-primitive params/returns (limit 13)"
+  fail=1
+else
+  echo "  ok   baud-core/src signatures: $sig (limit 13, a floor to drive down)"
 fi
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP

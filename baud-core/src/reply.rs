@@ -116,6 +116,28 @@ impl<'a> Term<'a> {
         self.emit(&tail[i..]);
     }
 
+    /// A CSI parameter in decimal.
+    ///
+    /// Separate from [`Term::emit_dec`] because a `Param` is a `u16` and that
+    /// takes a `u8`: `CSI 15 ~` fits either, `CSI 65535 ~` does not, and the
+    /// parser saturates at 65535 precisely so a reply can carry it back.
+    pub(crate) fn emit_param(&mut self, p: Param) {
+        const D: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 5];
+        let mut i = buf.len();
+        let mut n = p.value();
+        loop {
+            i -= 1;
+            buf[i] = D[usize::from(n % 10)];
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        let tail = buf;
+        self.emit(&tail[i..]);
+    }
+
     pub(crate) fn emit_dec(&mut self, v: u8) {
         const D: &[u8; 10] = b"0123456789";
         let mut buf = [0u8; 3];

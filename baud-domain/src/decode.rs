@@ -86,6 +86,13 @@ impl FinalByte {
     pub(crate) fn raw(self) -> u8 {
         self.0
     }
+    /// The byte, for an encoder that has to write it out.
+    ///
+    /// A `StreamByte` rather than a `u8`: it is going back onto the wire, and
+    /// that is the type for a byte on the wire.
+    pub fn byte(self) -> StreamByte {
+        StreamByte(self.0)
+    }
 }
 
 impl StreamByte {

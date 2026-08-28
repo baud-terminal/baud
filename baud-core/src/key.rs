@@ -1,5 +1,10 @@
 use crate::*;
 
+/// `ESC`. VT52's introducer is the bare escape, which is not a C1 control and
+/// so does not come from `self.c1` -- `S8C1T` cannot move it, because a VT52
+/// has no 8-bit forms to move it to.
+const ESC: u8 = 0x1b;
+
 impl<'a> Term<'a> {
     /// Encode a key press into the reply buffer.
     ///
@@ -31,22 +36,34 @@ impl<'a> Term<'a> {
             return self.vt52_key(e.code, e.mods);
         }
         match e.code {
-            KeyCode::Up => self.cursor_key(b'A', e.mods),
-            KeyCode::Down => self.cursor_key(b'B', e.mods),
-            KeyCode::Right => self.cursor_key(b'C', e.mods),
-            KeyCode::Left => self.cursor_key(b'D', e.mods),
-            // `[[source: ctlseqs]]` line 2485 puts Home and End in the same
-            // table as the arrows, with the same normal/application split.
-            // PC-style, which is xterm's default. `[[source: ctlseqs]]` line
-            // 2672 also gives VT220 forms -- `CSI 1 ~` and `CSI 4 ~` -- and
-            // those are an *alternative*, reached through `sunKeyboard`, not an
-            // addition. Sending both would be sending two different keys.
-            KeyCode::Home => self.cursor_key(b'H', e.mods),
-            KeyCode::End => self.cursor_key(b'F', e.mods),
-            KeyCode::Insert => self.tilde_key(2, e.mods),
-            KeyCode::Delete => self.tilde_key(3, e.mods),
-            KeyCode::PageUp => self.tilde_key(5, e.mods),
-            KeyCode::PageDown => self.tilde_key(6, e.mods),
+            // The arrows plus Home and End: `[[source: ctlseqs]]` line 2485
+            // puts the latter in the arrows' table and calls them cursor keys,
+            // so DECCKM governs all six. The finals live on `KeyCode` with the
+            // table they came from.
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Right
+            | KeyCode::Left
+            | KeyCode::Home
+            | KeyCode::End => match e.code.cursor_final() {
+                Some(f) => self.cursor_key(f, e.mods),
+                None => return false,
+            },
+            // The editing keypad. Unlike the cursor keys these do not change
+            // with DECCKM -- `[[source: ctlseqs]]` line 2672 gives the same
+            // sequence in both columns -- and their parameters live on
+            // `KeyCode::tilde_param` with that table.
+            //
+            // Home and End are sent PC-style above, from line 2485. Line 2672
+            // also gives VT220 forms, `CSI 1 ~` and `CSI 4 ~`, and those are an
+            // *alternative* reached through `sunKeyboard` rather than an
+            // addition: sending both would be sending two different keys.
+            KeyCode::Insert | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown => {
+                match e.code.tilde_param() {
+                    Some(p) => self.tilde_key(p, e.mods),
+                    None => return false,
+                }
+            }
             KeyCode::Function(f) => self.function_key(f, e.mods),
             KeyCode::Keypad(k) => return self.keypad_key(k, e.mods),
             KeyCode::Char(cp) => return self.text_key(cp, e.mods),
@@ -100,10 +117,14 @@ impl<'a> Term<'a> {
     /// encodes.
     fn vt52_key(&mut self, code: KeyCode, mods: Modifiers) -> bool {
         match code {
-            KeyCode::Up => self.vt52_esc(b'A'),
-            KeyCode::Down => self.vt52_esc(b'B'),
-            KeyCode::Right => self.vt52_esc(b'C'),
-            KeyCode::Left => self.vt52_esc(b'D'),
+            // The same four finals the ANSI side sends, under VT52's own
+            // introducer. `cursor_final` carries them with their table.
+            KeyCode::Up | KeyCode::Down | KeyCode::Right | KeyCode::Left => {
+                match code.cursor_final() {
+                    Some(f) => self.vt52_esc(f),
+                    None => return false,
+                }
+            }
             KeyCode::Keypad(k) => return self.vt52_keypad(k),
             // The text keys are the keyboard, not the emulation.
             KeyCode::Char(cp) => return self.text_key(cp, mods),
@@ -126,21 +147,18 @@ impl<'a> Term<'a> {
     }
 
     /// `ESC <final>`, the VT52 cursor keys.
-    fn vt52_esc(&mut self, final_byte: u8) {
-        self.emit(&[0x1b, final_byte]);
+    fn vt52_esc(&mut self, final_byte: FinalByte) {
+        self.emit(&[ESC]);
+        self.emit_byte(final_byte.byte());
     }
 
     /// The VT52 keypad, `[[source: ctlseqs]]` line 2713.
     fn vt52_keypad(&mut self, k: KeypadKey) -> bool {
         // `ESC P`-`ESC S` in both columns, so the mode is not consulted.
-        if let Some(n) = match k {
-            KeypadKey::Pf1 => Some(0u8),
-            KeypadKey::Pf2 => Some(1),
-            KeypadKey::Pf3 => Some(2),
-            KeypadKey::Pf4 => Some(3),
-            _ => None,
-        } {
-            self.emit(&[0x1b, b'P' + n]);
+        // `ESC P`-`ESC S` in both columns, so the mode is not consulted.
+        // Same four finals as the ANSI side's `SS3 P`-`SS3 S`.
+        if let Some(f) = k.pf().and_then(FnKey::ss3_final) {
+            self.vt52_esc(f);
             return true;
         }
         if self.keypad() == KeypadMode::Numeric {
@@ -152,9 +170,9 @@ impl<'a> Term<'a> {
                     }
                     true
                 }
-                _ => match Self::keypad_numeric(k) {
+                _ => match k.numeric() {
                     Some(b) => {
-                        self.emit(&[b]);
+                        self.emit_byte(b);
                         true
                     }
                     None => false,
@@ -164,40 +182,14 @@ impl<'a> Term<'a> {
         // `ESC ? <final>`. The finals are the VT220 table's, not the PC one's:
         // `2` is `ESC ? r`, where the ANSI PC keypad sends `CSI B`. A VT52
         // keypad has no cursor duties to borrow.
-        match Self::vt52_keypad_final(k) {
-            Some(f) => {
-                self.emit(&[0x1b, b'?', f]);
+        match k.vt52_byte() {
+            Some(b) => {
+                self.emit(&[ESC, b'?']);
+                self.emit_byte(b);
                 true
             }
             None => false,
         }
-    }
-
-    /// The application-column finals at line 2713.
-    fn vt52_keypad_final(k: KeypadKey) -> Option<u8> {
-        Some(match k {
-            KeypadKey::Space => b' ',
-            KeypadKey::Tab => b'I',
-            KeypadKey::Enter => b'M',
-            KeypadKey::Multiply => b'j',
-            KeypadKey::Add => b'k',
-            KeypadKey::Comma => b'l',
-            KeypadKey::Minus => b'm',
-            KeypadKey::Period => b'n',
-            KeypadKey::Divide => b'o',
-            KeypadKey::Digit0 => b'p',
-            KeypadKey::Digit1 => b'q',
-            KeypadKey::Digit2 => b'r',
-            KeypadKey::Digit3 => b's',
-            KeypadKey::Digit4 => b't',
-            KeypadKey::Digit5 => b'u',
-            KeypadKey::Digit6 => b'v',
-            KeypadKey::Digit7 => b'w',
-            KeypadKey::Digit8 => b'x',
-            KeypadKey::Digit9 => b'y',
-            KeypadKey::Equal => b'X',
-            KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => return None,
-        })
     }
 
     /// The keypad, `[[source: ctlseqs]]` line 2498.
@@ -220,173 +212,68 @@ impl<'a> Term<'a> {
     /// would be wrong in eight rows and wrong in a way each application would
     /// interpret as a different keystroke rather than as an error.
     fn keypad_key(&mut self, k: KeypadKey, mods: Modifiers) -> bool {
+        // `PF1`-`PF4` are `SS3 P`-`SS3 S` in **both** columns: the only rows
+        // the mode does not change. They are the same four sequences F1-F4
+        // send, so they take the same path and the `SS3` -> `CSI 1 ; mod`
+        // switch under a modifier is written once.
+        if let Some(f) = k.pf() {
+            self.function_key(f, mods);
+            return true;
+        }
         if self.keypad() == KeypadMode::Numeric {
             // Enter is the one row whose numeric form is not its label: `CR`,
             // and LNM governs it exactly as it governs the main Return.
-            return match k {
-                KeypadKey::Enter => {
-                    self.emit(&[0x0d]);
-                    if self.modes.is_set(ModeBit::LineFeedNewLine) {
-                        self.emit(&[0x0a]);
-                    }
-                    true
-                }
-                // `PF1`-`PF4` are `SS3 P`-`SS3 S` in **both** columns. They
-                // are the only rows the mode does not change.
-                KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => {
-                    self.keypad_pf(k, mods)
-                }
-                _ => match Self::keypad_numeric(k) {
-                    Some(b) => {
-                        self.emit(&[b]);
-                        true
-                    }
-                    None => false,
-                },
-            };
-        }
-        match k {
-            KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => {
-                self.keypad_pf(k, mods)
+            if k == KeypadKey::Enter {
+                self.emit_return();
+                return true;
             }
-            // The rows that are cursor keys in disguise -- and whose
-            // introducer is **fixed by the table**, not by DECCKM. The arrows
-            // and Begin are `CSI`; End and Home are `SS3`. That is not a
-            // pattern, it is four rows one way and two the other, which is
-            // why each names its own.
-            //
-            // `CSI E` is CNL as an *output* operation and Begin as an input
-            // one. Different directions, so not a conflict.
-            KeypadKey::Digit2 => {
-                self.cursor_shaped(b'B', mods, false);
-                true
-            }
-            KeypadKey::Digit4 => {
-                self.cursor_shaped(b'D', mods, false);
-                true
-            }
-            KeypadKey::Digit6 => {
-                self.cursor_shaped(b'C', mods, false);
-                true
-            }
-            KeypadKey::Digit8 => {
-                self.cursor_shaped(b'A', mods, false);
-                true
-            }
-            KeypadKey::Digit5 => {
-                self.cursor_shaped(b'E', mods, false);
-                true
-            }
-            KeypadKey::Digit1 => {
-                self.cursor_shaped(b'F', mods, true);
-                true
-            }
-            KeypadKey::Digit7 => {
-                self.cursor_shaped(b'H', mods, true);
-                true
-            }
-            // The editing-keypad rows: same parameters as the standalone keys.
-            KeypadKey::Digit0 => {
-                self.tilde_key(2, mods);
-                true
-            }
-            KeypadKey::Period => {
-                self.tilde_key(3, mods);
-                true
-            }
-            KeypadKey::Digit9 => {
-                self.tilde_key(5, mods);
-                true
-            }
-            KeypadKey::Digit3 => {
-                self.tilde_key(6, mods);
-                true
-            }
-            // Everything else is `SS3 <final>`.
-            //
-            // **No modifier form, and none is invented.** ctlseqs gives the
-            // `CSI 1 ; mod` shape for the cursor and function keys and gives
-            // nothing for these, so a modified `SS3 j` would be a sequence
-            // baud made up. Sending the unmodified form is what a terminal
-            // does; sending an invented one is answering with the wrong shape.
-            _ => match Self::keypad_application_final(k) {
-                Some(f) => {
-                    let ss3 = self.c1.ss3();
-                    self.emit(ss3);
-                    self.emit(&[f]);
+            return match k.numeric() {
+                Some(b) => {
+                    self.emit_byte(b);
                     true
                 }
                 None => false,
-            },
+            };
         }
-    }
-
-    /// `SS3 P`-`SS3 S`, identical in both keypad modes.
-    fn keypad_pf(&mut self, k: KeypadKey, mods: Modifiers) -> bool {
-        let n = match k {
-            KeypadKey::Pf1 => 1,
-            KeypadKey::Pf2 => 2,
-            KeypadKey::Pf3 => 3,
-            KeypadKey::Pf4 => 4,
-            _ => return false,
-        };
-        // Reuses the F1-F4 path, so the `SS3` -> `CSI 1 ; mod` switch under a
-        // modifier is written once. They are the same four sequences.
-        match FnKey::new(n) {
-            Some(f) => {
-                self.function_key(f, mods);
+        // The rows that are cursor keys in disguise, whose introducer is fixed
+        // by the table rather than by DECCKM.
+        if let Some((intro, f)) = k.cursor_shaped() {
+            self.cursor_shaped(intro, f, mods);
+            return true;
+        }
+        // The editing-keypad rows: same parameters as the standalone keys.
+        if let Some(p) = k.tilde_param() {
+            self.tilde_key(p, mods);
+            return true;
+        }
+        // Everything else is `SS3 <byte>`.
+        //
+        // **No modifier form, and none is invented.** ctlseqs gives the
+        // `CSI 1 ; mod` shape for the cursor and function keys and gives
+        // nothing for these, so a modified `SS3 j` would be a sequence baud
+        // made up. Sending the unmodified form is what a terminal does;
+        // sending an invented one is answering with the wrong shape.
+        match k.pc_application_byte() {
+            Some(b) => {
+                self.emit_introducer(Introducer::Ss3);
+                self.emit_byte(b);
                 true
             }
             None => false,
         }
     }
 
-    /// The numeric column: the literal character on the key.
-    fn keypad_numeric(k: KeypadKey) -> Option<u8> {
-        Some(match k {
-            KeypadKey::Space => b' ',
-            KeypadKey::Tab => 0x09,
-            KeypadKey::Multiply => b'*',
-            KeypadKey::Add => b'+',
-            KeypadKey::Comma => b',',
-            KeypadKey::Minus => b'-',
-            KeypadKey::Period => b'.',
-            KeypadKey::Divide => b'/',
-            KeypadKey::Digit0 => b'0',
-            KeypadKey::Digit1 => b'1',
-            KeypadKey::Digit2 => b'2',
-            KeypadKey::Digit3 => b'3',
-            KeypadKey::Digit4 => b'4',
-            KeypadKey::Digit5 => b'5',
-            KeypadKey::Digit6 => b'6',
-            KeypadKey::Digit7 => b'7',
-            KeypadKey::Digit8 => b'8',
-            KeypadKey::Digit9 => b'9',
-            KeypadKey::Equal => b'=',
-            KeypadKey::Enter
-            | KeypadKey::Pf1
-            | KeypadKey::Pf2
-            | KeypadKey::Pf3
-            | KeypadKey::Pf4 => {
-                return None;
-            }
-        })
-    }
-
-    /// The `SS3 <final>` rows of the application column.
-    fn keypad_application_final(k: KeypadKey) -> Option<u8> {
-        Some(match k {
-            KeypadKey::Space => b' ',
-            KeypadKey::Tab => b'I',
-            KeypadKey::Enter => b'M',
-            KeypadKey::Multiply => b'j',
-            KeypadKey::Add => b'k',
-            KeypadKey::Comma => b'l',
-            KeypadKey::Minus => b'm',
-            KeypadKey::Divide => b'o',
-            KeypadKey::Equal => b'X',
-            _ => return None,
-        })
+    /// `CR`, and `LF` too under LNM.
+    ///
+    /// `[[source: ctlseqs]]` makes the mode govern what LF *does* on output;
+    /// on input it is what Return sends, and the two are the same question
+    /// asked from either end. Shared by Return and the keypad's Enter, which
+    /// are different keys with the same answer.
+    fn emit_return(&mut self) {
+        self.emit(&[0x0d]);
+        if self.modes.is_set(ModeBit::LineFeedNewLine) {
+            self.emit(&[0x0a]);
+        }
     }
 
     /// A key that produces text.
@@ -480,65 +367,23 @@ impl<'a> Term<'a> {
         true
     }
 
-    /// The parameter each function key carries, from `[[source: ctlseqs]]`.
-    ///
-    /// **The gaps are the point.** F5-F12 are 15, 17, 18, 19, 20, 21, 23, 24 --
-    /// 16 and 22 are skipped -- and F13-F20 are 25, 26, 28, 29, 31, 32, 33, 34,
-    /// skipping 27 and 30. A table written from memory as "15 upward" is wrong
-    /// at F6 and wrong again at F11, and would send a neighbouring key rather
-    /// than a missing one. `function_keys_match_the_specifications_tables`
-    /// reads the tables at lines 2529 and 2685 and compares.
-    ///
-    /// F1-F4 are absent because they are not `~` keys at all: `SS3 P` through
-    /// `SS3 S`, handled below.
-    const FN_PARAM: [(u8, u8); 16] = [
-        (5, 15),
-        (6, 17),
-        (7, 18),
-        (8, 19),
-        (9, 20),
-        (10, 21),
-        (11, 23),
-        (12, 24),
-        (13, 25),
-        (14, 26),
-        (15, 28),
-        (16, 29),
-        (17, 31),
-        (18, 32),
-        (19, 33),
-        (20, 34),
-    ];
-
     /// `SS3 P` for F1-F4, `CSI n ~` for the rest.
     fn function_key(&mut self, f: FnKey, mods: Modifiers) {
         // F1-F4 share the cursor keys' shape: a single final byte after `SS3`,
-        // and `CSI 1 ; mod` when modified. That is the special case
-        // `[[source: ctlseqs]]` line 2564 spells out, and
-        // `FnKey::changes_introducer_when_modified` is the same rule.
-        if f.changes_introducer_when_modified() {
-            // **`SS3` unconditionally when unmodified -- DECCKM does not reach
-            // here.** Routing these through `cursor_key` was wrong and the
-            // specification's own table caught it: that function picks its
-            // introducer from `cursor_keys_application`, so F1 came out as
-            // `CSI P` in normal mode where line 2529 says `SS3 P` flatly.
-            // A cursor key is the only thing DECCKM governs.
-            let final_byte = b'P' + f.number() - 1;
-            if mods.is_none() {
-                let ss3 = self.c1.ss3();
-                self.emit(ss3);
-                self.emit(&[final_byte]);
-            } else {
-                let csi = self.c1.csi();
-                self.emit(csi);
-                self.emit(b"1;");
-                self.emit_dec(mods.wire());
-                self.emit(&[final_byte]);
-            }
+        // and `CSI 1 ; mod` when modified. **`SS3` unconditionally when
+        // unmodified -- DECCKM does not reach here.** Routing these through
+        // `cursor_key` was wrong and the specification's own table caught it:
+        // that function picks its introducer from `cursor_keys_application`,
+        // so F1 came out as `CSI P` in normal mode where line 2529 says
+        // `SS3 P` flatly. A cursor key is the only thing DECCKM governs.
+        if let Some(final_byte) = f.ss3_final() {
+            self.cursor_shaped(Introducer::Ss3, final_byte, mods);
             return;
         }
-        if let Some((_, p)) = Self::FN_PARAM.iter().find(|(n, _)| *n == f.number()) {
-            self.tilde_key(*p, mods);
+        // The gaps in the `~` parameters -- 16 and 22 skipped, then 27 and 30
+        // -- live on `FnKey::tilde_param`, with the tables they came from.
+        if let Some(p) = f.tilde_param() {
+            self.tilde_key(p, mods);
         }
     }
 
@@ -547,10 +392,9 @@ impl<'a> Term<'a> {
     /// The editing keys and F5 upward share this shape, and unlike the cursor
     /// keys they do not change with DECCKM -- `[[source: ctlseqs]]` line 2672
     /// gives the same sequence in both columns.
-    fn tilde_key(&mut self, param: u8, mods: Modifiers) {
-        let csi = self.c1.csi();
-        self.emit(csi);
-        self.emit_dec(param);
+    fn tilde_key(&mut self, param: Param, mods: Modifiers) {
+        self.emit_introducer(Introducer::Csi);
+        self.emit_param(param);
         if !mods.is_none() {
             self.emit(b";");
             self.emit_dec(mods.wire());
@@ -572,9 +416,12 @@ impl<'a> Term<'a> {
     ///   here: `SS3` takes no parameters, so there is nowhere to put the
     ///   modifier. An encoder that kept `SS3` would emit something no
     ///   application parses.
-    fn cursor_key(&mut self, final_byte: u8, mods: Modifiers) {
-        let app = self.cursor_keys_application();
-        self.cursor_shaped(final_byte, mods, app);
+    fn cursor_key(&mut self, final_byte: FinalByte, mods: Modifiers) {
+        let intro = match self.cursor_keys_application() {
+            true => Introducer::Ss3,
+            false => Introducer::Csi,
+        };
+        self.cursor_shaped(intro, final_byte, mods);
     }
 
     /// The same shape with the introducer supplied rather than read.
@@ -585,20 +432,34 @@ impl<'a> Term<'a> {
     /// says. Reading DECCKM here sent `CSI F` for a key the table spells
     /// `SS3 F`, which is the same mistake F1-F4 made before the
     /// specification's own table caught it.
-    fn cursor_shaped(&mut self, final_byte: u8, mods: Modifiers, app: bool) {
+    ///
+    /// The introducer is an [`Introducer`] and not a `bool` for exactly that
+    /// reason: the two call sites pick it by different rules, and a `bool`
+    /// records neither.
+    fn cursor_shaped(&mut self, intro: Introducer, final_byte: FinalByte, mods: Modifiers) {
         if mods.is_none() {
-            let intro = match app {
-                true => self.c1.ss3(),
-                false => self.c1.csi(),
-            };
-            self.emit(intro);
-            self.emit(&[final_byte]);
+            self.emit_introducer(intro);
+            self.emit_byte(final_byte.byte());
             return;
         }
-        let csi = self.c1.csi();
-        self.emit(csi);
+        // A modified key uses `CSI` even in application mode: `SS3` takes no
+        // parameters, so there is nowhere to put the modifier, and an encoder
+        // that kept it would emit something no application parses.
+        self.emit_introducer(Introducer::Csi);
         self.emit(b"1;");
         self.emit_dec(mods.wire());
-        self.emit(&[final_byte]);
+        self.emit_byte(final_byte.byte());
+    }
+
+    fn emit_introducer(&mut self, i: Introducer) {
+        let b = match i {
+            Introducer::Csi => self.c1.csi(),
+            Introducer::Ss3 => self.c1.ss3(),
+        };
+        self.emit(b);
+    }
+
+    fn emit_byte(&mut self, b: StreamByte) {
+        self.emit(&[b.raw_byte()]);
     }
 }
