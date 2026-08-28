@@ -4,10 +4,12 @@ What baud must **send**, enumerated against primary sources, in the same shape
 as `vt-coverage.md` does for what it receives.
 
 The base layer has started: `Term::key` encodes the cursor keys, Home/End, the
-editing keys, F1-F20, the text keys and the keypad, in both DECCKM and both
-DECKPAM modes, with modifiers and in both input encodings. The VT52 tables and
-the deprecated F1-F5 forms are still `todo`. That is a phase that has not
-started, not work left half-done: `vt-coverage.md`'s rule is that a row marked **done**
+editing keys, F1-F20, the text keys, the keypad and the VT52 tables, in both
+DECCKM and both DECKPAM modes, with modifiers and in both input encodings.
+**Every row of the base layer is now `done` or `out` with a reason.** What
+remains is the two negotiated layers -- `[[source: fixterms]]`'s `CSI u` and
+`[[source: kitty-keyboard]]`'s progressive enhancement -- which an application
+must ask for, and which no application receives by default: `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
 A `todo` row here has neither because it has no code.
 
@@ -44,9 +46,9 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 | 2628 | VT220 application keypad | 24 | out — the `sunKeyboard` alternative to 2498, not an addition. The two disagree on 11 rows (keypad `2` is `SS3 r` there and `CSI B` at 2498), so sending both would be sending two different keys. `the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends` asserts the disagreement rather than assuming it |
 | 2672 | VT220 cursor keys | 6 | **done** for Insert/Delete/PageUp/PageDown, which DECCKM does not change. Home and End are sent PC-style from the table at 2485 — the VT220 forms here are xterm's `sunKeyboard` alternative, not an addition, and sending both would be sending two different keys |
 | 2685 | the 8 additional VT220 function keys | 8 | **done** — `CSI 25/26/28/29/31/32/33/34 ~`, skipping 27 and 30 |
-| 2703 | VT52 keys, which do not change with mode | 4 | todo |
+| 2703 | VT52 keys, which do not change with mode | 4 | **done** — `ESC A`-`ESC D`, and DECCKM is asserted *not* to move them: it is an ANSI mode and a VT52 cannot be in one. `the_vt52_cursor_keys_match_the_specification_and_ignore_deccm` |
 | — | text keys: printable characters, Control folding, Backspace, Tab, Shift-Tab, Escape, Return | — | **done** — not a ctlseqs table, because ctlseqs tabulates what has no obvious encoding. `control_folds_a_character_into_its_control_code`, `latin1_input_is_encoded_as_latin1` |
-| 2713 | VT52 keypad | 24 | todo |
+| 2713 | VT52 keypad | 24 | **done** — `ESC ? <final>` in application mode, the literal character in numeric, `ESC P`-`ESC S` for PF1-PF4 in both. Its finals are the VT220 table's, not 2498's: keypad `2` is `ESC ? r` where the PC keypad sends `CSI B`, because a VT52 keypad has no cursor duties to borrow. `the_vt52_keypad_matches_the_specifications_table` |
 
 ## Modifiers
 
@@ -100,6 +102,7 @@ created the demand.
 | `?1036` / `?1039` | `meta_sends_escape`, `alt_sends_escape` | whether Meta/Alt prefix `ESC` |
 | `?1034` | `eight_bit_input` | whether Meta/Alt add 128, under ISO 8859-1 |
 | `ESC % @` / `ESC % G` | `input_encoding` | whether a typed character is sent as ISO 8859-1 or UTF-8 |
+| DECANM `?2` | `terminal_mode` | VT52: a different keyboard, not a different introducer. The keys a VT52 lacks send nothing |
 | DECKPAM / DECKPNM | `keypad` | keypad: `1` vs `SS3 F`. **Not DECCKM** — the keypad's application column is fixed per row, and routing it through the cursor keys' introducer sent `CSI F` for a key the table spells `SS3 F` |
 | `?2004` bracketed paste | `bracketed_paste` | wraps pasted text in `CSI 200 ~` / `CSI 201 ~` |
 | `?1000`-`?1003`, `?1006` | `mouse_tracking` | **done** — the only input baud already generates |

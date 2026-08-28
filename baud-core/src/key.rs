@@ -21,6 +21,15 @@ impl<'a> Term<'a> {
         if e.kind != KeyEventKind::Press {
             return false;
         }
+        // **VT52 is a different keyboard, not a different introducer.**
+        // `[[source: ctlseqs]]` line 2698: "A VT52 does not have function
+        // keys, but it does have a numeric keypad and cursor keys." So this
+        // is a separate table rather than a prefix substitution, and the keys
+        // a VT52 does not have send nothing -- inventing a form for Insert
+        // there would be answering with a shape no application asked for.
+        if self.terminal_mode() == TerminalMode::Vt52 {
+            return self.vt52_key(e.code, e.mods);
+        }
         match e.code {
             KeyCode::Up => self.cursor_key(b'A', e.mods),
             KeyCode::Down => self.cursor_key(b'B', e.mods),
@@ -69,6 +78,126 @@ impl<'a> Term<'a> {
             }
         }
         true
+    }
+
+    /// The VT52 keyboard: `[[source: ctlseqs]]` lines 2703 and 2713.
+    ///
+    /// Two tables and both are short. The cursor keys are `ESC A`-`ESC D` and
+    /// **do not change with mode** -- the specification says so in the same
+    /// sentence that introduces them, and DECCKM is an ANSI mode that a VT52
+    /// cannot be in. The keypad's application column is `ESC ? <final>`, which
+    /// is the one place in this encoder where the introducer is three bytes.
+    ///
+    /// `PF1`-`PF4` are `ESC P`-`ESC S` in both columns, the same four finals
+    /// the ANSI side spells `SS3 P`-`SS3 S`. That is the shape of the whole
+    /// difference: same finals, VT52's own introducers.
+    ///
+    /// **Modifiers are dropped rather than encoded.** ctlseqs gives no
+    /// modified form for any VT52 key, and there is nowhere to put one -- the
+    /// forms carry no parameters. Control still reaches the application
+    /// through [`Term::text_key`], because folding a character into its
+    /// control code is what the keyboard does rather than what the protocol
+    /// encodes.
+    fn vt52_key(&mut self, code: KeyCode, mods: Modifiers) -> bool {
+        match code {
+            KeyCode::Up => self.vt52_esc(b'A'),
+            KeyCode::Down => self.vt52_esc(b'B'),
+            KeyCode::Right => self.vt52_esc(b'C'),
+            KeyCode::Left => self.vt52_esc(b'D'),
+            KeyCode::Keypad(k) => return self.vt52_keypad(k),
+            // The text keys are the keyboard, not the emulation.
+            KeyCode::Char(cp) => return self.text_key(cp, mods),
+            KeyCode::Backspace => self.emit(&[0x7f]),
+            KeyCode::Escape => self.emit(&[0x1b]),
+            // No CBT on a VT52: `CSI Z` is an ANSI sequence, and Shift-Tab
+            // has no VT52 form, so Tab is HT whatever is held.
+            KeyCode::Tab => self.emit(&[0x09]),
+            KeyCode::Enter => {
+                self.emit(&[0x0d]);
+                if self.modes.is_set(ModeBit::LineFeedNewLine) {
+                    self.emit(&[0x0a]);
+                }
+            }
+            // Home, End, the editing keypad and the function keys. A VT52 has
+            // none of them and ctlseqs gives no form, so nothing is sent.
+            _ => return false,
+        }
+        true
+    }
+
+    /// `ESC <final>`, the VT52 cursor keys.
+    fn vt52_esc(&mut self, final_byte: u8) {
+        self.emit(&[0x1b, final_byte]);
+    }
+
+    /// The VT52 keypad, `[[source: ctlseqs]]` line 2713.
+    fn vt52_keypad(&mut self, k: KeypadKey) -> bool {
+        // `ESC P`-`ESC S` in both columns, so the mode is not consulted.
+        if let Some(n) = match k {
+            KeypadKey::Pf1 => Some(0u8),
+            KeypadKey::Pf2 => Some(1),
+            KeypadKey::Pf3 => Some(2),
+            KeypadKey::Pf4 => Some(3),
+            _ => None,
+        } {
+            self.emit(&[0x1b, b'P' + n]);
+            return true;
+        }
+        if self.keypad() == KeypadMode::Numeric {
+            return match k {
+                KeypadKey::Enter => {
+                    self.emit(&[0x0d]);
+                    if self.modes.is_set(ModeBit::LineFeedNewLine) {
+                        self.emit(&[0x0a]);
+                    }
+                    true
+                }
+                _ => match Self::keypad_numeric(k) {
+                    Some(b) => {
+                        self.emit(&[b]);
+                        true
+                    }
+                    None => false,
+                },
+            };
+        }
+        // `ESC ? <final>`. The finals are the VT220 table's, not the PC one's:
+        // `2` is `ESC ? r`, where the ANSI PC keypad sends `CSI B`. A VT52
+        // keypad has no cursor duties to borrow.
+        match Self::vt52_keypad_final(k) {
+            Some(f) => {
+                self.emit(&[0x1b, b'?', f]);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The application-column finals at line 2713.
+    fn vt52_keypad_final(k: KeypadKey) -> Option<u8> {
+        Some(match k {
+            KeypadKey::Space => b' ',
+            KeypadKey::Tab => b'I',
+            KeypadKey::Enter => b'M',
+            KeypadKey::Multiply => b'j',
+            KeypadKey::Add => b'k',
+            KeypadKey::Comma => b'l',
+            KeypadKey::Minus => b'm',
+            KeypadKey::Period => b'n',
+            KeypadKey::Divide => b'o',
+            KeypadKey::Digit0 => b'p',
+            KeypadKey::Digit1 => b'q',
+            KeypadKey::Digit2 => b'r',
+            KeypadKey::Digit3 => b's',
+            KeypadKey::Digit4 => b't',
+            KeypadKey::Digit5 => b'u',
+            KeypadKey::Digit6 => b'v',
+            KeypadKey::Digit7 => b'w',
+            KeypadKey::Digit8 => b'x',
+            KeypadKey::Digit9 => b'y',
+            KeypadKey::Equal => b'X',
+            KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => return None,
+        })
     }
 
     /// The keypad, `[[source: ctlseqs]]` line 2498.

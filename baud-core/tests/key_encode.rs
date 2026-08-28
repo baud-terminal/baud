@@ -81,6 +81,9 @@ fn spec_bytes(form: &str) -> Vec<u8> {
         match tok {
             "CSI" => out.extend_from_slice(b"\x1b["),
             "SS3" => out.extend_from_slice(b"\x1bO"),
+            // VT52 spells its introducers with a bare `ESC`, and without this
+            // arm the expectation for `ESC ? SP` was the three letters E, S, C.
+            "ESC" => out.push(0x1b),
             // The specification names three bytes rather than printing them,
             // and they appear *inside* a form: the keypad's Space is
             // `SS3 SP`, which is three bytes and not four.
@@ -721,4 +724,144 @@ fn the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends() {
         assert_ne!(keypad_press(k, true), spec_bytes(vt_app), "{name}");
     }
     assert_eq!(differ, 11, "the two tables disagree on 11 rows");
+}
+
+/// **The VT52 cursor keys, `[[source: ctlseqs]]` line 2703.**
+///
+/// `ESC A`-`ESC D`, and the specification says in the same breath that they
+/// "do not change" — DECCKM is an ANSI mode and a VT52 cannot be in one. So
+/// this asserts the mode is *ignored*, which is the part an encoder that
+/// reuses the ANSI path would get wrong.
+#[test]
+fn the_vt52_cursor_keys_match_the_specification_and_ignore_deccm() {
+    let src = ctlseqs();
+    // `seq_table_at`, not `table_at`: this table's single column is headed
+    // "Normal/Application" because the two modes agree, and a two-column
+    // reader sees one cell and stops. Zero rows and a passing loop is how a
+    // reader reports absence it invented -- hence the count assertion.
+    let rows = seq_table_at(&src, 2703);
+    assert_eq!(rows.len(), 4, "line 2703 has 4 rows");
+
+    for (name, form) in &rows {
+        let code = match name.split_whitespace().nth(1) {
+            Some("Up") => KeyCode::Up,
+            Some("Down") => KeyCode::Down,
+            Some("Right") => KeyCode::Right,
+            Some("Left") => KeyCode::Left,
+            _ => panic!("unexpected row {name:?}"),
+        };
+        let want = spec_bytes(form);
+        assert_eq!(vt52_press(code, false), want, "{name}");
+        assert_eq!(
+            vt52_press(code, true),
+            want,
+            "{name}: DECCKM must not move it"
+        );
+    }
+}
+
+/// **The VT52 keypad, `[[source: ctlseqs]]` line 2713.**
+///
+/// The application column is `ESC ? <final>` — the one place in this encoder
+/// where the introducer is three bytes — and its finals are the VT220 table's,
+/// not the PC one's: keypad `2` is `ESC ? r`, where the ANSI PC keypad sends
+/// `CSI B`. A VT52 keypad has no cursor duties to borrow.
+#[test]
+fn the_vt52_keypad_matches_the_specifications_table() {
+    let src = ctlseqs();
+    let rows = table_at(&src, 2713);
+    assert_eq!(rows.len(), 24, "line 2713 has 24 rows");
+
+    for (name, numeric, app) in &rows {
+        let Some(k) = keypad_of(name) else {
+            panic!("no KeypadKey for {name:?}");
+        };
+        assert_eq!(
+            vt52_keypad_press(k, false),
+            spec_bytes(numeric),
+            "{name}: numeric column"
+        );
+        assert_eq!(
+            vt52_keypad_press(k, true),
+            spec_bytes(app),
+            "{name}: application column"
+        );
+    }
+}
+
+/// **A VT52 has no function keys, and baud sends nothing for them.**
+///
+/// `[[source: ctlseqs]]` line 2698 says so flatly. Neither table gives a form
+/// for the function or editing keys, so an encoder that fell through to the
+/// ANSI path would send `CSI 15 ~` on a terminal whose parser cannot read a
+/// CSI at all — a sequence the application would then see as text.
+#[test]
+fn a_vt52_sends_nothing_for_keys_it_does_not_have() {
+    for code in [
+        KeyCode::Function(FnKey::new(1).unwrap()),
+        KeyCode::Function(FnKey::new(5).unwrap()),
+        KeyCode::Insert,
+        KeyCode::Delete,
+        KeyCode::PageUp,
+        KeyCode::PageDown,
+        KeyCode::Home,
+        KeyCode::End,
+    ] {
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        enter_vt52(&mut t);
+        assert!(!t.key(KeyEvent::press(code, Modifiers::NONE)), "{code:?}");
+        assert!(t.reply().is_empty(), "{code:?}");
+    }
+}
+
+/// Leaving VT52 restores the ANSI encoding, so the tables do not leak.
+#[test]
+fn leaving_vt52_restores_the_ansi_forms() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    enter_vt52(&mut t);
+    assert!(t.key(KeyEvent::press(KeyCode::Up, Modifiers::NONE)));
+    assert_eq!(t.reply(), b"\x1bA");
+    t.clear_reply();
+
+    // `ESC <` is the VT52 sequence that returns to ANSI.
+    feed(&mut t, b"\x1b<");
+    t.clear_reply();
+    assert_eq!(t.terminal_mode(), TerminalMode::Ansi);
+    assert!(t.key(KeyEvent::press(KeyCode::Up, Modifiers::NONE)));
+    assert_eq!(t.reply(), b"\x1b[A");
+}
+
+fn enter_vt52(t: &mut Term) {
+    feed(t, b"\x1b[?2l");
+    t.clear_reply();
+    assert_eq!(t.terminal_mode(), TerminalMode::Vt52);
+}
+
+fn vt52_press(code: KeyCode, deccm: bool) -> Vec<u8> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    if deccm {
+        // Set DECCKM *before* leaving ANSI, so the bit is genuinely on while
+        // the VT52 table is in use. Setting it after would be a no-op the
+        // test could not tell from the assertion passing.
+        feed(&mut t, b"\x1b[?1h");
+    }
+    enter_vt52(&mut t);
+    assert!(t.key(KeyEvent::press(code, Modifiers::NONE)));
+    t.reply().to_vec()
+}
+
+fn vt52_keypad_press(k: KeypadKey, app: bool) -> Vec<u8> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    enter_vt52(&mut t);
+    if app {
+        feed(&mut t, b"\x1b=");
+        t.clear_reply();
+        assert_eq!(t.keypad(), KeypadMode::Application);
+    }
+    assert!(t.key(KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE)));
+    t.reply().to_vec()
 }

@@ -112,23 +112,39 @@ fn materialising_a_cell_costs_eight_bytes_per_ascii_byte() {
     );
 }
 
-/// **Blanking is bounded by what the row actually held.**
+/// **Blanking writes the whole row, deliberately, and this is the measurement
+/// that says so.**
 ///
-/// `fill_row` used to write the full width whatever the row contained, so a
-/// payload of 60-column lines on a 200-column grid blanked 200 cells to store
-/// 60 characters. It now scans and writes only what differs from the blank.
+/// The obvious optimisation is to scan the row and blank only up to the last
+/// cell that differs from the blank: a payload of 60-column lines on a
+/// 200-column grid then writes 60 cells rather than 200, and in `OpMode::Runs`
+/// -- where text lives in the span table and never reaches the cells -- it
+/// writes *none*. Twenty thousand scrolled lines would blank one screen.
 ///
-/// Compared against the *blank*, not against `PackedCell::EMPTY`: the blank
-/// carries the current style, so a row that is already empty still needs
-/// writing when a background colour is set, and comparing against EMPTY would
-/// skip exactly that case.
+/// It was implemented, in `6f2499a`, and it **cost 66% of streaming
+/// throughput**. Four arms on `bench-others/multibench`, interleaved, ghostty
+/// flat at 1105-1136 throughout:
 ///
-/// In `OpMode::Runs` the effect is total rather than partial -- text lives in
-/// the span table and never reaches the cells, so after the startup clear the
-/// row already equals the blank and nothing is written at all. That is why the
-/// count below is one screen and not one per scroll.
-#[test]
-fn blanking_writes_only_what_the_row_held() {
+/// | arm | row read? | write | spans, streaming |
+/// |---|---|---|---|
+/// | backwards scan, shortened write | yes | short | 520.2 / 568.8 / 567.1 |
+/// | forwards scan, shortened write | yes | short | 582.7 / 572.6 / 561.1 |
+/// | backwards scan, **full-row** write | yes | full | 510.8 / 516.0 / 496.5 |
+/// | **no scan**, full-row write | no | full | **1334.0 / 1387.9 / 1402.4** |
+///
+/// The variable that tracks the result is whether the row is **read**, not
+/// what is written and not in which direction. `[[source: apple-cpu-guide]]`
+/// § 4.6.10 has a mechanism that fits -- a store closely followed by an
+/// overlapping load causes a memory ordering violation and the load is
+/// re-executed -- and `docs/research/notes/d-memory-hierarchy.md` records it
+/// as a candidate rather than a cause, because no counter has been read.
+///
+/// So the write reduction was real and unaffordable. `how_much_of_a_row_is_
+/// actually_used` above still measures the headroom; this test pins the
+/// decision not to take it. **Do not re-implement the scan without a
+/// multibench A/B** -- `baud-bench` reports ~230 MB/s for both variants and
+/// cannot see this at all, which is exactly how it shipped.
+fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Runs);
     let mut v = Vec::new();
@@ -147,12 +163,15 @@ fn blanking_writes_only_what_the_row_held() {
         i += n;
     }
 
+    // 20,000 scrolls plus the startup clear, 200 columns each. The bounded
+    // version made this 10_000 -- one screen -- and that is the number this
+    // test asserted until the four arms above priced it.
     assert_eq!(
         t.cells_blanked.count(),
-        10_000,
-        "twenty thousand scrolled lines should blank one screen -- the startup \
-         clear -- and nothing after it, because in Runs mode the cells were \
-         never written to begin with"
+        (20_000 + 50) * 200,
+        "every scroll blanks its full incoming row, including in Runs mode \
+         where the cells were never written -- the read needed to avoid it \
+         costs more than the writes it saves"
     );
     assert!(
         t.runs_written.count() > 20_000,

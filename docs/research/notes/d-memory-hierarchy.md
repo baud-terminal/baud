@@ -26,7 +26,7 @@ throughput**. Four variants, interleaved, ghostty as an unchanged control
 | head — backwards scan, shortened write, two `View` borrows | yes | short | 520.2 / 568.8 / 567.1 |
 | C2 — same, one borrow | yes | short | 559.5 / 530.4 / 537.3 |
 | C3 — **forwards** scan, shortened write | yes | short | 582.7 / 572.6 / 561.1 |
-| C4 — backwards scan, **full-row** write | yes | full | 510.8 / 516.0 |
+| C4 — backwards scan, **full-row** write | yes | full | 510.8 / 516.0 / 496.5 |
 | C1 — **no scan**, full-row write | no | full | **1334.0 / 1387.9 / 1402.4** |
 
 The single variable that tracks the outcome is **whether the row is read at
