@@ -63,7 +63,17 @@ against its parent.*
 | hand-written ranges | **3.03 s** | 4 of 16 |
 | generated from Unicode data | **3.08 s** | **12 of 16** |
 
-~1.7%, one-tailed sign test p = 0.038. `CLAUDE.md` recorded 5% from multibench.
+~1.7%, one-tailed sign test p = 0.038, against the 5% recorded from multibench.
+
+> [!WARNING]
+> **Wall clock, taken on battery, and not confirmed by a power-invariant
+> metric.** Cycles do not reproduce it: nine paired `xctrace` runs favour the
+> *generated* build 6-3, with a within-arm spread of 12.4M to 20.1M cycles --
+> tracing overhead, far too wide to resolve 1.7%. The interleaved pairing
+> controls for slow drift and not for core migration, and one `036a432` pair
+> showed a 2.22 s outlier against a 1.99 s norm, which is what a migration
+> looks like. **Re-run on mains before relying on this.** The `036a432` null is
+> less exposed -- ten pairs, no difference at all -- but was taken the same way.
 
 **Two anomalies, two different answers**, which is why both were re-run rather
 than one generalised from the other:
