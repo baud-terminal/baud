@@ -105,6 +105,43 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## CJK is 6x slower than ASCII, and the corpus could not show it
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commit: `6d37d1f`.
+`ingest`, `OpMode::Computed`, medians of 30 reps, in-memory transport,
+recordings replayed whole.*
+
+| pair | ASCII | CJK | |
+|---|---|---|---|
+| `cat` of a file | `ascii/cat-scroll.raw` **743.3** | `utf8/cat-cjk.raw` **122.4** | **6.1x** |
+| `less` over it | `ascii/less-pager.raw` **704.8** | `utf8/less-cjk.raw` **130.5** | **5.4x** |
+
+Same programs, same shapes of stream, six times the cost. The attribution
+locates it:
+
+| | bulk | single | fill |
+|---|---|---|---|
+| `cat-scroll` | 15% | **0%** | 85% |
+| `cat-cjk` | 5% | **13%** | 82% |
+
+A wide character cannot go through `put_ascii_run`, so it is written one
+codepoint at a time through `put_cp` -- which also runs cluster breaking and a
+width lookup per character.
+
+**It is not the decoder.** btop is 14.5% multi-byte and runs at 440 MB/s; it
+has **zero** wide codepoints, because box drawing and braille are one column
+each. The cost is the per-codepoint *write*, not the decode.
+
+**Why no measurement showed this before.** Counting non-ASCII bytes against
+wide codepoints splits what looked like one axis into two, and the corpus
+covered neither intersection: btop is multi-byte and never wide, `vim-unicode`
+was the only file with wide characters and it scrolls **zero** times, and
+everything that scrolled was ASCII. Every number in this file above this
+section is therefore an ASCII number.
+
+A bulk path for runs of same-width non-ASCII text is the obvious response and
+is **unmeasured**.
+
 ## The alternate screen scrolls by rotating: less-pager 26x
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commits: `b09529e`
