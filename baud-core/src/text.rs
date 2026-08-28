@@ -139,6 +139,7 @@ impl<'a> Term<'a> {
             self.rot
         };
         self.cells_written.add(room.index());
+        #[cfg(feature = "instrument")]
         self.cells_bulk.add(room.index());
         View::new(vp, stride, cols, rows, rot).put_ascii_run(
             r,
@@ -319,6 +320,7 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub(crate) fn put_counted(&mut self, r: Row, c: Col, cell: PackedCell) {
         self.cells_written.inc();
+        #[cfg(feature = "instrument")]
         self.cells_single.inc();
         self.view().put(r, c, cell);
     }
@@ -335,6 +337,7 @@ impl<'a> Term<'a> {
         let n = to.index().saturating_sub(from.index());
         self.cells_written.add(n);
         self.cells_blanked.add(n);
+        #[cfg(feature = "instrument")]
         self.cells_fill.add(n);
         self.view().fill(r, from, to, cell);
     }
@@ -343,6 +346,7 @@ impl<'a> Term<'a> {
     pub(crate) fn fill_row_counted(&mut self, r: Row, cell: PackedCell) {
         self.cells_written.add(self.cols.index());
         self.cells_blanked.add(self.cols.index());
+        #[cfg(feature = "instrument")]
         self.cells_fill.add(self.cols.index());
         self.view().fill_row(r, cell);
     }

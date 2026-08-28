@@ -2,6 +2,7 @@ use crate::*;
 
 impl<'a> Term<'a> {
     pub(crate) fn dispatch(&mut self, f: FinalByte) {
+        #[cfg(feature = "instrument")]
         self.dispatches.inc();
         let n = self.nparams();
         let marker = self.private;
@@ -147,6 +148,7 @@ impl<'a> Term<'a> {
             Csi::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
             Csi::Mode { change, .. } => self.apply_ansi_modes(change),
             Csi::Sgr => {
+                #[cfg(feature = "instrument")]
                 self.sgr_dispatches.inc();
                 self.apply_sgr()
             }
@@ -255,6 +257,7 @@ impl<'a> Term<'a> {
                     self.st = State::Escape;
                     self.control(fe);
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
+                    #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
                     self.st = State::Utf8 {
                         remaining: Pending::new(rem),
@@ -278,6 +281,7 @@ impl<'a> Term<'a> {
                 min,
             } => match b.utf8_continuation() {
                 Some(bits) => {
+                    #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
                     let acc = acc.push(bits);
                     if remaining.is_last() {

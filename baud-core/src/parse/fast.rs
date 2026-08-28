@@ -350,7 +350,9 @@ impl<'a> Term<'a> {
             acc = acc.push(StreamByte::from_stream(self.s.arena[from + k]).utf8_continuation()?);
         }
         // Past here nothing can decline, so the mutations begin.
+        #[cfg(feature = "instrument")]
         self.bytes_utf8.add(need);
+        #[cfg(feature = "instrument")]
         self.bytes_text.add(need);
         // `finish` rejects a non-shortest form: without it `E0 80 AF` decoded
         // to `/`, the path-traversal overlong.

@@ -9,7 +9,20 @@ description = "A terminal emulator core: PTY bytes through VT parse into a grid.
 # no_std, no alloc, no dependencies. storage is caller-provided.
 
 [features]
-default = []
+# `instrument` is on by default so tests and benches get it without asking, and
+# an embedder turns it off with `default-features = false`.
+#
+# Measured cost of the attribution counters it gates: **2-3%** -- streaming
+# 1321/1354/1361 against 1385/1396/1400 stripped, btop 451/451/451 against
+# 460/459/464. That is the price of the visibility, and the visibility found
+# four optimisations worth +40% in one session, so it is a good trade while
+# optimising and a bad one in production.
+#
+# The counters `cells_written`, `bytes_in` and the style-table pair are *not*
+# gated: they carry the write-amplification claim the whole architecture rests
+# on, and a number that disappears in release is a number nobody checks.
+default = ["instrument"]
+instrument = []
 alloc = ["zerocopy/alloc"]
 
 [dependencies]
