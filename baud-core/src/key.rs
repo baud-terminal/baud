@@ -39,6 +39,7 @@ impl<'a> Term<'a> {
             KeyCode::PageUp => self.tilde_key(5, e.mods),
             KeyCode::PageDown => self.tilde_key(6, e.mods),
             KeyCode::Function(f) => self.function_key(f, e.mods),
+            KeyCode::Keypad(k) => return self.keypad_key(k, e.mods),
             KeyCode::Char(cp) => return self.text_key(cp, e.mods),
             // `[[source: ctlseqs]]` line 253: BS is Ctrl-H. Which byte the
             // *Backspace key* sends is a different question -- DECBKM (`?67`)
@@ -68,6 +69,192 @@ impl<'a> Term<'a> {
             }
         }
         true
+    }
+
+    /// The keypad, `[[source: ctlseqs]]` line 2498.
+    ///
+    /// **The PC-style table, not the VT220 one.** ctlseqs gives both -- line
+    /// 2498 for a Sun/PC keypad and line 2628 for the VT102/VT220 keypad
+    /// reached through `sunKeyboard` -- and they disagree on eleven of the
+    /// twenty-four rows. baud sends the first, which is the same choice
+    /// already made for Home and End, and for the same reason: sending both
+    /// would be sending two different keys, and xterm's default is the one
+    /// applications are built against.
+    ///
+    /// The two columns are chosen by DECKPAM/DECKPNM. The numeric column is
+    /// the literal character in every row but `Enter` and the `PF` keys, and
+    /// the application column is **not uniformly `SS3`** -- `2` is `CSI B`,
+    /// `0` is `CSI 2 ~`, `1` is `SS3 F`. A table that assumed one introducer
+    /// would be wrong in eight rows and wrong in a way each application would
+    /// interpret as a different keystroke rather than as an error.
+    fn keypad_key(&mut self, k: KeypadKey, mods: Modifiers) -> bool {
+        if self.keypad() == KeypadMode::Numeric {
+            // Enter is the one row whose numeric form is not its label: `CR`,
+            // and LNM governs it exactly as it governs the main Return.
+            return match k {
+                KeypadKey::Enter => {
+                    self.emit(&[0x0d]);
+                    if self.modes.is_set(ModeBit::LineFeedNewLine) {
+                        self.emit(&[0x0a]);
+                    }
+                    true
+                }
+                // `PF1`-`PF4` are `SS3 P`-`SS3 S` in **both** columns. They
+                // are the only rows the mode does not change.
+                KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => {
+                    self.keypad_pf(k, mods)
+                }
+                _ => match Self::keypad_numeric(k) {
+                    Some(b) => {
+                        self.emit(&[b]);
+                        true
+                    }
+                    None => false,
+                },
+            };
+        }
+        match k {
+            KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => {
+                self.keypad_pf(k, mods)
+            }
+            // The rows that are cursor keys in disguise -- and whose
+            // introducer is **fixed by the table**, not by DECCKM. The arrows
+            // and Begin are `CSI`; End and Home are `SS3`. That is not a
+            // pattern, it is four rows one way and two the other, which is
+            // why each names its own.
+            //
+            // `CSI E` is CNL as an *output* operation and Begin as an input
+            // one. Different directions, so not a conflict.
+            KeypadKey::Digit2 => {
+                self.cursor_shaped(b'B', mods, false);
+                true
+            }
+            KeypadKey::Digit4 => {
+                self.cursor_shaped(b'D', mods, false);
+                true
+            }
+            KeypadKey::Digit6 => {
+                self.cursor_shaped(b'C', mods, false);
+                true
+            }
+            KeypadKey::Digit8 => {
+                self.cursor_shaped(b'A', mods, false);
+                true
+            }
+            KeypadKey::Digit5 => {
+                self.cursor_shaped(b'E', mods, false);
+                true
+            }
+            KeypadKey::Digit1 => {
+                self.cursor_shaped(b'F', mods, true);
+                true
+            }
+            KeypadKey::Digit7 => {
+                self.cursor_shaped(b'H', mods, true);
+                true
+            }
+            // The editing-keypad rows: same parameters as the standalone keys.
+            KeypadKey::Digit0 => {
+                self.tilde_key(2, mods);
+                true
+            }
+            KeypadKey::Period => {
+                self.tilde_key(3, mods);
+                true
+            }
+            KeypadKey::Digit9 => {
+                self.tilde_key(5, mods);
+                true
+            }
+            KeypadKey::Digit3 => {
+                self.tilde_key(6, mods);
+                true
+            }
+            // Everything else is `SS3 <final>`.
+            //
+            // **No modifier form, and none is invented.** ctlseqs gives the
+            // `CSI 1 ; mod` shape for the cursor and function keys and gives
+            // nothing for these, so a modified `SS3 j` would be a sequence
+            // baud made up. Sending the unmodified form is what a terminal
+            // does; sending an invented one is answering with the wrong shape.
+            _ => match Self::keypad_application_final(k) {
+                Some(f) => {
+                    let ss3 = self.c1.ss3();
+                    self.emit(ss3);
+                    self.emit(&[f]);
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+
+    /// `SS3 P`-`SS3 S`, identical in both keypad modes.
+    fn keypad_pf(&mut self, k: KeypadKey, mods: Modifiers) -> bool {
+        let n = match k {
+            KeypadKey::Pf1 => 1,
+            KeypadKey::Pf2 => 2,
+            KeypadKey::Pf3 => 3,
+            KeypadKey::Pf4 => 4,
+            _ => return false,
+        };
+        // Reuses the F1-F4 path, so the `SS3` -> `CSI 1 ; mod` switch under a
+        // modifier is written once. They are the same four sequences.
+        match FnKey::new(n) {
+            Some(f) => {
+                self.function_key(f, mods);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The numeric column: the literal character on the key.
+    fn keypad_numeric(k: KeypadKey) -> Option<u8> {
+        Some(match k {
+            KeypadKey::Space => b' ',
+            KeypadKey::Tab => 0x09,
+            KeypadKey::Multiply => b'*',
+            KeypadKey::Add => b'+',
+            KeypadKey::Comma => b',',
+            KeypadKey::Minus => b'-',
+            KeypadKey::Period => b'.',
+            KeypadKey::Divide => b'/',
+            KeypadKey::Digit0 => b'0',
+            KeypadKey::Digit1 => b'1',
+            KeypadKey::Digit2 => b'2',
+            KeypadKey::Digit3 => b'3',
+            KeypadKey::Digit4 => b'4',
+            KeypadKey::Digit5 => b'5',
+            KeypadKey::Digit6 => b'6',
+            KeypadKey::Digit7 => b'7',
+            KeypadKey::Digit8 => b'8',
+            KeypadKey::Digit9 => b'9',
+            KeypadKey::Equal => b'=',
+            KeypadKey::Enter
+            | KeypadKey::Pf1
+            | KeypadKey::Pf2
+            | KeypadKey::Pf3
+            | KeypadKey::Pf4 => {
+                return None;
+            }
+        })
+    }
+
+    /// The `SS3 <final>` rows of the application column.
+    fn keypad_application_final(k: KeypadKey) -> Option<u8> {
+        Some(match k {
+            KeypadKey::Space => b' ',
+            KeypadKey::Tab => b'I',
+            KeypadKey::Enter => b'M',
+            KeypadKey::Multiply => b'j',
+            KeypadKey::Add => b'k',
+            KeypadKey::Comma => b'l',
+            KeypadKey::Minus => b'm',
+            KeypadKey::Divide => b'o',
+            KeypadKey::Equal => b'X',
+            _ => return None,
+        })
     }
 
     /// A key that produces text.
@@ -255,6 +442,18 @@ impl<'a> Term<'a> {
     ///   application parses.
     fn cursor_key(&mut self, final_byte: u8, mods: Modifiers) {
         let app = self.cursor_keys_application();
+        self.cursor_shaped(final_byte, mods, app);
+    }
+
+    /// The same shape with the introducer supplied rather than read.
+    ///
+    /// **The keypad needs this and must not call [`Term::cursor_key`].** Its
+    /// application column is chosen by DECKPAM, and keypad `1` is `SS3 F`
+    /// there while keypad `2` is `CSI B` -- fixed per row, whatever DECCKM
+    /// says. Reading DECCKM here sent `CSI F` for a key the table spells
+    /// `SS3 F`, which is the same mistake F1-F4 made before the
+    /// specification's own table caught it.
+    fn cursor_shaped(&mut self, final_byte: u8, mods: Modifiers, app: bool) {
         if mods.is_none() {
             let intro = match app {
                 true => self.c1.ss3(),

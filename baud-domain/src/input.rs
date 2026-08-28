@@ -107,6 +107,51 @@ impl FnKey {
     }
 }
 
+/// A key on the numeric keypad.
+///
+/// **A separate type from [`KeyCode`], because the keypad is a separate
+/// table.** `[[source: ctlseqs]]` line 2498 gives twenty-four rows whose two
+/// columns are chosen by DECKPAM/DECKPNM, and the digits are not the digits
+/// above the letters: keypad `2` sends `CSI B` in application mode and the
+/// main-row `2` never does. Folding them into `KeyCode::Char` would lose
+/// exactly the distinction the table exists to make, and an application in
+/// application-keypad mode would see text where it expected a cursor key.
+///
+/// `PF1`-`PF4` are here and *also* reachable as `F1`-`F4`, which is not a
+/// duplicate: on a VT keyboard they are the keypad's own top row, and on a PC
+/// keyboard the function keys send the same bytes. The encoder gives one
+/// answer; which physical key produced it is the platform layer's business.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeypadKey {
+    Space,
+    Tab,
+    Enter,
+    Pf1,
+    Pf2,
+    Pf3,
+    Pf4,
+    Multiply,
+    Add,
+    Comma,
+    Minus,
+    /// Labelled `.` and Delete -- `[[source: ctlseqs]]` line 2508 gives its
+    /// application form as `CSI 3 ~`, the editing keypad's Delete, and not the
+    /// VT220 table's `SS3 n`.
+    Period,
+    Divide,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    Equal,
+}
+
 /// A key, named by what it means rather than where it sits on a keyboard.
 ///
 /// Physical position is the platform layer's problem; baud has no event
@@ -127,6 +172,8 @@ pub enum KeyCode {
     PageUp,
     PageDown,
     Function(FnKey),
+    /// A key on the numeric keypad, which has its own table and its own mode.
+    Keypad(KeypadKey),
     Enter,
     Tab,
     Backspace,

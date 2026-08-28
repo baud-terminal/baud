@@ -19,6 +19,13 @@ fn ctlseqs() -> String {
     .expect("the pinned ctlseqs")
 }
 
+/// Whether a line is a table rule rather than a row.
+///
+/// All rule characters, not merely starting with one: `- (minus)` is a key.
+fn is_rule(t: &str) -> bool {
+    !t.is_empty() && t.chars().all(|c| c == '-' || c == '+' || c.is_whitespace())
+}
+
 /// The `Key | Normal | Application` table at the given line, as
 /// `(name, normal, application)`.
 fn table_at(src: &str, line: usize) -> Vec<(String, String, String)> {
@@ -26,7 +33,12 @@ fn table_at(src: &str, line: usize) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     for l in lines.iter().skip(line) {
         let t = l.trim();
-        if t.starts_with('-') {
+        // A separator is *all* rule characters. Testing `starts_with('-')` --
+        // which this did -- also matches the `- (minus)` key, so the keypad
+        // table silently arrived one row short and the count assertion is what
+        // caught it. A row dropped by the reader looks exactly like a row the
+        // specification does not have.
+        if is_rule(t) {
             continue;
         }
         let Some((name, rest)) = t.split_once('|') else {
@@ -69,6 +81,12 @@ fn spec_bytes(form: &str) -> Vec<u8> {
         match tok {
             "CSI" => out.extend_from_slice(b"\x1b["),
             "SS3" => out.extend_from_slice(b"\x1bO"),
+            // The specification names three bytes rather than printing them,
+            // and they appear *inside* a form: the keypad's Space is
+            // `SS3 SP`, which is three bytes and not four.
+            "SP" => out.push(b' '),
+            "TAB" => out.push(0x09),
+            "CR" => out.push(0x0d),
             other => out.extend_from_slice(other.as_bytes()),
         }
     }
@@ -169,7 +187,7 @@ fn seq_table_at(src: &str, line: usize) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for l in lines.iter().skip(line) {
         let t = l.trim();
-        if t.starts_with('-') {
+        if is_rule(t) {
             continue;
         }
         let Some((name, rest)) = t.split_once('|') else {
@@ -574,4 +592,133 @@ fn latin1_input_is_encoded_as_latin1() {
     t.clear_reply();
     assert!(t.key(KeyEvent::press(ch('é'), Modifiers::NONE)));
     assert_eq!(t.reply(), "é".as_bytes());
+}
+
+/// **The keypad, read out of `[[source: ctlseqs]]` line 2498 rather than
+/// transcribed.**
+///
+/// Twenty-four rows, two columns chosen by DECKPAM/DECKPNM. The application
+/// column is *not* uniformly `SS3`: `2` is `CSI B`, `0` is `CSI 2 ~`, `1` is
+/// `SS3 F`. A table written from the pattern would be wrong in eight rows, and
+/// wrong in a way each application reads as a different keystroke rather than
+/// as an error — which is why this reads the specification's own table and
+/// compares against it row by row.
+///
+/// `SP` and `TAB` are the specification's names for two bytes; every other
+/// cell is literal.
+#[test]
+fn the_keypad_matches_the_specifications_table() {
+    let src = ctlseqs();
+    let rows = table_at(&src, 2498);
+    assert_eq!(
+        rows.len(),
+        24,
+        "line 2498 has 24 rows; found {}",
+        rows.len()
+    );
+
+    let mut checked = 0;
+    for (name, numeric, app) in &rows {
+        let Some(k) = keypad_of(name) else {
+            panic!("no KeypadKey for the table's {name:?}");
+        };
+
+        let want_num = spec_bytes(numeric);
+        assert_eq!(keypad_press(k, false), want_num, "{name}: numeric column");
+
+        let want_app = spec_bytes(app);
+        assert_eq!(
+            keypad_press(k, true),
+            want_app,
+            "{name}: application column"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 24);
+}
+
+/// The table's row labels, which carry the key's function in parentheses.
+fn keypad_of(name: &str) -> Option<KeypadKey> {
+    let head = name.split_whitespace().next()?;
+    Some(match head {
+        "Space" => KeypadKey::Space,
+        "Tab" => KeypadKey::Tab,
+        "Enter" => KeypadKey::Enter,
+        "PF1" => KeypadKey::Pf1,
+        "PF2" => KeypadKey::Pf2,
+        "PF3" => KeypadKey::Pf3,
+        "PF4" => KeypadKey::Pf4,
+        "*" => KeypadKey::Multiply,
+        "+" => KeypadKey::Add,
+        "," => KeypadKey::Comma,
+        "-" => KeypadKey::Minus,
+        "." => KeypadKey::Period,
+        "/" => KeypadKey::Divide,
+        "0" => KeypadKey::Digit0,
+        "1" => KeypadKey::Digit1,
+        "2" => KeypadKey::Digit2,
+        "3" => KeypadKey::Digit3,
+        "4" => KeypadKey::Digit4,
+        "5" => KeypadKey::Digit5,
+        "6" => KeypadKey::Digit6,
+        "7" => KeypadKey::Digit7,
+        "8" => KeypadKey::Digit8,
+        "9" => KeypadKey::Digit9,
+        "=" => KeypadKey::Equal,
+        _ => return None,
+    })
+}
+
+fn keypad_press(k: KeypadKey, app: bool) -> Vec<u8> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    if app {
+        // DECKPAM. Not DECCKM: the keypad has its own mode, and conflating
+        // them is how the cursor keys' introducer leaks into the keypad's.
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(b"\x1b="));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        t.clear_reply();
+        assert_eq!(t.keypad(), KeypadMode::Application);
+    }
+    assert!(t.key(KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE)));
+    t.reply().to_vec()
+}
+
+/// **The VT220 keypad is a different table, and baud does not send it.**
+///
+/// `[[source: ctlseqs]]` line 2628 gives the VT102/VT220 application keypad,
+/// reached through `sunKeyboard`. It disagrees with line 2498 on eleven rows —
+/// keypad `2` is `SS3 r` there and `CSI B` here — so they are alternatives and
+/// not additions. Same choice, and the same reason, as Home/End at 2485
+/// against the VT220 forms at 2672.
+///
+/// This asserts the disagreement is real rather than assumed, so that if a
+/// later edition of ctlseqs reconciles the two tables the reason recorded here
+/// stops being true out loud.
+#[test]
+fn the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends() {
+    let src = ctlseqs();
+    let pc = table_at(&src, 2498);
+    let vt = table_at(&src, 2628);
+    assert_eq!(vt.len(), 24, "line 2628 has 24 rows");
+
+    let mut differ = 0;
+    for (name, _, vt_app) in &vt {
+        let Some(k) = keypad_of(name) else { continue };
+        let Some((_, _, pc_app)) = pc.iter().find(|(n, _, _)| keypad_of(n) == Some(k)) else {
+            continue;
+        };
+        if pc_app == vt_app {
+            continue;
+        }
+        differ += 1;
+        // baud sends the PC form. Asserted against the *other* table so the
+        // test fails if the wrong one is ever wired in.
+        assert_eq!(keypad_press(k, true), spec_bytes(pc_app), "{name}");
+        assert_ne!(keypad_press(k, true), spec_bytes(vt_app), "{name}");
+    }
+    assert_eq!(differ, 11, "the two tables disagree on 11 rows");
 }

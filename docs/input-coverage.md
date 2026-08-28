@@ -4,9 +4,10 @@ What baud must **send**, enumerated against primary sources, in the same shape
 as `vt-coverage.md` does for what it receives.
 
 The base layer has started: `Term::key` encodes the cursor keys, Home/End, the
-editing keys, F1-F20 and the text keys, in both DECCKM modes, with modifiers and
-in both input encodings. The keypad and the VT52 tables are still `todo`. That
-is a phase that has not started, not work left half-done: `vt-coverage.md`'s rule is that a row marked **done**
+editing keys, F1-F20, the text keys and the keypad, in both DECCKM and both
+DECKPAM modes, with modifiers and in both input encodings. The VT52 tables and
+the deprecated F1-F5 forms are still `todo`. That is a phase that has not
+started, not work left half-done: `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
 A `todo` row here has neither because it has no code.
 
@@ -37,10 +38,10 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 |---|---|---|---|
 | 2473 | cursor keys, normal vs application (DECCKM) | 4 | **done** — `Term::key`, both modes, modifiers force `CSI`. `cursor_keys_match_the_specifications_table` |
 | 2485 | Home / End, normal vs application | 2 | **done** — same path; ctlseqs puts them in the arrows' table |
-| 2498 | keypad, numeric vs application (DECKPAM) | 24 | todo |
+| 2498 | keypad, numeric vs application (DECKPAM) | 24 | **done** — all 24 rows, both columns, read out of the table itself. `the_keypad_matches_the_specifications_table` |
 | 2529 | 12 function keys and special-purpose keys | 12 | **done** — F1-F4 are `SS3 P`-`S` *unconditionally*; F5-F12 are `CSI 15/17/18/19/20/21/23/24 ~`, and the gaps at 16 and 22 are real |
 | 2552 | the deprecated F1-F5 forms | 4 | todo — deprecated upstream; recorded so the choice is explicit |
-| 2628 | VT220 application keypad | 24 | todo |
+| 2628 | VT220 application keypad | 24 | out — the `sunKeyboard` alternative to 2498, not an addition. The two disagree on 11 rows (keypad `2` is `SS3 r` there and `CSI B` at 2498), so sending both would be sending two different keys. `the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends` asserts the disagreement rather than assuming it |
 | 2672 | VT220 cursor keys | 6 | **done** for Insert/Delete/PageUp/PageDown, which DECCKM does not change. Home and End are sent PC-style from the table at 2485 — the VT220 forms here are xterm's `sunKeyboard` alternative, not an addition, and sending both would be sending two different keys |
 | 2685 | the 8 additional VT220 function keys | 8 | **done** — `CSI 25/26/28/29/31/32/33/34 ~`, skipping 27 and 30 |
 | 2703 | VT52 keys, which do not change with mode | 4 | todo |
@@ -99,7 +100,7 @@ created the demand.
 | `?1036` / `?1039` | `meta_sends_escape`, `alt_sends_escape` | whether Meta/Alt prefix `ESC` |
 | `?1034` | `eight_bit_input` | whether Meta/Alt add 128, under ISO 8859-1 |
 | `ESC % @` / `ESC % G` | `input_encoding` | whether a typed character is sent as ISO 8859-1 or UTF-8 |
-| DECKPAM / DECKPNM | `keypad` | keypad: `1` vs `SS3 q` |
+| DECKPAM / DECKPNM | `keypad` | keypad: `1` vs `SS3 F`. **Not DECCKM** — the keypad's application column is fixed per row, and routing it through the cursor keys' introducer sent `CSI F` for a key the table spells `SS3 F` |
 | `?2004` bracketed paste | `bracketed_paste` | wraps pasted text in `CSI 200 ~` / `CSI 201 ~` |
 | `?1000`-`?1003`, `?1006` | `mouse_tracking` | **done** — the only input baud already generates |
 | `?1001` highlight tracking | `highlight_tracking`, `highlight_region` | recorded, and needs a selection model to answer |
