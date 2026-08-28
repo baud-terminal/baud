@@ -436,3 +436,48 @@ fn stride_is_the_row_pitch_not_the_column_count() {
     );
     assert_eq!(t.viewport().len(), 7 * t.stride().index());
 }
+
+/// **The same shrink, on the alternate screen.**
+///
+/// `a_shrink_after_scrolling_does_not_panic` covers `rot`. The alternate screen
+/// now carries a second rotation of its own, `alt_rot`, and it can go stale the
+/// identical way: it is bounded by the *old* row count, `View::phys` is a
+/// single conditional subtract that assumes both operands are below `rows`, and
+/// `viewport`'s `rotate_left` panics outright on a rotation larger than the
+/// slice.
+///
+/// `resize` discards both through `clear_rotations`, and this is the test that
+/// says so. Without the alternate arm it would be exactly the gap the primary's
+/// version was written to close, one screen over -- and `CLAUDE.md` records
+/// `Term::resize` as an entry point that had **no caller anywhere** until a
+/// test reached it, at which point it yielded three bugs including this panic.
+#[test]
+fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    // `?1049 h` first, so every newline below rotates `alt_rot` rather than
+    // `rot`. 90 lines against 50 rows leaves it at 41, past the ten below.
+    let mut payload: Vec<u8> = b"\x1b[?1049h".to_vec();
+    payload.extend((0..90).flat_map(|_| b"X\r\n".to_vec()));
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(&payload));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 200,
+        }),
+        Resized::Ok
+    );
+
+    let vp = t.viewport();
+    assert_eq!(vp.len(), 10 * 2048, "ten rows of the fixed stride");
+    assert!(
+        !vp.iter()
+            .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'X'))),
+        "resize clears both buffers: no scrolled-off text may remain visible"
+    );
+}

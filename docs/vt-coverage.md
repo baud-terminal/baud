@@ -737,3 +737,40 @@ A weaker check that is real beats a stronger claim that is not. Documentation
 claiming coverage it does not have is the failure mode this file exists to
 prevent — the README claimed "~22 operations" while three of them were parsed
 and dropped.
+
+### An operation is done on *both screens*, or it is not done
+
+`EL` and `ED` sat at **done**, with tests, and did **nothing at all** on the
+alternate screen in `OpMode::Runs`. `erase_line`'s span-truncation fast path
+read the `promoted` flag raw; that flag belongs to the primary screen, so on
+the alternate one it was false for every row, the erase took the span path, and
+it returned without touching a cell. `HELLO WORLD` survived an erase-to-end
+from column 6.
+
+Every erase test ran on the primary. So did every scrolling test — full-screen
+scrolling in the alternate screen was copying rows for the same reason, at 26x
+the cost.
+
+**The enumeration was complete in the wrong dimension.** This file lists the
+operations and `coverage.rs` checks each is mentioned; neither asks *in which
+state* it was exercised. The alternate screen is not an operation and so has no
+row here, but it changes the behaviour of the ones that do — it is where the
+run table stops applying, and every full-screen application spends its whole
+life there.
+
+Two things came from that and both are gates rather than notes:
+
+* `erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path` runs six
+  erases in both op modes on the alternate screen. The mode pair is the point:
+  `Computed` was always right, so a fix that broke it to satisfy `Runs` shows
+  up instead of passing.
+* `baud-core/tests/screen_isolation.rs` requires every function touching the
+  run table to be screen-aware. It is structural because the state is
+  **invisible**: in `Runs` nothing renders spans, so a wrongly-zeroed run count
+  cannot be seen through any public accessor, and the first attempt at a
+  behavioural test reproduced the harness trap instead — every case came back
+  empty, including one that did nothing.
+
+The reviewer's question for a new operation is therefore not only "is there a
+test" but "does it run where applications will run it": both op modes, and the
+alternate screen as well as the primary.
