@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [1.57× ghostty on spans, 1.34× on cells](#the-number) — ahead in both representations, on both payloads |
+| **Throughput** | ✅ [2.19× ghostty on spans, 1.50× on cells](#the-number) — ahead in both representations, on both payloads |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -117,30 +117,62 @@ allocated nothing still cost 22%, because the array grew past cache.
 
 ## The number
 
-*Apple M5 Max, 2026-08-28, commit `548fe84`, **on mains**, in-memory transport,
+*Apple M5 Max, 2026-08-28, commit `0bcd659`, **on mains**, in-memory transport,
 medians of 9, interleaved, two runs quoted. ghostty is built from an unchanged
 checkout and is the control. Full table and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **1760.5 / 1729.1** MB/s | **2827.0 / 2766.5** MB/s |
-| **baud** (cells, computed) | **1500.0 / 1488.1** | **1871.8 / 1858.6** |
-| ghostty (libghostty-vt) | 1119.8 / 1108.3 | 1049.7 / 1038.9 |
-| termwiz (wezterm) parse only | 377.3 / 369.8 | 364.6 / 358.3 |
-| alacritty_terminal | 217.9 / 206.6 | 271.8 / 270.0 |
-| vt100 crate | 167.7 / 167.3 | 218.7 / 214.6 |
-| wezterm (full terminal) | 17.5 / 17.4 | 32.5 / 31.9 |
+| **baud** (spans) | **2510.3 / 2416.0** MB/s | **2887.8 / 2761.3** MB/s |
+| **baud** (cells, computed) | **1706.7 / 1661.8** | **1693.3 / 1547.1** |
+| ghostty (libghostty-vt) | 1140.0 / 1101.6 | 1066.2 / 1021.1 |
+| termwiz (wezterm) parse only | 379.8 / 375.8 | 369.5 / 360.8 |
+| alacritty_terminal | 225.8 / 202.5 | 276.7 / 268.2 |
+| vt100 crate | 166.9 / 160.5 | 217.0 / 204.9 |
+| wezterm (full terminal) | 17.7 / 17.5 | 32.3 / 31.7 |
 
-**Spans: 1.57x ghostty streaming, 2.69x TUI. Cells: 1.34x and 1.78x.**
+**Spans: 2.19x ghostty streaming, 2.70x TUI. Cells: 1.50x and 1.55x.**
 
-**These payloads are ASCII, and that understates the recent work.**
-`Term::utf8_share` reports 0.0% for both, so neither exercises the UTF-8
-decoder, the grapheme lookback or the style table. On real capture the same
-changes are worth far more -- btop's cells path went from 306 to ~440 MB/s in
-one session -- and `MEASUREMENTS.md` carries those separately. A synthetic
-payload is the wrong instrument for anything that only non-ASCII text
-reaches.
+## The synthetic payloads went **down** while every real recording went up
+
+This is the most important caveat on the table above, and it is not a small
+one. Over one session, measured with `ingest` against the same starting commit:
+
+| real capture | before | after | |
+|---|---|---|---|
+| `less-pager.raw` | 26.6 | **931** | **35x** |
+| `vim-unicode.raw` | 246 | **343** | **+40%** |
+| `btop.raw` | 452 | **550** | **+22%** |
+| `cat-scroll.raw` | 778 | **841** | +8% |
+| `git-log.raw` | 990 | 990 | flat |
+| `cat-cjk.raw`, `less-cjk.raw` | *did not exist* | 194, 205 | — |
+
+| synthetic payload | before | after | |
+|---|---|---|---|
+| `payload::streaming`, cells | 1327 | 1241 | **-6.5%** |
+| `payload::streaming`, runs | 1714 | 1632 | **-4.8%** |
+| `payload::tui`, cells | 1414 | 1307 | **-7.6%** |
+| `payload::tui`, runs | 1470 | 1226 | **-16.6%** |
+
+Two causes, and neither is avoidable:
+
+* **Correctness.** Every operation in baud could split a double-width character
+  in half, and erases did nothing at all on the alternate screen in `Runs`
+  mode. Fixing both costs work on every write, and the synthetic payloads are
+  pure ASCII, so they pay it and collect none of it.
+* **A used-extent mark** makes blanking stop where the text stops. It is worth
+  72-82% of all blanking on real scrolling capture and **16%** on
+  `payload::streaming`, which emits an SGR every 232 bytes and keeps defeating
+  the check. `payload::tui` barely scrolls at all, so it pays the bookkeeping
+  and collects nothing.
+
+**So read the table above as a comparison, not as a trend.** It is the only
+number here measured against other implementations, because multibench drives
+every core with the same payload -- but `payload::tui`'s escape density matches
+no real program, and `MEASUREMENTS.md` records real capture running at 131-159
+MB/s where it reaches 229-240. The recordings are the better guide to what
+changed, and they are all in `baud-core/tests/recordings/`.
 
 **The largest single change was deleting a measurement, not writing code.**
 `Scan::run` was a scalar byte loop carrying a comment that a `core::simd`
