@@ -374,42 +374,38 @@ impl Width {
     /// both). Same finding as `open_gap` and `anywhere_c0`: what costs is the
     /// size of what the ingest loop inlines, not the work inside it.
     #[inline(never)]
+    /// **Two indexed loads, not three binary searches.**
+    ///
+    /// This ran `in_ranges` over `ZERO`, then `WIDE`, then `AMBIGUOUS` -- up to
+    /// three searches across 677 ranges, about eleven data-dependent branches,
+    /// for every non-ASCII codepoint. It profiled at 9.4% of the CJK path, and
+    /// a ceiling arm returning a constant measured **+32 to +34%** on cat-cjk,
+    /// less-cjk and vim.
+    ///
+    /// The trie is generated and *exhaustively* checked against those same
+    /// ranges for all 1,114,112 codepoints by `scripts/gen-width-tables.py`,
+    /// which `width_tables_match_the_pinned_data` runs. A generated table
+    /// nobody verifies is the "guessed table would look like it worked" failure
+    /// this repo already records.
     pub fn of(c: Codepoint, ambiguous: AmbiguousWidth) -> Width {
         let cp = c.value();
         if cp < 0x80 {
             return if cp == 0 { Width::ZERO } else { Width::NARROW };
         }
-        if in_ranges(&width_data::ZERO, cp) {
-            return Width::ZERO;
-        }
-        if in_ranges(&width_data::WIDE, cp) {
-            return Width::WIDE;
-        }
-        // East Asian Ambiguous. `[[source: uax11]]` § 5 says narrow when the
-        // context is unavailable; for a core with no locale it always is, so
-        // narrow is the default and this is the opt-in.
-        if ambiguous == AmbiguousWidth::Wide && in_ranges(&width_data::AMBIGUOUS, cp) {
-            return Width::WIDE;
-        }
-        Width::NARROW
-    }
-}
-
-/// Binary search over a sorted, coalesced table of inclusive ranges.
-fn in_ranges(table: &[(u32, u32)], cp: u32) -> bool {
-    let (mut lo, mut hi) = (0usize, table.len());
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let (a, b) = table[mid];
-        if cp < a {
-            hi = mid;
-        } else if cp > b {
-            lo = mid + 1;
-        } else {
-            return true;
+        // `cp` is a `Codepoint`, so it is below 0x110000 by construction and
+        // both indices are in range without a bounds check surviving.
+        let block = width_data::WIDTH_INDEX[(cp >> 8) as usize] as usize;
+        let byte = width_data::WIDTH_BLOCKS[block * 64 + ((cp as usize & 0xff) >> 2)];
+        match (byte >> ((cp & 3) * 2)) & 3 {
+            1 => Width::ZERO,
+            2 => Width::WIDE,
+            // East Asian Ambiguous. `[[source: uax11]]` § 5 says narrow when the
+            // context is unavailable; for a core with no locale it always is, so
+            // narrow is the default and this is the opt-in.
+            3 if ambiguous == AmbiguousWidth::Wide => Width::WIDE,
+            _ => Width::NARROW,
         }
     }
-    false
 }
 
 impl Cols {

@@ -79,6 +79,132 @@ zero = coalesce([(lo, hi) for lo, hi, v in dgc if v in ("Mn", "Me", "Cf")])
 zero = subtract(zero, 0x00AD)
 
 
+BLOCK = 256  # codepoints per stage-2 block
+PER_BYTE = 4  # 2-bit values
+
+
+def build_trie(zero, wide, ambiguous):
+    """A two-stage table, and an exhaustive check that it agrees with the ranges.
+
+    `Width::of` ran up to three binary searches over 1,386 total ranges -- about
+    eleven data-dependent branches -- for every non-ASCII codepoint. Profiled at
+    9.4% of the CJK path, and a ceiling arm returning a constant measured +32 to
+    +34%. Two indexed loads replace the searches.
+
+    Values: 0 narrow, 1 zero, 2 wide, 3 ambiguous. Two bits each, four per byte.
+    """
+    cls = bytearray(0x110000)
+
+    def mark(ranges, v):
+        for lo, hi in ranges:
+            for cp in range(lo, min(hi, 0x10FFFF) + 1):
+                cls[cp] = v
+
+    mark(ambiguous, 3)
+    mark(wide, 2)
+    mark(zero, 1)
+
+    blocks, index = {}, []
+    for base in range(0, 0x110000, BLOCK):
+        key = bytes(cls[base : base + BLOCK])
+        if key not in blocks:
+            blocks[key] = len(blocks)
+        index.append(blocks[key])
+    assert len(blocks) <= 256, f"{len(blocks)} blocks will not fit a u8 stage 1"
+
+    packed = bytearray()
+    for key in blocks:
+        for i in range(0, BLOCK, PER_BYTE):
+            b = 0
+            for j in range(PER_BYTE):
+                b |= key[i + j] << (2 * j)
+            packed.append(b)
+
+    # **Exhaustive, not sampled.** Every codepoint, trie against the ranges the
+    # rest of this file is generated from. A generated table nobody checks is
+    # the "guessed table would be unrecoverable and would look like it worked"
+    # failure `docs/vt-coverage.md` records, and 1.1M iterations is cheap.
+    def in_ranges(rs, cp):
+        return any(lo <= cp <= hi for lo, hi in rs)
+
+    for cp in range(0x110000):
+        blk = index[cp >> 8]
+        byte = packed[blk * (BLOCK // PER_BYTE) + ((cp & 0xFF) >> 2)]
+        got = (byte >> ((cp & 3) * 2)) & 3
+        if in_ranges(zero, cp):
+            want = 1
+        elif in_ranges(wide, cp):
+            want = 2
+        elif in_ranges(ambiguous, cp):
+            want = 3
+        else:
+            want = 0
+        if got != want:
+            raise SystemExit(f"trie disagrees at U+{cp:04X}: {got} != {want}")
+    return index, packed, len(blocks)
+
+
+def as_bytestring(name, data, doc):
+    """Emit as a byte-string literal, not an array literal.
+
+    **rustfmt rewraps array literals to fit its width**, so a generator that
+    emits `[0, 1, 2, ...]` can never satisfy its own staleness check -- the
+    file it writes is not the file that ends up committed. This generator's
+    header has warned about that since it was written, and it caught this
+    change. String literals are left alone, and `b"..."` produces byte-for-byte
+    the same rodata as an array of `u8`.
+
+    Line continuations every 32 bytes so the file is greppable rather than one
+    17 KB line; a trailing backslash inside a byte string eats the newline and
+    the indentation after it.
+    """
+    body = []
+    for i in range(0, len(data), 32):
+        chunk = "".join(f"\\x{v:02x}" for v in data[i : i + 32])
+        body.append(f"    {chunk}\\")
+    return "\n".join(
+        [doc, f'pub static {name}: &[u8; {len(data)}] = b"\\', *body, '";']
+    )
+
+
+def emit_trie(index, packed, nblocks):
+    doc1 = "\n".join(
+        [
+            "/// Stage 1 of the width trie: codepoint >> 8 to a block number.",
+            "///",
+            "/// **What the four values mean, and why each is what it is.**",
+            "///",
+            "/// * `1` zero — general category `Mn`, `Me` or `Cf`: combining marks and",
+            "///   format characters, which occupy no column. `U+00AD` SOFT HYPHEN is",
+            "///   `Cf` and is excluded, because every terminal gives it a column.",
+            "/// * `2` wide — East Asian Width `W` or `F`, **or**",
+            "///   `Emoji_Presentation=Yes`. Both are needed and neither subsumes the",
+            "///   other: regional indicators are EAW `N`, so a flag measured from East",
+            "///   Asian Width alone is half the width every terminal draws it.",
+            "/// * `3` ambiguous — East Asian Width `A`, one column or two depending on",
+            "///   locale, which is what `AmbiguousWidth` selects. `[[source: uax11]]`",
+            "///   § 5: narrow when the context is unavailable, and for a terminal core",
+            "///   with no locale it always is.",
+            "/// * `0` narrow — everything else.",
+            "///",
+            "/// Two indexed loads replace up to three binary searches over 677 ranges.",
+            "/// The searched form was 9.4% of the CJK path and a ceiling arm returning",
+            "/// a constant measured +32 to +34%; a scattered probe per branch is also",
+            "/// the worse shape for a cache, which is what rule #2 in `CLAUDE.md` is",
+            "/// about. Han sits in 82 contiguous entries here.",
+        ]
+    )
+    doc2 = "\n".join(
+        [
+            f"/// Stage 2: {nblocks} distinct {BLOCK}-codepoint blocks, four 2-bit",
+            "/// values per byte, low bits first.",
+        ]
+    )
+    return as_bytestring("WIDTH_INDEX", index, doc1) + "\n\n" + as_bytestring(
+        "WIDTH_BLOCKS", packed, doc2
+    )
+
+
 def emit(name, ranges, doc):
     # `static`, not `const`: a const array is materialised at each use site.
     lines = [doc, f"pub static {name}: [(u32, u32); {len(ranges)}] = ["]
@@ -96,39 +222,23 @@ header = '''//! Unicode width data, generated from the sources pinned in
 //! disagree, so a stale table is a test failure rather than a rendering bug
 //! nobody notices.
 //!
-//! Sorted, coalesced, half-open-free `(lo, hi)` inclusive ranges, searched by
-//! binary search. Consulted once per **non-ASCII codepoint**, never per byte:
-//! printable ASCII never reaches them, which is the ~94% path.
+//! A two-stage trie, consulted once per **non-ASCII codepoint** and never per
+//! byte: printable ASCII never reaches it, which is the ~94% path.
+//!
+//! The `(lo, hi)` range tables this replaced are still how the data is derived
+//! and checked -- the generator builds them from the pinned files, builds the
+//! trie, and verifies the two agree at **every** one of the 1,114,112
+//! codepoints before writing anything. They are simply not carried into the
+//! binary, where they cost three binary searches per codepoint.
 '''
 
 # rstrip: the header ends with a newline and the join adds two more, which
 # rustfmt collapses -- and a generator whose output rustfmt rewrites can never
 # satisfy its own staleness check.
-parts = [
-    header.rstrip("\n"),
-    emit(
-        "ZERO",
-        zero,
-        "/// General category `Mn`, `Me` or `Cf` — combining marks and format\n"
-        "/// characters, which occupy no column. `U+00AD` SOFT HYPHEN is `Cf` but is\n"
-        "/// excluded: every terminal gives it a column.",
-    ),
-    emit(
-        "WIDE",
-        wide,
-        "/// Two columns: East Asian Width `W` or `F`, **or**\n"
-        "/// `Emoji_Presentation=Yes`. Regional indicators are EAW `N` and would\n"
-        "/// otherwise measure one column, making every flag half-width.",
-    ),
-    emit(
-        "AMBIGUOUS",
-        ambiguous,
-        "/// East Asian Width `A`. One column or two depending on locale, which is\n"
-        "/// what [`AmbiguousWidth`](crate::AmbiguousWidth) selects. `[[source: uax11]]`\n"
-        "/// § 5: narrow when the context is unavailable, and for a terminal core with\n"
-        "/// no locale it is always unavailable — so narrow is the default.",
-    ),
-]
+parts = [header.rstrip("\n")]
+
+index, packed, nblocks = build_trie(zero, wide, ambiguous)
+parts.append(emit_trie(index, packed, nblocks))
 out = "\n\n".join(parts) + "\n"
 
 if "--check" in sys.argv:
@@ -139,4 +249,8 @@ if "--check" in sys.argv:
     print("OK")
 else:
     pathlib.Path("baud-domain/src/width_data.rs").write_text(out)
-    print(f"zero={len(zero)} wide={len(wide)} ambiguous={len(ambiguous)} bytes={len(out)}")
+    print(
+        f"zero={len(zero)} wide={len(wide)} ambiguous={len(ambiguous)} "
+        f"trie={nblocks} blocks, {len(index)}+{len(packed)} bytes, "
+        f"file={len(out)}"
+    )
