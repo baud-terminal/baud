@@ -27,8 +27,8 @@ pub use baud_domain::{
     KeyEventKind, KeypadKey, KeypadMode, Lane, LaneMask, Level, LineSlot, LinkId, MarginMode,
     MarkSlot, Marker, ModeBit, ModeChange, ModeState, Modes, Modifiers, MouseButton, MouseEncoding,
     MouseEvent, MouseKind, MouseMods, MouseTracking, Nrcs, OneBased, Osc, PackedCell, Param,
-    ParamIdx, Params, Pending, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row,
-    RowBlock, RowRot, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm,
+    ParamIdx, Params, Pending, Prefix, PrivateMode, Protection, Report, ReportBytes, RingPos, Room,
+    Row, RowBlock, RowRot, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm,
     StyleId, StyleWord, SubParams, TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width,
     WidthTable, WinSize, XColor,
 };

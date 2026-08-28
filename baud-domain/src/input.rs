@@ -353,6 +353,19 @@ impl FnKey {
     }
 }
 
+/// Whether a key's bytes carry the `ESC` prefix that Alt or Meta adds.
+///
+/// A two-state enum and not a `bool`, for the reason [`MarginMode`] gives and
+/// the signature audit enforces: the call site already passes a byte slice and
+/// a `bool` beside it says nothing about which of the two prefix modes decided
+/// it. `[[source: ctlseqs]]` line 2337 has separate columns for Alt and Meta,
+/// and both fold into this one answer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Prefix {
+    None,
+    Escape,
+}
+
 /// A key, named by what it means rather than where it sits on a keyboard.
 ///
 /// Physical position is the platform layer's problem; baud has no event

@@ -309,8 +309,12 @@ impl<'a> Term<'a> {
         // byte above 127 is a continuation byte rather than a character, so
         // shifting there would send something no application can decode.
         let modded = mods.has(Modifiers::ALT) || mods.has(Modifiers::META);
-        let esc = (mods.has(Modifiers::ALT) && self.alt_sends_escape())
-            || (mods.has(Modifiers::META) && self.meta_sends_escape());
+        let esc = match (mods.has(Modifiers::ALT) && self.alt_sends_escape())
+            || (mods.has(Modifiers::META) && self.meta_sends_escape())
+        {
+            true => Prefix::Escape,
+            false => Prefix::None,
+        };
         // **The prefix is emitted last, not here.** Emitting it before the
         // character is known to be encodable left a bare `ESC` in the reply
         // when the encoding could not represent the key -- `Alt` plus a
@@ -323,7 +327,7 @@ impl<'a> Term<'a> {
         // last four rows say: with both resources ON every modified row is
         // `ESC x`, and none of them is the shifted form.
         let shift = modded
-            && !esc
+            && esc == Prefix::None
             && self.eight_bit_input()
             && self.input_encoding() == InputEncoding::Latin1;
 
@@ -376,8 +380,8 @@ impl<'a> Term<'a> {
     /// One call site per outcome, so the prefix cannot be written for a key
     /// that then turns out to be unencodable. Once, not once per modifier:
     /// `ESC ESC x` is Escape followed by Alt-x, a different keystroke.
-    fn emit_prefixed(&mut self, esc: bool, bytes: &[u8]) {
-        if esc {
+    fn emit_prefixed(&mut self, esc: Prefix, bytes: &[u8]) {
+        if esc == Prefix::Escape {
             self.emit(&[0x1b]);
         }
         self.emit(bytes);
