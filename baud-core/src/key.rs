@@ -311,10 +311,14 @@ impl<'a> Term<'a> {
         let modded = mods.has(Modifiers::ALT) || mods.has(Modifiers::META);
         let esc = (mods.has(Modifiers::ALT) && self.alt_sends_escape())
             || (mods.has(Modifiers::META) && self.meta_sends_escape());
-        // Once, not once per modifier: `ESC ESC x` is Escape then Alt-x.
-        if esc {
-            self.emit(&[0x1b]);
-        }
+        // **The prefix is emitted last, not here.** Emitting it before the
+        // character is known to be encodable left a bare `ESC` in the reply
+        // when the encoding could not represent the key -- `Alt` plus a
+        // codepoint above `U+00FF` under ISO 8859-1 returned `false` having
+        // already written a byte. An application reads that `ESC` as the start
+        // of a sequence that never arrives. Found by
+        // `the_return_value_agrees_with_the_bytes`, which is the property that
+        // a `false` writes nothing.
         // The prefix wins where both modes are set, which is what the table's
         // last four rows say: with both resources ON every modified row is
         // `ESC x`, and none of them is the shifted form.
@@ -328,7 +332,7 @@ impl<'a> Term<'a> {
         // ISO 8859-1 is a C1 control -- and baud accepts 8-bit C1 controls in
         // exactly that encoding, so the two halves agree.
         if let Some(b) = base {
-            self.emit(&[b | if shift { 0x80 } else { 0 }]);
+            self.emit_prefixed(esc, &[b | if shift { 0x80 } else { 0 }]);
             return true;
         }
 
@@ -349,7 +353,7 @@ impl<'a> Term<'a> {
             };
             // `[[source: ctlseqs]]` line 2331: "shift the key from codes 0-127
             // to 128-255". A character already above 127 has no shifted form.
-            self.emit(&[b | if shift && b < 0x80 { 0x80 } else { 0 }]);
+            self.emit_prefixed(esc, &[b | if shift && b < 0x80 { 0x80 } else { 0 }]);
             return true;
         }
 
@@ -363,8 +367,20 @@ impl<'a> Term<'a> {
         let n = bytes.len();
         let mut owned = [0u8; 4];
         owned[..n].copy_from_slice(bytes);
-        self.emit(&owned[..n]);
+        self.emit_prefixed(esc, &owned[..n]);
         true
+    }
+
+    /// Emit `bytes`, with a single `ESC` in front if a prefix modifier applied.
+    ///
+    /// One call site per outcome, so the prefix cannot be written for a key
+    /// that then turns out to be unencodable. Once, not once per modifier:
+    /// `ESC ESC x` is Escape followed by Alt-x, a different keystroke.
+    fn emit_prefixed(&mut self, esc: bool, bytes: &[u8]) {
+        if esc {
+            self.emit(&[0x1b]);
+        }
+        self.emit(bytes);
     }
 
     /// `SS3 P` for F1-F4, `CSI n ~` for the rest.

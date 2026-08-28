@@ -872,3 +872,180 @@ fn vt52_keypad_press(k: KeypadKey, app: bool) -> Vec<u8> {
     assert!(t.key(KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE)));
     t.reply().to_vec()
 }
+
+// ---------------------------------------------------------------------------
+// Properties. The tests above are the specification's own tables, which is the
+// right oracle for *what* a key sends. These are the invariants that must hold
+// for keys no table lists -- every combination of code, modifier and mode --
+// and they exist because 23 example tests cannot cover a product of five axes.
+
+use proptest::prelude::*;
+
+fn any_key() -> impl Strategy<Value = KeyCode> {
+    prop_oneof![
+        (0x20u32..0x10_ffff)
+            .prop_map(|v| KeyCode::Char(Codepoint::from_char(char::from_u32(v).unwrap_or('?')))),
+        (1u8..=20).prop_map(|n| KeyCode::Function(FnKey::new(n).expect("1..=20"))),
+        prop_oneof![
+            Just(KeypadKey::Space),
+            Just(KeypadKey::Tab),
+            Just(KeypadKey::Enter),
+            Just(KeypadKey::Pf1),
+            Just(KeypadKey::Pf4),
+            Just(KeypadKey::Multiply),
+            Just(KeypadKey::Minus),
+            Just(KeypadKey::Period),
+            Just(KeypadKey::Digit0),
+            Just(KeypadKey::Digit1),
+            Just(KeypadKey::Digit5),
+            Just(KeypadKey::Digit9),
+            Just(KeypadKey::Equal),
+        ]
+        .prop_map(KeyCode::Keypad),
+        Just(KeyCode::Up),
+        Just(KeyCode::Down),
+        Just(KeyCode::Right),
+        Just(KeyCode::Left),
+        Just(KeyCode::Home),
+        Just(KeyCode::End),
+        Just(KeyCode::Insert),
+        Just(KeyCode::Delete),
+        Just(KeyCode::PageUp),
+        Just(KeyCode::PageDown),
+        Just(KeyCode::Enter),
+        Just(KeyCode::Tab),
+        Just(KeyCode::Backspace),
+        Just(KeyCode::Escape),
+    ]
+}
+
+/// Every mode combination a key can be encoded under, as the bytes that select
+/// them. Modes are not independent of the encoder: DECCKM, DECKPAM, LNM, VT52
+/// and the two `ESC`-prefix modes each change what some key sends.
+fn any_modes() -> impl Strategy<Value = Vec<&'static [u8]>> {
+    proptest::collection::vec(
+        prop_oneof![
+            Just(&b"\x1b[?1h"[..]), // DECCKM
+            Just(&b"\x1b="[..]),    // DECKPAM
+            Just(&b"\x1b[20h"[..]), // LNM
+            Just(&b"\x1b[?1036l"[..]),
+            Just(&b"\x1b[?1039l"[..]),
+            Just(&b"\x1b[?1034h"[..]),
+            Just(&b"\x1b%@"[..]),   // ISO 8859-1
+            Just(&b"\x1b[?2l"[..]), // VT52
+        ],
+        0..5,
+    )
+}
+
+fn encode(code: KeyCode, mods: Modifiers, setup: &[&[u8]]) -> (bool, Vec<u8>) {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    for m in setup {
+        feed(&mut t, m);
+    }
+    t.clear_reply();
+    let sent = t.key(KeyEvent::press(code, mods));
+    (sent, t.reply().to_vec())
+}
+
+proptest! {
+    /// **Nothing sent means nothing written, and something sent is never
+    /// empty.** The return value is the only signal an embedder has, so a
+    /// `false` that still wrote bytes would corrupt the stream and a `true`
+    /// with no bytes would look like a dropped keystroke.
+    #[test]
+    fn the_return_value_agrees_with_the_bytes(
+        code in any_key(),
+        bits in 0u8..16,
+        setup in any_modes(),
+    ) {
+        let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
+        let (sent, out) = encode(code, mods, &setup);
+        prop_assert_eq!(sent, !out.is_empty());
+    }
+
+    /// **A key press never emits a bare `ESC` followed by nothing.**
+    ///
+    /// `ESC` alone is a keystroke; `ESC` as the first byte of a sequence that
+    /// never arrives is a terminal the application cannot resynchronise. The
+    /// only key that may send a lone `ESC` is Escape itself.
+    #[test]
+    fn only_escape_sends_a_lone_escape(
+        code in any_key(),
+        bits in 0u8..16,
+        setup in any_modes(),
+    ) {
+        let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
+        let (_, out) = encode(code, mods, &setup);
+        if out == [0x1b] {
+            prop_assert!(matches!(code, KeyCode::Escape));
+        }
+    }
+
+    /// **A release is never encoded, whatever the mode.**
+    ///
+    /// `[[source: kitty-keyboard]]` is what reports releases, and it is not
+    /// implemented. An application that has not asked for them must never see
+    /// one -- it would read the release as a second press.
+    #[test]
+    fn releases_and_repeats_are_never_sent(
+        code in any_key(),
+        bits in 0u8..16,
+        setup in any_modes(),
+        release in any::<bool>(),
+    ) {
+        let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        for m in &setup {
+            feed(&mut t, m);
+        }
+        t.clear_reply();
+        let kind = if release { KeyEventKind::Release } else { KeyEventKind::Repeat };
+        let sent = t.key(KeyEvent { code, mods, kind });
+        prop_assert!(!sent);
+        prop_assert!(t.reply().is_empty());
+    }
+
+    /// **A modified key never uses `SS3`.**
+    ///
+    /// `SS3` takes no parameters, so there is nowhere to put the modifier;
+    /// `[[source: ctlseqs]]` line 2564 states it for F1-F4 and the same holds
+    /// for the cursor keys. An encoder that kept `SS3` emits something no
+    /// application parses, and this is the rule the keypad broke by reading
+    /// DECCKM instead of its own table.
+    #[test]
+    fn a_modifier_never_leaves_ss3_in_front(
+        code in any_key(),
+        bits in 1u8..16,
+        setup in any_modes(),
+    ) {
+        // `bits + 1` is 2..=16: at least one modifier held.
+        let mods = Modifiers::from_wire(bits + 1).expect("2..=16");
+        let (_, out) = encode(code, mods, &setup);
+        // **The keypad is exempt, and that is a scope decision rather than a
+        // hole.** `[[source: ctlseqs]]` gives the `CSI 1 ; mod` shape for the
+        // cursor and function keys and gives *nothing* for `SS3 j` and its
+        // neighbours, so baud sends the unmodified form rather than inventing
+        // one. This property found that by failing on `Shift` + keypad `=`,
+        // and the answer was to narrow the property, not the encoder.
+        let exempt = matches!(code, KeyCode::Keypad(_));
+        let is_ss3 = out.starts_with(b"\x1bO");
+        prop_assert!(exempt || !is_ss3, "modified key emitted SS3: {:?}", out);
+    }
+
+    /// The reply buffer is bounded and a key must never be able to overflow it.
+    #[test]
+    fn a_single_key_is_short(
+        code in any_key(),
+        bits in 0u8..16,
+        setup in any_modes(),
+    ) {
+        let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
+        let (_, out) = encode(code, mods, &setup);
+        // The longest form is `CSI <param> ; <mod> ~` with a two-digit
+        // parameter and a two-digit modifier, plus an ESC prefix from Alt.
+        prop_assert!(out.len() <= 12, "{} bytes: {:?}", out.len(), out);
+    }
+}

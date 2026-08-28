@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e6ef0a787e544cd6bbb4d7dc6093fa6582b43619cda1f040cbe19ebf342c1bb3 # shrinks to code = Char(Codepoint(256)), bits = 2, setup = [[27, 37, 64]]
+cc edf136d0d7c4a105ddb020f4a3af708852ae27de9b9ead1b3863271b41ca45c8 # shrinks to code = Keypad(Equal), bits = 1, setup = [[27, 61]]
+cc 058b4daaa809d97df5df88a9c61f37fe8e0a5f96d5e9f88b4a407c82d2eee7c0 # shrinks to code = Char(Codepoint(256)), bits = 2, setup = [[27, 37, 64]]

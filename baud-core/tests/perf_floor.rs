@@ -47,6 +47,39 @@ fn payload(n: usize) -> Vec<u8> {
     b
 }
 
+/// A reference workload, to divide the absolute numbers out.
+///
+/// **This is what makes a tight floor possible.** An absolute threshold has to
+/// survive the slowest machine that will ever run it, so `spans_ingest_floor`
+/// sits at 100 MB/s against a real value near 1300 -- it catches a
+/// reintroduced per-cell copy and nothing smaller. `6f2499a` cost **66%** of
+/// streaming throughput, taking spans to ~560, and passed that floor with 5.6x
+/// to spare.
+///
+/// Dividing by a reference measured in the same process on the same data
+/// cancels the machine out: a slow CPU slows both. What is left is a ratio
+/// that can carry a floor near its real value.
+///
+/// `copy_from_slice` over the same buffer in the same chunk sizes, because it
+/// is the cheapest thing that touches every byte, and it is not code baud can
+/// regress.
+fn reference_mbps(data: &[u8]) -> f64 {
+    // `black_box` on both ends, because the first attempt at this reported
+    // 3,692,307 MB/s -- 24 MB in 6.5 us, which is not a memory system, it is a
+    // loop the optimiser deleted. The guard against that was
+    // `assert!(x != 0xff || x == 0xff)`, a tautology the compiler is free to
+    // see through, which is worth recording as the way not to do it.
+    let t0 = Instant::now();
+    let mut acc = 0u64;
+    for _ in 0..3 {
+        for &b in std::hint::black_box(data) {
+            acc = acc.wrapping_add(u64::from(b));
+        }
+    }
+    std::hint::black_box(acc);
+    3.0 * data.len() as f64 / t0.elapsed().as_secs_f64() / 1_048_576.0
+}
+
 fn throughput(mode: OpMode) -> f64 {
     let data = payload(8 << 20);
     let mut s = boxed_storage();
@@ -125,5 +158,34 @@ fn storage_is_one_block() {
          a full codepoint, so U+1F680 truncated to U+F680 (a private-use char) and the \
          differential test caught it. Measured cost of the extra four bytes: 48% of the \
          kernel ceiling vs 50% for 4-byte cells."
+    );
+}
+
+/// **The gate `6f2499a` needed and did not have.**
+///
+/// Ingest throughput as a fraction of `reference_mbps`, which cancels the
+/// machine out: a slower CPU slows both.
+///
+/// The arithmetic behind the floor, so it can be re-derived rather than
+/// trusted. On an M5 Max the reference is ~60,000 MB/s and spans ~1,100, a
+/// ratio of **0.018**. `6f2499a` left spans at ~560, which against the same
+/// reference is **0.0093**. The floor is **0.012** -- 33% below the healthy
+/// ratio and 29% above the broken one.
+///
+/// That is a much weaker requirement than an absolute floor makes: it
+/// tolerates any machine whose ingest keeps two thirds of its current speed
+/// *relative to a linear scan of the same bytes*, rather than any machine
+/// faster than a fixed MB/s.
+#[test]
+fn spans_ingest_holds_its_ratio_to_a_reference() {
+    let data = payload(8 << 20);
+    let r = reference_mbps(&data);
+    let v = throughput(OpMode::Runs);
+    let ratio = v / r;
+    assert!(
+        ratio > 0.012,
+        "spans {v:.1} MB/s against reference {r:.1} MB/s is {ratio:.3}, floor \
+         0.012 -- an absolute floor cannot catch this class: `6f2499a` cost \
+         66% of streaming and cleared the 100 MB/s floor with 5.6x to spare"
     );
 }
