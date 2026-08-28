@@ -658,18 +658,35 @@ suspected".
 does not enter the reported MB/s -- but it is three quarters of the process's
 life, which is worth knowing before reading any profile of this benchmark.
 
-Inside the timed loop the split is **`read` 82%, all of baud 18%**. The syscall
-costs about four and a half times everything the parser and grid do together,
-which is the same story the null-consumer ceiling tells from the other side:
-198.6 MB/s with no parser at all, against 158 with one.
+### Corrected by dtrace: that is waiting, not working
 
-**So a PTY row cannot show a parser change.** A 20% improvement in baud's own
-work moves a PTY number by under 4%, which is inside the noise these rows
-already carry. Parser changes belong in the memory column, and the PTY column
-belongs in a claim about what a terminal delivers.
+The reading above -- "`read` is 82%" -- is wall time, and `sample` counts a
+thread blocked *in* a syscall as time spent there. Sampling only when the thread
+is on-CPU in userland tells a different story:
 
-That also explains why the blanking variants were so hard to separate: they
-were being measured through a transport that costs four times what they touch.
+| symbol | `sample` (wall) | `dtrace profile-4999` (on-CPU) |
+|---|---|---|
+| `read` | 82% | **3.7%** |
+| `feed_with` | | **38%** |
+| `scroll_region_up` | | **31%** |
+| `put_ascii_run` | | **26%** |
+| baud, total | 18% | **93%** |
+
+Both are true and they answer different questions. The process spends most of
+its *wall* time blocked waiting for the child to produce bytes; of the *CPU*
+time it actually uses, 93% is baud's own code.
+
+**The conclusion survives but the reason changes.** A PTY row still cannot show
+a parser change -- but because the benchmark is **producer-bound**, not because
+the syscall is expensive. The child cannot write fast enough, so a faster parser
+would spend the difference waiting. That is the null-consumer ceiling seen from
+the inside: 198.6 MB/s with no parser at all.
+
+**And `scroll_region_up` is 31% of on-CPU time**, for an operation documented as
+O(1). The ring advance is one addition; what is expensive is what got inlined
+into it -- the row scan `fill_row_counted` does, which is `#[inline(always)]`.
+So the blanking work moved rather than vanished, and the profile is where it
+shows up rather than in the amplification counters.
 
 ## What is not measured
 
