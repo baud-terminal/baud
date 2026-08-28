@@ -52,69 +52,38 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
-## The width tables: ~1.7% real, and about two thirds was the harness
+## Both layout anomalies are ~0.9% real and ~5x inflated by the harness
 
-*`ingest`, `payload::streaming`, `OpMode::Computed` — the path the 5% was
-recorded on — 3000 reps per run, sixteen interleaved pairs of `a4cecba`
-against its parent.*
+*`baud-bench/src/bin/ingest.rs`, 3000 reps per run, interleaved pairs, **on
+mains with the machine thermally settled**. The first attempt at these was on
+battery and both numbers were wrong -- one too large, one too small.*
 
-| | median | slower in |
-|---|---|---|
-| hand-written ranges | **3.03 s** | 4 of 16 |
-| generated from Unicode data | **3.08 s** | **12 of 16** |
+| anomaly | in multibench | isolated, on mains | pairs |
+|---|---|---|---|
+| `036a432` reject overlong UTF-8 | −5% | **−0.8%** | slower in 8 of 10 |
+| `a4cecba` width tables from Unicode | −5% | **−0.9%** | slower in 10 of 12 |
 
-~1.7%, one-tailed sign test p = 0.038, against the 5% recorded from multibench.
+Medians: `036a432` 1.895 s against 1.91; `a4cecba` 2.89 s against 2.915.
 
-> [!WARNING]
-> **Wall clock, taken on battery, and not confirmed by a power-invariant
-> metric.** Cycles do not reproduce it: nine paired `xctrace` runs favour the
-> *generated* build 6-3, with a within-arm spread of 12.4M to 20.1M cycles --
-> tracing overhead, far too wide to resolve 1.7%. The interleaved pairing
-> controls for slow drift and not for core migration, and one `036a432` pair
-> showed a 2.22 s outlier against a 1.99 s norm, which is what a migration
-> looks like. **Re-run on mains before relying on this.** The `036a432` null is
-> less exposed -- ten pairs, no difference at all -- but was taken the same way.
+**The two agree, and an earlier edition of this file said they did not.** On
+battery `036a432` measured as *exactly* null over ten pairs and `a4cecba` as
+1.7%, and the conclusion drawn was that the class is "inflated by the
+comparison binary, not invented by it -- and not uniformly". The real picture
+is simpler: both changes add code or rodata to baud's binary, both cost about
+nine tenths of one percent there, and `multibench` -- which links six terminal
+implementations together -- multiplies that by roughly five.
 
-**Two anomalies, two different answers**, which is why both were re-run rather
-than one generalised from the other:
+**What each measurement error was.** Battery noise hid the 0.8% at `036a432`
+entirely, which is the ordinary failure: a small effect inside the spread reads
+as zero. It also *inflated* `a4cecba` to 1.7%, which is the less obvious one --
+the same noise that hides a real effect can manufacture one. Only the settled
+mains runs separate them, and the first eight pairs of the `a4cecba` re-run had
+to be discarded because the machine was charging from 31% and spread from 3.02
+to 5.89 s.
 
-| anomaly | in multibench | with baud alone |
-|---|---|---|
-| `036a432` overlong UTF-8 | −5% | **0%** |
-| `a4cecba` width tables | −5% | **−1.7%** |
-
-So the comparison binary inflates these and does not invent all of them. The
-residual is a real cost to anyone linking baud, and 5.4 KB of rodata on a
-payload that never calls `Width::of` is still unexplained — just smaller than
-the number this project has been carrying.
-
-## The 5% at `036a432` does not reproduce in isolation
-
-*`baud-bench/src/bin/ingest.rs`, `payload::streaming`, `OpMode::Runs`, 3000
-reps (~3 GB) per run, ten interleaved pairs, both binaries built from the same
-source at `036a432` and its parent.*
-
-| pair | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| before (s) | 2.07 | 1.99 | 1.99 | 2.00 | 1.98 | 2.04 | 1.99 | 2.02 | 2.01 | 2.02 |
-| after (s) | 2.02 | 1.99 | 1.98 | 1.99 | 2.22 | 2.01 | 2.01 | 2.01 | 2.00 | 2.08 |
-
-**Identical.** ~3 GB in ~2.0 s is ~1500 MB/s, the same regime multibench
-reports for the spans row, so this is not a different workload measured
-differently -- it is the same work with baud alone in the process.
-
-The 5% was measured in `bench-others/multibench`, which links six terminal
-implementations into one binary. Adding 528 bytes to baud moves everything
-after it. That is the leading explanation for this class of anomaly now, and it
-fits what nothing else did: they appear on changes that cannot execute, they
-take opposite signs on the spans and cells rows, and every mechanism tried
-against baud's own code -- inlining, read batching, different work, `State`
-size, code size -- has been ruled out.
-
-**Not concluded.** One anomaly has been re-tested this way and the isolated
-harness differs from multibench in more than its binary. The width tables at 5%
-and blanking at 38% should be re-run under `ingest` before this is treated as
-settled.
+So the residual is real, small, and still unexplained: the streaming payload is
+pure ASCII and calls neither the new decoder path nor `Width::of`. 5.4 KB of
+rodata and a slightly larger `feed_with` are what is left to explain 0.9%.
 
 ## Outlining the cold Ground arms: neutral, and how nearly it wasn't
 

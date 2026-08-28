@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ◐ [1.20× ghostty on spans, 1.77× on TUI](#the-number) — but behind on cells, and ~21% below its own measured best |
+| **Throughput** | ✅ [1.19× ghostty on spans, 1.05× on cells](#the-number) — ahead in both representations, on both payloads |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -117,37 +117,29 @@ allocated nothing still cost 22%, because the array grew past cache.
 
 ## The number
 
-*Apple M5 Max, 2026-08-27, commit `b6429f4`, in-memory transport, medians of 9,
-interleaved ordering, two runs quoted. ghostty is built from an unchanged
+*Apple M5 Max, 2026-08-28, commit `548fe84`, **on mains**, in-memory transport,
+medians of 9, interleaved, two runs quoted. ghostty is built from an unchanged
 checkout and is the control. Full table and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **1310.8 / 1349.0** MB/s | **1520.8 / 1852.5** MB/s |
-| ghostty (libghostty-vt) | 1127.3 / 1119.6 | 1047.1 / 1045.1 |
-| baud (cells, computed) | 915.5 / 924.8 | 873.8 / 926.3 |
-| termwiz (wezterm) parse only | 378.4 / 376.9 | 366.9 / 364.9 |
-| alacritty_terminal | 219.3 / 222.0 | 266.8 / 272.3 |
-| vt100 crate | 166.8 / 166.5 | 217.4 / 216.2 |
+| **baud** (spans) | **1305.5 / 1304.5** MB/s | **1844.4 / 1862.8** MB/s |
+| **baud** (cells, computed) | **1157.6 / 1149.1** | **1232.9 / 1234.9** |
+| ghostty (libghostty-vt) | 1093.1 / 1114.0 | 1013.5 / 1043.2 |
+| termwiz (wezterm) parse only | 370.5 / 370.9 | 360.7 / 358.8 |
+| alacritty_terminal | 210.5 / 209.5 | 266.3 / 271.8 |
+| vt100 crate | 165.7 / 165.0 | 213.2 / 215.9 |
+| wezterm (full terminal) | 17.5 / 17.3 | 31.8 / 32.1 |
 
-**Read the qualifier.** That is baud's *span* representation: **1.20x** ghostty
-on streaming and **1.77x** on TUI.
+**Spans: 1.19x ghostty streaming, 1.80x TUI. Cells: 1.05x and 1.20x.**
 
-In **cell** storage ghostty is ahead, 1119.6 against 924.8 on streaming. An
-earlier edition of this file said "level on cells" and claimed 1.47x on spans.
-Both were true of commit `2d23dc8` and neither is true of this one.
-
-> [!NOTE]
-> **`2d23dc8` measures ~1690 on this box and HEAD measures ~1330 — and most of
-> that gap is not a defect.** One regression was: `6f2499a` read each row before
-> blanking it, cost 66%, and is reverted. The rest is profiled in
-> [MEASUREMENTS.md](MEASUREMENTS.md) and decomposes into paid-for correctness —
-> about 12% is the price of full-screen scrolling that actually scrolls, which
-> was broken before `0a12283`, and 3–5% is width tables generated from Unicode
-> data instead of a hand-written list that gave every Arabic, Hebrew and
-> Devanagari combining mark a column of its own. One 5% step remains
-> unexplained. The older number was a faster terminal that rendered text wrong.
+**Cells used to be the weak half and no longer is.** Earlier editions of this
+file said "level on cells", then "behind on cells" at 908 against 1124 --
+both true when written. `put_ascii_run` was a scalar loop writing one
+eight-byte cell per store while the blanking path next to it used `slice::fill`
+and vectorised; closing that took cells to ~1153. On TUI the ranges do not
+overlap in either run.
 
 Both modes ship; `OpMode` is fixed at startup.
 
