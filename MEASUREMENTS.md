@@ -121,6 +121,18 @@ within-round spread.*
 | `payload::streaming` | ~1310 | ~1305 | flat |
 | `utf8/cat-cjk.raw` | ~117 | ~116 | flat |
 | `utf8/less-cjk.raw` | ~123 | ~123 | flat |
+| `payload::tui`, cells | 1427 / 1395 / 1390 | 1254 / 1351 / 1368 | **-3%** |
+| `payload::tui`, runs | 1336 / 1331 / 1339 | 1312 / 1318 / 1302 | **-2%** |
+
+`payload::tui` is the one arm that loses, and it loses for the reason the
+mechanism predicts: it barely scrolls, so it pays the bookkeeping and collects
+almost none of the saving. Ranges overlap in both modes, so by this file's rule
+it is not a result -- but it is 3 of 3 rounds in one direction and is recorded
+rather than dropped.
+
+**`bench-others/multibench` reported that same arm at -11%**, which is the ~5x
+inflation this file already documents for that binary. The isolated harness is
+the one to believe; the comparison binary is for the comparison.
 
 Write amplification on cat-scroll goes **6.1x to 1.9x**, and its cell
 attribution from 15% bulk / 85% fill to **50% / 50%**.
