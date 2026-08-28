@@ -23,6 +23,36 @@ pub enum GraphemeClass {
     Lvt,
 }
 
+impl GraphemeClass {
+    /// Declaration order, which is what the generated trie stores.
+    ///
+    /// **Not `transmute` and not a cast.** The trie holds four-bit indices, and
+    /// the correspondence between those and this enum is the one thing that
+    /// would fail silently if the enum were reordered: every codepoint would
+    /// get a different class and the code would still run.
+    /// `the_break_trie_agrees_with_the_class_enum` walks both.
+    pub const FROM_INDEX: [GraphemeClass; 16] = [
+        GraphemeClass::Other,
+        GraphemeClass::Cr,
+        GraphemeClass::Lf,
+        GraphemeClass::Control,
+        GraphemeClass::Extend,
+        GraphemeClass::Zwj,
+        GraphemeClass::RegionalIndicator,
+        GraphemeClass::Prepend,
+        GraphemeClass::SpacingMark,
+        GraphemeClass::L,
+        GraphemeClass::V,
+        GraphemeClass::T,
+        GraphemeClass::Lv,
+        GraphemeClass::Lvt,
+        // Two spare slots so the index cannot leave the array; the generator
+        // asserts fourteen classes, so nothing reaches these.
+        GraphemeClass::Other,
+        GraphemeClass::Other,
+    ];
+}
+
 fn lookup(table: &[(u32, u32)], cp: u32) -> bool {
     let (mut lo, mut hi) = (0usize, table.len());
     while lo < hi {
@@ -53,20 +83,16 @@ impl GraphemeClass {
                 _ => GraphemeClass::Other,
             };
         }
-        let t = &grapheme_data::BREAK_PROPERTY;
-        let (mut lo, mut hi) = (0usize, t.len());
-        while lo < hi {
-            let mid = (lo + hi) / 2;
-            let (a, b, k) = t[mid];
-            if cp < a {
-                hi = mid;
-            } else if cp > b {
-                lo = mid + 1;
-            } else {
-                return k;
-            }
-        }
-        GraphemeClass::Other
+        // Two indexed loads, not eleven data-dependent branches. This was a
+        // binary search over 1,386 ranges and profiled at **27.1%** of the CJK
+        // path -- the largest single item in it -- with a ceiling arm returning
+        // a constant worth +21 to +29%.
+        //
+        // `cp` is a `Codepoint`, so it is below 0x110000 and both indices are
+        // in range by construction.
+        let block = grapheme_data::BREAK_INDEX[(cp >> 8) as usize] as usize;
+        let byte = grapheme_data::BREAK_BLOCKS[block * 128 + ((cp as usize & 0xff) >> 1)];
+        GraphemeClass::FROM_INDEX[((byte >> ((cp & 1) * 4)) & 0xf) as usize]
     }
 }
 

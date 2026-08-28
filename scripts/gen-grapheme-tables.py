@@ -95,17 +95,95 @@ parts = ['''//! Grapheme-cluster data, generated from the sources pinned in
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-grapheme-tables.py`.
 //! `grapheme_tables_match_the_pinned_data` fails if this file and the pinned
-//! data disagree.
+//! data disagree.''']
 
-use crate::GraphemeClass;''']
+# `GraphemeClass`'s declaration order. Asserted against the enum below rather
+# than trusted: a silently reordered enum would remap every codepoint's class,
+# and the result would look like working code.
+CLASSES = ["Other", "Cr", "Lf", "Control", "Extend", "Zwj", "RegionalIndicator",
+           "Prepend", "SpacingMark", "L", "V", "T", "Lv", "Lvt"]
+BLOCK = 256
 
-lines = ["/// `[[source: uax29]]` Grapheme_Cluster_Break, as sorted",
-         "/// `(lo, hi, class)` ranges. Binary searched; anything not listed is",
-         "/// [`GraphemeClass::Other`].",
-         f"pub static BREAK_PROPERTY: [(u32, u32, GraphemeClass); {len(rows)}] = ["]
-lines += [f"    (0x{a:04x}, 0x{b:04x}, GraphemeClass::{c})," for a, b, c in rows]
-lines.append("];")
-parts.append("\n".join(lines))
+
+def build_break_trie(rows):
+    """A two-stage table for Grapheme_Cluster_Break, checked against the ranges.
+
+    `GraphemeClass::of` binary searched 1,386 ranges for every non-ASCII
+    codepoint -- about eleven data-dependent branches. It profiled at **27.1%**
+    of the CJK path, the single largest item, and a ceiling arm returning a
+    constant measured +21 to +29%.
+
+    Fourteen classes fit four bits, two per byte. At 256-codepoint blocks the
+    result is 16,000 bytes against the range table's ~16,632, so this is
+    smaller as well as flatter.
+    """
+    idxof = {c: i for i, c in enumerate(CLASSES)}
+    assert len(CLASSES) <= 16, "four bits per value"
+    cls = bytearray(0x110000)
+    for lo, hi, k in rows:
+        v = idxof[k]
+        for cp in range(lo, min(hi, 0x10FFFF) + 1):
+            cls[cp] = v
+
+    blocks, index = {}, []
+    for base in range(0, 0x110000, BLOCK):
+        key = bytes(cls[base : base + BLOCK])
+        if key not in blocks:
+            blocks[key] = len(blocks)
+        index.append(blocks[key])
+    assert len(blocks) <= 256, f"{len(blocks)} blocks will not fit a u8 stage 1"
+
+    packed = bytearray()
+    for key in blocks:
+        for i in range(0, BLOCK, 2):
+            packed.append(key[i] | (key[i + 1] << 4))
+
+    # Exhaustive, against the ranges this file is generated from.
+    for cp in range(0x110000):
+        blk = index[cp >> 8]
+        byte = packed[blk * (BLOCK // 2) + ((cp & 0xFF) >> 1)]
+        got = (byte >> ((cp & 1) * 4)) & 0xF
+        if got != cls[cp]:
+            raise SystemExit(f"trie disagrees at U+{cp:04X}: {got} != {cls[cp]}")
+    return index, packed, len(blocks)
+
+
+def as_bytestring(name, data, doc):
+    """A byte string, not an array literal.
+
+    rustfmt rewraps array literals to its width, so a generator emitting one
+    can never satisfy its own staleness check -- the file it writes is not the
+    file that gets committed. String literals are left alone and `b"..."` is
+    byte-for-byte the same rodata.
+    """
+    body = []
+    for i in range(0, len(data), 32):
+        chunk = "".join(f"\\x{v:02x}" for v in data[i : i + 32])
+        body.append(f"    {chunk}\\")
+    return "\n".join([doc, f'pub static {name}: &[u8; {len(data)}] = b"\\', *body, '";'])
+
+
+bp_index, bp_packed, bp_blocks = build_break_trie(rows)
+parts.append(as_bytestring(
+    "BREAK_INDEX", bp_index,
+    "\n".join([
+        "/// `[[source: uax29]]` Grapheme_Cluster_Break, as a two-stage trie.",
+        "/// Stage 1: codepoint >> 8 to one of "
+        + str(bp_blocks)
+        + " distinct blocks.",
+        "///",
+        "/// This was 1,386 binary-searched `(lo, hi, class)` ranges, consulted",
+        "/// once per non-ASCII codepoint and **27.1%** of the CJK path -- the",
+        "/// single largest item in that profile. A ceiling arm returning a",
+        "/// constant measured +21 to +29%.",
+        "///",
+        "/// Values are `GraphemeClass` discriminants in declaration order;",
+        "/// `the_break_trie_agrees_with_the_class_enum` pins that correspondence,",
+        "/// because a reordered enum would remap every codepoint silently.",
+    ])))
+parts.append(as_bytestring(
+    "BREAK_BLOCKS", bp_packed,
+    "/// Stage 2: four-bit class values, two per byte, low nibble first."))
 
 # A membership bitmap over the four *lookback* tables, at 32 codepoints a bit.
 #

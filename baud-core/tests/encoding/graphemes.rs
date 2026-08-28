@@ -301,3 +301,53 @@ fn clustering_does_not_disturb_ordinary_text() {
     assert_eq!(columns("中文"), 4);
     assert_eq!(columns("e\u{301}"), 1, "base plus mark is still one column");
 }
+
+/// **The trie's four-bit values and `GraphemeClass`'s declaration order agree.**
+///
+/// `GraphemeClass::of` reads a nibble from a generated table and indexes
+/// `GraphemeClass::FROM_INDEX` with it. That correspondence is the one thing
+/// here that would fail *silently*: reorder the enum, and every codepoint gets
+/// a different class while the code still compiles and runs. The generator
+/// asserts the order on its side; this asserts it on the code's side, so the
+/// two have to be changed together.
+///
+/// Not a `transmute` for the same reason. A cast would make the bug
+/// unobservable rather than merely quiet.
+#[test]
+fn the_break_trie_agrees_with_the_class_enum() {
+    use baud_core::GraphemeClass::*;
+    let want = [
+        Other,
+        Cr,
+        Lf,
+        Control,
+        Extend,
+        Zwj,
+        RegionalIndicator,
+        Prepend,
+        SpacingMark,
+        L,
+        V,
+        T,
+        Lv,
+        Lvt,
+    ];
+    for (i, c) in want.iter().enumerate() {
+        assert_eq!(
+            GraphemeClass::FROM_INDEX[i],
+            *c,
+            "index {i} of the trie's value space must be {c:?}"
+        );
+    }
+    // The two spare slots exist so a four-bit value cannot leave the array.
+    assert_eq!(GraphemeClass::FROM_INDEX.len(), 16);
+    // And a spot check that the table is actually consulted: these are the
+    // classes the cluster rules turn on, and none of them is `Other`.
+    let of = |c: char| GraphemeClass::of(Codepoint::new(c as u32).expect("a char is a codepoint"));
+    assert_eq!(of('\u{200d}'), Zwj);
+    assert_eq!(of('\u{0301}'), Extend);
+    assert_eq!(of('\u{1f1e6}'), RegionalIndicator);
+    assert_eq!(of('\u{ac00}'), Lv);
+    assert_eq!(of('\u{1100}'), L);
+    assert_eq!(of('\u{4e00}'), Other);
+}
