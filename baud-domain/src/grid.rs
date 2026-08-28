@@ -485,6 +485,12 @@ impl<'a> View<'a> {
     /// Expressed through [`Grid::snap`] so there is one definition of where a
     /// character boundary is: whatever `snap` would have added is exactly what
     /// must be blanked.
+    /// `#[inline(always)]`: this runs once per non-ASCII codepoint, and left
+    /// as a real call it profiled at **26%** of pure-Han throughput -- a
+    /// ceiling arm removing it entirely measured 270 -> 339 MB/s. Two loads and
+    /// two compares do not cost that; a function call on a four-nanosecond path
+    /// does.
+    #[inline(always)]
     pub fn clear_partners(&mut self, r: Row, from: Col, to: Col, blank: PackedCell) {
         if r.index() >= self.rows.index() {
             return;
