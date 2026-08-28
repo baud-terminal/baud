@@ -105,6 +105,43 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## The ceiling on zero-copy line moves: 22x on a pager
+
+*`ingest`, `OpMode::Computed`, medians of 60 reps. The "no moves" arm deletes
+the row-copy loops from `insert_lines_in` and `delete_lines_in` and keeps the
+blanking. Its output is **wrong**; it exists only to bound the win, the same
+way `null_ceiling` bounds the PTY.*
+
+| recording | real | line moves removed | |
+|---|---|---|---|
+| **less-pager** | 25.6 / 28.6 / 28.7 | **440.9 / 622.7 / 619.4** | **~22x** |
+| vim | 252.0 / 262.0 / 259.5 | 259.0 / 259.6 / 261.2 | flat |
+
+**A pager is almost entirely bound by moving lines**, and nothing else in the
+corpus is: vim does not move them at all. `less-pager.raw` profiles at 41.8% in
+`insert_lines_in`, `delete_lines_in` and `_platform_memmove` together, and this
+is what that 41.8% is worth.
+
+**The same shape as the win this project already took.** `RowRot` made
+full-screen scroll zero-copy by advancing an index instead of copying cells:
+41.3 MB/s to 907.2, also about 22x. It does not generalise to a *region* or to
+`IL`/`DL`, which is exactly what a pager uses, so a pager pays the copy that a
+scrolling shell does not.
+
+The generalisation is a per-row indirection: a permutation table instead of a
+single rotation, so moving lines permutes indices rather than cells. The
+scaffolding is already there -- `View::phys` is the single point every
+addressing path goes through, which is what made `RowRot` one line rather than
+twenty-six chances to forget it.
+
+Two costs to weigh before building it, neither measured yet:
+
+* `phys` becomes a table load instead of an add and a conditional subtract, on
+  **every** cell access. A regression there hits every workload, including the
+  ones that never move a line.
+* `Term::viewport` un-rotates in place with one `rotate_left`. An arbitrary
+  permutation needs a gather instead, once a frame.
+
 ## The cells path, instrumented then fixed
 
 *`baud-bench/src/bin/ingest.rs`, `OpMode::Computed`, medians of 60 internally
