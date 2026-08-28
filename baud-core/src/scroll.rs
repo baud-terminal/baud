@@ -41,6 +41,8 @@ impl<'a> Term<'a> {
                 let y = Row::from_index(last);
                 self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
                 self.fill_row_counted(y, blank);
+                self.cells_scroll.add(self.cols.index());
+                self.scrolls.inc();
             }
             // `promoted` is indexed by screen row and the screen just moved, so
             // every flag now describes the wrong line. Clearing re-derives from
@@ -49,6 +51,20 @@ impl<'a> Term<'a> {
             return;
         }
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
+        // **The region path writes cells too, and nothing counted them.**
+        // `delete_lines_in` copies `height - k` rows up and blanks `k`, all in
+        // `baud-domain` where the counters do not reach -- so every
+        // amplification figure for an application using DECSTBM was understated,
+        // and that is most TUIs. vim's recording is named for its scroll
+        // regions.
+        let height = bot + 1 - top;
+        let moved = (height - k) * self.cols.index();
+        let blanked = k * self.cols.index();
+        self.cells_written.add(moved + blanked);
+        self.cells_fill.add(moved + blanked);
+        self.cells_blanked.add(blanked);
+        self.cells_scroll.add(blanked);
+        self.scrolls.add(k);
         self.view().delete_lines_in(rt, n, rb, blank);
         for y in top..=bot {
             self.s.promoted[y] = true;

@@ -335,6 +335,19 @@ pub struct Term<'a> {
     /// `fill_row`. Overlaps `cells_blanked` by construction; kept separate so
     /// the three attribution counters sum to `cells_written`.
     pub cells_fill: Stat,
+    /// The scrolling *subset* of `cells_fill`: rows blanked because a scroll
+    /// brought a new one in.
+    ///
+    /// A subset and not a fourth bucket, so the attribution still sums to
+    /// `cells_written`. Erase and clear are `cells_fill - cells_scroll`, and
+    /// separating them matters because they are different problems: a scroll
+    /// blank is driven by how often the payload scrolls, an erase by what the
+    /// application asks for.
+    pub cells_scroll: Stat,
+    /// How many times a scroll happened. `cells_scroll / scrolls` is the width
+    /// actually blanked per scroll, which is the number the blanking
+    /// experiments in `CLAUDE.md` were all about.
+    pub scrolls: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -468,6 +481,8 @@ impl<'a> Term<'a> {
             cells_bulk: Stat::ZERO,
             cells_single: Stat::ZERO,
             cells_fill: Stat::ZERO,
+            cells_scroll: Stat::ZERO,
+            scrolls: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,

@@ -356,6 +356,17 @@ fn cell_attribution_accounts_for_every_write() {
             v.extend_from_slice(b"\x1b[K\r\n");
         }
         v.extend_from_slice(b"\x1b[2J\x1b[5;5Hx\x1b[10b");
+        // **A partial scroll region, which takes the copying path.** That path
+        // calls `View::delete_lines_in` in `baud-domain`, where the counters do
+        // not reach, and nothing counted the rows it moves and blanks -- so
+        // every amplification figure for an application using DECSTBM was
+        // understated. Without this the gap is invisible: vim sets a region
+        // equal to the whole screen, which takes the O(1) ring path instead.
+        v.extend_from_slice(b"\x1b[5;15r");
+        for _ in 0..40 {
+            v.extend_from_slice(b"\x1b[15Hscrolled\r\n");
+        }
+        v.extend_from_slice(b"\x1b[r");
         let mut i = 0;
         while i < v.len() {
             let n = READ_CHUNK.min(v.len() - i);
@@ -382,4 +393,71 @@ fn cell_attribution_accounts_for_every_write() {
             b + s2 + f
         );
     }
+}
+
+/// **A scroll region's cell writes are counted, against arithmetic rather than
+/// against the other counters.**
+///
+/// `cell_attribution_accounts_for_every_write` cannot catch this and it is
+/// worth saying why: it asserts the three buckets sum to `cells_written`, so a
+/// path that increments *neither* stays perfectly consistent while being
+/// invisible. Internal consistency is not completeness.
+///
+/// `View::delete_lines_in` lives in `baud-domain`, where the counters do not
+/// reach, and for the whole life of this file it moved and blanked cells that
+/// nothing counted -- so amplification was understated for every application
+/// using DECSTBM, which is most TUIs. The full-screen path was counted, which
+/// is why it went unnoticed: vim sets a region equal to the whole screen and
+/// takes the O(1) ring instead.
+///
+/// So this counts in the other direction: a region of known height, a known
+/// number of scrolls, and the cells that must follow.
+#[test]
+fn a_region_scroll_counts_the_cells_it_moves_and_blanks() {
+    const TOP: usize = 5; // 1-based, as DECSTBM takes them
+    const BOT: usize = 15;
+    const SCROLLS: usize = 40;
+    let height = BOT - TOP + 1;
+
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut v = Vec::new();
+    v.extend_from_slice(format!("\x1b[{TOP};{BOT}r").as_bytes());
+    let mut feed_all = |t: &mut Term, v: &[u8]| {
+        let mut i = 0;
+        while i < v.len() {
+            let n = READ_CHUNK.min(v.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&v[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+    };
+    feed_all(&mut t, &v);
+    let before = t.cells_written.count();
+    let scrolls_before = t.scrolls.count();
+
+    // Park the cursor on the region's last row and newline off it, which is
+    // the only thing that scrolls a region.
+    let mut w = Vec::new();
+    for _ in 0..SCROLLS {
+        w.extend_from_slice(format!("\x1b[{BOT}H\n").as_bytes());
+    }
+    feed_all(&mut t, &w);
+
+    let (cols, _rows) = t.geometry();
+    let cols = cols.index();
+    // Each scroll copies `height - 1` rows up and blanks one.
+    let want = SCROLLS * height * cols;
+    assert_eq!(
+        t.cells_written.count() - before,
+        want as u64,
+        "a {height}-row region scrolled {SCROLLS} times moves and blanks \
+         {want} cells; `View::delete_lines_in` does the work in baud-domain \
+         where the counters do not reach, so this is the direction that \
+         catches it"
+    );
+    assert_eq!(t.scrolls.count() - scrolls_before, SCROLLS as u64);
 }
