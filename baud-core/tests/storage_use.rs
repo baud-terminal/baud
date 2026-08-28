@@ -5,7 +5,8 @@
 //! nor `clippy` will say a word about one that is written and never read: the
 //! dead-code lint does not reach public fields, and a write is a use.
 //!
-//! `tmpl` was `NSTYLE * MAX_COLS` cells -- **1 MB** -- filled with 2048 cells
+//! `tmpl` was one full-width row per style slot -- **1 MB** -- filled with 2048
+//! cells
 //! on every style-table miss and read by nothing at all. On btop that was
 //! 109,274 misses, about 223 million cell writes and 1.8 GB of traffic, for a
 //! buffer no code path consulted. Removing the fill measured **+27%**.
