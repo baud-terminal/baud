@@ -52,6 +52,26 @@ biasing baud by 16–20%.
 A second run the same session agreed: baud spans 1616.2 / 1953.9, ghostty
 1086.8 / 1011.2, baud cells 1058.2 / 977.3.
 
+## Outlining the cold Ground arms: neutral, and how nearly it wasn't
+
+*`a5a7c61` against its parent, multibench, `TRANSPORT=memory`, medians of 9,
+eight interleaved pairs, both builds warm.*
+
+| pair | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| before | 1293.8 | 1321.6 | 1315.0 | 1323.4 | 1319.5 | 1210.3 | 1354.1 | 1301.6 |
+| after | 1307.6 | 1327.7 | 1321.8 | 1313.7 | 1318.4 | 1339.4 | 1307.1 | 1301.4 |
+
+**Four wins each.** The first three pairs all favoured the change, which reads
+as a small consistent gain and is the point at which it was nearly written up
+as one. A sign test on 3/3 is p = 0.125 -- never a result -- and five more
+pairs went 1-4 the other way.
+
+The change shrinks `feed_with` from 14,968 to 13,488 bytes, -9.9%, and is kept
+for that and for the annotation being true. It is **not** kept for throughput,
+and the eight pairs are recorded so nobody re-derives a win from the first
+three.
+
 ## `fast_utf8`: decoding a character without a dispatch per byte
 
 *Apple M5 Max, 2026-08-27, `5ae7df4` against its parent, `baud-bench` memory
