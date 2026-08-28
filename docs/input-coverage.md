@@ -37,11 +37,11 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 | 2473 | cursor keys, normal vs application (DECCKM) | 4 | **done** — `Term::key`, both modes, modifiers force `CSI`. `cursor_keys_match_the_specifications_table` |
 | 2485 | Home / End, normal vs application | 2 | **done** — same path; ctlseqs puts them in the arrows' table |
 | 2498 | keypad, numeric vs application (DECKPAM) | 24 | todo |
-| 2529 | 12 function keys and special-purpose keys | 12 | todo |
+| 2529 | 12 function keys and special-purpose keys | 12 | **done** — F1-F4 are `SS3 P`-`S` *unconditionally*; F5-F12 are `CSI 15/17/18/19/20/21/23/24 ~`, and the gaps at 16 and 22 are real |
 | 2552 | the deprecated F1-F5 forms | 4 | todo — deprecated upstream; recorded so the choice is explicit |
 | 2628 | VT220 application keypad | 24 | todo |
-| 2672 | VT220 cursor keys | 6 | todo |
-| 2685 | the 8 additional VT220 function keys | 8 | todo |
+| 2672 | VT220 cursor keys | 6 | **done** for Insert/Delete/PageUp/PageDown, which DECCKM does not change. Home and End are sent PC-style from the table at 2485 — the VT220 forms here are xterm's `sunKeyboard` alternative, not an addition, and sending both would be sending two different keys |
+| 2685 | the 8 additional VT220 function keys | 8 | **done** — `CSI 25/26/28/29/31/32/33/34 ~`, skipping 27 and 30 |
 | 2703 | VT52 keys, which do not change with mode | 4 | todo |
 | 2713 | VT52 keypad | 24 | todo |
 

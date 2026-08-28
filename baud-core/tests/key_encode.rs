@@ -169,7 +169,112 @@ fn only_presses_are_encoded() {
 fn unimplemented_keys_send_nothing() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
-    let e = KeyEvent::press(KeyCode::Insert, Modifiers::NONE);
-    assert!(!t.key(e), "editing keys are not on this layer yet");
+    let e = KeyEvent::press(KeyCode::Tab, Modifiers::NONE);
+    assert!(!t.key(e), "the text keys are not encoded yet");
     assert!(t.reply().is_empty());
+}
+
+/// The `Key | Escape Sequence` table at the given line.
+fn seq_table_at(src: &str, line: usize) -> Vec<(String, String)> {
+    let lines: Vec<&str> = src.lines().collect();
+    let mut out = Vec::new();
+    for l in lines.iter().skip(line) {
+        let t = l.trim();
+        if t.starts_with('-') {
+            continue;
+        }
+        let Some((name, rest)) = t.split_once('|') else {
+            break;
+        };
+        out.push((name.trim().to_string(), rest.trim().to_string()));
+    }
+    out
+}
+
+/// **Every function key matches the specification, gaps included.**
+///
+/// F5-F12 are 15, 17, 18, 19, 20, 21, 23, 24 and F13-F20 are 25, 26, 28, 29,
+/// 31, 32, 33, 34. Sixteen and twenty-two are skipped, and so are twenty-seven
+/// and thirty. A table written as "15 upward" is wrong from F6 onward and
+/// sends a *neighbouring key* rather than nothing — the failure mode that is
+/// hardest to notice, because something plausible arrives.
+#[test]
+fn function_keys_match_the_specifications_tables() {
+    let src = ctlseqs();
+    let rows: Vec<(String, String)> = seq_table_at(&src, 2529)
+        .into_iter()
+        .chain(seq_table_at(&src, 2685))
+        .collect();
+    assert_eq!(
+        rows.len(),
+        20,
+        "expected F1-F12 and F13-F20 from ctlseqs; got {} rows. An empty table \
+         would pass every comparison below by having nothing to compare.",
+        rows.len()
+    );
+
+    for (name, form) in rows {
+        let n: u8 = name.trim_start_matches('F').parse().expect("Fn");
+        let key = KeyCode::Function(FnKey::new(n).expect("F1..F20"));
+        assert_eq!(
+            press(key, Modifiers::NONE, false),
+            spec_bytes(&form),
+            "F{n} should be {form}"
+        );
+    }
+}
+
+/// The editing keys, and that DECCKM does not touch them.
+///
+/// `[[source: ctlseqs]]` line 2672 gives the same sequence in the Normal and
+/// Application columns, unlike the cursor keys two tables earlier.
+#[test]
+fn editing_keys_are_the_same_in_both_modes() {
+    let src = ctlseqs();
+    let rows = table_at(&src, 2672);
+    assert_eq!(rows.len(), 6, "Insert, Delete, Home, End, PageUp, PageDown");
+
+    for (name, normal, app) in rows {
+        assert_eq!(
+            normal, app,
+            "{name}: DECCKM does not change the editing keys"
+        );
+        // Home and End are sent PC-style, from the table at 2485; the VT220
+        // forms here are the `sunKeyboard` alternative, not an addition.
+        let code = match name.as_str() {
+            "Insert" => KeyCode::Insert,
+            "Delete" => KeyCode::Delete,
+            "PageUp" => KeyCode::PageUp,
+            "PageDown" => KeyCode::PageDown,
+            "Home" | "End" => continue,
+            other => panic!("unknown editing key {other:?}"),
+        };
+        for app_mode in [false, true] {
+            assert_eq!(
+                press(code, Modifiers::NONE, app_mode),
+                spec_bytes(&normal),
+                "{name} should be {normal} in both modes"
+            );
+        }
+    }
+}
+
+/// A modifier goes before the `~`, not after it.
+///
+/// `CSI 1 5 ; 2 ~` is shift-F5, which is the worked example the specification
+/// gives at line 2586 for the modifier encoding.
+#[test]
+fn shift_f5_is_the_specifications_worked_example() {
+    let src = ctlseqs();
+    assert!(
+        src.contains("shift-F5 would be sent as CSI 1 5 ; 2 ~"),
+        "the worked example moved; this test quotes a source it no longer matches"
+    );
+    let f5 = KeyCode::Function(FnKey::new(5).unwrap());
+    assert_eq!(press(f5, Modifiers::SHIFT, false), b"\x1b[15;2~".to_vec());
+
+    // And F1-F4 take the cursor keys' shape instead.
+    let f1 = KeyCode::Function(FnKey::new(1).unwrap());
+    assert_eq!(press(f1, Modifiers::NONE, false), b"\x1bOP".to_vec());
+    assert_eq!(press(f1, Modifiers::CTRL, false), b"\x1b[1;5P".to_vec());
 }
