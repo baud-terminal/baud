@@ -321,12 +321,29 @@ impl<'a> Term<'a> {
         self.view().put(r, c, cell);
     }
 
+    /// The same bound as `fill_row_counted`, for a range.
+    ///
+    /// `EL`, `ED` and the selective-erase paths all land here, and an erase to
+    /// end-of-line on a short line is the same waste scrolling was: the range
+    /// runs to the margin whatever the row holds. Compared against `cell` for
+    /// the same reason -- the blank carries the current style, so a row that is
+    /// already empty still needs writing under a background colour.
     #[inline(always)]
     pub(crate) fn fill_counted(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) {
-        let n = to.index().saturating_sub(from.index());
+        let (a, b) = (from.index(), to.index());
+        if b <= a {
+            return;
+        }
+        let n = self.row(r)[a..b.min(self.cols.index())]
+            .iter()
+            .rposition(|c| *c != cell)
+            .map_or(0, |p| p + 1);
+        if n == 0 {
+            return;
+        }
         self.cells_written.add(n);
         self.cells_blanked.add(n);
-        self.view().fill(r, from, to, cell);
+        self.view().fill(r, from, Col::at_index(a + n), cell);
     }
 
     /// **Variant A: scan, then blank only what differs.**

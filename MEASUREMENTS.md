@@ -638,6 +638,39 @@ This is why the measurement exists rather than the reasoning: "the PTY costs
 nothing here could tell them apart until a consumer with no parser behind it
 was timed.
 
+## Where PTY-mode time actually goes, by sampling
+
+Host B, 2026-08-27, macOS `sample` over 20 s of a running benchmark. No
+dependency and no code change: a sampling profiler answers "where is the time"
+where a hand-placed timer only answers "how long was the thing I already
+suspected".
+
+| symbol | samples | |
+|---|---|---|
+| `__wait4` | 12,422 | the harness reaping forked children |
+| **`read`** | **3,296** | the PTY syscall |
+| `feed_with` | 267 | baud |
+| `scroll_region_up` | 248 | baud |
+| `put_ascii_run` | 194 | baud |
+| `dispatch`, `anywhere_c0` | 20 | baud |
+
+`__wait4` runs *after* `t0.elapsed()`, so it is outside the timed region and
+does not enter the reported MB/s -- but it is three quarters of the process's
+life, which is worth knowing before reading any profile of this benchmark.
+
+Inside the timed loop the split is **`read` 82%, all of baud 18%**. The syscall
+costs about four and a half times everything the parser and grid do together,
+which is the same story the null-consumer ceiling tells from the other side:
+198.6 MB/s with no parser at all, against 158 with one.
+
+**So a PTY row cannot show a parser change.** A 20% improvement in baud's own
+work moves a PTY number by under 4%, which is inside the noise these rows
+already carry. Parser changes belong in the memory column, and the PTY column
+belongs in a claim about what a terminal delivers.
+
+That also explains why the blanking variants were so hard to separate: they
+were being measured through a transport that costs four times what they touch.
+
 ## What is not measured
 
 Latency, frame rate, memory as a process. No renderer, no font shaping.
