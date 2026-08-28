@@ -529,6 +529,19 @@ fn eight_bit_input_applies_only_under_latin1() {
     t.clear_reply();
     assert!(t.key(KeyEvent::press(ch('x'), Modifiers::ALT)));
     assert_eq!(t.reply(), b"\x1bx");
+    t.clear_reply();
+
+    // **And it stops when the encoding goes back**, with the mode still set.
+    // The condition is read per keystroke, not latched when `?1034 h` arrived.
+    // Same rule as `?1020` mirroring the live encoding rather than the one in
+    // force when it was asked: a mode that outlives the fact it depends on is
+    // the failure the mode table exists to prevent.
+    feed(&mut t, b"\x1b[?1039l\x1b%G");
+    t.clear_reply();
+    assert!(t.eight_bit_input(), "the mode is still set");
+    assert_eq!(t.input_encoding(), InputEncoding::Utf8);
+    assert!(t.key(KeyEvent::press(ch('x'), Modifiers::ALT)));
+    assert_eq!(t.reply(), b"x", "and no longer applies");
 }
 
 /// **Under ISO 8859-1 the keyboard sends ISO 8859-1.**
