@@ -117,40 +117,35 @@ allocated nothing still cost 22%, because the array grew past cache.
 
 ## The number
 
-*Apple M5 Max, 2026-08-27, commit `2d23dc8`, in-memory transport, medians of 9,
-interleaved ordering. Full table and every caveat in
+*Apple M5 Max, 2026-08-27, commit `b6429f4`, in-memory transport, medians of 9,
+interleaved ordering, two runs quoted. ghostty is built from an unchanged
+checkout and is the control. Full table and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
-
-> [!WARNING]
-> **The streaming column is not what the code does today.** Re-measured on the
-> same box in the same session, HEAD gives **578.4** MB/s on spans and 584.4 on
-> cells against ghostty's unchanged 1132.4 — so streaming has lost about two
-> thirds since this table was taken, and on that payload baud is now *behind*
-> ghostty rather than ahead. TUI is roughly intact. The cause is not yet
-> identified and the bisect is running; see
-> [MEASUREMENTS.md](MEASUREMENTS.md#open-regression-streaming-lost-two-thirds-and-tui-did-not).
-> The table below is left as measured rather than deleted, because what it is
-> being compared against is the point.
-
-
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **1615.6** MB/s | **1956.6** MB/s |
-| ghostty (libghostty-vt) | 1101.8 | 1024.4 |
-| termwiz (wezterm) parse only | 367.2 | 356.0 |
-| alacritty_terminal | 174.9 | 264.7 |
-| vt100 crate | 161.2 | 213.9 |
+| **baud** (spans) | **1310.8 / 1349.0** MB/s | **1520.8 / 1852.5** MB/s |
+| ghostty (libghostty-vt) | 1127.3 / 1119.6 | 1047.1 / 1045.1 |
+| baud (cells, computed) | 915.5 / 924.8 | 873.8 / 926.3 |
+| termwiz (wezterm) parse only | 378.4 / 376.9 | 366.9 / 364.9 |
+| alacritty_terminal | 219.3 / 222.0 | 266.8 / 272.3 |
+| vt100 crate | 166.8 / 166.5 | 217.4 / 216.2 |
 
-**Read the qualifier.** That is baud's *span* representation at `2d23dc8`,
-where the result was unambiguous — no range overlapped ghostty's on either
-payload. It no longer holds on streaming; see the warning above.
+**Read the qualifier.** That is baud's *span* representation: **1.20x** ghostty
+on streaming and **1.77x** on TUI.
 
-In **cell** storage there is no measured margin: across four runs the ranges
-overlapped in 4/4 on streaming and 2/4 on TUI. The *direction* is consistent
-though — ghostty's median was higher in all eight comparisons (sign test
-p = 0.004), by roughly 3–6%. So: level within the noise, with a signal worth
-chasing on the cells path, and not a number either project should quote.
+In **cell** storage ghostty is ahead, 1119.6 against 924.8 on streaming. An
+earlier edition of this file said "level on cells" and claimed 1.47x on spans.
+Both were true of commit `2d23dc8` and neither is true of this one.
+
+> [!NOTE]
+> **One regression is fixed and one is still open.** `6f2499a` read each row
+> before blanking it and cost 66% of streaming; it is reverted, and that was
+> the cliff. But `2d23dc8` measures **1708.6** on this box today against HEAD's
+> ~1330, so about 21% more has been lost *gradually* across the commits
+> between, and that has not been investigated. The table above is what the code
+> does. It is not the best this architecture has measured, and the gap is
+> stated rather than averaged away.
 
 Both modes ship; `OpMode` is fixed at startup.
 

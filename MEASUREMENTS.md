@@ -27,13 +27,10 @@ interleaved and rotated ordering. Payloads from `baud-bench/src/payload.rs`,
 generated fresh per write.*
 
 > [!WARNING]
-> **Superseded on the streaming payload. See "Open regression: streaming lost
-> two thirds" below.** Re-measured 2026-08-27 on the same box in the same
-> session, `2d23dc8` reproduces this table (spans 1708.6, cells 1096.8) and
-> `cb9078e` does not (spans **578.4**, cells **584.4**), with ghostty flat at
-> 1120.9 / 1132.4 as the control. The TUI column is roughly intact. The cause
-> is not yet identified; the numbers below are what `2d23dc8` measured and are
-> **not** what the code does today.
+> **Superseded. The current headline is in "After the fix" below.** This table
+> is commit `2d23dc8` and is kept because the regression section compares
+> against it. `2d23dc8` still measures 1708.6 on spans today, so it is not
+> merely an old host -- it is a state the code has not returned to.
 
 **This section is measured against `2d23dc8`, not against HEAD.**
 Everything below it predates some or all of the VT protocol work, and each
@@ -82,6 +79,40 @@ and resolves nothing — its variance swamps a 3× effect. Every increment since
 `2d23dc8` was checked against a harness that could not see this, while the
 harness that could was only ever run when a number was being quoted. A gate
 that runs on demand is not a gate.
+
+### After the fix
+
+*Same box, 2026-08-27, commit `b6429f4`, `TRANSPORT=memory`, medians of 9,
+interleaved, two runs.*
+
+| core | streaming | TUI |
+|---|---|---|
+| baud (spans) | **1310.8** [1015.7-1342.0] / **1349.0** [976.7-1385.5] | 1520.8 [1441.1-1543.9] / 1852.5 [1730.7-1887.5] |
+| ghostty — *control* | 1127.3 [1114.3-1141.1] / 1119.6 [1096.2-1138.1] | 1047.1 / 1045.1 |
+| baud (cells, computed) | 915.5 [879.9-923.6] / 924.8 [885.6-935.5] | 873.8 / 926.3 |
+| termwiz parse only | 378.4 / 376.9 | 366.9 / 364.9 |
+| alacritty_terminal | 219.3 / 222.0 | 266.8 / 272.3 |
+| vt100 crate | 166.8 / 166.5 | 217.4 / 216.2 |
+
+Spans are **1.20x** ghostty streaming and **1.77x** TUI. Cells are **behind**,
+924.8 against 1119.6 -- the "level on cells" claim was true at `2d23dc8` and is
+not true here.
+
+### Still open: a gradual erosion under the cliff
+
+The cliff is fixed and the number has not returned to `2d23dc8`'s. Measured
+today on one box: `2d23dc8` 1708.6, `9f6ddc3` 1455.8, `657e1cb` 1407.2,
+`886ce9e` 1382.6, `ac0ed98` 1368.2, HEAD ~1330.
+
+That is a **monotone decline of about 21%** across the commits before the one
+that caused the cliff, and it was nearly missed: the bisect log reads as a flat
+plateau followed by a cliff only if you do not compare the plateau with its own
+starting point. No commit in it is individually large enough for a bisect
+threshold to catch, which is the shape a per-commit gate would find and a
+periodic one would not.
+
+Uninvestigated. It is not the same defect as `6f2499a` and should not be
+folded into it.
 
 ### The commit
 
@@ -139,9 +170,18 @@ strictly less work, measured 142-150 against 213-229. Writing less was slower
 there too, and that anomaly is still unexplained.
 
 `C3` (forward scan, shortened write) and `C4` (backwards scan, full write)
-separate them. Until those land this stays recorded as two candidates rather
-than resolved, because this file already carries two anomalies named by
-measurement and does not need a third named by intuition.
+separated them, and **both stayed slow** -- 582.7 / 572.6 / 561.1 and 510.8 /
+516.0 / 496.5. So neither the direction nor the shortened write is the cost:
+the variable that tracks the outcome is whether the row is **read**.
+
+`[[source: apple-cpu-guide]]` § 4.6.10 supplies a mechanism that fits all four
+arms -- a store closely followed by an overlapping load causes a memory
+ordering violation and the load is re-executed, which is `put_ascii_run`
+storing cells and the next scroll's scan loading them. It also **refuted** the
+cache explanation offered here first: § 4.20 documents the L1D as write-back
+*write-allocate*, so the store allocates too and the read adds no fill the
+write avoided. `docs/research/notes/d-memory-hierarchy.md` carries both, and
+records the mechanism as a candidate because no counter has been read.
 
 **`0e7cb84` is reverted by association, not separately measured.** It added the
 same `rposition` pattern to `fill_counted`, the `EL`/`ED` erase paths, after
