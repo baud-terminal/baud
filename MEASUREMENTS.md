@@ -105,6 +105,40 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## The cells path, instrumented then fixed
+
+*`baud-bench/src/bin/ingest.rs`, `OpMode::Computed`, medians of 60 internally
+timed reps, on mains. The recordings, because the synthetic payloads report
+`utf8_share` 0.0% and reach none of this.*
+
+| payload | session start | now | |
+|---|---|---|---|
+| btop (truecolour, box drawing) | 306 | **~440** | **+44%** |
+| cjk (pure multi-byte) | 123 | **~150** | **+22%** |
+| vim (CJK, emoji) | 222 | **~255** | **+15%** |
+| streaming (ASCII) | 840 | **~1075** | **+28%** |
+
+Three changes, each found by instrumenting rather than by reading:
+
+1. **`put_ascii_run` was scalar.** `Term::cell_attribution` put 27% of
+   streaming's cells through it for 33% of the profile, against `slice::fill`
+   doing the other 73% in 17% -- 5.3x per cell for the same eight bytes.
+   `otool -tv` confirmed no vector register in the function. Vectorised: +30%
+   on streaming.
+2. **A 1 MB template buffer nothing read.** `intern_style` filled 2048 cells
+   per style-table miss; btop misses 109,274 times, so ~223 million cell
+   writes for a buffer `grep` finds no reader of. +27% on btop, and 1 MB off
+   `Storage`.
+3. **Two unguarded binary searches per codepoint.** `ClusterBreak::advance`
+   searched `EXTENDED_PICTOGRAPHIC` and `INCB_CONSONANT` for every codepoint
+   above `U+00A9`. A 32-codepoint-granularity membership bitmap skips both for
+   98.9% of the space: +6% btop, +11% vim, +17% cjk.
+
+**And one that failed**, which is why the third one is worth trusting: a bitmap
+over `BREAK_PROPERTY` measured flat and was reverted. That search sits behind
+`GraphemeClass::of`, which already had an ASCII fast path, and was never the
+cost -- the cost was one level down. Same technique, wrong target.
+
 ## `fast_utf8`: decoding a character without a dispatch per byte
 
 *Apple M5 Max, 2026-08-27, `5ae7df4` against its parent, `baud-bench` memory

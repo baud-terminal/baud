@@ -124,22 +124,32 @@ checkout and is the control. Full table and every caveat in
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **1305.5 / 1304.5** MB/s | **1844.4 / 1862.8** MB/s |
-| **baud** (cells, computed) | **1157.6 / 1149.1** | **1232.9 / 1234.9** |
-| ghostty (libghostty-vt) | 1093.1 / 1114.0 | 1013.5 / 1043.2 |
-| termwiz (wezterm) parse only | 370.5 / 370.9 | 360.7 / 358.8 |
-| alacritty_terminal | 210.5 / 209.5 | 266.3 / 271.8 |
-| vt100 crate | 165.7 / 165.0 | 213.2 / 215.9 |
-| wezterm (full terminal) | 17.5 / 17.3 | 31.8 / 32.1 |
+| **baud** (spans) | **1332.2 / 1317.3** MB/s | **1878.5 / 1899.5** MB/s |
+| **baud** (cells, computed) | **1180.7 / 1169.6** | **1266.0 / 1274.3** |
+| ghostty (libghostty-vt) | 1119.3 / 1129.5 | 1049.9 / 1054.9 |
+| termwiz (wezterm) parse only | 382.2 / 382.5 | 368.3 / 368.8 |
+| alacritty_terminal | 223.1 / 221.7 | 269.8 / 271.1 |
+| vt100 crate | 169.7 / 168.8 | 219.6 / 220.2 |
+| wezterm (full terminal) | 17.9 / 17.8 | 32.8 / 32.6 |
 
-**Spans: 1.19x ghostty streaming, 1.80x TUI. Cells: 1.05x and 1.20x.**
+**Spans: 1.19x ghostty streaming, 1.79x TUI. Cells: 1.05x and 1.21x.**
+
+**These payloads are ASCII, and that understates the recent work.**
+`Term::utf8_share` reports 0.0% for both, so neither exercises the UTF-8
+decoder, the grapheme lookback or the style table. On real capture the same
+changes are worth far more -- btop's cells path went from 306 to ~440 MB/s in
+one session -- and `MEASUREMENTS.md` carries those separately. A synthetic
+payload is the wrong instrument for anything that only non-ASCII text
+reaches.
 
 **Cells used to be the weak half and no longer is.** Earlier editions of this
-file said "level on cells", then "behind on cells" at 908 against 1124 --
-both true when written. `put_ascii_run` was a scalar loop writing one
-eight-byte cell per store while the blanking path next to it used `slice::fill`
-and vectorised; closing that took cells to ~1153. On TUI the ranges do not
-overlap in either run.
+file said "level on cells", then "behind on cells" at 908 against 1124 -- both
+true when written. Three changes closed it: `put_ascii_run` was a scalar loop
+writing one eight-byte cell per store while the blanking path beside it used
+`slice::fill` and vectorised; a 1 MB template buffer was filled on every style
+miss and read by nothing; and the grapheme lookback ran two binary searches per
+codepoint that nothing guarded. On both payloads the ranges no longer overlap
+ghostty's, in either run.
 
 Both modes ship; `OpMode` is fixed at startup.
 
