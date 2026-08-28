@@ -2,7 +2,9 @@
 // A test whose `#[test]` is lost still compiles, still satisfies
 // `every_test_named_in_the_docs_exists` -- which looks for `fn <name>`, not for
 // the attribute -- and silently stops running. That happened to
-// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, whose
+// the blanking test in `amplification.rs` -- then named
+// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, and since
+// renamed because the decision it pinned was reversed by measurement -- whose
 // assertion was wrong for two commits without anyone finding out. The
 // compiler's own dead-code analysis is the check that catches it.
 //! The documentation, checked rather than asserted.
@@ -263,6 +265,10 @@ fn every_test_named_in_the_docs_exists() {
         (
             "treat_east_asian_ambiguous_width_as_wide",
             "wezterm's config option, cited in note G's comparison",
+        ),
+        (
+            "blanking_writes_the_whole_row_and_that_is_the_cheaper_choice",
+            "a historical name. The test still exists as              `blanking_stops_at_the_used_extent`; it was renamed when the              decision it pinned -- that a full-width blank is cheaper than              avoiding one -- was reversed by measurement. The old name is kept              in the dead-code header comments because that is the incident              they describe",
         ),
         (
             "_vte_row_data_get",

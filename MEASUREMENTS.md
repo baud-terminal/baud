@@ -105,6 +105,51 @@ for that and for the annotation being true. It is **not** kept for throughput,
 and the eight pairs are recorded so nobody re-derives a win from the first
 three.
 
+## The used-extent mark, implemented: less-pager +37%, cat-scroll +16%
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
+`OpMode::Computed`, medians of 40 reps, five interleaved A/B rounds with the
+first discarded, in-memory transport. The four round medians are quoted so
+"the ranges overlap" can be judged on the medians rather than on the
+within-round spread.*
+
+| payload, cells | before | after | |
+|---|---|---|---|
+| `ascii/less-pager.raw` | 719 / 713 / 705 / 725 | **979 / 962 / 981 / 997** | **+37%** |
+| `ascii/cat-scroll.raw` | 773 / 752 / 757 / 752 | **872 / 872 / 883 / 883** | **+16%** |
+| `ascii/git-log.raw` | 968 / 985 / 985 / 978 | **1034 / 1038 / 1037 / 1042** | **+6%** |
+| `payload::streaming` | ~1310 | ~1305 | flat |
+| `utf8/cat-cjk.raw` | ~117 | ~116 | flat |
+| `utf8/less-cjk.raw` | ~123 | ~123 | flat |
+
+Write amplification on cat-scroll goes **6.1x to 1.9x**, and its cell
+attribution from 15% bulk / 85% fill to **50% / 50%**.
+
+**The falsifier was stated before the change and it landed on the number.**
+The prediction, from counting alone, was 16% of blanking skipped on streaming
+and 72-82% on real recordings. Measured after implementing:
+
+| payload | predicted | actual |
+|---|---|---|
+| `payload::streaming` | 16% | **16%** |
+| cat-scroll | 82% | **82%** |
+| git-log | 72% | **73%** |
+| cat-cjk | 77% | **77%** |
+| less-cjk | 78% | **81%** |
+
+**Why the two CJK recordings are flat despite skipping 77-81%.** They are not
+bound by blanking. `put_cp` is, and that is the 6x gap the section below
+measures: removing four fifths of their blanking moves a part of the cost that
+was never the large one. The same reasoning explains streaming, from the other
+direction -- it skips only 16%, and pays the bookkeeping in full.
+
+**The bookkeeping is not free and is included in every number above.**
+Maintaining the mark with nothing reading it measured **-7 to -8%** on
+streaming, cat and less. `View` grows a sixth field and every write touches a
+second array; computing `phys` once per operation rather than three times was
+tried and recovered almost none of it. The wins above are net of that cost, and
+on streaming the two cancel.
+
 ## A used-extent mark would skip 72-82% of blanking — and the synthetic payload says 16%
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. Commit: `f1d09dc` plus

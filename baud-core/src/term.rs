@@ -818,11 +818,25 @@ impl<'a> Term<'a> {
         // the alternate screen's rows in ring order -- which is what a torn
         // grid looks like.
         if self.active_rot() != RowRot::NONE {
-            let n = self.active_rot().index() * self.stride().index();
+            let k = self.active_rot().index();
+            let n = k * self.stride().index();
             let len = self.rows.index() * self.stride().index();
+            let rows = self.rows.index();
+            // **The marks rotate with the rows.** This is the one place that
+            // changes which physical row holds which content without moving
+            // through `Grid`, and `RowExtent` is indexed physically. Rotating
+            // the cells and not the marks would leave every mark off by `rot`
+            // -- and a mark that is too small is stale text on screen, which is
+            // the one failure this mechanism must not have.
             match self.screen {
-                Screen::Normal => self.s.vp[..len].rotate_left(n),
-                Screen::Alternate => self.s.alt[..len].rotate_left(n),
+                Screen::Normal => {
+                    self.s.vp[..len].rotate_left(n);
+                    self.s.used_vp[..rows].rotate_left(k);
+                }
+                Screen::Alternate => {
+                    self.s.alt[..len].rotate_left(n);
+                    self.s.used_alt[..rows].rotate_left(k);
+                }
             }
             self.set_active_rot(RowRot::NONE);
         }
@@ -887,6 +901,17 @@ impl<'a> Term<'a> {
             &self.s.vp
         };
         View::new_ref(b, self.stride(), self.cols, self.rows, self.active_rot()).row_slice(y)
+    }
+
+    /// How far glyphs have reached in screen row `y`, since it was last blanked.
+    ///
+    /// A high-water mark, so it is an **upper bound** and not a measurement:
+    /// text erased from the middle of a row does not lower it. Published so
+    /// `tests/row_extent.rs` can check the direction of error, which is the
+    /// whole safety argument -- too large costs stores, too small leaves stale
+    /// text on screen.
+    pub fn row_extent(&mut self, y: Row) -> RowExtent {
+        self.view().extent(y)
     }
 
     /// One row of the grid, or `None` if `y` is not on it.

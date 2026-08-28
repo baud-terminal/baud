@@ -124,6 +124,60 @@ pub struct RunRange {
     pub count: RunCount,
 }
 
+/// How far glyphs have reached in one **physical** row.
+///
+/// A high-water mark, monotone between resets: it only grows as text is
+/// written and returns to zero only when the row is blanked. That direction is
+/// the safety argument -- a mark that is too large costs a few stores, a mark
+/// that is too small leaves stale text on screen, and `max` cannot produce the
+/// second.
+///
+/// Physical, not screen, so a `RowRot` scroll leaves every mark where it is:
+/// the rotation changes which screen row *reads* a physical row, not what that
+/// row contains. The two places that genuinely move content --
+/// `Grid::insert_lines_in`/`delete_lines_in` and `Term::viewport`'s
+/// un-rotation -- permute the marks in the same loop that permutes the rows.
+///
+/// `u16` rather than `Col`'s `usize`: `MAX_COLS` is 2048 so it fits, and at
+/// `MAX_ROWS` entries per buffer and two buffers the narrow form is 2.5 KB of
+/// working set against 10 KB. That is the "thousands are stored" case
+/// `CLAUDE.md` names as the one where narrowing earns its place, and it is read
+/// once per row operation rather than once per cell.
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    Debug,
+    FromBytes,
+    IntoBytes,
+    Immutable,
+    KnownLayout,
+)]
+#[repr(transparent)]
+pub struct RowExtent(pub(crate) u16);
+
+impl RowExtent {
+    pub const ZERO: RowExtent = RowExtent(0);
+    /// The mark after a write that reached column `to` (exclusive).
+    ///
+    /// Saturating rather than wrapping: a caller that somehow presents a column
+    /// past `u16` must end up with a mark that is too *large*, never one that
+    /// wraps to a small number and leaves text behind it.
+    pub fn reached(self, to: usize) -> RowExtent {
+        RowExtent(self.0.max(u16::try_from(to).unwrap_or(u16::MAX)))
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+    pub fn of(n: usize) -> RowExtent {
+        RowExtent(u16::try_from(n).unwrap_or(u16::MAX))
+    }
+}
+
 /// A number of runs.
 #[derive(
     Clone,

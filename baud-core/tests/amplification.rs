@@ -2,7 +2,9 @@
 // A test whose `#[test]` is lost still compiles, still satisfies
 // `every_test_named_in_the_docs_exists` -- which looks for `fn <name>`, not for
 // the attribute -- and silently stops running. That happened to
-// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, whose
+// the blanking test in `amplification.rs` -- then named
+// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, and since
+// renamed because the decision it pinned was reversed by measurement -- whose
 // assertion was wrong for two commits without anyone finding out. The
 // compiler's own dead-code analysis is the check that catches it.
 //! Rule #1, as a test rather than a sentence.
@@ -119,40 +121,34 @@ fn materialising_a_cell_costs_eight_bytes_per_ascii_byte() {
     );
 }
 
-/// **Blanking writes the whole row, deliberately, and this is the measurement
-/// that says so.**
+/// **Blanking stops at the used extent, and in `Runs` mode that is nothing.**
 ///
-/// The obvious optimisation is to scan the row and blank only up to the last
-/// cell that differs from the blank: a payload of 60-column lines on a
-/// 200-column grid then writes 60 cells rather than 200, and in `OpMode::Runs`
-/// -- where text lives in the span table and never reaches the cells -- it
-/// writes *none*. Twenty thousand scrolled lines would blank one screen.
+/// This test asserted the opposite for most of the project's life -- that every
+/// scroll blanks its full incoming row and that "the read needed to avoid it
+/// costs more than the writes it saves". The decision it pinned has been
+/// reversed by measurement, and the reversal is worth reading before anyone
+/// re-argues it:
 ///
-/// It was implemented, in `6f2499a`, and it **cost 66% of streaming
-/// throughput**. Four arms on `bench-others/multibench`, interleaved, ghostty
-/// flat at 1105-1136 throughout:
+/// * The old figure came from **scan**-before-blank, which reads the row
+///   looking for a cell differing from the blank. That lost twice, at -24% and
+///   -66%, and `cells_blanked` came out *identical* both times: the blank
+///   carries the current style, so on any payload emitting SGR the scan runs to
+///   the end of every row and saves nothing.
+/// * A high-water **mark** cannot have that failure. It records where glyphs
+///   reached, which no rendition change can alter, and the "has the template
+///   changed" test is one load of the row's last cell rather than a scan.
 ///
-/// | arm | row read? | write | spans, streaming |
-/// |---|---|---|---|
-/// | backwards scan, shortened write | yes | short | 520.2 / 568.8 / 567.1 |
-/// | forwards scan, shortened write | yes | short | 582.7 / 572.6 / 561.1 |
-/// | backwards scan, **full-row** write | yes | full | 510.8 / 516.0 / 496.5 |
-/// | **no scan**, full-row write | no | full | **1334.0 / 1387.9 / 1402.4** |
+/// The synthetic workload here is the extreme case and shows why the
+/// distinction matters: 60 columns of a 200-column grid, in `OpMode::Runs`
+/// where the viewport cells are **never materialised at all**. Every mark stays
+/// at zero, so every scroll blanks nothing, and the only cells written are the
+/// 50-row startup clear. 4,000,200 becomes 10,000.
 ///
-/// The variable that tracks the result is whether the row is **read**, not
-/// what is written and not in which direction. `[[source: apple-cpu-guide]]`
-/// § 4.6.10 has a mechanism that fits -- a store closely followed by an
-/// overlapping load causes a memory ordering violation and the load is
-/// re-executed -- and `docs/research/notes/d-memory-hierarchy.md` records it
-/// as a candidate rather than a cause, because no counter has been read.
-///
-/// So the write reduction was real and unaffordable. `how_much_of_a_row_is_
-/// actually_used` above still measures the headroom; this test pins the
-/// decision not to take it. **Do not re-implement the scan without a
-/// multibench A/B** -- `baud-bench` reports ~230 MB/s for both variants and
-/// cannot see this at all, which is exactly how it shipped.
+/// **Do not re-implement the scan.** `MEASUREMENTS.md` carries the counts:
+/// a mark skips 72-82% of blanking on every real scrolling recording and 16%
+/// on `payload::streaming`, and a scan skips none of either.
 #[test]
-fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
+fn blanking_stops_at_the_used_extent() {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Runs);
     let mut v = Vec::new();
@@ -171,25 +167,62 @@ fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
         i += n;
     }
 
-    // 20,001 rows of 200 columns, and the arithmetic is worth writing out
-    // because guessing it is how this assertion was wrong:
-    //
-    //   * 50 rows for the startup clear;
-    //   * 19,951 scrolls -- the first 49 newlines fill a 50-row screen without
-    //     scrolling, so 20,000 - 49 of them scroll and each blanks one row.
-    //
-    // The bounded version made this 10_000 -- one screen -- and that is what
-    // this test asserted until the four arms in the doc comment priced it.
+    // 50 rows of 200 for the startup clear, and nothing else. In `Runs` the
+    // text lives in the span table and the cells behind these rows were never
+    // written, so their marks never left zero and 19,951 scrolls blank no cells
+    // at all. The old assertion here was `20_001 * 200`.
     assert_eq!(
         t.cells_blanked.count(),
-        20_001 * 200,
-        "every scroll blanks its full incoming row, including in Runs mode \
-         where the cells were never written -- the read needed to avoid it \
-         costs more than the writes it saves"
+        50 * 200,
+        "in Runs mode nothing materialises into the viewport, so every mark \
+         stays at zero and only the startup clear writes blanks"
     );
     assert!(
         t.runs_written.count() > 20_000,
         "and the text went to the span table instead"
+    );
+}
+
+/// **The same workload in `Computed`, where the cells really are written.**
+///
+/// `Runs` above is the extreme; this is the ordinary case, and it is the one
+/// the 72-82% in `MEASUREMENTS.md` describes. 60 columns are written per line
+/// and 200 are blanked without a mark, so the mark should remove roughly 70% of
+/// the blanking rather than all of it.
+#[test]
+fn blanking_in_computed_mode_stops_at_the_text() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut v = Vec::new();
+    for _ in 0..2_000 {
+        v.extend(std::iter::repeat_n(b'x', 60));
+        v.extend_from_slice(b"\r\n");
+    }
+    let mut i = 0;
+    while i < v.len() {
+        let n = READ_CHUNK.min(v.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&v[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+
+    // Without the mark this is 2001 * 200 = 400,200. With it, each scrolled row
+    // has 60 columns of text, plus the 50-row startup clear at full width.
+    let without = 2_001 * 200;
+    let got = t.cells_blanked.count();
+    assert!(
+        got < without / 2,
+        "the mark should remove most of the blanking: {got} cells blanked \
+         against {without} without it"
+    );
+    assert!(
+        got > 1_950 * 60,
+        "but not more than the text occupies -- {got} is below the 60 columns \
+         per scrolled row that genuinely have to be cleared, which would mean \
+         rows are being skipped that still hold text"
     );
 }
 

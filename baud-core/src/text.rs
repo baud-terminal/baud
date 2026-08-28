@@ -10,8 +10,15 @@ impl<'a> Term<'a> {
     pub(crate) fn view(&mut self) -> View<'_> {
         let alt = self.screen == Screen::Alternate;
         let rot = self.active_rot();
+        // Buffer and marks from one `alt`, for the reason `active_rot` exists:
+        // a site that takes `s.alt` and `s.used_vp` compiles and corrupts.
+        let (cells, used) = match alt {
+            true => (&mut self.s.alt, &mut self.s.used_alt),
+            false => (&mut self.s.vp, &mut self.s.used_vp),
+        };
         View::new(
-            if alt { &mut self.s.alt } else { &mut self.s.vp },
+            cells,
+            used,
             Cols::from_stride(MAX_COLS),
             self.cols,
             self.rows,
@@ -141,19 +148,16 @@ impl<'a> Term<'a> {
         // one decision** -- picking `s.alt` while reading the primary's
         // rotation compiles and displaces every row.
         let rot = self.active_rot();
-        let (arena, vp) = (
-            &self.s.arena,
-            if self.screen == Screen::Alternate {
-                &mut self.s.alt
-            } else {
-                &mut self.s.vp
-            },
-        );
+        let alt = self.screen == Screen::Alternate;
+        let (arena, vp, used) = match alt {
+            true => (&self.s.arena, &mut self.s.alt, &mut self.s.used_alt),
+            false => (&self.s.arena, &mut self.s.vp, &mut self.s.used_vp),
+        };
         let fl = self.flags;
         self.cells_written.add(room.index());
         #[cfg(feature = "instrument")]
         self.cells_bulk.add(room.index());
-        View::new(vp, stride, cols, rows, rot).put_ascii_run(
+        View::new(vp, used, stride, cols, rows, rot).put_ascii_run(
             r,
             c,
             &arena[abs..abs + room.index()],
@@ -371,18 +375,26 @@ impl<'a> Term<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn fill_row_counted(&mut self, r: Row, cell: PackedCell) {
-        self.cells_written.add(self.cols.index());
-        self.cells_blanked.add(self.cols.index());
-        #[cfg(feature = "instrument")]
-        self.cells_fill.add(self.cols.index());
-        // The counters above still fire under `ceiling-no-blank`, so the two
-        // arms report identical cell attribution and a difference in *work*
-        // shows up as a difference in throughput alone.
+    pub(crate) fn fill_row_counted(&mut self, r: Row, cell: PackedCell) -> RowExtent {
+        // **Count what was written, not what was asked for.** `fill_row` stops
+        // at the used extent when it soundly can, so the old unconditional
+        // `add(cols)` would keep reporting full-width blanking after the write
+        // got shorter -- an instrument that cannot show the effect it exists to
+        // measure, which is the failure this repo already records twice.
         #[cfg(not(feature = "ceiling-no-blank"))]
-        self.view().fill_row(r, cell);
+        let n = self.view().fill_row(r, cell);
+        // The ceiling arm writes nothing and still counts the full row, so both
+        // arms report identical attribution and only throughput differs.
         #[cfg(feature = "ceiling-no-blank")]
-        let _ = (r, cell);
+        let n = {
+            let _ = (r, cell);
+            RowExtent::of(self.cols.index())
+        };
+        self.cells_written.add(n.index());
+        self.cells_blanked.add(n.index());
+        #[cfg(feature = "instrument")]
+        self.cells_fill.add(n.index());
+        n
     }
 
     /// Insert and delete rewrite everything from `at` to the margin: the

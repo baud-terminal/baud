@@ -109,8 +109,8 @@ impl<'a> Term<'a> {
                 // not make -- "instrumentation outlived what fed it" is already
                 // in this repo's history, and it hid the style-hash bug for as
                 // long as it was printing garbage.
-                self.fill_row_counted(Row::from_index(last), blank);
-                self.cells_scroll.add(self.cols.index());
+                let n = self.fill_row_counted(Row::from_index(last), blank);
+                self.cells_scroll.add(n.index());
                 self.scrolls.inc();
             }
             return;
@@ -123,8 +123,8 @@ impl<'a> Term<'a> {
                 self.rot = self.rot.advance(1, self.rows);
                 let y = Row::from_index(last);
                 self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
-                self.fill_row_counted(y, blank);
-                self.cells_scroll.add(self.cols.index());
+                let n = self.fill_row_counted(y, blank);
+                self.cells_scroll.add(n.index());
                 self.scrolls.inc();
             }
             // `promoted` is indexed by screen row and the screen just moved, so
@@ -167,8 +167,8 @@ impl<'a> Term<'a> {
             let k = n.at_least_one().min(bot + 1 - top);
             for _ in 0..k {
                 self.alt_rot = self.alt_rot.retreat(1, self.rows);
-                self.fill_row_counted(Row::ZERO, blank);
-                self.cells_scroll.add(self.cols.index());
+                let n = self.fill_row_counted(Row::ZERO, blank);
+                self.cells_scroll.add(n.index());
                 self.scrolls.inc();
             }
             return;

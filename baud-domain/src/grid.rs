@@ -178,6 +178,14 @@ impl<'a> ViewRef<'a> {
 /// transpose the axes or forget the clamp. Here the arithmetic happens once.
 pub struct View<'a> {
     cells: &'a mut [PackedCell],
+    /// How far glyphs have reached in each **physical** row. See [`RowExtent`].
+    ///
+    /// Carried here rather than maintained by the caller so that the two
+    /// cannot drift: every mutator on this type bumps it, and the line moves
+    /// permute it in the same loop that permutes the rows. A caller holding the
+    /// marks separately would have to remember both, which is the shape of
+    /// invariant this crate keeps moving *into* `View` rather than out of it.
+    used: &'a mut [RowExtent],
     stride: Cols,
     cols: Cols,
     rows: Rows,
@@ -203,6 +211,7 @@ impl<'a> View<'a> {
     }
     pub fn new(
         cells: &'a mut [PackedCell],
+        used: &'a mut [RowExtent],
         stride: Cols,
         cols: Cols,
         rows: Rows,
@@ -210,12 +219,31 @@ impl<'a> View<'a> {
     ) -> View<'a> {
         View {
             cells,
+            used,
             stride,
             cols,
             rows,
             rot,
         }
     }
+
+    /// Record that a write reached column `to` (exclusive) on screen row `r`.
+    ///
+    /// Monotone: `RowExtent::reached` takes a max, so a caller that
+    /// over-reports costs a few stores and one that under-reports would leave
+    /// stale text. Every mutator below calls this, and
+    /// `tests/row_extent.rs` fails the build if one stops.
+    #[inline(always)]
+    fn reached(&mut self, r: Row, to: usize) {
+        let p = self.phys(r);
+        self.used[p] = self.used[p].reached(to);
+    }
+
+    /// The mark for screen row `r`.
+    pub fn extent(&self, r: Row) -> RowExtent {
+        self.used[self.phys(r)]
+    }
+
     pub fn cols(&self) -> Cols {
         self.cols
     }
@@ -249,8 +277,9 @@ impl<'a> View<'a> {
     #[inline(always)]
     pub fn put(&mut self, r: Row, c: Col, cell: PackedCell) {
         if r.index() < self.rows.index() && c.index() < self.cols.index() {
-            let i = self.at(r, c);
-            self.cells[i] = cell;
+            let p = self.phys(r);
+            self.cells[p * self.stride.index() + c.index()] = cell;
+            self.used[p] = self.used[p].reached(c.index() + 1);
         }
     }
     #[inline(always)]
@@ -284,7 +313,8 @@ impl<'a> View<'a> {
         if r.index() >= self.rows.index() {
             return;
         }
-        let base = self.at(r, Col::ZERO);
+        let p = self.phys(r);
+        let base = p * self.stride.index();
         let start = at.index();
         let n = src.len().min(self.cols.index().saturating_sub(start));
         // **Clear whatever this run is about to orphan**, inline against the
@@ -315,6 +345,7 @@ impl<'a> View<'a> {
                 }
             }
         }
+        self.used[p] = self.used[p].reached(start + n);
         // Two loops, and the duplication is the point.
         //
         // Threading `flags` as a *runtime* value into the per-cell store cost
@@ -466,6 +497,13 @@ impl<'a> View<'a> {
         }
         if sb > b.min(self.cols.index()) {
             self.cells[base + sb - 1] = blank;
+            // **Past the mark, so the mark must move.** Everything beyond the
+            // extent has to stay equal to the blank that was last written
+            // across the row, or the O(1) "has the template changed" test that
+            // reads the *last* cell stops implying anything about the cells
+            // before it. This writes one cell at `sb - 1`, which can be past
+            // the extent, so the extent follows it.
+            self.reached(r, sb);
         }
     }
 
@@ -514,7 +552,37 @@ impl<'a> View<'a> {
         if r.index() >= self.rows.index() || a >= b {
             return;
         }
-        let base = self.at(r, Col::ZERO);
+        // **The one place the mark can go down.** Everything else only ever
+        // raises it, which is what makes `max` a safe maintenance rule; a fill
+        // is the operation that makes a row *emptier*, so it needs the other
+        // direction or `CSI 2 K` would leave the mark at the full width and
+        // blanking would never get cheaper.
+        //
+        // **The mark is not "where glyphs are". It is "where the row stops
+        // being uniform".** Those coincide most of the time and the difference
+        // is a real bug that `a_cleared_screen_is_fully_erasable` caught: `ECH`
+        // at the last column writes a *styled* blank there, which holds no
+        // glyph but does not match the default blanks in front of it. Lowering
+        // the mark to zero on that basis left the row non-uniform behind its
+        // own mark, and the next full clear skipped it.
+        //
+        // So a fill that runs to the end of the row sets the mark to exactly
+        // `a`: everything from `a` on is now this one cell, and nothing weaker
+        // can be assumed about what is in front of it. That is a *lowering*
+        // when the fill starts early (`CSI 2 K` gives zero) and a *raising*
+        // when it starts late, and both are needed.
+        //
+        // **`phys` once, for the base and the mark together.** The first
+        // version called it three times here -- `extent`, `set_extent` and
+        // `at` -- and this is the path carrying 73-85% of all cell writes. It
+        // measured -7 to -8% for bookkeeping that changes no output.
+        let p = self.phys(r);
+        let cols = self.cols.index();
+        match cell.content == Content::EMPTY && b >= cols {
+            true => self.used[p] = RowExtent::of(a),
+            false => self.used[p] = self.used[p].reached(b),
+        }
+        let base = p * self.stride.index();
         // `slice::fill`, not an indexed loop: one bounds check instead of one
         // per cell, and it lowers to a vector store rather than a scalar one.
         self.cells[base + a..base + b].fill(cell);
@@ -525,12 +593,65 @@ impl<'a> View<'a> {
     /// -- so the snap could only ever be two compares that never fire, on the
     /// path that carries 73-85% of all cell writes. Blanking pays nothing for
     /// an invariant it cannot violate.
-    pub fn fill_row(&mut self, r: Row, cell: PackedCell) {
-        self.fill_raw(r, 0, self.cols.index(), cell);
+    /// **Stops at the used extent when it soundly can.** This is what the mark
+    /// is for.
+    ///
+    /// Two conditions, both O(1), and the second is the one that makes this
+    /// work where scan-before-blank did not:
+    ///
+    /// * the incoming cell is a **blank**, so the row is being emptied rather
+    ///   than filled (DECALN comes through here with an `E`);
+    /// * the **last** cell of the row already equals that blank, so the
+    ///   rendition in force has not changed since the row was last cleared
+    ///   across its full width -- and therefore every cell from the mark to the
+    ///   end is already exactly this cell.
+    ///
+    /// The second is `[[source: alacritty-row]]`'s test, comparing one cell
+    /// against the template rather than scanning for a difference. baud tried
+    /// the scanning form twice and it lost both times, at -24% and -66%,
+    /// because the blank carries the current style: on any payload that emits
+    /// SGR the scan runs to the end of every row and saves nothing. One load
+    /// cannot have that failure.
+    ///
+    /// Measured saving, counted rather than argued: **72-82%** of all blanking
+    /// on every real scrolling recording, and 16% on `payload::streaming`,
+    /// whose SGR every 232 bytes keeps the template changing.
+    /// Returns how many cells it actually wrote, so the counters can report
+    /// the work done rather than the work asked for. An instrument that keeps
+    /// reporting the full width after the write got shorter is the
+    /// "instrumentation outlived what fed it" failure, and it would hide
+    /// exactly the effect this change exists to produce.
+    /// The return is a **column count**, which is what `RowExtent` is -- not a
+    /// bare `usize`, because the audit is right that "how many cells" and "how
+    /// far along a row" are the same quantity here and a raw integer invites
+    /// adding it to something it is not.
+    pub fn fill_row(&mut self, r: Row, cell: PackedCell) -> RowExtent {
+        let cols = self.cols.index();
+        if cols == 0 || r.index() >= self.rows.index() {
+            return RowExtent::ZERO;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        let blanking = cell.content == Content::EMPTY;
+        let to = match blanking && self.cells[base + cols - 1] == cell {
+            true => self.used[p].index().min(cols),
+            false => cols,
+        };
+        self.cells[base..base + to].fill(cell);
+        self.used[p] = match blanking {
+            true => RowExtent::ZERO,
+            false => RowExtent::of(cols),
+        };
+        RowExtent::of(to)
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
     pub fn delete_chars(&mut self, r: Row, at: Col, n: Count, blank: PackedCell) {
         let cols = self.cols.index();
+        // A shift rewrites to the end of the row, so the mark goes there too.
+        // Tighter bookkeeping is possible -- a left shift can only shrink the
+        // used extent -- but shrinking a high-water mark is the direction that
+        // loses text, and this operation is rare next to blanking.
+        self.reached(r, cols);
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
         // The deleted span is what must cover whole characters: shifting from
         // the middle of a pair drags a lone tail leftwards into a cell with no
@@ -550,6 +671,11 @@ impl<'a> View<'a> {
     /// Shift right, inserting blanks. `CSI @`.
     pub fn insert_blanks(&mut self, r: Row, at: Col, n: Count, blank: PackedCell) {
         let cols = self.cols.index();
+        // A shift rewrites to the end of the row, so the mark goes there too.
+        // Tighter bookkeeping is possible -- a left shift can only shrink the
+        // used extent -- but shrinking a high-water mark is the direction that
+        // loses text, and this operation is rare next to blanking.
+        self.reached(r, cols);
         let (cx, n) = (at.index(), (n.get_raw() as usize).min(cols - at.index()));
         // Inserting *at* a tail would put blanks between a lead and its
         // partner. `[[source: ghostty-screen]]`'s `insertBlanks` erases the
@@ -582,6 +708,10 @@ impl<'a> View<'a> {
         if cx >= end {
             return;
         }
+        // Rewrites everything from the cursor to the margin. Same reasoning as
+        // `delete_chars`: raise to the far edge rather than compute a tighter
+        // bound, because the tighter bound is the one that can be too small.
+        self.reached(r, end);
         let n = (n.get_raw() as usize).min(end - cx);
         // **The deleted span, not the surviving one.** Both boundaries can
         // split a character: a start on a tail orphans the lead in front of it,
@@ -610,6 +740,10 @@ impl<'a> View<'a> {
         if cx >= end {
             return;
         }
+        // Rewrites everything from the cursor to the margin. Same reasoning as
+        // `delete_chars`: raise to the far edge rather than compute a tighter
+        // bound, because the tighter bound is the one that can be too small.
+        self.reached(r, end);
         // Inserting *at* a tail would put blanks between a lead and its
         // partner. Snapping the start back to the lead moves the whole pair
         // instead, which keeps the character rather than deleting it and
@@ -700,10 +834,26 @@ impl<'a> View<'a> {
                     lo[dst..dst + cols].copy_from_slice(&hi[..cols]);
                 }
             }
+            // **The mark travels with the row**, in the same loop and under
+            // the same `phys`. Kept here rather than in a second pass because a
+            // second pass over the same indices is a second chance to compute
+            // them differently -- and a mark left behind on a moved row is
+            // stale text, which is the failure this whole mechanism must not
+            // have.
+            let (ps, pd) = (
+                self.phys(Row::from_index(y - n)),
+                self.phys(Row::from_index(y)),
+            );
+            self.used[pd] = self.used[ps];
         }
         for y in cy..cy + n {
-            let a = self.phys(Row::from_index(y)) * s;
+            let p = self.phys(Row::from_index(y));
+            let a = p * s;
             self.cells[a..a + cols].fill(blank);
+            self.used[p] = match blank.content == Content::EMPTY {
+                true => RowExtent::ZERO,
+                false => RowExtent::of(cols),
+            };
         }
     }
 
@@ -726,15 +876,21 @@ impl<'a> View<'a> {
         // is, and a scalar loop over 10,000 cells is what made the correct
         // full-screen scroll cost a third of cell ingest.
         for y in cy..bot + 1 - n {
-            let (src, dst) = (
-                self.phys(Row::from_index(y + n)) * s,
-                self.phys(Row::from_index(y)) * s,
+            let (ps, pd) = (
+                self.phys(Row::from_index(y + n)),
+                self.phys(Row::from_index(y)),
             );
-            self.cells.copy_within(src..src + cols, dst);
+            self.cells.copy_within(ps * s..ps * s + cols, pd * s);
+            self.used[pd] = self.used[ps];
         }
         for y in bot + 1 - n..=bot {
-            let a = self.phys(Row::from_index(y)) * s;
+            let p = self.phys(Row::from_index(y));
+            let a = p * s;
             self.cells[a..a + cols].fill(blank);
+            self.used[p] = match blank.content == Content::EMPTY {
+                true => RowExtent::ZERO,
+                false => RowExtent::of(cols),
+            };
         }
     }
     pub fn row_slice(&self, r: Row) -> &[PackedCell] {

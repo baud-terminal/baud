@@ -10,6 +10,14 @@ pub struct Storage {
     pub runs: [Run; SB * MAXRUN],
     pub nrun: [RunCount; SB],
     pub vp: [PackedCell; GRID],
+    /// How far glyphs reached in each **physical** row of `vp`, and of `alt`.
+    ///
+    /// See [`RowExtent`]. Two arrays because the two buffers scroll
+    /// independently: an application spends an hour in the alternate screen
+    /// and the primary underneath must come back exactly as it was, marks
+    /// included.
+    pub used_vp: [RowExtent; MAX_ROWS],
+    pub used_alt: [RowExtent; MAX_ROWS],
     pub promoted: [bool; MAX_ROWS],
     pub tmpl_key: [StyleWord; NSTYLE],
     pub tmpl_valid: [bool; NSTYLE],
@@ -100,6 +108,8 @@ impl Storage {
             nrun: [RunCount::ZERO; SB],
             vp: [C; GRID],
             alt: [C; GRID],
+            used_vp: [RowExtent::ZERO; MAX_ROWS],
+            used_alt: [RowExtent::ZERO; MAX_ROWS],
             promoted: [false; MAX_ROWS],
             tmpl_key: [StyleWord::DEFAULT; NSTYLE],
             tmpl_valid: [false; NSTYLE],
