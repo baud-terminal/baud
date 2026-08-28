@@ -460,4 +460,24 @@ fn a_region_scroll_counts_the_cells_it_moves_and_blanks() {
          catches it"
     );
     assert_eq!(t.scrolls.count() - scrolls_before, SCROLLS as u64);
+
+    // **`IL` and `DL` take the same uncounted route and no payload reaches
+    // them.** vim reports zero scrolls on its own recording -- it redraws by
+    // erasing and rewriting rather than scrolling -- so without this the three
+    // remaining call sites of `insert_lines_in`/`delete_lines_in` would be
+    // covered by nothing at all.
+    let before = t.cells_written.count();
+    let mut il = Vec::new();
+    for _ in 0..10 {
+        il.extend_from_slice(format!("\x1b[{TOP}H\x1b[L").as_bytes()); // IL
+        il.extend_from_slice(format!("\x1b[{TOP}H\x1b[M").as_bytes()); // DL
+    }
+    feed_all(&mut t, &il);
+    // Each of the twenty operations moves `height - 1` rows and blanks one.
+    assert_eq!(
+        t.cells_written.count() - before,
+        (20 * height * cols) as u64,
+        "IL and DL move and blank a region-sized block each, through the same \
+         `baud-domain` helpers the counters do not reach"
+    );
 }

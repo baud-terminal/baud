@@ -348,6 +348,15 @@ pub struct Term<'a> {
     /// actually blanked per scroll, which is the number the blanking
     /// experiments in `CLAUDE.md` were all about.
     pub scrolls: Stat,
+    /// Completed CSI dispatches.
+    ///
+    /// The profile puts `dispatch` at 17% of the cells path on
+    /// `payload::streaming`, where `path_split` says escape sequences are 2%
+    /// of the bytes -- so a dispatched sequence costs roughly eight times a
+    /// text byte, and the payload's SGR density (one every 37 bytes) is
+    /// *lower* than real capture's. This is what turns that ratio into a cost
+    /// per dispatch.
+    pub dispatches: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -483,6 +492,7 @@ impl<'a> Term<'a> {
             cells_fill: Stat::ZERO,
             cells_scroll: Stat::ZERO,
             scrolls: Stat::ZERO,
+            dispatches: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,

@@ -8,6 +8,35 @@ impl<'a> Term<'a> {
     /// against O(rows x cols), and it is what makes streaming ingest fast. A
     /// region smaller than the screen cannot use it -- rows outside the region
     /// must not move -- so it pays for the copy.
+    /// Count what a line-block move costs, for the four sites that do one.
+    ///
+    /// **`insert_lines_in` and `delete_lines_in` live in `baud-domain`, where
+    /// the counters do not reach.** All four call sites -- region scroll up and
+    /// down, `IL` and `DL` -- moved and blanked cells that nothing counted, so
+    /// amplification was understated for every application that scrolls a
+    /// region or inserts a line. That is most TUIs: vim reported **zero**
+    /// scrolls and 74% of its cells as `fill`, because it scrolls with `IL`
+    /// and `DL` rather than by running off the bottom of a region.
+    ///
+    /// `k` rows are blanked and the rest of the block is moved, and a move is a
+    /// write: `copy_within` per row writes every cell it touches.
+    fn count_line_block(&mut self, top: Row, bot: Row, n: Count) {
+        if top.index() > bot.index() {
+            return;
+        }
+        let height = bot.index() + 1 - top.index();
+        // `at_least_one().min(..)` rather than a cast, which is the idiom the
+        // scrolling paths already use and what keeps this off the audit.
+        let k = n.at_least_one().min(height);
+        let cols = self.cols.index();
+        let (moved, blanked) = ((height - k) * cols, k * cols);
+        self.cells_written.add(moved + blanked);
+        self.cells_fill.add(moved + blanked);
+        self.cells_blanked.add(blanked);
+        self.cells_scroll.add(blanked);
+        self.scrolls.add(k);
+    }
+
     pub(crate) fn scroll_region_up(&mut self, n: Count) {
         let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
         if top > bot {
@@ -51,20 +80,7 @@ impl<'a> Term<'a> {
             return;
         }
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
-        // **The region path writes cells too, and nothing counted them.**
-        // `delete_lines_in` copies `height - k` rows up and blanks `k`, all in
-        // `baud-domain` where the counters do not reach -- so every
-        // amplification figure for an application using DECSTBM was understated,
-        // and that is most TUIs. vim's recording is named for its scroll
-        // regions.
-        let height = bot + 1 - top;
-        let moved = (height - k) * self.cols.index();
-        let blanked = k * self.cols.index();
-        self.cells_written.add(moved + blanked);
-        self.cells_fill.add(moved + blanked);
-        self.cells_blanked.add(blanked);
-        self.cells_scroll.add(blanked);
-        self.scrolls.add(k);
+        self.count_line_block(rt, rb, n);
         self.view().delete_lines_in(rt, n, rb, blank);
         for y in top..=bot {
             self.s.promoted[y] = true;
@@ -81,6 +97,7 @@ impl<'a> Term<'a> {
         }
         let blank = PackedCell::empty_with(self.style);
         let (rt, rb) = (self.scroll_top, self.scroll_bot);
+        self.count_line_block(rt, rb, n);
         self.view().insert_lines_in(rt, n, rb, blank);
         for y in top..=bot {
             self.s.promoted[y] = true;
@@ -113,6 +130,7 @@ impl<'a> Term<'a> {
         let blank = PackedCell::empty_with(self.style);
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let (at, rb) = (self.cy, self.scroll_bot);
+        self.count_line_block(at, rb, n);
         self.view().delete_lines_in(at, n, rb, blank);
         for y in cy..=bot {
             self.s.promoted[y] = true;
@@ -131,6 +149,7 @@ impl<'a> Term<'a> {
         let (cy, bot) = (self.cy.index(), self.scroll_bot.index());
         let k = n.at_least_one().min(bot + 1 - cy);
         let (at, rb, b) = (self.cy, self.scroll_bot, PackedCell::empty_with(self.style));
+        self.count_line_block(at, rb, n);
         self.view().insert_lines_in(at, n, rb, b);
         for y in cy..cy + k {
             self.s.promoted[y] = true;

@@ -130,4 +130,11 @@ fn main() {
         single * 100.0,
         fill * 100.0,
     );
+    println!(
+        "  {} dispatches, one per {:.0} bytes; {} scrolls blanking {} cells",
+        t.dispatches.count(),
+        fed as f64 / t.dispatches.count().max(1) as f64,
+        t.scrolls.count(),
+        t.cells_scroll.count(),
+    );
 }

@@ -2,6 +2,7 @@ use crate::*;
 
 impl<'a> Term<'a> {
     pub(crate) fn dispatch(&mut self, f: FinalByte) {
+        self.dispatches.inc();
         let n = self.nparams();
         let marker = self.private;
         let p = Params::with_subs(&self.params[..n], self.psub);
