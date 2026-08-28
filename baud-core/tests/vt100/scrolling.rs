@@ -346,3 +346,145 @@ fn su_scrolls_the_full_screen() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// An independent model, for the operations that move whole lines.
+//
+// The nineteen tests above check one operation at a time against a hand-written
+// expectation. That is the right shape for pinning semantics and the wrong
+// shape for protecting a change to *how* lines move: a permutation bug shows up
+// after a mixed sequence, not after a single `IL`.
+//
+// So this models the screen as rows of text and applies the same operations by
+// the definitions in `[[source: ctlseqs]]`, independently of how baud stores
+// anything. It exists to be the oracle for making region scroll and `IL`/`DL`
+// zero-copy -- `less-pager.raw` is 22x bound by those moves -- and it is worth
+// having whether or not that lands.
+
+/// One screen of text, scrolled by the book.
+struct Model {
+    rows: Vec<String>,
+    top: usize,
+    bot: usize,
+    cy: usize,
+}
+
+impl Model {
+    fn new(rows: usize) -> Model {
+        Model {
+            rows: vec![String::new(); rows],
+            top: 0,
+            bot: rows - 1,
+            cy: 0,
+        }
+    }
+    /// Scroll the region up by `n`: the top `n` lines leave, blanks enter at
+    /// the bottom.
+    fn up(&mut self, n: usize) {
+        let n = n.min(self.bot + 1 - self.top);
+        for _ in 0..n {
+            self.rows.remove(self.top);
+            self.rows.insert(self.bot, String::new());
+        }
+    }
+    /// The reverse: blanks enter at the top.
+    fn down(&mut self, n: usize) {
+        let n = n.min(self.bot + 1 - self.top);
+        for _ in 0..n {
+            self.rows.remove(self.bot);
+            self.rows.insert(self.top, String::new());
+        }
+    }
+    /// `IL` at the cursor, bounded by the region.
+    fn insert(&mut self, n: usize) {
+        if self.cy < self.top || self.cy > self.bot {
+            return;
+        }
+        let n = n.min(self.bot + 1 - self.cy);
+        for _ in 0..n {
+            self.rows.remove(self.bot);
+            self.rows.insert(self.cy, String::new());
+        }
+    }
+    /// `DL` at the cursor, bounded by the region.
+    fn delete(&mut self, n: usize) {
+        if self.cy < self.top || self.cy > self.bot {
+            return;
+        }
+        let n = n.min(self.bot + 1 - self.cy);
+        for _ in 0..n {
+            self.rows.remove(self.cy);
+            self.rows.insert(self.bot, String::new());
+        }
+    }
+}
+
+/// **Mixed line movement agrees with an independent model.**
+///
+/// The sequence is deterministic rather than random: a property test here would
+/// need a generator for six operations with region and cursor state, and the
+/// value is in covering the *interactions* -- a region set, lines inserted
+/// inside it, the region moved, more deleted -- which a fixed script states
+/// more clearly than a shrunk counterexample would.
+#[test]
+fn mixed_line_movement_agrees_with_an_independent_model() {
+    const ROWS: usize = 50;
+    let mut m = Model::new(ROWS);
+    let mut b: Vec<u8> = Vec::new();
+
+    // Fill every row with a distinguishable marker, so a row that moves to the
+    // wrong place is visible rather than merely blank.
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        let text = format!("row{y:02}");
+        b.extend_from_slice(text.as_bytes());
+        m.rows[y] = text;
+    }
+
+    // A region, then every line-moving operation inside and across it.
+    let script: &[(&str, fn(&mut Model))] = &[
+        ("\x1b[5;40r", |m| {
+            m.top = 4;
+            m.bot = 39;
+            m.cy = 4;
+        }),
+        ("\x1b[10;1H", |m| m.cy = 9),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[2M", |m| m.delete(2)),
+        ("\x1b[4S", |m| m.up(4)),
+        ("\x1b[2T", |m| m.down(2)),
+        ("\x1b[38;1H", |m| m.cy = 37),
+        ("\x1b[5L", |m| m.insert(5)),
+        ("\x1b[7M", |m| m.delete(7)),
+        ("\x1b[1;50r", |m| {
+            m.top = 0;
+            m.bot = 49;
+            m.cy = 0;
+        }),
+        ("\x1b[20;1H", |m| m.cy = 19),
+        ("\x1b[6M", |m| m.delete(6)),
+        ("\x1b[3L", |m| m.insert(3)),
+    ];
+    for (bytes, apply) in script {
+        b.extend_from_slice(bytes.as_bytes());
+        apply(&mut m);
+    }
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, want) in m.rows.iter().enumerate() {
+        let got: String = rows[y]
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            &got, want,
+            "row {y} after the script: baud has {got:?}, the model says {want:?}"
+        );
+    }
+}
