@@ -61,6 +61,8 @@ impl Bytes {
 /// when they could be silently swapped.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Cost {
+    /// Mean bytes per `read(2)`.
+    pub(crate) read: f64,
     /// Rule #1: span-table bytes per byte ingested.
     pub(crate) span: f64,
     /// Grid bytes per byte ingested, and the share of it that is blanking.
@@ -248,6 +250,7 @@ fn cost_of(t: &Term) -> Cost {
     let (cell, blank) = t.cell_amplification();
     let (bulk, seq, slow) = t.path_split();
     Cost {
+        read: t.mean_read(),
         span: t.span_amplification(),
         cell,
         blank,

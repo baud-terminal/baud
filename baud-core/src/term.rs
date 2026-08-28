@@ -281,6 +281,10 @@ pub struct Term<'a> {
     /// Counted in bulk -- one `add` per run, not per cell -- because the
     /// per-cell loop is the one a runtime flag cost 5% of.
     pub bytes_in: Stat,
+    /// How many slots were handed out, i.e. how many `read(2)` calls the
+    /// embedder made. With `bytes_in` it gives the mean read size, which is
+    /// the tty's batching and not baud's doing.
+    pub reads: Stat,
     /// Which of the three paths in `feed_with` those bytes took.
     ///
     /// The loop has exactly three exits: a bulk printable run, a complete
@@ -420,6 +424,7 @@ impl<'a> Term<'a> {
             modes: Modes::default(),
             mode,
             bytes_in: Stat::ZERO,
+            reads: Stat::ZERO,
             bytes_bulk: Stat::ZERO,
             bytes_seq: Stat::ZERO,
             bytes_slow: Stat::ZERO,
@@ -511,6 +516,14 @@ impl<'a> Term<'a> {
             f(self.bytes_seq.count()),
             f(self.bytes_slow.count()),
         )
+    }
+
+    /// Mean bytes per `read(2)`. The transport's batching, not the parser's.
+    pub fn mean_read(&self) -> f64 {
+        match self.reads.count() {
+            0 => 0.0,
+            r => self.bytes_in.count() as f64 / r as f64,
+        }
     }
 
     pub fn span_amplification(&self) -> f64 {
@@ -725,6 +738,7 @@ impl<'a> Term<'a> {
     /// whatever the caller passes, and reporting how much arrived goes through
     /// [`Filled`], which cannot exceed the slot it came from.
     pub fn read_slot(&mut self) -> Slot<'_> {
+        self.reads.inc();
         self.tail = self.tail.next_slot(ARENA);
         let base = self.tail.index();
         let pos = self.tail.pos();

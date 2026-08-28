@@ -85,7 +85,8 @@ pub(crate) fn bench(
     // beat 8x for ASCII because a `PackedCell` is eight bytes, and `blank` is
     // how much of that is scrolling blanking rows rather than storing text.
     print!(
-        "   span {:.3}x cell {:.1}x (blank {:.1}x)   bulk {:.0}% seq {:.0}% slow {:.0}%",
+        "   read {:.0}B   span {:.3}x cell {:.1}x (blank {:.1}x)   bulk {:.0}% seq {:.0}% slow {:.0}%",
+        amp.read,
         amp.span,
         amp.cell,
         amp.blank,
