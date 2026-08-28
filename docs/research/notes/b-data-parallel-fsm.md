@@ -73,8 +73,41 @@ scanner and the state machine -- so the question Hyperscan answers is not
 "should the two be separate" but "how much of what looks like automaton work
 can be moved across the line".
 
-**Unread.** Retrieved and hash-pinned, and the probes fire, but no claim in this
-note rests on it yet.
+**Read, and it carries a technique simpler than the one this note proposes.**
+Hyperscan's automaton engine uses a **bit-based NFA where one bit is one
+state**, chosen deliberately over transition tables:
+
+> "We develop bit-based NFA where each bit represents a state. We choose the
+> bit-based representation as it outperforms traditional NFA representations
+> that use byte arrays to store transitions, and look up a transition table for
+> each current state in a serialized manner. Also, bit-based NFA leverages SIMD
+> instructions to perform vectorized bit operations to further accelerate the
+> performance." `[[source: hyperscan]]` § 4.2
+
+**baud's state count makes this almost free.** `[[source: williams]]` has
+thirteen states; the whole set is a `u16` mask, and a transition is a shift and
+an or rather than a gather. Hyperscan sets its DFA/NFA threshold at 16,384
+states -- baud is three orders of magnitude below the point where that engine
+starts to struggle.
+
+That is a **different and cheaper proposal than § 4.2's enumeration above**,
+and the difference matters:
+
+* the enumerative method runs one lane per possible start state and keeps the
+  lane that started correctly, which is what buys chunk-parallelism;
+* a bit-based NFA tracks the *set* of live states in one register and needs no
+  lanes at all. It does not parallelise across chunks; it makes each step
+  cheaper.
+
+They compose -- the enumeration's per-lane step could itself be the bit-based
+one -- but the second is implementable on its own, against baud's existing
+sequential structure, with no change to `ingest_is_chunk_invariant`. **That
+makes it the thing to try first**, and this note previously had no such
+increment: it proposed the harder half and nothing else.
+
+Hyperscan's other technique, graph decomposition into "a series of string and
+finite automata matching", is the split baud already has between the scanner
+and the state machine, so it confirms the architecture rather than changing it.
 
 ## What baud explicitly rejects
 
@@ -100,6 +133,9 @@ note rests on it yet.
 | Transition composition is associative, enabling pairwise folding | `[[source: dpfsm]]` | § 2.2, § 5.1 |
 | Convergence between start states is common; convergence to a *single* state is rare | `[[source: dpfsm]]` | § 5.2 |
 | HTML tokenization — the closest analogue to VT parsing — was >2× a baseline | `[[source: simdjson]]` | § 2.1, citing [22] |
+| A bit-based NFA, one bit per state, outperforms byte-array transition tables and vectorises with SIMD bit operations | `[[source: hyperscan]]` | § 4.2 |
+| Hyperscan's own DFA/NFA size threshold is 16,384 states | `[[source: hyperscan]]` | § 4.2 |
+| Regex matching decomposes into string matching plus finite automata | `[[source: hyperscan]]` | Abstract |
 
 ## Gaps and open questions
 
@@ -156,6 +192,18 @@ note rests on it yet.
   machine takes 57–90% of real bytes, and enumerations collapse within tens of
   bytes. What remains is not a question about VT streams but about the
   instruction sequence — the `shuffle` item below.
+- **Where the bytes actually are, measured.** `Term::utf8_share` and
+  `Term::path_split` together rank the three levers on real capture, and the
+  state machine wins on every recording:
+
+  | work | btop | vim | asciiquarium |
+  |---|---|---|---|
+  | **escape sequences** | **66%** | **44%** | **80%** |
+  | UTF-8 decode | 14.5% | 28.2% | 0% |
+  | bulk scan (already vectorised) | 19% | 27% | 10% |
+
+  Note A's UTF-8 lookup algorithm is worth building and is the smaller half.
+  This is the larger one, on every payload that is not synthetic.
 - The paper predates AVX-512 and NEON `tbl` being commonplace. Its `shuffle`
   workaround may now be a native gather on both of baud's targets. **Unverified.**
 - **Not read:** the HTML-tokenization result is cited here from
