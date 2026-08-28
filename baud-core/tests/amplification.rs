@@ -423,7 +423,7 @@ fn a_region_scroll_counts_the_cells_it_moves_and_blanks() {
     let mut t = Term::new(&mut s, OpMode::Computed);
     let mut v = Vec::new();
     v.extend_from_slice(format!("\x1b[{TOP};{BOT}r").as_bytes());
-    let mut feed_all = |t: &mut Term, v: &[u8]| {
+    let feed_all = |t: &mut Term, v: &[u8]| {
         let mut i = 0;
         while i < v.len() {
             let n = READ_CHUNK.min(v.len() - i);
