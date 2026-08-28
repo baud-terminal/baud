@@ -310,6 +310,15 @@ pub struct Term<'a> {
     /// ASCII is excluded on purpose: it is one compare and never enters the
     /// accumulator.
     pub bytes_utf8: Stat,
+    /// Bytes consumed by `fast_utf8` -- a whole multi-byte character decoded
+    /// without a state-machine dispatch per byte.
+    ///
+    /// A fourth exit from `feed_with`, and it needs its own counter rather
+    /// than joining `bytes_bulk`: that one means "an ASCII run through
+    /// `put_run`", which is a different code path with a different cost, and
+    /// the recorded 19/66/15 splits would stop being comparable if the
+    /// meaning moved under them.
+    pub bytes_text: Stat,
     /// Cells written to the grid. Multiply by `size_of::<PackedCell>()`.
     pub cells_written: Stat,
     /// Of those, the ones written to *blank* rather than to carry text.
@@ -439,6 +448,7 @@ impl<'a> Term<'a> {
             bytes_seq: Stat::ZERO,
             bytes_slow: Stat::ZERO,
             bytes_utf8: Stat::ZERO,
+            bytes_text: Stat::ZERO,
             cells_written: Stat::ZERO,
             cells_blanked: Stat::ZERO,
             runs_written: Stat::ZERO,
@@ -516,16 +526,17 @@ impl<'a> Term<'a> {
     /// `(bulk, sequences, byte-at-a-time)`, summing to 1. The third is the one
     /// that costs: it runs the full state machine per byte, and a payload that
     /// sends most of its bytes there is one the fast paths are missing.
-    pub fn path_split(&self) -> (f64, f64, f64) {
+    pub fn path_split(&self) -> (f64, f64, f64, f64) {
         let n = self.bytes_in.count();
         if n == 0 {
-            return (0.0, 0.0, 0.0);
+            return (0.0, 0.0, 0.0, 0.0);
         }
         let f = |x: u64| x as f64 / n as f64;
         (
             f(self.bytes_bulk.count()),
             f(self.bytes_seq.count()),
             f(self.bytes_slow.count()),
+            f(self.bytes_text.count()),
         )
     }
 

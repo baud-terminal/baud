@@ -194,6 +194,10 @@ fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
 ///
 /// The fast path is not *missing*, either -- btop takes it 31,606 times
 /// against 31,683 escapes, 99.8%. The cost is inside it.
+///
+/// Text is a fourth exit since `fast_utf8`: a whole multi-byte character
+/// decoded without a dispatch per byte. Before it, every CJK codepoint took
+/// three trips through `control` and landed in `slow`.
 #[test]
 fn real_capture_is_mostly_escape_sequences_not_text() {
     for (name, min_seq) in [
@@ -219,11 +223,16 @@ fn real_capture_is_mostly_escape_sequences_not_text() {
             i += n;
         }
 
-        let (bulk, seq, slow) = t.path_split();
+        let (bulk, seq, slow, text) = t.path_split();
+        // **Four exits now, not three.** `fast_utf8` decodes a whole
+        // multi-byte character in place, so its bytes are neither an ASCII
+        // run nor byte-at-a-time. This assertion is what caught them going
+        // uncounted: btop's `slow` fell from 15% to 0.2% and the missing 14.5%
+        // matched `utf8_share` exactly.
         assert!(
-            (bulk + seq + slow - 1.0).abs() < 0.01,
-            "{name}: the three paths must account for every byte, got \
-             {bulk:.3} + {seq:.3} + {slow:.3}"
+            (bulk + seq + slow + text - 1.0).abs() < 0.01,
+            "{name}: the four paths must account for every byte, got \
+             {bulk:.3} + {seq:.3} + {slow:.3} + {text:.3}"
         );
         assert!(
             seq > min_seq,

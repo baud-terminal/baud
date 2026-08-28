@@ -295,11 +295,72 @@ impl<'a> Term<'a> {
                     continue;
                 }
             }
+            // **A whole multi-byte character, without a dispatch per byte.**
+            // `S::run` stops at the first byte above 0x7f, so before this every
+            // CJK or emoji codepoint took three or four separate trips through
+            // `control` -- a state-machine match, a `State::Utf8` transition
+            // and a re-entry, per byte. `Term::utf8_share` measures those bytes
+            // at 14.5% of btop and 28.2% of vim.
+            if self.st == State::Ground && self.encoding == InputEncoding::Utf8 {
+                let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
+                if let Some(used) = self.fast_utf8(base, at, lim) {
+                    i += used.index();
+                    continue;
+                }
+            }
             let byte = StreamByte::from_stream(self.s.arena[b + i]);
             self.bytes_slow.inc();
             self.control(byte);
             i += 1;
         }
+    }
+
+    /// One complete, well-formed multi-byte UTF-8 character, decoded in place.
+    ///
+    /// Returns the bytes consumed, or `None` -- in which case nothing has been
+    /// mutated and the caller falls through to `control`, which is what makes
+    /// this safe to add. **Every unusual case declines**, so the state machine
+    /// remains the only implementation of the hard parts:
+    ///
+    /// * a sequence straddling the end of this read. `read(2)` splits wherever
+    ///   it likes and `ingest_is_chunk_invariant` is the property the parser
+    ///   rests on, so a partial sequence must leave decoder state behind --
+    ///   which is exactly what `State::Utf8` is for.
+    /// * a malformed continuation. `[[source: unicode-ch3]]` § 3.9.5 requires
+    ///   that a successor byte which itself begins a well-formed sequence is
+    ///   *not* consumed by the error, and that recovery lives in one place.
+    /// * anything but `Ground`, and any encoding but UTF-8: under ISO 8859-1 a
+    ///   byte above 0x7f is a Latin-1 character and `single_byte` claims it
+    ///   before `utf8_lead` is ever reached.
+    ///
+    /// What remains is the common case, and it does exactly what the
+    /// `State::Utf8` arm does -- same counters, same `finish`, same `Width::of`,
+    /// same `put_cp` -- because divergence between two spellings of one
+    /// operation is a failure this repo has already had in `feed_avx2`.
+    fn fast_utf8(&mut self, base: BytePos, at: ByteLen, lim: ByteLen) -> Option<ByteLen> {
+        let from = base.index() + at.index();
+        let end = base.index() + lim.index();
+        let (rem, bits, min) = StreamByte::from_stream(self.s.arena[from]).utf8_lead()?;
+        let need = usize::from(rem) + 1;
+        if from + need > end {
+            return None;
+        }
+        let mut acc = Utf8Acc::lead(bits);
+        for k in 1..need {
+            acc = acc.push(StreamByte::from_stream(self.s.arena[from + k]).utf8_continuation()?);
+        }
+        // Past here nothing can decline, so the mutations begin.
+        self.bytes_utf8.add(need);
+        self.bytes_text.add(need);
+        // `finish` rejects a non-shortest form: without it `E0 80 AF` decoded
+        // to `/`, the path-traversal overlong.
+        let c = acc.finish(min);
+        if c == Codepoint::REPLACEMENT {
+            self.replacements.inc();
+        }
+        let w = Width::of(c, self.width.ambiguous);
+        self.put_cp(c, w);
+        Some(ByteLen::from_index(need))
     }
 
     /// Ingest, portable. Vectorises through `core::simd` on any target that has

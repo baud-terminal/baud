@@ -76,6 +76,9 @@ pub(crate) struct Cost {
     /// part a vectorised validator could speed up. Distinct from `slow`: most
     /// byte-at-a-time input is control sequences, not text.
     pub(crate) utf8: f64,
+    /// Share taking `fast_utf8`: a whole multi-byte character decoded without
+    /// a dispatch per byte. The fourth exit from `feed_with`.
+    pub(crate) text: f64,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -252,7 +255,7 @@ pub(crate) fn run_once_t(
 /// Everything a run cost, read off the counters in one place.
 fn cost_of(t: &Term) -> Cost {
     let (cell, blank) = t.cell_amplification();
-    let (bulk, seq, slow) = t.path_split();
+    let (bulk, seq, slow, text) = t.path_split();
     Cost {
         read: t.mean_read(),
         span: t.span_amplification(),
@@ -261,6 +264,7 @@ fn cost_of(t: &Term) -> Cost {
         bulk,
         seq,
         slow,
+        text,
         utf8: t.utf8_share(),
     }
 }
