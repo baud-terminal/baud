@@ -215,9 +215,9 @@ fn blanking_writes_the_whole_row_and_that_is_the_cheaper_choice() {
 #[test]
 fn real_capture_is_mostly_escape_sequences_not_text() {
     for (name, min_seq) in [
-        ("btop.raw", 0.5),
-        ("asciiquarium.raw", 0.6),
-        ("vim-unicode.raw", 0.3),
+        ("utf8/btop.raw", 0.5),
+        ("ascii/asciiquarium.raw", 0.6),
+        ("utf8/vim-unicode.raw", 0.3),
     ] {
         let d = std::fs::read(format!(
             "{}/tests/recordings/{name}",
@@ -285,9 +285,9 @@ fn real_capture_is_mostly_escape_sequences_not_text() {
 #[test]
 fn how_much_of_a_row_is_actually_used() {
     for (name, lo, hi) in [
-        ("asciiquarium.raw", 0.95, 1.01),
-        ("btop.raw", 0.60, 0.85),
-        ("vim-unicode.raw", 0.20, 0.50),
+        ("ascii/asciiquarium.raw", 0.95, 1.01),
+        ("utf8/btop.raw", 0.60, 0.85),
+        ("utf8/vim-unicode.raw", 0.20, 0.50),
     ] {
         let d = std::fs::read(format!(
             "{}/tests/recordings/{name}",

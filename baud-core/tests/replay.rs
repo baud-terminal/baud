@@ -60,42 +60,70 @@ struct Recording {
 /// addressing with 16-colour SGR, and vim carries scroll regions along with
 /// CJK, emoji, ZWJ, RTL and combining marks.
 ///
-/// **The last three were added because `Term::scrolls` said the first three do
-/// not scroll** -- btop 0, vim 0, asciiquarium 20 -- while blanking is 73% of
-/// `payload::streaming`'s cell writes. Every decision about scrolling rested on
-/// a synthetic payload. `cat-scroll` is text with no escapes at all,
+/// **The scrolling three were added because `Term::scrolls` said the first
+/// three do not scroll** -- btop 0, vim 0, asciiquarium 20 -- while blanking is
+/// 73% of `payload::streaming`'s cell writes. Every decision about scrolling
+/// rested on a synthetic payload. `cat-scroll` is text with no escapes at all,
 /// `git-log` is colour over scrolling text, and `less-pager` repaints by
-/// erasing: 213 cells written per input byte, the slowest workload baud has.
-const RECORDINGS: [Recording; 6] = [
+/// erasing.
+///
+/// **And the CJK two were added because nothing scrolled *and* carried wide
+/// characters.** Counting non-ASCII bytes against wide codepoints separated
+/// what looked like one axis into two: btop is 14.5% multi-byte and has **zero
+/// wide codepoints** -- box drawing and braille are narrow -- so it exercises
+/// the decoder and never the two-cell pair. `vim-unicode` was the only file
+/// with wide characters at all, 3,740 of them, and it scrolls zero times.
+///
+/// So every scroll, erase and line-move in this corpus ran on one-column text,
+/// which is the gap the wide-cell orphaning bugs lived in. `cat-cjk` is 81.2%
+/// non-ASCII with 69,741 wide codepoints and 4,200 newlines and no escape
+/// sequences at all; `less-cjk` is 76.3% with 17,002, in the **alternate
+/// screen**, with 1,031 newlines and 294 `ESC M`.
+///
+/// The `ascii/` and `utf8/` split is by that measurement rather than by
+/// intent: a file is in `utf8/` when more than 1% of its bytes are non-ASCII.
+/// The three ASCII scrollers carry 400-odd stray high bytes each, 0.1%, which
+/// is a stray glyph in a log rather than a decoder workout.
+const RECORDINGS: [Recording; 8] = [
     Recording {
-        name: "btop.raw",
+        name: "utf8/btop.raw",
         len: RecordingBytes(524_288),
         sum: Checksum(0x6d8b_9c0b_a82d_3262),
     },
     Recording {
-        name: "asciiquarium.raw",
+        name: "ascii/asciiquarium.raw",
         len: RecordingBytes(335_479),
         sum: Checksum(0x26a6_79cd_a322_5295),
     },
     Recording {
-        name: "vim-unicode.raw",
+        name: "utf8/vim-unicode.raw",
         len: RecordingBytes(138_571),
         sum: Checksum(0x9adb_71fe_a342_20d4),
     },
     Recording {
-        name: "cat-scroll.raw",
+        name: "ascii/cat-scroll.raw",
         len: RecordingBytes(448_460),
         sum: Checksum(0xd921_7330_1c22_56d7),
     },
     Recording {
-        name: "git-log.raw",
+        name: "ascii/git-log.raw",
         len: RecordingBytes(501_185),
         sum: Checksum(0x2695_6f3e_6193_1bf5),
     },
     Recording {
-        name: "less-pager.raw",
+        name: "ascii/less-pager.raw",
         len: RecordingBytes(30_146),
         sum: Checksum(0x289e_1539_54c9_7b45),
+    },
+    Recording {
+        name: "utf8/cat-cjk.raw",
+        len: RecordingBytes(327_351),
+        sum: Checksum(0xe600_c17a_e73d_7280),
+    },
+    Recording {
+        name: "utf8/less-cjk.raw",
+        len: RecordingBytes(84_473),
+        sum: Checksum(0xb678_bfaf_8914_b2c9),
     },
 ];
 
@@ -217,7 +245,7 @@ fn real_capture_is_chunk_invariant() {
 /// shape this repo keeps rediscovering.
 #[test]
 fn each_recording_carries_what_it_was_chosen_for() {
-    let btop = load("btop.raw");
+    let btop = load("utf8/btop.raw");
     assert!(
         btop.windows(5).any(|w| w == b"38;2;"),
         "btop.raw should carry truecolour SGR"
@@ -227,11 +255,11 @@ fn each_recording_carries_what_it_was_chosen_for() {
         "btop.raw should carry box drawing"
     );
 
-    let aq = load("asciiquarium.raw");
+    let aq = load("ascii/asciiquarium.raw");
     let sgr16 = aq.windows(2).filter(|w| w == b"\x1b[").count();
     assert!(sgr16 > 10_000, "asciiquarium.raw should be escape-dense");
 
-    let vim = load("vim-unicode.raw");
+    let vim = load("utf8/vim-unicode.raw");
     assert!(
         vim.windows(3)
             .any(|w| w == "世".as_bytes()[..3.min(3)].to_vec().as_slice()),
@@ -279,7 +307,7 @@ fn replies_from(bytes: &[u8]) -> (Vec<u8>, u64) {
 /// which is the interesting half.
 #[test]
 fn real_capture_drives_the_reply_channel() {
-    let (replies, unsupported) = replies_from(&load("vim-unicode.raw"));
+    let (replies, unsupported) = replies_from(&load("utf8/vim-unicode.raw"));
 
     assert!(!replies.is_empty(), "vim's capture queries the terminal");
     let cprs = replies.windows(1).filter(|w| w[0] == b'R').count();
@@ -312,7 +340,7 @@ fn real_capture_drives_the_reply_channel() {
 /// fails if the harness stopped collecting.
 #[test]
 fn a_recording_that_asks_nothing_is_answered_with_nothing() {
-    for name in ["btop.raw", "asciiquarium.raw"] {
+    for name in ["utf8/btop.raw", "ascii/asciiquarium.raw"] {
         let (replies, _) = replies_from(&load(name));
         assert!(
             replies.is_empty(),

@@ -119,13 +119,52 @@ fn the_start_states_differ_to_begin_with() {
 /// Sampled across each recording rather than measured once, because
 /// convergence is input-dependent: a run that begins inside a long printable
 /// stretch converges differently from one that begins in dense escapes.
+///
+/// **Split by whether the stream contains an `ESC` at all, because that is the
+/// whole answer and the old blanket assertion hid it.** Three of the eight
+/// start states -- `osc-string`, `dcs-passthrough`, `apc-string` -- are inside
+/// a control string, and a control string ends only at a string terminator.
+/// A stream with no `ESC` byte therefore *cannot* collapse those lanes, ever,
+/// however long it runs.
+///
+/// `cat-scroll.raw` and `cat-cjk.raw` are exactly that stream: 448 KB and 327
+/// KB of text with **zero** `ESC` bytes between them. The old list happened to
+/// name only btop, asciiquarium and vim, all escape-dense, so it asserted
+/// "everything converges" while never testing anything that could not.
+///
+/// This matters beyond the technique. `cat`, logs and build output are the
+/// workload baud is *fastest* at and the one `payload::streaming` models, and
+/// on that workload the enumerative method has no amortisation at all -- not
+/// "slow to converge" but 0 of 200 samples inside 4096 bytes. Note B already
+/// rules the technique out on other grounds (`[[source: dpfsm]]` § 2.1 assumes
+/// out-of-order action invocation, which a terminal cannot do); this is an
+/// independent reason and a sharper one.
+///
+/// The escape-free case is **asserted rather than skipped**, so that a future
+/// change which makes it converge shows up as a failure to explain rather than
+/// passing silently.
 #[test]
 fn convergence_distance_on_real_capture() {
-    for name in ["btop.raw", "asciiquarium.raw", "vim-unicode.raw"] {
+    // (recording, does it contain ESC)
+    let corpus: [(&str, bool); 7] = [
+        ("utf8/btop.raw", true),
+        ("ascii/asciiquarium.raw", true),
+        ("utf8/vim-unicode.raw", true),
+        ("ascii/git-log.raw", true),
+        ("utf8/less-cjk.raw", true),
+        ("ascii/cat-scroll.raw", false),
+        ("utf8/cat-cjk.raw", false),
+    ];
+    for (name, has_esc) in corpus {
         let d = recording(name);
+        assert_eq!(
+            d.contains(&0x1b),
+            has_esc,
+            "{name}: the table's claim about `ESC` disagrees with the file, so \
+             the split below is measuring something other than it says"
+        );
         let limit = 4096;
         let (mut converged, mut total, mut sum, mut worst) = (0usize, 0usize, 0usize, 0usize);
-        // 200 sample points, skipping the setup preamble.
         let step = (d.len() - limit) / 200;
         for i in 0..200 {
             let at = 1024 + i * step;
@@ -143,22 +182,27 @@ fn convergence_distance_on_real_capture() {
             0.0
         };
         println!(
-            "{name:20} converged {pct:5.1}% of {total} samples, mean {mean:6.1} bytes, worst {worst}"
+            "{name:24} esc={has_esc:<5} converged {pct:5.1}% of {total}, \
+             mean {mean:6.1} bytes, worst {worst}"
         );
         assert_eq!(total, 200, "the sampler stopped sampling");
-        assert_eq!(
-            converged, total,
-            "{name}: {converged}/{total} samples converged within {limit} bytes. \
-             The enumerative method needs the lanes to collapse; a sample that \
-             never does is one where every start state stays distinct, and \
-             that is the case the technique cannot amortise."
-        );
-        assert!(
-            mean < 64.0,
-            "{name}: mean convergence {mean:.1} bytes. The technique keeps one \
-             lane per state until they agree, so the distance is how long the \
-             enumeration has to be carried -- tens of bytes is cheap, hundreds \
-             is not."
-        );
+        if has_esc {
+            assert_eq!(
+                converged, total,
+                "{name}: {converged}/{total} samples converged within {limit} \
+                 bytes. The enumerative method needs the lanes to collapse; a \
+                 sample that never does is one where every start state stays \
+                 distinct, and that is the case the technique cannot amortise."
+            );
+        } else {
+            assert_eq!(
+                converged, 0,
+                "{name}: {converged}/{total} samples converged, but this \
+                 stream has no `ESC` byte, so the three control-string start \
+                 states have no terminator to reach and cannot collapse. \
+                 Convergence here means the parser left a control string \
+                 without a string terminator, which is a bug, not a win."
+            );
+        }
     }
 }

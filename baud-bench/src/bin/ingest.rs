@@ -25,7 +25,7 @@
 //!
 //! ```text
 //! ingest streaming 40      # payload::streaming, 40 passes
-//! ingest vim 20            # tests/recordings/vim-unicode.raw
+//! ingest vim 20            # tests/recordings/utf8/vim-unicode.raw
 //! ```
 
 #[path = "../payload.rs"]
@@ -79,16 +79,21 @@ fn main() {
         "streaming" => payload::streaming(1 << 20, &mut seq),
         "tui" => payload::tui(1 << 19, &mut seq),
         "cjk" => payload::cjk(1 << 20, &mut seq),
-        "btop" => recording("btop.raw"),
-        "asciiquarium" => recording("asciiquarium.raw"),
-        "vim" => recording("vim-unicode.raw"),
+        "btop" => recording("utf8/btop.raw"),
+        "asciiquarium" => recording("ascii/asciiquarium.raw"),
+        "vim" => recording("utf8/vim-unicode.raw"),
         // The three added after `Term::scrolls` showed the first three
         // recordings scroll essentially never -- 0, 0 and 20 -- while
         // blanking is 73% of `payload::streaming`'s cell writes. Every
         // decision about scrolling rested on a synthetic payload.
-        "cat" => recording("cat-scroll.raw"),
-        "less" => recording("less-pager.raw"),
-        "git" => recording("git-log.raw"),
+        "cat" => recording("ascii/cat-scroll.raw"),
+        "less" => recording("ascii/less-pager.raw"),
+        "git" => recording("ascii/git-log.raw"),
+        // The two that scroll *and* carry wide characters, which nothing in
+        // the corpus did before: every scroll, erase and line-move here had
+        // only ever run on one-column text.
+        "cat-cjk" => recording("utf8/cat-cjk.raw"),
+        "less-cjk" => recording("utf8/less-cjk.raw"),
         other => panic!("unknown payload {other}"),
     };
 
