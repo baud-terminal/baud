@@ -855,10 +855,7 @@ impl<'a> Term<'a> {
         if c == Codepoint::REPLACEMENT {
             self.replacements.inc();
         }
-        #[cfg(feature = "merged-trie")]
         let w = Classified::of(c).width(self.width.ambiguous);
-        #[cfg(not(feature = "merged-trie"))]
-        let w = Width::of(c, self.width.ambiguous);
         self.put_decoded(c, w);
 
         // **A run of ordinary wide characters goes out in bulk.**
@@ -1052,10 +1049,7 @@ impl<'a> Term<'a> {
             if c2 == Codepoint::REPLACEMENT {
                 self.replacements.inc();
             }
-            #[cfg(feature = "merged-trie")]
             let w2 = Classified::of(c2).width(self.width.ambiguous);
-            #[cfg(not(feature = "merged-trie"))]
-            let w2 = Width::of(c2, self.width.ambiguous);
             self.put_decoded(c2, w2);
             used += need2;
 
