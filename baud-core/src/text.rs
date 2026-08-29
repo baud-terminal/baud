@@ -375,12 +375,16 @@ impl<'a> Term<'a> {
     /// already empty still needs writing under a background colour.
     #[inline(always)]
     pub(crate) fn fill_counted(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) {
-        let n = to.index().saturating_sub(from.index());
+        // **Count what was written.** A fill running to the end of a row stops
+        // at the used extent, so counting the request over-reports -- and did,
+        // hiding that optimisation's effect completely on its first
+        // measurement: the counters were identical across a change that
+        // halved the work.
+        let n = self.view().fill(r, from, to, cell);
         self.cells_written.add(n);
         self.cells_blanked.add(n);
         #[cfg(feature = "instrument")]
         self.cells_fill.add(n);
-        self.view().fill(r, from, to, cell);
     }
 
     #[inline(always)]

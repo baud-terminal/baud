@@ -605,18 +605,24 @@ impl<'a> View<'a> {
 
     /// Fill a half-open column span of one row. Clamped to the visible width,
     /// and widened to whole characters by [`Grid::snap`].
-    pub fn fill(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) {
+    /// Returns how many cells it wrote, which is not what it was asked for: a
+    /// fill running to the end of the row stops at the used extent. Counting
+    /// the request instead is the "instrumentation outlived what fed it"
+    /// failure, and it hid this optimisation's effect entirely on the first
+    /// measurement -- the counters came out identical across a change that
+    /// halved the work.
+    pub fn fill(&mut self, r: Row, from: Col, to: Col, cell: PackedCell) -> usize {
         if r.index() >= self.rows.index() {
-            return;
+            return 0;
         }
         let (a, b) = self.snap(r, from, to);
-        self.fill_raw(r, a, b, cell);
+        self.fill_raw(r, a, b, cell)
     }
 
     /// The unsnapped fill, for spans already known to be whole rows.
-    fn fill_raw(&mut self, r: Row, a: usize, b: usize, cell: PackedCell) {
+    fn fill_raw(&mut self, r: Row, a: usize, b: usize, cell: PackedCell) -> usize {
         if r.index() >= self.rows.index() || a >= b {
-            return;
+            return 0;
         }
         // **The one place the mark can go down.** Everything else only ever
         // raises it, which is what makes `max` a safe maintenance rule; a fill
@@ -644,14 +650,32 @@ impl<'a> View<'a> {
         // measured -7 to -8% for bookkeeping that changes no output.
         let p = self.phys(r);
         let cols = self.cols.index();
-        match cell.content == Content::EMPTY && b >= cols {
+        let base = p * self.stride.index();
+        let to_end = cell.content == Content::EMPTY && b >= cols;
+        // **A fill that runs to the end of the row can stop at the mark**, on
+        // exactly the condition `fill_row` uses: everything from the extent to
+        // the end is already the blank last written across the row, so if that
+        // is the blank going in now, writing it again changes nothing.
+        //
+        // `EL` and `ED` to end of line land here, and they are what an editor
+        // redraws with -- `opcost` prices `EL to end` at **26.6 ns** against a
+        // `CUP` at 1.2, almost all of it clearing 140 columns that a 60-column
+        // line never used.
+        let b = match to_end && self.cells[base + cols - 1] == cell {
+            true => self.used[p].index().max(a).min(b),
+            false => b,
+        };
+        match to_end {
             true => self.used[p] = RowExtent::of(a),
             false => self.used[p] = self.used[p].reached(b),
         }
-        let base = p * self.stride.index();
+        if a >= b {
+            return 0;
+        }
         // `slice::fill`, not an indexed loop: one bounds check instead of one
         // per cell, and it lowers to a vector store rather than a scalar one.
         self.cells[base + a..base + b].fill(cell);
+        b - a
     }
 
     /// **Deliberately not through `fill`.** A whole row cannot split a
