@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [2.24× ghostty on spans, 1.50× on cells](#the-number) — ahead in both representations, on both payloads |
+| **Throughput** | ⚠️ [ahead of ghostty on six recordings, behind on two](#the-number) — 1.11–3.54× on ASCII and mixed capture, **0.43×** on dense CJK |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -135,6 +135,33 @@ every caveat in [MEASUREMENTS.md](MEASUREMENTS.md).*
 | wezterm (full terminal) | 17.3 / 17.8 | 31.9 / 32.2 |
 
 **Spans: 2.24x ghostty streaming, 2.86x TUI. Cells: 1.50x and 1.50x.**
+
+## And on real capture, where it is behind
+
+The table above is the two synthetic payloads, which is what multibench could
+build until now. Driving every core with the committed recordings instead:
+
+| recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
+|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1021.5** | 288.8 | 232.3 | **3.54x** |
+| `ascii/asciiquarium.raw` | **310.5** | 199.6 | 241.1 | **1.56x** |
+| `ascii/git-log.raw` | **1027.5** | 852.7 | 204.1 | **1.21x** |
+| `utf8/btop.raw` | **617.2** | 516.7 | 347.0 | **1.19x** |
+| `ascii/cat-scroll.raw` | **878.7** | 782.9 | 203.3 | **1.12x** |
+| `utf8/vim-unicode.raw` | **394.0** | 354.7 | 286.0 | **1.11x** |
+| `utf8/less-cjk.raw` | 232.4 | **252.7** | 275.5 | **0.92x** |
+| `utf8/cat-cjk.raw` | 220.6 | **514.1** | 223.0 | **0.43x** |
+
+**Ahead on six, behind on two, and on dense CJK ghostty is 2.3x faster.**
+`cat-cjk.raw` is pure text with no escape sequences and every character wide --
+the case a bulk write path for non-ASCII would serve, which baud does not have.
+The headroom there is no longer inferred from a ceiling arm; it is a
+measurement of somebody else's code.
+
+Where the lead is largest is where the architecture is doing the work rather
+than the parser: `less-pager` is the alternate-screen rotation and the
+used-extent mark, `asciiquarium` is escape density against the CSI fast path,
+`git-log` and `cat-scroll` are the spans representation on scrolling text.
 
 ## The synthetic payloads went **down** while every real recording went up
 

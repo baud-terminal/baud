@@ -205,6 +205,56 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## Against the other cores on **real capture**: ahead on six, behind on two
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28, commit `a61f333`.
+`bench-others/multibench` with `TRANSPORT=memory` and `RECORDINGS=...`, medians
+of 9, interleaved and rotated, 32 MB per core per payload. Every core is driven
+with the same committed, hash-pinned bytes.*
+
+**Every comparison before this one ran on `payload::streaming` and
+`payload::tui`.** Those are the only payloads multibench could build, and
+`payload::tui`'s escape density matches no real program. This is the first time
+the other implementations have been driven with capture.
+
+| recording | baud (spans) | baud (cells) | ghostty | alacritty | termwiz | vt100 | **baud cells ÷ ghostty** |
+|---|---|---|---|---|---|---|---|
+| `ascii/git-log.raw` | **1703.3** | 1027.5 | 852.7 | 204.1 | 363.3 | 144.8 | **1.21x** |
+| `ascii/cat-scroll.raw` | **1382.9** | 878.7 | 782.9 | 203.3 | 375.1 | 112.8 | **1.12x** |
+| `ascii/less-pager.raw` | **1024.6** | 1021.5 | 288.8 | 232.3 | 347.9 | 149.2 | **3.54x** |
+| `utf8/btop.raw` | **619.2** | 617.2 | 516.7 | 347.0 | 299.2 | 367.1 | **1.19x** |
+| `utf8/vim-unicode.raw` | 390.3 | **394.0** | 354.7 | 286.0 | 286.3 | 271.7 | **1.11x** |
+| `ascii/asciiquarium.raw` | **311.9** | 310.5 | 199.6 | 241.1 | 192.2 | 315.2 | **1.56x** |
+| `utf8/less-cjk.raw` | 232.5 | 232.4 | **252.7** | 275.5 | 327.7 | 209.9 | **0.92x** |
+| `utf8/cat-cjk.raw` | 200.0 | 220.6 | **514.1** | 223.0 | 338.9 | 179.6 | **0.43x** |
+
+(wezterm's full terminal is 39-98 across all eight and is omitted from the
+columns for width; it is in the raw output.)
+
+**baud leads on six recordings and is behind on the two CJK ones.** On
+`cat-cjk` ghostty is **2.3x faster**, and alacritty is level with baud. That is
+the honest state of the thing, and it is the opposite of what the synthetic
+pair says.
+
+**So the remaining lead is not a guess any more.** This file has carried "a
+bulk path for runs of same-width non-ASCII text is the obvious idea and is
+unmeasured" since the CJK gap was found. `cat-cjk` is pure text with no escape
+sequences and every character wide -- the exact shape that path would serve --
+and another implementation is 2.3x quicker on it. The headroom is no longer
+inferred from a ceiling arm; it is a measurement of somebody else's code.
+
+**Why `less-cjk` is close and `cat-cjk` is not** is the same story from the
+other side: `less-cjk` carries escape sequences, so both cores spend time in
+the state machine where baud is ahead, and the per-codepoint write is a smaller
+share. Strip the escapes and the gap is all that is left.
+
+**Where baud's lead is largest is where its architecture is doing the work.**
+`less-pager` at 3.54x is the alternate-screen rotation and the used-extent
+mark; `asciiquarium` at 1.56x is escape density against the CSI fast path;
+`git-log` and `cat-scroll` are the spans representation on scrolling text. None
+of those is a parser-speed result, which is worth saying because the headline
+ratio invites reading it as one.
+
 ## One compare before the vector: every payload gains, vim +7.5%
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
