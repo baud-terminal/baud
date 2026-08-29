@@ -9,3 +9,7 @@ description = "The type system: every quantity is a type, every invariant the co
 
 [dependencies]
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+
+[features]
+# Ceiling arm: `View::fill_row` does the bookkeeping and skips the stores.
+ceiling-no-rowfill = []

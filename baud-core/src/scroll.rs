@@ -62,6 +62,15 @@ impl<'a> Term<'a> {
     }
 
     pub(crate) fn scroll_region_up(&mut self, n: Count) {
+        // **Ceiling arm: scrolling, priced whole.** Incorrect by construction
+        // -- the screen never moves -- so `cells_written` falls and this is an
+        // upper bound on the saving.
+        #[cfg(feature = "ceiling-no-scroll")]
+        {
+            core::hint::black_box(n);
+            return;
+        }
+        #[allow(unreachable_code)]
         let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
         if top > bot {
             return;

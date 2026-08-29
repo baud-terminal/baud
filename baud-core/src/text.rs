@@ -578,6 +578,19 @@ impl<'a> Term<'a> {
 
     #[inline(always)]
     pub(crate) fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
+        // **Ceiling arm: the ASCII bulk writer.** The bytes are consumed and
+        // the cursor is left where the run would have left it, so the parser
+        // stays in step; nothing reaches the grid.
+        #[cfg(feature = "ceiling-no-asciirun")]
+        {
+            let room = self
+                .cols
+                .room_until(self.cx, self.right_margin.after())
+                .min(n);
+            self.cx += room;
+            core::hint::black_box((base, off, n));
+            return;
+        }
         // Printable ASCII is blitted and never reaches `put_cp`, so
         // `ClusterBreak` does not see it and has to be told. One store per
         // *run*, not per byte, so it is off the per-byte path this file is

@@ -964,6 +964,14 @@ impl<'a> View<'a> {
             true => self.used[p].index().min(cols),
             false => cols,
         };
+        // **Ceiling arm: the blank itself, and only the blank.** The ring
+        // still advances, the extent bookkeeping still happens, and the
+        // returned extent is the one the real fill would report -- so both
+        // arms attribute identical cells and only the stores differ. The older
+        // `ceiling-no-blank` reported a *full row* here, so its counters
+        // disagreed with the real arm and it could not show the effect it
+        // existed to measure.
+        #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
         self.used[p] = match blanking {
             true => RowExtent::ZERO,

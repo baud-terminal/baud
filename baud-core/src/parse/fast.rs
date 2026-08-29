@@ -270,6 +270,16 @@ impl<'a> Term<'a> {
     #[inline]
     pub(crate) unsafe fn feed_with<S: Scan + Decode>(&mut self, base: BytePos, n: ByteLen) {
         self.count_in(n);
+        // **Ceiling arm: the whole feed, removed.** What is left is the
+        // harness -- `read_slot`, the copy into the arena, `commit_read` --
+        // so this separates "what baud does with the bytes" from "what it
+        // costs to have the bytes at all".
+        #[cfg(feature = "ceiling-no-feed")]
+        {
+            core::hint::black_box(base);
+            return;
+        }
+        #[allow(unreachable_code)]
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
         while i < nn {
@@ -845,6 +855,14 @@ impl<'a> Term<'a> {
             acc
         };
         // Past here nothing can decline, so the mutations begin.
+        // **Ceiling arm: the decode, priced.** Consume the character's bytes
+        // and do nothing with them -- no accumulate, no `finish`, no
+        // classification, no write.
+        #[cfg(feature = "ceiling-no-decode")]
+        {
+            self.bytes_utf8.add(need);
+            return Some(ByteLen::from_index(need));
+        }
         #[cfg(feature = "instrument")]
         self.bytes_utf8.add(need);
         #[cfg(feature = "instrument")]
