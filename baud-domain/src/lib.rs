@@ -26,6 +26,15 @@
 
 mod brand;
 mod cell;
+mod cluster_data;
+
+/// One entry of the UAX #29 transition table: bit 7 is the break decision,
+/// bits 0..7 the next state. Exposed so
+/// `the_cluster_table_agrees_with_the_rules` can check the artefact against
+/// the rules that generated it.
+pub fn cluster_next(state: u8, input: u8) -> u8 {
+    cluster_data::CLUSTER_NEXT[(state as usize) * 256 + input as usize]
+}
 mod dec_graphics;
 mod decode;
 mod font;

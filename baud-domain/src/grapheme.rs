@@ -199,6 +199,8 @@ enum IncbLookback {
 
 #[derive(Clone, Copy, Default)]
 pub struct ClusterBreak {
+    /// The whole machine, as one state id into `CLUSTER_NEXT`.
+    table_state: u8,
     prev: Option<GraphemeClass>,
     ri: RiParity,
     pict: PictLookback,
@@ -230,6 +232,57 @@ impl ClusterBreak {
         ClusterBreak::default()
     }
 
+    /// The machine's whole state as nine bits, for tooling that has to
+    /// enumerate it. `prev` is 15 values, `ri` 2, `pict` 3, `incb` 3.
+    pub fn to_bits(self) -> u16 {
+        let prev = match self.prev {
+            None => 14u16,
+            Some(c) => c as u16,
+        };
+        let ri = match self.ri {
+            RiParity::Even => 0u16,
+            RiParity::Odd => 1,
+        };
+        let pict = match self.pict {
+            PictLookback::None => 0u16,
+            PictLookback::Pictographic => 1,
+            PictLookback::PictographicZwj => 2,
+        };
+        let incb = match self.incb {
+            IncbLookback::None => 0u16,
+            IncbLookback::Consonant => 1,
+            IncbLookback::ConsonantLinker => 2,
+        };
+        prev | (ri << 4) | (pict << 5) | (incb << 7)
+    }
+
+    /// Inverse of [`ClusterBreak::to_bits`].
+    pub fn from_bits(b: u16) -> ClusterBreak {
+        ClusterBreak {
+            // Tooling only: reconstructs the *rule* machine, whose
+            // `table_state` is not meaningful.
+            table_state: 0,
+            prev: match b & 0xf {
+                14 => None,
+                n => Some(GraphemeClass::FROM_INDEX[n as usize]),
+            },
+            ri: match (b >> 4) & 1 {
+                0 => RiParity::Even,
+                _ => RiParity::Odd,
+            },
+            pict: match (b >> 5) & 3 {
+                0 => PictLookback::None,
+                1 => PictLookback::Pictographic,
+                _ => PictLookback::PictographicZwj,
+            },
+            incb: match (b >> 7) & 3 {
+                0 => IncbLookback::None,
+                1 => IncbLookback::Consonant,
+                _ => IncbLookback::ConsonantLinker,
+            },
+        }
+    }
+
     /// The truthful state after a run of **printable ASCII**, and a record of
     /// why `put_run` does not use it.
     ///
@@ -259,6 +312,10 @@ impl ClusterBreak {
     /// next reader does not have to re-derive that, or "fix" it for 1.5%.
     pub fn after_ascii_run() -> ClusterBreak {
         ClusterBreak {
+            // `prev = Other` with no lookback live is exactly the one
+            // state `ordinary_run_ready` accepts, so under the table it
+            // is that id.
+            table_state: crate::cluster_data::CLUSTER_READY,
             prev: Some(GraphemeClass::Other),
             ..ClusterBreak::default()
         }
@@ -311,10 +368,9 @@ impl ClusterBreak {
     }
 
     pub fn ordinary_run_ready(&self) -> bool {
-        self.prev == Some(GraphemeClass::Other)
-            && self.ri == RiParity::Even
-            && self.pict == PictLookback::None
-            && self.incb == IncbLookback::None
+        // Exactly one of the 94 reachable states satisfies this, so under the
+        // table it is a compare rather than four field tests.
+        self.table_state == crate::cluster_data::CLUSTER_READY
     }
 
     /// Is there a cluster boundary immediately **before** `c`?
@@ -353,8 +409,27 @@ impl ClusterBreak {
     /// since the width decides how many cells the character occupies -- was
     /// paying two lookups for one codepoint. [`Classified`] answers both from
     /// one, and this is the half of `is_break` that does not need the table.
+    /// The same decision as a **single indexed load**.
+    ///
+    /// `decide` walks the GB rules in order and `advance` writes four fields.
+    /// Both are branchy, and on emoji-heavy text those branches are the
+    /// unpredictable ones. The whole machine state is 94 reachable
+    /// combinations and its input is the byte the flat property table already
+    /// returns, so the transition fits one byte: bit 7 the break, bits 0..7
+    /// the next state.
     #[inline(always)]
     pub fn is_break_classified(&mut self, cur: GraphemeClass, lb: Lookback) -> bool {
+        let i = (self.table_state as usize) * 256 + ((cur as usize) | ((lb.bits() as usize) << 4));
+        let e = crate::cluster_data::CLUSTER_NEXT[i];
+        self.table_state = e & 0x7f;
+        e & 0x80 != 0
+    }
+
+    /// The rules, walked. **Not the hot path** -- `is_break_classified` is a
+    /// table now -- but the table is generated from this, and
+    /// `the_cluster_table_agrees_with_the_rules` checks every reachable state
+    /// against it, so this stays as the definition the artefact answers to.
+    pub fn is_break_by_rules(&mut self, cur: GraphemeClass, lb: Lookback) -> bool {
         // **An ordinary character after an ordinary character, with no lookback
         // live.** Han, kana and most punctuation are all `Other`, so this is
         // the shape a page of CJK text has, and both halves below are provably
