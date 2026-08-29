@@ -377,10 +377,11 @@ impl<'a> Term<'a> {
     /// `start` is the offset of the *next* character, past the one `fast_utf8`
     /// has already placed. Returns bytes consumed, three per codepoint taken.
     #[inline(never)]
-    fn wide_run(&mut self, start: usize, end: usize) -> usize {
-        let from = start;
+    fn wide_run(&mut self, start: BytePos, lim: ByteLen) -> ByteLen {
+        let from = start.index();
+        let end = from + lim.index();
         let mut used = 0usize;
-        let mut buf = [0u32; WIDE_RUN];
+        let mut buf = [Codepoint::REPLACEMENT; WIDE_RUN];
         let mut n = 0usize;
         let mut scan = used;
         while n < WIDE_RUN && from + scan + 3 <= end {
@@ -410,20 +411,20 @@ impl<'a> Term<'a> {
             if class != GraphemeClass::Other || !lb.is_none() {
                 break;
             }
-            buf[n] = cp.value();
+            buf[n] = cp;
             n += 1;
             scan += 3;
         }
         if n > 0 {
-            let took = self.put_wide_run(&buf[..n]);
+            let took = self.put_wide_run(&buf[..n]).index();
             #[cfg(feature = "instrument")]
             {
-                self.bytes_utf8.add(took * 3);
-                self.bytes_text.add(took * 3);
+                self.bytes_utf8.add(took);
+                self.bytes_text.add(took);
             }
-            used += took * 3;
+            used += took;
         }
-        used
+        ByteLen::from_index(used)
     }
 
     fn fast_utf8(&mut self, base: BytePos, at: ByteLen, lim: ByteLen) -> Option<ByteLen> {
@@ -481,7 +482,12 @@ impl<'a> Term<'a> {
         // and vim before the gate and +3% after.
         let mut used = need;
         if w == Width::WIDE && self.cluster.ordinary_run_ready() {
-            used += self.wide_run(from + used, end);
+            used += self
+                .wide_run(
+                    BytePos::from_index(from + used),
+                    ByteLen::from_index(end - from - used),
+                )
+                .index();
         }
         while from + used < end {
             let b0 = StreamByte::from_stream(self.s.arena[from + used]);

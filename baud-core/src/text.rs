@@ -87,26 +87,27 @@ impl<'a> Term<'a> {
     /// Returns how many codepoints it took. A short return means the run hit
     /// the right margin, and the caller falls back to `put_cp` for the rest --
     /// which is where wrapping, insert mode and every other case still live.
-    pub(crate) fn put_wide_run(&mut self, cps: &[u32]) -> usize {
+    pub(crate) fn put_wide_run(&mut self, cps: &[Codepoint]) -> ByteLen {
         if cps.is_empty() || self.modes.is_set(ModeBit::InsertReplace) {
-            return 0;
+            return ByteLen::ZERO;
         }
         // The run must fit before the right margin; the remainder wraps, and
         // wrapping is `put_cp`'s job.
         let edge = self.right_margin.after().index().min(self.cols.index());
         let x = self.cx.index();
         if x + 2 > edge {
-            return 0;
+            return ByteLen::ZERO;
         }
         let n = cps.len().min((edge - x) / 2);
         if n == 0 {
-            return 0;
+            return ByteLen::ZERO;
         }
         self.promote_if_runs();
         let (r, st, fl) = (self.cy, self.style, self.flags);
         let wrote = self
             .view()
-            .put_wide_run(r, Col::at_index(x), &cps[..n], st, fl);
+            .put_wide_run(r, Col::at_index(x), &cps[..n], st, fl)
+            .index();
         let took = wrote / 2;
         self.cells_written.add(wrote);
         #[cfg(feature = "instrument")]
@@ -115,11 +116,10 @@ impl<'a> Term<'a> {
         if took > 0 {
             // `REP` repeats the last graphic character, so it must be the last
             // one this wrote rather than whatever preceded the run.
-            if let Some(c) = Codepoint::new(cps[took - 1]) {
-                self.last_cp = Some((c, Width::WIDE));
-            }
+            self.last_cp = Some((cps[took - 1], Width::WIDE));
         }
-        took
+        // Three bytes a codepoint: the collector only admits three-byte leads.
+        ByteLen::from_index(took * 3)
     }
 
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {

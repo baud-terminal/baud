@@ -437,19 +437,19 @@ impl<'a> View<'a> {
         &mut self,
         r: Row,
         at: Col,
-        cps: &[u32],
+        cps: &[Codepoint],
         style: StyleId,
         flags: CellFlags,
-    ) -> usize {
+    ) -> RowExtent {
         let cols = self.cols.index();
         let x = at.index();
         if r.index() >= self.rows.index() || x >= cols {
-            return 0;
+            return RowExtent::ZERO;
         }
         // Two cells per codepoint, and never past the last column.
         let n = cps.len().min((cols - x) / 2);
         if n == 0 {
-            return 0;
+            return RowExtent::ZERO;
         }
         let p = self.phys(r);
         let base = p * self.stride.index();
@@ -467,11 +467,11 @@ impl<'a> View<'a> {
         let proto = PackedCell::wide_tail(style, flags);
         Self::put_wide_vectored(&mut self.cells[base + x..base + end], &cps[..n], proto);
         self.used[p] = self.used[p].reached(sb.max(end));
-        2 * n
+        RowExtent::of(2 * n)
     }
 
     /// The interleave. `dst` is exactly `2 * cps.len()` cells.
-    fn put_wide_vectored(dst: &mut [PackedCell], cps: &[u32], proto: PackedCell) {
+    fn put_wide_vectored(dst: &mut [PackedCell], cps: &[Codepoint], proto: PackedCell) {
         #[cfg(target_endian = "little")]
         {
             use core::simd::num::SimdUint;
@@ -489,7 +489,13 @@ impl<'a> View<'a> {
             let mut d = dst.chunks_exact_mut(8);
             let mut s = cps.chunks_exact(4);
             for (dc, sc) in d.by_ref().zip(s.by_ref()) {
-                let c = Simd::<u32, 4>::from_slice(sc).cast::<u64>();
+                let c = Simd::<u32, 4>::from_array([
+                    sc[0].value(),
+                    sc[1].value(),
+                    sc[2].value(),
+                    sc[3].value(),
+                ])
+                .cast::<u64>();
                 // [c0, tail, c1, tail, c2, tail, c3, tail]
                 let content: Simd<u64, 8> = simd_swizzle!(c, tail, [0, 4, 1, 5, 2, 6, 3, 7]);
                 let cells = (content | Simd::splat(hi)).to_array();
@@ -498,21 +504,13 @@ impl<'a> View<'a> {
                 dc.copy_from_slice(&packed);
             }
             for (dc, &cp) in d.into_remainder().chunks_exact_mut(2).zip(s.remainder()) {
-                dc[0] = PackedCell {
-                    content: Content(cp),
-                    style: proto.style,
-                    flags: proto.flags,
-                };
+                dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
                 dc[1] = proto;
             }
         }
         #[cfg(not(target_endian = "little"))]
         for (dc, &cp) in dst.chunks_exact_mut(2).zip(cps) {
-            dc[0] = PackedCell {
-                content: Content(cp),
-                style: proto.style,
-                flags: proto.flags,
-            };
+            dc[0] = PackedCell::glyph(cp, proto.style, proto.flags);
             dc[1] = proto;
         }
     }
