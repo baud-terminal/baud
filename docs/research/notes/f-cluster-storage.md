@@ -93,10 +93,14 @@ settle before any of this is written.
 
 ## What this is worth, stated before anyone builds it
 
-The rebuild half is **2.5-3%**. Sharing slots between repeated emoji saves
-memory and evictions rather than time. `is_break`, at 14%, is untouched:
-deciding *where* a cluster ends is a different question from where to put it,
-and no storage change makes UAX #29 cheaper.
+The rebuild half is **2.5-3%**, and the *whole* side table is **5%** --
+`ceiling-no-attach` stubs `attach_mark` outright, cells byte-identical, and
+gives cat-cjk 433.3-441.1 against 415.9-417.8. So 5% is the hard ceiling on
+everything in this note, and a redesign that recovers half of it is worth
+2.5%. Sharing slots between repeated emoji saves memory and evictions rather
+than time. `is_break`, at 14%, is untouched: deciding *where* a cluster ends is
+a different question from where to put it, and no storage change makes UAX #29
+cheaper.
 
 So this is a correctness and design argument carrying a few percent, and it
 should be proposed as that. It is not a route to the 2.4x that cat-cjk needs,

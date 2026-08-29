@@ -401,6 +401,18 @@ impl<'a> Term<'a> {
     /// this arm inlined into the decode path it says it stays out of.
     #[inline(never)]
     fn attach_mark(&mut self, cp: Codepoint) {
+        // **Ceiling arm: everything the marks side table costs.** Incorrect by
+        // construction -- no mark is stored, so a ZWJ family renders as its
+        // base -- and an upper bound rather than a measurement. It exists
+        // because 61% of the slow path is pictographic and six of a family's
+        // seven codepoints arrive here, so this is where an emoji-shaped
+        // redesign would have to pay off.
+        #[cfg(feature = "ceiling-no-attach")]
+        {
+            core::hint::black_box(cp);
+            return;
+        }
+        #[allow(unreachable_code)]
         // A mark with nothing before it on the line has no base to attach to.
         // Dropping it is correct -- `[[source: uax29]]` GB1 puts a boundary at
         // start of text, so it is its own cluster and there is no cell for it.
