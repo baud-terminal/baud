@@ -523,6 +523,27 @@ impl<'a> Term<'a> {
             let w2 = Width::of(c2, self.width.ambiguous);
             self.put_cp(c2, w2);
             used += need2;
+            // **The bulk path re-arms here, and not doing so was most of what
+            // it was leaving on the table.** The gate above fires once, on the
+            // first character this call decodes; every wide run *after* the
+            // first non-wide character stayed on the per-codepoint path
+            // because nothing brought it back. Real text alternates -- a CJK
+            // recording is 39% ASCII, so a line is runs of wide characters
+            // separated by spaces, digits and punctuation, and only the first
+            // of them was going out in bulk.
+            //
+            // It is the same gate for the same reason: the character just
+            // written is known to be wide, so the collector is only entered
+            // where it has a run to find, and btop -- multi-byte with zero
+            // wide codepoints -- never reaches it.
+            if w2 == Width::WIDE && self.cluster.ordinary_run_ready() {
+                used += self
+                    .wide_run(
+                        BytePos::from_index(from + used),
+                        ByteLen::from_index(end - from - used),
+                    )
+                    .index();
+            }
         }
         Some(ByteLen::from_index(used))
     }
