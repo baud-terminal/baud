@@ -262,7 +262,18 @@ impl<'a> Term<'a> {
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
         while i < nn {
-            if self.st == State::Ground {
+            // **One compare before the vector.** `S::run` returns the count of
+            // printable ASCII at the front, so it returns *zero* whenever the
+            // current byte is a control, an `ESC` or a UTF-8 lead -- after a
+            // full vector load, compare and movemask. Every CJK codepoint paid
+            // one of those to learn there was no ASCII in front of it, and so
+            // did every escape sequence.
+            //
+            // The byte is loaded either way, so this costs a compare on the
+            // path that goes on to scan, and saves the whole scan setup on the
+            // path that would have got nothing.
+            let printable = self.st == State::Ground && matches!(self.s.arena[b + i], 0x20..=0x7e);
+            if printable {
                 // SAFETY: caller established whatever S requires.
                 let run = unsafe { S::run(&self.s.arena[b + i..b + nn]) }.index();
                 if run > 0 {
