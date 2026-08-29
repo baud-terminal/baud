@@ -336,7 +336,7 @@ impl<'a> Term<'a> {
             // at 14.5% of btop and 28.2% of vim.
             if self.st == State::Ground && self.encoding == InputEncoding::Utf8 {
                 let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
-                if let Some(used) = self.fast_utf8(base, at, lim) {
+                if let Some(used) = self.fast_utf8::<S>(base, at, lim) {
                     i += used.index();
                     continue;
                 }
@@ -631,7 +631,70 @@ impl<'a> Term<'a> {
         ByteLen::from_index(used)
     }
 
-    fn fast_utf8(&mut self, base: BytePos, at: ByteLen, lim: ByteLen) -> Option<ByteLen> {
+    /// Collect a run through the block decoder and write it with the existing
+    /// bulk path.
+    ///
+    /// **A like-for-like comparison of the two decoders.** Everything after
+    /// the decode is identical to `wide_run` -- the same `put_wide_run`, the
+    /// same eight cells a store -- so the difference measured here is the
+    /// decode and nothing else. `wide_run` decodes with a constant stride of
+    /// three and compile-time swizzle indices; this decodes any mix of lengths
+    /// with a table lookup and two vector steps.
+    #[cfg(feature = "block-decode")]
+    #[inline(never)]
+    fn decoded_run<S: Decode>(&mut self, start: BytePos, lim: ByteLen) -> ByteLen {
+        let from = start.index();
+        let end = from + lim.index();
+        let mut cps = [Codepoint::REPLACEMENT; WIDE_RUN];
+        let (mut k, mut scan) = (0usize, 0usize);
+        while k + 4 <= WIDE_RUN && from + scan + baud_domain::LANE_COUNT <= end {
+            // SAFETY: the caller established this scanner's target features.
+            let got = unsafe { S::block(StreamByte::slice_from(&self.s.arena[from + scan..end])) };
+            if got.count.is_zero() {
+                break;
+            }
+            let mut n = 0usize;
+            while n < got.count.index() {
+                let cp = got.cps[n];
+                // Wide-ordinary only: the cluster machine provably does not
+                // need these, and they are all three bytes.
+                if !cp.is_wide_ordinary() {
+                    break;
+                }
+                cps[k + n] = cp;
+                n += 1;
+            }
+            k += n;
+            scan += n * 3;
+            if n < got.count.index() {
+                break;
+            }
+        }
+        if k == 0 {
+            return ByteLen::ZERO;
+        }
+        let took = self.put_wide_run(&cps[..k]).index();
+        #[cfg(feature = "instrument")]
+        {
+            self.bytes_utf8.add(took);
+            self.bytes_text.add(took);
+        }
+        ByteLen::from_index(took)
+    }
+
+    // `S` is used only by the `block-decode` arm. Keeping the parameter in
+    // both spellings means the two differ by one call site rather than by a
+    // signature, which is what makes them comparable.
+    #[cfg_attr(
+        not(feature = "block-decode"),
+        allow(clippy::extra_unused_type_parameters)
+    )]
+    fn fast_utf8<S: Decode>(
+        &mut self,
+        base: BytePos,
+        at: ByteLen,
+        lim: ByteLen,
+    ) -> Option<ByteLen> {
         let from = base.index() + at.index();
         let end = base.index() + lim.index();
         let (rem, bits, min) = StreamByte::from_stream(self.s.arena[from]).utf8_lead()?;
@@ -697,12 +760,24 @@ impl<'a> Term<'a> {
             }
         }
         if w == Width::WIDE && self.cluster.ordinary_run_ready() {
-            used += self
-                .wide_run(
-                    BytePos::from_index(from + used),
-                    ByteLen::from_index(end - from - used),
-                )
-                .index();
+            #[cfg(feature = "block-decode")]
+            {
+                used += self
+                    .decoded_run::<S>(
+                        BytePos::from_index(from + used),
+                        ByteLen::from_index(end - from - used),
+                    )
+                    .index();
+            }
+            #[cfg(not(feature = "block-decode"))]
+            {
+                used += self
+                    .wide_run(
+                        BytePos::from_index(from + used),
+                        ByteLen::from_index(end - from - used),
+                    )
+                    .index();
+            }
         } else if w == Width::NARROW
             && need > 1
             && self.cluster.ordinary_run_ready()

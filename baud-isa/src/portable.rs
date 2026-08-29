@@ -104,22 +104,19 @@ impl Decode for Portable {
         // **Boundaries come from the bytes, not from what they decode to.**
         // That is UTF-8's self-synchronisation, and it is what lets one pass
         // handle ASCII, Latin, kana and Han without caring which comes next.
-        let Some(starts) = block.leads().first_four() else {
+        //
+        // The offsets come from a table rather than a prefix sum: one load
+        // against five `trailing_zeros` and a loop, which is the serial chain
+        // that made the computed version 2.4x slower than the const-stride
+        // collector. Four bytes an entry, 16 KB total, and measured on
+        // `cat-cjk.raw` only 212 of the 4096 patterns occur at all -- a touched
+        // set of ~848 bytes.
+        let Some(starts) = block.leads().table_four() else {
             return none;
         };
-        // Four characters, four gather lanes each, padded by indices at or
-        // past the block, which read as zero. `swizzle_dyn` is `tbl` on
-        // aarch64 and `pshufb` on x86-64, so the gather is *computed*: the
-        // textbook decoder indexes a shuffle table by the lead pattern, which
-        // is tens of kilobytes and would not stay resident.
-        let mut idx = [LANE_COUNT as u8; LANE_COUNT];
-        for k in 0..DECODE_LANES {
-            let o = starts.start(k).index();
-            for j in 0..starts.len(k).index() {
-                idx[4 * k + j] = (o + j) as u8;
-            }
-        }
-        let quads = block.gather(Vectorized::<Utf8>::indices(idx)).quads();
+        // Two vector steps build the gather: broadcast each offset four times,
+        // add `[0,1,2,3]`, push the padding lanes out of range.
+        let quads = block.gather_chars(starts).quads();
         let mut cps = [Codepoint::REPLACEMENT; DECODE_LANES];
         let mut bytes = 0usize;
         for k in 0..DECODE_LANES {

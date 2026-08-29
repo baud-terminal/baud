@@ -29,6 +29,37 @@ impl LaneMask {
         self.any().then(|| Lane(self.0.trailing_zeros() as usize))
     }
 
+    /// The first four characters, from the offset table.
+    ///
+    /// **One load replaces the prefix sum**, which is the whole reason this
+    /// exists. Computing the offsets instead -- five `trailing_zeros` and a
+    /// loop -- is a serial dependency chain in the middle of the vector path,
+    /// and it measured 2.4x slower than the const-stride collector it was
+    /// meant to replace.
+    #[inline(always)]
+    pub fn table_four(self) -> Option<CharStarts> {
+        let v = LEAD_OFFSETS[(self.0 as usize) & ((1 << TABLE_BITS) - 1)];
+        if v >> 16 == 0 {
+            return None;
+        }
+        let o = [
+            0usize,
+            (v & 0xf) as usize,
+            ((v >> 4) & 0xf) as usize,
+            ((v >> 8) & 0xf) as usize,
+            ((v >> 12) & 0xf) as usize,
+        ];
+        let mut starts = [Lane(0); START_COUNT];
+        let mut lens = [ByteLen::ZERO; START_COUNT];
+        let mut k = 0usize;
+        while k < START_COUNT {
+            starts[k] = Lane(o[k]);
+            lens[k] = ByteLen::from_index(o[k + 1] - o[k]);
+            k += 1;
+        }
+        Some(CharStarts { starts, lens })
+    }
+
     /// The first four characters this lead mask describes, **starting at lane
     /// zero**.
     ///
@@ -119,6 +150,90 @@ impl LaneCount {
         self.0 == 0
     }
 }
+
+/// How many bits of the lead mask the offset table is indexed by.
+///
+/// Twelve, and that is forced: four characters of three-byte text span twelve
+/// bytes, so anything narrower cannot describe four CJK characters and the
+/// step degrades to two.
+const TABLE_BITS: usize = 12;
+
+/// Four character offsets and a count, packed, per lead-mask pattern.
+///
+/// **16 KB, and the working set is under one.** The published decoder stores a
+/// sixteen-byte shuffle per pattern -- 64 KB, which this project's second rule
+/// refuses. Storing the four *offsets* instead is four bytes a pattern, and
+/// the shuffle is rebuilt from them with two vector operations rather than the
+/// serial chain that made the computed version lose.
+///
+/// The residency claim is measured, not assumed: over `cat-cjk.raw` only
+/// **212 of the 4096 patterns occur at all**, the three phases of three-byte
+/// alignment account for 46% of positions, and the touched set is **~848
+/// bytes**. Real text has almost no entropy in this mask.
+const fn lead_entry(m: usize) -> u32 {
+    // Lane zero must be a lead, or the block starts mid-character.
+    if m & 1 == 0 {
+        return 0;
+    }
+    let (mut offs, mut n, mut i) = ([0u8; 5], 0usize, 0usize);
+    while i < TABLE_BITS && n < 5 {
+        if (m >> i) & 1 == 1 {
+            offs[n] = i as u8;
+            n += 1;
+        }
+        i += 1;
+    }
+    // Five boundaries describe four lengths. Fewer means the block ends
+    // mid-character, which the scalar decoder owns.
+    if n < 5 {
+        return 0;
+    }
+    let mut k = 0usize;
+    while k < 4 {
+        let l = offs[k + 1] - offs[k];
+        // No UTF-8 sequence is longer than four bytes; a wider gap is stray
+        // continuation bytes, which the scalar path handles.
+        if l == 0 || l > 4 {
+            return 0;
+        }
+        k += 1;
+    }
+    (offs[1] as u32)
+        | ((offs[2] as u32) << 4)
+        | ((offs[3] as u32) << 8)
+        | ((offs[4] as u32) << 12)
+        | (4u32 << 16)
+}
+
+const fn lead_table() -> [u32; 1 << TABLE_BITS] {
+    let mut t = [0u32; 1 << TABLE_BITS];
+    let mut m = 0usize;
+    while m < (1 << TABLE_BITS) {
+        t[m] = lead_entry(m);
+        m += 1;
+    }
+    t
+}
+
+/// The most table this project will carry on a per-byte path.
+///
+/// **The second rule as a compile-time constraint, not a comment.** Structures
+/// touched per byte must stay resident; the smallest L1 data cache baud
+/// targets is 32 KB, and a table larger than half of it would evict the
+/// working set it is supposed to accelerate. The published decoder's 64 KB
+/// shuffle table fails this by four times, which is why the offsets are stored
+/// and the shuffle rebuilt.
+pub const PER_BYTE_TABLE_BUDGET: usize = 16 * 1024;
+
+/// Built at compile time; there is no initialisation and nothing to relocate.
+static LEAD_OFFSETS: [u32; 1 << TABLE_BITS] = lead_table();
+
+// The budget is checked, not asserted in prose. Widening `TABLE_BITS` past
+// twelve stops the build rather than quietly costing cache.
+const _: () = assert!(
+    core::mem::size_of::<[u32; 1 << TABLE_BITS]>() <= PER_BYTE_TABLE_BUDGET,
+    "the lead-offset table exceeds the per-byte cache budget"
+);
 
 /// How many characters `CharStarts` describes.
 pub const START_COUNT: usize = 4;
@@ -343,6 +458,56 @@ impl Vectorized<Utf8> {
         }
     }
 
+    /// Gather four characters into four 32-bit groups, in two vector steps.
+    ///
+    /// **This is where the previous attempt lost.** Building the gather index
+    /// with a nested scalar loop -- `idx[4k+j] = off[k]+j` -- put a serial
+    /// chain inside the vector path and made the general decoder 2.4x slower
+    /// than the const-stride collector. Here the same index is one broadcast
+    /// and one add:
+    ///
+    /// * repeat each character's offset four times, a const swizzle;
+    /// * add `[0,1,2,3]` per group, a const vector;
+    /// * lanes past a character's length index past the block, and
+    ///   `swizzle_dyn` reads those as zero, which is exactly the padding a
+    ///   one-, two- or three-byte sequence needs.
+    #[inline(always)]
+    pub fn gather_chars(self, starts: CharStarts) -> Vectorized<Utf8> {
+        use core::simd::num::SimdUint;
+        use core::simd::simd_swizzle;
+        let offs = Simd::<u8, 4>::from_array([
+            starts.start(0).index() as u8,
+            starts.start(1).index() as u8,
+            starts.start(2).index() as u8,
+            starts.start(3).index() as u8,
+        ]);
+        let lens = Simd::<u8, 4>::from_array([
+            starts.len(0).index() as u8,
+            starts.len(1).index() as u8,
+            starts.len(2).index() as u8,
+            starts.len(3).index() as u8,
+        ]);
+        const REPEAT: [usize; LANE_COUNT] = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3];
+        let base: Simd<u8, LANE_COUNT> = simd_swizzle!(offs, REPEAT);
+        let span: Simd<u8, LANE_COUNT> = simd_swizzle!(lens, REPEAT);
+        let step =
+            Simd::<u8, LANE_COUNT>::from_array([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]);
+        // Past the character's length, index out of range so the lane reads
+        // zero rather than a neighbour's byte.
+        // Branch-free, and saturating arithmetic rather than a mask so no
+        // comparison trait is needed: `step + 1 - span` saturates to zero for
+        // every lane inside the character and is positive for the padding.
+        // Scaling that past the block makes `swizzle_dyn` read those lanes as
+        // zero, which is the padding a one-, two- or three-byte sequence
+        // needs. Bounded: three plus one, times sixteen, is well inside a byte.
+        let over = (step + Simd::splat(1)).saturating_sub(span) * Simd::splat(LANE_COUNT as u8);
+        let idx = base + step + over;
+        Vectorized {
+            v: self.lanes().swizzle_dyn(idx).to_array(),
+            _kind: PhantomData,
+        }
+    }
+
     /// Build an index block from raw lane positions.
     #[inline(always)]
     pub fn indices(idx: [u8; LANE_COUNT]) -> Vectorized<Utf8> {
@@ -358,11 +523,22 @@ impl Vectorized<Utf8> {
     /// feature to read the result. The vector work stays behind this type.
     #[inline(always)]
     pub fn quads(self) -> [u32; START_COUNT] {
-        let mut out = [0u32; START_COUNT];
-        let b = self.v;
-        for (k, o) in out.iter_mut().enumerate() {
-            *o = u32::from_le_bytes([b[4 * k], b[4 * k + 1], b[4 * k + 2], b[4 * k + 3]]);
+        // **Zerocopy, not a loop.** The gathered block *is* four 32-bit
+        // groups; building them with `from_le_bytes` per group put a scalar
+        // loop back in the vector path, which is the mistake this whole file
+        // is about. `FromBytes` reinterprets the same sixteen bytes.
+        #[cfg(target_endian = "little")]
+        {
+            <[u32; START_COUNT]>::read_from_bytes(&self.v).expect("sixteen bytes is four u32")
         }
-        out
+        #[cfg(not(target_endian = "little"))]
+        {
+            let mut out = [0u32; START_COUNT];
+            let b = self.v;
+            for (k, o) in out.iter_mut().enumerate() {
+                *o = u32::from_le_bytes([b[4 * k], b[4 * k + 1], b[4 * k + 2], b[4 * k + 3]]);
+            }
+            out
+        }
     }
 }
