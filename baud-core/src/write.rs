@@ -10,6 +10,36 @@ use crate::paint::Paint;
 use crate::storage::STRIDE_MAX;
 use baud_domain::*;
 
+/// One character, decoded and written with no run machinery at all.
+///
+/// **69% of runs on `cat-cjk.raw` are one character**, measured by the `diag`
+/// histogram, and that is the recording alternating scripts rather than the
+/// block size -- extending runs past the block boundary moved it by four
+/// points. So the single case gets its own path: no decode buffer, no
+/// `all_wide` accumulation, no vectored-writer test.
+#[inline(always)]
+pub(crate) fn put_one(p: &mut Paint<'_>, from: BytePos, len: ByteLen) {
+    let len = len.index();
+    let at = from.index();
+    let s = StreamByte::slice_from(&p.arena[at..at + len]);
+    // Unchecked: the route map established the shape for all sixteen lanes at
+    // once, so the checking forms would re-ask a settled question.
+    let mut raw = s[0].lead_bits(len);
+    for b in &s[1..] {
+        raw = (raw << 6) | b.continuation_bits();
+    }
+    let floor = match len {
+        2 => 0x80u32,
+        3 => 0x800,
+        _ => 0x1_0000,
+    };
+    let cp = match raw < floor {
+        true => Codepoint::REPLACEMENT,
+        false => Codepoint::decoded(raw),
+    };
+    p.glyph(cp, Classified::of(cp).width(AmbiguousWidth::Narrow));
+}
+
 /// A run of `k` characters of one encoded length, decoded and written in one
 /// pass.
 ///
@@ -73,7 +103,14 @@ pub(crate) fn put_run_of(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: 
         // those two rules are spelled once in the domain rather than again
         // here; the floor depends on the encoded length and so cannot live on
         // the codepoint.
-        let floor = [0x80u32, 0x800, 0x10000][len - 2];
+        // A `match`, not an index into a constant array: the array form is a
+        // bounds-checked load once a character for three values the compiler
+        // already knows.
+        let floor = match len {
+            2 => 0x80u32,
+            3 => 0x800,
+            _ => 0x1_0000,
+        };
         let cp = match raw < floor {
             true => Codepoint::REPLACEMENT,
             false => Codepoint::decoded(raw),

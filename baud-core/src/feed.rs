@@ -25,7 +25,7 @@
 use crate::paint::Paint;
 use crate::storage::STRIDE_MAX;
 use crate::term::Term;
-use crate::write::{control, one, put_run_of};
+use crate::write::{control, one, put_one, put_run_of};
 use baud_domain::*;
 
 impl Term<'_> {
@@ -168,7 +168,11 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
             )
             .index();
         }
-        put_run_of(p, from.advance(ByteLen::from_index(off)), len, Count::of(n));
+        let at = from.advance(ByteLen::from_index(off));
+        match n {
+            1 => put_one(p, at, len),
+            _ => put_run_of(p, at, len, Count::of(n)),
+        }
         off += len.index() * n;
     }
     ByteLen::from_index(off)
