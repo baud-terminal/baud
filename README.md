@@ -143,14 +143,14 @@ build until now. Driving every core with the committed recordings instead:
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1084.8** | 287.0 | 235.0 | **3.78x** |
-| `ascii/asciiquarium.raw` | **359.8** | 197.7 | 242.6 | **1.82x** |
-| `utf8/btop.raw` | **661.5** | 491.4 | 336.8 | **1.35x** |
-| `ascii/git-log.raw` | **1110.1** | 831.0 | 210.9 | **1.34x** |
-| `utf8/vim-unicode.raw` | **445.2** | 347.2 | 285.5 | **1.28x** |
-| `ascii/cat-scroll.raw` | **930.1** | 739.1 | 194.0 | **1.26x** |
-| `utf8/less-cjk.raw` | **304.4** | 249.3 | 276.5 | **1.22x** |
-| `utf8/cat-cjk.raw` | 291.4 | **499.9** | 222.3 | **0.58x** |
+| `ascii/less-pager.raw` | **1129.8** | 293.5 | 235.0 | **3.85x** |
+| `ascii/asciiquarium.raw` | **369.8** | 201.4 | 242.6 | **1.84x** |
+| `utf8/btop.raw` | **701.3** | 504.9 | 336.8 | **1.39x** |
+| `ascii/git-log.raw` | **1169.5** | 853.9 | 210.9 | **1.37x** |
+| `ascii/cat-scroll.raw` | **985.7** | 765.7 | 194.0 | **1.29x** |
+| `utf8/less-cjk.raw` | **320.7** | 252.6 | 276.5 | **1.27x** |
+| `utf8/vim-unicode.raw` | **447.5** | 354.2 | 285.5 | **1.26x** |
+| `utf8/cat-cjk.raw` | 310.2 | **516.7** | 222.3 | **0.60x** |
 
 **Ahead on seven of eight — and the one behind is not measuring the same job.**
 ghostty's `ModeEntry` defaults to `false` and mode **2027** carries no explicit

@@ -205,6 +205,47 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## What each recording would need to reach 1 GB/s
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29, commit `cccb065`.
+Per-operation costs from `opcost`; recording costs from `multibench` with
+`RECORDINGS=`.*
+
+Three of the eight are at or past 1 GB/s -- less-pager 1130, git-log 1170,
+cat-scroll 986. The question for the other five is not whether they are "slow"
+but what the arithmetic requires, and the per-operation table answers it.
+
+| recording | now | its densest operation | budget at 1 GB/s | costs |
+|---|---|---|---|---|
+| `utf8/btop.raw` | 701 | one CSI per **17 bytes**, 63% SGR | 17 ns | SGR **9.3 ns** + text |
+| `utf8/vim-unicode.raw` | 448 | one CSI per 17 bytes, 28% multi-byte | 17 ns | SGR + ~6 codepoints |
+| `ascii/asciiquarium.raw` | 370 | one escape per **7 bytes**, 86% SGR | 7 ns | SGR alone is **9.3 ns** |
+| `utf8/less-cjk.raw` | 321 | 76% non-ASCII, one CSI per 60 bytes | 3 ns/codepoint | ~10 ns |
+| `utf8/cat-cjk.raw` | 310 | 81% non-ASCII, no escapes at all | 3 ns/codepoint | ~10 ns |
+
+**asciiquarium cannot reach 1 GB/s while an SGR costs 9.3 ns**: it emits one
+every 7 bytes, so the budget for the *whole* unit is 7 ns. Nothing short of
+making SGR about three times cheaper changes that, and SGR is already down from
+11.8 ns this session.
+
+**The CJK pair need 3 ns per codepoint and cost about 10.** That is decode,
+class, width, cluster, two cell stores and a cursor advance in twelve cycles.
+By `[[source: simdutf]]`'s Table 6(b), a *decoder alone* on an M1 runs at 1.2
+Gchar/s -- 3.6 GB/s of UTF-8 -- so the budget is not obviously impossible, but
+it requires the whole pipeline to be batched the way `put_ascii_run` batches
+ASCII, not the per-codepoint path there is now.
+
+**That is the standing lead and it is the same one the literature points at.**
+Every fast transcoder surveyed in that paper has an ASCII fast path and then
+block processing driven by a shuffle table; baud has the first and nothing
+corresponding for non-ASCII. Table 5 shows what the asymmetry is worth inside
+one library: **18 Gchar/s on Latin against 1.7 on Chinese.**
+
+What this session established is that the *decode* is not where to spend it:
+adding a whole second decode costs 8-10%, so replacing it with a SIMD one would
+return about 6% of total. The cell write and the per-codepoint loop are the
+targets.
+
 ## Class and lookback in one byte: ahead on seven of eight recordings
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29, commit `70d692f`.
