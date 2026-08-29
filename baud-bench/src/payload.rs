@@ -6,7 +6,7 @@
 //! the style-reuse sweep showed the template cache's payoff moves with the
 //! control-to-text ratio, which synthetic payloads set arbitrarily.
 
-use baud_core::{Cols, Rows, WinSize};
+use baud_core2::{Cols, Rows, WinSize};
 
 /// The geometry the payloads are written against. Not two loose integers: the
 /// same `WinSize` the terminal is configured from, so they cannot drift.

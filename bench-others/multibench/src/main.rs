@@ -105,7 +105,7 @@ fn main() {
     // on those two, which makes the ratios a statement about synthetic input.
     //
     // `RECORDINGS="a.raw,b.raw"` swaps in two files from
-    // `baud-core/tests/recordings/`, so the same interleaved, rotated harness
+    // `tests/recordings/`, so the same interleaved, rotated harness
     // drives every core with bytes a real program actually emitted. The names
     // are printed in the header, because a table whose columns are "streaming"
     // and "TUI" while holding something else is worse than no table.
@@ -114,10 +114,7 @@ fn main() {
             let names: Vec<&str> = v.split(',').map(str::trim).collect();
             assert_eq!(names.len(), 2, "RECORDINGS wants exactly two names");
             let load = |n: &str| {
-                let p = format!(
-                    "{}/../../baud-core/tests/recordings/{n}",
-                    env!("CARGO_MANIFEST_DIR")
-                );
+                let p = format!("{}/../../tests/recordings/{n}", env!("CARGO_MANIFEST_DIR"));
                 std::fs::read(&p).unwrap_or_else(|e| panic!("{p}: {e}"))
             };
             let (a, b) = (load(names[0]), load(names[1]));

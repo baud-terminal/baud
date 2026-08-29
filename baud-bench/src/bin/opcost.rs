@@ -23,7 +23,7 @@
 //! opcost 200        # more reps
 //! ```
 
-use baud_core::{OpMode, Storage, StreamByte, Term};
+use baud_core2::{OpMode, Storage, StreamByte, Term};
 
 const TARGET: usize = 1 << 21;
 

@@ -1,0 +1,108 @@
+[package]
+name = "baud-core2"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The previous baud core, kept as the reference the new one is measured and differentially tested against."
+# no_std, no alloc, no dependencies. storage is caller-provided.
+
+[lib]
+# The crate keeps a distinct Rust name so both cores can be linked into one
+# binary -- which is the whole point of keeping it: `multibench` compares them
+# on the same bytes, and the differential drives identical input through both.
+name = "baud_core2"
+path = "src/lib.rs"
+
+[features]
+# Representations of the parse graph, from
+# `docs/research/notes/b-parser-as-a-graph.md`. Compiled variants rather than a
+# runtime switch, because a runtime `if` in this loop has already manufactured
+# a fake 13-17% cost for a change that was free. Default is `ByNode`.
+# `machine.rs`'s rule walk, kept as the definition the graph answers to -- the
+# way `is_break_by_rules` is kept beside the UAX #29 transition table. Off by
+# default because it is a second, slower spelling of the protocol that nothing
+# in a shipped build should reach; on in CI, where the differential runs.
+rule-walk = []
+graph-by-byte = []
+graph-by-class = []
+# `instrument` is on by default so tests and benches get it without asking, and
+# an embedder turns it off with `default-features = false`.
+#
+# Measured cost of the attribution counters it gates: **2-3%** -- streaming
+# 1321/1354/1361 against 1385/1396/1400 stripped, btop 451/451/451 against
+# 460/459/464. That is the price of the visibility, and the visibility found
+# four optimisations worth +40% in one session, so it is a good trade while
+# optimising and a bad one in production.
+#
+# The counters `cells_written`, `bytes_in` and the style-table pair are *not*
+# gated: they carry the write-amplification claim the whole architecture rests
+# on, and a number that disappears in release is a number nobody checks.
+default = ["instrument"]
+instrument = []
+# **A cost map, not a counter set, and a separate feature because of where it
+# lives.** `instrument` counts at run boundaries and costs 2-3%; `diag` counts
+# inside the bulk collector's per-character loop and inside `put_cp`, so
+# leaving it in the measured build would price the thing being measured. It
+# answers *why* a character missed a bulk path, which no profile can: a leaf
+# frame names the function that ran, not the characters that reached it.
+#
+# No throughput figure in this repo is taken with it on.
+diag = ["instrument"]
+# **A ceiling arm for the block decoder.** Swaps `wide_run`'s const-stride
+# decode for `Decode::block`, leaving everything after it identical, so the
+# measured difference is the decode alone. Compiled out rather than switched:
+# this repo has measured a fake 13-17% from a runtime `if` in a hot loop.
+block-decode = []
+mixed-decode = []
+dep-probe-serial = []
+dep-probe-free = []
+miss-probe = []
+width-probe = []
+attach-probe = []
+pipeline-decode = []
+short-wide = []
+ceiling-no-write = []
+fast3 = []
+ceiling-no-attach = []
+# Phase 0 ceiling map: what the ingest path costs outside the per-character
+# route, which the UTF-8 arms price at a third of cat-cjk.
+ceiling-no-scroll = []
+ceiling-no-asciirun = []
+ceiling-no-rowfill = ["baud-domain/ceiling-no-rowfill"]
+probe-double-scan = []
+# Everything the ingest path does, removed at once: what is left is the loop,
+# the arena copy and the harness. The floor.
+ceiling-floor = ["ceiling-no-decode", "ceiling-no-asciirun", "ceiling-no-scroll"]
+ceiling-no-decode = []
+# Everything, including the loop: only the harness remains.
+ceiling-no-feed = []
+# The same nothing, sixteen bytes an iteration instead of one character.
+ceiling-block-loop = []
+ceiling-cheap-emoji = []
+# **A ceiling arm, not a shipping option.** Makes `fill_row_counted` count and
+# not write, so the grid is wrong on purpose: it answers "what would blanking
+# cost if it were free" and nothing else. Compiled out rather than switched at
+# runtime because this repo has already measured a fake 13-17% from a runtime
+# `if` in a hot loop.
+ceiling-no-blank = []
+alloc = ["zerocopy/alloc"]
+
+[dependencies]
+zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
+baud-domain = { path = "../baud-domain" }
+baud-isa = { path = "../baud-isa" }
+
+# **Per-architecture, so a consumer builds only its own.** Cargo resolves these
+# by target, which is the packaging half of the reason these are crates rather
+# than modules: an aarch64 build never compiles the AVX2 code and vice versa.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa-x86-64 = { path = "../baud-isa-x86-64" }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa-aarch64 = { path = "../baud-isa-aarch64" }
+
+[dev-dependencies]
+proptest = "1"
+baud-core2 = { path = ".", features = ["alloc"] }

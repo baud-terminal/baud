@@ -1,6 +1,6 @@
 use crate::harness::*;
 use crate::*;
-use baud_core::*;
+use baud_core2::*;
 
 /// Eight parameters because eight things vary between rows of the table this
 /// prints, and a config struct would put them behind a name instead of at the

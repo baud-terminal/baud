@@ -1,0 +1,887 @@
+//! Vertical movement and scrolling: DECSTBM, IND, RI, NEL, LF, IL, DL, SU, SD.
+//!
+//! These operations are one feature, not eight. Every one of them either
+//! respects the scrolling region or corrupts the screen, and three of them
+//! (DL, DECSTBM, SM/RM) were previously *parsed and dropped* -- accepted by the
+//! parser, discarded by `dispatch`, with no way for an application to notice.
+//!
+//! Assertions compare rendered rows rather than internal state, so a
+//! representation change cannot make a test vacuously pass.
+
+use baud_core2::*;
+
+const COLS: usize = 200;
+
+fn drive(mode: OpMode, bytes: &[u8]) -> Box<Storage> {
+    let mut s = Storage::boxed();
+    {
+        let mut t = Term::new(&mut s, mode);
+        feed(&mut t, bytes);
+    }
+    s
+}
+
+fn feed(t: &mut Term, bytes: &[u8]) {
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+}
+
+/// The rendered rows of a run, as comparable values.
+fn rows_of(mode: OpMode, bytes: &[u8]) -> Vec<Vec<PackedCell>> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, mode);
+    feed(&mut t, bytes);
+    let (_, rows) = t.geometry();
+    (0..rows.index())
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect()
+}
+
+fn cursor_of(mode: OpMode, bytes: &[u8]) -> (usize, usize) {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, mode);
+    feed(&mut t, bytes);
+    let (r, c) = t.cursor();
+    (r.index(), c.index())
+}
+
+const MODES: [OpMode; 3] = [OpMode::Runs, OpMode::Computed, OpMode::Templated];
+
+// ── column semantics ────────────────────────────────────────────────────────
+
+/// IND (`ESC D`) is *index*: down one line, column untouched.
+///
+/// This routed through a `newline()` that reset the column, making IND behave
+/// as NEL. `[[source: ctlseqs]]` separates them precisely.
+#[test]
+fn ind_preserves_the_column() {
+    for m in MODES {
+        assert_eq!(
+            cursor_of(m, b"abcde\x1bD"),
+            (1, 5),
+            "{m:?}: IND must move down and leave the column alone"
+        );
+    }
+}
+
+/// NEL (`ESC E`) is CR + IND.
+#[test]
+fn nel_returns_to_column_one() {
+    for m in MODES {
+        assert_eq!(cursor_of(m, b"abcde\x1bE"), (1, 0), "{m:?}");
+    }
+}
+
+/// LF moves down only, because LNM (mode 20) is reset by default.
+#[test]
+fn lf_does_not_return_to_column_one_by_default() {
+    for m in MODES {
+        assert_eq!(
+            cursor_of(m, b"abcde\n"),
+            (1, 5),
+            "{m:?}: LF with LNM reset must not carriage-return"
+        );
+    }
+}
+
+/// With LNM set (`CSI 20 h`) it does. That is the whole difference.
+#[test]
+fn lf_returns_to_column_one_when_lnm_is_set() {
+    for m in MODES {
+        assert_eq!(cursor_of(m, b"\x1b[20habcde\n"), (1, 0), "{m:?}");
+        // and resetting it restores the default
+        assert_eq!(cursor_of(m, b"\x1b[20h\x1b[20labcde\n"), (1, 5), "{m:?}");
+    }
+}
+
+// ── DECSTBM ─────────────────────────────────────────────────────────────────
+
+/// `CSI r` sets the region and homes the cursor to its top-left.
+#[test]
+fn decstbm_homes_the_cursor_to_the_region_top() {
+    for m in MODES {
+        assert_eq!(cursor_of(m, b"\x1b[3;6r"), (2, 0), "{m:?}");
+    }
+}
+
+/// A region of fewer than two lines is rejected, leaving the previous one.
+#[test]
+fn decstbm_rejects_a_degenerate_region() {
+    for m in MODES {
+        // 4;4 is one line: ignored, so the cursor is not homed to row 3.
+        assert_eq!(cursor_of(m, b"\x1b[4;4r"), (0, 0), "{m:?}");
+    }
+}
+
+/// Bare `CSI r` means the whole screen, which is not the same as `CSI 1;1 r`.
+///
+/// `OneBased::from_param` clamps an omitted parameter to 1, so the two were
+/// indistinguishable until the bottom became an `Option`.
+#[test]
+fn bare_decstbm_resets_to_full_screen() {
+    for m in MODES {
+        // Shrink, then reset, then check a line feed at the old region bottom
+        // does NOT scroll -- it would if the region were still 2..4.
+        let with_reset = rows_of(m, b"\x1b[3;5r\x1b[r\x1b[5;1HX\n\nY");
+        let never_set = rows_of(m, b"\x1b[5;1HX\n\nY");
+        assert_eq!(
+            with_reset, never_set,
+            "{m:?}: bare CSI r must restore the full-screen region"
+        );
+    }
+}
+
+/// A line feed at the region bottom scrolls the region and nothing else.
+#[test]
+fn lf_at_region_bottom_scrolls_only_the_region() {
+    for m in MODES {
+        // Region rows 2..4 (1-based 3..5). Put a marker outside it, at row 0,
+        // and fill the region so a scroll is observable.
+        let bytes = b"\x1b[1;1HTOP\x1b[3;5r\x1b[3;1Ha\nb\nc\nd";
+        let r = rows_of(m, bytes);
+        let untouched = rows_of(m, b"\x1b[1;1HTOP");
+        assert_eq!(
+            r[0], untouched[0],
+            "{m:?}: row 0 is outside the region and must not move"
+        );
+        for y in 5..r.len() {
+            assert_eq!(r[y], untouched[y], "{m:?}: row {y} is below the region");
+        }
+    }
+}
+
+/// RI at the region top scrolls the region down, not the screen.
+#[test]
+fn ri_at_region_top_scrolls_only_the_region() {
+    for m in MODES {
+        let bytes = b"\x1b[1;1HTOP\x1b[3;5r\x1b[3;1H\x1bM";
+        let r = rows_of(m, bytes);
+        let untouched = rows_of(m, b"\x1b[1;1HTOP");
+        assert_eq!(r[0], untouched[0], "{m:?}: RI must not scroll row 0");
+        for y in 5..r.len() {
+            assert_eq!(r[y], untouched[y], "{m:?}: row {y} is below the region");
+        }
+    }
+}
+
+// ── DL / IL / SU / SD ───────────────────────────────────────────────────────
+
+/// DL was parsed and dropped. It must actually delete.
+#[test]
+fn dl_deletes_lines() {
+    for m in MODES {
+        let after = rows_of(m, b"\x1b[1;1Haaa\r\nbbb\r\nccc\x1b[1;1H\x1b[M");
+        let want = rows_of(m, b"\x1b[1;1Hbbb\r\nccc");
+        assert_eq!(after, want, "{m:?}: CSI M must delete the cursor's line");
+    }
+}
+
+/// DL with the cursor outside the region does nothing.
+#[test]
+fn dl_outside_the_region_is_a_no_op() {
+    for m in MODES {
+        let bytes = b"\x1b[1;1Haaa\r\nbbb\r\nccc\x1b[2;4r\x1b[1;1H\x1b[M";
+        let after = rows_of(m, bytes);
+        let want = rows_of(m, b"\x1b[1;1Haaa\r\nbbb\r\nccc\x1b[2;4r\x1b[1;1H");
+        assert_eq!(after, want, "{m:?}");
+    }
+}
+
+/// DL with a count larger than the region must clear it, not panic.
+///
+/// `delete_lines_in` computed `bot - n` on usize, which underflows when the
+/// whole region is deleted from row 0.
+#[test]
+fn dl_with_a_huge_count_does_not_panic() {
+    for m in MODES {
+        let _ = drive(m, b"\x1b[1;1Hx\x1b[99999M");
+        let _ = drive(m, b"\x1b[2;5r\x1b[2;1Hx\x1b[99999M");
+        let _ = drive(m, b"\x1b[1;1Hx\x1b[99999L");
+    }
+}
+
+/// SU and SD scroll the region without moving the cursor.
+#[test]
+fn su_and_sd_leave_the_cursor_alone() {
+    for m in MODES {
+        assert_eq!(cursor_of(m, b"\x1b[5;7H\x1b[2S"), (4, 6), "{m:?}: SU");
+        assert_eq!(cursor_of(m, b"\x1b[5;7H\x1b[2T"), (4, 6), "{m:?}: SD");
+    }
+}
+
+/// SU by one is the same screen as a line feed at the region bottom.
+#[test]
+fn su_agrees_with_a_line_feed_at_the_bottom() {
+    for m in MODES {
+        let via_su = rows_of(m, b"\x1b[1;1Haaa\r\nbbb\r\nccc\x1b[S");
+        let via_lf = rows_of(m, b"\x1b[1;1Haaa\r\nbbb\r\nccc\x1b[50;1H\n");
+        assert_eq!(via_su, via_lf, "{m:?}");
+    }
+}
+
+/// IL must stop at the region bottom rather than the screen bottom.
+#[test]
+fn il_is_bounded_by_the_region() {
+    for m in MODES {
+        let bytes = b"\x1b[1;1Haaa\r\nbbb\r\nccc\r\nddd\x1b[1;3r\x1b[1;1H\x1b[L";
+        let r = rows_of(m, bytes);
+        let untouched = rows_of(m, b"\x1b[1;1Haaa\r\nbbb\r\nccc\r\nddd");
+        assert_eq!(
+            r[3], untouched[3],
+            "{m:?}: row 3 is below a 1..3 region and must not be pushed"
+        );
+    }
+}
+
+// ── reset ───────────────────────────────────────────────────────────────────
+
+/// RIS restores the full-screen region and the default modes.
+///
+/// A region surviving a reset is how an application ends up drawing into a
+/// window it never asked for.
+#[test]
+fn ris_restores_the_region_and_modes() {
+    for m in MODES {
+        let after = rows_of(m, b"\x1b[3;5r\x1b[20h\x1bc\x1b[5;1HX\n\nY");
+        let fresh = rows_of(m, b"\x1b[5;1HX\n\nY");
+        assert_eq!(after, fresh, "{m:?}: RIS must restore region and LNM");
+    }
+}
+
+/// Every row is `COLS` wide, so the row-slice assertions above compare like
+/// with like. A stride change that broke this would make them vacuous.
+#[test]
+fn rows_are_full_width() {
+    let r = rows_of(OpMode::Computed, b"x");
+    assert!(!r.is_empty());
+    for row in &r {
+        assert_eq!(row.len(), COLS);
+    }
+}
+
+// ── the full-screen case, which had no content test ─────────────────────────
+
+/// **A full-screen scroll moves the rendered grid.**
+///
+/// Every other test in this file scrolls a *region* set with DECSTBM, which
+/// takes the copying path. The full-screen case takes a different one — an
+/// O(1) ring advance, which `scroll_region_up` documents as "what makes
+/// streaming ingest fast" — and nothing checked what it left on the screen.
+///
+/// It left the screen alone. The ring advance moves `head`, which indexes the
+/// **run** table; `vp` is indexed by screen row and nothing re-derived it, so
+/// in `Computed` and `Templated` the content never moved and only the bottom
+/// row was blanked. That is the most common scroll there is: every line of
+/// output past the last row.
+#[test]
+fn a_full_screen_scroll_moves_the_grid() {
+    for mode in [OpMode::Computed, OpMode::Templated] {
+        let mut st = Storage::boxed();
+        let mut t = Term::new(&mut st, mode);
+        let rows = t.geometry().1.index();
+        // One distinct letter per row, then one more line to force a scroll.
+        let mut bytes = Vec::new();
+        for i in 0..rows {
+            bytes.push(b'a' + (i % 26) as u8);
+            bytes.extend_from_slice(b"\r\n");
+        }
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let w = slot.write(StreamByte::slice_from(&bytes));
+        t.feed(base, w.len());
+        t.commit_read(w.len());
+
+        let col0: Vec<char> = (0..4)
+            .map(|y| {
+                t.row(Row::from_index(y))[0]
+                    .content
+                    .as_codepoint()
+                    .map_or('.', |x| char::from_u32(x.value()).unwrap_or('?'))
+            })
+            .collect();
+        assert_eq!(
+            col0,
+            vec!['b', 'c', 'd', 'e'],
+            "{mode:?}: after one scroll the top row must be the second line"
+        );
+        // And the row that scrolled in is blank.
+        let last = t.row(Row::from_index(rows - 1))[0];
+        assert!(
+            last.content.is_empty(),
+            "{mode:?}: the row scrolled in must be blank"
+        );
+    }
+}
+
+/// `CSI S` scrolls the full screen too, by the same path.
+#[test]
+fn su_scrolls_the_full_screen() {
+    for mode in [OpMode::Computed, OpMode::Templated] {
+        let mut st = Storage::boxed();
+        let mut t = Term::new(&mut st, mode);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let w = slot.write(StreamByte::slice_from(b"one\r\ntwo\r\nthree\x1b[1S"));
+        t.feed(base, w.len());
+        t.commit_read(w.len());
+        let row0: String = t.row(Row::from_index(0))[..3]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .map_or('.', |x| char::from_u32(x.value()).unwrap_or('?'))
+            })
+            .collect();
+        assert_eq!(
+            row0, "two",
+            "{mode:?}: SU 1 brings the second line to the top"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// An independent model, for the operations that move whole lines.
+//
+// The nineteen tests above check one operation at a time against a hand-written
+// expectation. That is the right shape for pinning semantics and the wrong
+// shape for protecting a change to *how* lines move: a permutation bug shows up
+// after a mixed sequence, not after a single `IL`.
+//
+// So this models the screen as rows of text and applies the same operations by
+// the definitions in `[[source: ctlseqs]]`, independently of how baud stores
+// anything. It exists to be the oracle for making region scroll and `IL`/`DL`
+// zero-copy -- `less-pager.raw` is 22x bound by those moves -- and it is worth
+// having whether or not that lands.
+
+/// One screen of text, scrolled by the book.
+struct Model {
+    rows: Vec<String>,
+    top: usize,
+    bot: usize,
+    cy: usize,
+}
+
+impl Model {
+    fn new(rows: usize) -> Model {
+        Model {
+            rows: vec![String::new(); rows],
+            top: 0,
+            bot: rows - 1,
+            cy: 0,
+        }
+    }
+    /// Scroll the region up by `n`: the top `n` lines leave, blanks enter at
+    /// the bottom.
+    fn up(&mut self, n: usize) {
+        let n = n.min(self.bot + 1 - self.top);
+        for _ in 0..n {
+            self.rows.remove(self.top);
+            self.rows.insert(self.bot, String::new());
+        }
+    }
+    /// The reverse: blanks enter at the top.
+    fn down(&mut self, n: usize) {
+        let n = n.min(self.bot + 1 - self.top);
+        for _ in 0..n {
+            self.rows.remove(self.bot);
+            self.rows.insert(self.top, String::new());
+        }
+    }
+    /// `IL` at the cursor, bounded by the region.
+    fn insert(&mut self, n: usize) {
+        if self.cy < self.top || self.cy > self.bot {
+            return;
+        }
+        let n = n.min(self.bot + 1 - self.cy);
+        for _ in 0..n {
+            self.rows.remove(self.bot);
+            self.rows.insert(self.cy, String::new());
+        }
+    }
+    /// `DL` at the cursor, bounded by the region.
+    fn delete(&mut self, n: usize) {
+        if self.cy < self.top || self.cy > self.bot {
+            return;
+        }
+        let n = n.min(self.bot + 1 - self.cy);
+        for _ in 0..n {
+            self.rows.remove(self.cy);
+            self.rows.insert(self.bot, String::new());
+        }
+    }
+}
+
+/// **Mixed line movement agrees with an independent model.**
+///
+/// The sequence is deterministic rather than random: a property test here would
+/// need a generator for six operations with region and cursor state, and the
+/// value is in covering the *interactions* -- a region set, lines inserted
+/// inside it, the region moved, more deleted -- which a fixed script states
+/// more clearly than a shrunk counterexample would.
+#[test]
+fn mixed_line_movement_agrees_with_an_independent_model() {
+    const ROWS: usize = 50;
+    let mut m = Model::new(ROWS);
+    let mut b: Vec<u8> = Vec::new();
+
+    // Fill every row with a distinguishable marker, so a row that moves to the
+    // wrong place is visible rather than merely blank.
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        let text = format!("row{y:02}");
+        b.extend_from_slice(text.as_bytes());
+        m.rows[y] = text;
+    }
+
+    // A region, then every line-moving operation inside and across it.
+    let script: &[(&str, fn(&mut Model))] = &[
+        ("\x1b[5;40r", |m| {
+            m.top = 4;
+            m.bot = 39;
+            m.cy = 4;
+        }),
+        ("\x1b[10;1H", |m| m.cy = 9),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[2M", |m| m.delete(2)),
+        ("\x1b[4S", |m| m.up(4)),
+        ("\x1b[2T", |m| m.down(2)),
+        ("\x1b[38;1H", |m| m.cy = 37),
+        ("\x1b[5L", |m| m.insert(5)),
+        ("\x1b[7M", |m| m.delete(7)),
+        ("\x1b[1;50r", |m| {
+            m.top = 0;
+            m.bot = 49;
+            m.cy = 0;
+        }),
+        ("\x1b[20;1H", |m| m.cy = 19),
+        ("\x1b[6M", |m| m.delete(6)),
+        ("\x1b[3L", |m| m.insert(3)),
+    ];
+    for (bytes, apply) in script {
+        b.extend_from_slice(bytes.as_bytes());
+        apply(&mut m);
+    }
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, want) in m.rows.iter().enumerate() {
+        let got: String = rows[y]
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            &got, want,
+            "row {y} after the script: baud has {got:?}, the model says {want:?}"
+        );
+    }
+}
+
+/// **The same script, in the alternate screen.**
+///
+/// This file had no alternate-screen scroll test at all, which is precisely the
+/// gap that hid the original full-screen bug: `CLAUDE.md` records that every
+/// test here "sets a region with DECSTBM first, which takes the copying path,
+/// so the most common scroll there is had no content test at all". The
+/// alternate screen is the same hole one screen over -- and it is where every
+/// full-screen application lives, so it is the screen a pager, an editor or a
+/// TUI actually scrolls on.
+///
+/// Written *before* the alternate screen gets a rotation fast path, and green
+/// on the copying path, so that a green result afterwards is evidence about the
+/// rotation rather than about the test.
+///
+/// `OpMode::Computed`, not `Runs`: in `Runs` a viewport reports representation
+/// and not rendered content, which is the harness trap `CLAUDE.md` names.
+#[test]
+fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
+    const ROWS: usize = 50;
+    let mut m = Model::new(ROWS);
+    // `?1049 h` first: everything after it happens on the alternate buffer,
+    // and entering it clears the screen, so the markers must be written after.
+    let mut b: Vec<u8> = b"\x1b[?1049h".to_vec();
+
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        let text = format!("row{y:02}");
+        b.extend_from_slice(text.as_bytes());
+        m.rows[y] = text;
+    }
+
+    // Plain `LF` at the last row is the case the recording is full of -- 638 of
+    // them in `less-pager.raw` -- and the one no test reached. It scrolls the
+    // full screen with no region set, which is the branch a fast path takes.
+    let script: &[(&str, fn(&mut Model))] = &[
+        // **`RI` first, while every row still holds text.** Done after a few
+        // newlines instead, the row the bottom recycles to the top is already
+        // blank, so blanking the *wrong* row leaves a blank either way and the
+        // assertion cannot tell. That is not hypothetical: this test passed
+        // with `fill_row_counted(last)` in place of `fill_row_counted(ZERO)`
+        // until the script was reordered.
+        ("\x1b[1;1H", |m| m.cy = 0),
+        ("\x1bM", |m| m.down(1)),
+        ("\x1bM", |m| m.down(1)),
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        // And `RI` again once the bottom is blank, so both orderings are
+        // covered rather than swapped for each other.
+        ("\x1b[1;1H", |m| m.cy = 0),
+        ("\x1bM", |m| m.down(1)),
+        // Then the region operations, to prove the fast path and the copying
+        // path agree with each other inside one session.
+        ("\x1b[5;40r", |m| {
+            m.top = 4;
+            m.bot = 39;
+            m.cy = 4;
+        }),
+        ("\x1b[10;1H", |m| m.cy = 9),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[2M", |m| m.delete(2)),
+        ("\x1b[4S", |m| m.up(4)),
+        ("\x1b[2T", |m| m.down(2)),
+        // Back to the full screen, then more plain newlines: a fast path that
+        // is only correct from a clean start would pass without this.
+        ("\x1b[1;50r", |m| {
+            m.top = 0;
+            m.bot = 49;
+            m.cy = 0;
+        }),
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+        ("\n", |m| m.up(1)),
+        ("\x1b[20;1H", |m| m.cy = 19),
+        ("\x1b[6M", |m| m.delete(6)),
+        ("\x1b[3L", |m| m.insert(3)),
+        ("\x1b[50;1H", |m| m.cy = 49),
+        ("\n", |m| m.up(1)),
+    ];
+    for (bytes, apply) in script {
+        b.extend_from_slice(bytes.as_bytes());
+        apply(&mut m);
+    }
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, want) in m.rows.iter().enumerate() {
+        let got: String = rows[y]
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            &got, want,
+            "alternate screen, row {y} after the script: baud has {got:?}, \
+             the model says {want:?}"
+        );
+    }
+}
+/// **A round trip through the alternate screen leaves the primary alone.**
+///
+/// A regression guard, and deliberately narrower than the bug that prompted it.
+///
+/// Every copying line-move used to run its run-table invalidation
+/// unconditionally: `self.s.promoted[y] = true` and `self.s.nrun[head.plus(y)]
+/// = RunCount::ZERO`, while `head` indexes the *primary's* ring and does not
+/// move during an alternate-screen session. So a region scroll inside the
+/// alternate screen wrote over the primary's bookkeeping. `invalidate_runs`
+/// now returns early on the alternate screen, where there is nothing to
+/// invalidate -- `blit` treats that screen as always promoted, so text there
+/// never enters the run table.
+///
+/// **The state bug is real and this test does not prove it**, which is worth
+/// saying plainly. In `OpMode::Runs` nothing renders spans -- `Term::row` and
+/// `viewport` read cells -- so a zeroed run count is invisible to every public
+/// accessor, and an attempt to write the failing test instead reproduced the
+/// harness trap `CLAUDE.md` records: a `Runs` viewport shows representation,
+/// so *every* case came back empty including the one that did nothing at all.
+/// What is checkable is that the round trip is content-preserving in
+/// `Computed`, and that is what this asserts.
+#[test]
+fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {
+    const ROWS: usize = 50;
+    let mut b: Vec<u8> = Vec::new();
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        b.extend_from_slice(format!("row{y:02}").as_bytes());
+    }
+    // Into the alternate screen, then every line-moving shape it has: a
+    // region scroll (the copying path), a full-screen scroll (the rotation),
+    // and `IL`/`DL` inside a region.
+    b.extend_from_slice(b"\x1b[?1049h");
+    b.extend_from_slice(b"\x1b[5;40r");
+    for _ in 0..8 {
+        b.extend_from_slice(b"\x1b[S");
+    }
+    b.extend_from_slice(b"\x1b[10;1H\x1b[4L\x1b[3M");
+    b.extend_from_slice(b"\x1b[1;50r");
+    b.extend_from_slice(b"\x1b[50;1H\n\n\n");
+    b.extend_from_slice(b"\x1b[1;1H\x1bM\x1bM");
+    b.extend_from_slice(b"\x1b[?1049l");
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, row) in rows.iter().enumerate().take(ROWS) {
+        let got: String = row
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            got,
+            format!("row{y:02}"),
+            "primary row {y} after a full session in the alternate screen"
+        );
+    }
+}
+/// **Every erase works on the alternate screen, in both modes.**
+///
+/// `OpMode::Runs` is the point. `erase_line`'s fast path -- erase-to-end of an
+/// *unpromoted* line is the truncation of its span list, not a fill -- read
+/// `s.promoted[y]` raw, and that flag belongs to the primary screen. On the
+/// alternate screen it was false for every row, so `CSI K` took the span path,
+/// zeroed a run count belonging to the primary underneath, and returned
+/// **without erasing anything**: `HELLO WORLD` survived an erase-to-end from
+/// column 6.
+///
+/// Nothing caught it because every erase test ran on the primary, and the
+/// alternate screen is where every full-screen application does its erasing.
+///
+/// Each case is checked in `Computed` too. `Computed` was already correct, so
+/// the pair is what makes the assertion about the *mode* rather than about the
+/// operation -- a fix that broke `Computed` to satisfy `Runs` would show up
+/// here rather than pass.
+#[test]
+fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
+    // A blank is rendered as `.` rather than dropped. `Content::EMPTY` is a
+    // reserved value above U+10FFFF and deliberately *not* U+0020, so the
+    // usual `filter_map(as_codepoint)` projection deletes blanks instead of
+    // showing them -- which makes "erased the wrong columns" and "erased the
+    // right ones" produce the same string whenever the blanks are not
+    // trailing. The first draft of this test asserted `"      WORLD"` and got
+    // `"WORLD"` for that reason.
+    //
+    // (name, bytes after the text, expected first 12 columns)
+    let cases: &[(&str, &[u8], &str)] = &[
+        ("EL to end", b"\x1b[1;6H\x1b[K", "HELLO......."),
+        ("EL to start", b"\x1b[1;6H\x1b[1K", "......WORLD."),
+        ("EL whole line", b"\x1b[1;6H\x1b[2K", "............"),
+        ("ED to end", b"\x1b[1;6H\x1b[J", "HELLO......."),
+        ("ED whole screen", b"\x1b[1;6H\x1b[2J", "............"),
+        ("ECH 3", b"\x1b[1;6H\x1b[3X", "HELLO...RLD."),
+    ];
+    for (name, tail, want) in cases {
+        for mode in [OpMode::Runs, OpMode::Computed] {
+            let mut b: Vec<u8> = b"\x1b[?1049h\x1b[1;1HHELLO WORLD".to_vec();
+            b.extend_from_slice(tail);
+            let rows = rows_of(mode, &b);
+            let got: String = rows[0]
+                .iter()
+                .take(12)
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|x| char::from_u32(x.value()))
+                        .unwrap_or('.')
+                })
+                .collect();
+            assert_eq!(
+                got, *want,
+                "{name} on the alternate screen in {mode:?}: got {got:?}, want {want:?}"
+            );
+        }
+    }
+}
+
+/// **`IND` on the alternate screen does not drop a primary run count.**
+///
+/// `next_line` clears the destination line's spans, which is load-bearing for
+/// chunk invariance. It indexes with `line()` -- `head.plus(cy)` -- and `head`
+/// is the primary's ring position, unmoved for the whole alternate-screen
+/// session. Scrolling a screenful of `IND` in the alternate screen therefore
+/// zeroed a screenful of the primary's run counts.
+///
+/// Asserted through rendered content in `Computed`, which is what this harness
+/// can see; see `the_alt_screen_never_writes_the_primarys_run_table` for the
+/// check that covers the state directly.
+#[test]
+fn index_on_the_alternate_screen_leaves_the_primary_intact() {
+    const ROWS: usize = 50;
+    let mut b: Vec<u8> = Vec::new();
+    for y in 0..ROWS {
+        b.extend_from_slice(format!("\x1b[{};1H", y + 1).as_bytes());
+        b.extend_from_slice(format!("row{y:02}").as_bytes());
+    }
+    b.extend_from_slice(b"\x1b[?1049h\x1b[50;1H");
+    for _ in 0..60 {
+        b.extend_from_slice(b"\x1bD");
+    }
+    b.extend_from_slice(b"\x1b[?1049l");
+
+    let rows = rows_of(OpMode::Computed, &b);
+    for (y, row) in rows.iter().enumerate().take(ROWS) {
+        let got: String = row
+            .iter()
+            .filter_map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|x| char::from_u32(x.value()))
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string();
+        assert_eq!(
+            got,
+            format!("row{y:02}"),
+            "primary row {y} after 60 IND in the alternate screen"
+        );
+    }
+}
+
+/// Row 0 rendered with blanks as `.` and wide tails as `#`.
+///
+/// **Blanks must be visible.** `Content::EMPTY` is a reserved value above
+/// U+10FFFF and deliberately not U+0020, so the usual
+/// `filter_map(as_codepoint)` projection *deletes* blanks rather than showing
+/// them -- which makes "erased the wrong columns" and "erased the right ones"
+/// produce the same string whenever the blanks are not trailing.
+fn wide_row(bytes: &[u8], n: usize) -> String {
+    let rows = rows_of(OpMode::Computed, bytes);
+    rows[0][..n]
+        .iter()
+        .map(|c| match c.content.as_codepoint() {
+            Some(x) => char::from_u32(x.value()).unwrap_or('?'),
+            None if c.content.is_wide_tail() => '#',
+            None => '.',
+        })
+        .collect()
+}
+
+/// **No operation may split a double-width character.**
+///
+/// A wide character is a lead cell plus a `WIDE_TAIL`. An operation whose
+/// boundary falls between them leaves an orphan: a lead claiming two columns
+/// that owns one, or a tail with nothing in front of it. A renderer has no
+/// coherent way to draw either.
+///
+/// `[[source: ghostty-screen]]` states the rule in `eraseChars` -- "if our last
+/// cell is a wide char then we need to also clear the cell beyond it since we
+/// can't just split a wide char" -- and applies it again in `deleteChars` and
+/// `insertBlanks`.
+///
+/// **Every one of these cases was wrong**, and none was caught, because the
+/// entire operation suite ran on one-column text: one test in the whole of
+/// `vt100/` used a wide character before this. The recordings had the same hole
+/// -- btop is 14.5% multi-byte with *zero* wide codepoints, and vim was the
+/// only file with any, and it never scrolls.
+#[test]
+fn no_operation_splits_a_double_width_character() {
+    const BASE: &str = "\x1b[1;1H日本語ab";
+    // (name, sequence after the text, expected first ten columns)
+    let cases: &[(&str, &str, &str)] = &[
+        ("baseline", "", "日#本#語#ab.."),
+        // EL from inside the first character takes the whole of it.
+        ("EL to end, from a tail", "\x1b[1;2H\x1b[K", ".........."),
+        ("EL to end, from a lead", "\x1b[1;3H\x1b[K", "日#........"),
+        // EL-to-start is inclusive of the cursor, so from a lead it must also
+        // take that lead's tail: columns 1-4, not 1-3.
+        (
+            "EL to start, from a tail",
+            "\x1b[1;2H\x1b[1K",
+            "..本#語#ab..",
+        ),
+        (
+            "EL to start, from a lead",
+            "\x1b[1;3H\x1b[1K",
+            "....語#ab..",
+        ),
+        // ECH of one cell erases the character it lands in, both halves.
+        ("ECH 1 on a lead", "\x1b[1;1H\x1b[1X", "..本#語#ab.."),
+        ("ECH 1 on a tail", "\x1b[1;2H\x1b[1X", "..本#語#ab.."),
+        // DCH shifts left; deleting half a pair would drag a lone tail in.
+        ("DCH 1 on a lead", "\x1b[1;1H\x1b[1P", "本#語#ab...."),
+        ("DCH 1 on a tail", "\x1b[1;2H\x1b[1P", "本#語#ab...."),
+        // ICH shifts right and must move whole characters, never insert
+        // between a lead and its tail.
+        ("ICH 1 on a lead", "\x1b[1;1H\x1b[1@", ".日#本#語#ab."),
+        ("ICH 1 on a tail", "\x1b[1;2H\x1b[1@", ".日#本#語#ab."),
+    ];
+    for (name, seq, want) in cases {
+        let bytes = format!("{BASE}{seq}");
+        let got = wide_row(bytes.as_bytes(), 10);
+        assert_eq!(&got, want, "{name}: got {got:?}, want {want:?}");
+        // The invariant behind every row above, stated once so a new case
+        // cannot be added with a hand-written expectation that is itself wrong:
+        // a tail has a lead before it, and no lead is left without its tail.
+        let cells: Vec<char> = got.chars().collect();
+        for (i, c) in cells.iter().enumerate() {
+            if *c == '#' {
+                assert!(
+                    i > 0 && cells[i - 1] != '#' && cells[i - 1] != '.',
+                    "{name}: orphaned wide tail at column {i} in {got:?}"
+                );
+            }
+        }
+    }
+}
+
+/// **Overwriting half a character clears the other half.**
+///
+/// The companion to `no_operation_splits_a_double_width_character`, and a
+/// distinct class: a range operation can be *widened* to cover whole
+/// characters, but a write has its own length and cannot. The partner is
+/// cleared instead.
+///
+/// Both write paths, because they are different code and only one of them is
+/// the common one. ASCII never reaches `put_cp` at all -- it goes through
+/// `blit` and `put_ascii_run` -- so fixing the per-codepoint path alone would
+/// have fixed the rare case and left essentially all real text broken.
+#[test]
+fn overwriting_half_a_wide_character_clears_the_other_half() {
+    const BASE: &str = "\x1b[1;1H日本語ab";
+    // `Ａ` is U+FF21, fullwidth: a *wide* character landing on a tail orphans
+    // the lead behind it and the tail of whatever it covers, both at once.
+    let cases: &[(&str, &str, &str)] = &[
+        ("ASCII over a lead", "\x1b[1;1HX", "X.本#語#ab.."),
+        ("ASCII over a tail", "\x1b[1;2HX", ".X本#語#ab.."),
+        // Exactly covers the pair it replaces, so nothing is orphaned: the
+        // rule is "clear what is cut", not "clear a neighbour".
+        ("wide over a lead", "\x1b[1;1H\u{ff21}", "Ａ#本#語#ab.."),
+        ("wide over a tail", "\x1b[1;2H\u{ff21}", ".Ａ#.語#ab.."),
+    ];
+    for (name, seq, want) in cases {
+        let bytes = format!("{BASE}{seq}");
+        let got = wide_row(bytes.as_bytes(), 10);
+        assert_eq!(&got, want, "{name}: got {got:?}, want {want:?}");
+        let cells: Vec<char> = got.chars().collect();
+        for (i, c) in cells.iter().enumerate() {
+            if *c == '#' {
+                assert!(
+                    i > 0 && cells[i - 1] != '#' && cells[i - 1] != '.',
+                    "{name}: orphaned wide tail at column {i} in {got:?}"
+                );
+            }
+        }
+    }
+}

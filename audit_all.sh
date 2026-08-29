@@ -6,6 +6,13 @@
 set -e
 fail=0
 
+# **This audits `baud-core2`, the previous core.** The new `baud-core` gets its
+# own budget as it grows, and it starts at zero rather than inheriting a
+# fourteen-site allowance -- a budget is a floor to drive down, and the one
+# thing that must not happen is a fresh crate being born with the old one's
+# slack. When the new core replaces core2 this block moves to it and core2's
+# goes away with the crate.
+#
 # baud-core is an aggregate, not a file. After the SRP split it is ~20 modules,
 # so naming lib.rs would measure a 60-line file of `mod`/`pub use` and report
 # green for ever -- the "instrumentation outlived what fed it" failure
@@ -44,7 +51,7 @@ sig=0
 # `baud-core/src` would have reported the count dropping from 8 to 2 and called
 # it progress. That is the "instrumentation outlived what fed it" failure this
 # repo already records: the gate must follow the code in the same commit.
-for f in $(find baud-core/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' | sort); do
+for f in $(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' | sort); do
   out=$(python3 impl_audit.py "$f")
   n=$(echo "$out" | grep '^  total' | awk '{print $2}')
   m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
@@ -77,6 +84,25 @@ else
   echo "  ok   baud-core+isa signatures: $sig (limit 10, a floor to drive down)"
 fi
 
+# The new core, on its own budget. Zero, and it stays zero until a site is
+# forced by the language and enumerated the way core2's fourteen are.
+new=0
+newsig=0
+for f in $(find baud-core/src -name '*.rs' 2>/dev/null | sort); do
+  out=$(python3 impl_audit.py "$f")
+  n=$(echo "$out" | grep '^  total' | awk '{print $2}')
+  m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
+  new=$((new + n))
+  newsig=$((newsig + m))
+  [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
+done
+if [ "$new" -gt 0 ] || [ "$newsig" -gt 0 ]; then
+  echo "  FAIL baud-core: $new raw-integer sites, $newsig signature (limit 0 and 0)"
+  fail=1
+else
+  echo "  ok   baud-core: 0 and 0 (a new crate starts with no slack)"
+fi
+
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and
 # per-file limits would have to be re-guessed every time a function moves.
@@ -103,7 +129,7 @@ else
   echo "  ok   baud-bench/src: $bench (limit 14)"
 fi
 
-for f in baud-core/tests/*.rs baud-difftest/src/main.rs; do
+for f in baud-core2/tests/*.rs baud-difftest/src/main.rs; do
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
   limit=0
   if [ "$n" -gt "$limit" ]; then

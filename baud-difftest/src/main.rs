@@ -7,7 +7,7 @@
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term as ATerm};
 use alacritty_terminal::vte::ansi::Processor;
-use baud_core::*;
+use baud_core2::*;
 const COLS: usize = 200;
 const ROWS: usize = 50;
 

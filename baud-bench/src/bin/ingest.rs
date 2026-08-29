@@ -31,13 +31,10 @@
 #[path = "../payload.rs"]
 mod payload;
 
-use baud_core::{OpMode, Storage, StreamByte, Term};
+use baud_core2::{OpMode, Storage, StreamByte, Term};
 
 fn recording(name: &str) -> Vec<u8> {
-    let p = format!(
-        "{}/../baud-core/tests/recordings/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
     std::fs::read(&p).unwrap_or_else(|e| panic!("{p}: {e}"))
 }
 

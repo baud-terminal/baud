@@ -8,18 +8,18 @@ use alacritty_terminal::vte::ansi::Processor;
 /// not compile. Same shape as baud-bench's dispatch.
 #[cfg(target_arch = "x86_64")]
 pub(crate) unsafe fn baud_feed(
-    t: &mut baud_core::Term,
-    base: baud_core::BytePos,
-    n: baud_core::ByteLen,
+    t: &mut baud_core2::Term,
+    base: baud_core2::BytePos,
+    n: baud_core2::ByteLen,
 ) {
     unsafe { t.feed_avx2(base, n) }
 }
 
 #[cfg(not(target_arch = "x86_64"))]
 pub(crate) unsafe fn baud_feed(
-    t: &mut baud_core::Term,
-    base: baud_core::BytePos,
-    n: baud_core::ByteLen,
+    t: &mut baud_core2::Term,
+    base: baud_core2::BytePos,
+    n: baud_core2::ByteLen,
 ) {
     t.feed(base, n)
 }
@@ -73,13 +73,13 @@ impl std::io::Write for WzSink {
 /// `Runs` under-reports baud on payloads where a materialised viewport wins, and
 /// MEASUREMENTS.md's own baud-alone table shows the modes trade places by
 /// payload: spans lead on streaming, and on TUI all three land within noise.
-pub(crate) fn baud_rep(p: &[u8], total: usize, mode: baud_core::OpMode) -> f64 {
-    let mut st = baud_core::Storage::boxed();
-    let mut t = baud_core::Term::new(&mut st, mode);
+pub(crate) fn baud_rep(p: &[u8], total: usize, mode: baud_core2::OpMode) -> f64 {
+    let mut st = baud_core2::Storage::boxed();
+    let mut t = baud_core2::Term::new(&mut st, mode);
     drive(p, total, |chunk| {
         let mut slot = t.read_slot();
         let base = slot.base();
-        let fl = slot.write(baud_core::StreamByte::slice_from(chunk));
+        let fl = slot.write(baud_core2::StreamByte::slice_from(chunk));
         unsafe { baud_feed(&mut t, base, fl.len()) };
         t.commit_read(fl.len());
     })
@@ -99,7 +99,7 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         0 => drive(p, total, |c| {
             std::hint::black_box(c);
         }),
-        1 => baud_rep(p, total, baud_core::OpMode::Runs),
+        1 => baud_rep(p, total, baud_core2::OpMode::Runs),
         2 => {
             let mut cfg = Config::default();
             cfg.scrolling_history = 10_000;
@@ -187,8 +187,8 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                 });
             })
         }
-        7 => baud_rep(p, total, baud_core::OpMode::Computed),
-        8 => baud_rep(p, total, baud_core::OpMode::Templated),
+        7 => baud_rep(p, total, baud_core2::OpMode::Computed),
+        8 => baud_rep(p, total, baud_core2::OpMode::Templated),
         _ => unreachable!(),
     }
 }

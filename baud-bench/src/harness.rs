@@ -1,5 +1,5 @@
 use crate::*;
-use baud_core::*;
+use baud_core2::*;
 use std::time::Instant;
 
 /// Whether the AVX2 scanner exists on this build.

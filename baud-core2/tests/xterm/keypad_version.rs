@@ -1,0 +1,164 @@
+//! DECKPAM/DECKPNM and XTVERSION.
+//!
+//! Both are here because both were `parsed` in the sense
+//! `docs/vt-coverage.md` treats as a bug. `ESC =` and `ESC >` were in the fast
+//! path's list of known two-byte escapes, were consumed, and then did nothing:
+//! recognised, accepted, dropped, with no way for the application to find out.
+//!
+//! `[[source: ctlseqs]]`:
+//! * "ESC = Application Keypad (DECKPAM)."
+//! * "ESC > Normal Keypad (DECKPNM), VT100."
+//! * "CSI > Ps q, Ps = 0 -> Report xterm name and version (XTVERSION). The
+//!   response is a DSR sequence identifying the version: `DCS > | text ST`".
+
+use baud_core2::*;
+
+fn drive(bytes: &[u8]) -> (Vec<u8>, KeypadMode) {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += n;
+    }
+    (t.reply().to_vec(), t.keypad())
+}
+
+fn keypad(bytes: &[u8]) -> KeypadMode {
+    drive(bytes).1
+}
+
+fn replies(bytes: &[u8]) -> Vec<u8> {
+    drive(bytes).0
+}
+
+// ── DECKPAM / DECKPNM ───────────────────────────────────────────────────────
+
+/// The keypad starts numeric and `ESC =` switches it.
+#[test]
+fn the_keypad_mode_is_recorded() {
+    assert_eq!(keypad(b""), KeypadMode::Numeric, "power-on");
+    assert_eq!(keypad(b"\x1b="), KeypadMode::Application);
+    assert_eq!(keypad(b"\x1b=\x1b>"), KeypadMode::Numeric);
+}
+
+/// It survives surrounding text, so it is not being confused with a printable.
+#[test]
+fn the_designator_is_consumed_not_printed() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(b"ab\x1b=cd"));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(t.keypad(), KeypadMode::Application);
+    assert_eq!(t.cursor().1.index(), 4, "abcd is four columns, not five");
+}
+
+/// RIS returns the keypad to numeric, so a crashed program cannot leave the
+/// next one's arrow keys sending the wrong sequences.
+#[test]
+fn ris_restores_the_numeric_keypad() {
+    assert_eq!(keypad(b"\x1b=\x1bc"), KeypadMode::Numeric);
+}
+
+/// Both feeds agree, whatever the chunking.
+#[test]
+fn keypad_mode_is_chunk_invariant() {
+    let seq = b"text\x1b=more\x1b>tail";
+    for chunk in 1..seq.len() {
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < seq.len() {
+            let n = chunk.min(seq.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&seq[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+        assert_eq!(t.keypad(), KeypadMode::Numeric, "at chunk {chunk}");
+    }
+}
+
+// ── XTVERSION ───────────────────────────────────────────────────────────────
+
+/// `CSI > 0 q` answers with a DCS, not a CSI.
+///
+/// The shape matters more than the text: an application parses whatever
+/// arrives as the report it asked for, and this is the one report baud sends
+/// that is not a CSI.
+#[test]
+fn xtversion_answers_with_a_dcs() {
+    let r = replies(b"\x1b[>0q");
+    assert_eq!(&r[..4], b"\x1bP>|", "DCS > |");
+    assert_eq!(&r[r.len() - 2..], b"\x1b\\", "terminated by ST");
+    assert!(r.len() > 6, "and it names something");
+}
+
+/// An omitted parameter is 0, so a bare `CSI > q` is still XTVERSION.
+#[test]
+fn xtversion_defaults_to_zero() {
+    assert_eq!(replies(b"\x1b[>q"), replies(b"\x1b[>0q"));
+}
+
+/// A `CSI > Ps q` baud does not implement gets no answer.
+#[test]
+fn an_unknown_secondary_query_is_not_answered() {
+    assert!(replies(b"\x1b[>5q").is_empty());
+}
+
+/// The `>` namespace is not the `?` namespace.
+///
+/// `CSI ? 0 q` is unrelated to XTVERSION, and answering it with a version
+/// string would be the wrong-shaped reply.
+#[test]
+fn the_secondary_marker_is_its_own_namespace() {
+    assert!(replies(b"\x1b[?0q").is_empty());
+    assert!(!replies(b"\x1b[>0q").is_empty());
+}
+
+/// `CSI > 0 q` must not be mistaken for DECSCUSR or DECLL, which also end `q`.
+#[test]
+fn xtversion_does_not_collide_with_other_q_finals() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    // A DECSCUSR before it must still apply, and must not answer.
+    let f = slot.write(StreamByte::slice_from(b"\x1b[5 q"));
+    t.feed(base, f.len());
+    t.commit_read(f.len());
+    assert_eq!(t.cursor_style(), CursorStyle::BlinkingBar);
+    assert!(t.reply().is_empty(), "DECSCUSR is not a query");
+}
+
+/// The reply parses the same however the read boundaries fall.
+#[test]
+fn xtversion_is_chunk_invariant() {
+    let seq = b"\x1b[>0q";
+    let whole = replies(seq);
+    for chunk in 1..seq.len() {
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < seq.len() {
+            let n = chunk.min(seq.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&seq[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+        assert_eq!(t.reply(), &whole[..], "differed at chunk {chunk}");
+    }
+}

@@ -10,7 +10,7 @@
 //! does not have. What this number bounds is whether segmentation could ever be
 //! affordable at all; if it were not, the storage question would be moot.
 
-use baud_core::{AmbiguousWidth, ClusterBreak, Codepoint, Width};
+use baud_core2::{AmbiguousWidth, ClusterBreak, Codepoint, Width};
 use std::time::Instant;
 
 /// Codepoints per corpus. One constant, not four literals: the audit counts

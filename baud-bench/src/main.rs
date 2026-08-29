@@ -10,7 +10,7 @@ use harness::*;
 
 mod payload;
 
-use baud_core::*;
+use baud_core2::*;
 
 enum P {
     Streaming,
@@ -28,9 +28,9 @@ enum P {
 
 /// The recordings, embedded so the benchmark has no runtime file dependency.
 /// `tests/recordings/README.md` is where they came from.
-const REC_BTOP: &[u8] = include_bytes!("../../baud-core/tests/recordings/utf8/btop.raw");
-const REC_AQUA: &[u8] = include_bytes!("../../baud-core/tests/recordings/ascii/asciiquarium.raw");
-const REC_VIM: &[u8] = include_bytes!("../../baud-core/tests/recordings/utf8/vim-unicode.raw");
+const REC_BTOP: &[u8] = include_bytes!("../../tests/recordings/utf8/btop.raw");
+const REC_AQUA: &[u8] = include_bytes!("../../tests/recordings/ascii/asciiquarium.raw");
+const REC_VIM: &[u8] = include_bytes!("../../tests/recordings/utf8/vim-unicode.raw");
 
 fn main() {
     let total = Bytes(48 << 20);

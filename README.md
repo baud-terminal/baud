@@ -135,7 +135,7 @@ Full tables, other hosts, and every caveat in
 
 Ahead on all eight, and the closest row is no longer close: `cat-cjk` was
 1.03x and is 1.12x, from baud moving rather than ghostty. These are committed
-recordings of real programs, in `baud-core/tests/recordings/`.
+recordings of real programs, in `tests/recordings/`.
 
 And on generated payloads, where every core is driven through the same
 harness. `payload::streaming` models `cat`, logs and build output;

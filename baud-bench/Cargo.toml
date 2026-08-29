@@ -8,29 +8,29 @@ repository.workspace = true
 description = "PTY benchmark harness for baud-core. Linux-only."
 
 [dependencies]
-baud-core = { path = "../baud-core", features = ["alloc"] }
+baud-core2 = { path = "../baud-core2", features = ["alloc"] }
 libc = "0.2"
 
 
 [features]
 # Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
-diag = ["baud-core/diag"]
+diag = ["baud-core2/diag"]
 # Byte-level attribution: which path consumed which bytes. Never on for a
 # throughput figure, same as `diag`.
-instrument = ["baud-core/instrument"]
+instrument = ["baud-core2/instrument"]
 # Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
 scan-neon = []
-block-decode = ["baud-core/block-decode"]
-mixed-decode = ["baud-core/mixed-decode"]
-dep-probe-serial = ["baud-core/dep-probe-serial"]
-dep-probe-free = ["baud-core/dep-probe-free"]
-miss-probe = ["baud-core/miss-probe"]
-width-probe = ["baud-core/width-probe"]
-attach-probe = ["baud-core/attach-probe"]
-pipeline-decode = ["baud-core/pipeline-decode"]
-short-wide = ["baud-core/short-wide"]
-ceiling-no-write = ["baud-core/ceiling-no-write"]
-fast3 = ["baud-core/fast3"]
-ceiling-no-attach = ["baud-core/ceiling-no-attach"]
-ceiling-cheap-emoji = ["baud-core/ceiling-cheap-emoji"]
+block-decode = ["baud-core2/block-decode"]
+mixed-decode = ["baud-core2/mixed-decode"]
+dep-probe-serial = ["baud-core2/dep-probe-serial"]
+dep-probe-free = ["baud-core2/dep-probe-free"]
+miss-probe = ["baud-core2/miss-probe"]
+width-probe = ["baud-core2/width-probe"]
+attach-probe = ["baud-core2/attach-probe"]
+pipeline-decode = ["baud-core2/pipeline-decode"]
+short-wide = ["baud-core2/short-wide"]
+ceiling-no-write = ["baud-core2/ceiling-no-write"]
+fast3 = ["baud-core2/fast3"]
+ceiling-no-attach = ["baud-core2/ceiling-no-attach"]
+ceiling-cheap-emoji = ["baud-core2/ceiling-cheap-emoji"]
