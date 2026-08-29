@@ -1,5 +1,12 @@
 use crate::*;
 
+/// Codepoints collected before a bulk wide write goes out.
+///
+/// Sized so the buffer stays in registers-and-L1 and the tail loop is rare:
+/// a 200-column row holds 100 double-width characters, so 64 covers most of a
+/// line in one pass without making the fallback path common.
+const WIDE_RUN: usize = 64;
+
 impl<'a> Term<'a> {
     /// Two-byte `ESC Fe` sequences and OSC strings, in bulk.
     ///
@@ -358,6 +365,67 @@ impl<'a> Term<'a> {
     /// `State::Utf8` arm does -- same counters, same `finish`, same `Width::of`,
     /// same `put_cp` -- because divergence between two spellings of one
     /// operation is a failure this repo has already had in `feed_avx2`.
+    /// Collect a run of ordinary wide characters and write it in bulk.
+    ///
+    /// `#[inline(never)]`, and that is measured rather than tidiness: left
+    /// inline it grew `fast_utf8` enough to cost `btop.raw` **2.5%** -- a
+    /// recording with *zero* wide codepoints, which never enters this at all.
+    /// Same finding as `open_gap`, `anywhere_c0` and the outlined Ground arms:
+    /// what costs is the size of what the ingest loop carries, not the work
+    /// inside a branch it does not take.
+    ///
+    /// `start` is the offset of the *next* character, past the one `fast_utf8`
+    /// has already placed. Returns bytes consumed, three per codepoint taken.
+    #[inline(never)]
+    fn wide_run(&mut self, start: usize, end: usize) -> usize {
+        let from = start;
+        let mut used = 0usize;
+        let mut buf = [0u32; WIDE_RUN];
+        let mut n = 0usize;
+        let mut scan = used;
+        while n < WIDE_RUN && from + scan + 3 <= end {
+            let b0 = self.s.arena[from + scan];
+            // Three-byte leads only. CJK, kana and Hangul are all here, and
+            // fixing the length keeps this loop free of a second branch.
+            if !(0xe0..0xf0).contains(&b0) {
+                break;
+            }
+            let (Some(c1), Some(c2)) = (
+                StreamByte::from_stream(self.s.arena[from + scan + 1]).utf8_continuation(),
+                StreamByte::from_stream(self.s.arena[from + scan + 2]).utf8_continuation(),
+            ) else {
+                break;
+            };
+            let Some((rem, bits, min)) = StreamByte::from_stream(b0).utf8_lead() else {
+                break;
+            };
+            if rem != 2 {
+                break;
+            }
+            let cp = Utf8Acc::lead(bits).push(c1).push(c2).finish(min);
+            if cp == Codepoint::REPLACEMENT || Width::of(cp, self.width.ambiguous) != Width::WIDE {
+                break;
+            }
+            let (class, lb) = GraphemeClass::of_with_lookback(cp);
+            if class != GraphemeClass::Other || !lb.is_none() {
+                break;
+            }
+            buf[n] = cp.value();
+            n += 1;
+            scan += 3;
+        }
+        if n > 0 {
+            let took = self.put_wide_run(&buf[..n]);
+            #[cfg(feature = "instrument")]
+            {
+                self.bytes_utf8.add(took * 3);
+                self.bytes_text.add(took * 3);
+            }
+            used += took * 3;
+        }
+        used
+    }
+
     fn fast_utf8(&mut self, base: BytePos, at: ByteLen, lim: ByteLen) -> Option<ByteLen> {
         let from = base.index() + at.index();
         let end = base.index() + lim.index();
@@ -384,8 +452,37 @@ impl<'a> Term<'a> {
         let w = Width::of(c, self.width.ambiguous);
         self.put_cp(c, w);
 
-        // Keep going while the next character is also multi-byte.
+        // **A run of ordinary wide characters goes out in bulk.**
+        //
+        // `cat-cjk.raw` is 81% three-byte characters with no escape sequences
+        // at all, and every one of them was paying the full per-codepoint path:
+        // a promotion check, an insert-mode test, an orphan repair, an address
+        // computation, an extent update and two individual cell stores. The
+        // ASCII side has had `put_ascii_run` writing eight cells a store since
+        // the beginning; this is its counterpart.
+        //
+        // A codepoint joins the run only if it is `Width::WIDE`, of class
+        // `Other`, and in no lookback table -- which together mean `is_break`
+        // would return `true` and change nothing. The cluster machine has to
+        // be in that state to begin with, and each such character leaves it
+        // there, so the whole run is provably a no-op for it.
+        //
+        // Anything else -- an emoji, a combining mark, a Hangul syllable, an
+        // ASCII byte, a narrow character, a malformed sequence, the right
+        // margin -- ends the run and falls back to the one-at-a-time path
+        // below, which is unchanged.
+        //
+        // **Gated on the character just written being wide**, which is already
+        // known and costs nothing to test. Without it, `btop.raw` -- 14.5%
+        // multi-byte and **zero** wide codepoints, because box drawing is
+        // three bytes and one column -- entered the collector on every
+        // character, decoded it, looked its width up, failed the test and left
+        // the real path to do all of that again. That measured **-4%** on btop
+        // and vim before the gate and +3% after.
         let mut used = need;
+        if w == Width::WIDE && self.cluster.ordinary_run_ready() {
+            used += self.wide_run(from + used, end);
+        }
         while from + used < end {
             let b0 = StreamByte::from_stream(self.s.arena[from + used]);
             let Some((rem2, bits2, min2)) = b0.utf8_lead() else {

@@ -418,6 +418,105 @@ impl<'a> View<'a> {
     ///
     /// No `unsafe`: `baud-domain` forbids it, so the reinterpretation goes through
     /// `zerocopy`, which `PackedCell` already derives for the shm and disk paths.
+    /// Write a run of double-width characters: a glyph and its tail per
+    /// codepoint, **eight cells a store**.
+    ///
+    /// The wide counterpart of `put_ascii_run`, and the asymmetry it closes is
+    /// the one `[[source: simdutf]]` measures inside its own library: 18
+    /// gigacharacters a second on Latin against 1.7 on Chinese, because every
+    /// fast implementation has an ASCII fast path and a per-character path for
+    /// everything else. baud had exactly that shape -- eight cells a store for
+    /// ASCII, two individual stores per codepoint for CJK.
+    ///
+    /// Both cells of a pair carry the same style and flags, so the high half of
+    /// every `PackedCell` is one constant and only the content differs: the
+    /// codepoint, then `Content::WIDE_TAIL`. Interleaving those is a swizzle.
+    ///
+    /// Returns cells written, which is twice the codepoints taken.
+    pub fn put_wide_run(
+        &mut self,
+        r: Row,
+        at: Col,
+        cps: &[u32],
+        style: StyleId,
+        flags: CellFlags,
+    ) -> usize {
+        let cols = self.cols.index();
+        let x = at.index();
+        if r.index() >= self.rows.index() || x >= cols {
+            return 0;
+        }
+        // Two cells per codepoint, and never past the last column.
+        let n = cps.len().min((cols - x) / 2);
+        if n == 0 {
+            return 0;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        let end = x + 2 * n;
+        // The orphan rule, once for the whole run rather than once per
+        // character: only its two edges can cut a pair.
+        let blank = PackedCell::empty_with(style);
+        let (sa, sb) = self.snap_at(base, x, end);
+        if sa < x {
+            self.cells[base + sa] = blank;
+        }
+        if sb > end {
+            self.cells[base + sb - 1] = blank;
+        }
+        let proto = PackedCell::wide_tail(style, flags);
+        Self::put_wide_vectored(&mut self.cells[base + x..base + end], &cps[..n], proto);
+        self.used[p] = self.used[p].reached(sb.max(end));
+        2 * n
+    }
+
+    /// The interleave. `dst` is exactly `2 * cps.len()` cells.
+    fn put_wide_vectored(dst: &mut [PackedCell], cps: &[u32], proto: PackedCell) {
+        #[cfg(target_endian = "little")]
+        {
+            use core::simd::num::SimdUint;
+            use core::simd::{Simd, simd_swizzle};
+            use zerocopy::{FromBytes, IntoBytes};
+
+            let mut bytes = [0u8; 8];
+            bytes.copy_from_slice(proto.as_bytes());
+            let word = u64::from_ne_bytes(bytes);
+            // Style and flags, shared by both cells of every pair.
+            let hi = word & 0xffff_ffff_0000_0000;
+            // `proto` is already the tail, so its low half is `WIDE_TAIL`.
+            let tail = Simd::<u64, 4>::splat(word & 0x0000_0000_ffff_ffff);
+
+            let mut d = dst.chunks_exact_mut(8);
+            let mut s = cps.chunks_exact(4);
+            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
+                let c = Simd::<u32, 4>::from_slice(sc).cast::<u64>();
+                // [c0, tail, c1, tail, c2, tail, c3, tail]
+                let content: Simd<u64, 8> = simd_swizzle!(c, tail, [0, 4, 1, 5, 2, 6, 3, 7]);
+                let cells = (content | Simd::splat(hi)).to_array();
+                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
+                    .expect("eight u64 is sixty-four bytes, which is eight cells");
+                dc.copy_from_slice(&packed);
+            }
+            for (dc, &cp) in d.into_remainder().chunks_exact_mut(2).zip(s.remainder()) {
+                dc[0] = PackedCell {
+                    content: Content(cp),
+                    style: proto.style,
+                    flags: proto.flags,
+                };
+                dc[1] = proto;
+            }
+        }
+        #[cfg(not(target_endian = "little"))]
+        for (dc, &cp) in dst.chunks_exact_mut(2).zip(cps) {
+            dc[0] = PackedCell {
+                content: Content(cp),
+                style: proto.style,
+                flags: proto.flags,
+            };
+            dc[1] = proto;
+        }
+    }
+
     fn put_ascii_vectored(dst: &mut [PackedCell], src: &[u8], proto: PackedCell) {
         #[cfg(target_endian = "little")]
         {

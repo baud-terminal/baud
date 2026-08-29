@@ -201,6 +201,26 @@ impl ClusterBreak {
         ClusterBreak::default()
     }
 
+    /// Is the machine in the state where a run of ordinary characters needs no
+    /// work at all?
+    ///
+    /// The bulk path's precondition. If `prev` is `Other` and no lookback is
+    /// live, then for any run of codepoints that are themselves `Other` and in
+    /// no lookback table, `is_break` returns `true` every time and leaves every
+    /// field exactly as it found it -- the same argument the fast path in
+    /// `is_break` makes, extended along the run because each character
+    /// re-establishes the precondition for the next.
+    ///
+    /// So the caller may skip the machine entirely for such a run, and the
+    /// state afterwards is the state before.
+    #[inline(always)]
+    pub fn ordinary_run_ready(&self) -> bool {
+        self.prev == Some(GraphemeClass::Other)
+            && self.ri == RiParity::Even
+            && self.pict == PictLookback::None
+            && self.incb == IncbLookback::None
+    }
+
     /// Is there a cluster boundary immediately **before** `c`?
     ///
     /// Rule numbers are `[[source: uax29]]`'s, and the order is theirs: the
