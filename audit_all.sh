@@ -11,18 +11,23 @@ fail=0
 # green for ever -- the "instrumentation outlived what fed it" failure
 # CLAUDE.md records.
 #
-# 8 permitted, and every one is forced by the language or by an intrinsic
+# 5 permitted, and every one is forced by the language or by an intrinsic
 # rather than chosen:
-#   3  array dimensions -- `const GRID: usize = MAX_ROWS * MAX_COLS` and the
-#      two `[PackedCell; NSTYLE * MAX_COLS]`. Rust requires an array length to
-#      be a `usize` const expression; there is no newtype that can go there.
-#   5  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
+#   1  array dimension -- `const GRID: usize = MAX_ROWS * MAX_COLS`. Rust
+#      requires an array length to be a `usize` const expression; there is no
+#      newtype that can go there.
+#   3  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
 #      returns `i32` and `Mask::to_bitmask` returns `u64`; this cast is the
 #      single point at which an intrinsic's return value enters the type
 #      system, which is exactly where a cast belongs.
+#   1  a raw byte range test in `parse/fast.rs`.
 #
-# Do not raise this number to make a change fit; the remaining eight have
-# nowhere to go.
+# **This was 8 while the true count was 5, which is slack a gate must not
+# carry.** A limit three above the count lets three regressions land green,
+# and the enumeration above had gone stale in exactly that gap -- it still
+# described two `[PackedCell; NSTYLE * MAX_COLS]` dimensions and five
+# movemask casts that the ISA split had already reduced. Tighten this to the
+# count whenever the count falls; never raise it to make a change fit.
 core=0
 sig=0
 # **Every ISA crate is audited on `baud-core`'s budget, in the same total.** Moving the scanners into their own crate moved five raw-integer
@@ -38,11 +43,11 @@ for f in $(find baud-core/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/
   sig=$((sig + m))
   [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
-if [ "$core" -gt 8 ]; then
-  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 8)"
+if [ "$core" -gt 5 ]; then
+  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 5)"
   fail=1
 else
-  echo "  ok   baud-core+isa: $core (limit 8)"
+  echo "  ok   baud-core+isa: $core (limit 5)"
 fi
 
 # **A second gate, because the first could not see these.** The rule above
