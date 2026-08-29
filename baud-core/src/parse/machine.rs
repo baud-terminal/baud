@@ -252,9 +252,15 @@ impl<'a> Term<'a> {
             return;
         }
         match self.st {
-            State::Ground | State::Vt52Ground => {
+            Node::Ground | Node::Vt52Ground => {
                 if b == StreamByte::ESC {
-                    self.st = State::Escape;
+                    // Each ground goes to its *own* escape: VT52's escape
+                    // table is a different protocol rather than a subset of
+                    // ANSI's, so one state cannot answer for both.
+                    self.st = match self.st {
+                        Node::Vt52Ground => Node::Vt52Escape,
+                        _ => Node::Escape,
+                    };
                 } else if b.is_c0() || b == StreamByte::BEL {
                     self.execute(b);
                 } else if let Some(c) = self.encoding.single_byte(b) {
@@ -275,16 +281,14 @@ impl<'a> Term<'a> {
                     // `ESC [` "a 7-bit equivalent to 8-bit" `9B`, so the two
                     // forms are the same operation and must not be able to
                     // drift apart.
-                    self.st = State::Escape;
+                    self.st = Node::Escape;
                     self.control(fe);
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
                     #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
-                    self.st = State::Utf8 {
-                        remaining: Pending::new(rem),
-                        acc: Utf8Acc::lead(acc),
-                        min,
-                    };
+                    self.utf8_acc = Utf8Acc::lead(acc);
+                    self.utf8_min = min;
+                    self.st = Node::utf8_owing(Pending::new(rem));
                 } else {
                     // **Both remaining arms are cold and outlined.** Neither is
                     // reachable on ordinary text: printable ASCII is taken by
@@ -296,33 +300,26 @@ impl<'a> Term<'a> {
                     self.ground_uncommon(b);
                 }
             }
-            State::Utf8 {
-                remaining,
-                acc,
-                min,
-            } => match b.utf8_continuation() {
+            Node::Utf8One | Node::Utf8Two | Node::Utf8Three => match b.utf8_continuation() {
                 Some(bits) => {
                     #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
-                    let acc = acc.push(bits);
-                    if remaining.is_last() {
+                    let acc = self.utf8_acc.push(bits);
+                    self.utf8_acc = acc;
+                    if self.st.is_last_continuation() {
                         self.st = self.ground();
                         // `finish` rejects a non-shortest form. Without that
                         // check every overlong three- and four-byte sequence
                         // decoded to a real character -- `E0 80 AF` rendered
                         // `/`, the path-traversal overlong.
-                        let c = acc.finish(min);
+                        let c = acc.finish(self.utf8_min);
                         if c == Codepoint::REPLACEMENT {
                             self.replacements.inc();
                         }
                         let w = Width::of(c, self.width.ambiguous);
                         self.put_cp(c, w);
                     } else {
-                        self.st = State::Utf8 {
-                            remaining: remaining.dec(),
-                            acc,
-                            min,
-                        };
+                        self.st = self.st.one_fewer_continuation();
                     }
                 }
                 None => {
@@ -332,7 +329,7 @@ impl<'a> Term<'a> {
                     self.control(b);
                 }
             },
-            State::Escape => {
+            Node::Escape => {
                 // In VT52 mode the escape table is a different protocol, not a
                 // subset of this one: `ESC D` is cursor-left there and IND
                 // here.
@@ -345,22 +342,15 @@ impl<'a> Term<'a> {
                 // leaves the terminal there. That is how the hardware behaved
                 // and how xterm behaves; `reset(1)` sending `ESC c` does not
                 // help, because `ESC c` is not a VT52 sequence either.
-                if self.terminal_mode == TerminalMode::Vt52 {
-                    self.vt52_dispatch(b);
-                    if self.st == State::Escape {
-                        self.st = self.ground();
-                    }
-                    return;
-                }
                 if b == StreamByte::CSI_INTRO {
                     self.params = [None; ParamIdx::CAPACITY];
                     self.nparam = ParamIdx::FIRST;
                     self.psub = SubParams::NONE;
                     self.private = Marker::Standard;
                     self.csi_inter = None;
-                    self.st = State::CsiEntry;
+                    self.st = Node::CsiEntry;
                 } else if b == StreamByte::OSC_INTRO {
-                    self.st = State::OscString;
+                    self.st = Node::OscString;
                 } else if b == StreamByte::DCS_INTRO {
                     self.params = [None; ParamIdx::CAPACITY];
                     self.nparam = ParamIdx::FIRST;
@@ -368,7 +358,7 @@ impl<'a> Term<'a> {
                     self.private = Marker::Standard;
                     self.csi_inter = None;
                     self.osc_reset();
-                    self.st = State::DcsEntry;
+                    self.st = Node::DcsEntry;
                 } else if b == StreamByte::SOS_INTRO
                     || b == StreamByte::PM_INTRO
                     || b == StreamByte::APC_INTRO
@@ -376,11 +366,11 @@ impl<'a> Term<'a> {
                     // Consume the payload; never execute it. These fell through
                     // to `esc_fe` and back to Ground, so the bytes that followed
                     // were interpreted as commands.
-                    self.st = State::StringIgnore;
+                    self.st = Node::StringIgnore;
                 } else if b.is_esc_intermediate() {
                     self.esc_inter = Some(b);
                     self.esc_inter2 = None;
-                    self.st = State::EscapeIntermediate;
+                    self.st = Node::EscInter;
                 } else {
                     // Same two-byte escapes the AVX2 path handles. The two feed
                     // paths must be indistinguishable; `feed_matches_feed_avx2`
@@ -389,7 +379,23 @@ impl<'a> Term<'a> {
                     self.st = self.ground();
                 }
             }
-            State::EscapeIntermediate => {
+            // VT52's escape table, which is a different protocol rather than a
+            // subset of ANSI's -- `ESC D` is cursor-left here and IND there.
+            //
+            // **Strictly VT52, including `ESC [`.** A VT52 has no CSI, so
+            // allowing one would be inventing a hybrid terminal that never
+            // existed and that no application targets. The cost is real: the
+            // only ways out are `ESC <` and a host-side reset, so a program
+            // that enters VT52 and dies leaves the terminal there. That is how
+            // the hardware behaved and how xterm behaves; `reset(1)` sending
+            // `ESC c` does not help, because `ESC c` is not a VT52 sequence.
+            Node::Vt52Escape => {
+                self.vt52_dispatch(b);
+                if self.st == Node::Vt52Escape {
+                    self.st = self.ground();
+                }
+            }
+            Node::EscInter => {
                 if b.is_c0() {
                     self.execute(b);
                 } else if b.is_esc_intermediate() {
@@ -484,7 +490,7 @@ impl<'a> Term<'a> {
             // the same reason `csi_entry` is: `3C-3F` is a private marker here
             // and an error one byte later. These three were one merged arm and
             // carried all three of the bugs that merge causes.
-            State::DcsEntry => {
+            Node::DcsEntry => {
                 if b.is_c0() || b == StreamByte::DEL {
                     // "C0 controls other than CAN, SUB and ESC are **not
                     // executed** while recognising the first part of a device
@@ -495,14 +501,14 @@ impl<'a> Term<'a> {
                     // consume the marker position.
                 } else if let Some(m) = Marker::from_private(b) {
                     self.private = m;
-                    self.st = State::DcsParam;
+                    self.st = Node::DcsParam;
                 } else {
-                    self.st = State::DcsParam;
+                    self.st = Node::DcsParam;
                     self.dcs_param_byte(b);
                 }
             }
-            State::DcsParam => self.dcs_param_byte(b),
-            State::DcsIntermediate => {
+            Node::DcsParam => self.dcs_param_byte(b),
+            Node::DcsInter => {
                 if b.is_c0() || b == StreamByte::DEL {
                     // ignored, as above
                 } else if b.is_csi_intermediate() {
@@ -513,15 +519,15 @@ impl<'a> Term<'a> {
                     // `30-3F` after an intermediate: the parameter string is
                     // over, so a digit here is malformed. The merged arm walked
                     // back into `dcs_param` and accepted it.
-                    self.st = State::DcsIgnore;
+                    self.st = Node::DcsIgnore;
                 }
             }
-            State::DcsPassthrough => {
+            Node::DcsPass => {
                 if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
                     self.dispatch_dcs();
                     self.st = self.ground();
                 } else if b == StreamByte::ESC {
-                    self.st = State::DcsEsc;
+                    self.st = Node::DcsEsc;
                 } else if b == StreamByte::BEL {
                     self.dispatch_dcs();
                     self.st = self.ground();
@@ -532,18 +538,18 @@ impl<'a> Term<'a> {
                     self.osc_push(b);
                 }
             }
-            State::DcsIgnore => {
+            Node::DcsIgnore => {
                 if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
                     self.st = self.ground();
                 } else if b == StreamByte::ESC {
                     // Not `DcsEsc`: there is nothing to dispatch, so ST and a
                     // cancel are the same outcome here.
-                    self.st = State::Escape;
+                    self.st = Node::Escape;
                 } else if b == StreamByte::BEL {
                     self.st = self.ground();
                 }
             }
-            State::DcsEsc => {
+            Node::DcsEsc => {
                 if b == StreamByte::ST_FINAL {
                     self.dispatch_dcs();
                     self.st = self.ground();
@@ -552,20 +558,21 @@ impl<'a> Term<'a> {
                     // string. The payload is dropped, not acted on.
                     self.osc_reset();
                     self.dcs_final = None;
-                    self.st = State::Escape;
+                    self.st = Node::Escape;
                     self.control(b);
                 }
             }
             // `ESC Y row col` — two bias-0x20 coordinate bytes, collected
             // here because they are parser state, not parameters.
-            State::Vt52Row => {
-                self.st = State::Vt52Col(Vt52Coord::from_wire(b));
+            Node::Vt52Row => {
+                self.vt52_row = Vt52Coord::from_wire(b);
+                self.st = Node::Vt52Col;
             }
-            State::Vt52Col(row) => {
-                self.vt52_address(row, b);
+            Node::Vt52Col => {
+                self.vt52_address(self.vt52_row, b);
                 self.st = self.ground();
             }
-            State::OscEsc => {
+            Node::OscEsc => {
                 if b == StreamByte::ST_FINAL {
                     self.osc_term = StringTerm::St;
                     self.dispatch_osc();
@@ -575,11 +582,11 @@ impl<'a> Term<'a> {
                     // cancel the control string". The payload is dropped, not
                     // dispatched, and the byte begins a new escape.
                     self.osc_reset();
-                    self.st = State::Escape;
+                    self.st = Node::Escape;
                     self.control(b);
                 }
             }
-            State::StringIgnore => {
+            Node::StringIgnore => {
                 if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
                     self.st = self.ground();
                     return;
@@ -591,10 +598,10 @@ impl<'a> Term<'a> {
                 if b == StreamByte::BEL {
                     self.st = self.ground();
                 } else if b == StreamByte::ESC {
-                    self.st = State::Escape;
+                    self.st = Node::Escape;
                 }
             }
-            State::CsiIntermediate => {
+            Node::CsiInter => {
                 if b.is_c0() {
                     // williams gives `csi_intermediate` the same execute action
                     // as `csi_param`. This arm had none, so a C0 fell through
@@ -607,10 +614,10 @@ impl<'a> Term<'a> {
                 } else if b == StreamByte::DEL {
                     // ignored, per williams
                 } else if !b.is_csi_intermediate() {
-                    self.st = State::CsiIgnore;
+                    self.st = Node::CsiIgnore;
                 }
             }
-            State::CsiIgnore => {
+            Node::CsiIgnore => {
                 // Consume to the final byte and dispatch nothing.
                 if b.is_c0() {
                     self.execute(b);
@@ -620,8 +627,8 @@ impl<'a> Term<'a> {
             }
             // `[[source: williams]]`'s `csi_entry`. Its whole reason to exist
             // is the marker rule: `3C-3F` is collected *here* and rejected in
-            // `csi_param`. See `State::CsiEntry`.
-            State::CsiEntry => {
+            // `csi_param`. See `Node::CsiEntry`.
+            Node::CsiEntry => {
                 if b.is_c0() {
                     // `[[source: williams]]`: execute and **stay in
                     // `csi_entry`**. A C0 does not consume the marker
@@ -633,17 +640,17 @@ impl<'a> Term<'a> {
                     // Ignored, and likewise does not consume the position.
                 } else if let Some(m) = Marker::from_private(b) {
                     self.private = m;
-                    self.st = State::CsiParams;
+                    self.st = Node::CsiParams;
                 } else {
                     // Everything else behaves exactly as it does one byte
                     // later, so it is the same code -- the states differ in
                     // one transition and should differ in one branch.
-                    self.st = State::CsiParams;
+                    self.st = Node::CsiParams;
                     self.csi_param_byte(b);
                 }
             }
-            State::CsiParams => self.csi_param_byte(b),
-            State::OscString => {
+            Node::CsiParams => self.csi_param_byte(b),
+            Node::OscString => {
                 if self.encoding != InputEncoding::Utf8 && b == StreamByte::ST_8BIT {
                     // `9C` is ST outside UTF-8. Without this the terminator
                     // became payload and the string never ended.
@@ -655,7 +662,7 @@ impl<'a> Term<'a> {
                     self.dispatch_osc();
                     self.st = self.ground();
                 } else if b == StreamByte::ESC {
-                    self.st = State::OscEsc;
+                    self.st = Node::OscEsc;
                 } else if b.is_c0() {
                     // `[[source: williams]]`'s `osc_string` takes the *ignore*
                     // action on `01-17,19,1C-1F`; only `20-7F` is `osc_put`.
@@ -716,7 +723,7 @@ impl<'a> Term<'a> {
             self.st = self.ground();
         } else if b.is_csi_intermediate() {
             self.csi_inter = Some(b);
-            self.st = State::CsiIntermediate;
+            self.st = Node::CsiInter;
         } else if b == StreamByte::DEL {
             // `[[source: williams]]` ignores DEL here: not a parameter, not an
             // error. Treating it as malformed would discard a valid sequence.
@@ -725,7 +732,7 @@ impl<'a> Term<'a> {
             // point -- `[[source: williams]]` sends `3C-3F` to `csi_ignore`
             // from `csi_param`. Consume to the final byte rather than returning
             // to Ground, which printed the remainder of the sequence as text.
-            self.st = State::CsiIgnore;
+            self.st = Node::CsiIgnore;
         }
     }
 
@@ -734,7 +741,7 @@ impl<'a> Term<'a> {
     #[inline]
     fn dcs_param_byte(&mut self, b: StreamByte) {
         if b.is_c0() || b == StreamByte::DEL {
-            // Ignored, not executed and not an error. See `State::DcsEntry`.
+            // Ignored, not executed and not an error. See `Node::DcsEntry`.
         } else if let Some(d) = b.as_ascii_digit() {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
@@ -755,14 +762,14 @@ impl<'a> Term<'a> {
             self.nparam = self.nparam.next_capped();
         } else if b.is_csi_intermediate() {
             self.csi_inter = Some(b);
-            self.st = State::DcsIntermediate;
+            self.st = Node::DcsInter;
         } else if let Some(f) = FinalByte::from_stream(b) {
             self.dcs_hook(f);
         } else {
             // `3A` colon and `3C-3F` past first position. williams sends both
             // to `dcs_ignore`; unlike CSI there is no ctlseqs sub-parameter
             // form to accommodate here, so the spec rule stands unmodified.
-            self.st = State::DcsIgnore;
+            self.st = Node::DcsIgnore;
         }
     }
 
@@ -773,8 +780,8 @@ impl<'a> Term<'a> {
     fn dcs_hook(&mut self, f: FinalByte) {
         self.dcs_final = Some(f);
         self.st = match Dcs::parse(self.csi_inter, f) {
-            Dcs::Unsupported => State::DcsIgnore,
-            _ => State::DcsPassthrough,
+            Dcs::Unsupported => Node::DcsIgnore,
+            _ => Node::DcsPass,
         };
     }
 
@@ -822,7 +829,7 @@ impl<'a> Term<'a> {
             // every state.
             if matches!(
                 self.st,
-                State::Ground | State::Vt52Ground | State::Utf8 { .. }
+                Node::Ground | Node::Vt52Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
             ) {
                 return false; // nothing in progress; Ground executes it itself
             }
@@ -835,22 +842,30 @@ impl<'a> Term<'a> {
             return false;
         }
         match self.st {
-            State::Ground
-            | State::Vt52Ground
-            | State::Utf8 { .. }
+            Node::Ground
+            | Node::Vt52Ground
+            | Node::Utf8One
+            | Node::Utf8Two
+            | Node::Utf8Three
             // VT52 coordinates are raw bytes, not a parameter string:
             // `ESC Y` takes the next two whatever they are.
-            | State::Vt52Row
-            | State::Vt52Col(_)
+            | Node::Vt52Row
+            | Node::Vt52Col
             // Control strings: ESC is half of ST.
-            | State::OscString
-            | State::OscEsc
-            | State::DcsPassthrough
-            | State::DcsEsc
-            | State::DcsIgnore
-            | State::StringIgnore => false,
+            | Node::OscString
+            | Node::OscEsc
+            | Node::DcsPass
+            | Node::DcsEsc
+            | Node::DcsIgnore
+            | Node::StringIgnore => false,
+            // A sequence in progress is abandoned and a fresh escape begun --
+            // in whichever protocol is live, which the node already says.
+            Node::Vt52Escape => {
+                self.st = Node::Vt52Escape;
+                true
+            }
             _ => {
-                self.st = State::Escape;
+                self.st = Node::Escape;
                 true
             }
         }

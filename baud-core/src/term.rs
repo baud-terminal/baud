@@ -210,7 +210,25 @@ pub struct Term<'a> {
     pub(crate) cy: Row,
     pub(crate) cols: Cols,
     pub(crate) rows: Rows,
-    pub(crate) st: State,
+    /// Where the parser stands in `parse::graph`.
+    pub(crate) st: Node,
+    /// The bits of a multi-byte character so far.
+    ///
+    /// **Beside the node rather than inside it**, because a graph is indexed
+    /// by a small integer and an accumulator is not one. That is safe here for
+    /// a reason worth stating, since this repo has broken chunk-invariance
+    /// twice with a value carried between two functions: the only edges *into*
+    /// `Utf8One/Two/Three` carry `Act::Utf8Start`, which writes both fields, so
+    /// a stale value cannot be read -- the accumulator is written on entry to
+    /// the only nodes that read it. `remaining` needs no field at all: which of
+    /// the three nodes the parser is in *is* the count.
+    pub(crate) utf8_acc: Utf8Acc,
+    /// The shortest-form floor for the lead byte's length, carried because the
+    /// node cannot distinguish "second byte of three" from "third of four".
+    /// Without it an overlong decodes to a real character.
+    pub(crate) utf8_min: Utf8Min,
+    /// The row byte of `ESC Y row col`, on the same argument.
+    pub(crate) vt52_row: Vt52Coord,
     pub(crate) params: [Option<Param>; ParamIdx::CAPACITY],
     /// How many parameter positions the current sequence has produced.
     ///
@@ -569,7 +587,10 @@ impl<'a> Term<'a> {
             cy: Row::ZERO,
             cols: cols.clamp(MAX_COLS),
             rows: rows.clamp(MAX_ROWS),
-            st: State::Ground,
+            st: Node::Ground,
+            utf8_acc: Utf8Acc::lead(0),
+            utf8_min: Utf8Min::Two,
+            vt52_row: Vt52Coord::from_wire(StreamByte::SP),
             params: [None; ParamIdx::CAPACITY],
             nparam: ParamIdx::FIRST,
             psub: SubParams::NONE,

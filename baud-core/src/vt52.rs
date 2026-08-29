@@ -32,7 +32,7 @@ impl<'a> Term<'a> {
             Vt52::EraseToEndOfScreen => self.erase_display(EraseExtent::ToEnd),
             Vt52::EraseToEndOfLine => self.erase_line(EraseExtent::ToEnd),
             // Two coordinate bytes follow; the state machine collects them.
-            Vt52::DirectAddress => self.st = State::Vt52Row,
+            Vt52::DirectAddress => self.st = Node::Vt52Row,
             Vt52::Identify => self.report(Report::Vt52Identity),
             Vt52::ExitVt52 => self.set_terminal_mode(TerminalMode::Ansi),
             Vt52::KeypadApplication => self.keypad = KeypadMode::Application,
@@ -55,10 +55,10 @@ impl<'a> Term<'a> {
     /// Read only when a sequence *ends*, never in the byte loop -- which is the
     /// point of having two ground states at all.
     #[inline(always)]
-    pub(crate) fn ground(&self) -> State {
+    pub(crate) fn ground(&self) -> Node {
         match self.terminal_mode {
-            TerminalMode::Ansi => State::Ground,
-            TerminalMode::Vt52 => State::Vt52Ground,
+            TerminalMode::Ansi => Node::Ground,
+            TerminalMode::Vt52 => Node::Vt52Ground,
         }
     }
 

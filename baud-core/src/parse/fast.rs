@@ -292,7 +292,7 @@ impl<'a> Term<'a> {
             // missing from the AVX2 mask, so a `DEL` inside a 32-byte block
             // joined a run while one in the tail did not.
             // `every_scanner_agrees_on_what_is_printable` pins them together.
-            let printable = self.st == State::Ground
+            let printable = self.st == Node::Ground
                 && StreamByte::from_stream(self.s.arena[b + i]).is_printable();
             if printable {
                 // SAFETY: caller established whatever S requires.
@@ -308,10 +308,10 @@ impl<'a> Term<'a> {
             // complete CSI sequences are handled in bulk; anything straddling
             // the read boundary falls through to the state machine.
             // No VT52 check here, deliberately. VT52 has its own ground state
-            // (`State::Vt52Ground`), so `st == Ground` already excludes it and
+            // (`Node::Vt52Ground`), so `st == Ground` already excludes it and
             // the ANSI path pays nothing. An explicit mode test in this loop
-            // cost 4% of the cells path -- see `State::Vt52Ground`.
-            if self.st == State::Ground
+            // cost 4% of the cells path -- see `Node::Vt52Ground`.
+            if self.st == Node::Ground
                 && StreamByte::from_stream(self.s.arena[b + i]) == StreamByte::ESC
             {
                 let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
@@ -334,7 +334,7 @@ impl<'a> Term<'a> {
             // `control` -- a state-machine match, a `State::Utf8` transition
             // and a re-entry, per byte. `Term::utf8_share` measures those bytes
             // at 14.5% of btop and 28.2% of vim.
-            if self.st == State::Ground && self.encoding == InputEncoding::Utf8 {
+            if self.st == Node::Ground && self.encoding == InputEncoding::Utf8 {
                 let (at, lim) = (ByteLen::from_index(i), ByteLen::from_index(nn));
                 if let Some(used) = self.fast_utf8::<S>(base, at, lim) {
                     i += used.index();
