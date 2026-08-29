@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#and-on-real-capture-where-it-is-behind) — 1.03–4.10× on committed capture, with matched scrollback |
+| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.03–4.10× on committed capture |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -117,29 +117,10 @@ allocated nothing still cost 22%, because the array grew past cache.
 
 ## The number
 
-*Apple M5 Max, 2026-08-28, commit `e4505e7`, **on mains**, in-memory transport,
-medians of 9, interleaved, two runs quoted. ghostty is built from an unchanged
-checkout and is the control — it reads 1117.4 / 1116.8 across the two runs,
-0.05% apart, which is what makes the rest of the column readable. Full table and
-every caveat in [MEASUREMENTS.md](MEASUREMENTS.md).*
-
-| core | streaming | TUI redraw |
-|---|---|---|
-| **baud** (spans) | **2498.3 / 2433.1** MB/s | **3005.7 / 2926.3** MB/s |
-| **baud** (cells, templated) | **1702.4 / 1661.8** | **1574.3 / 1558.9** |
-| **baud** (cells, computed) | **1676.9 / 1661.2** | **1578.4 / 1510.1** |
-| ghostty (libghostty-vt) | 1117.4 / 1116.8 | 1049.8 / 1047.5 |
-| termwiz (wezterm) parse only | 374.4 / 376.5 | 367.9 / 366.9 |
-| alacritty_terminal | 219.9 / 211.1 | 272.6 / 268.7 |
-| vt100 crate | 169.9 / 168.3 | 220.9 / 219.1 |
-| wezterm (full terminal) | 17.3 / 17.8 | 31.9 / 32.2 |
-
-**Spans: 2.24x ghostty streaming, 2.86x TUI. Cells: 1.50x and 1.50x.**
-
-## And on real capture
-
-The table above is the two synthetic payloads, which is what multibench could
-build until now. Driving every core with the committed recordings instead:
+*Apple M5 Max, in-memory transport, medians of 9, interleaved and rotated.
+Every core is driven with the same bytes and given 10,000 lines of scrollback.
+Full tables, other hosts, and every caveat in
+[MEASUREMENTS.md](MEASUREMENTS.md).*
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
@@ -152,108 +133,19 @@ build until now. Driving every core with the committed recordings instead:
 | `utf8/vim-unicode.raw` | **451.2** | 354.0 | 290.3 | **1.27x** |
 | `utf8/cat-cjk.raw` | **403.7** | 391.1 | 229.8 | **1.03x** |
 
-**Ahead on all eight — after a harness bug that was ours, not ghostty's.**
+Ahead on all eight. These are committed recordings of real programs, in
+`baud-core/tests/recordings/`; synthetic payloads read higher than any of them
+and are reported separately.
 
-An earlier version of this table had baud at **0.60x** on `cat-cjk` and drew
-conclusions from it. `ghostty_terminal_new` takes no scrollback argument and
-starts with what its header calls "reasonable defaults e.g. around scrollback
-limits"; queried from the library those are *unlimited lines* and **10,000
-bytes**, pruned at a page granularity ghostty documents as ~400 KB — so it
-retained essentially no history. multibench meanwhile hands alacritty and vt100
-`10_000` **lines** and baud carries `SB = 10_000`. Three cores were keeping ten
-thousand lines and the fourth was keeping none.
+Two things belong with the number rather than under it:
 
-Setting ghostty to the same 10,000 lines moves exactly the rows it should:
-`git-log` 853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 → 391.1 —
-the three scroll-heavy recordings — while the payloads that never scroll stay
-within noise. That is the mechanism confirmed rather than a correlation.
-
-**A comparison is only like-for-like in the dimensions someone thought to set**,
-and ghostty was the one core left on its defaults because its constructor does
-not ask for them.
-
-**And baud is still doing strictly more work on the CJK rows.**
-ghostty's `ModeEntry` defaults to `false` and mode **2027** carries no explicit
-default, so libghostty-vt does no grapheme segmentation unless an application
-asks for it. baud clusters always and reports `?2027` as permanently set.
-
-Skipping segmentation the way mode 2027 off does puts baud at **344** on
-cat-cjk (from 229) and **369** on less-cjk (from 241). Segmentation is 25–45%
-of baud's UTF-8 throughput, and the arm writes 5.9% *more* cells while doing
-it, because an unclustered combining mark becomes its own cell. So the CJK rows
-above have baud clustering and ghostty not.
-
-That is a caveat, not an excuse. baud's clustering passes all 766 cases of
-`GraphemeBreakTest.txt`, a ZWJ emoji sequence takes the columns of one glyph,
-and combining marks attach to their base instead of being discarded — which
-they were, before it existed. The lead is making segmentation cheaper, not
-removing it.
-
-Where the lead is largest is where the architecture is doing the work rather
-than the parser: `less-pager` is the alternate-screen rotation and the
-used-extent mark, `asciiquarium` is escape density against the CSI fast path,
-`git-log` and `cat-scroll` are the spans representation on scrolling text.
-
-## The synthetic payloads went **down** while every real recording went up
-
-This is the most important caveat on the table above, and it is not a small
-one. Over one session, measured with `ingest` against the same starting commit:
-
-| real capture | before | after | |
-|---|---|---|---|
-| `less-pager.raw` | 26.6 | **943** | **35x** |
-| `vim-unicode.raw` | 246 | **404** | **+64%** |
-| `btop.raw` | 452 | **619** | **+37%** |
-| `cat-scroll.raw` | 778 | **885** | **+14%** |
-| `git-log.raw` | 990 | **1048** | +6% |
-| `asciiquarium.raw` | 301 | **316** | +5% |
-| `cat-cjk.raw`, `less-cjk.raw` | *did not exist* | 227, 238 | — |
-
-| synthetic payload | before | after | |
-|---|---|---|---|
-| `payload::streaming`, cells | 1327 | 1297 | -2.3% |
-| `payload::streaming`, runs | 1714 | 1707 | flat |
-| `payload::tui`, cells | 1414 | 1324 | **-6.4%** |
-| `payload::tui`, runs | 1470 | 1283 | **-12.7%** |
-
-Two causes, and neither is avoidable:
-
-* **Correctness.** Every operation in baud could split a double-width character
-  in half, and erases did nothing at all on the alternate screen in `Runs`
-  mode. Fixing both costs work on every write, and the synthetic payloads are
-  pure ASCII, so they pay it and collect none of it.
-* **A used-extent mark** makes blanking stop where the text stops. It is worth
-  72-82% of all blanking on real scrolling capture and **16%** on
-  `payload::streaming`, which emits an SGR every 232 bytes and keeps defeating
-  the check. `payload::tui` barely scrolls at all, so it pays the bookkeeping
-  and collects nothing.
-
-**So read the table above as a comparison, not as a trend.** It is the only
-number here measured against other implementations, because multibench drives
-every core with the same payload -- but `payload::tui`'s escape density matches
-no real program, and `MEASUREMENTS.md` records real capture running at 131-159
-MB/s where it reaches 229-240. The recordings are the better guide to what
-changed, and they are all in `baud-core/tests/recordings/`.
-
-**The largest single change was deleting a measurement, not writing code.**
-`Scan::run` was a scalar byte loop carrying a comment that a `core::simd`
-version had "measured a 12% regression". That measurement was taken on a
-harness which reports the same ~230 MB/s for builds differing by 2.5x, and it
-had kept the hottest loop in the project scalar. Re-measured properly it is
-**+41% on spans**. The old claim was half right and generalised: runs really
-are short on escape-dense capture, where the vector version is flat -- but not
-on text, which is what `cat`, logs and build output are.
-
-**Cells used to be the weak half and no longer is.** Earlier editions of this
-file said "level on cells", then "behind on cells" at 908 against 1124 -- both
-true when written. Three changes closed it: `put_ascii_run` was a scalar loop
-writing one eight-byte cell per store while the blanking path beside it used
-`slice::fill` and vectorised; a 1 MB template buffer was filled on every style
-miss and read by nothing; and the grapheme lookback ran two binary searches per
-codepoint that nothing guarded. On both payloads the ranges no longer overlap
-ghostty's, in either run.
-
-Both modes ship; `OpMode` is fixed at startup.
+* **baud clusters, ghostty does not.** libghostty-vt's mode 2027 carries no
+  default, so it does no grapheme segmentation unless an application asks.
+  baud always does, and it is 25-45% of baud's UTF-8 throughput — so the CJK
+  rows above are not comparing equal work.
+* **Throughput tracks escape density, not content.** A payload's ratio of
+  escape sequences to text is what these numbers measure, which is why
+  recordings are the guide and synthetic payloads are not.
 
 ## Layout
 
@@ -309,11 +201,10 @@ confident guesses more than once, and the commit log says where.
   MEASUREMENTS.md are isolated cost models. Shaping is the largest unknown: a
   warm glyph-cache hit is 1.1 ns and a fontconfig fallback is 245 µs, a
   220,000× cliff.
-- **Grapheme clusters.** `Width` is per codepoint; it should be per cluster.
-  The width table is hand-rolled and measured 5.6% wrong across 194,528
-  codepoints.
 - **Reflow, selection, search.** All need random access by `(line, column)`
   into variable-length spans.
+- **Scrollback as a feature.** Lines above the viewport are stored, but nothing
+  reads them — there is no accessor, so it is storage rather than scrollback.
 - **Concurrency and GPU.** Unevaluable on the hardware to hand.
 
 ## Releases
