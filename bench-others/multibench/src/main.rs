@@ -98,6 +98,38 @@ fn main() {
         return;
     }
 
+    // **Real capture, when asked for.** The two payloads above are synthetic,
+    // and `CLAUDE.md` records that `payload::tui`'s escape density matches no
+    // real program -- real capture runs at 131-159 MB/s where it reaches
+    // 229-240. Every comparison against another implementation has been made
+    // on those two, which makes the ratios a statement about synthetic input.
+    //
+    // `RECORDINGS="a.raw,b.raw"` swaps in two files from
+    // `baud-core/tests/recordings/`, so the same interleaved, rotated harness
+    // drives every core with bytes a real program actually emitted. The names
+    // are printed in the header, because a table whose columns are "streaming"
+    // and "TUI" while holding something else is worse than no table.
+    let (stream, tui, labels) = match std::env::var("RECORDINGS") {
+        Ok(v) => {
+            let names: Vec<&str> = v.split(',').map(str::trim).collect();
+            assert_eq!(names.len(), 2, "RECORDINGS wants exactly two names");
+            let load = |n: &str| {
+                let p = format!(
+                    "{}/../../baud-core/tests/recordings/{n}",
+                    env!("CARGO_MANIFEST_DIR")
+                );
+                std::fs::read(&p).unwrap_or_else(|e| panic!("{p}: {e}"))
+            };
+            let (a, b) = (load(names[0]), load(names[1]));
+            let l = [
+                names[0].rsplit('/').next().unwrap_or(names[0]).to_string(),
+                names[1].rsplit('/').next().unwrap_or(names[1]).to_string(),
+            ];
+            (a, b, l)
+        }
+        Err(_) => (stream, tui, ["streaming".into(), "TUI redraw".into()]),
+    };
+
     const REPS: usize = 9;
 
     // Interleaved and rotated, not blocked. Rep-major order means thermal drift
@@ -125,7 +157,9 @@ fn main() {
     );
     println!(
         "  {:<28} {:>21}  {:>21}",
-        "core", "streaming median [min-max]", "TUI median [min-max]"
+        "core",
+        format!("{} median [min-max]", labels[0]),
+        format!("{} median [min-max]", labels[1])
     );
     for (ci, label) in CORES.iter().enumerate() {
         if samples[ci][0][0].is_nan() {
