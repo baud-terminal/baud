@@ -498,9 +498,15 @@ impl<'a> Term<'a> {
     #[inline(always)]
     pub(crate) fn put_run(&mut self, base: BytePos, mut off: ByteLen, mut n: ByteLen) {
         // Printable ASCII is blitted and never reaches `put_cp`, so
-        // `ClusterBreak` does not see it. Reset, or an emoji after `a` would be
-        // judged against the emoji before it. One store per *run*, not per
-        // byte, so it is off the per-byte path this file is careful about.
+        // `ClusterBreak` does not see it and has to be told. One store per
+        // *run*, not per byte, so it is off the per-byte path this file is
+        // careful about.
+        //
+        // **`new`, and `after_ascii_run` exists to say why that is enough.**
+        // The truthful state is `prev = Some(Other)`, because printable ASCII
+        // is class `Other` -- but the two are *observationally equivalent*
+        // here, and the reset is 1.5% cheaper on cat-cjk. See
+        // `ClusterBreak::after_ascii_run` for the argument.
         self.cluster = ClusterBreak::new();
         // Hoisted: a mode cannot change inside a run, and reading it per
         // iteration cost 12% of streaming throughput -- measured, not guessed.

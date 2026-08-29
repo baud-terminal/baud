@@ -221,6 +221,40 @@ impl ClusterBreak {
         ClusterBreak::default()
     }
 
+    /// The truthful state after a run of **printable ASCII**, and a record of
+    /// why `put_run` does not use it.
+    ///
+    /// A blitted ASCII run never reaches `put_cp`, so the machine has to be
+    /// told about it, and `put_run` tells it by resetting to `new()`. That
+    /// says `prev = None`, while printable ASCII is class `Other`, so the
+    /// truthful state is this one. Every other field agrees with `new()` for
+    /// good reasons: an ASCII character is not pictographic, not a regional
+    /// indicator and not `InCB`.
+    ///
+    /// **The two are observationally equivalent, and using the truthful one
+    /// costs 1.5%.** The difference could only show through a rule that reads
+    /// `prev`, and every path that could is closed:
+    ///
+    /// * a combining mark after ASCII attaches either way, because `put_cp`
+    ///   routes `Width::ZERO` to `attach_mark` whatever the break decision
+    ///   was;
+    /// * a `ZWJ` after ASCII opens no GB11 lookback in either state, because
+    ///   GB11 needs a pictographic *before* the joiner;
+    /// * a regional indicator after ASCII starts with `RiParity::Even` in
+    ///   both.
+    ///
+    /// Measured with the truthful state: cat-cjk 401.5-403.7 against
+    /// 407.3-411.3, every test and 56 properties at 20,000 cases identical,
+    /// `cells_written` byte-identical. So the reset is not a shortcut that
+    /// happens to work -- it is equivalent, and this function exists so the
+    /// next reader does not have to re-derive that, or "fix" it for 1.5%.
+    pub fn after_ascii_run() -> ClusterBreak {
+        ClusterBreak {
+            prev: Some(GraphemeClass::Other),
+            ..ClusterBreak::default()
+        }
+    }
+
     /// Is the machine in the state where a run of ordinary characters needs no
     /// work at all?
     ///
