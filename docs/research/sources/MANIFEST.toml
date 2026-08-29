@@ -24,6 +24,7 @@
 #   F  text sequence data structures
 #   G  text encoding, width and grapheme clustering
 #   H  terminal input: key encoding and the extensions to it
+#   I  instruction-set dispatch and how per-ISA code is organised
 
 [sources.simdjson]
 key    = "simdjson"
@@ -883,3 +884,35 @@ group  = "A"
 # Table 6(b) is an **Apple M1**, the same architecture class this project
 # measures on, so its Chinese column is directly comparable rather than a
 # cross-machine number of the kind CLAUDE.md rules out.
+
+# **Group I exists because an architectural proposal needed checking, not
+# because a note wanted writing.** The question was whether to split
+# `baud-core` into per-instruction-set crates the way C++ SIMD libraries split
+# translation units. Both sides of that turn on documented toolchain rules
+# rather than on measurement, and neither was in the corpus.
+
+[sources.rust-target-feature]
+key    = "rust-target-feature"
+title  = "RFC 2045: target_feature -- the inlining rules for feature-gated functions"
+author = "Gonzalo Brito Gadeschi and others"
+year   = 2018
+venue  = "The Rust RFC Book"
+url    = "https://rust-lang.github.io/rfcs/2045-target-feature.html"
+file   = "rust-rfc-2045-target-feature.html"
+sha256 = "989ea69aecaf0229e0bbffded8db6477deed1d46a3b493e17d8b297948ca9eda"
+bytes  = 56490
+status = "retrieved"
+group  = "I"
+
+[sources.highway-dispatch]
+key    = "highway-dispatch"
+title  = "Highway FAQ -- dynamic dispatch, foreach_target.h and the per-target translation unit"
+author = "Google"
+year   = 2025
+venue  = "Highway documentation"
+url    = "https://google.github.io/highway/en/master/faq.html"
+file   = "highway-dynamic-dispatch-faq.html"
+sha256 = "f98d4c118f74025045a99e488a3308b246f6153f185b07f8aabb345b91194713"
+bytes  = 42955
+status = "retrieved"
+group  = "I"
