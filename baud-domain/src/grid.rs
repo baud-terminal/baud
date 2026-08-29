@@ -762,6 +762,13 @@ impl<'a> View<'a> {
         }
         let p = self.phys(r);
         let base = p * self.stride.index();
+        // **Two stores, and combining them lost.** A lead and its `WIDE_TAIL`
+        // are sixteen contiguous bytes, so one wide store should serve --
+        // `copy_from_slice(&[lead, t])` measured **662-690 against 690-709**,
+        // because the pair is built on the stack first and that costs more
+        // than the store it saves. This is the dominant write on CJK text
+        // (69% of runs are one character, so the vectored run writer never
+        // sees them), which is why it was worth trying and worth recording.
         self.cells[base + x] = lead;
         let end = match tail {
             Some(t) if x + 1 < cols => {
