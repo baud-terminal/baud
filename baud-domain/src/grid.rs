@@ -691,6 +691,7 @@ impl<'a> View<'a> {
     /// bare `usize`, because the audit is right that "how many cells" and "how
     /// far along a row" are the same quantity here and a raw integer invites
     /// adding it to something it is not.
+    #[inline(always)]
     pub fn fill_row(&mut self, r: Row, cell: PackedCell) -> RowExtent {
         let cols = self.cols.index();
         if cols == 0 || r.index() >= self.rows.index() {
