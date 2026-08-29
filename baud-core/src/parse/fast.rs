@@ -682,6 +682,71 @@ impl<'a> Term<'a> {
         ByteLen::from_index(took)
     }
 
+    /// Write the heterogeneous stretch that no bulk collector covers.
+    ///
+    /// **This is the other half of the split `Decode`'s doc comment
+    /// describes**, and it was missing. `decoded_run` calls the same
+    /// class-agnostic decoder and then keeps only the `is_wide_ordinary`
+    /// prefix, so a block that decodes four codepoints and finds a kana in
+    /// lane two throws lanes two through four away and lets the scalar loop
+    /// decode them again. That is the "decides by scanning" waste this repo
+    /// already records, and it is why `block-decode` measures **-5% on
+    /// cat-cjk and -12% on `payload::cjk`**.
+    ///
+    /// What is left once the specialised paths take their cases is exactly
+    /// what `cat-cjk.raw` is made of: narrow two-byte characters, which
+    /// `opcost` prices at 6.5 ns and which have no bulk path at all; combining
+    /// marks; and emoji. The recording's wide runs have a **median of 1**, so
+    /// the homogeneous collectors decline constantly and this stretch is most
+    /// of the payload.
+    ///
+    /// Two classes are handed back rather than written here, and both are
+    /// measured rather than assumed:
+    ///
+    /// * **ASCII**, because `put_ascii_run` writes eight cells to one store
+    ///   and reaches 2450 MB/s, which nothing here approaches.
+    /// * **A wide-ordinary run**, because `wide_run`'s const-stride collector
+    ///   beats this decoder on homogeneous text -- 2570 against 2250 on
+    ///   `payload::cjk`, measured as the `block-decode` arm above.
+    ///
+    /// The cost of handing them back is one wasted block decode at the start
+    /// of each run. The gain is that every character in between stops paying
+    /// a scalar `utf8_lead` and an accumulate loop.
+    #[cfg(feature = "mixed-decode")]
+    fn mixed_run<S: Decode>(&mut self, start: BytePos, lim: ByteLen) -> ByteLen {
+        let from = start.index();
+        let end = from + lim.index();
+        if from + baud_domain::LANE_COUNT > end {
+            return ByteLen::ZERO;
+        }
+        // SAFETY: the caller established this scanner's target features.
+        let got = unsafe { S::block(StreamByte::slice_from(&self.s.arena[from..end])) };
+        let mut used = 0usize;
+        for k in 0..got.count.index() {
+            let cp = got.cps[k];
+            if cp.is_ascii() {
+                break;
+            }
+            let w = Width::of(cp, self.width.ambiguous);
+            if w == Width::WIDE && cp.is_wide_ordinary() && self.cluster.ordinary_run_ready() {
+                break;
+            }
+            // Mirrors the scalar path exactly: a literal `EF BF BD` counts as
+            // a replacement there too, so both arms report the same figure.
+            if cp == Codepoint::REPLACEMENT {
+                self.replacements.inc();
+            }
+            self.put_cp(cp, w);
+            used += cp.utf8_len().index();
+        }
+        #[cfg(feature = "instrument")]
+        {
+            self.bytes_utf8.add(used);
+            self.bytes_text.add(used);
+        }
+        ByteLen::from_index(used)
+    }
+
     // `S` is used only by the `block-decode` arm. Keeping the parameter in
     // both spellings means the two differ by one call site rather than by a
     // signature, which is what makes them comparable.
@@ -869,6 +934,21 @@ impl<'a> Term<'a> {
                         ByteLen::from_index(need2),
                     )
                     .index();
+            } else {
+                // **Both collectors declined, so the stretch is heterogeneous.**
+                // Entering here rather than at the top of the loop is the whole
+                // difference between a block decode that is used and one that
+                // is wasted: at the top, a block beginning with ASCII or with a
+                // wide run paid a full decode and returned nothing.
+                #[cfg(feature = "mixed-decode")]
+                {
+                    used += self
+                        .mixed_run::<S>(
+                            BytePos::from_index(from + used),
+                            ByteLen::from_index(end - from - used),
+                        )
+                        .index();
+                }
             }
         }
         Some(ByteLen::from_index(used))

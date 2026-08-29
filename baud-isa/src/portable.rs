@@ -116,24 +116,27 @@ impl Decode for Portable {
         };
         // Two vector steps build the gather: broadcast each offset four times,
         // add `[0,1,2,3]`, push the padding lanes out of range.
-        let quads = block.gather_chars(starts).quads();
-        let mut cps = [Codepoint::REPLACEMENT; DECODE_LANES];
+        // **Vector to the codepoint, not just to the boundary.** This was a
+        // `Codepoint::from_quad` per lane -- the whole scalar decoder, lead
+        // parse, continuation checks and shortest-form test, four times on top
+        // of the vector setup. That is why the block path lost to `wide_run`
+        // on homogeneous text and lost everywhere else too.
+        let (cps, count) = block.gather_chars(starts).decode(starts);
+        if count.is_zero() {
+            return none;
+        }
+        // A shorter prefix is still useful: hand back what decoded and let the
+        // scalar path take the character that did not.
         let mut bytes = 0usize;
-        for k in 0..DECODE_LANES {
-            let Some(cp) = Codepoint::from_quad(quads[k], starts.len(k)) else {
-                // A shorter prefix is still useful: hand back what decoded and
-                // let the scalar path take the character that did not.
-                return match k {
-                    0 => none,
-                    _ => DecodedBlock {
-                        cps,
-                        count: LaneCount::of(k),
-                        bytes: ByteLen::from_index(bytes),
-                    },
-                };
-            };
-            cps[k] = cp;
+        for k in 0..count.index() {
             bytes += starts.len(k).index();
+        }
+        if count.index() < DECODE_LANES {
+            return DecodedBlock {
+                cps,
+                count,
+                bytes: ByteLen::from_index(bytes),
+            };
         }
         DecodedBlock {
             cps,

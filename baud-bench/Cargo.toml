@@ -19,3 +19,4 @@ diag = ["baud-core/diag"]
 # Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
 scan-neon = []
 block-decode = ["baud-core/block-decode"]
+mixed-decode = ["baud-core/mixed-decode"]

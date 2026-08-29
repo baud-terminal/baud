@@ -517,6 +517,111 @@ impl Vectorized<Utf8> {
         }
     }
 
+    /// Decode four gathered characters to codepoints, in vectors, with no
+    /// scalar step per character.
+    ///
+    /// **This is the half that was missing, and its absence is why the block
+    /// decoder lost to the scalar one.** `gather_chars` vectorises finding the
+    /// boundaries; everything after it went through `Codepoint::from_quad`
+    /// once per lane, which re-parses the lead byte, re-checks each
+    /// continuation and re-tests the shortest form -- the whole scalar decoder,
+    /// four times, on top of the vector setup. Measured: the block path ran
+    /// `payload::cjk` at 2250 against `wide_run`'s 2570, and a consumer built
+    /// on it lost 21% of cat-cjk. `wide_run` is faster because it is vector
+    /// *to the codepoint*: swizzle, range-compare, shift, or. This does the
+    /// same for arbitrary lengths.
+    ///
+    /// Three properties of the gather make it possible:
+    ///
+    /// * **Padding is zero.** Bytes past a character's length read as zero, so
+    ///   a one-byte character's continuation lanes contribute nothing without
+    ///   being masked off.
+    /// * **The shift is a function of the length.** `6 * (len - i - 1)`,
+    ///   saturating, which is a vector subtract -- and `core::simd` shifts
+    ///   elementwise by a vector.
+    /// * **The length must be checked against the lead byte.** `CharStarts`
+    ///   derives a length from the *distance to the next lead*, which is what
+    ///   makes it class-agnostic and also means `E4 41` reports length 1 for a
+    ///   byte that declares three. Decoding that as one byte would invent a
+    ///   character. The lead's declared length is `1 + (b >= 0xc0) + (b >=
+    ///   0xe0) + (b >= 0xf0)`, three compares, and it has to agree.
+    ///
+    /// Returns the codepoints and how many **leading** lanes are valid, so a
+    /// character truncated by the end of the block hands back the prefix
+    /// exactly as the scalar path did.
+    #[inline(always)]
+    pub fn decode(self, starts: CharStarts) -> ([Codepoint; START_COUNT], LaneCount) {
+        use core::simd::Select;
+        use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+        use core::simd::num::SimdUint;
+        let q = Simd::<u32, START_COUNT>::from_array(self.quads());
+        let byte = |i: u32| (q >> Simd::splat(i * 8)) & Simd::splat(0xff);
+        let (b0, b1, b2, b3) = (byte(0), byte(1), byte(2), byte(3));
+        let len = Simd::<u32, START_COUNT>::from_array([
+            starts.len(0).index() as u32,
+            starts.len(1).index() as u32,
+            starts.len(2).index() as u32,
+            starts.len(3).index() as u32,
+        ]);
+
+        // The lead byte must declare the length the boundaries implied.
+        let one = Simd::<u32, START_COUNT>::splat(1);
+        let zero = Simd::<u32, START_COUNT>::splat(0);
+        let ge = |v: u32| b0.simd_ge(Simd::splat(v)).select(one, zero);
+        let declared = Simd::splat(1) + ge(0xc0) + ge(0xe0) + ge(0xf0);
+        let is_cont = b0.simd_ge(Simd::splat(0x80)) & b0.simd_lt(Simd::splat(0xc0));
+        let mut ok = declared.simd_eq(len) & !is_cont;
+
+        // Continuation bytes, checked only where the character has them.
+        let cont_ok = |b: Simd<u32, START_COUNT>, i: u32| {
+            let present = len.simd_gt(Simd::splat(i));
+            let shaped = (b & Simd::splat(0xc0)).simd_eq(Simd::splat(0x80));
+            !present | shaped
+        };
+        ok &= cont_ok(b1, 1) & cont_ok(b2, 2) & cont_ok(b3, 3);
+
+        // `0xff >> (len + 1)` is the lead's payload mask for two, three and
+        // four bytes; one byte is the exception and keeps seven bits.
+        let wide_mask = Simd::splat(0xffu32) >> (len + Simd::splat(1));
+        let mask = len
+            .simd_eq(one)
+            .select(Simd::<u32, START_COUNT>::splat(0x7f), wide_mask);
+
+        // `6 * (len - i - 1)`, saturating: the padding lanes are zero, so a
+        // shift of zero on them is harmless and needs no branch.
+        let sh = |i: u32| (len.saturating_sub(Simd::splat(i + 1))) * Simd::splat(6);
+        let cp = ((b0 & mask) << sh(0))
+            | ((b1 & Simd::splat(0x3f)) << sh(1))
+            | ((b2 & Simd::splat(0x3f)) << sh(2))
+            | (b3 & Simd::splat(0x3f));
+
+        // Shortest form, surrogates and the upper bound. `E0 80 AF` decoding
+        // to `/` is the overlong this repo has shipped once.
+        const MIN: [u32; 5] = [0, 0, 0x80, 0x800, 0x1_0000];
+        let min = Simd::<u32, START_COUNT>::from_array([
+            MIN[starts.len(0).index()],
+            MIN[starts.len(1).index()],
+            MIN[starts.len(2).index()],
+            MIN[starts.len(3).index()],
+        ]);
+        ok &= cp.simd_ge(min);
+        ok &= cp.simd_le(Simd::splat(0x10_ffff));
+        ok &= !(cp.simd_ge(Simd::splat(0xd800)) & cp.simd_lt(Simd::splat(0xe000)));
+
+        let n = (ok.to_bitmask() as u32).trailing_ones() as usize;
+        let v = cp.to_array();
+        let mut out = [Codepoint::REPLACEMENT; START_COUNT];
+        for k in 0..n {
+            match Codepoint::new(v[k]) {
+                Some(c) => out[k] = c,
+                // Unreachable given the checks above; refusing the lane is the
+                // safe reading of a disagreement rather than trusting either.
+                None => return (out, LaneCount::of(k)),
+            }
+        }
+        (out, LaneCount::of(n))
+    }
+
     /// The block as four 32-bit groups, one per character, little-endian.
     ///
     /// A plain array and not a `Simd`, so a consumer needs no `portable_simd`

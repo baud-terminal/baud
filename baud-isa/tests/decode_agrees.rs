@@ -102,13 +102,27 @@ fn refuses_or_agrees_on_malformed_input() {
 #[test]
 fn agrees_on_every_byte_pattern_of_a_small_alphabet() {
     // Exhaustive over a mixed alphabet: ASCII, a two-byte, a three-byte, a
-    // continuation byte on its own, and a lead with no continuation.
-    let alpha: [&[u8]; 6] = [b"a", b"\xc3\xa9", b"\xe4\xb8\x80", b"\x80", b"\xe4", b" "];
+    // **four-byte**, a continuation byte on its own, and a lead with no
+    // continuation.
+    //
+    // The four-byte symbol is not decoration. Without it nothing here reaches
+    // the `len == 4` lane, and a vector decoder computes its lead mask and its
+    // shift *from* the length -- so the one arm with no coverage would have
+    // been the one that shifts by 18 and masks to three bits.
+    let alpha: [&[u8]; 7] = [
+        b"a",
+        b"\xc3\xa9",
+        b"\xe4\xb8\x80",
+        b"\xf0\x9f\x98\x80",
+        b"\x80",
+        b"\xe4",
+        b" ",
+    ];
     let mut buf = Vec::with_capacity(64);
-    for a in 0..6 {
-        for b in 0..6 {
-            for c in 0..6 {
-                for d in 0..6 {
+    for a in 0..7 {
+        for b in 0..7 {
+            for c in 0..7 {
+                for d in 0..7 {
                     buf.clear();
                     for i in [a, b, c, d] {
                         buf.extend_from_slice(alpha[i]);

@@ -313,6 +313,31 @@ impl Codepoint {
         Codepoint::new(v)
     }
 
+    /// Is this codepoint one byte in UTF-8, and therefore the business of the
+    /// bulk ASCII scanner rather than of any decoder?
+    pub fn is_ascii(self) -> bool {
+        self.0 < 0x80
+    }
+
+    /// How many bytes this codepoint occupies in UTF-8.
+    ///
+    /// **Derivable because the decoder rejects overlong forms.**
+    /// `Codepoint::from_quad` returns `None` when a value would fit in fewer
+    /// bytes than it was spelled with -- `E0 80 AF` for `/` is the
+    /// path-traversal one this repo has shipped once -- so for any codepoint
+    /// that came out of a `DecodedBlock` the encoded length is a function of
+    /// the value alone. That is what lets a block consumer stop part way
+    /// through and still know where the next character starts, without the
+    /// decoder carrying a parallel array of lengths.
+    pub fn utf8_len(self) -> ByteLen {
+        ByteLen::from_index(match self.0 {
+            0x0000..0x0080 => 1,
+            0x0080..0x0800 => 2,
+            0x0800..0x1_0000 => 3,
+            _ => 4,
+        })
+    }
+
     /// Is this codepoint unconditionally wide, ordinary, and in no lookback
     /// table -- so that both Unicode tries can be skipped?
     ///
