@@ -381,66 +381,155 @@ impl PackedCell {
 /// `len == 0` means the slot is free — a zeroed grid therefore has no marks and
 /// there is nothing to initialise, which is what keeps `Storage` a plain
 /// zeroable block for `new_box_zeroed`.
+/// Which cell buffer a row lives in. Part of a cell's identity: the two
+/// screens are separate buffers, so one row and column names a cell in each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Surface {
+    Primary,
+    Alternate,
+}
+
+/// A row's position in the backing store, **after rotation**.
+///
+/// Distinct from [`Row`], which is a position on the screen. A scroll advances
+/// the rotation, so a screen row names a different physical row afterwards --
+/// and anything remembering something about a *cell* must remember the
+/// physical one, or it describes whatever text later occupies that position.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PhysRow(pub(crate) usize);
+
+impl PhysRow {
+    pub fn of(n: usize) -> PhysRow {
+        PhysRow(n)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
+/// How many times the row a mark slot belongs to has been blanked.
+///
+/// A physical row is not stable identity either: the ring recycles it, so the
+/// same address later holds unrelated text. A generation makes invalidation
+/// **O(1)** -- bumping it strands every slot that named the old contents, where
+/// scanning the table for them would cost more than the blanking.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Default, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct MarkGen(pub(crate) u16);
+
+impl MarkGen {
+    pub const ZERO: MarkGen = MarkGen(0);
+    /// Wrapping is intended: a slot 65,536 blankings stale is indistinguishable
+    /// from a fresh one, and that row has been overwritten thousands of times.
+    pub fn bump(&mut self) {
+        self.0 = self.0.wrapping_add(1);
+    }
+}
+
+/// What identifies the cell a mark attaches to.
+///
+/// **Not `(Row, Col)`, and that was three bugs.** A screen row does not
+/// identify a cell: the grid rotates under it, the ring recycles the row
+/// beneath that, and the alternate screen is a different buffer. Marks keyed on
+/// `(Row, Col)` outlived their cell across a scroll, and the primary screen's
+/// marks were readable from the alternate one.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct MarkKey {
+    /// Physical row, with the surface in the high bit.
+    row: u16,
+    col: u16,
+    generation: u16,
+}
+
+impl MarkKey {
+    const ALT: u16 = 0x8000;
+
+    pub fn new(surface: Surface, row: PhysRow, col: Col, generation: MarkGen) -> MarkKey {
+        debug_assert!(
+            row.index() < MarkKey::ALT as usize,
+            "physical row past the surface bit"
+        );
+        let alt = match surface {
+            Surface::Alternate => MarkKey::ALT,
+            Surface::Primary => 0,
+        };
+        MarkKey {
+            row: row.index() as u16 | alt,
+            col: col.index() as u16,
+            generation: generation.0,
+        }
+    }
+
+    /// Which slot of `n` this key hashes to.
+    ///
+    /// Takes the **high** bits of the product for the measured reason
+    /// `StyleId::bucket` does: the low bits of a multiplicative hash are the
+    /// ones that collide, and `& (n-1)` on the product is the bug that cost
+    /// 112,144 interns.
+    pub fn slot(self, n: usize) -> usize {
+        let key = ((self.row as u64) << 32) ^ ((self.col as u64) << 16) ^ self.generation as u64;
+        (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 55) as usize % n
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct MarkSlot {
-    /// Row and column of the cell these attach to. Only meaningful when
-    /// `len > 0`.
-    pub row: u16,
-    pub col: u16,
+    /// The cell these attach to. Only meaningful when `len > 0`.
+    pub key: MarkKey,
     pub len: u16,
-    /// Padding, and it is load-bearing: `{u16,u16,u16,[u32;3]}` would carry two
-    /// bytes of invisible tail padding, which is the unsound-to-reinterpret
-    /// shape `Run::_pad` already exists to avoid.
-    pub _pad: u16,
-    pub cps: [u32; 3],
+    pub cps: [u32; MarkSlot::CAPACITY],
 }
 
 impl MarkSlot {
-    /// The most marks one cell may carry. Past a base plus two accents, no
-    /// normal orthography stacks further.
-    pub const CAPACITY: usize = 3;
+    /// The most marks one cell may carry.
+    ///
+    /// **Eight, and three was too few for emoji.** The old value was justified
+    /// as "a base plus two accents, past which no normal orthography stacks
+    /// further", which holds for Latin, Devanagari and kana -- and does not
+    /// hold for a ZWJ sequence, which is not orthography. A family emoji is
+    /// seven codepoints attaching six marks to one cell, so three of them were
+    /// dropped and the cell kept a glyph nobody sent: `a_zwj_family_keeps_all_
+    /// of_its_codepoints` fails at the old value.
+    ///
+    /// Eight covers the sequences the recordings carry -- three, four and
+    /// seven codepoints -- with headroom. It does **not** cover every RGI
+    /// sequence: a four-person family with a skin tone on each member is
+    /// eleven codepoints, so ten marks, and those still lose their tail. That
+    /// is a bounded table doing what a bounded table does, and the bound is
+    /// now stated rather than implied by a number.
+    pub const CAPACITY: usize = 8;
 
     pub const EMPTY: MarkSlot = MarkSlot {
-        row: 0,
-        col: 0,
+        key: MarkKey {
+            row: 0,
+            col: 0,
+            generation: 0,
+        },
         len: 0,
-        _pad: 0,
-        cps: [0; 3],
+        cps: [0; MarkSlot::CAPACITY],
     };
 
-    /// Which slot a cell's marks live in, in a table of `n`.
-    ///
-    /// Direct-mapped, and it takes the **high** bits of the product for the
-    /// same measured reason `StyleId::bucket` does: the low bits of a
-    /// multiplicative hash are the ones that collide, and `& (n-1)` on the
-    /// product is the bug that cost 112,144 interns.
-    ///
-    /// Takes `Row` and `Col` rather than two integers. Passing them the wrong
-    /// way round compiles, and would give a plausible index into the wrong
-    /// slot -- the operands-reversed failure `RowBlock` already exists to
-    /// prevent.
-    pub fn index_of(r: Row, c: Col, n: usize) -> usize {
-        let key = ((r.index() as u64) << 16) ^ (c.index() as u64);
-        (key.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 55) as usize % n
-    }
-
-    /// An empty slot keyed to this cell.
-    pub fn for_cell(r: Row, c: Col) -> MarkSlot {
+    /// An empty slot keyed to a cell.
+    pub fn for_cell(key: MarkKey) -> MarkSlot {
         MarkSlot {
-            row: r.index() as u16,
-            col: c.index() as u16,
+            key,
             ..MarkSlot::EMPTY
         }
     }
 
-    /// Does this slot hold marks for that cell?
+    /// Does this slot belong to that cell?
     ///
-    /// A direct-mapped table can hand back somebody else's slot, so every read
-    /// has to ask. This is the check that `StyleId`'s `tmpl_key` needed and did
-    /// not have, which is how DECSCA protection was read from an evicted style.
-    pub fn is_for(self, r: Row, c: Col) -> bool {
-        !self.is_empty() && self.row == r.index() as u16 && self.col == c.index() as u16
+    /// One comparison of a whole [`MarkKey`] rather than a field at a time --
+    /// surface, physical row and generation all have to match. Comparing a
+    /// subset is what the previous version did, and it reported a mark for a
+    /// cell that had been scrolled away.
+    pub fn is_for(self, key: MarkKey) -> bool {
+        !self.is_empty() && self.key == key
     }
 
     pub fn is_empty(self) -> bool {

@@ -234,6 +234,53 @@ impl<'a> Term<'a> {
     /// `#[inline(never)]`: `put_cp` is on the decode path and this is the rare
     /// arm, the same reason `open_gap` and `anywhere_c0` are out of line.
     #[inline(never)]
+    /// What identifies the cell at a screen position, right now.
+    ///
+    /// **Three things, and using fewer was three bugs.** The surface, because
+    /// the two screens are separate buffers; the *physical* row, because the
+    /// grid rotates under the screen row; and the row's generation, because
+    /// the ring recycles physical rows. A key of `(Row, Col)` named a cell
+    /// that had scrolled away, and named the primary screen's cell from the
+    /// alternate one.
+    pub(crate) fn mark_key(&self, r: Row, c: Col) -> MarkKey {
+        let p = self.phys_row(r);
+        MarkKey::new(
+            match self.screen {
+                Screen::Alternate => Surface::Alternate,
+                Screen::Normal => Surface::Primary,
+            },
+            p,
+            c,
+            self.s.mark_gen[p.index() % MAX_ROWS],
+        )
+    }
+
+    /// The screen row's position in the backing store. Mirrors `View::phys`:
+    /// a conditional subtract, because both operands are below `rows`.
+    #[inline(always)]
+    pub(crate) fn phys_row(&self, r: Row) -> PhysRow {
+        let rows = self.rows.index();
+        let y = r.index() + self.active_rot().index();
+        PhysRow::of(if y >= rows { y - rows } else { y })
+    }
+
+    /// Strand every mark on a row, because its contents are being replaced.
+    ///
+    /// One counter, not a table scan: finding the affected slots in a
+    /// direct-mapped table of 512 would cost more per blank than the blanking.
+    #[inline(always)]
+    pub(crate) fn invalidate_marks(&mut self, r: Row) {
+        // **Nothing to strand if nothing was ever attached.** Blanking runs on
+        // every scroll -- 4,200 times a rep on a CJK recording -- and marks are
+        // rare, so the common case must not pay for the rare one. One load and
+        // a predictable branch, against the row arithmetic and a store.
+        if self.marks_live.is_zero() {
+            return;
+        }
+        let p = self.phys_row(r).index() % MAX_ROWS;
+        self.s.mark_gen[p].bump();
+    }
+
     fn attach_mark(&mut self, cp: Codepoint) {
         // A mark with nothing before it on the line has no base to attach to.
         // Dropping it is correct -- `[[source: uax29]]` GB1 puts a boundary at
@@ -242,16 +289,17 @@ impl<'a> Term<'a> {
             self.marks_dropped.inc();
             return;
         }
-        let (r, c) = (self.cy, self.cx.before());
-        let i = MarkSlot::index_of(r, c, NMARK);
-        if !self.s.marks[i].is_for(r, c) {
+        let key = self.mark_key(self.cy, self.cx.before());
+        let i = key.slot(NMARK);
+        if !self.s.marks[i].is_for(key) {
             if !self.s.marks[i].is_empty() {
                 // Someone else's marks. Evicting is the bounded-table
                 // contract: the cell that loses them keeps its base character.
                 self.marks_evicted.inc();
             }
-            self.s.marks[i] = MarkSlot::for_cell(r, c);
+            self.s.marks[i] = MarkSlot::for_cell(key);
         }
+        self.marks_live.inc();
         if !self.s.marks[i].push(cp) {
             self.marks_dropped.inc();
         }
@@ -480,6 +528,10 @@ impl<'a> Term<'a> {
         // hiding that optimisation's effect completely on its first
         // measurement: the counters were identical across a change that
         // halved the work.
+        // Blanking replaces the contents, so anything remembered about those
+        // cells is now about text that is gone. One counter bump strands the
+        // row's marks; see `invalidate_marks`.
+        self.invalidate_marks(r);
         let n = self.view().fill(r, from, to, cell);
         self.cells_written.add(n);
         self.cells_blanked.add(n);
@@ -494,6 +546,7 @@ impl<'a> Term<'a> {
         // `add(cols)` would keep reporting full-width blanking after the write
         // got shorter -- an instrument that cannot show the effect it exists to
         // measure, which is the failure this repo already records twice.
+        self.invalidate_marks(r);
         #[cfg(not(feature = "ceiling-no-blank"))]
         let n = self.view().fill_row(r, cell);
         // The ceiling arm writes nothing and still counts the full row, so both

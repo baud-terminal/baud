@@ -30,6 +30,14 @@ pub struct Storage {
     /// it with [`Term::reply`] and writes it wherever the input came from.
     /// Combining marks, keyed on the cell they attach to. See [`NMARK`].
     pub marks: [MarkSlot; NMARK],
+    /// How many times each physical row has been blanked.
+    ///
+    /// Invalidating a row's marks is bumping one counter. Keyed on the
+    /// *physical* row, so a rotation moves nothing: the content stays where it
+    /// is and only the screen row naming it changes. Shared by both surfaces,
+    /// which over-invalidates and is safe -- the surface is in the key, so a
+    /// bump can only strand marks, never mis-attach them.
+    pub mark_gen: [MarkGen; MAX_ROWS],
     pub reply: [u8; REPLY],
     /// Tab stops, one flag per column.
     ///
@@ -117,6 +125,7 @@ impl Storage {
             // a plain zeroable block for `new_box_zeroed`.
             tabs: [false; MAX_COLS],
             marks: [MarkSlot::EMPTY; NMARK],
+            mark_gen: [MarkGen::ZERO; MAX_ROWS],
             osc: [0; OSC_MAX],
             title: [0; OSC_MAX],
             icon: [0; OSC_MAX],

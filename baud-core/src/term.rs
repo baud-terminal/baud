@@ -426,6 +426,12 @@ pub struct Term<'a> {
     /// Cells written by `put_narrow_run`, the bulk path for runs of ordinary
     /// single-column non-ASCII characters.
     pub cells_narrow: Stat,
+    /// How many marks have been attached, ever.
+    ///
+    /// Read to skip mark invalidation on the overwhelming majority of blanks:
+    /// a payload with no combining marks and no emoji never attaches one, and
+    /// blanking happens on every scroll.
+    pub marks_live: Stat,
     /// The cost map. Off unless `diag` is on; see `Diag`.
     #[cfg(feature = "diag")]
     pub diag: Diag,
@@ -609,6 +615,7 @@ impl<'a> Term<'a> {
             cells_single: Stat::ZERO,
             cells_wide: Stat::ZERO,
             cells_narrow: Stat::ZERO,
+            marks_live: Stat::ZERO,
             #[cfg(feature = "diag")]
             diag: Diag::default(),
             cells_fill: Stat::ZERO,

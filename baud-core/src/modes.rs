@@ -183,8 +183,9 @@ impl<'a> Term<'a> {
     /// overwhelming majority of cells, which is why the marks live in a side
     /// table rather than in `PackedCell`'s eight measured bytes.
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = Codepoint> + '_ {
-        let slot = &self.s.marks[MarkSlot::index_of(r, c, NMARK)];
-        slot.marks().take(if slot.is_for(r, c) {
+        let key = self.mark_key(r, c);
+        let slot = &self.s.marks[key.slot(NMARK)];
+        slot.marks().take(if slot.is_for(key) {
             MarkSlot::CAPACITY
         } else {
             0
