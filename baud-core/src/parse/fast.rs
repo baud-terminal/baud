@@ -682,6 +682,37 @@ impl<'a> Term<'a> {
         ByteLen::from_index(took)
     }
 
+    /// Decode one character without touching any terminal state.
+    ///
+    /// Split out so the loop below can run it **ahead** of the character it is
+    /// currently writing. Nothing here depends on the grid, the cursor or the
+    /// cluster machine, which is the property the pipelined loop trades on --
+    /// and it counts nothing, because a decode that is performed early must
+    /// not be *counted* early if the loop then discards it.
+    #[cfg(feature = "pipeline-decode")]
+    #[inline(always)]
+    fn decode_one(&self, at: BytePos, end: BytePos) -> Option<(Codepoint, Width, ByteLen)> {
+        let (at, end) = (at.index(), end.index());
+        if at >= end {
+            return None;
+        }
+        let (rem, bits, min) = StreamByte::from_stream(self.s.arena[at]).utf8_lead()?;
+        let need = usize::from(rem) + 1;
+        if at + need > end {
+            return None;
+        }
+        let mut acc = Utf8Acc::lead(bits);
+        for k in 1..need {
+            acc = acc.push(StreamByte::from_stream(self.s.arena[at + k]).utf8_continuation()?);
+        }
+        let c = acc.finish(min);
+        Some((
+            c,
+            Width::of(c, self.width.ambiguous),
+            ByteLen::from_index(need),
+        ))
+    }
+
     /// Write the heterogeneous stretch that no bulk collector covers.
     ///
     /// **This is the other half of the split `Decode`'s doc comment
@@ -856,6 +887,78 @@ impl<'a> Term<'a> {
                 )
                 .index();
         }
+        // **Two independent chains in flight instead of one.**
+        //
+        // The counters say this loop retires ~1 instruction a cycle on a core
+        // that retires eight, and that every attempt to remove *instructions*
+        // has measured flat or negative -- the vectorised decoder removed them
+        // and lost, because it lengthened the critical path. So the thing to
+        // attack is the path, and the path is: decode a character, then look
+        // its width up, then break the cluster, then write the cell, then do
+        // it all again for the next one, with nothing overlapping.
+        //
+        // Decoding character N+1 *before* processing character N puts two
+        // chains in the window at once. The decode -- byte loads, `utf8_lead`,
+        // the accumulate, the width trie -- depends on nothing the write of
+        // character N touches, so the out-of-order engine can run them
+        // together. It is the opposite trade from the block decoder: same
+        // instructions, shorter critical path, rather than fewer instructions
+        // on a longer one.
+        //
+        // The lookahead is discarded whenever a collector runs, because those
+        // consume bytes from under it.
+        #[cfg(feature = "pipeline-decode")]
+        {
+            let mut ahead =
+                self.decode_one(BytePos::from_index(from + used), BytePos::from_index(end));
+            while from + used < end {
+                let Some((c2, w2, need2)) = ahead else { break };
+                // Issue the next decode before the serial work below, not
+                // after it. This line is the whole optimisation.
+                ahead = self.decode_one(
+                    BytePos::from_index(from + used + need2.index()),
+                    BytePos::from_index(end),
+                );
+                #[cfg(feature = "instrument")]
+                {
+                    self.bytes_utf8.add(need2.index());
+                    self.bytes_text.add(need2.index());
+                }
+                if c2 == Codepoint::REPLACEMENT {
+                    self.replacements.inc();
+                }
+                self.put_cp(c2, w2);
+                used += need2.index();
+                let before = used;
+                if w2 == Width::WIDE && self.cluster.ordinary_run_ready() {
+                    used += self
+                        .wide_run(
+                            BytePos::from_index(from + used),
+                            ByteLen::from_index(end - from - used),
+                        )
+                        .index();
+                } else if w2 == Width::NARROW
+                    && need2.index() > 1
+                    && self.cluster.ordinary_run_ready()
+                    && self.lead_is(BytePos::from_index(from + used), need2)
+                {
+                    used += self
+                        .narrow_run(
+                            BytePos::from_index(from + used),
+                            ByteLen::from_index(end - from - used),
+                            need2,
+                        )
+                        .index();
+                }
+                if used != before {
+                    // A collector moved the cursor through the stream; what was
+                    // decoded ahead is no longer the next character.
+                    ahead =
+                        self.decode_one(BytePos::from_index(from + used), BytePos::from_index(end));
+                }
+            }
+        }
+        #[cfg(not(feature = "pipeline-decode"))]
         while from + used < end {
             let b0 = StreamByte::from_stream(self.s.arena[from + used]);
             let Some((rem2, bits2, min2)) = b0.utf8_lead() else {
