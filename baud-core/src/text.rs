@@ -384,6 +384,17 @@ impl<'a> Term<'a> {
         let r = self.cy;
         let owner = self.view_ref().lead(r, self.cx.before());
         let key = self.mark_key(r, owner);
+        // **Prices the redundancy a per-cluster API would remove.** All six
+        // continuations of a ZWJ family target the same cell and rebuild this
+        // from unchanged inputs: a grid read to resolve the lead, the key from
+        // screen, rotation and generation, and the hash. Doing it twice costs
+        // what caching it once would save.
+        #[cfg(feature = "attach-probe")]
+        {
+            let o2 = self.view_ref().lead(r, self.cx.before());
+            let k2 = self.mark_key(r, o2);
+            core::hint::black_box(k2.slot(NMARK));
+        }
         let i = key.slot(NMARK);
         if !self.s.marks[i].is_for(key) {
             if !self.s.marks[i].is_empty() {

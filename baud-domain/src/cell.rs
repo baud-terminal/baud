@@ -181,8 +181,8 @@ impl CellFlags {
     /// It also takes the hash off the read path: a cell without this bit has
     /// no marks, and that is the overwhelming majority of cells, answered by
     /// a bit that is already in cache rather than by a probe into 22 KB.
-    /// ghostty reaches the same shape from the other direction: its
-    /// `appendGrapheme` tests `Cell.content_tag` before touching
+    /// `[[source: ghostty-page]]` reaches the same shape from the other
+    /// direction: `appendGrapheme` tests `Cell.content_tag` before touching
     /// `grapheme_map`, so the map is consulted only for cells that have one.
     pub const MARKED: CellFlags = CellFlags(4);
 

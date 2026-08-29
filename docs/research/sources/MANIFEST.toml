@@ -855,6 +855,16 @@ bytes  = 427631
 status = "external"
 group  = "F"
 
+[sources.kitty-text-cache]
+key    = "kitty-text-cache"
+title  = "kitty 6d5d0c4, text-cache.c -- interned multi-codepoint cell text, hashed on write and read by index"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator"
+url    = "https://github.com/kovidgoyal/kitty/blob/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/text-cache.c"
+file   = "kitty-text-cache.c"
+sha256 = "2a40225571f5ce4c874c56388579556052cb08b91da79d98af3867966d981c2a"
+
 [sources.kitty-line]
 key    = "kitty-line"
 title  = "kitty 0.43.1, line.h -- Line, which carries no used extent"
