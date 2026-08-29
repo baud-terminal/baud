@@ -251,7 +251,7 @@ impl<'a> Term<'a> {
             },
             p,
             c,
-            self.s.mark_gen[p.index() % MAX_ROWS],
+            self.s.mark_gen[p.index()],
         )
     }
 
@@ -277,8 +277,10 @@ impl<'a> Term<'a> {
         if self.marks_live.is_zero() {
             return;
         }
-        let p = self.phys_row(r).index() % MAX_ROWS;
-        self.s.mark_gen[p].bump();
+        // Indexed directly: `phys_row` returns a row below `self.rows`, and
+        // `Term::new` bounds that by `MAX_ROWS`. Clamping or a modulo here
+        // would hide a geometry bug rather than trip on it.
+        self.s.mark_gen[self.phys_row(r).index()].bump();
     }
 
     fn attach_mark(&mut self, cp: Codepoint) {
