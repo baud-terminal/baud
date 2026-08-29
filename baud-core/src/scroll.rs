@@ -122,7 +122,14 @@ impl<'a> Term<'a> {
                 // rotation is what moves the cells, and it costs one addition.
                 self.rot = self.rot.advance(1, self.rows);
                 let y = Row::from_index(last);
-                self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
+                // **Only `Runs` has a run table to keep.** `Computed` and
+                // `Templated` materialise into the cells and never read `nrun`
+                // or `promoted`, so both of these were pure cost on the two
+                // modes that carry the headline numbers -- and a scroll is one
+                // per 38 bytes on `cat-scroll.raw`.
+                if self.mode == OpMode::Runs {
+                    self.s.nrun[self.head.plus(y, SB).index()] = RunCount::ZERO;
+                }
                 let n = self.fill_row_counted(y, blank);
                 self.cells_scroll.add(n.index());
                 self.scrolls.inc();
@@ -130,7 +137,14 @@ impl<'a> Term<'a> {
             // `promoted` is indexed by screen row and the screen just moved, so
             // every flag now describes the wrong line. Clearing re-derives from
             // the runs, which `head` has already pointed at the right ones.
-            self.s.promoted[..self.rows.index()].fill(false);
+            //
+            // **Fifty bytes memset per scroll**, and `opcost` puts a scroll at
+            // ~23 ns fixed: a 20-column line runs at 774 MB/s where a
+            // 200-column one reaches 3283, and the gap is what the line costs
+            // rather than what its text does.
+            if self.mode == OpMode::Runs {
+                self.s.promoted[..self.rows.index()].fill(false);
+            }
             return;
         }
         let (rt, rb) = (self.scroll_top, self.scroll_bot);

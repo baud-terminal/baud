@@ -107,6 +107,24 @@ fn main() {
         op("ED to end", &format!("\x1b[J{text60}\r\n"), 1, 62),
         op("IL", &format!("\x1b[L{text60}\r\n"), 1, 62),
         op("DCH", &format!("\x1b[3P{text60}\r\n"), 1, 62),
+        // A scroll, priced by line length. Every row above ends its line, so
+        // every row scrolls; these two isolate what the *line* costs by
+        // changing only how much text precedes the newline. The difference
+        // between them, divided by the 180 columns between them, is the cost
+        // of a column of blanking -- and the 20-column row is close to the
+        // per-scroll floor.
+        op(
+            "LF, 20 columns",
+            &format!("{}\n", "abcdefghij".repeat(2)),
+            1,
+            21,
+        ),
+        op(
+            "LF, 200 columns",
+            &format!("{}\n", "abcdefghij".repeat(20)),
+            1,
+            201,
+        ),
         op(
             "wide CJK",
             &format!("{}\r\n", "\u{4e00}".repeat(30)),
