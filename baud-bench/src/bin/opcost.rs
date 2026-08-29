@@ -1,0 +1,166 @@
+//! What does one operation cost?
+//!
+//! Every other instrument in this repo answers a different question. The
+//! counters say *what happened* -- dispatches, cells, scrolls -- and never how
+//! long any of it took. `ingest` says how fast a whole payload ran and leaves
+//! the attribution to arithmetic. A sampling profile names the **function** the
+//! time was in, which is not the same as the operation: this session read
+//! `dispatch` at 30% and found that skipping the work it appeared to do was
+//! worth 1%, because the arms were inlined into it.
+//!
+//! Two ceiling arms in the same session measured the wrong thing outright.
+//! Stubbing `apply_sgr` looked like +22% and was mostly blanking getting
+//! cheaper, because a frozen rendition means a frozen blank.
+//!
+//! So this measures operations directly. Each row is a payload built from one
+//! operation repeated, driven through the real ingest path, timed in process.
+//! The cost of an operation is the difference between its row and the row that
+//! carries only its bytes -- so `sgr` is priced against the text it is embedded
+//! in, not against nothing.
+//!
+//! ```text
+//! opcost            # every operation, 40 reps
+//! opcost 200        # more reps
+//! ```
+
+use baud_core::{OpMode, Storage, StreamByte, Term};
+
+const TARGET: usize = 1 << 21;
+
+/// A payload built by repeating `unit` until it is about `TARGET` bytes, with
+/// `per` operations per repetition.
+struct Op {
+    name: &'static str,
+    unit: String,
+    /// Operations in one `unit`, for the per-operation column.
+    per: usize,
+    /// Bytes of `unit` that are *not* the operation, so a row can be priced
+    /// against the plain-text row rather than against zero.
+    text: usize,
+}
+
+fn op(name: &'static str, unit: &str, per: usize, text: usize) -> Op {
+    Op {
+        name,
+        unit: unit.to_string(),
+        per,
+        text,
+    }
+}
+
+fn build(o: &Op) -> Vec<u8> {
+    let mut v = Vec::with_capacity(TARGET + o.unit.len());
+    while v.len() < TARGET {
+        v.extend_from_slice(o.unit.as_bytes());
+    }
+    v
+}
+
+fn run(data: &[u8], mode: OpMode, reps: usize) -> f64 {
+    let mut store = Storage::boxed();
+    let mut t = Term::new(&mut store, mode);
+    let mut best = f64::MAX;
+    for _ in 0..reps {
+        let t0 = std::time::Instant::now();
+        let mut at = 0usize;
+        while at < data.len() {
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&data[at..]));
+            let n = f.len();
+            t.feed(base, n);
+            t.commit_read(n);
+            at += n.index();
+        }
+        let s = t0.elapsed().as_secs_f64();
+        // **Minimum, not median.** Every row here is the same shape of work, so
+        // the fastest observed run is the one least disturbed by the rest of
+        // the machine -- and comparing minima across rows compares like with
+        // like. `ingest` quotes medians because it is comparing *builds*, where
+        // a lucky minimum would flatter one of them.
+        best = best.min(s);
+    }
+    data.len() as f64 / best / (1 << 20) as f64
+}
+
+fn main() {
+    let reps: usize = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+
+    // 60 columns of text, which is what a line of `cat` output looks like on a
+    // 200-column grid, so every row carries a comparable amount of text.
+    let text60: String = "abcdefghij".repeat(6);
+    let ops = vec![
+        op("text (no escapes)", &format!("{text60}\r\n"), 0, 62),
+        op("SGR, 16-colour", &format!("\x1b[32m{text60}\r\n"), 1, 62),
+        op(
+            "SGR, truecolour",
+            &format!("\x1b[38;2;10;20;30m{text60}\r\n"),
+            1,
+            62,
+        ),
+        op("SGR, reset only", &format!("\x1b[0m{text60}\r\n"), 1, 62),
+        op("CUP", &format!("\x1b[10;20H{text60}\r\n"), 1, 62),
+        op("EL to end", &format!("\x1b[K{text60}\r\n"), 1, 62),
+        op("ED to end", &format!("\x1b[J{text60}\r\n"), 1, 62),
+        op("IL", &format!("\x1b[L{text60}\r\n"), 1, 62),
+        op("DCH", &format!("\x1b[3P{text60}\r\n"), 1, 62),
+        op(
+            "wide CJK",
+            &format!("{}\r\n", "\u{4e00}".repeat(30)),
+            30,
+            92,
+        ),
+        op(
+            "narrow 2-byte",
+            &format!("{}\r\n", "\u{00e9}".repeat(60)),
+            60,
+            122,
+        ),
+        op(
+            "emoji (astral)",
+            &format!("{}\r\n", "\u{1f680}".repeat(30)),
+            30,
+            122,
+        ),
+    ];
+
+    println!("  one operation at a time, {reps} reps, best of each, 2 MiB per row");
+    println!("  ns/op is the row's cost above the plain-text row, per operation\n");
+    println!(
+        "  {:<20} {:>10} {:>10} {:>12} {:>10}",
+        "operation", "runs MB/s", "cells MB/s", "bytes/op", "ns/op"
+    );
+
+    let mut base_ns_per_byte = 0.0f64;
+    for (i, o) in ops.iter().enumerate() {
+        let d = build(o);
+        let runs = run(&d, OpMode::Runs, reps);
+        let cells = run(&d, OpMode::Computed, reps);
+        let ns_per_byte = 1e9 / (cells * (1 << 20) as f64);
+        if i == 0 {
+            base_ns_per_byte = ns_per_byte;
+        }
+        let (bytes_per_op, ns) = match o.per {
+            0 => (0.0, 0.0),
+            n => {
+                let unit = o.unit.len() as f64;
+                let ops_per_unit = n as f64;
+                // Cost of the whole unit, minus what the same bytes of plain
+                // text would have cost, spread over the operations in it.
+                let unit_ns = unit * ns_per_byte;
+                let text_ns = o.text as f64 * base_ns_per_byte;
+                (
+                    (unit - o.text as f64) / ops_per_unit,
+                    (unit_ns - text_ns) / ops_per_unit,
+                )
+            }
+        };
+        println!(
+            "  {:<20} {:>10.1} {:>10.1} {:>12.1} {:>10.1}",
+            o.name, runs, cells, bytes_per_op, ns
+        );
+    }
+}
