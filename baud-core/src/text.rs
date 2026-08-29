@@ -231,6 +231,32 @@ impl<'a> Term<'a> {
             let mut c = self.cluster_snapshot;
             core::hint::black_box(c.is_break(cp));
         }
+        // **Prices one trie probe pair, to size the merged-table idea before
+        // building it.** `Width::of` and `GraphemeClass::of_with_lookback` are
+        // two separate two-stage tries over the same `cp >> 8` stage-1 shape,
+        // so every character does four table probes where two would do. This
+        // adds one `Width::of`; what it costs is roughly what merging them
+        // would save.
+        #[cfg(feature = "width-probe")]
+        core::hint::black_box(Width::of(cp, self.width.ambiguous));
+        // **Calibration probe: one L1D miss a character, by construction.**
+        // The counter export names nothing, so an index is identified by
+        // adding a known quantity of the event and dividing. The arena is
+        // 1 MiB against a 128 KB L1, and this index scatters across all of it,
+        // so the load misses L1 essentially always while staying resident in
+        // L2 -- a last-level miss would cost more than the entire 29.6-cycle
+        // budget and swamp what it is meant to measure. Multiplying by the
+        // 32-bit golden ratio decorrelates consecutive codepoints, which would
+        // otherwise land in the same line.
+        #[cfg(feature = "miss-probe")]
+        {
+            // Indexed from the cursor rather than the codepoint: `Col` and
+            // `Row` are already `usize`-backed, so this needs no cast and the
+            // type audit stays at five. It also scatters wider -- about ten
+            // thousand distinct indices against a few thousand codepoints.
+            let k = self.cx.index() * MAX_ROWS + self.cy.index();
+            core::hint::black_box(self.s.arena[k.wrapping_mul(2_654_435_761) % ARENA]);
+        }
         if !self.cluster.is_break(cp) && self.cx != Col::ZERO {
             self.attach_mark(cp);
             return;
