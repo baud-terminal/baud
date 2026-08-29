@@ -74,3 +74,52 @@ pub trait Scan {
 /// `run` was in `Portable`, which is what aarch64 uses -- so the machine this
 /// project is developed and measured on was the one running the slow path.
 pub const LANES: usize = 16;
+
+/// How many codepoints one `Decode::block` call produces at most.
+///
+/// Four, because that is what one 16-byte load yields for three-byte text --
+/// the case a CJK stream is made of -- and because four `u32` lanes is one
+/// vector on every target baud builds for.
+pub const DECODE_LANES: usize = 4;
+
+/// The result of decoding one block of bytes into codepoints.
+///
+/// `DecodedBlock` and not `Decoded`: the domain already has a `Decoded` for a
+/// single character. Two names for two things, checked before adding rather
+/// than discovered by the compiler -- which is how `Encoding` and `ReadAs`
+/// went, one collision earlier.
+///
+/// `count` codepoints, consuming `bytes` of input. `count` of zero means the
+/// block was not something the fast path handles -- a truncated sequence, an
+/// overlong form, a surrogate, a control byte -- and the caller must fall back
+/// to the scalar decoder, which owns every conformance decision.
+pub struct DecodedBlock {
+    pub cps: [Codepoint; DECODE_LANES],
+    pub widths: [Width; DECODE_LANES],
+    pub count: LaneCount,
+    pub bytes: ByteLen,
+}
+
+/// Decode a block of UTF-8 to codepoints, without regard to character class.
+///
+/// **The counterpart of `Scan`, and the reason it is a separate trait.**
+/// `Scan` finds boundaries; this turns bytes into codepoints. Splitting them
+/// is the architecture: every *write* path in baud is deliberately
+/// class-specialised, because a homogeneous run is what lets eight cells go to
+/// one store -- a mixed-width writer was built and measured **-43% on
+/// `payload::cjk`**. Decode has no such constraint. It has no stride, no
+/// splat, and no reason to care whether the next character is ASCII or Han.
+///
+/// So the shape is: decode class-agnostically here, group the result by width,
+/// and hand each group to the specialised writer that already exists. That is
+/// the one split the measurements support.
+///
+/// Implementations are permitted to refuse. Returning `count == 0` costs the
+/// caller a scalar retry and is always correct; it is how validation stays in
+/// one place instead of being reimplemented per instruction set.
+pub trait Decode {
+    /// # Safety
+    /// The caller must have established every target feature the chosen
+    /// implementation requires, exactly as for `Scan`.
+    unsafe fn block(buf: &[StreamByte]) -> DecodedBlock;
+}

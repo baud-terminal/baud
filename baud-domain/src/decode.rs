@@ -247,6 +247,72 @@ impl Pending {
 pub struct Codepoint(pub(crate) u32);
 
 impl Codepoint {
+    /// A printable ASCII byte as a codepoint.
+    ///
+    /// `is_printable_ascii` has already established `0x20..0x7f`, so this
+    /// cannot fail and does not re-check.
+    #[inline(always)]
+    pub fn ascii(b: StreamByte) -> Codepoint {
+        debug_assert!(b.is_printable_ascii(), "not printable ASCII");
+        Codepoint(u32::from(b.raw_byte()))
+    }
+
+    /// Decode one character from four gathered bytes and its length.
+    ///
+    /// **The validation is here, not in the vector code.** A block decoder
+    /// gathers bytes without knowing what they mean; this is where a sequence
+    /// becomes a codepoint or is refused. Refusing costs the caller a scalar
+    /// retry, which is always correct, and keeps every conformance rule --
+    /// shortest form, the surrogate hole, the U+10FFFF ceiling, continuations
+    /// actually being continuations -- in one place rather than reimplemented
+    /// per instruction set.
+    ///
+    /// `quad` holds the character's bytes little-endian, so byte zero is the
+    /// lead. Lanes past `len` are zero and are not read.
+    #[inline(always)]
+    pub fn from_quad(quad: u32, len: ByteLen) -> Option<Codepoint> {
+        let b = quad.to_le_bytes();
+        let cont = |i: usize| (b[i] & 0xc0 == 0x80).then_some(u32::from(b[i] & 0x3f));
+        let (v, min) = match len.index() {
+            1 => match b[0] < 0x80 {
+                true => (u32::from(b[0]), 0x0),
+                false => return None,
+            },
+            2 => {
+                let (rem, bits, _) = StreamByte(b[0]).utf8_lead()?;
+                if rem != 1 {
+                    return None;
+                }
+                ((bits << 6) | cont(1)?, 0x80)
+            }
+            3 => {
+                let (rem, bits, _) = StreamByte(b[0]).utf8_lead()?;
+                if rem != 2 {
+                    return None;
+                }
+                ((bits << 12) | (cont(1)? << 6) | cont(2)?, 0x800)
+            }
+            4 => {
+                let (rem, bits, _) = StreamByte(b[0]).utf8_lead()?;
+                if rem != 3 {
+                    return None;
+                }
+                (
+                    (bits << 18) | (cont(1)? << 12) | (cont(2)? << 6) | cont(3)?,
+                    0x10000,
+                )
+            }
+            _ => return None,
+        };
+        // Shortest form: a value that would fit in fewer bytes is an overlong
+        // encoding. `E0 80 AF` decoding to `/` is the path-traversal one, and
+        // this repo has shipped that bug once already.
+        if v < min {
+            return None;
+        }
+        Codepoint::new(v)
+    }
+
     /// Is this codepoint unconditionally wide, ordinary, and in no lookback
     /// table -- so that both Unicode tries can be skipped?
     ///
