@@ -813,7 +813,15 @@ impl<'a> View<'a> {
         // This is the same defect `ECH` at the last column already had, and
         // that this file records: an operation that makes a cell differ from
         // the blank must say so.
-        self.used[p] = self.used[p].reached(c.col().index() + 1);
+        // **Only when it would actually raise.** The base character was just
+        // written to this same cell and already moved the extent past it, so
+        // the mark is inside it in almost every case -- and an unconditional
+        // store dirties a line in a hot array to write back the value that was
+        // already there.
+        let to = c.col().index() + 1;
+        if self.used[p].index() < to {
+            self.used[p] = self.used[p].reached(to);
+        }
     }
 
     fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
