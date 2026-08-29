@@ -167,15 +167,34 @@ impl CellFlags {
         CellFlags(self.0 | o.0)
     }
 
-    /// Bits 2..16 carry the [`LinkId`].
+    /// Bit 2: this cell carries entries in the marks table.
+    ///
+    /// **The flag is in the cell so that overwriting the cell clears it.**
+    /// Marks live in a side table keyed on cell identity, and a key alone
+    /// cannot see a cell being rewritten *in place*: no scroll, no blank, no
+    /// generation bump, so a space written over `e`-plus-acute inherited the
+    /// accent and a renderer drew it on a blank. Every write builds a fresh
+    /// `PackedCell` from the terminal's current flags, which never include
+    /// this bit, so the stale marks become unreachable without the write path
+    /// doing anything at all.
+    ///
+    /// It also takes the hash off the read path: a cell without this bit has
+    /// no marks, and that is the overwhelming majority of cells, answered by
+    /// a bit that is already in cache rather than by a probe into 22 KB.
+    /// ghostty reaches the same shape from the other direction: its
+    /// `appendGrapheme` tests `Cell.content_tag` before touching
+    /// `grapheme_map`, so the map is consulted only for cells that have one.
+    pub const MARKED: CellFlags = CellFlags(4);
+
+    /// Bits 3..16 carry the [`LinkId`].
     ///
     /// **The link rides in the spare bits of this word rather than in a field
     /// of its own, and that is a measured constraint, not a packing game.**
     /// `CLAUDE.md`: "`PackedCell` is 8 bytes" — going from 4 to 8 already cost
     /// two points of the kernel ceiling, and a ninth and tenth byte would round
-    /// the cell to twelve. Two flag bits were in use and fourteen were not, so
-    /// a link index fits with 14 bits of room, against `NLINK` of 128.
-    const LINK_SHIFT: u16 = 2;
+    /// the cell to twelve. Three flag bits are in use and thirteen are not, so
+    /// a link index fits with 13 bits of room, against `NLINK` of 128.
+    const LINK_SHIFT: u16 = 3;
 
     pub fn with_link(self, l: LinkId) -> CellFlags {
         let flags = self.0 & ((1 << CellFlags::LINK_SHIFT) - 1);
@@ -189,6 +208,9 @@ impl CellFlags {
     }
     pub fn is_protected(self) -> bool {
         self.0 & CellFlags::PROTECTED.0 != 0
+    }
+    pub fn is_marked(self) -> bool {
+        self.0 & CellFlags::MARKED.0 != 0
     }
     /// Just the flag bits, with any link index masked off.
     ///

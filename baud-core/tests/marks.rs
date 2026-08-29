@@ -146,11 +146,14 @@ fn overwriting_a_cell_does_not_inherit_its_old_marks() {
     let mut t = Term::new(&mut st, OpMode::Computed);
     feed(&mut t, "e\u{0301}");
     assert_eq!(marks_at(&t, 0, 0), vec![0x301], "setup");
+    // The space lands on column 0, replacing the `e` the accent belonged to.
+    // Column 1 is where `x` goes, and never had marks -- asserting there is
+    // the vacuous version of this test, which is what it said at first.
     feed(&mut t, "\r x");
     assert_eq!(
-        marks_at(&t, 0, 1),
+        marks_at(&t, 0, 0),
         Vec::<u32>::new(),
-        "x inherited the accent"
+        "the space inherited the accent from the character it replaced"
     );
 }
 
@@ -184,5 +187,35 @@ fn a_mark_finds_its_base_after_the_cursor_has_been_away() {
         marks_at(&t, 0, 0),
         vec![0x301],
         "the mark belongs to the wide character at column 0"
+    );
+}
+
+/// Asking about either half of a double-width character gives the same marks:
+/// both columns are one character, and the marks belong to the character. A
+/// renderer iterating cells never has to know which half it is looking at.
+#[test]
+fn either_half_of_a_wide_character_reports_its_marks() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    feed(&mut t, "\u{1f468}\u{200d}\u{1f469}");
+    assert_eq!(marks_at(&t, 0, 1), marks_at(&t, 0, 0), "tail against lead");
+    assert_eq!(marks_at(&t, 0, 0), vec![0x200d, 0x1f469]);
+}
+
+/// The two guards meet here: a wide base in the last two columns leaves the
+/// cursor at the right margin, and the continuation has to resolve *back*
+/// past a `WIDE_TAIL` from there. Covered by neither the lead test nor the
+/// last-column test on its own.
+#[test]
+fn a_wide_base_at_the_right_margin_still_owns_what_follows_it() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    feed(&mut t, &"a".repeat(198));
+    feed(&mut t, "\u{1f468}\u{200d}\u{1f469}");
+    let d = t.marks_dropped.count();
+    assert_eq!(
+        marks_at(&t, 0, 198),
+        vec![0x200d, 0x1f469],
+        "wide base at columns 198-199, marks_dropped={d}"
     );
 }

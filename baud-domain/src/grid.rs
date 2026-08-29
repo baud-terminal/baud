@@ -788,6 +788,21 @@ impl<'a> View<'a> {
     /// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
     /// 7% of the CJK path for two loads and two compares of actual work.
     #[inline(always)]
+    /// Record that a cell carries entries in the marks table.
+    ///
+    /// The inverse needs no code: every write builds a fresh [`PackedCell`]
+    /// from the terminal's current flags, which never carry
+    /// [`CellFlags::MARKED`], so overwriting a cell un-records its marks. That
+    /// is the whole point of keeping the bit here rather than in the table --
+    /// a table keyed on cell identity cannot see a cell rewritten in place.
+    pub fn set_marked(&mut self, r: Row, c: LeadCol) {
+        if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
+            return;
+        }
+        let i = self.phys(r) * self.stride.index() + c.col().index();
+        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
+    }
+
     fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
         let cols = self.cols.index();
         let (mut a, mut b) = (a.min(cols), b.min(cols));

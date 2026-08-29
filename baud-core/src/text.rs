@@ -326,8 +326,9 @@ impl<'a> Term<'a> {
         // **Ask the grid which cell owns that column.** The cursor sits after
         // the character it just wrote, so one column back is that character --
         // unless it was double-width, where one column back is its tail.
-        let owner = self.view_ref().lead(self.cy, self.cx.before());
-        let key = self.mark_key(self.cy, owner);
+        let r = self.cy;
+        let owner = self.view_ref().lead(r, self.cx.before());
+        let key = self.mark_key(r, owner);
         let i = key.slot(NMARK);
         if !self.s.marks[i].is_for(key) {
             if !self.s.marks[i].is_empty() {
@@ -341,6 +342,12 @@ impl<'a> Term<'a> {
         if !self.s.marks[i].push(cp) {
             self.marks_dropped.inc();
         }
+        // **The cell records that it has marks, so that overwriting it drops
+        // them.** The key identifies a cell over time; it cannot see the cell
+        // rewritten *in place*, which is neither a scroll nor a blank and so
+        // bumps no generation. A space written over `e` plus a combining acute
+        // kept the accent before this.
+        self.view().set_marked(r, owner);
     }
 
     #[inline(always)]

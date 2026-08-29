@@ -187,9 +187,16 @@ impl<'a> Term<'a> {
     /// belong to the character. A renderer that iterates cells therefore never
     /// has to know which half it is looking at.
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = Codepoint> + '_ {
-        let key = self.mark_key(r, self.view_ref().lead(r, c));
+        let v = self.view_ref();
+        let owner = v.lead(r, c);
+        // **The cell is asked first.** A cell with no marks says so from a bit
+        // that is already in cache, and the table -- 22 KB, probed at random --
+        // is never touched for it. It is also what makes an overwritten cell
+        // lose its marks: the write cleared this bit.
+        let marked = v.get(r, owner.col()).flags.is_marked();
+        let key = self.mark_key(r, owner);
         let slot = &self.s.marks[key.slot(NMARK)];
-        slot.marks().take(if slot.is_for(key) {
+        slot.marks().take(if marked && slot.is_for(key) {
             MarkSlot::CAPACITY
         } else {
             0
