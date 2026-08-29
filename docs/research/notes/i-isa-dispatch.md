@@ -1,6 +1,6 @@
 # Instruction-set dispatch — why the seam is a trait and not a crate
 
-> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]`, `[[source: arm-neon-bitmask]]` · **Status:** partial — the packaging question is answered, the `shrn` experiment is not
+> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]`, `[[source: arm-neon-bitmask]]` · **Status:** the split is built and measured free; the `shrn` experiment is not started
 
 ## Why this note exists
 
@@ -65,9 +65,9 @@ available without any of it being feature-gated itself.
 The per-ISA seam is therefore already present, and it is `Scan`:
 
 ```
-baud-core/src/scan/mod.rs        trait Scan { run, final_byte, st }
-baud-core/src/scan/portable.rs   core::simd -- NEON on aarch64, SSE2 on x86-64
-baud-core/src/scan/avx2.rs       the only unsafe in baud-core
+baud-isa/src/lib.rs        trait Scan { run, final_byte, st }
+baud-isa/src/portable.rs   core::simd -- NEON on aarch64, SSE2 on x86-64
+baud-isa/src/avx2.rs       the only unsafe in baud-core
 ```
 
 `no_std` has no `is_x86_feature_detected!`, so `feed` and `feed_avx2` are
@@ -192,6 +192,36 @@ That is a concrete, measurable per-ISA experiment and it is unstarted:
 hand-write the aarch64 mask extraction with `shrn #4`, take `rbit`/`clz` on the
 resulting 64-bit value, and shift the nibble index down to a byte index. It is
 the first thing to try behind `Scan`, and it needs no crate.
+
+## The split was built, and it costs nothing
+
+`baud-isa` exists. It holds `Scan`, `Portable` and `Avx2` -- the whole of what
+was `baud-core/src/scan/` -- and `baud-core` depends on it.
+
+**Free, measured.** Five payloads, interleaved, first round discarded, every
+range overlapping: streaming 1483.9-1511.6 against 1487.6-1507.2, cat
+1091.8-1167.3 against 1084.3-1134.7, btop 754.6-776.4 against 760.8-771.6,
+cat-cjk 406.9-414.3 against 403.7-411.2, cjk 2414.7-2436.6 against
+2416.9-2433.1, vim 447.4-450.0 against 444.1-453.4. The concern about
+cross-crate inlining was worth checking and did not materialise, which is what
+LTO plus `#[inline(always)]` on transparent newtypes is supposed to give.
+
+**And the type system got better, which was the point.** The surface is
+domain-typed on both sides: `Scan` takes `&[StreamByte]`, not `&[u8]`, and the
+vector itself is now a domain type -- `StreamVector`, `repr(transparent)` over
+`Simd<u8, 16>`, whose predicates return `LaneMask` directly. A scanner no
+longer writes `as` at all. The raw-integer count over both crates fell from
+**8 to 5**, and the three that went were exactly the movemask casts the audit
+was created to watch.
+
+The gate moved in the same commit: `audit_all.sh` walks `baud-core/src` **and**
+`baud-isa/src` against the one budget. Without that it would have reported 8
+falling to 2 and called relocation an improvement, which is this repo's
+"instrumentation outlived what fed it" failure exactly.
+
+What is *not* yet done is the second ISA implementation this was for. The
+`shrn` experiment below is the first candidate, and it now has somewhere to
+live.
 
 ## The conclusion, and the part that is not settled
 

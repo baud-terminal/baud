@@ -43,6 +43,7 @@ alloc = ["zerocopy/alloc"]
 [dependencies]
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 baud-domain = { path = "../baud-domain" }
+baud-isa = { path = "../baud-isa" }
 
 [dev-dependencies]
 proptest = "1"

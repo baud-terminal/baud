@@ -45,7 +45,7 @@ mod osc;
 mod parse;
 mod reply;
 mod reset;
-mod scan;
+pub use baud_isa::*;
 mod scroll;
 mod storage;
 mod style;
@@ -55,6 +55,5 @@ mod text;
 mod vt52;
 
 pub(crate) use parse::*;
-pub(crate) use scan::*;
 pub use storage::*;
 pub use term::*;

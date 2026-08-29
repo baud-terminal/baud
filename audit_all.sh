@@ -25,7 +25,13 @@ fail=0
 # nowhere to go.
 core=0
 sig=0
-for f in $(find baud-core/src -name '*.rs' | sort); do
+# **`baud-isa` is audited on the same budget as `baud-core`, in the same
+# total.** Moving the scanners into their own crate moved five raw-integer
+# sites with them -- the movemask casts -- and an audit that walked only
+# `baud-core/src` would have reported the count dropping from 8 to 2 and called
+# it progress. That is the "instrumentation outlived what fed it" failure this
+# repo already records: the gate must follow the code in the same commit.
+for f in $(find baud-core/src baud-isa/src -name '*.rs' | sort); do
   out=$(python3 impl_audit.py "$f")
   n=$(echo "$out" | grep '^  total' | awk '{print $2}')
   m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
@@ -34,10 +40,10 @@ for f in $(find baud-core/src -name '*.rs' | sort); do
   [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
 if [ "$core" -gt 8 ]; then
-  echo "  FAIL baud-core/src: $core raw-integer sites (limit 8)"
+  echo "  FAIL baud-core+isa/src: $core raw-integer sites (limit 8)"
   fail=1
 else
-  echo "  ok   baud-core/src: $core (limit 8)"
+  echo "  ok   baud-core+isa/src: $core (limit 8)"
 fi
 
 # **A second gate, because the first could not see these.** The rule above
@@ -52,10 +58,10 @@ fi
 # of the 13 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
 # for it. `key.rs` went from 8 to 0 by using them; the rest can too.
 if [ "$sig" -gt 13 ]; then
-  echo "  FAIL baud-core/src signatures: $sig raw-primitive params/returns (limit 13)"
+  echo "  FAIL baud-core+isa/src signatures: $sig raw-primitive params/returns (limit 13)"
   fail=1
 else
-  echo "  ok   baud-core/src signatures: $sig (limit 13, a floor to drive down)"
+  echo "  ok   baud-core+isa/src signatures: $sig (limit 13, a floor to drive down)"
 fi
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP

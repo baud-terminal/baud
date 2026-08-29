@@ -46,6 +46,15 @@ impl Decoded {
 pub struct StreamByte(pub(crate) u8);
 
 impl StreamByte {
+    /// The inclusive bounds of a CSI final byte, `0x40..=0x7e`.
+    ///
+    /// Named constants rather than literals at the scanner, so the
+    /// vectorised and scalar spellings of "is this a final byte" cannot
+    /// drift apart -- which they have, once, and `states.rs` carries a
+    /// test about it.
+    pub const FINAL_LOW: StreamByte = StreamByte(0x40);
+    pub const FINAL_HIGH: StreamByte = StreamByte(0x7e);
+
     pub fn from_stream(b: u8) -> StreamByte {
         StreamByte(b)
     }

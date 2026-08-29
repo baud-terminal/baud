@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["baud-domain", "baud-core", "baud-bench"]
+members = ["baud-domain", "baud-core", "baud-bench",
+  "baud-isa",
+]
 
 # baud-difftest pins alacritty by absolute path (see its manifest and BUILD.md),
 # so it cannot resolve on a checkout that has not set that path. bench-others/*

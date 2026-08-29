@@ -42,7 +42,7 @@ impl<'a> Term<'a> {
                 return None;
             }
             // SAFETY: caller established whatever S requires.
-            let off = match unsafe { S::st(&self.s.arena[b + s..b + n]) } {
+            let off = match unsafe { S::st(StreamByte::slice_from(&self.s.arena[b + s..b + n])) } {
                 Some(o) => o.index(),
                 None => {
                     self.fb_boundary.inc();
@@ -192,13 +192,14 @@ impl<'a> Term<'a> {
         }
 
         // SAFETY: caller established whatever S requires.
-        let off = match unsafe { S::final_byte(&self.s.arena[b + s..b + n]) } {
-            Some(o) => o.index(),
-            None => {
-                self.fb_boundary.inc();
-                return None;
-            }
-        };
+        let off =
+            match unsafe { S::final_byte(StreamByte::slice_from(&self.s.arena[b + s..b + n])) } {
+                Some(o) => o.index(),
+                None => {
+                    self.fb_boundary.inc();
+                    return None;
+                }
+            };
 
         let mut np = ParamIdx::FIRST;
         let mut cur = Param::ZERO;
@@ -295,7 +296,8 @@ impl<'a> Term<'a> {
                 && StreamByte::from_stream(self.s.arena[b + i]).is_printable();
             if printable {
                 // SAFETY: caller established whatever S requires.
-                let run = unsafe { S::run(&self.s.arena[b + i..b + nn]) }.index();
+                let run =
+                    unsafe { S::run(StreamByte::slice_from(&self.s.arena[b + i..b + nn])) }.index();
                 if run > 0 {
                     self.bytes_bulk.add(run);
                     self.put_run(base, ByteLen::from_index(i), ByteLen::from_index(run));

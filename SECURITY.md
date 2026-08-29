@@ -12,7 +12,7 @@ sequence at all — which is why `never_panics_on_arbitrary_input` and the
 chunk-invariance properties exist.
 
 **`unsafe` appears in exactly one place**: `scan_avx2` in
-`baud-core/src/scan/avx2.rs`, which takes a shared slice and returns before any
+`baud-isa/src/avx2.rs`, which takes a shared slice and returns before any
 `&mut self` call. `baud-domain` is `#![forbid(unsafe_code)]`.
 
 **Attacker-controlled data is stored in bounded, evicting tables.** OSC payloads

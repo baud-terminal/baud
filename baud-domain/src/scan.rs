@@ -1,3 +1,7 @@
+use crate::StreamByte;
+use core::simd::Simd;
+use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+
 use crate::*;
 
 /// The result of a SIMD movemask: one bit per lane, set where the lane matched.
@@ -37,5 +41,61 @@ impl Lane {
     /// and get a plausible-looking number.
     pub fn offset_from(self, consumed: usize) -> ByteLen {
         ByteLen::from_index(consumed + self.0)
+    }
+}
+
+/// A block of `StreamByte`s as a vector, and the operations a scanner needs.
+///
+/// **The lane type, not `Simd<u8, 16>`.** Every scanner in this project used
+/// to build a raw `Simd<u8, LANES>`, compare it, call `to_bitmask()` and cast
+/// the result `as u32` to get a `LaneMask` -- and that cast is where an
+/// intrinsic's return value enters the type system, which is the boundary the
+/// audit exists to hold. Wrapping the vector moves the cast inside one type,
+/// so a scanner never writes `as` at all and cannot hand a bitmask to
+/// something expecting a byte offset.
+///
+/// `repr(transparent)` over the vector, so this costs nothing: the newtypes in
+/// this crate lower to the same instructions, which was measured on the ingest
+/// path with every range overlapping.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct StreamVector(Simd<u8, LANE_COUNT>);
+
+/// How many `StreamByte`s a `StreamVector` holds.
+pub const LANE_COUNT: usize = 16;
+
+impl StreamVector {
+    /// Load one block. The caller has checked there are `LANE_COUNT` bytes.
+    #[inline(always)]
+    pub fn load(buf: &[StreamByte]) -> StreamVector {
+        StreamVector(Simd::from_slice(StreamByte::slice_as_bytes(buf)))
+    }
+
+    /// Lanes that are **not** printable ASCII: below `0x20`, `0x7f`, or above.
+    ///
+    /// One subtract and one unsigned compare, which is what makes it a single
+    /// test rather than three: `b - 0x20 > 0x5e` is false exactly for
+    /// `0x20..=0x7e`.
+    #[inline(always)]
+    pub fn not_printable(self) -> LaneMask {
+        let lo = Simd::splat(0x20);
+        let span = Simd::splat(0x7e - 0x20);
+        LaneMask::from_movemask((self.0 - lo).simd_gt(span).to_bitmask() as u32)
+    }
+
+    /// Lanes holding a byte in `lo..=hi`, inclusive.
+    #[inline(always)]
+    pub fn in_range(self, lo: StreamByte, hi: StreamByte) -> LaneMask {
+        let l = self.0.simd_ge(Simd::splat(lo.0));
+        let h = self.0.simd_le(Simd::splat(hi.0));
+        LaneMask::from_movemask((l & h).to_bitmask() as u32)
+    }
+
+    /// Lanes equal to either of two bytes -- the string-terminator test.
+    #[inline(always)]
+    pub fn either(self, a: StreamByte, b: StreamByte) -> LaneMask {
+        let x = self.0.simd_eq(Simd::splat(a.0));
+        let y = self.0.simd_eq(Simd::splat(b.0));
+        LaneMask::from_movemask((x | y).to_bitmask() as u32)
     }
 }

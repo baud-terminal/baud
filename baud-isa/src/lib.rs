@@ -1,15 +1,17 @@
-use crate::*;
+#![no_std]
+
+use baud_domain::*;
 
 mod avx2;
 mod portable;
 
-pub(crate) use portable::*;
+pub use portable::*;
 // Gated to match the definitions in `avx2.rs`: an unconditional re-export of a
 // `#[cfg(target_arch = "x86_64")]` item resolves to nothing elsewhere, and the
 // host build never notices because the cfg is off there too. The bare-metal
 // `x86_64-unknown-none` gate is what catches it.
 #[cfg(target_arch = "x86_64")]
-pub(crate) use avx2::*;
+pub use avx2::*;
 
 /// A scan backend.
 ///
@@ -23,13 +25,40 @@ pub(crate) use avx2::*;
 /// # Safety
 /// An implementation may require a target feature. The caller establishes it
 /// once, at startup; `no_std` has no runtime feature detection.
-pub(crate) trait Scan {
+/// **Domain-typed on both sides, deliberately.**
+///
+/// The input is `&[StreamByte]` and not `&[u8]` because that is the whole
+/// reason this crate is separable: an instruction-set implementation is
+/// reusable only if its surface cannot be got wrong, and a raw byte slice is
+/// the surface that can. The output is `ByteLen` and the mask inside is a
+/// `LaneMask` whose first set bit is a `Lane`, so a bitmask cannot be added to
+/// a byte offset -- which compiles, and is why those newtypes exist.
+///
+/// Conversion at the boundary is free: `StreamByte` is `repr(transparent)`
+/// over `u8`, so `slice_as_bytes` is what the vector loads take and costs
+/// nothing.
+pub trait Scan {
     /// Length of the leading printable-ASCII run.
-    unsafe fn run(buf: &[u8]) -> ByteLen;
+    /// # Safety
+    /// The caller must have established every target feature the chosen
+    /// implementation requires -- `Portable` requires none, `Avx2` requires
+    /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
+    /// caller's decision made once at startup rather than per call.
+    unsafe fn run(buf: &[StreamByte]) -> ByteLen;
     /// Offset of the first CSI final byte (`0x40..=0x7e`).
-    unsafe fn final_byte(buf: &[u8]) -> Option<ByteLen>;
+    /// # Safety
+    /// The caller must have established every target feature the chosen
+    /// implementation requires -- `Portable` requires none, `Avx2` requires
+    /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
+    /// caller's decision made once at startup rather than per call.
+    unsafe fn final_byte(buf: &[StreamByte]) -> Option<ByteLen>;
     /// Offset of the first BEL, or the ESC of an ESC-backslash terminator.
-    unsafe fn st(buf: &[u8]) -> Option<ByteLen>;
+    /// # Safety
+    /// The caller must have established every target feature the chosen
+    /// implementation requires -- `Portable` requires none, `Avx2` requires
+    /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
+    /// caller's decision made once at startup rather than per call.
+    unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen>;
 }
 
 /// Lane width. 16 bytes is what every SIMD ISA this targets has natively;
@@ -47,4 +76,4 @@ pub(crate) trait Scan {
 /// x86-64 with AVX2 has always had `scan_avx2`, 32 bytes a step; the scalar
 /// `run` was in `Portable`, which is what aarch64 uses -- so the machine this
 /// project is developed and measured on was the one running the slow path.
-pub(crate) const LANES: usize = 16;
+pub const LANES: usize = 16;

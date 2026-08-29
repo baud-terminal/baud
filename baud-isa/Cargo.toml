@@ -1,0 +1,15 @@
+[package]
+name = "baud-isa"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Instruction-set implementations of baud's domain-typed scan operations. no_std, allocation-free."
+
+# **Domain-typed, not primitive.** Every operation here takes and returns
+# `baud-domain`'s types -- `ByteLen`, `LaneMask`, `Lane` -- because the whole
+# reason to have a crate boundary here is reuse, and a crate exporting
+# `fn movemask(v) -> u32` exports the bug class the newtypes exist to prevent.
+[dependencies]
+baud-domain = { path = "../baud-domain" }

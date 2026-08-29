@@ -22,6 +22,7 @@ version = "0.1.0"
 dependencies = [
  "baud-core",
  "baud-domain",
+ "baud-isa",
  "proptest",
  "zerocopy",
 ]
@@ -31,6 +32,13 @@ name = "baud-domain"
 version = "0.1.0"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "baud-isa"
+version = "0.1.0"
+dependencies = [
+ "baud-domain",
 ]
 
 [[package]]
