@@ -57,3 +57,35 @@ fn the_palette_is_small_enough_to_stay_resident() {
         seen.len()
     );
 }
+
+/// The byte-indexed form must agree with the codepoint-indexed one for every
+/// three-byte sequence, which is the case it exists for and 81% of cat-cjk.
+#[test]
+fn the_byte_indexed_form_agrees_for_every_three_byte_sequence() {
+    let mut n = 0usize;
+    for b0 in 0xe0u8..=0xef {
+        for b1 in 0x80u8..=0xbf {
+            for b2 in 0x80u8..=0xbf {
+                let cp = (u32::from(b0 & 0x0f) << 12)
+                    | (u32::from(b1 & 0x3f) << 6)
+                    | u32::from(b2 & 0x3f);
+                let Some(c) = Codepoint::new(cp) else {
+                    continue;
+                };
+                let a = Classified::of(c);
+                let b = Classified::of_utf8_three(b0, b1, b2);
+                assert_eq!(a.class, b.class, "class for {b0:02x} {b1:02x} {b2:02x}");
+                assert_eq!(
+                    a.lookback, b.lookback,
+                    "lookback for {b0:02x} {b1:02x} {b2:02x}"
+                );
+                assert!(
+                    a.width(AmbiguousWidth::Narrow) == b.width(AmbiguousWidth::Narrow),
+                    "width for {b0:02x} {b1:02x} {b2:02x}"
+                );
+                n += 1;
+            }
+        }
+    }
+    assert!(n > 60_000, "only checked {n} sequences");
+}

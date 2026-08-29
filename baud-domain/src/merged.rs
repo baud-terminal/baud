@@ -48,6 +48,39 @@ impl Classified {
         }
     }
 
+    /// The same answer, from the *bytes*, so the first load issues sooner.
+    ///
+    /// **Not a micro-optimisation of the index arithmetic -- a shortening of
+    /// the dependency chain.** For a three-byte sequence the stage-1 index is
+    /// `cp >> 8`, and
+    ///
+    /// ```text
+    /// cp >> 8   = (b0 & 0x0f) << 4 | (b1 & 0x3f) >> 2      only b0, b1
+    /// cp & 0xff = ((b1 & 0x3f) & 3) << 6 | (b2 & 0x3f)     needs b2
+    /// ```
+    ///
+    /// so the **table load does not depend on the third byte**. Taking a
+    /// codepoint forces it to: `cp` is a function of all three, and the
+    /// compiler must prove `(x | y) >> 8 == x >> 8` for `y < 256` to recover
+    /// it. Handing over the parts says it outright, and the load can issue a
+    /// step earlier.
+    ///
+    /// This matters because every measurement on this path says it is
+    /// latency-bound: a vectorised decoder, a block decoder and a merged table
+    /// each removed work and each lost, all by lengthening the chain.
+    #[inline(always)]
+    pub fn of_utf8_three(b0: u8, b1: u8, b2: u8) -> Classified {
+        let hi = ((b0 & 0x0f) << 4) | ((b1 & 0x3f) >> 2);
+        let lo = ((b1 & 0x03) << 6) | (b2 & 0x3f);
+        let block = MERGED_INDEX[hi as usize] as usize;
+        let id = MERGED_BLOCKS[block * 256 + lo as usize] as usize;
+        Classified {
+            class: GraphemeClass::FROM_INDEX[MERGED_PALETTE[id * 3] as usize],
+            lookback: Lookback::from_bits(MERGED_PALETTE[id * 3 + 1]),
+            code: MERGED_PALETTE[id * 3 + 2],
+        }
+    }
+
     /// The column count, once the embedder's ambiguous-width policy is known.
     #[inline(always)]
     pub fn width(self, aw: AmbiguousWidth) -> Width {
