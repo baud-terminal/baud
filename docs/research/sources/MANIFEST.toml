@@ -916,3 +916,16 @@ sha256 = "f98d4c118f74025045a99e488a3308b246f6153f185b07f8aabb345b91194713"
 bytes  = 42955
 status = "retrieved"
 group  = "I"
+
+[sources.arm-neon-bitmask]
+key    = "arm-neon-bitmask"
+title  = "Porting x86 vector bitmask optimizations to Arm NEON -- shrn as a movemask"
+author = "Danila Kutenin"
+year   = 2023
+venue  = "Arm Community, Servers and Cloud Computing blog"
+url    = "https://developer.arm.com/community/arm-community-blogs/b/servers-and-cloud-computing-blog/posts/porting-x86-vector-bitmask-optimizations-to-arm-neon"
+file   = "arm-neon-bitmask.html"
+sha256 = "16813c7f7c34ede6177b71566e07739273f99a932d7232b0fcee9c760b843dc8"
+bytes  = 301719
+status = "retrieved"
+group  = "I"

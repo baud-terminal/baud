@@ -1,6 +1,6 @@
 # Instruction-set dispatch — why the seam is a trait and not a crate
 
-> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]` · **Status:** answered
+> **Group:** I · **Sources:** `[[source: rust-target-feature]]`, `[[source: highway-dispatch]]`, `[[source: arm-neon-bitmask]]` · **Status:** partial — the packaging question is answered, the `shrn` experiment is not
 
 ## Why this note exists
 
@@ -101,6 +101,75 @@ Against that, the split buys nothing the language does not already give:
 And it would cost: `baud-core` is `no_std`, `alloc`-free and
 zero-dependency, gated by a bare-metal build and a type audit with per-file
 budgets. Each of those multiplies per crate.
+
+## Reuse is a different question, and a better one
+
+The argument above answers "does splitting make it faster", and the answer is
+no. It does not answer "does splitting make the ISA work *reusable*", which is
+the stronger form of the proposal: a per-ISA kernel is very low-level,
+general-purpose code, and nothing about `shrn`-as-a-movemask or a three-byte
+UTF-8 gather is specific to terminals.
+
+That argument is sound, and it changes what to extract. The unit is not
+"`baud-core`, split by ISA" — most of `baud-core` is a terminal, and a crate
+called `baud-core-aarch64` holding `feed_with` would be a terminal wearing an
+architecture's name. The reusable unit is the **primitives**: byte
+classification, mask extraction, the UTF-8 gather. Those are pure functions
+over slices with no state.
+
+Which is also what makes the split safe, and the reason to draw the line there
+rather than anywhere else:
+
+* **Pure `#[inline(always)]` functions cross a crate boundary well.** They have
+  no state to keep behind `&mut self` and nothing to lose by being generic.
+* **`feed_with` must not cross one.** It is the hot loop, it holds all state
+  behind `&mut self` — a measured 16-34% against file-scope globals — and it
+  has to inline *into* the `#[target_feature]` entry point for the whole loop
+  to get the extended feature set. Moving it makes that LTO-dependent, and
+  unverified.
+
+So: a primitives crate is defensible and a `baud-core` split is not, and they
+are not the same proposal. The cost of the primitives crate is that
+`baud-core`'s "zero dependencies" becomes "one first-party dependency", which
+is a claim in the README and an owner's decision rather than a technical one.
+
+## Per-microarchitecture kernels are already possible here
+
+M4 and M5 differ in more than the instruction set — issue width, port counts
+and instruction latencies all move — so a kernel tuned for one is not
+automatically best on the other. Splitting by *ISA* would not capture that
+anyway, since both are aarch64.
+
+baud can already do it, and for a reason that looks like a limitation.
+`no_std` has no `is_aarch64_feature_detected!`, so dispatch is **static**:
+`feed` and `feed_avx2` are separate entry points and the caller picks once at
+startup. An `feed_m4` alongside them is one more `impl Scan` and one more entry
+point, and the embedder — which has `std`, and `sysctl`, and knows what it is
+running on — makes the choice. A library that dispatches at runtime has to own
+that detection; baud hands it to the caller who can actually do it.
+
+What baud cannot do is detect the microarchitecture itself. That is the part to
+be honest about, and it is the embedder's job by construction rather than by
+omission.
+
+## One measured ISA finding, and it is actionable
+
+`[[source: arm-neon-bitmask]]` argues that `shrn` — shift right and narrow,
+treating a 128-bit vector as eight 16-bit lanes and truncating to eight bytes —
+is the cheap way to emulate x86's `movemask` on NEON, and that most libraries
+have not taken it up.
+
+baud does not use it. Disassembling `feed_with::<Portable>` on this box, the
+mask extraction behind `LaneMask::from_movemask` lowers to `uzp1`, `zip1`,
+`and.16b` and **`addv.8h`** — the horizontal-reduction form, which carries a
+serial dependency `shrn` does not. `shrn` appears elsewhere in the binary, so
+the toolchain will emit it; `core::simd`'s `to_bitmask` simply does not choose
+it here.
+
+That is a concrete, measurable per-ISA experiment and it is unstarted:
+hand-write the aarch64 mask extraction with `shrn #4`, take `rbit`/`clz` on the
+resulting 64-bit value, and shift the nibble index down to a byte index. It is
+the first thing to try behind `Scan`, and it needs no crate.
 
 ## The conclusion, and the part that is not settled
 
