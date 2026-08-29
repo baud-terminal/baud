@@ -170,6 +170,17 @@ impl<'a> Paint<'a> {
         self.index();
     }
 
+    /// **Caching the row's resolved address was tried and lost.** `phys` is a
+    /// conditional subtract and the stride is a multiply, both paid per glyph
+    /// for an answer that changes only when the cursor changes rows -- so a
+    /// `RowBase` held here should have moved them to once a *row*. Lazily,
+    /// behind an `Option`, it measured flat: the test per glyph cost the
+    /// saving. Eagerly, resolved whenever the row changes, it measured
+    /// **608-618 against 621-632** -- because `cat-cjk.raw` has a newline
+    /// every 78 bytes, so "once a row" is not rare, and a rotation invalidates
+    /// every row's address at once. LLVM keeps the inline form cheap and there
+    /// was nothing to hoist.
+    ///
     /// A new row: nothing is known about it yet, so the probe comes back.
     #[inline(always)]
     fn row_changed(&mut self) {
