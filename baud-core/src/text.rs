@@ -272,6 +272,25 @@ impl<'a> Term<'a> {
             self.attach_mark(cp);
             return;
         }
+        self.put_glyph(cp, w);
+    }
+
+    /// Write a glyph whose cluster decision is already known to be a break.
+    ///
+    /// **The tail of `put_cp`, reachable without the cluster machine.** A
+    /// codepoint that is `is_wide_ordinary` while `ordinary_run_ready` holds
+    /// cannot continue the previous cluster: `decide` falls through to GB999
+    /// and `advance` writes back the state that is already there. That is not
+    /// a new claim -- it is exactly the precondition `put_wide_run` relies on
+    /// to skip the machine for an entire run, applied to a run of one.
+    ///
+    /// It matters because runs of one are what `cat-cjk.raw` is made of. Its
+    /// wide runs have a **median of 1**, the vectorised collector needs four
+    /// characters to take a step, and everything shorter fell back to the full
+    /// per-codepoint path and paid `is_break` -- 14% of this recording -- for
+    /// a decision already proven.
+    #[inline(always)]
+    pub(crate) fn put_glyph(&mut self, cp: Codepoint, w: Width) {
         if self.cx.try_advance(w, self.cols).is_none() {
             if !self.modes.is_set(ModeBit::AutoWrap) {
                 // DECAWM reset: the character overwrites the last column and the

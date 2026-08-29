@@ -682,6 +682,24 @@ impl<'a> Term<'a> {
         ByteLen::from_index(took)
     }
 
+    /// Route a decoded character to the cheapest path that is correct for it.
+    ///
+    /// A wide-ordinary codepoint arriving while `ordinary_run_ready` holds has
+    /// its cluster decision already settled -- the same premise the bulk
+    /// collector uses -- so it can go straight to `put_glyph` and skip
+    /// `is_break`, which is 14% of this recording. The collector cannot take
+    /// it because the collector needs four characters for a vector step and
+    /// `cat-cjk.raw`'s wide runs have a median of **one**.
+    #[inline(always)]
+    fn put_decoded(&mut self, cp: Codepoint, w: Width) {
+        #[cfg(feature = "short-wide")]
+        if w == Width::WIDE && cp.is_wide_ordinary() && self.cluster.ordinary_run_ready() {
+            self.put_glyph(cp, w);
+            return;
+        }
+        self.put_cp(cp, w);
+    }
+
     /// Decode one character without touching any terminal state.
     ///
     /// Split out so the loop below can run it **ahead** of the character it is
@@ -814,7 +832,7 @@ impl<'a> Term<'a> {
             self.replacements.inc();
         }
         let w = Width::of(c, self.width.ambiguous);
-        self.put_cp(c, w);
+        self.put_decoded(c, w);
 
         // **A run of ordinary wide characters goes out in bulk.**
         //
@@ -927,7 +945,7 @@ impl<'a> Term<'a> {
                 if c2 == Codepoint::REPLACEMENT {
                     self.replacements.inc();
                 }
-                self.put_cp(c2, w2);
+                self.put_decoded(c2, w2);
                 used += need2.index();
                 let before = used;
                 if w2 == Width::WIDE && self.cluster.ordinary_run_ready() {
@@ -991,7 +1009,7 @@ impl<'a> Term<'a> {
                 self.replacements.inc();
             }
             let w2 = Width::of(c2, self.width.ambiguous);
-            self.put_cp(c2, w2);
+            self.put_decoded(c2, w2);
             used += need2;
 
             // **The bulk path re-arms here, and not doing so was most of what
