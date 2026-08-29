@@ -23,6 +23,7 @@
 //! iteration covering sixteen bytes.
 
 use crate::paint::Paint;
+use crate::storage::STRIDE_MAX;
 use crate::term::Term;
 use crate::write::{control, one, put_run_of};
 use baud_domain::*;
@@ -79,6 +80,15 @@ impl Term<'_> {
         self.cx = p.cx;
         self.rot = p.view.rot();
         self.cells_written += p.cells.index();
+        #[cfg(feature = "diag")]
+        {
+            for i in 0..8 {
+                self.runs[i] += p.runs[i];
+            }
+            for i in 0..5 {
+                self.run_len[i] += p.run_len[i];
+            }
+        }
         self.node = node;
         self.utf8 = utf8;
         self.utf8_min = min;
@@ -138,10 +148,60 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
         if k.index() == 0 {
             break;
         }
-        put_run_of(p, from.advance(ByteLen::from_index(off)), len, k);
-        off += len.index() * k.index();
+        // **A run that reaches the end of the block is probably not the end of
+        // the run.** Sixteen bytes hold at most five three-byte characters, and
+        // the histogram says 25% of runs are exactly five -- which is the lane
+        // count talking, not the text. Extending past the boundary is what
+        // makes a run's length a property of the recording, and it is what the
+        // vectored decode and the vectored write both need to engage.
+        let mut n = k.index();
+        if off + len.index() * n == LANE_COUNT {
+            // Bounded by what the decode buffer has left, not by `STRIDE_MAX`
+            // alone -- the block already contributed `n` and the first version
+            // added another 31 to it, which overran the buffer. The five short
+            // tests passed and the recording panicked.
+            n += extend(
+                p.arena,
+                from.advance(ByteLen::from_index(off + len.index() * n)),
+                len,
+                Count::of(STRIDE_MAX - n),
+            )
+            .index();
+        }
+        put_run_of(p, from.advance(ByteLen::from_index(off)), len, Count::of(n));
+        off += len.index() * n;
     }
     ByteLen::from_index(off)
+}
+
+/// How many more characters of `len` bytes follow at `at`, past the block the
+/// classifier covered.
+///
+/// **Three compares a character, not a decode.** This is a scan and this repo
+/// records that "a path that decides by scanning either commits or wastes the
+/// scan" -- here it commits: every character counted is decoded and written by
+/// the caller immediately, so the scan is never thrown away.
+///
+/// Bounded by `limit` -- what the caller's decode buffer has left after the
+/// block's own contribution -- and by the arena, so a run at the end of a read
+/// stops rather than reading a character the next `read(2)` still owes.
+#[inline(always)]
+fn extend(arena: &[u8], at: BytePos, len: ByteLen, limit: Count) -> Count {
+    let (mut at, len, limit) = (at.index(), len.index(), limit.index());
+    let mut k = 0usize;
+    while k < limit && at + len <= arena.len() {
+        let s = StreamByte::slice_from(&arena[at..at + len]);
+        let owed = match s[0].utf8_lead() {
+            Some((rem, _, _)) => usize::from(rem) + 1,
+            None => break,
+        };
+        if owed != len || s[1..].iter().any(|b| b.utf8_continuation().is_none()) {
+            break;
+        }
+        k += 1;
+        at += len;
+    }
+    Count::of(k)
 }
 
 /// The encoded length starting at lane `off`, and how many characters of that

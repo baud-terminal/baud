@@ -33,6 +33,14 @@ pub(crate) struct Paint<'a> {
     /// Two arms of an experiment that disagree here are not doing the same
     /// work, whatever their timings say.
     pub(crate) cells: Cells,
+    /// How many runs of each length the block walk found, and of each encoded
+    /// width. **Do not read a bulk path as covering a character class -- count
+    /// how often it is entered**, which is the mistake this repo records
+    /// against a collector that took 0.0 characters an entry.
+    #[cfg(feature = "diag")]
+    pub(crate) runs: [usize; 8],
+    #[cfg(feature = "diag")]
+    pub(crate) run_len: [usize; 5],
 }
 
 impl<'a> Paint<'a> {
@@ -62,6 +70,10 @@ impl<'a> Paint<'a> {
             flags,
             charset,
             cells: Cells::ZERO,
+            #[cfg(feature = "diag")]
+            runs: [0; 8],
+            #[cfg(feature = "diag")]
+            run_len: [0; 5],
         }
     }
 

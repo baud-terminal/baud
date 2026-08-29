@@ -102,4 +102,18 @@ fn main() {
         "  cells {cells} written ({:.1}x per byte)",
         cells as f64 / bytes_in as f64
     );
+    #[cfg(feature = "diag")]
+    {
+        let tot: usize = t.runs.iter().sum();
+        print!("  runs by character count:");
+        for (k, n) in t.runs.iter().enumerate() {
+            print!(" {k}:{:.0}%", 100.0 * *n as f64 / tot as f64);
+        }
+        println!();
+        print!("  runs by encoded length:");
+        for (k, n) in t.run_len.iter().enumerate().skip(2) {
+            print!(" {k}B:{:.0}%", 100.0 * *n as f64 / tot as f64);
+        }
+        println!();
+    }
 }

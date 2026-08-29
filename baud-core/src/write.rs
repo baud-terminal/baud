@@ -24,11 +24,39 @@ use baud_domain::*;
 #[inline(always)]
 pub(crate) fn put_run_of(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: Count) {
     let (len, k) = (len.index(), count.index());
+    #[cfg(feature = "diag")]
+    {
+        p.runs[k.min(7)] += 1;
+        p.run_len[len.min(4)] += 1;
+    }
     // Eight is all sixteen lanes can hold at the shortest length, so this
     // never spills.
     let mut cps = [Codepoint::REPLACEMENT; STRIDE_MAX];
     let mut all_wide = true;
-    for (i, slot) in cps.iter_mut().enumerate().take(k) {
+
+    // **Four characters a step, in vectors, when the stride is three.** The
+    // route map has already fixed every byte's position, so the swizzle
+    // indices are compile-time constants and there is no boundary search --
+    // which is the part of a UTF-8 decoder that resists vectorising, and the
+    // reason two previous attempts at a block decoder measured *slower* than
+    // one character at a time. Three-byte characters are 81% of `cat-cjk.raw`.
+    let mut done = 0usize;
+    if len == 3 {
+        while done + 4 <= k && from.index() + 3 * done + LANE_COUNT <= p.arena.len() {
+            let at = from.index() + 3 * done;
+            let quad = Vectorized::<Printable>::load(StreamByte::slice_from(
+                &p.arena[at..at + LANE_COUNT],
+            ))
+            .stride_three_quad();
+            for (j, cp) in quad.iter().enumerate() {
+                all_wide &= Classified::of(*cp).width(AmbiguousWidth::Narrow) == Width::WIDE;
+                cps[done + j] = *cp;
+            }
+            done += 4;
+        }
+    }
+
+    for (i, slot) in cps.iter_mut().enumerate().take(k).skip(done) {
         let at = from.index() + len * i;
         let s = StreamByte::slice_from(&p.arena[at..at + len]);
         // **Unchecked on purpose.** The route map already established that
@@ -82,6 +110,21 @@ pub(crate) fn put_run_of(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: 
         return;
     }
     #[allow(unreachable_code)]
+    // **A run of one does not want the vectored writer.** `put_wide_run`
+    // amortises its setup -- bounds, `phys`, the orphan repair, the extent --
+    // over eight cells to a store; for a single character it pays all of that
+    // for two cells. The run-length histogram says **69% of runs on
+    // `cat-cjk.raw` are one character**, which is the recording alternating
+    // scripts and not the block size: extending runs past the block boundary
+    // moved that figure by four points.
+    if k == 1 {
+        let w = match all_wide {
+            true => Width::WIDE,
+            false => Classified::of(cps[0]).width(AmbiguousWidth::Narrow),
+        };
+        p.glyph(cps[0], w);
+        return;
+    }
     if all_wide && k > 0 && p.fits_wide(count) {
         p.wide(&cps[..k]);
         return;

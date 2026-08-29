@@ -47,6 +47,11 @@ pub struct Term<'b> {
     /// Cells written, the numerator. Two arms of an experiment that disagree
     /// here are not doing the same work, whatever their timings say.
     pub(crate) cells_written: usize,
+    /// Run-length and encoded-width histograms; see `Paint::runs`.
+    #[cfg(feature = "diag")]
+    pub runs: [usize; 8],
+    #[cfg(feature = "diag")]
+    pub run_len: [usize; 5],
 }
 
 impl<'b> Term<'b> {
@@ -71,6 +76,10 @@ impl<'b> Term<'b> {
             utf8_min: Utf8Min::Two,
             bytes_in: 0,
             cells_written: 0,
+            #[cfg(feature = "diag")]
+            runs: [0; 8],
+            #[cfg(feature = "diag")]
+            run_len: [0; 5],
         }
     }
 

@@ -20,6 +20,9 @@ alloc = []
 # `no-write`   the routes are computed and nothing reaches the grid
 # `no-classify` characters are decoded and assumed narrow: prices the
 #              128 KB property table lookup, one load a character
+# Histograms of how often each bulk path is *entered*, which is the question
+# a throughput number cannot answer.
+diag = []
 ceiling-no-write = []
 ceiling-no-classify = []
 # `probe-double-classify` prices the property lookup by doing it twice.

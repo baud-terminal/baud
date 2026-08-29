@@ -26,9 +26,14 @@ pub const ARENA: usize = 1 << 20;
 pub const MAX_COLS: usize = 2048;
 pub const MAX_ROWS: usize = 640;
 
-/// The most multi-byte characters one block can hold: sixteen lanes at the
-/// shortest encoded length. A decode buffer of this size never spills.
-pub const STRIDE_MAX: usize = LANE_COUNT / 2;
+/// How many characters one run may hold.
+///
+/// **Not the lane count.** A block holds at most eight two-byte characters,
+/// and capping the run there caps every vectored write at the same number --
+/// the run-length histogram showed 25% of runs sitting exactly at the block's
+/// limit, which is the hardware talking rather than the text. Runs extend past
+/// the block, and this is where the decode buffer stops instead.
+pub const STRIDE_MAX: usize = 32;
 
 /// Cells in the materialised viewport.
 pub const GRID: usize = MAX_ROWS * MAX_COLS;

@@ -2,6 +2,7 @@ use crate::StreamByte;
 use core::marker::PhantomData;
 use core::simd::Simd;
 use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+use core::simd::num::SimdInt as _;
 use core::simd::num::SimdUint as _;
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -471,6 +472,15 @@ impl Route {
     ];
 }
 
+/// One three-byte scalar value, or the replacement when it is not a character.
+#[inline(always)]
+fn three_byte(raw: u32) -> Codepoint {
+    match raw < 0x800 {
+        true => Codepoint::REPLACEMENT,
+        false => Codepoint::decoded(raw),
+    }
+}
+
 /// Sixteen bytes' routes, in one register.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -545,6 +555,51 @@ static ROUTE_FROM_INDEX: [Route; 7] = [
 ];
 
 impl Vectorized<Printable> {
+    /// **Four three-byte characters, decoded in vectors.**
+    ///
+    /// The route map has already established that this block begins with four
+    /// back-to-back `1110xxxx 10yyyyyy 10zzzzzz` characters, so every byte's
+    /// position is a *compile-time constant*: the leads are lanes 0, 3, 6, 9
+    /// and their continuations follow. That is what makes the swizzle indices
+    /// constants and the whole decode branchless.
+    ///
+    /// **This is the step the block classifier was built to enable.** Finding
+    /// character boundaries is the part of a UTF-8 decoder that resists
+    /// vectorising -- it is a prefix sum over the lead mask, and computing it
+    /// per block is what made two previous attempts *slower* than decoding one
+    /// character at a time. Here the boundaries are not computed at all: the
+    /// stride is three, so they are known before the load.
+    ///
+    /// Returns codepoints, not raw values: at this length the shortest-form
+    /// floor is the constant `U+0800`, so the whole validity question --
+    /// overlong, surrogate, out of range -- is answerable here and does not
+    /// have to be handed back with the bits. `Codepoint::decoded` is the
+    /// surrogate and range half, spelled once in the domain.
+    #[inline(always)]
+    pub fn stride_three_quad(self) -> [Codepoint; 4] {
+        use core::simd::simd_swizzle;
+        let v = self.lanes();
+        // Lane `3i` leads character `i`; `3i+1` and `3i+2` continue it.
+        let lead: Simd<u8, 4> = simd_swizzle!(v, [0, 3, 6, 9]);
+        let c1: Simd<u8, 4> = simd_swizzle!(v, [1, 4, 7, 10]);
+        let c2: Simd<u8, 4> = simd_swizzle!(v, [2, 5, 8, 11]);
+        let lead = lead.cast::<u32>() & Simd::splat(0x0f);
+        let c1 = c1.cast::<u32>() & Simd::splat(0x3f);
+        let c2 = c2.cast::<u32>() & Simd::splat(0x3f);
+        let raw = (lead << Simd::splat(12)) | (c1 << Simd::splat(6)) | c2;
+        // Below `U+0800` a three-byte form is overlong -- `E0 80 AF` renders
+        // `/` without this, which is the path-traversal overlong -- and
+        // `Codepoint::decoded` rejects the surrogates and anything past
+        // `U+10FFFF`, neither of which a three-byte form can reach anyway.
+        let v = raw.to_array();
+        [
+            three_byte(v[0]),
+            three_byte(v[1]),
+            three_byte(v[2]),
+            three_byte(v[3]),
+        ]
+    }
+
     /// **The whole ground row of the parse graph, for sixteen bytes, in one
     /// shuffle.**
     ///

@@ -139,3 +139,65 @@ fn a_truncated_character_is_not_counted() {
     let n = block_of(&v).stride_three();
     assert_eq!(n, 5, "the five complete characters, and not the sixth");
 }
+
+// ── the vector decode ───────────────────────────────────────────────────────
+
+/// The quad decode must agree with decoding one character at a time, for every
+/// three-byte sequence shape.
+///
+/// **Exhaustive over the interesting axis and randomised over the rest.** All
+/// 65,536 `(b1, b2)` pairs against a fixed lead, and then a spread of leads --
+/// the lead contributes four bits and the continuations six each, so a shift
+/// that is wrong by one shows up in the pair sweep, and a lane that is wrong
+/// shows up because the four characters differ.
+#[test]
+fn the_quad_decode_agrees_with_one_at_a_time() {
+    let scalar = |s: &[u8]| -> Codepoint {
+        let raw = ((s[0] as u32 & 0x0f) << 12) | ((s[1] as u32 & 0x3f) << 6) | (s[2] as u32 & 0x3f);
+        match raw < 0x800 {
+            true => Codepoint::REPLACEMENT,
+            false => Codepoint::decoded(raw),
+        }
+    };
+    for lead in [0xe0u8, 0xe4, 0xe9, 0xef] {
+        for b1 in (0x80u8..=0xbf).step_by(3) {
+            for b2 in 0x80u8..=0xbf {
+                // Four *different* characters, so a swizzle that reads the
+                // wrong lane cannot pass by coincidence.
+                let mut raw = [0u8; LANE_COUNT];
+                let mut want = [Codepoint::REPLACEMENT; 4];
+                for i in 0..4 {
+                    let s = [
+                        lead.wrapping_add(i as u8) | 0xe0,
+                        b1.wrapping_add(i as u8) & 0xbf | 0x80,
+                        b2.wrapping_sub(i as u8) & 0xbf | 0x80,
+                    ];
+                    raw[3 * i..3 * i + 3].copy_from_slice(&s);
+                    want[i] = scalar(&s);
+                }
+                let block = Vectorized::<Printable>::load(StreamByte::slice_from(&raw));
+                assert_eq!(
+                    block.stride_three_quad(),
+                    want,
+                    "lead {lead:#04x} b1 {b1:#04x} b2 {b2:#04x}"
+                );
+            }
+        }
+    }
+}
+
+/// The quad only reads the twelve bytes it owns: whatever follows must not
+/// change the answer.
+#[test]
+fn the_quad_ignores_the_bytes_past_its_run() {
+    let mut a = [0u8; LANE_COUNT];
+    for i in 0..4 {
+        a[3 * i..3 * i + 3].copy_from_slice("世".as_bytes());
+    }
+    let mut b = a;
+    b[12..].copy_from_slice(&[0xff, 0xff, 0xff, 0xff]);
+    let qa = Vectorized::<Printable>::load(StreamByte::slice_from(&a)).stride_three_quad();
+    let qb = Vectorized::<Printable>::load(StreamByte::slice_from(&b)).stride_three_quad();
+    assert_eq!(qa, qb);
+    assert_eq!(qa, [Codepoint::decoded(0x4e16); 4]);
+}

@@ -16,7 +16,7 @@ libc = "0.2"
 [features]
 # Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
-diag = ["baud-core2/diag"]
+diag = ["baud-core2/diag", "baud-core/diag"]
 # Byte-level attribution: which path consumed which bytes. Never on for a
 # throughput figure, same as `diag`.
 instrument = ["baud-core2/instrument"]
