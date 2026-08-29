@@ -205,6 +205,51 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## The CJK gap is mostly grapheme clustering, which ghostty does not do by default
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29. `ingest`,
+`OpMode::Computed`, medians of 40 reps, three interleaved rounds.*
+
+`utf8/cat-cjk.raw` is the one row where baud is far behind -- 229 against
+ghostty's 515. Before treating that as a speed deficit, check that the two are
+doing the same job.
+
+**They are not.** `src/terminal/modes.zig` declares `ModeEntry` with
+`default: bool = false`, and `grapheme_cluster` (mode **2027**) carries no
+explicit default -- so libghostty-vt segments nothing unless an application
+asks. baud clusters always, and answers `DECRQM ?2027` with **3**, permanently
+set, because it has no mode that stops it.
+
+A ceiling arm that skips UAX#29 segmentation the way mode 2027 off does:
+
+| payload, cells | baud, clustering | baud, none | ghostty |
+|---|---|---|---|
+| `utf8/cat-cjk.raw` | 229 | **344** (+42%) | 515 |
+| `utf8/less-cjk.raw` | 241 | **369** (+45%) | 250 |
+| `utf8/vim-unicode.raw` | 407 | **521** (+25%) | 348 |
+
+So segmentation is **25-45%** of baud's UTF-8 throughput, and without it two of
+those three rows lead ghostty by about 1.5x rather than trailing it.
+
+**The arm does more cell work, not less**, which is what makes the direction
+trustworthy: 1,215,869 cells against 1,148,179 on cat-cjk, because a combining
+mark that is not clustered becomes its own cell instead of attaching to a base.
+It is faster while writing 5.9% more.
+
+**This is a caveat on the comparison, not an excuse.** baud's clustering is
+load-bearing: it passes all 766 cases of `GraphemeBreakTest.txt`, a ZWJ emoji
+sequence takes the columns of one glyph, and combining marks attach to their
+base rather than being discarded -- which they were, before it existed. Turning
+it off would make the number better and the terminal worse, and
+`decrqm_reports_grapheme_clustering_as_permanent` exists to stop that being
+done quietly.
+
+What it does say is where the remaining work is. The profile puts 15.7% in
+`ClusterBreak::advance` and 6.1% in `decide` -- the **outlined** arms, so most
+of cat-cjk misses the fast path. `cjk-corpus.txt` mixes seven scripts and only
+Han and kana take it. Making segmentation cheaper for the other five is the
+lead; removing it is not.
+
 ## Pricing operations instead of functions, and what it bought
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `bench-others/multibench`

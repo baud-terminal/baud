@@ -152,11 +152,22 @@ build until now. Driving every core with the committed recordings instead:
 | `utf8/less-cjk.raw` | 240.6 | **249.8** | 276.5 | **0.96x** |
 | `utf8/cat-cjk.raw` | 228.9 | **515.0** | 222.3 | **0.44x** |
 
-**Ahead on six, behind on two, and on dense CJK ghostty is 2.3x faster.**
-`cat-cjk.raw` is pure text with no escape sequences and every character wide --
-the case a bulk write path for non-ASCII would serve, which baud does not have.
-The headroom there is no longer inferred from a ceiling arm; it is a
-measurement of somebody else's code.
+**Ahead on six, behind on two — and the two are not measuring the same job.**
+ghostty's `ModeEntry` defaults to `false` and mode **2027** carries no explicit
+default, so libghostty-vt does no grapheme segmentation unless an application
+asks for it. baud clusters always and reports `?2027` as permanently set.
+
+Skipping segmentation the way mode 2027 off does puts baud at **344** on
+cat-cjk (from 229) and **369** on less-cjk (from 241) — ahead of ghostty on the
+second by 1.5x. Segmentation is 25–45% of baud's UTF-8 throughput, and the arm
+writes 5.9% *more* cells while doing it, because an unclustered combining mark
+becomes its own cell.
+
+That is a caveat, not an excuse. baud's clustering passes all 766 cases of
+`GraphemeBreakTest.txt`, a ZWJ emoji sequence takes the columns of one glyph,
+and combining marks attach to their base instead of being discarded — which
+they were, before it existed. The lead is making segmentation cheaper, not
+removing it.
 
 Where the lead is largest is where the architecture is doing the work rather
 than the parser: `less-pager` is the alternate-screen rotation and the
