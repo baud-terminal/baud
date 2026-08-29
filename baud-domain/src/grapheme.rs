@@ -284,9 +284,18 @@ impl ClusterBreak {
     /// for every ordinary character. Left as a real call it profiled at
     /// **24.6%** of `cat-cjk.raw` -- its own leaf frame, which is the tell --
     /// and the same shape cost `View::clear_partners` 11% until it was
-    /// inlined. The rules and the state machine stay out of line so that
-    /// inlining this does not drag six hundred bytes of cold arms into
-    /// `feed_with`, which this repo has measured being sensitive to.
+    /// inlined.
+    ///
+    /// **`decide` and `advance` are inlined too, and that reverses an earlier
+    /// decision.** They were kept out of line so their emoji and Indic arms
+    /// would not land in `feed_with`, which this repo has measured being
+    /// sensitive to code size. That was measured on ASCII-heavy payloads,
+    /// where the fast path above answers and neither is ever called. Emoji are
+    /// the opposite case: a pictographic character cannot take the fast path,
+    /// so both were real calls on every codepoint of a ZWJ sequence -- seven
+    /// of them in a family. Inlined, `opcost` prices that cluster at **52.2 ns
+    /// against 58.1**, cat-cjk gains 2.5% and less-cjk 4%, and every other
+    /// payload is flat.
     #[inline(always)]
     pub fn is_break(&mut self, c: Codepoint) -> bool {
         let (cur, lb) = GraphemeClass::of_with_lookback(c);
@@ -322,8 +331,8 @@ impl ClusterBreak {
         // **Split by the bitmap, not inside the callee.** A codepoint outside
         // the lookback blocks -- 98.9% of the space, and everything in Hangul,
         // Han and kana -- needs three state writes and no table at all. Left
-        // inside `advance`, which is `#[inline(never)]` so the emoji and Indic
-        // arms stay out of `feed_with`, that cheap case paid a call as well.
+        // inside `advance`, that cheap case would pay for the emoji and Indic
+        // arms it never reaches.
         match lb.is_none() {
             false => self.advance(cur, brk, lb),
             true => self.advance_plain(cur, brk),
@@ -355,7 +364,7 @@ impl ClusterBreak {
         self.incb = IncbLookback::None;
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn decide(&self, cur: GraphemeClass, lb: Lookback) -> bool {
         use GraphemeClass::*;
         // GB1: sot ÷ Any -- there *is* a boundary before the first codepoint,
@@ -405,7 +414,7 @@ impl ClusterBreak {
         true
     }
 
-    #[inline(never)]
+    #[inline(always)]
     fn advance(&mut self, cur: GraphemeClass, brk: bool, lb: Lookback) {
         use GraphemeClass::*;
         self.prev = Some(cur);
