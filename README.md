@@ -143,14 +143,14 @@ build until now. Driving every core with the committed recordings instead:
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1021.5** | 288.8 | 232.3 | **3.54x** |
-| `ascii/asciiquarium.raw` | **310.5** | 199.6 | 241.1 | **1.56x** |
-| `ascii/git-log.raw` | **1027.5** | 852.7 | 204.1 | **1.21x** |
-| `utf8/btop.raw` | **617.2** | 516.7 | 347.0 | **1.19x** |
-| `ascii/cat-scroll.raw` | **878.7** | 782.9 | 203.3 | **1.12x** |
-| `utf8/vim-unicode.raw` | **394.0** | 354.7 | 286.0 | **1.11x** |
-| `utf8/less-cjk.raw` | 232.4 | **252.7** | 275.5 | **0.92x** |
-| `utf8/cat-cjk.raw` | 220.6 | **514.1** | 223.0 | **0.43x** |
+| `ascii/less-pager.raw` | **1100.1** | 292.0 | 235.0 | **3.77x** |
+| `ascii/asciiquarium.raw` | **370.8** | 201.2 | 242.6 | **1.84x** |
+| `ascii/git-log.raw` | **1134.4** | 852.7 | 210.9 | **1.33x** |
+| `ascii/cat-scroll.raw` | **970.6** | 749.5 | 194.0 | **1.30x** |
+| `utf8/btop.raw` | **642.9** | 501.9 | 336.8 | **1.28x** |
+| `utf8/vim-unicode.raw` | **407.5** | 348.4 | 285.5 | **1.17x** |
+| `utf8/less-cjk.raw` | 240.6 | **249.8** | 276.5 | **0.96x** |
+| `utf8/cat-cjk.raw` | 228.9 | **515.0** | 222.3 | **0.44x** |
 
 **Ahead on six, behind on two, and on dense CJK ghostty is 2.3x faster.**
 `cat-cjk.raw` is pure text with no escape sequences and every character wide --

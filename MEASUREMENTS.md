@@ -205,6 +205,48 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## Pricing operations instead of functions, and what it bought
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `bench-others/multibench`
+with `TRANSPORT=memory` and `RECORDINGS=`, medians of 9, interleaved and
+rotated; `opcost` for the per-operation column.*
+
+`opcost` prices an operation by repeating it and differencing against a
+plain-text row. That instrument found every change below; the sampling profile
+that preceded it pointed at `dispatch` (30.1%) where the answer was worth 1%.
+
+| operation | before | after |
+|---|---|---|
+| CUP | 1.4 ns | 1.2 ns |
+| SGR, 16-colour | 11.8 ns | **9.3 ns** |
+| SGR, truecolour | 17.6 ns | 15.8 ns |
+| EL to end | 28.4 ns | **11.7 ns** |
+| ED to end | 27.5 ns | **12.6 ns** |
+| a scroll (fixed cost) | ~23 ns | measurably less |
+
+| recording | goal start | now | ghostty | ratio |
+|---|---|---|---|---|
+| `ascii/asciiquarium.raw` | 310.5 | **370.8** | 201.2 | 1.56x -> **1.84x** |
+| `ascii/git-log.raw` | 1027.5 | **1134.4** | 852.7 | 1.21x -> **1.33x** |
+| `ascii/cat-scroll.raw` | 878.7 | **970.6** | 749.5 | 1.12x -> **1.30x** |
+| `ascii/less-pager.raw` | 1021.5 | **1100.1** | 292.0 | 3.54x -> **3.77x** |
+| `utf8/btop.raw` | 617.2 | **642.9** | 501.9 | 1.19x -> **1.28x** |
+| `utf8/vim-unicode.raw` | 394.0 | **407.5** | 348.4 | 1.11x -> **1.17x** |
+| `utf8/less-cjk.raw` | 232.4 | **240.6** | 249.8 | 0.92x -> **0.96x** |
+| `utf8/cat-cjk.raw` | 220.6 | **228.9** | 515.0 | 0.43x -> **0.44x** |
+
+**cat-cjk is the row that did not move, and it is the one with a proven
+target.** ghostty is 2.25x faster on it. Its profile is now 15.7% `advance` and
+6.1% `decide` -- the *outlined* arms of the cluster machine, meaning the fast
+path is missing on most characters. `cjk-corpus.txt` mixes seven scripts, and
+only Han and kana take it.
+
+Widening the fast path to complete Hangul syllables was tried and **reverted**:
+`LV`/`LVT` provably cannot fire GB6-8, so it is correct, and it measured
+less-cjk +3% and `payload::cjk` **-5.5%** -- the wider test costs more on pure
+Han than it saves on mixed text. The reasoning is recorded because the next
+person will have the same idea.
+
 ## A ceiling arm that changed the work, and how to notice
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28.*
