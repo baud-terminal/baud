@@ -18,6 +18,9 @@
 use crate::storage::{MAX_COLS, Storage};
 use baud_domain::*;
 
+/// A text run at or below this length goes a character at a time.
+const SHORT_TEXT: usize = 2;
+
 /// The grid, the bytes, and the cursor, borrowed together for one read.
 pub(crate) struct Paint<'a> {
     pub(crate) arena: &'a [u8],
@@ -109,8 +112,28 @@ impl<'a> Paint<'a> {
     }
 
     /// A run of printable ASCII, blitted eight cells to a store.
+    ///
+    /// **A short run does not want the blitter.** `put_ascii_run` resolves the
+    /// row, repairs whatever the run orphans and then runs a vectored loop
+    /// eight cells at a time; for one or two characters that is all setup and
+    /// no vector. `cat-cjk.raw` is 39% ASCII by character and interleaved, so
+    /// its text runs are short -- the same shape that made a dedicated
+    /// single-character path worth 12% on the multi-byte side.
     #[inline(always)]
     pub(crate) fn text(&mut self, from: BytePos, n: ByteLen) {
+        if n.index() <= SHORT_TEXT {
+            for i in 0..n.index() {
+                let b = StreamByte::from_stream(self.arena[from.index() + i]);
+                self.glyph(PackedCell::translate(b, self.charset), Width::NARROW);
+            }
+            return;
+        }
+        self.blit(from, n);
+    }
+
+    /// The vectored form, for a run long enough to fill a store.
+    #[inline(always)]
+    fn blit(&mut self, from: BytePos, n: ByteLen) {
         let k = n.index().min(self.cols.index() - self.cx.index());
         if k == 0 {
             return;

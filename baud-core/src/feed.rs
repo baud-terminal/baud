@@ -143,11 +143,14 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
     let text = routes.is(Route::Text).bits();
     let ctrl = routes.is(Route::Control).bits();
     let cont = routes.is(Route::Cont).bits();
-    let leads = [
+    // **Three values, not a `[u32; 3]`.** An array indexed by a runtime length
+    // is an address computation the compiler has to keep somewhere, and the
+    // walk reads it once a run; three named locals stay in registers.
+    let (l2, l3, l4) = (
         routes.is(Route::Lead2).bits(),
         routes.is(Route::Lead3).bits(),
         routes.is(Route::Lead4).bits(),
-    ];
+    );
     // **The shapes that dominate, each taken in one step.** The walk is
     // general and costs a `run_at` and a dispatch per run; a block that is
     // *entirely* one thing needs neither, and the `diag` histogram says those
@@ -167,7 +170,7 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
     //
     // Five three-byte characters fill fifteen lanes; the sixteenth begins a
     // run the next block continues.
-    if leads[1] & 0x7fff == 0x1249 && cont & 0x7fff == 0x6db6 {
+    if l3 & 0x7fff == 0x1249 && cont & 0x7fff == 0x6db6 {
         put_run_of(p, from, ByteLen::from_index(3), Count::of(5));
         return ByteLen::from_index(15);
     }
@@ -212,7 +215,7 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
     // 3% between them.
     #[cfg(feature = "ceiling-no-walk")]
     {
-        core::hint::black_box((text, ctrl, cont, leads));
+        core::hint::black_box((text, ctrl, cont, l2, l3, l4));
         return ByteLen::from_index(LANE_COUNT);
     }
 
@@ -223,9 +226,9 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
         let first = match () {
             _ if text & 1 != 0 => 0,
             _ if ctrl & 1 != 0 => 1,
-            _ if leads[0] & 1 != 0 => 2,
-            _ if leads[1] & 1 != 0 => 3,
-            _ if leads[2] & 1 != 0 => 4,
+            _ if l2 & 1 != 0 => 2,
+            _ if l3 & 1 != 0 => 3,
+            _ if l4 & 1 != 0 => 4,
             _ => 5,
         };
         p.miss_first[first] += 1;
@@ -262,7 +265,7 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
         // character above `U+07FF` is three bytes, so CJK, Hangul and box
         // drawing all qualify together -- which is the condition a real
         // recording meets and one character class is not.
-        let (len, k) = run_at(&leads, cont, off);
+        let (len, k) = run_at(l2, l3, l4, cont, off);
         if k.index() == 0 {
             break;
         }
@@ -351,17 +354,18 @@ fn extend(arena: &[u8], at: BytePos, len: ByteLen, limit: Count) -> Count {
 /// the division together, so each arm sees its own constant, recovered all of
 /// it. A bit trick that ends in a division by a variable is not a bit trick.
 #[inline(always)]
-fn run_at(leads: &[u32; 3], cont: u32, off: usize) -> (ByteLen, Count) {
+fn run_at(l2: u32, l3: u32, l4: u32, cont: u32, off: usize) -> (ByteLen, Count) {
     let here = 1u32 << off;
-    let len = match () {
-        _ if leads[0] & here != 0 => 2,
-        _ if leads[1] & here != 0 => 3,
-        _ if leads[2] & here != 0 => 4,
+    // Three-byte first: it is 50% of this corpus's runs and 100% of a CJK
+    // page, so the common case takes one test rather than two.
+    let (len, lead) = match () {
+        _ if l3 & here != 0 => (3, l3),
+        _ if l4 & here != 0 => (4, l4),
+        _ if l2 & here != 0 => (2, l2),
         // A stray continuation, a `DEL`, or a lead the nibble allows and UTF-8
         // does not. The byte path answers for those.
         _ => return (ByteLen::ZERO, Count::ZERO),
     };
-    let lead = leads[len - 2];
     let mut k = 0usize;
     let mut o = off;
     while o + len <= LANE_COUNT {
