@@ -104,7 +104,7 @@ impl StreamByte {
         self.0.is_ascii_digit() || self.is(StreamByte::SEMICOLON)
     }
     /// For the atlas and the width tables, which index by codepoint.
-    pub fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         self.0 as usize
     }
     /// Every stream byte, in order, so a compile-time table can enumerate them

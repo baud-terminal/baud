@@ -979,3 +979,64 @@ sha256 = "16813c7f7c34ede6177b71566e07739273f99a932d7232b0fcee9c760b843dc8"
 bytes  = 301719
 status = "retrieved"
 group  = "I"
+
+[sources.shift-dfa]
+key    = "shift-dfa"
+title  = "Shift-based DFAs"
+author = "Per Vognsen"
+year   = 2020
+venue  = "gist"
+url    = "https://gist.github.com/pervognsen/218ea17743e1442e59bb60d29b1aa725"
+file   = "pervognsen-shift-based-dfa.md"
+sha256 = "4ce86a5c8ba71b56285716f10e2bc06e6e580b1362838cef947572162eeab1df"
+bytes  = 10645
+status = "retrieved"
+group  = "B"
+# The one representation that attacks *this* project's measured constraint
+# rather than a generic one. baud's ingest loop is latency-bound at IPC ~1, and
+# a `table[state][byte]` DFA puts a load on the loop-carried dependency chain:
+# the address needs the previous state, so the load cannot issue early. This
+# note packs a whole transition row into one word indexed by the *byte*, so the
+# load depends only on the input and the loop carries a shift and a mask. It
+# also states the cheaper half -- flipping the table to `[byte][state]` takes
+# the multiply off the chain -- which is a change baud can make without
+# changing its representation at all.
+
+[sources.sheng]
+key    = "sheng"
+title  = "Say Hello To My Little Friend: Sheng, a small but fast Deterministic Finite Automaton"
+author = "Geoff Langdale"
+year   = 2018
+venue  = "branchfree.org"
+url    = "https://branchfree.org/2018/05/25/say-hello-to-my-little-friend-sheng-a-small-but-fast-deterministic-finite-automaton/"
+file   = "langdale-2018-sheng.html"
+sha256 = "0d407dfe50241d34130b9aea13cd1ea871513b45518851c592d073e13617133b"
+bytes  = 235554
+status = "retrieved"
+group  = "B"
+# The DFA transition done entirely in a vector register: one `PSHUFB` per byte,
+# where the shuffle mask *is* the transition row. By the author of
+# `[[source: simdjson]]` and a Hyperscan engine, so it is the shipped form of
+# the technique `[[source: dpfsm]]` describes academically. Its constraint is
+# the reason to record it precisely rather than from memory: **16 states**, one
+# per lane of a 128-bit register, which is a bound baud's 23-state graph
+# exceeds and its ground sub-graph does not.
+
+[sources.regex-automata-dense]
+key    = "regex-automata-dense"
+title  = "regex_automata::dfa::dense::DFA -- transition table representation"
+author = "Andrew Gallant"
+year   = 2024
+venue  = "docs.rs, regex-automata 0.4.9"
+url    = "https://docs.rs/regex-automata/0.4.9/regex_automata/dfa/dense/struct.DFA.html"
+file   = "gallant-regex-automata-dense.html"
+sha256 = "f882aa1f36b802b83d338226550b831f4e8154687d54d6e0a237ecc114163b37"
+bytes  = 151497
+status = "retrieved"
+group  = "B"
+# The two standard representation choices stated by an implementer who measured
+# them: **premultiplied state identifiers**, which store `i * alphabet_len` in
+# the transition so the search needs no multiply, and **byte equivalence
+# classes**, which shrink a row from 256 entries to one per class of bytes the
+# automaton cannot tell apart. Both are directly available to baud: its states
+# are pre-multipliable, and its 256 bytes fall into far fewer classes than 256.

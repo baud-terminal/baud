@@ -9,6 +9,12 @@ description = "A terminal emulator core: PTY bytes through VT parse into a grid.
 # no_std, no alloc, no dependencies. storage is caller-provided.
 
 [features]
+# Representations of the parse graph, from
+# `docs/research/notes/b-parser-as-a-graph.md`. Compiled variants rather than a
+# runtime switch, because a runtime `if` in this loop has already manufactured
+# a fake 13-17% cost for a change that was free. Default is `ByNode`.
+graph-by-byte = []
+graph-by-class = []
 # `instrument` is on by default so tests and benches get it without asking, and
 # an embedder turns it off with `default-features = false`.
 #

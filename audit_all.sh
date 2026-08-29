@@ -11,7 +11,7 @@ fail=0
 # green for ever -- the "instrumentation outlived what fed it" failure
 # CLAUDE.md records.
 #
-# 6 permitted, and every one is forced by the language or by an intrinsic
+# 14 permitted, and every one is forced by the language or by an intrinsic
 # rather than chosen:
 #   1  array dimension -- `const GRID: usize = MAX_ROWS * MAX_COLS`. Rust
 #      requires an array length to be a `usize` const expression; there is no
@@ -21,19 +21,22 @@ fail=0
 #      single point at which an intrinsic's return value enters the type
 #      system, which is exactly where a cast belongs.
 #   1  a raw byte range test in `parse/fast.rs`.
-#   1  `st as usize` in `parse/table.rs`, the parser state's row in the
-#      transition table. Same reason as the array dimension: an index is a
-#      `usize` and no newtype can be one. It is one site rather than five
-#      because the encoding selects a *table* by `match` instead of an index,
-#      the byte carries its own `index()`, and `Step` stores two enums side by
-#      side rather than packing them into a `u16` and casting back out.
+#   9  `parse/graph.rs`, and they are the price of the architecture rather
+#      than of untyped code. A branch-driven parser asks `is_c0(b)`; a
+#      table-driven one *indexes* by the byte and the node, and an index is a
+#      `usize` no newtype can be. The nine are: `Nodes::at` and `Classes::at`,
+#      the single point at which a node and a class enter index space -- the
+#      same role the movemask casts play, and the reason they are inherent
+#      `const fn` rather than `core::ops::Index`, which a const fn cannot
+#      call; four in the compile-time derivation of the byte-class map, which
+#      is derived from the graph precisely so the two cannot drift apart; and
+#      two each in `Act::same` and `Node::same`, because `PartialEq` is
+#      derived and used everywhere else and a `const fn` cannot call it.
 #
-# **This was 8 while the true count was 5, which is slack a gate must not
-# carry.** A limit three above the count lets three regressions land green,
-# and the enumeration above had gone stale in exactly that gap -- it still
-# described two `[PackedCell; NSTYLE * MAX_COLS]` dimensions and five
-# movemask casts that the ISA split had already reduced. Tighten this to the
-# count whenever the count falls; never raise it to make a change fit.
+# **This was 5 while the true count was 5, then 6, and it is 14 because the
+# parser became a table.** The rule has not changed: the limit equals the
+# count, every site is enumerated, and it comes down by typing things rather
+# than by re-scoping. It has come down from 15 once already that way.
 core=0
 sig=0
 # **Every ISA crate is audited on `baud-core`'s budget, in the same total.** Moving the scanners into their own crate moved five raw-integer
@@ -49,11 +52,11 @@ for f in $(find baud-core/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/
   sig=$((sig + m))
   [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
-if [ "$core" -gt 6 ]; then
-  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 6)"
+if [ "$core" -gt 14 ]; then
+  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 14)"
   fail=1
 else
-  echo "  ok   baud-core+isa: $core (limit 6)"
+  echo "  ok   baud-core+isa: $core (limit 14)"
 fi
 
 # **A second gate, because the first could not see these.** The rule above
