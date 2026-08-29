@@ -18,7 +18,7 @@ Ranges are quoted as `[min-max]`. **If two ranges overlap there is no result.**
 
 ## Host
 
-Apple M5 Max, macOS 27.0.0, on AC power. Commit `3797649`.
+Apple M5 Max, macOS 27.0.0, on AC power. Commit `e363859`.
 
 ## Against other implementations, on real capture
 
@@ -47,12 +47,12 @@ output, with an SGR every 37 bytes; `payload::tui` models a full-screen redraw.
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** | **2097.4** [2020.3-2139.8] | **1786.1** [1751.3-1812.5] |
-| ghostty (libghostty-vt) | 678.9 [619.0-701.7] | 1095.4 [1064.8-1108.9] |
-| termwiz (wezterm) parse only | 391.4 [381.5-395.6] | 379.1 [371.6-385.9] |
-| alacritty_terminal | 220.0 [208.5-228.8] | 272.7 [268.0-279.9] |
-| vt100 crate | 172.1 [168.7-173.9] | 222.8 [219.2-227.7] |
-| wezterm (full terminal) | 17.9 [17.8-18.2] | 33.1 [32.8-33.6] |
+| **baud** | **2078.2** [2040.9-2096.5] | **1735.1** [1673.5-1777.4] |
+| ghostty (libghostty-vt) | 659.5 [616.8-686.9] | 1065.7 [1039.5-1072.6] |
+| termwiz (wezterm) parse only | 381.4 [380.3-383.6] | 367.1 [363.3-370.8] |
+| alacritty_terminal | 224.4 [215.4-229.7] | 273.9 [273.0-276.7] |
+| vt100 crate | 171.2 [167.5-172.8] | 211.3 [209.6-214.0] |
+| wezterm (full terminal) | 17.9 [17.8-18.2] | 32.7 [32.7-32.8] |
 
 **Generated payloads read higher than any real capture**, and their escape
 density matches no real program. The recordings above are the guide.

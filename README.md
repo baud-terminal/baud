@@ -134,8 +134,24 @@ Full tables, other hosts, and every caveat in
 | `utf8/cat-cjk.raw` | **403.7** | 391.1 | 229.8 | **1.03x** |
 
 Ahead on all eight. These are committed recordings of real programs, in
-`baud-core/tests/recordings/`; synthetic payloads read higher than any of them
-and are reported separately.
+`baud-core/tests/recordings/`.
+
+And on generated payloads, where every core is driven through the same
+harness. `payload::streaming` models `cat`, logs and build output;
+`payload::tui` models a full-screen redraw.
+
+| core | streaming | TUI redraw |
+|---|---|---|
+| **baud** | **2078.2** [2040.9-2096.5] | **1735.1** [1673.5-1777.4] |
+| ghostty (libghostty-vt) | 659.5 [616.8-686.9] | 1065.7 [1039.5-1072.6] |
+| termwiz (wezterm) parse only | 381.4 [380.3-383.6] | 367.1 [363.3-370.8] |
+| alacritty_terminal | 224.4 [215.4-229.7] | 273.9 [273.0-276.7] |
+| vt100 crate | 171.2 [167.5-172.8] | 211.3 [209.6-214.0] |
+| wezterm (full terminal) | 17.9 [17.8-18.2] | 32.7 [32.7-32.8] |
+
+MB/s. **Generated payloads read higher than any real capture** and their escape
+density matches no real program, so the recordings above are the guide and
+this table is the like-for-like comparison across cores.
 
 Two things belong with the number rather than under it:
 
