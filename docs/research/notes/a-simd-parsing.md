@@ -257,3 +257,77 @@ Two things stand between here and there, and neither is fatal:
 
   So 14-28% of real bytes go through a decoder `[[source: utf8-lookup]]` prices
   at 7 instructions per byte against lookup's <1. That is worth building.
+
+## The decoder is not the bottleneck, and the literature is how that was settled
+
+> Added 2026-08-29. Source: `[[source: simdutf]]`.
+
+This note's standing gap was "deciding where a block validator sits relative to
+`fast_utf8`. Validation is not decoding, and baud needs the codepoint, the
+width and a cell out the other side." The obvious next step looked like a SIMD
+*decoder* to go with the SIMD validator.
+
+`[[source: simdutf]]` says not to build one, and its Table 6(b) is why. That
+table is an **Apple M1** — the same architecture class this project measures on,
+so it is a comparable number rather than the cross-machine kind `CLAUDE.md`
+rules out — and it reports validating UTF-8 to UTF-16 transcoding in
+gigacharacters per second:
+
+| Chinese | ICU | LLVM | finite | simdutf |
+|---|---|---|---|---|
+| Gchar/s | 0.43 | 0.23 | 0.43 | **1.2** |
+
+A Chinese character is three UTF-8 bytes, so even ICU's ordinary decoder is
+about **1.3 GB/s** of input. baud's *entire* `cat-cjk.raw` pipeline — decode,
+width, clustering, cell write, scroll — runs at **0.31 GB/s**. A decoder four
+times faster than the whole of baud cannot be what is limiting baud.
+
+**Confirmed against baud's own code rather than inferred.** Adding a second,
+identical decode to `fast_utf8` — the probe that cannot be contaminated,
+because the output is unchanged — costs **8-10%**:
+
+| payload | real | with a second decode |
+|---|---|---|
+| `utf8/cat-cjk.raw` | 302 | 278 (**-8%**) |
+| `payload::cjk` | 363 | 326 (**-10%**) |
+| `utf8/less-cjk.raw` | 310 | 286 (**-8%**) |
+
+So decoding is ~9% of the CJK path. simdutf is 2.8x ICU on M1; applying that
+ratio to baud's 9% would return about **6%** of total, for a SIMD transcoder,
+its tables, and a second code path to keep correct against
+`GraphemeBreakTest.txt` and the overlong-form tests. That is not the change to
+make.
+
+**Where the time actually is**, by ceiling arm, after this session's work:
+
+| part | share of `cat-cjk.raw` |
+|---|---|
+| the cell write | ~29% (whole write free = +40%) |
+| grapheme clustering | **10-15%** |
+| UTF-8 decode | ~9% |
+| `Width::of` | ~5% |
+
+Clustering was 25-45% before the lookback tables were folded into the class
+trie's high nibble; that change is in `MEASUREMENTS.md` and took cat-cjk +28%.
+
+**What the paper does support is the shape, not the decoder.** Its § 1
+describes the pattern every fast transcoder shares: an ASCII fast path, then
+block processing with a shuffle table. baud has the first — `put_ascii_run`
+writes eight cells a store — and has nothing corresponding for non-ASCII, which
+goes one codepoint at a time through `put_glyph`. Table 5's Latin column makes
+the size of that asymmetry plain: **18 Gchar/s** with an ASCII fast path
+against 1.2-1.9 for the Asian languages, in the same library.
+
+So the lead is a **bulk path for runs of same-width non-ASCII text**, and the
+paper's own numbers say the win is in the cell write rather than in the decode
+that feeds it.
+
+## Claims relied on
+
+| claim | source | where |
+|---|---|---|
+| Validating UTF-8 to UTF-16, Chinese, on Apple M1: ICU 0.43, LLVM 0.23, finite 0.43, simdutf 1.2 Gchar/s | `[[source: simdutf]]` | Table 6(b) |
+| Non-validating, AMD Rome: Latin 18 Gchar/s against Chinese 1.7 | `[[source: simdutf]]` | Table 5 |
+| Asiatic characters including Chinese and Japanese require three UTF-8 bytes | `[[source: simdutf]]` | § 2 |
+| A byte-permute driven by a lookup table is the key ingredient of most SIMD transcoders | `[[source: simdutf]]` | § 1 |
+| Omitting validation gives only a modest gain, so validating transcoders are what engineers should use | `[[source: simdutf]]` | § 6 |

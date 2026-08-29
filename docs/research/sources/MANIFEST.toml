@@ -866,3 +866,20 @@ sha256 = "63ca0a478bba98f018d3ae90eb34a12e2b5cf4d0fcd50db3a8d3ce54257ff09d"
 bytes  = 6137
 status = "external"
 group  = "F"
+
+[sources.simdutf]
+key    = "simdutf"
+title  = "Transcoding Billions of Unicode Characters per Second with SIMD Instructions"
+author = "Daniel Lemire and Wojciech Muła"
+year   = 2022
+venue  = "Software: Practice and Experience 52(2), arXiv:2109.10433v3"
+url    = "https://arxiv.org/pdf/2109.10433v3"
+file   = "simdutf-transcoding.pdf"
+sha256 = "7da1d9b93e0b2b812113284733ccf43cb4d76a0d37ced5b1cc4511ac834cd2f9"
+bytes  = 470406
+status = "retrieved"
+group  = "A"
+# Fetched to answer "is baud's CJK path decode-bound?", and it says no. Its
+# Table 6(b) is an **Apple M1**, the same architecture class this project
+# measures on, so its Chinese column is directly comparable rather than a
+# cross-machine number of the kind CLAUDE.md rules out.
