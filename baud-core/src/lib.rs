@@ -27,6 +27,7 @@
 
 mod feed;
 mod graph;
+mod paint;
 mod storage;
 mod term;
 mod write;

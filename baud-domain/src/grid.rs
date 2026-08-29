@@ -253,6 +253,23 @@ impl<'a> View<'a> {
         self.used[p] = self.used[p].reached(to);
     }
 
+    /// The rotation this view holds.
+    pub fn rot(&self) -> RowRot {
+        self.rot
+    }
+
+    /// Advance the rotation by `n` rows: a scroll, from the view's side.
+    ///
+    /// The view holds the rotation by value, so a caller that keeps one across
+    /// a whole read -- which is the point, since building it per run costs
+    /// more than the writes do -- has to be able to scroll without dropping
+    /// it. Returns the new rotation so the caller can keep its own copy in
+    /// step.
+    pub fn advance_rot(&mut self, n: usize) -> RowRot {
+        self.rot = self.rot.advance(n, self.rows);
+        self.rot
+    }
+
     /// The mark for screen row `r`.
     pub fn extent(&self, r: Row) -> RowExtent {
         self.used[self.phys(r)]

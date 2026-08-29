@@ -636,3 +636,28 @@ impl ByteLen {
         ByteLen::from_index(n)
     }
 }
+
+/// How many cells a write touched.
+///
+/// **Its own type because it is the numerator of rule #1**, and because it is
+/// not a [`Count`]: that is a VT parameter's repeat count and holds sixteen
+/// bits, where a single read can blank thousands of cells a row. Conflating
+/// them saturates the measurement silently, which is the failure mode this
+/// project cares about most -- a counter that stops counting reads exactly
+/// like work that stopped happening.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[repr(transparent)]
+pub struct Cells(usize);
+
+impl Cells {
+    pub const ZERO: Cells = Cells(0);
+    pub fn of(n: usize) -> Cells {
+        Cells(n)
+    }
+    pub fn plus(self, n: usize) -> Cells {
+        Cells(self.0 + n)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+}

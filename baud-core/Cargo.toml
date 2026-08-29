@@ -22,6 +22,8 @@ alloc = []
 #              128 KB property table lookup, one load a character
 ceiling-no-write = []
 ceiling-no-classify = []
+# `probe-double-classify` prices the property lookup by doing it twice.
+probe-double-classify = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

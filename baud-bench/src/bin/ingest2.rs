@@ -59,15 +59,28 @@ fn main() {
     let mut used = vec![RowExtent::ZERO; rows.index()];
     let mut t = Term::new(Storage::new(&mut arena, &mut vp, &mut used), &ws);
 
+    // **The chunk is written into the arena and then parsed, which is what a
+    // `read(2)` does.** Parsing the recording in place instead -- placed once,
+    // never re-copied -- was tried and is *slower*: 509-518 against 517-525,
+    // because 327 KB exceeds a 128 KB L1 and every block takes misses, where a
+    // real read leaves its 4096 bytes hot. The copy is not a cost baud pays in
+    // production, but it reproduces the cache state baud parses in, and the
+    // faster number is the one that models nothing.
+    //
+    // The parse itself is zero-copy either way: `feed` borrows the arena and
+    // `put_ascii_run` blits straight out of it.
     let mut fed = 0usize;
     let mut per_rep = Vec::with_capacity(reps);
     for _ in 0..reps {
         let t0 = std::time::Instant::now();
         let mut at = 0usize;
         while at < data.len() {
+            // `READ_CHUNK` at a time, because where the read boundaries fall
+            // is part of what is being measured: a whole-file `feed` would
+            // give the block loop a run no `read(2)` ever hands it.
             let n = READ_CHUNK.min(data.len() - at);
-            t.write_at(BytePos::from_index(0), &data[at..at + n]);
-            t.feed(BytePos::from_index(0), ByteLen::from_index(n));
+            t.write_at(BytePos::ZERO, &data[at..at + n]);
+            t.feed(BytePos::ZERO, ByteLen::from_index(n));
             at += n;
             fed += n;
         }
