@@ -204,3 +204,139 @@ fn a_full_style_table_makes_cells_report_the_wrong_colour() {
          with, because the style table evicted their slot"
     );
 }
+
+/// **The palette a real program uses must not collide in the style table.**
+///
+/// The table is direct-mapped with eviction, so two live renditions sharing a
+/// bucket evict each other on every alternation -- and a cell holds a
+/// `StyleId`, which is the bucket, so the cells written under the first one
+/// silently repaint in the second. Nothing reports an error; the terminal just
+/// shows the wrong colour.
+///
+/// This asserts the property directly: the thirty-two renditions of the
+/// sixteen-colour palette, normal and bold, land in thirty-two distinct slots.
+/// A 1024-entry table has room for them thirty-two times over, so a collision
+/// here is a hash fault and not a capacity one.
+///
+/// It is the case `a_full_style_table_makes_cells_report_the_wrong_colour`
+/// cannot reach: that one over-subscribes the table on purpose with 200
+/// truecolours, where eviction is the *correct* behaviour. Here there is no
+/// excuse for it.
+///
+/// **`asciiquarium.raw` is why this exists.** It emits thirteen distinct SGR
+/// strings and was interning **14,769** times across two passes -- continuous
+/// eviction on real capture -- because the key XORed `fg`, `bg << 21` and
+/// `attrs << 45`, whose bit ranges overlap, and ignored `underline` and `font`
+/// entirely.
+#[test]
+fn the_sixteen_colour_palette_does_not_collide() {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut b = Vec::new();
+    let mut want = Vec::new();
+    let mut col = 0usize;
+    for bold in [0usize, 1] {
+        for base in [30usize, 90] {
+            for c in 0..8usize {
+                b.extend_from_slice(
+                    format!("\x1b[1;{}H\x1b[0;{bold};{}mX", col + 1, base + c).as_bytes(),
+                );
+                want.push(col);
+                col += 1;
+            }
+        }
+    }
+    let mut i = 0;
+    while i < b.len() {
+        let k = READ_CHUNK.min(b.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&b[i..i + k]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += k;
+    }
+
+    let row = t.row(Row::from_index(0));
+    let mut slots = Vec::new();
+    for c in &want {
+        slots.push(row[*c].style.index());
+    }
+    let mut sorted = slots.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        slots.len(),
+        "{} of the {} palette renditions share a style slot with another. The \
+         table is direct-mapped and evicts, so those cells repaint in each \
+         other's colour whenever both are on screen",
+        slots.len() - sorted.len(),
+        slots.len()
+    );
+}
+/// **Renditions that differ must still differ after they are written.**
+///
+/// The style table is direct-mapped and evicts, and a cell holds a `StyleId`
+/// which *is* the bucket. So when two live renditions share a bucket, the
+/// second to arrive takes the slot and every cell already pointing at it
+/// silently repaints in the new colour.
+///
+/// **That failure is invisible to the obvious test.** Reading the cells back
+/// afterwards shows both of them holding the *same* rendition -- the evicted
+/// one is simply gone -- so a check for "two cells with one slot but different
+/// colours" finds nothing. What it costs is *distinctness*: 28 renditions go
+/// in and fewer than 28 come out.
+///
+/// Counting them is therefore the test. These are the renditions
+/// `asciiquarium.raw` actually produces -- its thirteen SGR strings in every
+/// pairing, which is how `40` (background black, 16,632 of them) combines with
+/// each foreground -- and there are 28 distinct ones. The old key XORed `fg`,
+/// `bg << 21` and `attrs << 45`, whose ranges overlap, and collapsed them to
+/// **18**: ten renditions on screen at once wearing each other's colours,
+/// continuously, on a recording in this repo.
+#[test]
+fn renditions_that_differ_still_differ_after_a_write() {
+    let sgrs = [
+        "40", "37", "0;1", "0", "36", "34", "33", "32", "31", "30", "35", "39;49", "",
+    ];
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut b = Vec::new();
+    let mut n = 0usize;
+    for a in &sgrs {
+        for c in &sgrs {
+            b.extend_from_slice(format!("\x1b[1;{}H\x1b[0m\x1b[{a}m\x1b[{c}mX", n + 1).as_bytes());
+            n += 1;
+        }
+    }
+    let mut i = 0;
+    while i < b.len() {
+        let k = READ_CHUNK.min(b.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let f = slot.write(StreamByte::slice_from(&b[i..i + k]));
+        t.feed(base, f.len());
+        t.commit_read(f.len());
+        i += k;
+    }
+
+    let row = t.row(Row::from_index(0));
+    let mut seen: Vec<(ColorWord, ColorWord, bool)> = Vec::new();
+    for c in 0..n {
+        let w = t.style_of(row[c]);
+        let k = (w.fg(), w.bg(), w.attrs().has(Attrs::BOLD));
+        if !seen.contains(&k) {
+            seen.push(k);
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        28,
+        "{} distinct renditions survived out of 28. A 1024-entry table has room \
+         for all of them, so a shortfall is two of them sharing a bucket and \
+         evicting each other -- and the cells that lost the race are now \
+         showing the wrong colour",
+        seen.len()
+    );
+}

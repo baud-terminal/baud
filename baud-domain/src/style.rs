@@ -414,7 +414,44 @@ impl StyleWord {
     /// 0 interned / 100% hits`, so nothing here can currently tell the two
     /// versions apart. It needs a payload that cycles renditions faster than
     /// `NSTYLE` before it is worth changing.
+    /// The bucketing key. **Every field, mixed rather than overlapped.**
+    ///
+    /// This was `fg ^ (bg << 21) ^ (attrs << 45)`, which had two faults. The
+    /// three ranges *overlap* -- `fg` is 32 bits and `bg << 21` starts inside
+    /// it -- so unrelated renditions folded onto each other. And `underline`
+    /// and `font` were not in it at all, so two styles differing only in
+    /// underline colour or font were guaranteed the same bucket and evicted
+    /// each other on every write.
+    ///
+    /// A collision is not a correctness bug -- `intern_style` compares the
+    /// whole `StyleWord`, not the key -- it is a *thrash*: the table is
+    /// direct-mapped and evicts, so two hot styles sharing a bucket miss every
+    /// time they alternate. `asciiquarium.raw` emits **13** distinct SGR
+    /// parameter strings and was interning 184,463 times against 911,587 hits.
+    ///
+    /// Multiply-then-xor per field, so every input bit reaches the high bits
+    /// that [`StyleId::bucket`] takes.
     pub fn key(self) -> u64 {
-        (self.fg.0 as u64) ^ ((self.bg.0 as u64) << 21) ^ ((self.attrs.bits() as u64) << 45)
+        // `fg` and `bg` are laid side by side, **not overlapped**, and the
+        // low-entropy tail is mixed once and xored in.
+        //
+        // The shape matters as much as the coverage. `StyleId::bucket`
+        // multiplies this by the Fibonacci constant and takes the high bits,
+        // which spreads a *smoothly varying* input almost perfectly -- that is
+        // why a 200-colour truecolour ramp lands in 200 distinct buckets. A
+        // hash that multiplies `fg` itself destroys that structure and gives
+        // ordinary birthday collisions instead: an earlier attempt here put 13
+        // of those 200 cells in the wrong colour, which
+        // `a_full_style_table_makes_cells_report_the_wrong_colour` caught.
+        //
+        // So `fg | bg << 32` is left alone, and `underline`, `attrs` and
+        // `font` -- which are the default on essentially all text -- are
+        // multiplied together into a constant that shifts the whole space.
+        const M: u64 = 0xD6E8_FEB8_6659_FD93;
+        let base = u64::from(self.fg.0) | (u64::from(self.bg.0) << 32);
+        let tail = u64::from(self.underline.0)
+            | (u64::from(self.attrs.bits()) << 32)
+            | (u64::from(self.font.0) << 48);
+        base ^ tail.wrapping_mul(M)
     }
 }
