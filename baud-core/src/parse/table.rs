@@ -12,8 +12,8 @@
 //!
 //! The table is `2 x 20 x 256` entries of one `u16` -- **20 KB**, built by a
 //! `const fn`, so it is rodata with no initialiser and nothing to load.
-//! `the_table_parser_matches_the_machine` drives both implementations over the
-//! same generated programs and requires identical terminal state.
+//! `the_table_sends_every_byte_where_the_machine_does` drives both over all
+//! 10,240 transitions and requires the same landing state.
 //!
 //! Two things the table deliberately does *not* absorb:
 //!
@@ -24,6 +24,11 @@
 //! * **State payloads.** `Utf8` carries an accumulator and `Vt52Col` a row.
 //!   Those live in `Term` beside the discriminant, because a table is indexed
 //!   by a small integer and an accumulator is not one.
+
+// The table and its proof land before the action dispatch that consumes them,
+// so that the transition can be verified against `machine.rs` on its own. The
+// switch is the next commit.
+#![allow(dead_code)]
 
 use crate::*;
 
@@ -720,5 +725,46 @@ mod tests {
             "{wrong} of 10240 transitions disagree; first \
              (latin1, from, byte, machine says, table says): {first:?}"
         );
+    }
+
+    /// The `const fn` byte predicates must agree with `StreamByte`'s.
+    ///
+    /// They are spelled twice -- once here so the table can be built in a
+    /// `const fn`, once there for the rest of the parser -- and two spellings
+    /// of one rule are exactly what this repo has seen drift before: `0x7f`
+    /// was missing from the AVX2 stop mask while the scalar tail had it.
+    #[test]
+    fn the_table_agrees_with_streambyte() {
+        for b in 0u8..=255 {
+            let sb = crate::StreamByte::from_stream(b);
+            assert_eq!(is_c0(b), sb.is_c0(), "is_c0 {b:#04x}");
+            assert_eq!(
+                is_esc_intermediate(b),
+                sb.is_esc_intermediate(),
+                "is_esc_intermediate {b:#04x}"
+            );
+            assert_eq!(
+                is_csi_intermediate(b),
+                sb.is_csi_intermediate(),
+                "is_csi_intermediate {b:#04x}"
+            );
+            assert_eq!(
+                is_final(b),
+                crate::FinalByte::from_stream(sb).is_some(),
+                "is_final {b:#04x}"
+            );
+            assert_eq!(
+                is_private(b),
+                crate::Marker::from_private(sb).is_some(),
+                "is_private {b:#04x}"
+            );
+            assert_eq!(is_utf8_lead(b), sb.utf8_lead().is_some(), "lead {b:#04x}");
+            assert_eq!(
+                is_utf8_cont(b),
+                sb.utf8_continuation().is_some(),
+                "cont {b:#04x}"
+            );
+            assert_eq!(is_del(b), sb == crate::StreamByte::DEL, "del {b:#04x}");
+        }
     }
 }
