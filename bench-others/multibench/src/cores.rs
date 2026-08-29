@@ -120,6 +120,32 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                     )
                 };
                 assert_eq!(rc, 0, "ghostty_terminal_new failed with {rc}");
+                // **Match the scrollback every other core is given.** ghostty's
+                // defaults are unlimited lines and 10,000 *bytes*, which at its
+                // documented ~400 KB page granularity keeps no history at all.
+                // alacritty and vt100 get 10,000 lines above and baud carries
+                // `SB = 10_000`; without this ghostty was the only core not
+                // retaining what it scrolled.
+                const OPT_SCROLLBACK_MAX_BYTES: i32 = 27;
+                const OPT_SCROLLBACK_MAX_LINES: i32 = 28;
+                let lines: usize = 10_000;
+                let rs = unsafe {
+                    ghostty::ghostty_terminal_set(
+                        term,
+                        OPT_SCROLLBACK_MAX_LINES,
+                        (&raw const lines).cast(),
+                    )
+                };
+                assert_eq!(rs, 0, "setting ghostty scrollback lines failed with {rs}");
+                // NULL removes the byte limit, so lines are the only bound --
+                // the same shape as the other three.
+                let rb = unsafe {
+                    ghostty::ghostty_terminal_set(term, OPT_SCROLLBACK_MAX_BYTES, std::ptr::null())
+                };
+                assert_eq!(
+                    rb, 0,
+                    "clearing ghostty scrollback byte limit failed with {rb}"
+                );
                 let v = drive(p, total, |chunk| unsafe {
                     ghostty::ghostty_terminal_vt_write(term, chunk.as_ptr(), chunk.len());
                 });

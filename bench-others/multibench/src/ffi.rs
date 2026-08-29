@@ -1,5 +1,14 @@
-/// ghostty's terminal core via libghostty-vt's C ABI. Three functions is the
-/// whole surface we need: create, feed, destroy.
+/// ghostty's terminal core via libghostty-vt's C ABI: create, configure, feed,
+/// destroy.
+///
+/// **`set` is not optional, and leaving it out made the comparison unfair.**
+/// `ghostty_terminal_new` starts with "reasonable defaults e.g. around
+/// scrollback limits", and queried from the library those are *unlimited
+/// lines* and **10,000 bytes** -- with pruning at a page granularity ghostty
+/// documents as ~400 KB, which retains essentially no history. alacritty and
+/// vt100 are handed `scrolling_history = 10_000` **lines** here and baud
+/// carries `SB = 10_000` lines, so three cores were retaining ten thousand
+/// lines and the fourth was retaining none.
 ///
 /// This replaces bench-others/ghostty-bench, a separate Zig harness that stalled
 /// on ghostty's build-time-generated unicode_tables. libghostty-vt is now a
@@ -20,6 +29,9 @@ pub(crate) mod ghostty {
             rows: u16,
         ) -> i32;
         pub fn ghostty_terminal_free(t: Terminal);
+        /// Set one option. `value` may be NULL where the option documents it
+        /// -- for the scrollback byte limit, NULL means unlimited.
+        pub fn ghostty_terminal_set(t: Terminal, opt: i32, value: *const c_void) -> i32;
         /// Documented as infallible: malformed input is logged, never fatal.
         pub fn ghostty_terminal_vt_write(t: Terminal, data: *const u8, len: usize);
     }

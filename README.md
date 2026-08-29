@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ⚠️ [ahead of ghostty on six recordings, behind on two](#the-number) — 1.11–3.54× on ASCII and mixed capture, **0.43×** on dense CJK |
+| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#and-on-real-capture-where-it-is-behind) — 1.03–4.10× on committed capture, with matched scrollback |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -136,32 +136,52 @@ every caveat in [MEASUREMENTS.md](MEASUREMENTS.md).*
 
 **Spans: 2.24x ghostty streaming, 2.86x TUI. Cells: 1.50x and 1.50x.**
 
-## And on real capture, where it is behind
+## And on real capture
 
 The table above is the two synthetic payloads, which is what multibench could
 build until now. Driving every core with the committed recordings instead:
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1129.8** | 293.5 | 235.0 | **3.85x** |
-| `ascii/asciiquarium.raw` | **369.8** | 201.4 | 242.6 | **1.84x** |
-| `utf8/btop.raw` | **701.3** | 504.9 | 336.8 | **1.39x** |
-| `ascii/git-log.raw` | **1169.5** | 853.9 | 210.9 | **1.37x** |
-| `ascii/cat-scroll.raw` | **985.7** | 765.7 | 194.0 | **1.29x** |
-| `utf8/less-cjk.raw` | **320.7** | 252.6 | 276.5 | **1.27x** |
-| `utf8/vim-unicode.raw` | **447.5** | 354.2 | 285.5 | **1.26x** |
-| `utf8/cat-cjk.raw` | 310.2 | **516.7** | 222.3 | **0.60x** |
+| `ascii/less-pager.raw` | **1209.9** | 295.1 | 242.9 | **4.10x** |
+| `ascii/cat-scroll.raw` | **1040.9** | 430.9 | 203.9 | **2.42x** |
+| `ascii/git-log.raw` | **1223.4** | 526.0 | 213.0 | **2.33x** |
+| `ascii/asciiquarium.raw` | **380.5** | 202.5 | 244.9 | **1.88x** |
+| `utf8/less-cjk.raw` | **417.7** | 253.8 | 274.8 | **1.65x** |
+| `utf8/btop.raw` | **760.9** | 507.8 | 324.3 | **1.50x** |
+| `utf8/vim-unicode.raw` | **451.2** | 354.0 | 290.3 | **1.27x** |
+| `utf8/cat-cjk.raw` | **403.7** | 391.1 | 229.8 | **1.03x** |
 
-**Ahead on seven of eight — and the one behind is not measuring the same job.**
+**Ahead on all eight — after a harness bug that was ours, not ghostty's.**
+
+An earlier version of this table had baud at **0.60x** on `cat-cjk` and drew
+conclusions from it. `ghostty_terminal_new` takes no scrollback argument and
+starts with what its header calls "reasonable defaults e.g. around scrollback
+limits"; queried from the library those are *unlimited lines* and **10,000
+bytes**, pruned at a page granularity ghostty documents as ~400 KB — so it
+retained essentially no history. multibench meanwhile hands alacritty and vt100
+`10_000` **lines** and baud carries `SB = 10_000`. Three cores were keeping ten
+thousand lines and the fourth was keeping none.
+
+Setting ghostty to the same 10,000 lines moves exactly the rows it should:
+`git-log` 853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 → 391.1 —
+the three scroll-heavy recordings — while the payloads that never scroll stay
+within noise. That is the mechanism confirmed rather than a correlation.
+
+**A comparison is only like-for-like in the dimensions someone thought to set**,
+and ghostty was the one core left on its defaults because its constructor does
+not ask for them.
+
+**And baud is still doing strictly more work on the CJK rows.**
 ghostty's `ModeEntry` defaults to `false` and mode **2027** carries no explicit
 default, so libghostty-vt does no grapheme segmentation unless an application
 asks for it. baud clusters always and reports `?2027` as permanently set.
 
 Skipping segmentation the way mode 2027 off does puts baud at **344** on
-cat-cjk (from 229) and **369** on less-cjk (from 241) — ahead of ghostty on the
-second by 1.5x. Segmentation is 25–45% of baud's UTF-8 throughput, and the arm
-writes 5.9% *more* cells while doing it, because an unclustered combining mark
-becomes its own cell.
+cat-cjk (from 229) and **369** on less-cjk (from 241). Segmentation is 25–45%
+of baud's UTF-8 throughput, and the arm writes 5.9% *more* cells while doing
+it, because an unclustered combining mark becomes its own cell. So the CJK rows
+above have baud clustering and ghostty not.
 
 That is a caveat, not an excuse. baud's clustering passes all 766 cases of
 `GraphemeBreakTest.txt`, a ZWJ emoji sequence takes the columns of one glyph,

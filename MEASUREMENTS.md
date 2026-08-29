@@ -251,6 +251,32 @@ targets.
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29, commit `70d692f`.
 `bench-others/multibench`, `TRANSPORT=memory`, `RECORDINGS=`, medians of 9.*
 
+**Superseded on 2026-08-29: ghostty was configured with no scrollback.** The
+table below is kept because the correction is the finding. `multibench` gave
+alacritty and vt100 `10_000` lines and baud carries `SB = 10_000`, while
+`ghostty_terminal_new` takes no scrollback argument and defaults to unlimited
+lines and **10,000 bytes**, pruned at ghostty's documented ~400 KB page
+granularity -- so it retained none. Re-measured with ghostty set to the same
+10,000 lines:
+
+| recording | baud (cells) | ghostty | **ratio** | ghostty before |
+|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1209.9** | 295.1 | **4.10x** | 293.5 |
+| `ascii/cat-scroll.raw` | **1040.9** | 430.9 | **2.42x** | 765.7 |
+| `ascii/git-log.raw` | **1223.4** | 526.0 | **2.33x** | 853.9 |
+| `ascii/asciiquarium.raw` | **380.5** | 202.5 | **1.88x** | 201.4 |
+| `utf8/less-cjk.raw` | **417.7** | 253.8 | **1.65x** | 252.6 |
+| `utf8/btop.raw` | **760.9** | 507.8 | **1.50x** | 504.9 |
+| `utf8/vim-unicode.raw` | **451.2** | 354.0 | **1.27x** | 354.2 |
+| `utf8/cat-cjk.raw` | **403.7** | 391.1 | **1.03x** | 516.7 |
+
+**The rows that moved are exactly the scroll-heavy ones** -- git-log,
+cat-scroll, cat-cjk -- while payloads that never scroll stayed within noise.
+That is the mechanism confirmed rather than a correlation, and it is why the
+one row baud had been losing was the one with the most scrolls.
+
+The superseded table:
+
 | recording | baud (cells) | ghostty | **ratio** |
 |---|---|---|---|
 | `ascii/less-pager.raw` | **1084.8** | 287.0 | **3.78x** |
