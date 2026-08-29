@@ -477,7 +477,13 @@ impl MarkKey {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
+/// **Not `Copy`, deliberately.** This is 44 bytes -- an eight-byte key, a
+/// length and eight codepoints -- and it was `Copy` with by-value predicates,
+/// so `marks[i].is_for(key)` copied the whole codepoint array to compare the
+/// key at the front of it. A large aggregate that hands out silent copies is
+/// a type lying about its cost, in the same way a `bool` field is a missing
+/// two-state enum.
+#[derive(Clone, PartialEq, Eq, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct MarkSlot {
     /// The cell these attach to. Only meaningful when `len > 0`.
     pub key: MarkKey,
@@ -528,15 +534,15 @@ impl MarkSlot {
     /// surface, physical row and generation all have to match. Comparing a
     /// subset is what the previous version did, and it reported a mark for a
     /// cell that had been scrolled away.
-    pub fn is_for(self, key: MarkKey) -> bool {
+    pub fn is_for(&self, key: MarkKey) -> bool {
         !self.is_empty() && self.key == key
     }
 
-    pub fn is_empty(self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    pub fn is_full(self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.len as usize >= MarkSlot::CAPACITY
     }
 
