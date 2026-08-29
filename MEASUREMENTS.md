@@ -205,6 +205,44 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## One compare before the vector: every payload gains, vim +7.5%
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
+`OpMode::Computed`, medians of 40 reps, three interleaved rounds, first
+discarded.*
+
+`S::run` returns the count of printable ASCII at the front of the buffer, so it
+returns **zero** whenever the current byte is a control, an `ESC` or a UTF-8
+lead -- after a full vector load, compare and movemask. Testing the byte first
+costs a compare on the path that goes on to scan and saves the whole setup on
+the path that gets nothing.
+
+| payload, cells | before | after | |
+|---|---|---|---|
+| `utf8/vim-unicode.raw` | 358 / 376 | **395 / 402** | **+7.5%** |
+| `payload::cjk` | 292 / 294 | **316 / 311** | **+7.3%** |
+| `utf8/cat-cjk.raw` | 209 / 213 | **220 / 224** | **+5.2%** |
+| `utf8/less-cjk.raw` | 218 / 217 | **228 / 229** | **+5%** |
+| `ascii/cat-scroll.raw` | 808 / 803 | **837 / 845** | **+4.4%** |
+| btop, asciiquarium, streaming | | | +2.4-2.8% |
+
+Nothing regressed. It helps escape-dense capture for the same reason it helps
+CJK: an `ESC` byte gets exactly as little from the scanner as a UTF-8 lead.
+
+**It replaced a change that the synthetic payload liked and real capture did
+not.** The first attempt made `fast_utf8` consume a *run* of multi-byte
+characters rather than one, so a page of Han would stop re-entering the outer
+loop. `payload::cjk` **+8.7%**, `vim-unicode` **-4.4%**: vim carries one CSI per
+17 bytes, so its multi-byte runs are length one and the loop's per-character
+check was pure overhead.
+
+Compiling the loop body out with `while false` recovered vim exactly -- 394
+against the loop's 373 and the original's 390 -- which ruled out code layout and
+identified the loop itself. That is the same shape as the SIMD-scan entry in
+`CLAUDE.md`'s lost-ideas list: long runs on text, short runs on escape-dense
+capture. Attacking the waste from the outer loop instead gets both wins from
+three lines.
+
 ## The whole CJK line, end to end: 122 -> 222 MB/s, and where it stopped
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28. `ingest`,
