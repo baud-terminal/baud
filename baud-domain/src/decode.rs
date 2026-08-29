@@ -244,6 +244,11 @@ impl Pending {
     pub fn new(n: u8) -> Pending {
         Pending(n.min(3))
     }
+    /// How many continuation bytes are still owed. Needed because a table is
+    /// indexed by the state, so the count has to be readable as one.
+    pub fn owed(self) -> u8 {
+        self.0
+    }
     pub fn is_last(self) -> bool {
         self.0 == 1
     }
