@@ -602,3 +602,40 @@ fn nrcs_tables_match_the_pinned_source() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+// ── translation is a property of the byte, not of the route ─────────────────
+
+/// **A designated set applies however the byte reached the cell.**
+///
+/// `put_run` translated and `put_glyph` did not, so the same byte drew two
+/// different glyphs depending on whether the scanner had taken it into a run.
+/// `[[source: unicode-ch3]]` § 3.9.5 names the case that makes the per-byte
+/// route reachable in ordinary input: after an ill-formed sequence the
+/// successor byte "must not be consumed", so it is re-dispatched one at a time
+/// -- and with DEC Special Graphics in force it was written untranslated.
+#[test]
+fn ascii_recovered_after_a_bad_sequence_is_still_translated() {
+    // `ESC ( 0` designates DEC graphics; `C2` opens a two-byte sequence that
+    // `71` cannot continue, so the `q` is re-dispatched from ground.
+    let run_of_q = run(b"\x1b(0qq").0;
+    let recovered = run(b"\x1b(0\xc2qq").0;
+    // The replacement lands first, then the two `q`s -- so compare the pair
+    // that follows it against the pair written as an ordinary run.
+    assert_eq!(
+        (recovered[1].content, recovered[2].content),
+        (run_of_q[0].content, run_of_q[1].content),
+        "a byte recovered after a malformed sequence must translate like any other"
+    );
+}
+
+/// **REP repeats the character the cell shows, not the byte that produced it.**
+///
+/// `put_run` recorded `Codepoint::from_ascii(b)` as the last graphic character,
+/// so `ESC ( 0 q CSI 2 b` drew the line-drawing glyph once and a literal `q`
+/// twice -- the same character spelled two ways in adjacent cells.
+#[test]
+fn rep_repeats_the_designated_glyph_not_the_raw_byte() {
+    let v = run(b"\x1b(0q\x1b[2b").0;
+    assert_eq!(v[0].content, v[1].content, "first repeat");
+    assert_eq!(v[0].content, v[2].content, "second repeat");
+}

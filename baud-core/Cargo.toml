@@ -13,6 +13,11 @@ description = "A terminal emulator core: PTY bytes through VT parse into a grid.
 # `docs/research/notes/b-parser-as-a-graph.md`. Compiled variants rather than a
 # runtime switch, because a runtime `if` in this loop has already manufactured
 # a fake 13-17% cost for a change that was free. Default is `ByNode`.
+# `machine.rs`'s rule walk, kept as the definition the graph answers to -- the
+# way `is_break_by_rules` is kept beside the UAX #29 transition table. Off by
+# default because it is a second, slower spelling of the protocol that nothing
+# in a shipped build should reach; on in CI, where the differential runs.
+rule-walk = []
 graph-by-byte = []
 graph-by-class = []
 # `instrument` is on by default so tests and benches get it without asking, and

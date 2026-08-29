@@ -333,11 +333,17 @@ impl<'a> Term<'a> {
     /// a decision already proven.
     #[inline(always)]
     pub(crate) fn put_glyph(&mut self, cp: Codepoint, w: Width) {
-        if self.cx.try_advance(w, self.cols).is_none() {
+        // Against the right margin, not the screen edge -- `put_run` has
+        // always done this and `put_glyph` did not, so ASCII wrapped where
+        // DECSLRM says and every non-ASCII character ran past it. With no side
+        // margins set `after()` is one past the last column, so this is the
+        // same test it used to be and costs a load that is already in cache.
+        let edge = self.right_margin.after();
+        if self.cx.try_advance_within(w, self.cols, edge).is_none() {
             if !self.modes.is_set(ModeBit::AutoWrap) {
                 // DECAWM reset: the character overwrites the last column and the
                 // cursor stays put. No wrap, and therefore no scroll.
-                self.cx = Col::at_index(self.cols.index() - 1);
+                self.cx = self.last_col_within(edge);
                 self.promote_if_runs();
                 // `Width::ONE`, deliberately, whatever `w` says: there is one
                 // column left and a two-cell character cannot be written into
@@ -369,7 +375,28 @@ impl<'a> Term<'a> {
         #[cfg(feature = "ceiling-no-write")]
         core::hint::black_box((cp, w));
         self.last_cp = Some((cp, w));
-        self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
+        // Landing *on* the edge is the pending-wrap position, and it is only a
+        // legal place for the cursor when there is a wrap to pend. With DECAWM
+        // reset the cursor stops on the last column instead -- which is what
+        // `put_run` has always done, and what this line did not: a run of text
+        // ending at the right margin left the cursor one column further along
+        // than the same text written a byte at a time, so the next `ICH` acted
+        // on a different cell.
+        //
+        // The mode is read only when the advance reaches the edge, so ordinary
+        // text pays a comparison it was making anyway. Reading it every
+        // character is the shape this repo measured at 12% in `put_run`.
+        self.cx = match self.cx.try_advance_within(w, self.cols, edge) {
+            Some(c) if c < edge || self.modes.is_set(ModeBit::AutoWrap) => c,
+            Some(_) => self.last_col_within(edge),
+            None => Col::ZERO,
+        };
+    }
+
+    /// The last column a character may occupy, given the right margin.
+    #[inline(always)]
+    fn last_col_within(&self, edge: Col) -> Col {
+        Col::at_index(edge.index().min(self.cols.index()) - 1)
     }
 
     /// What identifies the cell at a screen position, right now.
@@ -628,7 +655,13 @@ impl<'a> Term<'a> {
             if !room.is_empty() {
                 let at = base.index() + off.index() + room.index() - 1;
                 let b = StreamByte::from_stream(self.s.arena[at]);
-                self.last_cp = Some((Codepoint::from_ascii(b), Width::NARROW));
+                // **Translated**, because REP repeats the character the cell
+                // shows. This recorded the raw byte, so with a G0 designation
+                // in force `{ CSI b` drew the designated glyph once and the
+                // ASCII byte for every repeat -- the same character written
+                // two ways in adjacent cells.
+                let cp = PackedCell::translate(b, self.charset());
+                self.last_cp = Some((cp, Width::NARROW));
             }
             self.cx += room;
             // With autowrap on, the cursor may sit one past the last column --

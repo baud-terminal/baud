@@ -15,3 +15,11 @@ cc e8068fe476569343552e7a9639996c9ce358a5708d4453f100c126159c0bdaf9 # shrinks to
 cc 30c4cbd4b5c8a36246f9d20d26f1f658ea006008e2d7ece9708776cf95b7d5fa # shrinks to ops = [Sgr(41), CupHuge(0), Ech(0), Nel]
 cc 86c2b22cde4e8104b915906e10aad64219be5db89040861591aee77dd403b788 # shrinks to ops = [CupHuge(0), CsiWithC0(7, 0), Vt52Block(4), Vpa(0)], extent = 0
 cc c1e62541800a47208d14d43bf11b7bca69d21f75aa04134f52bb8aaabc309347 # shrinks to ops = [Utf8(6), Rep(5), Cht(0), Rep(0), Nel], extent = 1
+cc fd0ae38af60b69bfa178e5dc2a8848ff679505a885ab631e21ca58016df7a5ee # shrinks to ops = [S7c1t, Decaln]
+cc f2a0f56b1e99b5a9f4a95bad07a2b31285f30a3f36f108099029b5da9d323a94 # shrinks to ops = [Decaln, S8c1t, Decrqss(0)]
+cc fb14cc39b1de5711fda2705e189317df65344a460cc361b9bc49582ae423e489 # shrinks to ops = [Decrst(7), CupHuge(0), Text(33, 15), Ich(0)]
+cc 0b56bda0a076c0f9a1888c7da8a9217953f9712711d166eaae4862624ff852fd # shrinks to ops = [Decset(69), Decslrm(0, 2), Text(33, 3)]
+cc 59bc8aebf1dba7eb3d6f59165b886b99786b5fb1b9f3313b75edf3ccb27795bf # shrinks to ops = [So, Designate(41, 67), Text(91, 1)]
+cc d270ebe9985fe52c349a799008582ab3c517fe51915d3fc725eabd77a5583f25 # shrinks to ops = [Designate(40, 67), SelectLatin1, Text(123, 1)]
+cc 3cbfcfa7de382fa32a07eb8d4847906f2a7498db9c988263073bf9b802109e09 # shrinks to ops = [Designate(40, 67), Text(123, 1), Rep(0)]
+cc 68c9552b3c02de13191884faf90bee050840cc34ee729891a231de1cfbab7027 # shrinks to ops = [Designate(41, 48), SelectLatin1, So, ControlString(88, 4)]

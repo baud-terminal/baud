@@ -8,6 +8,28 @@
 
 use baud_core::*;
 
+/// The first row of an 8-column screen, so "the last column" has an index a
+/// test can name.
+fn narrow_row(bytes: &[u8]) -> Vec<PackedCell> {
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    t.resize(&WinSize {
+        ws_row: 4,
+        ws_col: 8,
+    });
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    t.viewport()[..8].to_vec()
+}
+
 fn cursor(bytes: &[u8]) -> (usize, usize) {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
@@ -125,4 +147,29 @@ fn scorc_without_a_save_is_inert() {
 fn scosc_and_decsc_share_a_slot() {
     assert_eq!(cursor(b"\x1b[7;13H\x1b[s\x1b[1;1H\x1b8"), (6, 12));
     assert_eq!(cursor(b"\x1b[7;13H\x1b7\x1b[1;1H\x1b[u"), (6, 12));
+}
+
+// ── the cursor at the right edge, however the text arrived ──────────────────
+
+/// **With DECAWM reset the cursor stops on the last column, not past it.**
+///
+/// The column one past the last is the *pending wrap* sentinel, and it is only
+/// a legal place for the cursor when there is a wrap to pend. `put_run` knew
+/// that and `put_glyph` did not, so text written a byte at a time -- which is
+/// every non-ASCII character -- left the cursor one column further along than
+/// the same text taken by the run scanner. Invisible in `cursor()`, which
+/// clamps; visible to the next operation that acts at the cursor.
+#[test]
+fn autowrap_off_leaves_the_cursor_on_the_last_column() {
+    // DECAWM off, cursor to the last column, more text than fits, then `ICH` --
+    // which inserts a blank *at the cursor* and so reports where it actually
+    // is. With the cursor one past the last column ICH acts off the row and
+    // the `!` survives.
+    let v = narrow_row(b"\x1b[?7l\x1b[1;999H!!!\x1b[@");
+    let last = v.len() - 1;
+    assert!(
+        v[last].content.is_empty(),
+        "ICH must blank the last column, which it can only do if the cursor \
+         is on it rather than one past"
+    );
 }

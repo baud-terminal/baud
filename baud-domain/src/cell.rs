@@ -303,6 +303,23 @@ impl PackedCell {
     /// substitutes anything goes through here, so a path cannot honour DEC
     /// graphics and forget Finnish -- which is exactly the shape `promote`
     /// had before `from_wire` existed.
+    /// The codepoint an ASCII byte stands for under a designated set.
+    ///
+    /// **Extracted so the two write paths translate through one rule.** The
+    /// bulk path went through `with_charset` and the per-byte path did not
+    /// translate at all, so a byte that reached `ground_uncommon` -- printable
+    /// ASCII recovered after an ill-formed UTF-8 sequence, the case
+    /// `[[source: unicode-ch3]]` § 3.9.5 names -- rendered untranslated. With
+    /// DEC Special Graphics designated, `<C2 41>` put an `A` on the screen
+    /// where every other route puts a line-drawing glyph.
+    pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
+        let blank = PackedCell::glyph(Codepoint::from_ascii(b), StyleId::DEFAULT, CellFlags::NONE);
+        match blank.with_charset(b, set).content.as_codepoint() {
+            Some(cp) => cp,
+            None => Codepoint::from_ascii(b),
+        }
+    }
+
     pub fn with_charset(self, b: StreamByte, set: Charset) -> PackedCell {
         match set {
             Charset::DecGraphics => self.with_dec_graphics(b),

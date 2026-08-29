@@ -71,6 +71,17 @@ pub(crate) enum Node {
     Utf8One,
     Utf8Two,
     Utf8Three,
+    /// The same three, in VT52.
+    ///
+    /// **A multi-byte character completes into the ground it started from**,
+    /// and there are two grounds -- so there are two families. `machine.rs`
+    /// spells the same thing as `self.st = self.ground()` on the completing
+    /// byte, which is a `terminal_mode` read *per character* on the hottest
+    /// path in the project. Three more nodes cost 1,536 bytes of rodata and
+    /// nothing at run time.
+    Vt52Utf8One,
+    Vt52Utf8Two,
+    Vt52Utf8Three,
     Escape,
     /// `ESC` in VT52.
     ///
@@ -146,7 +157,7 @@ pub(crate) enum Node {
 }
 
 /// How many states the table is indexed over.
-pub(crate) const NNODE: usize = 23;
+pub(crate) const NNODE: usize = 26;
 
 impl Node {
     /// The node for a lead byte owing `n` continuations.
@@ -154,21 +165,46 @@ impl Node {
     /// **The count is the node**, which is what a graph forces you to make
     /// explicit: `machine.rs` used to carry it as a payload, and a payload
     /// cannot be an index.
-    pub(crate) fn utf8_owing(n: Pending) -> Node {
-        match n.owed() {
-            3 => Node::Utf8Three,
-            2 => Node::Utf8Two,
-            _ => Node::Utf8One,
+    pub(crate) fn utf8_owing(self, n: Pending) -> Node {
+        match (n.owed(), self.is_vt52()) {
+            (3, false) => Node::Utf8Three,
+            (2, false) => Node::Utf8Two,
+            (_, false) => Node::Utf8One,
+            (3, true) => Node::Vt52Utf8Three,
+            (2, true) => Node::Vt52Utf8Two,
+            (_, true) => Node::Vt52Utf8One,
         }
+    }
+    /// Is the parser mid multi-byte character?
+    pub(crate) fn is_utf8(self) -> bool {
+        matches!(
+            self,
+            Node::Utf8One
+                | Node::Utf8Two
+                | Node::Utf8Three
+                | Node::Vt52Utf8One
+                | Node::Vt52Utf8Two
+                | Node::Vt52Utf8Three
+        )
+    }
+    /// Is this node in the VT52 sub-graph?
+    pub(crate) fn is_vt52(self) -> bool {
+        matches!(ground_of(self), Node::Vt52Ground)
+    }
+    /// The ground this node's sequence returns to.
+    pub(crate) fn ground(self) -> Node {
+        ground_of(self)
     }
     /// Is the next continuation byte the one that completes the character?
     pub(crate) fn is_last_continuation(self) -> bool {
-        matches!(self, Node::Utf8One)
+        matches!(self, Node::Utf8One | Node::Vt52Utf8One)
     }
     /// One continuation nearer the end.
     pub(crate) fn one_fewer_continuation(self) -> Node {
         match self {
             Node::Utf8Three => Node::Utf8Two,
+            Node::Vt52Utf8Three => Node::Vt52Utf8Two,
+            Node::Vt52Utf8Two | Node::Vt52Utf8One => Node::Vt52Utf8One,
             _ => Node::Utf8One,
         }
     }
@@ -184,6 +220,9 @@ impl Node {
         Node::Utf8One,
         Node::Utf8Two,
         Node::Utf8Three,
+        Node::Vt52Utf8One,
+        Node::Vt52Utf8Two,
+        Node::Vt52Utf8Three,
         Node::Escape,
         Node::Vt52Escape,
         Node::EscInter,
@@ -237,7 +276,9 @@ pub(crate) enum Act {
     DcsClear,
     /// A two-byte escape, `ESC` plus a final.
     EscFe,
-    /// An escape intermediate, collected.
+    /// The first escape intermediate, which *replaces* what is there.
+    EscInterFirst,
+    /// A second or later escape intermediate, which appends.
     EscCollect,
     /// The final byte of an `ESC <inter> <final>` form.
     EscInterFinal,
@@ -331,17 +372,27 @@ const fn edge(act: Act, next: Node) -> Edge {
 /// itself, after the table has already named this one.
 const fn ground_of(st: Node) -> Node {
     match st {
-        Node::Vt52Ground | Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => Node::Vt52Ground,
+        Node::Vt52Ground
+        | Node::Vt52Escape
+        | Node::Vt52Row
+        | Node::Vt52Col
+        | Node::Vt52Utf8One
+        | Node::Vt52Utf8Two
+        | Node::Vt52Utf8Three => Node::Vt52Ground,
         _ => Node::Ground,
     }
 }
 
 /// How many continuations a lead byte owes, as a state.
-const fn utf8_state(b: StreamByte) -> Node {
-    match b.utf8_lead() {
-        Some((3, _, _)) => Node::Utf8Three,
-        Some((2, _, _)) => Node::Utf8Two,
-        _ => Node::Utf8One,
+const fn utf8_state(from: Node, b: StreamByte) -> Node {
+    let vt52 = matches!(ground_of(from), Node::Vt52Ground);
+    match (b.utf8_lead(), vt52) {
+        (Some((3, _, _)), false) => Node::Utf8Three,
+        (Some((2, _, _)), false) => Node::Utf8Two,
+        (_, false) => Node::Utf8One,
+        (Some((3, _, _)), true) => Node::Vt52Utf8Three,
+        (Some((2, _, _)), true) => Node::Vt52Utf8Two,
+        (_, true) => Node::Vt52Utf8One,
     }
 }
 
@@ -711,7 +762,14 @@ const fn one(half: Half, st: Node, b: StreamByte) -> Edge {
     // the VT52 coordinate bytes take it as data.
     let ground_like = matches!(
         st,
-        Node::Ground | Node::Vt52Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+        Node::Ground
+            | Node::Vt52Ground
+            | Node::Utf8One
+            | Node::Utf8Two
+            | Node::Utf8Three
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three
     );
     if (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) && !ground_like {
         return edge(Act::Cancel, ground_of(st));
@@ -724,6 +782,9 @@ const fn one(half: Half, st: Node, b: StreamByte) -> Edge {
             | Node::Utf8One
             | Node::Utf8Two
             | Node::Utf8Three
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three
             | Node::Vt52Row
             | Node::Vt52Col
     );
@@ -759,26 +820,40 @@ const fn one(half: Half, st: Node, b: StreamByte) -> Edge {
                 edge(Act::Execute, st)
             } else if half.is_latin1() && b.is_c1() {
                 edge(Act::C1Escape, Node::Escape)
-            } else if half.is_latin1() && b.is_latin1_graphic() {
+            } else if half.is_latin1() {
+                // Everything `InputEncoding::single_byte` accepts, which is
+                // every byte that is not C0 and not C1 -- `7F` included, since
+                // outside UTF-8 there is no multi-byte sequence for it to be
+                // part of. The first version tested `>= 0xa0` and sent
+                // printable ASCII to the cold arm instead, which was invisible
+                // only because both arms then wrote the byte untranslated.
                 edge(Act::PrintByte, st)
             } else if !half.is_latin1() && b.utf8_lead().is_some() {
-                edge(Act::Utf8Start, utf8_state(b))
+                edge(Act::Utf8Start, utf8_state(st, b))
             } else {
                 edge(Act::GroundUncommon, st)
             }
         }
-        Node::Utf8One | Node::Utf8Two | Node::Utf8Three => {
+        Node::Utf8One
+        | Node::Utf8Two
+        | Node::Utf8Three
+        | Node::Vt52Utf8One
+        | Node::Vt52Utf8Two
+        | Node::Vt52Utf8Three => {
             if b.utf8_continuation().is_some() {
                 let next = match st {
                     Node::Utf8Three => Node::Utf8Two,
                     Node::Utf8Two => Node::Utf8One,
-                    // The last one completes the character.
-                    _ => Node::Ground,
+                    Node::Vt52Utf8Three => Node::Vt52Utf8Two,
+                    Node::Vt52Utf8Two => Node::Vt52Utf8One,
+                    // The last one completes the character, into the ground
+                    // the sequence started from.
+                    _ => ground_of(st),
                 };
                 edge(Act::Utf8Cont, next)
             } else {
-                // Flush a replacement and re-dispatch the byte from Ground.
-                edge(Act::Utf8Bad, Node::Ground)
+                // Flush a replacement and re-dispatch the byte from ground.
+                edge(Act::Utf8Bad, ground_of(st))
             }
         }
         Node::Escape => {
@@ -794,7 +869,12 @@ const fn one(half: Half, st: Node, b: StreamByte) -> Edge {
             {
                 edge(Act::Nothing, Node::StringIgnore)
             } else if b.is_esc_intermediate() {
-                edge(Act::EscCollect, Node::EscInter)
+                // The *first* intermediate, which clears; the second appends.
+                // Two actions, because they are two rules -- and folding them
+                // into one is a bug the differential caught on its first run:
+                // `ESC # 8` left `#` behind, so `ESC SP G` read as a
+                // two-intermediate form and S8C1T never took effect.
+                edge(Act::EscInterFirst, Node::EscInter)
             } else {
                 edge(Act::EscFe, Node::Ground)
             }
@@ -1066,7 +1146,7 @@ mod shape {
             }
             assert_eq!(n, want, "{enc:?} byte classes");
         }
-        assert_eq!(NNODE, 23, "nodes");
+        assert_eq!(NNODE, 26, "nodes");
 
         // The joint partition the single class map actually uses, and the one
         // `NCLASS` has to be: a byte shares a class only when every node
@@ -1110,7 +1190,7 @@ mod shape {
     /// produces. An unreachable arm is the dead gate this repo keeps finding.
     #[test]
     fn every_action_occurs() {
-        let mut seen: [Option<Act>; 32] = [None; 32];
+        let mut seen: [Option<Act>; 40] = [None; 40];
         let mut n = 0usize;
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             for si in 0..NNODE {
@@ -1123,6 +1203,6 @@ mod shape {
                 }
             }
         }
-        assert_eq!(n, 31, "actions reached");
+        assert_eq!(n, 32, "actions reached");
     }
 }

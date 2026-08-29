@@ -1130,6 +1130,38 @@ impl<'a> Term<'a> {
         unsafe { self.feed_with::<Portable>(base, n) }
     }
 
+    /// Every byte through `machine.rs`'s rule walk, with no scanner and no
+    /// fast paths in front of it.
+    ///
+    /// **The reference the graph answers to.** It is deliberately the slowest
+    /// possible spelling: one byte, one walk, no bulk anything -- so a
+    /// differential against it compares the protocol and not the plumbing.
+    #[cfg(feature = "rule-walk")]
+    pub fn feed_by_rules(&mut self, base: BytePos, n: ByteLen) {
+        self.count_in(n);
+        for i in 0..n.index() {
+            let b = self.s.arena[base.index() + i];
+            self.control_by_rules(StreamByte::from_stream(b));
+        }
+    }
+
+    /// The same loop through the graph, so a differential against
+    /// [`Term::feed_by_rules`] differs in **one** thing.
+    ///
+    /// The first version compared this against `feed`, which also brings the
+    /// scanner and the bulk writers -- so it was asking two questions at once
+    /// and answered neither. It found a real disagreement about text at a
+    /// margin, which is a bulk-versus-per-cell question and not a parser one;
+    /// `the_bulk_path_agrees_with_the_per_byte_path` is where that lives.
+    #[cfg(feature = "rule-walk")]
+    pub fn feed_by_graph(&mut self, base: BytePos, n: ByteLen) {
+        self.count_in(n);
+        for i in 0..n.index() {
+            let b = self.s.arena[base.index() + i];
+            self.control(StreamByte::from_stream(b));
+        }
+    }
+
     /// Bytes ingested, for the amplification denominator.
     ///
     /// Counted here rather than inside `feed_with` so both entry points get it

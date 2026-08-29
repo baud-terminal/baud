@@ -113,6 +113,24 @@ impl Col {
             Some(Col(next))
         }
     }
+    /// The same, against a **margin** rather than the screen edge.
+    ///
+    /// DECSLRM's right margin is where autowrap happens when one is set, and
+    /// the two spellings of that rule disagreed: `put_run` asked
+    /// `room_until(cx, right_margin.after())` and `put_glyph` asked
+    /// `try_advance(w, cols)`, so ASCII wrapped at the margin and every
+    /// non-ASCII character wrapped at the screen edge instead.
+    ///
+    /// The limit is `min(edge, cols)` unconditionally, which is exactly what
+    /// `Cols::room_until` computes for the bulk path -- including for a cursor
+    /// *past* the right margin, where the room is zero and the next character
+    /// wraps. Adding a "outside the margins uses the screen edge" rule here
+    /// was tried and is a third behaviour neither path had.
+    pub fn try_advance_within(self, w: Width, cols: Cols, edge: Col) -> Option<Col> {
+        let limit = edge.0.min(cols.raw());
+        let next = self.0 + w.cells();
+        if next > limit { None } else { Some(Col(next)) }
+    }
     /// Explicit cursor addressing. Goes through [`OneBased`] so the 1-based
     /// wire convention is converted in exactly one place.
     pub fn at(p: OneBased, cols: Cols) -> Col {

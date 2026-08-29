@@ -230,7 +230,7 @@ impl<'a> Term<'a> {
     /// `#[cold]` alone -- adding `#[inline(never)]` beside it is an unused
     /// attribute, because cold already implies it here.
     #[cold]
-    fn ground_uncommon(&mut self, b: StreamByte) {
+    pub(crate) fn ground_uncommon(&mut self, b: StreamByte) {
         if b.is_printable_ascii() {
             // `[[source: unicode-ch3]]` § 3.9.5: a converter "must not consume
             // the successor bytes as part of the ill-formed subsequence
@@ -239,7 +239,11 @@ impl<'a> Term<'a> {
             // input -- `<C2 41 42>` "must not return `<U+FFFD>` or
             // `<U+FFFD, U+0042>`" -- and baud returned `<U+FFFD, U+FFFD,
             // U+0042>`, the `A` having fallen through to the not-text arm.
-            self.put_cp(Codepoint::from_ascii(b), Width::NARROW);
+            // Through the designated set, like every other route to a cell.
+            // `[[source: ctlseqs]]`'s G0-G3 designation applies to the byte,
+            // not to the path it arrived on.
+            let cp = PackedCell::translate(b, self.charset());
+            self.put_cp(cp, Width::NARROW);
         } else {
             // stray continuation byte or 0x7f: not text
             self.replacements.inc();
@@ -247,7 +251,16 @@ impl<'a> Term<'a> {
         }
     }
 
-    pub(crate) fn control(&mut self, b: StreamByte) {
+    /// The same protocol, spelled as a walk instead of a graph.
+    ///
+    /// **Kept as the definition the graph answers to**, the way
+    /// `is_break_by_rules` is kept beside the UAX #29 transition table. The
+    /// moment `control` became a lookup, a differential that compared the
+    /// lookup against itself would be vacuous -- the same failure as the stale
+    /// `scan path: AVX2` flag, and as the mark test that asserted on a column
+    /// that never had marks.
+    #[cfg(feature = "rule-walk")]
+    pub(crate) fn control_by_rules(&mut self, b: StreamByte) {
         if self.anywhere(b) {
             return;
         }
@@ -263,10 +276,11 @@ impl<'a> Term<'a> {
                     };
                 } else if b.is_c0() || b == StreamByte::BEL {
                     self.execute(b);
-                } else if let Some(c) = self.encoding.single_byte(b) {
+                } else if self.encoding.single_byte(b).is_some() {
                     // ISO 8859-1: one byte, one character, no decoder state.
                     // Placed before the UTF-8 arm because `C2..F4` are ordinary
                     // Latin-1 letters and must not be read as lead bytes.
+                    let c = PackedCell::translate(b, self.charset());
                     let w = Width::of(c, self.width.ambiguous);
                     self.put_cp(c, w);
                 } else if let Some(fe) = self.encoding.c1_as_escape(b) {
@@ -282,13 +296,13 @@ impl<'a> Term<'a> {
                     // forms are the same operation and must not be able to
                     // drift apart.
                     self.st = Node::Escape;
-                    self.control(fe);
+                    self.control_by_rules(fe);
                 } else if let Some((rem, acc, min)) = b.utf8_lead() {
                     #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
                     self.utf8_acc = Utf8Acc::lead(acc);
                     self.utf8_min = min;
-                    self.st = Node::utf8_owing(Pending::new(rem));
+                    self.st = self.st.utf8_owing(Pending::new(rem));
                 } else {
                     // **Both remaining arms are cold and outlined.** Neither is
                     // reachable on ordinary text: printable ASCII is taken by
@@ -300,7 +314,12 @@ impl<'a> Term<'a> {
                     self.ground_uncommon(b);
                 }
             }
-            Node::Utf8One | Node::Utf8Two | Node::Utf8Three => match b.utf8_continuation() {
+            Node::Utf8One
+            | Node::Utf8Two
+            | Node::Utf8Three
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three => match b.utf8_continuation() {
                 Some(bits) => {
                     #[cfg(feature = "instrument")]
                     self.bytes_utf8.inc();
@@ -326,7 +345,7 @@ impl<'a> Term<'a> {
                     self.st = self.ground();
                     self.replacements.inc();
                     self.put_cp(Codepoint::REPLACEMENT, Width::NARROW);
-                    self.control(b);
+                    self.control_by_rules(b);
                 }
             },
             Node::Escape => {
@@ -399,87 +418,9 @@ impl<'a> Term<'a> {
                 if b.is_c0() {
                     self.execute(b);
                 } else if b.is_esc_intermediate() {
-                    // Collected, not overwritten. `[[source: williams]]` says
-                    // "if more than two intermediate characters arrive, the
-                    // parser can just flag this so that the dispatch can be
-                    // turned into a null operation" -- so two are kept and a
-                    // third makes the sequence inert.
-                    if self.esc_inter.is_none() {
-                        self.esc_inter = Some(b);
-                    } else if self.esc_inter2.is_none() {
-                        self.esc_inter2 = Some(b);
-                    } else {
-                        self.esc_inter2 = Some(StreamByte::DEL); // sentinel: too many
-                    }
+                    self.esc_collect(b);
                 } else if b != StreamByte::DEL {
-                    match self.esc_inter {
-                        // `ESC # 8` is DECALN.
-                        Some(i) if i == StreamByte::HASH && b.raw_byte() == b'8' => {
-                            self.screen_alignment()
-                        }
-                        // `ESC SP F` is S7C1T: send C1 controls as 7-bit
-                        // sequences. baud always does, so this is *satisfied*,
-                        // not unsupported -- there is nothing to change and
-                        // nothing withheld. dtterm's `is2` opens with it, and
-                        // the conformance fixture is what drew the line:
-                        // counting it as unsupported claimed baud had refused
-                        // something it in fact already does.
-                        //
-                        // `ESC SP G` (S8C1T) is the opposite and falls through
-                        // to the count below: it asks for 8-bit replies, which
-                        // would make baud's own output invalid UTF-8.
-                        // `ESC SP F` / `ESC SP G` -- S7C1T / S8C1T. Both are
-                        // implemented: they select the form baud *sends*, which
-                        // is a different axis from the UTF-8 decoding that makes
-                        // an 8-bit C1 unparseable on the way in.
-                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'F' => {
-                            self.c1 = C1Transmit::SevenBit
-                        }
-                        Some(i) if i == StreamByte::SP && b.raw_byte() == b'G' => {
-                            self.c1 = C1Transmit::EightBit
-                        }
-                        // `ESC % G` selects UTF-8 (`[[source: ctlseqs]]`:
-                        // "Select UTF-8 character set, ISO 2022"). baud always
-                        // decodes UTF-8, so the request is *satisfied* -- the
-                        // same distinction S7C1T draws, and for the same
-                        // reason: counting it as unsupported would claim baud
-                        // refused something it already does.
-                        //
-                        // `ESC % @` -- "Select default character set. That is
-                        // ISO 8859-1" -- asks to leave UTF-8, which baud cannot
-                        // do. It falls through to the count below, so an
-                        // application can discover the refusal.
-                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'G' => {
-                            self.encoding = InputEncoding::Utf8
-                        }
-                        Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'@' => {
-                            self.encoding = InputEncoding::Latin1
-                        }
-                        // `ESC ( ) * + <C>` designate G0-G3, and
-                        // `ESC ( % 6` designates one whose final is two bytes.
-                        Some(i) => {
-                            if let Some(slot) = GSlot::from_intermediate(i) {
-                                match self.esc_inter2 {
-                                    Some(j) if j != StreamByte::DEL => {
-                                        self.designate_multi(slot, j, b)
-                                    }
-                                    Some(_) => self.unsupported.inc(),
-                                    None => self.designate(slot, b),
-                                }
-                            } else {
-                                // Every other intermediate form -- `ESC SP F`
-                                // and `ESC SP G` (S7C1T/S8C1T) most notably --
-                                // was consumed and dropped in silence. Counting
-                                // it is the difference between "not
-                                // implemented" and "accepted, did nothing, and
-                                // gave the application no way to find out",
-                                // which is the failure docs/vt-coverage.md is
-                                // built around.
-                                self.unsupported.inc();
-                            }
-                        }
-                        None => self.unsupported.inc(),
-                    }
+                    self.esc_inter_final(b);
                     self.st = self.ground();
                 }
             }
@@ -559,7 +500,7 @@ impl<'a> Term<'a> {
                     self.osc_reset();
                     self.dcs_final = None;
                     self.st = Node::Escape;
-                    self.control(b);
+                    self.control_by_rules(b);
                 }
             }
             // `ESC Y row col` — two bias-0x20 coordinate bytes, collected
@@ -583,7 +524,7 @@ impl<'a> Term<'a> {
                     // dispatched, and the byte begins a new escape.
                     self.osc_reset();
                     self.st = Node::Escape;
-                    self.control(b);
+                    self.control_by_rules(b);
                 }
             }
             Node::StringIgnore => {
@@ -680,6 +621,7 @@ impl<'a> Term<'a> {
     /// transitions, shared with `csi_entry` because they agree on all of them
     /// except the private marker.
     #[inline]
+    #[cfg(feature = "rule-walk")]
     fn csi_param_byte(&mut self, b: StreamByte) {
         if b.is_c0() {
             // `[[source: williams]]`: C0 inside a control sequence is executed
@@ -687,37 +629,8 @@ impl<'a> Term<'a> {
             // through to `csi_ignore`, so `CSI 1 <BEL> m` discarded the SGR --
             // a control character silently cancelling an unrelated operation.
             self.execute(b);
-        } else if let Some(d) = b.as_ascii_digit() {
-            if self.nparam.is_first() {
-                self.nparam = self.nparam.next();
-            }
-            // Bounded, because `nparam` can now stand one past capacity. It
-            // used to pin *at* capacity, so after the sixteenth parameter the
-            // separator was swallowed and these digits appended to parameter
-            // sixteen -- `...;61;62;63` set 6263 rather than dropping 63. The
-            // fast path accumulates into a local and only stores under the
-            // same bound, so the two feeds disagreed on where a read boundary
-            // fell: `ingest_is_chunk_invariant` in miniature, and a real one.
-            let i = self.nparam.raw_index() - 1;
-            if i < ParamIdx::CAPACITY {
-                let cur = self.params[i].unwrap_or(Param::ZERO);
-                self.params[i] = Some(cur.push(d));
-            }
-        } else if b == StreamByte::SEMICOLON || b == StreamByte::COLON {
-            if self.nparam.is_first() {
-                self.nparam = self.nparam.next();
-            }
-            if self.nparam.raw_index() < ParamIdx::CAPACITY {
-                // A colon opens a *sub*-parameter of the same attribute.
-                // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
-                // colour-space identifier that `38;2;r;g;b` does not.
-                if b == StreamByte::COLON {
-                    self.psub = self.psub.mark(self.nparam);
-                }
-                self.params[self.nparam.raw_index()] = None;
-            }
-            // Advance past capacity too, so the digits above know to stop.
-            self.nparam = self.nparam.next_capped();
+        } else if b.is_csi_param_byte() {
+            self.csi_collect_param(b);
         } else if let Some(f) = FinalByte::from_stream(b) {
             self.dispatch(f);
             self.st = self.ground();
@@ -736,30 +649,55 @@ impl<'a> Term<'a> {
         }
     }
 
-    /// One byte of a DCS parameter string. `[[source: williams]]`'s `dcs_param`,
-    /// shared with `dcs_entry` because they agree on everything but the marker.
-    #[inline]
-    fn dcs_param_byte(&mut self, b: StreamByte) {
-        if b.is_c0() || b == StreamByte::DEL {
-            // Ignored, not executed and not an error. See `Node::DcsEntry`.
-        } else if let Some(d) = b.as_ascii_digit() {
+    /// One digit or separator of a control sequence's parameter string.
+    ///
+    /// The *action* half of `csi_param_byte`, with no transition in it, so the
+    /// graph dispatch and the rule walk share one spelling of the arithmetic
+    /// -- which is where the off-by-one past the sixteenth parameter lived.
+    pub(crate) fn csi_collect_param(&mut self, b: StreamByte) {
+        if let Some(d) = b.as_ascii_digit() {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
-            // Bounded for the same reason as `csi_param_byte`.
+            // Bounded, because `nparam` can now stand one past capacity. It
+            // used to pin *at* capacity, so after the sixteenth parameter the
+            // separator was swallowed and these digits appended to parameter
+            // sixteen -- `...;61;62;63` set 6263 rather than dropping 63. The
+            // fast path accumulates into a local and only stores under the
+            // same bound, so the two feeds disagreed on where a read boundary
+            // fell: `ingest_is_chunk_invariant` in miniature, and a real one.
             let i = self.nparam.raw_index() - 1;
             if i < ParamIdx::CAPACITY {
                 let cur = self.params[i].unwrap_or(Param::ZERO);
                 self.params[i] = Some(cur.push(d));
             }
-        } else if b == StreamByte::SEMICOLON {
+        } else {
             if self.nparam.is_first() {
                 self.nparam = self.nparam.next();
             }
             if self.nparam.raw_index() < ParamIdx::CAPACITY {
+                // A colon opens a *sub*-parameter of the same attribute.
+                // Recorded rather than flattened: `38:2:Pi:r:g:b` has a
+                // colour-space identifier that `38;2;r;g;b` does not.
+                if b == StreamByte::COLON {
+                    self.psub = self.psub.mark(self.nparam);
+                }
                 self.params[self.nparam.raw_index()] = None;
             }
+            // Advance past capacity too, so the digits above know to stop.
             self.nparam = self.nparam.next_capped();
+        }
+    }
+
+    /// One byte of a DCS parameter string. `[[source: williams]]`'s `dcs_param`,
+    /// shared with `dcs_entry` because they agree on everything but the marker.
+    #[inline]
+    #[cfg(feature = "rule-walk")]
+    fn dcs_param_byte(&mut self, b: StreamByte) {
+        if b.is_c0() || b == StreamByte::DEL {
+            // Ignored, not executed and not an error. See `Node::DcsEntry`.
+        } else if b.is_dcs_param_byte() {
+            self.dcs_collect_param(b);
         } else if b.is_csi_intermediate() {
             self.csi_inter = Some(b);
             self.st = Node::DcsInter;
@@ -773,11 +711,35 @@ impl<'a> Term<'a> {
         }
     }
 
+    /// One digit or semicolon of a device control string's parameter string.
+    /// The action half of `dcs_param_byte`; see [`Term::csi_collect_param`].
+    pub(crate) fn dcs_collect_param(&mut self, b: StreamByte) {
+        if let Some(d) = b.as_ascii_digit() {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            // Bounded for the same reason as `csi_collect_param`.
+            let i = self.nparam.raw_index() - 1;
+            if i < ParamIdx::CAPACITY {
+                let cur = self.params[i].unwrap_or(Param::ZERO);
+                self.params[i] = Some(cur.push(d));
+            }
+        } else {
+            if self.nparam.is_first() {
+                self.nparam = self.nparam.next();
+            }
+            if self.nparam.raw_index() < ParamIdx::CAPACITY {
+                self.params[self.nparam.raw_index()] = None;
+            }
+            self.nparam = self.nparam.next_capped();
+        }
+    }
+
     /// williams' `hook`: the final byte selects a handler, and an unhandled DCS
     /// still has to consume its payload rather than fall back to Ground — or
     /// the payload runs as commands.
     #[inline]
-    fn dcs_hook(&mut self, f: FinalByte) {
+    pub(crate) fn dcs_hook(&mut self, f: FinalByte) {
         self.dcs_final = Some(f);
         self.st = match Dcs::parse(self.csi_inter, f) {
             Dcs::Unsupported => Node::DcsIgnore,
@@ -799,6 +761,7 @@ impl<'a> Term<'a> {
     /// next byte decides between *terminator* and *cancel*. Those arms spell
     /// the rule out themselves and are already right.
     #[inline(always)]
+    #[cfg(feature = "rule-walk")]
     fn anywhere(&mut self, b: StreamByte) -> bool {
         // Every byte in the block is below 0x20, so one comparison retires the
         // whole check for all text. This is not premature: `control` is the
@@ -821,6 +784,7 @@ impl<'a> Term<'a> {
     /// inlined body costs more than the work in it does. Keeping the gate
     /// inline and the body out of line is what made this free.
     #[inline(never)]
+    #[cfg(feature = "rule-walk")]
     fn anywhere_c0(&mut self, b: StreamByte) -> bool {
         if b == StreamByte::CAN || b == StreamByte::SUB {
             // Abandon whatever is in progress, control strings included. A
@@ -829,7 +793,14 @@ impl<'a> Term<'a> {
             // every state.
             if matches!(
                 self.st,
-                Node::Ground | Node::Vt52Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+                Node::Ground
+                    | Node::Vt52Ground
+                    | Node::Utf8One
+                    | Node::Utf8Two
+                    | Node::Utf8Three
+                    | Node::Vt52Utf8One
+                    | Node::Vt52Utf8Two
+                    | Node::Vt52Utf8Three
             ) {
                 return false; // nothing in progress; Ground executes it itself
             }
@@ -847,6 +818,9 @@ impl<'a> Term<'a> {
             | Node::Utf8One
             | Node::Utf8Two
             | Node::Utf8Three
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three
             // VT52 coordinates are raw bytes, not a parameter string:
             // `ESC Y` takes the next two whatever they are.
             | Node::Vt52Row
@@ -868,6 +842,94 @@ impl<'a> Term<'a> {
                 self.st = Node::Escape;
                 true
             }
+        }
+    }
+
+    /// One intermediate byte of an `ESC <inter> ... <final>` form.
+    ///
+    /// Collected, not overwritten. `[[source: williams]]` says "if more than
+    /// two intermediate characters arrive, the parser can just flag this so
+    /// that the dispatch can be turned into a null operation" -- so two are
+    /// kept and a third makes the sequence inert.
+    ///
+    /// Shared by both walks, because two spellings of one rule is the failure
+    /// this repo keeps recording.
+    pub(crate) fn esc_collect(&mut self, b: StreamByte) {
+        if self.esc_inter.is_none() {
+            self.esc_inter = Some(b);
+        } else if self.esc_inter2.is_none() {
+            self.esc_inter2 = Some(b);
+        } else {
+            self.esc_inter2 = Some(StreamByte::DEL); // sentinel: too many
+        }
+    }
+
+    /// The final byte of an `ESC <inter> <final>` form. Shared by both walks;
+    /// the caller owns the transition back to ground.
+    pub(crate) fn esc_inter_final(&mut self, b: StreamByte) {
+        match self.esc_inter {
+            // `ESC # 8` is DECALN.
+            Some(i) if i == StreamByte::HASH && b.raw_byte() == b'8' => self.screen_alignment(),
+            // `ESC SP F` is S7C1T: send C1 controls as 7-bit
+            // sequences. baud always does, so this is *satisfied*,
+            // not unsupported -- there is nothing to change and
+            // nothing withheld. dtterm's `is2` opens with it, and
+            // the conformance fixture is what drew the line:
+            // counting it as unsupported claimed baud had refused
+            // something it in fact already does.
+            //
+            // `ESC SP G` (S8C1T) is the opposite and falls through
+            // to the count below: it asks for 8-bit replies, which
+            // would make baud's own output invalid UTF-8.
+            // `ESC SP F` / `ESC SP G` -- S7C1T / S8C1T. Both are
+            // implemented: they select the form baud *sends*, which
+            // is a different axis from the UTF-8 decoding that makes
+            // an 8-bit C1 unparseable on the way in.
+            Some(i) if i == StreamByte::SP && b.raw_byte() == b'F' => {
+                self.c1 = C1Transmit::SevenBit
+            }
+            Some(i) if i == StreamByte::SP && b.raw_byte() == b'G' => {
+                self.c1 = C1Transmit::EightBit
+            }
+            // `ESC % G` selects UTF-8 (`[[source: ctlseqs]]`:
+            // "Select UTF-8 character set, ISO 2022"). baud always
+            // decodes UTF-8, so the request is *satisfied* -- the
+            // same distinction S7C1T draws, and for the same
+            // reason: counting it as unsupported would claim baud
+            // refused something it already does.
+            //
+            // `ESC % @` -- "Select default character set. That is
+            // ISO 8859-1" -- asks to leave UTF-8, which baud cannot
+            // do. It falls through to the count below, so an
+            // application can discover the refusal.
+            Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'G' => {
+                self.encoding = InputEncoding::Utf8
+            }
+            Some(i) if i == StreamByte::PERCENT && b.raw_byte() == b'@' => {
+                self.encoding = InputEncoding::Latin1
+            }
+            // `ESC ( ) * + <C>` designate G0-G3, and
+            // `ESC ( % 6` designates one whose final is two bytes.
+            Some(i) => {
+                if let Some(slot) = GSlot::from_intermediate(i) {
+                    match self.esc_inter2 {
+                        Some(j) if j != StreamByte::DEL => self.designate_multi(slot, j, b),
+                        Some(_) => self.unsupported.inc(),
+                        None => self.designate(slot, b),
+                    }
+                } else {
+                    // Every other intermediate form -- `ESC SP F`
+                    // and `ESC SP G` (S7C1T/S8C1T) most notably --
+                    // was consumed and dropped in silence. Counting
+                    // it is the difference between "not
+                    // implemented" and "accepted, did nothing, and
+                    // gave the application no way to find out",
+                    // which is the failure docs/vt-coverage.md is
+                    // built around.
+                    self.unsupported.inc();
+                }
+            }
+            None => self.unsupported.inc(),
         }
     }
 

@@ -682,6 +682,35 @@ fn drive(bytes: &[u8], chunk: usize, mode: OpMode) -> (Vec<PackedCell>, (usize, 
     (t.viewport().to_vec(), (r.index(), c.index()), reply)
 }
 
+/// The same, through `machine.rs`'s rule walk: one byte, one walk, no
+/// scanner and no fast paths.
+#[cfg(feature = "rule-walk")]
+fn drive_bytewise(
+    bytes: &[u8],
+    mode: OpMode,
+    rules: bool,
+) -> (Vec<PackedCell>, (usize, usize), Vec<u8>) {
+    let mut store = Storage::boxed();
+    let mut t = Term::new(&mut store, mode);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
+        if rules {
+            t.feed_by_rules(base, filled.len());
+        } else {
+            t.feed_by_graph(base, filled.len());
+        }
+        t.commit_read(filled.len());
+        i += n;
+    }
+    let (r, c) = t.cursor();
+    let reply = t.reply().to_vec();
+    (t.viewport().to_vec(), (r.index(), c.index()), reply)
+}
+
 fn grid(ops: &[Op]) -> Vec<PackedCell> {
     drive(&bytes_of(ops), 4096, OpMode::Computed).0
 }
@@ -729,6 +758,50 @@ proptest! {
     /// `properties.rs::promotion_depends_on_chunking_in_runs_mode`, which pins
     /// the reason.
     #[test]
+    /// **The graph must do what the rules do, on every generated program.**
+    ///
+    /// `the_table_sends_every_byte_where_the_machine_does` proves the
+    /// *transitions* agree, exhaustively. It says nothing about the actions,
+    /// and the actions are the other half of the parser -- so this drives both
+    /// spellings over whole programs and compares what they leave behind:
+    /// every cell, the cursor, and every byte of the reply.
+    ///
+    /// Without it the switch to the graph would have made the transition
+    /// differential vacuous -- a lookup checked against itself -- which is the
+    /// stale `scan path: AVX2` failure this repo already records.
+    #[test]
+    #[cfg(feature = "rule-walk")]
+    fn the_graph_agrees_with_the_rule_walk(ops in program()) {
+        let b = bytes_of(&ops);
+        for m in [OpMode::Computed, OpMode::Templated] {
+            prop_assert_eq!(
+                drive_bytewise(&b, m, false),
+                drive_bytewise(&b, m, true)
+            );
+        }
+    }
+
+    /// **The bulk path must do what the per-cell path does.**
+    ///
+    /// `feed` brings a scanner, `fast_csi`, `fast_esc` and `put_ascii_run`;
+    /// driving the same bytes one at a time brings none of them. Everything
+    /// they add is an optimisation, so the two must be indistinguishable --
+    /// and this repo has already been bitten once by `fast.rs` and
+    /// `machine.rs` disagreeing past the sixteenth CSI parameter, through
+    /// 20,000 passing cases of a property that could not build the shape.
+    ///
+    /// Found the moment it was written, which is why it is separate from
+    /// `the_graph_agrees_with_the_rule_walk`: that one was comparing the
+    /// parser *and* the plumbing, and so was answering neither question.
+    #[test]
+    #[cfg(feature = "rule-walk")]
+    fn the_bulk_path_agrees_with_the_per_byte_path(ops in program()) {
+        let b = bytes_of(&ops);
+        for m in [OpMode::Computed, OpMode::Templated] {
+            prop_assert_eq!(drive(&b, 4096, m), drive_bytewise(&b, m, false));
+        }
+    }
+
     fn generated_programs_are_chunk_invariant(ops in program(), a in 1usize..=64) {
         let b = bytes_of(&ops);
         for m in [OpMode::Computed, OpMode::Templated] {
