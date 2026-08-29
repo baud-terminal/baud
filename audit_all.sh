@@ -11,7 +11,7 @@ fail=0
 # green for ever -- the "instrumentation outlived what fed it" failure
 # CLAUDE.md records.
 #
-# 5 permitted, and every one is forced by the language or by an intrinsic
+# 6 permitted, and every one is forced by the language or by an intrinsic
 # rather than chosen:
 #   1  array dimension -- `const GRID: usize = MAX_ROWS * MAX_COLS`. Rust
 #      requires an array length to be a `usize` const expression; there is no
@@ -21,6 +21,12 @@ fail=0
 #      single point at which an intrinsic's return value enters the type
 #      system, which is exactly where a cast belongs.
 #   1  a raw byte range test in `parse/fast.rs`.
+#   1  `st as usize` in `parse/table.rs`, the parser state's row in the
+#      transition table. Same reason as the array dimension: an index is a
+#      `usize` and no newtype can be one. It is one site rather than five
+#      because the encoding selects a *table* by `match` instead of an index,
+#      the byte carries its own `index()`, and `Step` stores two enums side by
+#      side rather than packing them into a `u16` and casting back out.
 #
 # **This was 8 while the true count was 5, which is slack a gate must not
 # carry.** A limit three above the count lets three regressions land green,
@@ -43,11 +49,11 @@ for f in $(find baud-core/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/
   sig=$((sig + m))
   [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
-if [ "$core" -gt 5 ]; then
-  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 5)"
+if [ "$core" -gt 6 ]; then
+  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 6)"
   fail=1
 else
-  echo "  ok   baud-core+isa: $core (limit 5)"
+  echo "  ok   baud-core+isa: $core (limit 6)"
 fi
 
 # **A second gate, because the first could not see these.** The rule above

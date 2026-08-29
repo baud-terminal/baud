@@ -55,13 +55,34 @@ impl StreamByte {
     pub const FINAL_LOW: StreamByte = StreamByte(0x40);
     pub const FINAL_HIGH: StreamByte = StreamByte(0x7e);
 
-    pub fn from_stream(b: u8) -> StreamByte {
+    pub const fn from_stream(b: u8) -> StreamByte {
         StreamByte(b)
     }
     pub fn is_printable(self) -> bool {
         (0x20..0x7f).contains(&self.0)
     }
-    pub fn is_c0(self) -> bool {
+    /// Equality, callable from a `const fn`.
+    ///
+    /// `PartialEq` is not a const trait yet, so a table built at compile time
+    /// cannot write `b == StreamByte::ESC`. Without this the builder would
+    /// compare raw bytes, which is exactly the untyped spelling the audit
+    /// refuses -- and it would be a second definition of every control byte.
+    pub const fn is(self, other: StreamByte) -> bool {
+        self.0 == other.0
+    }
+    /// `7F`, which several states ignore rather than treat as a final.
+    pub const fn is_del(self) -> bool {
+        self.0 == 0x7f
+    }
+    /// A byte Latin-1 maps straight to the codepoint of the same value.
+    pub const fn is_latin1_graphic(self) -> bool {
+        self.0 >= 0xa0
+    }
+    /// `80..9F`: a C1 control, which outside UTF-8 introduces a sequence.
+    pub const fn is_c1(self) -> bool {
+        self.0 >= 0x80 && self.0 <= 0x9f
+    }
+    pub const fn is_c0(self) -> bool {
         self.0 < 0x20
     }
     pub fn is_continuation(self) -> bool {
@@ -70,10 +91,35 @@ impl StreamByte {
     pub fn as_ascii_digit(self) -> Option<Digit> {
         self.0.is_ascii_digit().then(|| Digit(self.0 - b'0'))
     }
+    /// A byte `csi_param` accumulates rather than dispatches: a digit, or one
+    /// of the two separators. The colon opens a sub-parameter and the
+    /// semicolon a parameter, which is a difference the *action* cares about
+    /// and the transition does not -- both stay in the same state.
+    pub const fn is_csi_param_byte(self) -> bool {
+        self.0.is_ascii_digit() || self.is(StreamByte::SEMICOLON) || self.is(StreamByte::COLON)
+    }
+    /// The same for a device control string, which has no sub-parameter form:
+    /// `[[source: williams]]` sends a colon to `dcs_ignore`.
+    pub const fn is_dcs_param_byte(self) -> bool {
+        self.0.is_ascii_digit() || self.is(StreamByte::SEMICOLON)
+    }
     /// For the atlas and the width tables, which index by codepoint.
     pub fn index(self) -> usize {
         self.0 as usize
     }
+    /// Every stream byte, in order, so a compile-time table can enumerate them
+    /// without a `u8` loop counter and an `as` cast at the boundary. The type
+    /// that defines what a stream byte *is* is the one that should say how
+    /// many there are.
+    pub const ALL: [StreamByte; 256] = {
+        let mut t = [StreamByte(0); 256];
+        let mut i = 0;
+        while i < 256 {
+            t[i] = StreamByte(i as u8);
+            i += 1;
+        }
+        t
+    };
 }
 
 /// A decimal digit from a CSI parameter. Cannot be arithmetic'd with anything
@@ -89,8 +135,11 @@ pub struct Digit(pub(crate) u8);
 pub struct FinalByte(pub(crate) u8);
 
 impl FinalByte {
-    pub fn from_stream(b: StreamByte) -> Option<FinalByte> {
-        (0x40..=0x7e).contains(&b.0).then_some(FinalByte(b.0))
+    pub const fn from_stream(b: StreamByte) -> Option<FinalByte> {
+        match b.0 >= 0x40 && b.0 <= 0x7e {
+            true => Some(FinalByte(b.0)),
+            false => None,
+        }
     }
     pub(crate) fn raw(self) -> u8 {
         self.0
@@ -167,14 +216,14 @@ impl StreamByte {
     pub const APC_INTRO: StreamByte = StreamByte(b'_');
     /// `ESC \`, the string terminator's final byte.
     pub const ST_FINAL: StreamByte = StreamByte(b'\\');
-    pub fn is_csi_intermediate(self) -> bool {
-        (0x20..0x30).contains(&self.0)
+    pub const fn is_csi_intermediate(self) -> bool {
+        self.0 >= 0x20 && self.0 < 0x30
     }
     /// Intermediate bytes after `ESC`, per `[[source: williams]]`'s
     /// `escape_intermediate`. Same range as the CSI intermediates: `ESC # 8` is
     /// DECALN, and without this the `#` is dropped and the `8` printed.
-    pub fn is_esc_intermediate(self) -> bool {
-        (0x20..0x30).contains(&self.0)
+    pub const fn is_esc_intermediate(self) -> bool {
+        self.0 >= 0x20 && self.0 < 0x30
     }
     /// A byte that ends an escape sequence: `0x30..=0x7e`.
     pub fn is_esc_final(self) -> bool {
@@ -190,7 +239,7 @@ impl StreamByte {
     /// lead", high byte the payload bits, and the shortest-form floor derived
     /// from the count.
     #[inline(always)]
-    pub fn utf8_lead(self) -> Option<(u8, u32, Utf8Min)> {
+    pub const fn utf8_lead(self) -> Option<(u8, u32, Utf8Min)> {
         let e = UTF8_LEAD[self.0 as usize];
         let rem = (e & 0xff) as u8;
         if rem == 0xff {
@@ -198,7 +247,7 @@ impl StreamByte {
         }
         Some((
             rem,
-            u32::from(e >> 8),
+            (e >> 8) as u32,
             match rem {
                 1 => Utf8Min::Two,
                 2 => Utf8Min::Three,
@@ -210,8 +259,11 @@ impl StreamByte {
     pub fn is_printable_ascii(self) -> bool {
         (0x20..0x7f).contains(&self.0)
     }
-    pub fn utf8_continuation(self) -> Option<u32> {
-        (self.0 & 0xc0 == 0x80).then_some((self.0 & 0x3f) as u32)
+    pub const fn utf8_continuation(self) -> Option<u32> {
+        match self.0 & 0xc0 {
+            0x80 => Some((self.0 & 0x3f) as u32),
+            _ => None,
+        }
     }
 }
 
@@ -220,7 +272,7 @@ impl StreamByte {
         self.0
     }
     /// For matching against ASCII literals in escape dispatch.
-    pub fn raw_byte(self) -> u8 {
+    pub const fn raw_byte(self) -> u8 {
         self.0
     }
     /// Reinterpret a byte slice as a stream. No copy and no `unsafe`:
@@ -661,7 +713,7 @@ impl InputEncoding {
 /// Low byte: continuation count, `0xff` when the byte cannot lead. High byte:
 /// the lead's payload bits. Built at compile time from the same ranges the
 /// match used, and `the_lead_table_matches_the_ranges` checks all 256.
-static UTF8_LEAD: [u16; 256] = build_lead_table();
+const UTF8_LEAD: [u16; 256] = build_lead_table();
 
 const fn build_lead_table() -> [u16; 256] {
     let mut t = [0x00ffu16; 256];

@@ -151,7 +151,7 @@ impl Marker {
     /// `csi_param` sends the same bytes to `csi_ignore`, because a marker is
     /// legal only immediately after `CSI`. Both of baud's feed paths call this,
     /// so the rule has one definition and the two paths cannot drift.
-    pub fn from_private(b: StreamByte) -> Option<Marker> {
+    pub const fn from_private(b: StreamByte) -> Option<Marker> {
         Some(match b.raw_byte() {
             b'<' => Marker::Lt,
             b'=' => Marker::Equals,

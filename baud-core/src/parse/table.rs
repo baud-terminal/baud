@@ -96,12 +96,6 @@ impl SId {
         SId::Vt52Row,
         SId::Vt52Col,
     ];
-    pub(crate) fn of(i: u8) -> SId {
-        SId::FROM_INDEX[i as usize]
-    }
-    pub(crate) fn index(self) -> usize {
-        self as usize
-    }
 }
 
 /// What a byte does once the table has said where it goes.
@@ -185,187 +179,154 @@ pub(crate) enum Act {
     Vt52Dispatch,
 }
 
-impl Act {
-    const FROM_INDEX: [Act; 31] = [
-        Act::Nothing,
-        Act::Execute,
-        Act::PrintByte,
-        Act::C1Escape,
-        Act::Utf8Start,
-        Act::Utf8Cont,
-        Act::GroundUncommon,
-        Act::Utf8Bad,
-        Act::CsiClear,
-        Act::DcsClear,
-        Act::EscFe,
-        Act::EscCollect,
-        Act::EscInterFinal,
-        Act::CsiPrivate,
-        Act::CsiParamByte,
-        Act::CsiFinal,
-        Act::CsiCollect,
-        Act::DcsPrivate,
-        Act::DcsParamByte,
-        Act::DcsCollect,
-        Act::DcsHook,
-        Act::StringPut,
-        Act::DcsDispatch,
-        Act::DcsCancel,
-        Act::OscDispatchSt,
-        Act::OscDispatchBel,
-        Act::OscCancel,
-        Act::Cancel,
-        Act::Vt52SetRow,
-        Act::Vt52Address,
-        Act::Vt52Dispatch,
-    ];
-    pub(crate) fn of(i: u8) -> Act {
-        Act::FROM_INDEX[i as usize]
+/// One transition: the action, and where the parser goes next.
+///
+/// Two `repr(u8)` enums side by side, so the entry is **two bytes** and the
+/// lookup is one load -- the same size as packing them into a `u16`, and
+/// without the shift, the mask and the two `as` casts each way. A packed word
+/// was the first spelling and it cost four conversions per read to say what
+/// the field names say for free.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub(crate) struct Step {
+    pub(crate) act: Act,
+    pub(crate) next: SId,
+}
+
+const fn step(act: Act, next: SId) -> Step {
+    Step { act, next }
+}
+
+// ── byte classification ─────────────────────────────────────────────────────
+// Everything below asks `StreamByte`. The predicates were duplicated here as
+// raw-byte tests while the table was being written, which the type audit
+// refused -- correctly: two spellings of one rule is how `0x7f` went missing
+// from the AVX2 stop mask while the scalar tail had it. They are `const fn` on
+// `StreamByte` now, so the table is built from the same definitions the rest of
+// the parser uses and there is nothing to keep in sync.
+
+/// How many continuations a lead byte owes, as a state.
+const fn utf8_state(b: StreamByte) -> SId {
+    match b.utf8_lead() {
+        Some((3, _, _)) => SId::Utf8Three,
+        Some((2, _, _)) => SId::Utf8Two,
+        _ => SId::Utf8One,
     }
 }
 
-/// One transition: the action, and where the parser goes next.
+/// One byte of a control sequence's parameter string.
 ///
-/// Packed into a `u16` -- action in the high byte, state in the low -- so the
-/// whole table is two bytes an entry and the lookup is one load.
-const fn step(act: Act, next: SId) -> u16 {
-    ((act as u16) << 8) | (next as u16)
-}
-
-// ── byte classification, spelled once ────────────────────────────────────────
-// These mirror `StreamByte`'s predicates. They are duplicated here rather than
-// called because the table is built in a `const fn` and these are the exact
-// definitions the table has to agree with; `the_table_agrees_with_streambyte`
-// checks every byte against the originals so the two cannot drift.
-
-const fn is_c0(b: u8) -> bool {
-    b < 0x20
-}
-const fn is_del(b: u8) -> bool {
-    b == 0x7f
-}
-const fn is_esc_intermediate(b: u8) -> bool {
-    b >= 0x20 && b <= 0x2f
-}
-const fn is_csi_intermediate(b: u8) -> bool {
-    b >= 0x20 && b <= 0x2f
-}
-const fn is_final(b: u8) -> bool {
-    b >= 0x40 && b <= 0x7e
-}
-const fn is_private(b: u8) -> bool {
-    b >= 0x3c && b <= 0x3f
-}
-const fn is_utf8_lead(b: u8) -> bool {
-    (b >= 0xc2 && b <= 0xdf) || (b >= 0xe0 && b <= 0xef) || (b >= 0xf0 && b <= 0xf4)
-}
-const fn is_utf8_cont(b: u8) -> bool {
-    b & 0xc0 == 0x80
-}
-
-const ESC: u8 = 0x1b;
-const BEL: u8 = 0x07;
-const CAN: u8 = 0x18;
-const SUB: u8 = 0x1a;
-const ST_8BIT: u8 = 0x9c;
-const ST_FINAL: u8 = b'\\';
-const CSI_INTRO: u8 = b'[';
-const OSC_INTRO: u8 = b']';
-const DCS_INTRO: u8 = b'P';
-const SOS_INTRO: u8 = b'X';
-const PM_INTRO: u8 = b'^';
-const APC_INTRO: u8 = b'_';
-
-/// Latin-1 maps every byte above `7F` to the codepoint of the same value,
-/// except the C1 range, which is a control introducer.
-/// A parameter-position byte, with the transitions `csi_param_byte` performs.
-///
-/// **Spelled here rather than delegated**, because that function both collects
-/// *and* moves the parser: a final dispatches to `Ground`, an intermediate goes
-/// to `csi_intermediate`, and anything else abandons the sequence. A table
-/// that named only "collect a parameter" would be wrong for three of the four.
-const fn csi_param(b: u8) -> u16 {
-    if is_c0(b) {
+/// `csi_entry` and `csi_param` differ in exactly one transition -- the private
+/// marker -- so they share this and the caller handles the difference. That is
+/// how `machine.rs` spells it too, and the alternative was two arms that had
+/// to be kept identical.
+const fn csi_param(b: StreamByte) -> Step {
+    if b.is_c0() {
+        // Executed where it stands and the sequence continues: `CSI 1 <BEL> m`
+        // is still an SGR.
         step(Act::Execute, SId::CsiParams)
-    } else if is_final(b) {
-        step(Act::CsiFinal, SId::Ground)
-    } else if is_csi_intermediate(b) {
-        step(Act::CsiCollect, SId::CsiInter)
-    } else if is_del(b) {
-        step(Act::Nothing, SId::CsiParams)
-    } else if (b >= b'0' && b <= b'9') || b == b';' || b == b':' {
+    } else if b.is_csi_param_byte() {
         step(Act::CsiParamByte, SId::CsiParams)
+    } else if FinalByte::from_stream(b).is_some() {
+        step(Act::CsiFinal, SId::Ground)
+    } else if b.is_csi_intermediate() {
+        step(Act::CsiCollect, SId::CsiInter)
+    } else if b.is_del() {
+        step(Act::Nothing, SId::CsiParams)
     } else {
+        // `3C-3F` past the first position. Consumed to the final byte rather
+        // than returned to Ground, which printed the rest of the sequence.
         step(Act::Nothing, SId::CsiIgnore)
     }
 }
 
-/// A DCS parameter-position byte. Same reason as `csi_param`: the function it
-/// replaces both collects and moves. Two differences from the CSI form and
-/// both are the specification's: a C0 is *ignored* here rather than executed --
-/// `[[source: williams]]` says C0 other than CAN, SUB and ESC are not executed
-/// while recognising a device control string -- and a colon is not a separator.
-const fn dcs_param(b: u8) -> u16 {
-    if is_c0(b) || is_del(b) {
+/// One byte of a device control string's parameter string.
+///
+/// Shared by `dcs_entry` and `dcs_param` for the same reason, and differing
+/// from `csi_param` in two rules: a C0 here is *ignored* rather than executed,
+/// and there is no sub-parameter colon.
+const fn dcs_param(b: StreamByte) -> Step {
+    if b.is_c0() || b.is_del() {
         step(Act::Nothing, SId::DcsParam)
-    } else if is_csi_intermediate(b) {
-        step(Act::DcsCollect, SId::DcsInter)
-    } else if is_final(b) {
-        step(Act::DcsHook, SId::DcsParam)
-    } else if (b >= b'0' && b <= b'9') || b == b';' {
+    } else if b.is_dcs_param_byte() {
         step(Act::DcsParamByte, SId::DcsParam)
+    } else if b.is_csi_intermediate() {
+        step(Act::DcsCollect, SId::DcsInter)
+    } else if FinalByte::from_stream(b).is_some() {
+        // `DcsHook` owns its own transition; see its documentation.
+        step(Act::DcsHook, SId::DcsParam)
     } else {
         step(Act::Nothing, SId::DcsIgnore)
     }
-}
-
-/// How many continuations a lead byte owes.
-const fn utf8_state(b: u8) -> SId {
-    if b >= 0xf0 {
-        SId::Utf8Three
-    } else if b >= 0xe0 {
-        SId::Utf8Two
-    } else {
-        SId::Utf8One
-    }
-}
-
-const fn latin1_is_c1(b: u8) -> bool {
-    b >= 0x80 && b <= 0x9f
 }
 
 /// The transition table, built at compile time.
 ///
 /// Indexed `[encoding][state][byte]`, where encoding 0 is UTF-8 and 1 is
 /// ISO 8859-1. 20 KB of rodata.
-pub(crate) static VT: [u16; 2 * NSTATE * 256] = build();
+pub(crate) static UTF8_HALF: [Step; NSTATE * 256] = build(Half::Utf8);
+pub(crate) static LATIN1_HALF: [Step; NSTATE * 256] = build(Half::Latin1);
 
-pub(crate) const fn vt_index(latin1: bool, st: SId, b: u8) -> usize {
-    (latin1 as usize) * NSTATE * 256 + (st as usize) * 256 + b as usize
+impl Step {
+    /// The transition for one byte: the whole parser, as one load.
+    ///
+    /// Typed at the boundary on purpose. The first spelling took
+    /// `(bool, SId, u8)` and returned a `usize` index the caller then had to
+    /// use correctly -- three raw values in one signature, and the audit was
+    /// right to refuse it: an encoding is not a `bool` and a stream byte is
+    /// not a number.
+    #[inline(always)]
+    pub(crate) fn of(enc: InputEncoding, st: SId, b: StreamByte) -> Step {
+        // The encoding selects a table rather than an index, so the only
+        // conversion left in this file is the state's row -- the one thing
+        // Rust forces, since an array index is a `usize` and no newtype can
+        // be one.
+        let half = match enc {
+            InputEncoding::Utf8 => &UTF8_HALF,
+            InputEncoding::Latin1 => &LATIN1_HALF,
+        };
+        half[st as usize * 256 + b.index()]
+    }
 }
 
-const fn build() -> [u16; 2 * NSTATE * 256] {
-    let mut t = [step(Act::Nothing, SId::Ground); 2 * NSTATE * 256];
-    let mut e = 0usize;
-    while e < 2 {
-        let latin1 = e == 1;
-        let mut s = 0usize;
-        while s < NSTATE {
-            let st = SId::FROM_INDEX[s];
-            let mut i = 0usize;
-            while i < 256 {
-                t[e * NSTATE * 256 + s * 256 + i] = one(latin1, st, i as u8);
-                i += 1;
-            }
-            s += 1;
+/// Which half of the table an encoding selects.
+///
+/// The table is built for two encodings and `InputEncoding` has exactly two
+/// variants, so this is a rename -- but it is the *table's* axis rather than
+/// the terminal's mode, and naming it stops `latin1: bool` from reappearing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub(crate) enum Half {
+    Utf8 = 0,
+    Latin1 = 1,
+}
+
+impl Half {
+    /// Latin-1 gives `80..9F` to the C1 controls and `A0..FF` to graphics;
+    /// UTF-8 gives both to the decoder. That is the only rule the halves
+    /// differ by, and asking it by name keeps the builder from testing a flag.
+    const fn is_latin1(self) -> bool {
+        matches!(self, Half::Latin1)
+    }
+}
+
+const fn build(half: Half) -> [Step; NSTATE * 256] {
+    let mut t = [step(Act::Nothing, SId::Ground); NSTATE * 256];
+    let mut s = 0usize;
+    while s < NSTATE {
+        let st = SId::FROM_INDEX[s];
+        let mut i = 0usize;
+        while i < 256 {
+            t[s * 256 + i] = one(half, st, StreamByte::ALL[i]);
+            i += 1;
         }
-        e += 1;
+        s += 1;
     }
     t
 }
 
 /// The whole protocol, as one function of three bounded values.
-const fn one(latin1: bool, st: SId, b: u8) -> u16 {
+const fn one(half: Half, st: SId, b: StreamByte) -> Step {
     // `anywhere`: CAN and SUB abandon a sequence in progress; ESC restarts one.
     // Ground-like states handle both themselves, so they fall through.
     // **Two different lists, and conflating them was four wrong cells.**
@@ -378,7 +339,7 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
         st,
         SId::Ground | SId::Vt52Ground | SId::Utf8One | SId::Utf8Two | SId::Utf8Three
     );
-    if (b == CAN || b == SUB) && !ground_like {
+    if (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) && !ground_like {
         return step(Act::Cancel, SId::Ground);
     }
     let in_sequence = !matches!(
@@ -391,7 +352,7 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
             | SId::Vt52Row
             | SId::Vt52Col
     );
-    if b == ESC {
+    if b.is(StreamByte::ESC) {
         // The string states keep ESC for themselves: it is a terminator
         // candidate there, not a fresh sequence.
         let keeps_esc = matches!(
@@ -409,22 +370,22 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
     }
     match st {
         SId::Ground | SId::Vt52Ground => {
-            if b == ESC {
+            if b.is(StreamByte::ESC) {
                 step(Act::Nothing, SId::Escape)
-            } else if is_c0(b) || b == BEL {
+            } else if b.is_c0() || b.is(StreamByte::BEL) {
                 step(Act::Execute, st)
-            } else if latin1 && latin1_is_c1(b) {
+            } else if half.is_latin1() && b.is_c1() {
                 step(Act::C1Escape, SId::Escape)
-            } else if latin1 && b >= 0xa0 {
+            } else if half.is_latin1() && b.is_latin1_graphic() {
                 step(Act::PrintByte, st)
-            } else if !latin1 && is_utf8_lead(b) {
+            } else if !half.is_latin1() && b.utf8_lead().is_some() {
                 step(Act::Utf8Start, utf8_state(b))
             } else {
                 step(Act::GroundUncommon, st)
             }
         }
         SId::Utf8One | SId::Utf8Two | SId::Utf8Three => {
-            if is_utf8_cont(b) {
+            if b.utf8_continuation().is_some() {
                 let next = match st {
                     SId::Utf8Three => SId::Utf8Two,
                     SId::Utf8Two => SId::Utf8One,
@@ -438,37 +399,40 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
             }
         }
         SId::Escape => {
-            if b == CSI_INTRO {
+            if b.is(StreamByte::CSI_INTRO) {
                 step(Act::CsiClear, SId::CsiEntry)
-            } else if b == OSC_INTRO {
+            } else if b.is(StreamByte::OSC_INTRO) {
                 step(Act::Nothing, SId::OscString)
-            } else if b == DCS_INTRO {
+            } else if b.is(StreamByte::DCS_INTRO) {
                 step(Act::DcsClear, SId::DcsEntry)
-            } else if b == SOS_INTRO || b == PM_INTRO || b == APC_INTRO {
+            } else if b.is(StreamByte::SOS_INTRO)
+                || b.is(StreamByte::PM_INTRO)
+                || b.is(StreamByte::APC_INTRO)
+            {
                 step(Act::Nothing, SId::StringIgnore)
-            } else if is_esc_intermediate(b) {
+            } else if b.is_esc_intermediate() {
                 step(Act::EscCollect, SId::EscInter)
             } else {
                 step(Act::EscFe, SId::Ground)
             }
         }
         SId::EscInter => {
-            if is_c0(b) {
+            if b.is_c0() {
                 step(Act::Execute, st)
-            } else if is_esc_intermediate(b) {
+            } else if b.is_esc_intermediate() {
                 step(Act::EscCollect, st)
-            } else if is_del(b) {
+            } else if b.is_del() {
                 step(Act::Nothing, st)
             } else {
                 step(Act::EscInterFinal, SId::Ground)
             }
         }
         SId::CsiEntry => {
-            if is_c0(b) {
+            if b.is_c0() {
                 step(Act::Execute, st)
-            } else if is_del(b) {
+            } else if b.is_del() {
                 step(Act::Nothing, st)
-            } else if is_private(b) {
+            } else if Marker::from_private(b).is_some() {
                 step(Act::CsiPrivate, SId::CsiParams)
             } else {
                 csi_param(b)
@@ -476,51 +440,51 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
         }
         SId::CsiParams => csi_param(b),
         SId::CsiInter => {
-            if is_c0(b) {
+            if b.is_c0() {
                 step(Act::Execute, st)
-            } else if is_final(b) {
+            } else if FinalByte::from_stream(b).is_some() {
                 step(Act::CsiFinal, SId::Ground)
-            } else if is_del(b) {
+            } else if b.is_del() {
                 step(Act::Nothing, st)
-            } else if !is_csi_intermediate(b) {
+            } else if !b.is_csi_intermediate() {
                 step(Act::Nothing, SId::CsiIgnore)
             } else {
                 step(Act::CsiCollect, st)
             }
         }
         SId::CsiIgnore => {
-            if is_c0(b) {
+            if b.is_c0() {
                 step(Act::Execute, st)
-            } else if is_final(b) {
+            } else if FinalByte::from_stream(b).is_some() {
                 step(Act::Nothing, SId::Ground)
             } else {
                 step(Act::Nothing, st)
             }
         }
         SId::OscString => {
-            if latin1 && b == ST_8BIT {
+            if half.is_latin1() && b.is(StreamByte::ST_8BIT) {
                 step(Act::OscDispatchSt, SId::Ground)
-            } else if b == BEL {
+            } else if b.is(StreamByte::BEL) {
                 step(Act::OscDispatchBel, SId::Ground)
-            } else if b == ESC {
+            } else if b.is(StreamByte::ESC) {
                 step(Act::Nothing, SId::OscEsc)
-            } else if is_c0(b) {
+            } else if b.is_c0() {
                 step(Act::Nothing, st)
             } else {
                 step(Act::StringPut, st)
             }
         }
         SId::OscEsc => {
-            if b == ST_FINAL {
+            if b.is(StreamByte::ST_FINAL) {
                 step(Act::OscDispatchSt, SId::Ground)
             } else {
                 step(Act::OscCancel, SId::Escape)
             }
         }
         SId::DcsEntry => {
-            if is_c0(b) || is_del(b) {
+            if b.is_c0() || b.is_del() {
                 step(Act::Nothing, st)
-            } else if is_private(b) {
+            } else if Marker::from_private(b).is_some() {
                 step(Act::DcsPrivate, SId::DcsParam)
             } else {
                 dcs_param(b)
@@ -528,53 +492,54 @@ const fn one(latin1: bool, st: SId, b: u8) -> u16 {
         }
         SId::DcsParam => dcs_param(b),
         SId::DcsInter => {
-            if is_c0(b) || is_del(b) {
+            if b.is_c0() || b.is_del() {
                 step(Act::Nothing, st)
-            } else if is_csi_intermediate(b) {
+            } else if b.is_csi_intermediate() {
                 step(Act::DcsCollect, st)
-            } else if is_final(b) {
+            } else if FinalByte::from_stream(b).is_some() {
                 step(Act::DcsHook, st)
             } else {
                 step(Act::Nothing, SId::DcsIgnore)
             }
         }
         SId::DcsPass => {
-            if latin1 && b == ST_8BIT {
+            if half.is_latin1() && b.is(StreamByte::ST_8BIT) {
                 step(Act::DcsDispatch, SId::Ground)
-            } else if b == ESC {
+            } else if b.is(StreamByte::ESC) {
                 step(Act::Nothing, SId::DcsEsc)
-            } else if b == BEL {
+            } else if b.is(StreamByte::BEL) {
                 step(Act::DcsDispatch, SId::Ground)
-            } else if is_c0(b) {
+            } else if b.is_c0() {
                 step(Act::Nothing, st)
             } else {
                 step(Act::StringPut, st)
             }
         }
         SId::DcsIgnore => {
-            if latin1 && b == ST_8BIT {
+            if half.is_latin1() && b.is(StreamByte::ST_8BIT) {
                 step(Act::Nothing, SId::Ground)
-            } else if b == ESC {
+            } else if b.is(StreamByte::ESC) {
                 step(Act::Nothing, SId::Escape)
-            } else if b == BEL {
+            } else if b.is(StreamByte::BEL) {
                 step(Act::Nothing, SId::Ground)
             } else {
                 step(Act::Nothing, st)
             }
         }
         SId::DcsEsc => {
-            if b == ST_FINAL {
+            if b.is(StreamByte::ST_FINAL) {
                 step(Act::DcsDispatch, SId::Ground)
             } else {
                 step(Act::DcsCancel, SId::Escape)
             }
         }
         SId::StringIgnore => {
-            if latin1 && b == ST_8BIT {
+            // `9C` terminates only outside UTF-8, where it is not a
+            // continuation byte; `BEL` terminates in either encoding. Two
+            // rules, one outcome.
+            if (half.is_latin1() && b.is(StreamByte::ST_8BIT)) || b.is(StreamByte::BEL) {
                 step(Act::Nothing, SId::Ground)
-            } else if b == BEL {
-                step(Act::Nothing, SId::Ground)
-            } else if b == ESC {
+            } else if b.is(StreamByte::ESC) {
                 step(Act::Nothing, SId::Escape)
             } else {
                 step(Act::Nothing, st)
@@ -668,53 +633,48 @@ mod tests {
     fn the_table_sends_every_byte_where_the_machine_does() {
         // `no_std`: count them and keep the first, rather than collecting.
         let mut wrong = 0usize;
-        let mut first: Option<(bool, SId, u8, SId, SId)> = None;
-        for latin1 in [false, true] {
+        let mut first: Option<(InputEncoding, SId, u8, SId, SId)> = None;
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             for si in 0..NSTATE {
-                let from = SId::of(si as u8);
+                let from = SId::FROM_INDEX[si];
                 // VT52 has its own escape protocol and its own ground state;
                 // the table models `Escape` as ANSI, so drive ANSI here.
-                for b in 0u8..=255 {
+                for raw in 0u8..=255 {
+                    let b = crate::StreamByte::from_stream(raw);
                     let mut st = Storage::boxed();
                     let mut t = Term::new(&mut st, crate::OpMode::Computed);
                     t.terminal_mode = TerminalMode::Ansi;
-                    t.encoding = match latin1 {
-                        true => InputEncoding::Latin1,
-                        false => InputEncoding::Utf8,
-                    };
+                    t.encoding = enc;
                     t.st = state_of(from);
-                    t.control(crate::StreamByte::from_stream(b));
+                    t.control(b);
                     let want = sid_of(t.st);
-                    let mut e = VT[vt_index(latin1, from, b)];
+                    let entry = Step::of(enc, from, b);
                     // Three actions re-enter the table with the same byte,
                     // mirroring `control`'s recursive call: a byte that cannot
                     // continue UTF-8, and a bare ESC cancelling either string
                     // form. `C1Escape` re-enters with a *different* byte and is
                     // checked separately.
+                    let mut e = entry;
                     let mut hops = 0;
                     while hops < 2 {
-                        let a = Act::of((e >> 8) as u8);
-                        if !matches!(a, Act::Utf8Bad | Act::OscCancel | Act::DcsCancel) {
+                        if !matches!(e.act, Act::Utf8Bad | Act::OscCancel | Act::DcsCancel) {
                             break;
                         }
-                        e = VT[vt_index(latin1, SId::of((e & 0xff) as u8), b)];
+                        e = Step::of(enc, e.next, b);
                         hops += 1;
                     }
-                    let got = SId::of((e & 0xff) as u8);
+                    let got = e.next;
                     // `C1Escape` re-enters with a *different* byte, and
                     // `DcsHook` owns its own transition because it depends on
                     // collected state. Neither is a table transition to
                     // compare; both still run the same code.
-                    if matches!(
-                        Act::of((VT[vt_index(latin1, from, b)] >> 8) as u8),
-                        Act::C1Escape | Act::DcsHook
-                    ) {
+                    if matches!(entry.act, Act::C1Escape | Act::DcsHook) {
                         continue;
                     }
                     if got != want {
                         wrong += 1;
                         if first.is_none() {
-                            first = Some((latin1, from, b, want, got));
+                            first = Some((enc, from, raw, want, got));
                         }
                     }
                 }
@@ -723,48 +683,7 @@ mod tests {
         assert!(
             wrong == 0,
             "{wrong} of 10240 transitions disagree; first \
-             (latin1, from, byte, machine says, table says): {first:?}"
+             (encoding, from, byte, machine says, table says): {first:?}"
         );
-    }
-
-    /// The `const fn` byte predicates must agree with `StreamByte`'s.
-    ///
-    /// They are spelled twice -- once here so the table can be built in a
-    /// `const fn`, once there for the rest of the parser -- and two spellings
-    /// of one rule are exactly what this repo has seen drift before: `0x7f`
-    /// was missing from the AVX2 stop mask while the scalar tail had it.
-    #[test]
-    fn the_table_agrees_with_streambyte() {
-        for b in 0u8..=255 {
-            let sb = crate::StreamByte::from_stream(b);
-            assert_eq!(is_c0(b), sb.is_c0(), "is_c0 {b:#04x}");
-            assert_eq!(
-                is_esc_intermediate(b),
-                sb.is_esc_intermediate(),
-                "is_esc_intermediate {b:#04x}"
-            );
-            assert_eq!(
-                is_csi_intermediate(b),
-                sb.is_csi_intermediate(),
-                "is_csi_intermediate {b:#04x}"
-            );
-            assert_eq!(
-                is_final(b),
-                crate::FinalByte::from_stream(sb).is_some(),
-                "is_final {b:#04x}"
-            );
-            assert_eq!(
-                is_private(b),
-                crate::Marker::from_private(sb).is_some(),
-                "is_private {b:#04x}"
-            );
-            assert_eq!(is_utf8_lead(b), sb.utf8_lead().is_some(), "lead {b:#04x}");
-            assert_eq!(
-                is_utf8_cont(b),
-                sb.utf8_continuation().is_some(),
-                "cont {b:#04x}"
-            );
-            assert_eq!(is_del(b), sb == crate::StreamByte::DEL, "del {b:#04x}");
-        }
     }
 }
