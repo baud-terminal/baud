@@ -4,8 +4,29 @@ impl<'a> Term<'a> {
     pub(crate) fn dispatch(&mut self, f: FinalByte) {
         #[cfg(feature = "instrument")]
         self.dispatches.inc();
-        let n = self.nparams();
         let marker = self.private;
+        // **SGR before anything is built, because it needs none of it.**
+        // `apply_sgr` reads `self.params` and `self.psub` directly, so the
+        // `Params` below, the margin mode beside it and the whole `Csi` this
+        // function parses are all dead for the one final byte that dominates
+        // every recording in the corpus: SGR is **86%** of asciiquarium's
+        // dispatches, 100% of git-log's and `payload::streaming`'s, 76% of
+        // less-pager's and 63% of btop's.
+        //
+        // The condition is exactly `parse_inner`'s: standard namespace, no
+        // intermediate, final `m`. Anything else falls through to the general
+        // path unchanged, and `a_final_with_two_arities_means_two_things` plus
+        // the generated-program properties are what keep the two agreeing.
+        //
+        // `dispatch` profiled at **30.1%** of asciiquarium with `control` at
+        // another 10.6%; both large matches are skipped here.
+        if marker == Marker::Standard && self.csi_inter.is_none() && f == FinalByte::SGR {
+            #[cfg(feature = "instrument")]
+            self.sgr_dispatches.inc();
+            self.apply_sgr();
+            return;
+        }
+        let n = self.nparams();
         let p = Params::with_subs(&self.params[..n], self.psub);
         let lrm = match self.modes.is_set(ModeBit::SideMargins) {
             true => MarginMode::On,

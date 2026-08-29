@@ -90,6 +90,14 @@ impl FinalByte {
     ///
     /// A `StreamByte` rather than a `u8`: it is going back onto the wire, and
     /// that is the type for a byte on the wire.
+    /// `m`, the SGR final.
+    ///
+    /// Named rather than spelled `b'm'` at the call site: `Term::dispatch`
+    /// takes a fast path for it before building anything, and that path has to
+    /// stay in step with `Csi::parse_inner`'s arm. A constant is one place to
+    /// change and one place to grep.
+    pub const SGR: FinalByte = FinalByte(b'm');
+
     pub fn byte(self) -> StreamByte {
         StreamByte(self.0)
     }
