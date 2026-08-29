@@ -169,6 +169,9 @@ pub struct Diag {
     pub gate_indic: Stat,
     /// Characters it admitted, so `wide_taken / wide_entries` is the mean run.
     pub wide_taken: Stat,
+    /// The same pair for the narrow collector.
+    pub narrow_entries: Stat,
+    pub narrow_taken: Stat,
     /// It stopped because the next byte was not a three-byte lead -- ASCII,
     /// a two-byte character, or an astral one.
     pub brk_lead: Stat,
@@ -420,6 +423,9 @@ pub struct Term<'a> {
     /// that it is never engaging, and those call for opposite work. A profile
     /// cannot separate them either: both end in a cell store.
     pub cells_wide: Stat,
+    /// Cells written by `put_narrow_run`, the bulk path for runs of ordinary
+    /// single-column non-ASCII characters.
+    pub cells_narrow: Stat,
     /// The cost map. Off unless `diag` is on; see `Diag`.
     #[cfg(feature = "diag")]
     pub diag: Diag,
@@ -602,6 +608,7 @@ impl<'a> Term<'a> {
             cells_bulk: Stat::ZERO,
             cells_single: Stat::ZERO,
             cells_wide: Stat::ZERO,
+            cells_narrow: Stat::ZERO,
             #[cfg(feature = "diag")]
             diag: Diag::default(),
             cells_fill: Stat::ZERO,
@@ -707,7 +714,9 @@ impl<'a> Term<'a> {
     /// building: the literature's 10x applies to these bytes and no others.
     /// Where the written cells came from, as shares of `cells_written`.
     ///
-    /// `(bulk, wide, single, fill)`. They sum to 1.0 when every write site is
+    /// `(bulk, runs, single, fill)`, where `runs` is the two non-ASCII bulk
+    /// paths together -- `put_wide_run` and `put_narrow_run`. They sum to 1.0
+    /// when every write site is
     /// attributed, and `cell_attribution_accounts_for_every_write` asserts it
     /// -- the same invariant `path_split` carries, and for the same reason: an
     /// unattributed write is one nobody will think to look for.
@@ -719,7 +728,7 @@ impl<'a> Term<'a> {
         let f = |x: u64| x as f64 / n as f64;
         (
             f(self.cells_bulk.count()),
-            f(self.cells_wide.count()),
+            f(self.cells_wide.count() + self.cells_narrow.count()),
             f(self.cells_single.count()),
             f(self.cells_fill.count()),
         )

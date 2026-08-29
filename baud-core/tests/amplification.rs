@@ -414,6 +414,7 @@ fn cell_attribution_accounts_for_every_write() {
         let total = t.cells_written.count();
         let parts = t.cells_bulk.count()
             + t.cells_wide.count()
+            + t.cells_narrow.count()
             + t.cells_single.count()
             + t.cells_fill.count();
         assert!(total > 0, "{name}: the payload wrote no cells");

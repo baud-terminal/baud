@@ -134,7 +134,7 @@ fn main() {
     // Where the cells came from. `cells_written` alone gives amplification and
     // not its shape, and the three paths cost very different amounts per cell.
     println!(
-        "  cells {} written ({:.1}x per byte): bulk {:.0}%, wide {:.0}%, \
+        "  cells {} written ({:.1}x per byte): ascii {:.0}%, runs {:.0}%, \
          single {:.0}%, fill {:.0}%",
         t.cells_written.count(),
         t.cells_written.count() as f64 / fed as f64,
@@ -166,6 +166,12 @@ fn main() {
             d.wide_taken.count() as f64 / entries as f64,
             brk,
             d.wide_entries.count(),
+        );
+        println!(
+            "  narrow collector: {} entries, {} taken ({:.1} per entry)",
+            d.narrow_entries.count(),
+            d.narrow_taken.count(),
+            d.narrow_taken.count() as f64 / d.narrow_entries.count().max(1) as f64,
         );
         println!(
             "    gate refused: prev {}, regional {}, pictographic {}, indic {}",

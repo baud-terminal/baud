@@ -470,6 +470,95 @@ impl<'a> View<'a> {
         RowExtent::of(2 * n)
     }
 
+    /// A run of ordinary **single**-column non-ASCII characters, one cell each.
+    ///
+    /// The counterpart of `put_ascii_run` for text that is multi-byte but one
+    /// column: Latin-1, Greek, Cyrillic, box drawing, and the CJK punctuation
+    /// East Asian Width calls Ambiguous. `opcost` priced that shape at
+    /// **266 MB/s against a wide character's 1155** -- half the cells for five
+    /// times the cost, an inversion whose only available mechanism was that it
+    /// had no bulk path and paid `put_cp` per character.
+    ///
+    /// Simpler than `put_wide_run`: one cell per codepoint means no interleave
+    /// and no pair to keep together, so only the two edges of the run can cut
+    /// an existing wide pair.
+    pub fn put_narrow_run(
+        &mut self,
+        r: Row,
+        at: Col,
+        cps: &[Codepoint],
+        style: StyleId,
+        flags: CellFlags,
+    ) -> RowExtent {
+        let cols = self.cols.index();
+        let x = at.index();
+        if r.index() >= self.rows.index() || x >= cols {
+            return RowExtent::ZERO;
+        }
+        let n = cps.len().min(cols - x);
+        if n == 0 {
+            return RowExtent::ZERO;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        let end = x + n;
+        let blank = PackedCell::empty_with(style);
+        let (sa, sb) = self.snap_at(base, x, end);
+        if sa < x {
+            self.cells[base + sa] = blank;
+        }
+        if sb > end {
+            self.cells[base + sb - 1] = blank;
+        }
+        let proto = PackedCell::glyph(Codepoint::REPLACEMENT, style, flags);
+        Self::put_narrow_vectored(&mut self.cells[base + x..base + end], &cps[..n], proto);
+        self.used[p] = self.used[p].reached(sb.max(end));
+        RowExtent::of(n)
+    }
+
+    /// Eight cells a store. `dst` is exactly `cps.len()` cells.
+    fn put_narrow_vectored(dst: &mut [PackedCell], cps: &[Codepoint], proto: PackedCell) {
+        #[cfg(target_endian = "little")]
+        {
+            use core::simd::Simd;
+            use core::simd::num::SimdUint;
+            use zerocopy::{FromBytes, IntoBytes};
+
+            let mut bytes = [0u8; 8];
+            bytes.copy_from_slice(proto.as_bytes());
+            // The high half is style and flags, shared by every cell; the low
+            // half is `proto`'s own codepoint and is replaced per cell.
+            let hi = u64::from_ne_bytes(bytes) & 0xffff_ffff_0000_0000;
+
+            let mut d = dst.chunks_exact_mut(8);
+            let mut s = cps.chunks_exact(8);
+            for (dc, sc) in d.by_ref().zip(s.by_ref()) {
+                let c = Simd::<u32, 8>::from_array([
+                    sc[0].value(),
+                    sc[1].value(),
+                    sc[2].value(),
+                    sc[3].value(),
+                    sc[4].value(),
+                    sc[5].value(),
+                    sc[6].value(),
+                    sc[7].value(),
+                ])
+                .cast::<u64>();
+                let cells = (c | Simd::splat(hi)).to_array();
+                let packed = <[PackedCell; 8]>::read_from_bytes(cells.as_bytes())
+                    .expect("eight u64 is sixty-four bytes, which is eight cells");
+                dc.copy_from_slice(&packed);
+            }
+            for (dc, &cp) in d.into_remainder().iter_mut().zip(s.remainder()) {
+                *dc = PackedCell::glyph(cp, proto.style, proto.flags);
+            }
+        }
+        #[cfg(not(target_endian = "little"))]
+        for (dc, &cp) in dst.iter_mut().zip(cps) {
+            *dc = PackedCell::glyph(cp, proto.style, proto.flags);
+        }
+    }
+
     /// The interleave. `dst` is exactly `2 * cps.len()` cells.
     fn put_wide_vectored(dst: &mut [PackedCell], cps: &[Codepoint], proto: PackedCell) {
         #[cfg(target_endian = "little")]

@@ -122,6 +122,41 @@ impl<'a> Term<'a> {
         ByteLen::from_index(took * 3)
     }
 
+    /// A run of ordinary single-column non-ASCII characters, written in bulk.
+    ///
+    /// The narrow counterpart of `put_wide_run`. Returns the **bytes** it
+    /// consumed, which is what the caller advances by; `step` is the run's
+    /// common encoded length, which the collector holds constant so this can
+    /// multiply rather than re-measure each character.
+    pub(crate) fn put_narrow_run(&mut self, cps: &[Codepoint], step: ByteLen) -> ByteLen {
+        if cps.is_empty() || self.modes.is_set(ModeBit::InsertReplace) {
+            return ByteLen::ZERO;
+        }
+        let edge = self.right_margin.after().index().min(self.cols.index());
+        let x = self.cx.index();
+        if x + 1 > edge {
+            return ByteLen::ZERO;
+        }
+        let n = cps.len().min(edge - x);
+        if n == 0 {
+            return ByteLen::ZERO;
+        }
+        self.promote_if_runs();
+        let (r, st, fl) = (self.cy, self.style, self.flags);
+        let wrote = self
+            .view()
+            .put_narrow_run(r, Col::at_index(x), &cps[..n], st, fl)
+            .index();
+        self.cells_written.add(wrote);
+        #[cfg(feature = "instrument")]
+        self.cells_narrow.add(wrote);
+        self.cx = Col::at_index(x + wrote);
+        if wrote > 0 {
+            self.last_cp = Some((cps[wrote - 1], Width::NARROW));
+        }
+        ByteLen::from_index(wrote * step.index())
+    }
+
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {
         // What is paying the per-codepoint path. See `Diag`.
         #[cfg(feature = "diag")]

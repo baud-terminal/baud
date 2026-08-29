@@ -7,6 +7,9 @@ use crate::*;
 /// line in one pass without making the fallback path common.
 const WIDE_RUN: usize = 64;
 
+/// How many single-column non-ASCII characters one `narrow_run` collects.
+const NARROW_RUN: usize = 64;
+
 impl<'a> Term<'a> {
     /// Two-byte `ESC Fe` sequences and OSC strings, in bulk.
     ///
@@ -365,6 +368,108 @@ impl<'a> Term<'a> {
     /// `State::Utf8` arm does -- same counters, same `finish`, same `Width::of`,
     /// same `put_cp` -- because divergence between two spellings of one
     /// operation is a failure this repo has already had in `feed_avx2`.
+    /// Does the byte at `i` begin a `k`-byte sequence?
+    ///
+    /// **The narrow collector's admission test, and it has to be this cheap.**
+    /// Without it the collector was entered 169,120 times on `cat-cjk` and
+    /// admitted **120** characters -- the narrow text there is isolated
+    /// punctuation between CJK -- and each wasted entry paid a decode, a width
+    /// lookup and a class lookup before breaking. That measured **-10.5% on
+    /// vim** while btop, which is box drawing and therefore long runs of
+    /// three-byte narrow characters, gained 10%. One range compare on the next
+    /// byte separates the two.
+    #[inline(always)]
+    fn lead_is(&self, at: BytePos, k: ByteLen) -> bool {
+        // Through `utf8_lead` rather than a byte range: the encoded length is
+        // what the run is keyed on, and the decoder already names it. Two
+        // hand-written hex ranges here were two new raw-byte-range sites the
+        // type audit refused, and it was right to -- `0xc2..0xe0` is the
+        // two-byte lead range spelled out, which is `utf8_lead` saying `rem`
+        // is 1.
+        match self.s.arena.get(at.index()) {
+            Some(&b) => match StreamByte::from_stream(b).utf8_lead() {
+                Some((rem, _, _)) => ByteLen::from_index(usize::from(rem) + 1) == k,
+                None => false,
+            },
+            None => false,
+        }
+    }
+
+    /// A run of ordinary single-column non-ASCII characters, collected and
+    /// written in bulk.
+    ///
+    /// The narrow twin of `wide_run`, and it exists because the cost map found
+    /// an inversion: `opcost` prices this shape at **266 MB/s against a wide
+    /// character's 1155**, half the cells for five times the cost, with no
+    /// mechanism available except that it had no bulk path.
+    ///
+    /// **The run holds one encoded length, `step`.** Latin-1 and Greek are two
+    /// bytes, box drawing and CJK punctuation three, and mixing them would put
+    /// a variable stride in the inner loop; the run simply ends where the
+    /// length changes, and the next entry picks the new one up. That is also
+    /// what lets `put_narrow_run` multiply rather than re-measure.
+    /// **Outlined.** `feed_with`'s size is something this repo has measured
+    /// repeatedly, and inlined this cost 4% of `cat-scroll` -- a payload that
+    /// is 0.1% non-ASCII and therefore essentially cannot execute it.
+    #[inline(never)]
+    fn narrow_run(&mut self, start: BytePos, lim: ByteLen, step: ByteLen) -> ByteLen {
+        let from = start.index();
+        let end = from + lim.index();
+        let k = step.index();
+        let mut buf = [Codepoint::REPLACEMENT; NARROW_RUN];
+        let mut n = 0usize;
+        let mut scan = 0usize;
+        #[cfg(feature = "diag")]
+        self.diag.narrow_entries.inc();
+        while n < NARROW_RUN && from + scan + k <= end {
+            let b0 = StreamByte::from_stream(self.s.arena[from + scan]);
+            let Some((rem, bits, min)) = b0.utf8_lead() else {
+                break;
+            };
+            if usize::from(rem) + 1 != k {
+                break;
+            }
+            let mut acc = Utf8Acc::lead(bits);
+            let mut ok = true;
+            for j in 1..k {
+                match StreamByte::from_stream(self.s.arena[from + scan + j]).utf8_continuation() {
+                    Some(c) => acc = acc.push(c),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if !ok {
+                break;
+            }
+            let cp = acc.finish(min);
+            if cp == Codepoint::REPLACEMENT || Width::of(cp, self.width.ambiguous) != Width::NARROW
+            {
+                break;
+            }
+            let (class, lb) = GraphemeClass::of_with_lookback(cp);
+            if class != GraphemeClass::Other || !lb.is_none() {
+                break;
+            }
+            buf[n] = cp;
+            n += 1;
+            scan += k;
+        }
+        #[cfg(feature = "diag")]
+        self.diag.narrow_taken.add(n);
+        if n > 0 {
+            let took = self.put_narrow_run(&buf[..n], step).index();
+            #[cfg(feature = "instrument")]
+            {
+                self.bytes_utf8.add(took);
+                self.bytes_text.add(took);
+            }
+            return ByteLen::from_index(took);
+        }
+        ByteLen::ZERO
+    }
+
     /// Collect a run of ordinary wide characters and write it in bulk.
     ///
     /// `#[inline(never)]`, and that is measured rather than tidiness: left
@@ -525,6 +630,18 @@ impl<'a> Term<'a> {
                     ByteLen::from_index(end - from - used),
                 )
                 .index();
+        } else if w == Width::NARROW
+            && need > 1
+            && self.cluster.ordinary_run_ready()
+            && self.lead_is(BytePos::from_index(from + used), ByteLen::from_index(need))
+        {
+            used += self
+                .narrow_run(
+                    BytePos::from_index(from + used),
+                    ByteLen::from_index(end - from - used),
+                    ByteLen::from_index(need),
+                )
+                .index();
         }
         while from + used < end {
             let b0 = StreamByte::from_stream(self.s.arena[from + used]);
@@ -589,6 +706,18 @@ impl<'a> Term<'a> {
                     .wide_run(
                         BytePos::from_index(from + used),
                         ByteLen::from_index(end - from - used),
+                    )
+                    .index();
+            } else if w2 == Width::NARROW
+                && need2 > 1
+                && self.cluster.ordinary_run_ready()
+                && self.lead_is(BytePos::from_index(from + used), ByteLen::from_index(need2))
+            {
+                used += self
+                    .narrow_run(
+                        BytePos::from_index(from + used),
+                        ByteLen::from_index(end - from - used),
+                        ByteLen::from_index(need2),
                     )
                     .index();
             }
