@@ -205,6 +205,34 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## Class and lookback in one byte: ahead on seven of eight recordings
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29, commit `70d692f`.
+`bench-others/multibench`, `TRANSPORT=memory`, `RECORDINGS=`, medians of 9.*
+
+| recording | baud (cells) | ghostty | **ratio** |
+|---|---|---|---|
+| `ascii/less-pager.raw` | **1084.8** | 287.0 | **3.78x** |
+| `ascii/asciiquarium.raw` | **359.8** | 197.7 | **1.82x** |
+| `utf8/btop.raw` | **661.5** | 491.4 | **1.35x** |
+| `ascii/git-log.raw` | **1110.1** | 831.0 | **1.34x** |
+| `utf8/vim-unicode.raw` | **445.2** | 347.2 | **1.28x** |
+| `ascii/cat-scroll.raw` | **930.1** | 739.1 | **1.26x** |
+| `utf8/less-cjk.raw` | **304.4** | 249.3 | **1.22x** |
+| `utf8/cat-cjk.raw` | 291.4 | **499.9** | **0.58x** |
+
+`less-cjk` crossed from **0.92x to 1.22x**, which is the row that had been
+behind on both counts -- non-ASCII and escape-bearing.
+
+The change was folding the four lookback tables into the class trie's high
+nibble, so one indexed load answers what had been a lookup, a bitmap probe and
+up to four binary searches. cat-cjk **+28%**, less-cjk **+26%**, vim **+13%**,
+btop +5%, and net rodata **smaller** (138,734 bytes against 167,030) because
+the bitmap and the range tables retire.
+
+`payload::cjk` is flat, which is the tell that this is about *mixed* text: a
+page of Han takes the fast path and never consults a lookback table at all.
+
 ## The CJK gap is mostly grapheme clustering, which ghostty does not do by default
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-29. `ingest`,

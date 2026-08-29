@@ -143,16 +143,16 @@ build until now. Driving every core with the committed recordings instead:
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1100.1** | 292.0 | 235.0 | **3.77x** |
-| `ascii/asciiquarium.raw` | **370.8** | 201.2 | 242.6 | **1.84x** |
-| `ascii/git-log.raw` | **1134.4** | 852.7 | 210.9 | **1.33x** |
-| `ascii/cat-scroll.raw` | **970.6** | 749.5 | 194.0 | **1.30x** |
-| `utf8/btop.raw` | **642.9** | 501.9 | 336.8 | **1.28x** |
-| `utf8/vim-unicode.raw` | **407.5** | 348.4 | 285.5 | **1.17x** |
-| `utf8/less-cjk.raw` | 240.6 | **249.8** | 276.5 | **0.96x** |
-| `utf8/cat-cjk.raw` | 228.9 | **515.0** | 222.3 | **0.44x** |
+| `ascii/less-pager.raw` | **1084.8** | 287.0 | 235.0 | **3.78x** |
+| `ascii/asciiquarium.raw` | **359.8** | 197.7 | 242.6 | **1.82x** |
+| `utf8/btop.raw` | **661.5** | 491.4 | 336.8 | **1.35x** |
+| `ascii/git-log.raw` | **1110.1** | 831.0 | 210.9 | **1.34x** |
+| `utf8/vim-unicode.raw` | **445.2** | 347.2 | 285.5 | **1.28x** |
+| `ascii/cat-scroll.raw` | **930.1** | 739.1 | 194.0 | **1.26x** |
+| `utf8/less-cjk.raw` | **304.4** | 249.3 | 276.5 | **1.22x** |
+| `utf8/cat-cjk.raw` | 291.4 | **499.9** | 222.3 | **0.58x** |
 
-**Ahead on six, behind on two — and the two are not measuring the same job.**
+**Ahead on seven of eight — and the one behind is not measuring the same job.**
 ghostty's `ModeEntry` defaults to `false` and mode **2027** carries no explicit
 default, so libghostty-vt does no grapheme segmentation unless an application
 asks for it. baud clusters always and reports `?2027` as permanently set.
