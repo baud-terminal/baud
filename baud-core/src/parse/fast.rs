@@ -691,13 +691,13 @@ impl<'a> Term<'a> {
     /// it because the collector needs four characters for a vector step and
     /// `cat-cjk.raw`'s wide runs have a median of **one**.
     #[inline(always)]
-    fn put_decoded(&mut self, cp: Codepoint, w: Width) {
+    fn put_decoded(&mut self, cp: Codepoint, w: Width, cl: Classified) {
         #[cfg(feature = "short-wide")]
         if w == Width::WIDE && cp.is_wide_ordinary() && self.cluster.ordinary_run_ready() {
             self.put_glyph(cp, w);
             return;
         }
-        self.put_cp(cp, w);
+        self.put_cp_classified(cp, w, cl);
     }
 
     /// Decode one character without touching any terminal state.
@@ -855,8 +855,9 @@ impl<'a> Term<'a> {
         if c == Codepoint::REPLACEMENT {
             self.replacements.inc();
         }
-        let w = Classified::of(c).width(self.width.ambiguous);
-        self.put_decoded(c, w);
+        let cl = Classified::of(c);
+        let w = cl.width(self.width.ambiguous);
+        self.put_decoded(c, w, cl);
 
         // **A run of ordinary wide characters goes out in bulk.**
         //
@@ -969,7 +970,7 @@ impl<'a> Term<'a> {
                 if c2 == Codepoint::REPLACEMENT {
                     self.replacements.inc();
                 }
-                self.put_decoded(c2, w2);
+                self.put_decoded(c2, w2, cl2);
                 used += need2.index();
                 let before = used;
                 if w2 == Width::WIDE && self.cluster.ordinary_run_ready() {
@@ -1049,8 +1050,9 @@ impl<'a> Term<'a> {
             if c2 == Codepoint::REPLACEMENT {
                 self.replacements.inc();
             }
-            let w2 = Classified::of(c2).width(self.width.ambiguous);
-            self.put_decoded(c2, w2);
+            let cl2 = Classified::of(c2);
+            let w2 = cl2.width(self.width.ambiguous);
+            self.put_decoded(c2, w2, Classified::of(c2));
             used += need2;
 
             // **The bulk path re-arms here, and not doing so was most of what

@@ -177,6 +177,19 @@ impl<'a> Term<'a> {
     }
 
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {
+        self.put_cp_classified(cp, w, Classified::of(cp));
+    }
+
+    /// The same, for a caller that has already classified the codepoint.
+    ///
+    /// **Because otherwise the lookup happens twice.** `fast_utf8` asks
+    /// `Classified::of` for the width and then `put_cp` asked again for the
+    /// break -- the same codepoint, the same table, two loads where one does.
+    /// Passed as a *parameter* rather than stashed on `Term`: a field would be
+    /// state, and the version of this that used one broke chunk invariance,
+    /// because `put_cp` is not always reached and the value outlived its
+    /// codepoint.
+    pub(crate) fn put_cp_classified(&mut self, cp: Codepoint, w: Width, cl: Classified) {
         // What is paying the per-codepoint path. See `Diag`.
         #[cfg(feature = "diag")]
         {
@@ -281,17 +294,11 @@ impl<'a> Term<'a> {
         // same `cp >> 8` shape, so the caller already paid one to get `w` and
         // this paid another for the same codepoint. `Classified` answers both
         // from one lookup and a palette read; see `baud-domain/src/merged.rs`.
-        // **One lookup, one load deep.** `Width::of` and
-        // `GraphemeClass::of_with_lookback` were two two-stage tries over the
-        // same `cp >> 8` shape, so the caller paid one to get `w` and this paid
-        // another for the same codepoint. `Classified` answers both, and for
-        // the BMP it does so from a *flat* table: one load, no stage-1
-        // indirection. Measured +2.2% on cat-cjk and +2% on vim, ranges not
-        // overlapping, with `cells_written` byte-identical.
-        let brk = {
-            let cl = Classified::of(cp);
-            self.cluster.is_break_classified(cl.class, cl.lookback)
-        };
+        // **One lookup, one load deep, and taken by the caller.** `Width::of`
+        // and `GraphemeClass::of_with_lookback` were two two-stage tries over
+        // the same `cp >> 8` shape; `Classified` answers both, and for the BMP
+        // from a *flat* table -- one load, no stage-1 indirection.
+        let brk = self.cluster.is_break_classified(cl.class, cl.lookback);
         if !brk && self.cx != Col::ZERO {
             self.attach_mark(cp);
             return;
