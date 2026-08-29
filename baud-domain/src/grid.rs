@@ -743,6 +743,36 @@ impl<'a> View<'a> {
     /// already computed: a write starting on a tail orphans the lead in front
     /// of it, and one ending on a lead orphans the tail after it.
     #[inline(always)]
+    /// The same, for a caller that already knows the row is uniform from `c`
+    /// onward -- so there is no wide half to orphan and no probe to make.
+    ///
+    /// **The probe is two loads and two compares a character**, and the caller
+    /// that can answer without them is the one holding the cursor: a write
+    /// moving left to right past a row's used extent can only be landing on
+    /// blanks, and a blank is not a `WIDE_TAIL`. That is the `RowExtent`
+    /// invariant, and the caller keeps the current row's mark in a register
+    /// rather than re-loading it from the parallel array -- which is what made
+    /// the same idea lose when it was tried one layer down.
+    #[inline(always)]
+    pub fn put_glyph_fresh(&mut self, r: Row, c: Col, lead: PackedCell, tail: Option<PackedCell>) {
+        let cols = self.cols.index();
+        let x = c.index();
+        if r.index() >= self.rows.index() || x >= cols {
+            return;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        self.cells[base + x] = lead;
+        let end = match tail {
+            Some(t) if x + 1 < cols => {
+                self.cells[base + x + 1] = t;
+                x + 2
+            }
+            _ => x + 1,
+        };
+        self.used[p] = self.used[p].reached(end);
+    }
+
     pub fn put_glyph(
         &mut self,
         r: Row,

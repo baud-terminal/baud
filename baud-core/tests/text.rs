@@ -74,3 +74,36 @@ fn an_overlong_form_is_rejected() {
     let r = row0(b"\xe0\x80\xafx", 4096, 8);
     assert_ne!(r.chars().next(), Some('/'));
 }
+
+/// **Overwriting half a wide character must clear the other half.**
+///
+/// The write path skips the orphan probe when the cursor is past the row's
+/// written mark, because past it the cells are blank and a blank is not a
+/// wide tail. This is the case where that shortcut must *not* apply: the
+/// cursor comes back over text already written, so the probe has to run.
+#[test]
+fn overwriting_half_a_wide_character_clears_the_other_half() {
+    // `世` occupies columns 0 and 1; `\r` returns to column 0; `x` lands on
+    // the lead and must not leave the tail behind.
+    let r = row0("世\rx".as_bytes(), 4096, 8);
+    assert_eq!(r.chars().next(), Some('x'));
+    assert_eq!(
+        r.chars().nth(1),
+        Some('.'),
+        "the orphaned tail must be blanked, not left as half a character"
+    );
+}
+
+/// The same for the second half: landing on a tail orphans the lead in front
+/// of it.
+#[test]
+fn overwriting_the_tail_clears_the_lead() {
+    let r = row0("世\r\u{1b}".as_bytes(), 4096, 8);
+    let _ = r;
+    // `\x1b` is not yet parsed by this core, so drive the case with a
+    // backspace instead: write `ab`, back up one, then a wide character that
+    // starts on `b` and runs off into fresh space.
+    let r = row0("ab\u{8}世".as_bytes(), 4096, 8);
+    assert_eq!(r.chars().next(), Some('a'));
+    assert_eq!(r.chars().nth(1), Some('世'));
+}

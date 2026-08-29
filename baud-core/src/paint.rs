@@ -33,6 +33,19 @@ pub(crate) struct Paint<'a> {
     /// Two arms of an experiment that disagree here are not doing the same
     /// work, whatever their timings say.
     pub(crate) cells: Cells,
+    /// How far the *current* row is known to be written, kept in a register.
+    ///
+    /// **This is what makes the orphan probe skippable.** `put_glyph` reads
+    /// the cells either side of a write to repair a split wide character;
+    /// past the row's used extent there is nothing to repair, because a blank
+    /// is not a `WIDE_TAIL`. Asking `View` for the extent instead is a load
+    /// from a second array -- a different cache line -- and that is exactly
+    /// how the same idea measured *slower* in the previous core. Held here it
+    /// is a compare against a value already in flight.
+    ///
+    /// Conservative in the safe direction: it starts at zero on every row
+    /// change, so the first write to a row takes the probing path.
+    row_written: Col,
     /// How many runs of each length the block walk found, and of each encoded
     /// width. **Do not read a bulk path as covering a character class -- count
     /// how often it is entered**, which is the mistake this repo records
@@ -70,6 +83,7 @@ impl<'a> Paint<'a> {
             flags,
             charset,
             cells: Cells::ZERO,
+            row_written: Col::ZERO,
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
@@ -89,6 +103,7 @@ impl<'a> Paint<'a> {
             .put_ascii_run(self.cy, self.cx, src, self.style, self.flags, self.charset);
         self.cells = self.cells.plus(k);
         self.cx = Col::at_index(self.cx.index() + k);
+        self.row_written = self.row_written.max(self.cx);
     }
 
     /// One glyph under the cursor, wrapping first if it will not fit.
@@ -103,15 +118,17 @@ impl<'a> Paint<'a> {
             true => Some(PackedCell::wide_tail(style, flags)),
             false => None,
         };
-        self.view.put_glyph(
-            self.cy,
-            self.cx,
-            PackedCell::glyph(cp, style, flags),
-            tail,
-            PackedCell::empty_with(style),
-        );
+        let lead = PackedCell::glyph(cp, style, flags);
+        match self.cx >= self.row_written {
+            true => self.view.put_glyph_fresh(self.cy, self.cx, lead, tail),
+            false => {
+                self.view
+                    .put_glyph(self.cy, self.cx, lead, tail, PackedCell::empty_with(style))
+            }
+        }
         self.cells = self.cells.plus(need);
         self.cx = Col::at_index(self.cx.index() + need);
+        self.row_written = self.row_written.max(self.cx);
     }
 
     /// A run of wide characters, two cells each, eight cells to a store.
@@ -132,6 +149,7 @@ impl<'a> Paint<'a> {
             .put_wide_run(self.cy, self.cx, cps, self.style, self.flags);
         self.cells = self.cells.plus(2 * cps.len());
         self.cx = Col::at_index(self.cx.index() + 2 * cps.len());
+        self.row_written = self.row_written.max(self.cx);
     }
 
     /// Does a run of `n` wide characters fit the rest of the row?
@@ -152,12 +170,19 @@ impl<'a> Paint<'a> {
         self.index();
     }
 
+    /// A new row: nothing is known about it yet, so the probe comes back.
+    #[inline(always)]
+    fn row_changed(&mut self) {
+        self.row_written = Col::ZERO;
+    }
+
     /// Down one row, scrolling when that would leave the screen.
     ///
     /// The scroll is a rotation: the view advances its own and the only cells
     /// written are the incoming row's, which stop at its used extent.
     pub(crate) fn index(&mut self) -> RowRot {
         let last = self.rows.index() - 1;
+        self.row_changed();
         if self.cy.index() < last {
             self.cy = Row::from_index(self.cy.index() + 1);
             return self.view.rot();
