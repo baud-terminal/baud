@@ -315,6 +315,10 @@ pub struct Term<'a> {
     /// five of `[[source: uax29]]`'s rules need more than the previous
     /// codepoint -- see [`ClusterBreak`].
     pub(crate) cluster: ClusterBreak,
+    /// A cluster machine that is never advanced. See the ceiling arm in
+    /// `put_cp`; it exists only under `ceiling-no-cluster-dep`.
+    #[cfg(feature = "dep-probe-free")]
+    pub(crate) cluster_snapshot: ClusterBreak,
     /// How incoming bytes become characters. `ESC % G` / `ESC % @` switch it.
     pub(crate) encoding: InputEncoding,
     /// The four designatable character-set slots, and which one is invoked
@@ -591,6 +595,8 @@ impl<'a> Term<'a> {
             c1: C1Transmit::SevenBit,
             width: WidthTable::default(),
             cluster: ClusterBreak::new(),
+            #[cfg(feature = "dep-probe-free")]
+            cluster_snapshot: ClusterBreak::new(),
             encoding: InputEncoding::Utf8,
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,

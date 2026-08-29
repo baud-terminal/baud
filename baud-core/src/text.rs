@@ -202,6 +202,35 @@ impl<'a> Term<'a> {
         // A continuation is attached to the cell before it, exactly as a
         // combining mark is -- the marks table *is* the cluster continuation
         // store, which is why this needs no room in `PackedCell`.
+        // **Two probes that differ only in a dependency.**
+        //
+        // Character N's break decision reads the state character N-1 wrote, so
+        // the cluster machine is a serial chain through the whole stream. The
+        // obvious arm -- decide from a snapshot that is never advanced -- is
+        // *contaminated*, and its counters say so loudly: the real machine then
+        // never advances either, `ordinary_run_ready` stops firing, and the
+        // bulk wide collector disengages entirely. `runs` went 21% to 0%,
+        // `cells_written` 15,212,545 to 16,116,287, and `payload::cjk` fell
+        // 2561 to 364. It measures the collectors, not the chain.
+        //
+        // These two do. Each adds exactly one `is_break` on a `Copy`, so the
+        // instruction count is the same and the decision still comes from the
+        // real machine -- `cells_written` is byte-identical to the default
+        // build in both. The only difference is what the extra call's input
+        // depends on: `dep-probe-serial` copies the live machine, so its
+        // lookup cannot start until the previous character finished with it;
+        // `dep-probe-free` copies a snapshot that is never written, so it can
+        // issue immediately. The gap between them is the cost of the chain.
+        #[cfg(feature = "dep-probe-serial")]
+        {
+            let mut c = self.cluster;
+            core::hint::black_box(c.is_break(cp));
+        }
+        #[cfg(feature = "dep-probe-free")]
+        {
+            let mut c = self.cluster_snapshot;
+            core::hint::black_box(c.is_break(cp));
+        }
         if !self.cluster.is_break(cp) && self.cx != Col::ZERO {
             self.attach_mark(cp);
             return;
