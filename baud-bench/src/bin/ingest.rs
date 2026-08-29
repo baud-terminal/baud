@@ -143,6 +143,68 @@ fn main() {
         single * 100.0,
         fill * 100.0,
     );
+    // **The cost map, off unless asked for.** Which characters paid the
+    // per-codepoint path, and which of the collector's six exits sent them
+    // there. The six break reasons sum to one per entry by construction, and
+    // that sum is printed so a missing arm shows as a shortfall rather than as
+    // a plausible-looking table.
+    #[cfg(feature = "diag")]
+    {
+        let d = &t.diag;
+        let entries = d.wide_entries.count().max(1);
+        let brk = d.brk_lead.count()
+            + d.brk_width.count()
+            + d.brk_class.count()
+            + d.brk_cap.count()
+            + d.brk_end.count();
+        println!(
+            "  wide collector: {} gates, {} entries, {} taken ({:.1} per \
+             entry); exits account for {} of {}",
+            d.gate_wide.count(),
+            d.wide_entries.count(),
+            d.wide_taken.count(),
+            d.wide_taken.count() as f64 / entries as f64,
+            brk,
+            d.wide_entries.count(),
+        );
+        println!(
+            "    gate refused: prev {}, regional {}, pictographic {}, indic {}",
+            d.gate_prev.count(),
+            d.gate_regional.count(),
+            d.gate_pict.count(),
+            d.gate_indic.count(),
+        );
+        println!(
+            "    stopped by: lead {} ({:.0}%), width {} ({:.0}%), class {} \
+             ({:.0}%), cap {} ({:.0}%), end {} ({:.0}%)",
+            d.brk_lead.count(),
+            100.0 * d.brk_lead.count() as f64 / entries as f64,
+            d.brk_width.count(),
+            100.0 * d.brk_width.count() as f64 / entries as f64,
+            d.brk_class.count(),
+            100.0 * d.brk_class.count() as f64 / entries as f64,
+            d.brk_cap.count(),
+            100.0 * d.brk_cap.count() as f64 / entries as f64,
+            d.brk_end.count(),
+            100.0 * d.brk_end.count() as f64 / entries as f64,
+        );
+        let cps =
+            (d.cp_ascii.count() + d.cp_narrow.count() + d.cp_wide.count() + d.cp_zero.count())
+                .max(1);
+        println!(
+            "  put_cp saw {} codepoints: ascii {} ({:.0}%), narrow {} \
+             ({:.0}%), wide {} ({:.0}%), zero {} ({:.0}%)",
+            cps,
+            d.cp_ascii.count(),
+            100.0 * d.cp_ascii.count() as f64 / cps as f64,
+            d.cp_narrow.count(),
+            100.0 * d.cp_narrow.count() as f64 / cps as f64,
+            d.cp_wide.count(),
+            100.0 * d.cp_wide.count() as f64 / cps as f64,
+            d.cp_zero.count(),
+            100.0 * d.cp_zero.count() as f64 / cps as f64,
+        );
+    }
     println!(
         "  {} dispatches, one per {:.0} bytes; {} scrolls blanking {} cells",
         t.dispatches.count(),

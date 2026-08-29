@@ -196,6 +196,26 @@ pub struct ClusterBreak {
     incb: IncbLookback,
 }
 
+/// Why a run of ordinary characters cannot be taken in bulk.
+///
+/// Named states rather than a `bool`, because the answer decides which lever
+/// to pull: `Prev` means the run has not started, `Pictographic` means an
+/// emoji opened a GB11 lookback, and the two call for different work.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RunBlocker {
+    /// Nothing blocks it.
+    Ready,
+    /// The previous codepoint was not an ordinary one -- or there was none,
+    /// which is the state a reset leaves behind.
+    Prev,
+    /// An odd number of regional indicators is pending.
+    Regional,
+    /// An `Extended_Pictographic` run is open, so GB11 may still join.
+    Pictographic,
+    /// An Indic conjunct linker is pending, so GB9c may still join.
+    Indic,
+}
+
 impl ClusterBreak {
     pub fn new() -> ClusterBreak {
         ClusterBreak::default()
@@ -214,6 +234,27 @@ impl ClusterBreak {
     /// So the caller may skip the machine entirely for such a run, and the
     /// state afterwards is the state before.
     #[inline(always)]
+    /// Which of `ordinary_run_ready`'s four conditions said no.
+    ///
+    /// **A predicate that answers "no" cannot be optimised against.** The bulk
+    /// wide path is gated on this state and was being refused on 92% of a CJK
+    /// recording's wide characters, while every hand-written shape passed it
+    /// 100% of the time -- so the shape that refuses it is one nobody had
+    /// thought to write down, which is exactly the case a boolean hides.
+    pub fn ordinary_run_blocker(&self) -> RunBlocker {
+        if self.prev != Some(GraphemeClass::Other) {
+            RunBlocker::Prev
+        } else if self.ri != RiParity::Even {
+            RunBlocker::Regional
+        } else if self.pict != PictLookback::None {
+            RunBlocker::Pictographic
+        } else if self.incb != IncbLookback::None {
+            RunBlocker::Indic
+        } else {
+            RunBlocker::Ready
+        }
+    }
+
     pub fn ordinary_run_ready(&self) -> bool {
         self.prev == Some(GraphemeClass::Other)
             && self.ri == RiParity::Even

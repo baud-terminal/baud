@@ -10,3 +10,9 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 [dependencies]
 baud-core = { path = "../baud-core", features = ["alloc"] }
 libc = "0.2"
+
+
+[features]
+# Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
+# the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
+diag = ["baud-core/diag"]

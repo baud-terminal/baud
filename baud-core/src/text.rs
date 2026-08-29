@@ -123,6 +123,19 @@ impl<'a> Term<'a> {
     }
 
     pub(crate) fn put_cp(&mut self, cp: Codepoint, w: Width) {
+        // What is paying the per-codepoint path. See `Diag`.
+        #[cfg(feature = "diag")]
+        {
+            if cp.value() < 0x80 {
+                self.diag.cp_ascii.inc();
+            } else if w == Width::WIDE {
+                self.diag.cp_wide.inc();
+            } else if w == Width::ZERO {
+                self.diag.cp_zero.inc();
+            } else {
+                self.diag.cp_narrow.inc();
+            }
+        }
         // **Does this codepoint continue the cluster before it?**
         //
         // Width alone cannot answer that. A ZWJ emoji sequence is three

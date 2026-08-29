@@ -384,36 +384,62 @@ impl<'a> Term<'a> {
         let mut buf = [Codepoint::REPLACEMENT; WIDE_RUN];
         let mut n = 0usize;
         let mut scan = used;
+        #[cfg(feature = "diag")]
+        self.diag.wide_entries.inc();
         while n < WIDE_RUN && from + scan + 3 <= end {
             let b0 = self.s.arena[from + scan];
             // Three-byte leads only. CJK, kana and Hangul are all here, and
             // fixing the length keeps this loop free of a second branch.
             if !(0xe0..0xf0).contains(&b0) {
+                #[cfg(feature = "diag")]
+                self.diag.brk_lead.inc();
                 break;
             }
             let (Some(c1), Some(c2)) = (
                 StreamByte::from_stream(self.s.arena[from + scan + 1]).utf8_continuation(),
                 StreamByte::from_stream(self.s.arena[from + scan + 2]).utf8_continuation(),
             ) else {
+                #[cfg(feature = "diag")]
+                self.diag.brk_lead.inc();
                 break;
             };
             let Some((rem, bits, min)) = StreamByte::from_stream(b0).utf8_lead() else {
+                #[cfg(feature = "diag")]
+                self.diag.brk_lead.inc();
                 break;
             };
             if rem != 2 {
+                #[cfg(feature = "diag")]
+                self.diag.brk_lead.inc();
                 break;
             }
             let cp = Utf8Acc::lead(bits).push(c1).push(c2).finish(min);
             if cp == Codepoint::REPLACEMENT || Width::of(cp, self.width.ambiguous) != Width::WIDE {
+                #[cfg(feature = "diag")]
+                self.diag.brk_width.inc();
                 break;
             }
             let (class, lb) = GraphemeClass::of_with_lookback(cp);
             if class != GraphemeClass::Other || !lb.is_none() {
+                #[cfg(feature = "diag")]
+                self.diag.brk_class.inc();
                 break;
             }
             buf[n] = cp;
             n += 1;
             scan += 3;
+        }
+        // The two exits the loop condition takes rather than a `break`, so the
+        // six reasons sum to one per entry -- the positive control that says
+        // this map is complete rather than merely plausible.
+        #[cfg(feature = "diag")]
+        {
+            self.diag.wide_taken.add(n);
+            if n == WIDE_RUN {
+                self.diag.brk_cap.inc();
+            } else if from + scan + 3 > end {
+                self.diag.brk_end.inc();
+            }
         }
         if n > 0 {
             let took = self.put_wide_run(&buf[..n]).index();
@@ -481,6 +507,17 @@ impl<'a> Term<'a> {
         // the real path to do all of that again. That measured **-4%** on btop
         // and vim before the gate and +3% after.
         let mut used = need;
+        #[cfg(feature = "diag")]
+        if w == Width::WIDE {
+            self.diag.gate_wide.inc();
+            match self.cluster.ordinary_run_blocker() {
+                baud_domain::RunBlocker::Ready => {}
+                baud_domain::RunBlocker::Prev => self.diag.gate_prev.inc(),
+                baud_domain::RunBlocker::Regional => self.diag.gate_regional.inc(),
+                baud_domain::RunBlocker::Pictographic => self.diag.gate_pict.inc(),
+                baud_domain::RunBlocker::Indic => self.diag.gate_indic.inc(),
+            }
+        }
         if w == Width::WIDE && self.cluster.ordinary_run_ready() {
             used += self
                 .wide_run(
@@ -536,6 +573,17 @@ impl<'a> Term<'a> {
             // written is known to be wide, so the collector is only entered
             // where it has a run to find, and btop -- multi-byte with zero
             // wide codepoints -- never reaches it.
+            #[cfg(feature = "diag")]
+            if w2 == Width::WIDE {
+                self.diag.gate_wide.inc();
+                match self.cluster.ordinary_run_blocker() {
+                    baud_domain::RunBlocker::Ready => {}
+                    baud_domain::RunBlocker::Prev => self.diag.gate_prev.inc(),
+                    baud_domain::RunBlocker::Regional => self.diag.gate_regional.inc(),
+                    baud_domain::RunBlocker::Pictographic => self.diag.gate_pict.inc(),
+                    baud_domain::RunBlocker::Indic => self.diag.gate_indic.inc(),
+                }
+            }
             if w2 == Width::WIDE && self.cluster.ordinary_run_ready() {
                 used += self
                     .wide_run(

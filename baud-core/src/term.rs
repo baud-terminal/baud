@@ -140,6 +140,59 @@ pub enum Resized {
     },
 }
 
+/// Why a character missed a bulk path, and what reached `put_cp`.
+///
+/// **The question a profile cannot answer.** A leaf frame names the function
+/// that ran; it does not say which characters reached it, and on a CJK
+/// recording `put_cp` costs four times an ASCII cell while writing 15% of
+/// them. Knowing that is not knowing whether to widen the collector, and
+/// which of its six exits to widen.
+///
+/// Behind its own feature because these counters sit inside the collector's
+/// per-character loop rather than at a run boundary. See `Cargo.toml`.
+#[cfg(feature = "diag")]
+#[derive(Clone, Copy, Default)]
+pub struct Diag {
+    /// Times the bulk wide collector was entered.
+    pub wide_entries: Stat,
+    /// Times a gate site saw a wide character just written -- the collector is
+    /// entered only if the cluster machine is also in an ordinary state, so
+    /// the difference between this and `wide_entries` is what the cluster
+    /// state costs, and the difference between this and the wide characters
+    /// reaching `put_cp` is what never reaches a gate at all.
+    pub gate_wide: Stat,
+    /// Why the gate refused, by `RunBlocker`. These sum to
+    /// `gate_wide - wide_entries`.
+    pub gate_prev: Stat,
+    pub gate_regional: Stat,
+    pub gate_pict: Stat,
+    pub gate_indic: Stat,
+    /// Characters it admitted, so `wide_taken / wide_entries` is the mean run.
+    pub wide_taken: Stat,
+    /// It stopped because the next byte was not a three-byte lead -- ASCII,
+    /// a two-byte character, or an astral one.
+    pub brk_lead: Stat,
+    /// Decoded, but not `Width::WIDE`. Ambiguous-width punctuation lives here.
+    pub brk_width: Stat,
+    /// Wide, but not a plain standalone cluster: a lookback table hit, or a
+    /// class the cluster machine has to see.
+    pub brk_class: Stat,
+    /// Hit `WIDE_RUN`, so the run continues and is picked up next entry.
+    pub brk_cap: Stat,
+    /// Ran out of buffered bytes -- the run may continue in the next `read`.
+    pub brk_end: Stat,
+    /// What reached `put_cp`, by shape. These are the characters that pay the
+    /// per-codepoint path, and the four buckets say which lever moves them.
+    pub cp_ascii: Stat,
+    /// Narrow and multi-byte: Latin-1, Greek, Cyrillic, and the CJK
+    /// punctuation that East Asian Width calls Ambiguous.
+    pub cp_narrow: Stat,
+    /// Wide, and therefore a character the bulk collector declined.
+    pub cp_wide: Stat,
+    /// Zero-width: combining marks, joiners, and the tail of a cluster.
+    pub cp_zero: Stat,
+}
+
 pub struct Term<'a> {
     pub(crate) s: &'a mut Storage,
     pub(crate) tail: ArenaTail,
@@ -367,6 +420,9 @@ pub struct Term<'a> {
     /// that it is never engaging, and those call for opposite work. A profile
     /// cannot separate them either: both end in a cell store.
     pub cells_wide: Stat,
+    /// The cost map. Off unless `diag` is on; see `Diag`.
+    #[cfg(feature = "diag")]
+    pub diag: Diag,
     /// Cells written by scrolling, erasing and blanking -- `fill` and
     /// `fill_row`. Overlaps `cells_blanked` by construction; kept separate so
     /// the three attribution counters sum to `cells_written`.
@@ -546,6 +602,8 @@ impl<'a> Term<'a> {
             cells_bulk: Stat::ZERO,
             cells_single: Stat::ZERO,
             cells_wide: Stat::ZERO,
+            #[cfg(feature = "diag")]
+            diag: Diag::default(),
             cells_fill: Stat::ZERO,
             cells_scroll: Stat::ZERO,
             scrolls: Stat::ZERO,
