@@ -89,13 +89,19 @@ pub const DECODE_LANES: usize = 4;
 /// than discovered by the compiler -- which is how `Encoding` and `ReadAs`
 /// went, one collision earlier.
 ///
+/// **Codepoints only -- decoding does not classify.** An earlier version also
+/// returned widths, which meant a `Width::of` trie lookup per character: two
+/// dependent loads that the path it was replacing does not do at all, because
+/// `is_wide_ordinary` answers the same question in four range compares. That
+/// alone made the decoder slower than the scalar code it replaced. Whoever
+/// consumes these knows which question it actually needs answered.
+///
 /// `count` codepoints, consuming `bytes` of input. `count` of zero means the
 /// block was not something the fast path handles -- a truncated sequence, an
 /// overlong form, a surrogate, a control byte -- and the caller must fall back
 /// to the scalar decoder, which owns every conformance decision.
 pub struct DecodedBlock {
     pub cps: [Codepoint; DECODE_LANES],
-    pub widths: [Width; DECODE_LANES],
     pub count: LaneCount,
     pub bytes: ByteLen,
 }

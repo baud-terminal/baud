@@ -18,7 +18,7 @@
 #![cfg(target_arch = "aarch64")]
 
 use baud_domain::*;
-use baud_isa::{LANES, Scan};
+use baud_isa::{Decode, DecodedBlock, LANES, Portable, Scan};
 
 /// The aarch64 scanner: `shrn` instead of a horizontal reduction.
 ///
@@ -129,5 +129,21 @@ impl Scan for Neon {
             i += 1;
         }
         None
+    }
+}
+
+impl Decode for Neon {
+    /// # Safety
+    /// Same contract as `Scan` for this type.
+    ///
+    /// **Delegates to `Portable` for now, deliberately.** The trait is the
+    /// seam; a aarch64 gather can land behind it without the caller changing,
+    /// and shipping the delegation first means the block decoder is exercised
+    /// on this target from the day it exists rather than after a second
+    /// implementation is written.
+    #[inline(always)]
+    unsafe fn block(buf: &[StreamByte]) -> DecodedBlock {
+        // SAFETY: `Portable` requires no target feature.
+        unsafe { Portable::block(buf) }
     }
 }

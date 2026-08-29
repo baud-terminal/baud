@@ -60,8 +60,19 @@ impl LaneMask {
         let mut starts = [Lane(0); START_COUNT];
         let mut lens = [ByteLen::ZERO; START_COUNT];
         for k in 0..START_COUNT {
+            let n = at[k + 1] - at[k];
+            // **The gap between leads is a character length only when the
+            // bytes are well formed.** Stray continuation bytes -- which a PTY
+            // delivers as readily as text -- make it arbitrarily large, and no
+            // UTF-8 sequence exceeds four. Refusing here keeps
+            // `CharStarts::len` in `1..=4` by construction, which is what lets
+            // a caller size a gather buffer from it. A property test found
+            // this as an out-of-bounds write on the first run.
+            if n > 4 {
+                return None;
+            }
             starts[k] = Lane(at[k]);
-            lens[k] = ByteLen::from_index(at[k + 1] - at[k]);
+            lens[k] = ByteLen::from_index(n);
         }
         Some(CharStarts { starts, lens })
     }
@@ -129,7 +140,7 @@ impl CharStarts {
     pub fn start(self, k: usize) -> Lane {
         self.starts[k]
     }
-    /// How many bytes character `k` occupies.
+    /// How many bytes character `k` occupies. Always `1..=4`.
     pub fn len(self, k: usize) -> ByteLen {
         self.lens[k]
     }

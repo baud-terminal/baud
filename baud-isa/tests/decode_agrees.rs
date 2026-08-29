@@ -10,7 +10,7 @@
 //! That asymmetry is why this compares *what it produced* rather than
 //! requiring it to produce anything.
 
-use baud_domain::{AmbiguousWidth, Codepoint, StreamByte, Utf8Acc, Width};
+use baud_domain::{Codepoint, StreamByte, Utf8Acc};
 use baud_isa::{Decode, Portable};
 
 /// The scalar decoder, spelled out: this is what the parser does per character.
@@ -52,11 +52,6 @@ fn check(bytes: &[u8]) {
             want.value(),
             "lane {k} at byte {at}: block says U+{:04X}, scalar says U+{:04X} -- {bytes:02x?}",
             got.cps[k].value(),
-            want.value()
-        );
-        assert!(
-            got.widths[k] == Width::of(want, AmbiguousWidth::Narrow),
-            "lane {k}: width disagrees for U+{:04X}",
             want.value()
         );
         at += len;

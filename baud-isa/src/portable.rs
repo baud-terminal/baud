@@ -89,7 +89,6 @@ impl Decode for Portable {
     unsafe fn block(buf: &[StreamByte]) -> DecodedBlock {
         let none = DecodedBlock {
             cps: [Codepoint::REPLACEMENT; DECODE_LANES],
-            widths: [Width::NARROW; DECODE_LANES],
             count: LaneCount::ZERO,
             bytes: ByteLen::ZERO,
         };
@@ -122,7 +121,6 @@ impl Decode for Portable {
         }
         let quads = block.gather(Vectorized::<Utf8>::indices(idx)).quads();
         let mut cps = [Codepoint::REPLACEMENT; DECODE_LANES];
-        let mut widths = [Width::NARROW; DECODE_LANES];
         let mut bytes = 0usize;
         for k in 0..DECODE_LANES {
             let Some(cp) = Codepoint::from_quad(quads[k], starts.len(k)) else {
@@ -132,19 +130,16 @@ impl Decode for Portable {
                     0 => none,
                     _ => DecodedBlock {
                         cps,
-                        widths,
                         count: LaneCount::of(k),
                         bytes: ByteLen::from_index(bytes),
                     },
                 };
             };
             cps[k] = cp;
-            widths[k] = Width::of(cp, AmbiguousWidth::Narrow);
             bytes += starts.len(k).index();
         }
         DecodedBlock {
             cps,
-            widths,
             count: LaneCount::of(DECODE_LANES),
             bytes: ByteLen::from_index(bytes),
         }

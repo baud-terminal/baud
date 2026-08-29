@@ -234,6 +234,18 @@ impl ClusterBreak {
     /// So the caller may skip the machine entirely for such a run, and the
     /// state afterwards is the state before.
     #[inline(always)]
+    /// The state a completed run of ordinary characters leaves behind.
+    ///
+    /// What `advance_plain(Other, true)` writes, which is the same for every
+    /// such character: `prev` is `Other` and nothing is pending. Setting it
+    /// once for a run is the whole of the machine's work for all of them.
+    pub fn set_after_ordinary(&mut self) {
+        self.prev = Some(GraphemeClass::Other);
+        self.ri = RiParity::Even;
+        self.pict = PictLookback::None;
+        self.incb = IncbLookback::None;
+    }
+
     /// Which of `ordinary_run_ready`'s four conditions said no.
     ///
     /// **A predicate that answers "no" cannot be optimised against.** The bulk

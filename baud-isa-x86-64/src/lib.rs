@@ -9,7 +9,7 @@
 #![cfg(target_arch = "x86_64")]
 
 use baud_domain::*;
-use baud_isa::Scan;
+use baud_isa::{Decode, DecodedBlock, Portable, Scan};
 
 /// 32-byte lanes on x86-64. Requires AVX2.
 pub struct Avx2;
@@ -133,4 +133,20 @@ pub unsafe fn find_st(buf: &[StreamByte]) -> Option<ByteLen> {
         i += 1;
     }
     None
+}
+
+impl Decode for Avx2 {
+    /// # Safety
+    /// Same contract as `Scan` for this type.
+    ///
+    /// **Delegates to `Portable` for now, deliberately.** The trait is the
+    /// seam; a x86-64 gather can land behind it without the caller changing,
+    /// and shipping the delegation first means the block decoder is exercised
+    /// on this target from the day it exists rather than after a second
+    /// implementation is written.
+    #[inline(always)]
+    unsafe fn block(buf: &[StreamByte]) -> DecodedBlock {
+        // SAFETY: `Portable` requires no target feature.
+        unsafe { Portable::block(buf) }
+    }
 }

@@ -344,6 +344,15 @@ impl Col {
 pub struct Count(pub(crate) u16);
 
 impl Count {
+    pub const ZERO: Count = Count(0);
+    /// A count of things, where the caller has one.
+    pub fn of(n: usize) -> Count {
+        Count(n as u16)
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
     pub fn from_param(p: Option<Param>) -> Count {
         Count(p.map_or(0, |x| x.0).max(1))
     }

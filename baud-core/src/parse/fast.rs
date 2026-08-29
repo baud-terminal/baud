@@ -21,7 +21,7 @@ impl<'a> Term<'a> {
     /// # Safety
     /// Whatever target feature `S` requires must be available.
     #[inline]
-    pub(crate) unsafe fn fast_esc<S: Scan>(
+    pub(crate) unsafe fn fast_esc<S: Scan + Decode>(
         &mut self,
         base: BytePos,
         at: ByteLen,
@@ -160,7 +160,7 @@ impl<'a> Term<'a> {
     /// # Safety
     /// Whatever target feature `S` requires must be available.
     #[inline]
-    pub(crate) unsafe fn fast_csi<S: Scan>(
+    pub(crate) unsafe fn fast_csi<S: Scan + Decode>(
         &mut self,
         base: BytePos,
         at: ByteLen,
@@ -268,7 +268,7 @@ impl<'a> Term<'a> {
     /// # Safety
     /// Whatever target feature `S` requires must be available.
     #[inline]
-    pub(crate) unsafe fn feed_with<S: Scan>(&mut self, base: BytePos, n: ByteLen) {
+    pub(crate) unsafe fn feed_with<S: Scan + Decode>(&mut self, base: BytePos, n: ByteLen) {
         self.count_in(n);
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
@@ -750,6 +750,7 @@ impl<'a> Term<'a> {
             let w2 = Width::of(c2, self.width.ambiguous);
             self.put_cp(c2, w2);
             used += need2;
+
             // **The bulk path re-arms here, and not doing so was most of what
             // it was leaving on the table.** The gate above fires once, on the
             // first character this call decodes; every wide run *after* the
