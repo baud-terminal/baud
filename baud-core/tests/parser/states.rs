@@ -579,3 +579,76 @@ fn an_unimplemented_intermediate_escape_is_counted() {
     );
     assert!(t.reply().is_empty(), "and must not be answered");
 }
+
+/// **Every definition of "printable" agrees, for all 256 bytes.**
+///
+/// The scanner's notion of what belongs in a bulk run is written out four
+/// separate times: the portable vector compares against `0x20..=0x7e`, the AVX2
+/// body builds a stop mask from `< 0x20`, `>= 0x80` and `== 0x7f`, the scalar
+/// tail of both calls `StreamByte::is_printable`, and `feed_with` now tests the
+/// first byte before entering the scanner at all.
+///
+/// They have already disagreed once, and the comment in `scan_avx2` records
+/// what it cost: `0x7f` was missing from the mask, so a `DEL` in a 32-byte
+/// block joined a run while a `DEL` in the tail did not, and the same input
+/// rendered differently depending on where it landed.
+///
+/// This checks the two that can be checked portably -- the predicate and the
+/// scanner's own answer -- across every byte value. `generated_programs_match_
+/// on_avx2` is what covers the AVX2 mask, on the target that has one.
+#[test]
+fn every_scanner_agrees_on_what_is_printable() {
+    for b in 0u8..=255 {
+        let want = StreamByte::from_stream(b).is_printable();
+        // A run of one: the scanner returns 1 if it consumed the byte, 0 if it
+        // stopped on it.
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let got = {
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&[b, b, b, b]));
+            let n = f.len();
+            t.feed(base, n);
+            t.commit_read(n);
+            // Four identical bytes: if printable they all reach the grid as
+            // one bulk run, and `bytes_bulk` counts them.
+            t.bytes_bulk.count() > 0
+        };
+        assert_eq!(
+            got,
+            want,
+            "byte 0x{b:02x}: the scanner {} it, `is_printable` says {want}",
+            if got { "consumed" } else { "stopped on" }
+        );
+    }
+}
+
+/// **The pre-check in `feed_with` cannot hide a byte from the scanner.**
+///
+/// `feed_with` tests the first byte with `is_printable` before running the
+/// vector scan, because a scan that returns zero is a wasted vector load. That
+/// is only sound if the predicate never rejects a byte the scanner would have
+/// consumed -- a byte skipped here goes to the state machine, and a *run* that
+/// starts one byte late is a run that was never bulk-written.
+///
+/// Checked by throughput of the bulk counter rather than by reading the code:
+/// every printable byte must still be attributed to the bulk path.
+#[test]
+fn the_pre_check_never_starves_the_bulk_path() {
+    let text: Vec<u8> = (0x20u8..0x7f).collect();
+    let mut s = Storage::boxed();
+    let mut t = Term::new(&mut s, OpMode::Computed);
+    let mut slot = t.read_slot();
+    let base = slot.base();
+    let f = slot.write(StreamByte::slice_from(&text));
+    let n = f.len();
+    t.feed(base, n);
+    t.commit_read(n);
+    assert_eq!(
+        t.bytes_bulk.count(),
+        text.len() as u64,
+        "every printable byte belongs to the bulk path, or the pre-check is \
+         rejecting bytes the scanner would have taken"
+    );
+}

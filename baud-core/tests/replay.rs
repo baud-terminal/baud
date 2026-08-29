@@ -271,6 +271,115 @@ fn each_recording_carries_what_it_was_chosen_for() {
         vim.windows(4).any(|w| w == "🚀".as_bytes()),
         "vim-unicode.raw should carry astral-plane emoji"
     );
+
+    // The scrolling three, added because `Term::scrolls` said the first three
+    // do not scroll.
+    let cat = load("ascii/cat-scroll.raw");
+    assert!(
+        !cat.contains(&0x1b),
+        "cat-scroll.raw is text with no escape sequences at all -- that is the \
+         whole point of it, and it is what makes it the one recording where \
+         the bulk scanner is the only path"
+    );
+    assert!(cat.iter().filter(|b| **b == b'\n').count() > 5_000);
+
+    let git = load("ascii/git-log.raw");
+    assert!(
+        git.windows(2).filter(|w| *w == b"\x1b[").count() > 3_000,
+        "git-log.raw is colour over scrolling text"
+    );
+    assert!(git.iter().filter(|b| **b == b'\n').count() > 3_000);
+
+    let less = load("ascii/less-pager.raw");
+    assert!(
+        less.windows(8).any(|w| w == b"\x1b[?1049h"),
+        "less-pager.raw pages in the alternate screen, which is what made it \
+         26 MB/s until the rotation covered that screen"
+    );
+    assert!(
+        less.windows(2).filter(|w| *w == b"\x1bM").count() > 100,
+        "and it scrolls backwards with RI, which is the other direction"
+    );
+    assert!(
+        !less.windows(3).any(|w| w == b"\x1b[r") && !has_decstbm(&less),
+        "and it sets **no** scrolling region: every line move in it is a \
+         full-screen scroll. The zero-copy-line-moves plan was gated on the \
+         opposite belief for three revisions"
+    );
+
+    // The CJK two, added because nothing scrolled *and* carried wide
+    // characters. That intersection is the whole reason they exist, so it is
+    // asserted rather than described.
+    for name in ["utf8/cat-cjk.raw", "utf8/less-cjk.raw"] {
+        let d = load(name);
+        let non_ascii = d.iter().filter(|b| **b > 0x7f).count();
+        assert!(
+            non_ascii * 2 > d.len(),
+            "{name} should be majority non-ASCII, is {non_ascii}/{}",
+            d.len()
+        );
+        assert!(
+            d.iter().filter(|b| **b == b'\n').count() > 500,
+            "{name} must scroll -- a UTF-8 recording that does not scroll is \
+             what vim already was"
+        );
+        assert!(
+            wide_codepoints(&d) > 5_000,
+            "{name} must carry wide codepoints -- btop is 14.5% multi-byte \
+             with zero of them, which is how the gap stayed invisible"
+        );
+    }
+
+    let less_cjk = load("utf8/less-cjk.raw");
+    assert!(
+        less_cjk.windows(8).any(|w| w == b"\x1b[?1049h"),
+        "less-cjk.raw is the alternate screen with wide characters, which is \
+         where the erase and scroll bugs lived"
+    );
+}
+
+/// Does the stream set a scrolling region? `CSI Pt ; Pb r`.
+fn has_decstbm(d: &[u8]) -> bool {
+    d.windows(2)
+        .enumerate()
+        .filter(|(_, w)| *w == b"\x1b[")
+        .any(|(i, _)| {
+            d[i + 2..]
+                .iter()
+                .take(12)
+                .take_while(|b| b.is_ascii_digit() || **b == b';')
+                .count()
+                > 0
+                && d[i + 2..]
+                    .iter()
+                    .take(12)
+                    .find(|b| !b.is_ascii_digit() && **b != b';')
+                    == Some(&b'r')
+        })
+}
+
+/// Codepoints a terminal draws in two columns, counted from the bytes.
+///
+/// Deliberately a *decode*, not a byte count: `btop.raw` is 14.5% multi-byte
+/// and has **zero** wide codepoints, because box drawing and braille are one
+/// column each. Counting bytes conflates the two axes, and that conflation is
+/// exactly why no measurement in this project saw the CJK path for a year.
+fn wide_codepoints(d: &[u8]) -> usize {
+    core::str::from_utf8(d)
+        .map(|s| {
+            s.chars()
+                .filter(|c| {
+                    let v = u32::from(*c);
+                    (0x1100..=0x115F).contains(&v)
+                        || (0x2E80..=0xA4CF).contains(&v)
+                        || (0xAC00..=0xD7A3).contains(&v)
+                        || (0xF900..=0xFAFF).contains(&v)
+                        || (0xFF00..=0xFF60).contains(&v)
+                        || (0x1F300..=0x1FAFF).contains(&v)
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// Drive a recording and return everything it made baud say.

@@ -272,7 +272,17 @@ impl<'a> Term<'a> {
             // The byte is loaded either way, so this costs a compare on the
             // path that goes on to scan, and saves the whole scan setup on the
             // path that would have got nothing.
-            let printable = self.st == State::Ground && matches!(self.s.arena[b + i], 0x20..=0x7e);
+            //
+            // `StreamByte::is_printable`, not a fourth hand-written range.
+            // What the scanner will consume is already written out three times
+            // -- the portable vector's `0x20..=0x7e`, AVX2's
+            // `< 0x20 | >= 0x80 | == 0x7f` stop mask, and this predicate in the
+            // scalar tail of both -- and they have disagreed before: `0x7f` was
+            // missing from the AVX2 mask, so a `DEL` inside a 32-byte block
+            // joined a run while one in the tail did not.
+            // `every_scanner_agrees_on_what_is_printable` pins them together.
+            let printable = self.st == State::Ground
+                && StreamByte::from_stream(self.s.arena[b + i]).is_printable();
             if printable {
                 // SAFETY: caller established whatever S requires.
                 let run = unsafe { S::run(&self.s.arena[b + i..b + nn]) }.index();

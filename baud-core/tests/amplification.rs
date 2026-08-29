@@ -514,3 +514,80 @@ fn a_region_scroll_counts_the_cells_it_moves_and_blanks() {
          `baud-domain` helpers the counters do not reach"
     );
 }
+
+/// **The UTF-8 path carries CJK capture, and the cell path is per-codepoint.**
+///
+/// The companion to `real_capture_is_mostly_escape_sequences_not_text`, whose
+/// thresholds are shaped for escape-dense capture and are the wrong way round
+/// here: `cat-cjk.raw` has **no escape sequences at all**, and its bytes go
+/// almost entirely through `fast_utf8`.
+///
+/// Two things are pinned, and both were invisible before these recordings
+/// existed:
+///
+/// * **`text` dominates.** If `fast_utf8` stopped being reached, these bytes
+///   would fall back to three trips through `control` each and land in `slow`,
+///   which is what they did before it existed. That regression would not show
+///   up in any other test here.
+/// * **`single` is a large share of cells.** A wide character cannot use
+///   `put_ascii_run`, so it is written one codepoint at a time. ASCII capture
+///   reports 0% single; this is what the 4x gap between `cat-cjk` and
+///   `cat-scroll` is made of, and it is the remaining lead.
+#[test]
+fn the_utf8_path_carries_cjk_capture() {
+    for (name, min_text, min_single) in [
+        // Thresholds set from measurement, below the observed 81.2% and
+        // 62.8%: the balance is the ASCII line prefixes, which correctly go to
+        // the bulk scanner rather than through here.
+        ("utf8/cat-cjk.raw", 0.75, 0.05),
+        ("utf8/less-cjk.raw", 0.5, 0.05),
+    ] {
+        let d = std::fs::read(format!(
+            "{}/tests/recordings/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect(name);
+        let mut s = Storage::boxed();
+        let mut t = Term::new(&mut s, OpMode::Computed);
+        let mut i = 0;
+        while i < d.len() {
+            let n = READ_CHUNK.min(d.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let f = slot.write(StreamByte::slice_from(&d[i..i + n]));
+            t.feed(base, f.len());
+            t.commit_read(f.len());
+            i += n;
+        }
+
+        let (bulk, seq, slow, text) = t.path_split();
+        assert!(
+            (bulk + seq + slow + text - 1.0).abs() < 0.01,
+            "{name}: the four paths must account for every byte, got \
+             {bulk:.3} + {seq:.3} + {slow:.3} + {text:.3}"
+        );
+        assert!(
+            text > min_text,
+            "{name}: the UTF-8 path took {:.1}% of bytes, expected over \
+             {:.0}%. If this fell, `fast_utf8` stopped being reached and every \
+             codepoint is back to three trips through `control`",
+            text * 100.0,
+            min_text * 100.0
+        );
+        assert!(
+            slow < 0.05,
+            "{name}: {:.1}% of bytes went byte-at-a-time, which is where CJK \
+             used to go and must not go again",
+            slow * 100.0
+        );
+
+        let (_, single, _) = t.cell_attribution();
+        assert!(
+            single > min_single,
+            "{name}: only {:.1}% of cells came from the per-codepoint path. \
+             A wide character cannot use `put_ascii_run`, so a low figure here \
+             means the recording stopped carrying wide characters",
+            single * 100.0
+        );
+    }
+}
