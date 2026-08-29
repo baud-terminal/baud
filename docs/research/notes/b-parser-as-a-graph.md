@@ -168,6 +168,35 @@ rows are not sparse in the sense that method exploits — every one of the 5,888
 edges is defined, because a VT parser has a defined answer for every byte in
 every state. There is nothing to overlap.
 
+## What it measured, which was nothing
+
+**The graph replaced the walk and no payload moved.** Interleaved A/B, one
+binary per arm, first round discarded, `cells_written` byte-identical: cat-cjk
+472.1-474.7 against 467.4-469.7, asciiquarium 380.5-392.1 against 380.7-390.0,
+btop 804.6-812.8 against 800.7-814.1, vim 499.1-509.0 against 505.0-509.3,
+less-cjk 481.7-490.1 against 475.4-482.0. Every range overlaps.
+
+**And the three representations are indistinguishable from each other**, which
+is the more useful half. `ByNode`, `ByByte` and `ByClass` measure 369.8-375.1,
+364.3-382.2 and 359.7-366.4 on asciiquarium and 791.7-796.2, 787.7-800.7 and
+793.2-800.3 on btop. So the predictions above are answered: the table flip is
+not a small win here, byte classes are flat as predicted but for a reason the
+prediction did not name, and the shift-packed form is not worth building for
+*this* graph.
+
+**The reason is that this graph is not on the hot path.** `control` sees 2.6%
+of cat-cjk's bytes, 0.2% of btop's and 9.7% of asciiquarium's; the rest go
+through the run scanner, `fast_utf8`, or `fast_csi`/`fast_esc`. No
+representation of a machine that handles a twentieth of the bytes can move the
+total.
+
+That does not retire the representations -- it retires the *payload*. The
+literature above is about storing a DFA, and baud has a second one on the path
+that does run: `CLUSTER_NEXT`, 94 states over an 8-bit class alphabet, 24 KB,
+priced by a ceiling arm at 14% of cat-cjk. Everything measured here should be
+re-measured against **that** graph, where a flat result would mean something
+different.
+
 ## Gaps and open questions
 
 * **The table flip is unmeasured and should be the first thing tried**, because
