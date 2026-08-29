@@ -143,6 +143,53 @@ fn main() {
             30,
             122,
         ),
+        // **The shapes `cat-cjk.raw` is actually made of.** The rows above are
+        // each one character repeated, which is the "payloads that don't
+        // exercise the case" trap in miniature: the bulk wide path reaches
+        // 1175 MB/s on pure CJK and the recording reaches 380, and nothing
+        // above prices the difference. The recording carries 15,204
+        // Extended_Pictographic characters, 5,145 of them ZWJ, interleaved
+        // with CJK and 39% ASCII -- and every emoji costs one gate refusal,
+        // so the interleaving is the cost rather than any single character.
+        op(
+            "CJK, ascii-interleaved",
+            &format!(
+                "{} test {} ok\r\n",
+                "\u{4e00}".repeat(8),
+                "\u{4e8c}".repeat(8)
+            ),
+            16,
+            30,
+        ),
+        op(
+            "CJK, emoji-interrupted",
+            &format!(
+                "{}\u{1f680}{}\r\n",
+                "\u{4e00}".repeat(8),
+                "\u{4e8c}".repeat(8)
+            ),
+            16,
+            6,
+        ),
+        // A ZWJ family: four pictographs joined by three ZWJ, one cluster and
+        // two columns. The most expensive shape the cluster machine has.
+        op(
+            "emoji ZWJ family",
+            &format!(
+                "{}\r\n",
+                "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}".repeat(6)
+            ),
+            6,
+            2,
+        ),
+        // Combining marks: one base plus one mark, so the cluster machine runs
+        // on every character and the cell write is one column.
+        op(
+            "kana + combining mark",
+            &format!("{}\r\n", "\u{304b}\u{3099}".repeat(30)),
+            30,
+            2,
+        ),
     ];
 
     println!("  one operation at a time, {reps} reps, best of each, 2 MiB per row");
