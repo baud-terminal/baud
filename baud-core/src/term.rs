@@ -192,6 +192,12 @@ pub struct Diag {
     pub cp_narrow: Stat,
     /// Wide, and therefore a character the bulk collector declined.
     pub cp_wide: Stat,
+    /// Of those, how many are `is_wide_ordinary` -- Han, kana, plain CJK that
+    /// a bulk path *could* take -- against how many are pictographic and
+    /// genuinely need the cluster machine. The wide row is two thirds of
+    /// `put_cp`'s traffic, and whether the remaining headroom exists at all
+    /// depends on which of the two it is made of.
+    pub cp_wide_ordinary: Stat,
     /// Zero-width: combining marks, joiners, and the tail of a cluster.
     pub cp_zero: Stat,
 }

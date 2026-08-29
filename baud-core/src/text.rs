@@ -184,6 +184,9 @@ impl<'a> Term<'a> {
                 self.diag.cp_ascii.inc();
             } else if w == Width::WIDE {
                 self.diag.cp_wide.inc();
+                if cp.is_wide_ordinary() {
+                    self.diag.cp_wide_ordinary.inc();
+                }
             } else if w == Width::ZERO {
                 self.diag.cp_zero.inc();
             } else {

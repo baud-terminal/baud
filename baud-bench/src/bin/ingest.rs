@@ -221,6 +221,16 @@ fn main() {
             d.cp_zero.count(),
             100.0 * d.cp_zero.count() as f64 / cps as f64,
         );
+        // The wide row split by whether a bulk path could ever take it.
+        println!(
+            "    of the wide: {} ordinary ({:.0}%, a bulk path could take these), \
+             {} pictographic ({:.0}%, these need the cluster machine)",
+            d.cp_wide_ordinary.count(),
+            100.0 * d.cp_wide_ordinary.count() as f64 / d.cp_wide.count().max(1) as f64,
+            d.cp_wide.count() - d.cp_wide_ordinary.count(),
+            100.0 * (d.cp_wide.count() - d.cp_wide_ordinary.count()) as f64
+                / d.cp_wide.count().max(1) as f64,
+        );
     }
     println!(
         "  {} dispatches, one per {:.0} bytes; {} scrolls blanking {} cells",
