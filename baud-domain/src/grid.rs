@@ -513,6 +513,55 @@ impl<'a> View<'a> {
         }
     }
 
+    /// Write one glyph, and a wide character's tail, in **one** pass.
+    ///
+    /// This was `clear_partners`, then `put`, then `put` again: three `phys`
+    /// computations, two bounds checks and three read-modify-writes of the
+    /// used extent, for a character that occupies two cells. It runs once per
+    /// **non-ASCII codepoint** -- ASCII goes through `put_ascii_run` -- so it
+    /// is most of what the CJK path is made of, and `cat-cjk.raw` is where baud
+    /// is furthest behind another implementation.
+    ///
+    /// The orphan repair is the same rule as everywhere else, against the base
+    /// already computed: a write starting on a tail orphans the lead in front
+    /// of it, and one ending on a lead orphans the tail after it.
+    #[inline(always)]
+    pub fn put_glyph(
+        &mut self,
+        r: Row,
+        c: Col,
+        lead: PackedCell,
+        tail: Option<PackedCell>,
+        blank: PackedCell,
+    ) {
+        let cols = self.cols.index();
+        let x = c.index();
+        if r.index() >= self.rows.index() || x >= cols {
+            return;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        let end = match tail {
+            Some(_) => (x + 2).min(cols),
+            None => x + 1,
+        };
+        let (sa, sb) = self.snap_at(base, x, end);
+        if sa < x {
+            self.cells[base + sa] = blank;
+        }
+        if sb > end {
+            self.cells[base + sb - 1] = blank;
+        }
+        self.cells[base + x] = lead;
+        if let Some(t) = tail {
+            if x + 1 < cols {
+                self.cells[base + x + 1] = t;
+            }
+        }
+        // One extent update covering the glyph and whatever the repair touched.
+        self.used[p] = self.used[p].reached(sb.max(end));
+    }
+
     /// [`Grid::snap`] for callers outside this type, in `Col`s.
     ///
     /// `Term::selective_wipe` needs it: DECSEL walks the span cell by cell

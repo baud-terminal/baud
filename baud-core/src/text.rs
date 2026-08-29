@@ -53,18 +53,17 @@ impl<'a> Term<'a> {
             true => c.after().after(),
             false => c.after(),
         };
+        let _ = span_end;
         let blank = PackedCell::empty_with(st);
-        let mut v = self.view();
-        // **Clear whatever this write is about to orphan**, before writing it.
-        // Overwriting a lead leaves its tail behind; overwriting a tail leaves
-        // its lead claiming two columns it no longer owns; a wide character
-        // landing on a tail does both. A range operation widens instead, but a
-        // write has its own length and cannot.
-        v.clear_partners(r, c, span_end, blank);
-        v.put(r, c, PackedCell::glyph(cp, st, fl));
-        if wide {
-            v.put(r, c.after(), PackedCell::wide_tail(st, fl));
-        }
+        let tail = match wide {
+            true => Some(PackedCell::wide_tail(st, fl)),
+            false => None,
+        };
+        // **One pass**: the orphan repair, the glyph and the tail share one
+        // address computation, one bounds check and one extent update. Three of
+        // each is what this cost when it was `clear_partners` plus two `put`s.
+        self.view()
+            .put_glyph(r, c, PackedCell::glyph(cp, st, fl), tail, blank);
     }
 
     /// Place one decoded codepoint. A 2-wide character at the last column
