@@ -855,6 +855,26 @@ bytes  = 427631
 status = "external"
 group  = "F"
 
+[sources.ugrapheme]
+key    = "ugrapheme"
+title  = "ugrapheme 8ba5a96, README -- sparse bitmaps in 11 KB and a DFA that minimises property lookups"
+author = "Z4JC"
+year   = 2024
+venue  = "ugrapheme, UAX #29 segmentation in Python/Cython"
+url    = "https://github.com/Z4JC/ugrapheme/blob/8ba5a9648852791a75ac4259a4d82a39d119f74a/README.md"
+file   = "ugrapheme-readme.md"
+sha256 = "b35832881f1c2225b53d4667d39c7e1b6f0c7b843d67b32b914eea1e0ff9acdd"
+
+[sources.lemire-transcoding]
+key    = "lemire-transcoding"
+title  = "Transcoding Billions of Unicode Characters per Second with SIMD Instructions"
+author = "Robert Keiser and Daniel Lemire"
+year   = 2021
+venue  = "Software: Practice and Experience; arXiv:2109.10433"
+url    = "https://arxiv.org/pdf/2109.10433"
+file   = "lemire-transcoding.pdf"
+sha256 = "7da1d9b93e0b2b812113284733ccf43cb4d76a0d37ced5b1cc4511ac834cd2f9"
+
 [sources.linux-vt-console]
 key    = "linux-vt-console"
 title  = "Linux cf72cbb, drivers/tty/vt/vt.c -- the kernel console, one byte per iteration"
