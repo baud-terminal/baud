@@ -113,25 +113,47 @@ UTF-8 gather is specific to terminals.
 That argument is sound, and it changes what to extract. The unit is not
 "`baud-core`, split by ISA" — most of `baud-core` is a terminal, and a crate
 called `baud-core-aarch64` holding `feed_with` would be a terminal wearing an
-architecture's name. The reusable unit is the **primitives**: byte
-classification, mask extraction, the UTF-8 gather. Those are pure functions
-over slices with no state.
+architecture's name.
 
-Which is also what makes the split safe, and the reason to draw the line there
-rather than anywhere else:
+**And the unit is not "primitives" either**, which is the obvious wrong answer
+and the one this repo is built to refuse. A crate exporting
+`fn movemask(v: u8x16) -> u32` is a bag of casts; the type audit exists because
+five of `baud-core`'s eight remaining raw-integer sites are *exactly* that
+boundary, where an intrinsic's result enters the type system. Extracting them
+as primitives would export the problem.
 
-* **Pure `#[inline(always)]` functions cross a crate boundary well.** They have
-  no state to keep behind `&mut self` and nothing to lose by being generic.
-* **`feed_with` must not cross one.** It is the hot loop, it holds all state
-  behind `&mut self` — a measured 16-34% against file-scope globals — and it
-  has to inline *into* the `#[target_feature]` entry point for the whole loop
-  to get the extended feature set. Moving it makes that LTO-dependent, and
-  unverified.
+The reusable unit is **domain-typed operations**: the same `Scan` surface,
+taking and returning `baud-domain`'s types. `run` already returns `ByteLen` and
+not a `usize`; mask extraction already lands in `LaneMask` and its first set
+lane is a `Lane`, so a bitmask can never be added to a byte offset. An ISA
+crate written against those types is reusable *and* cannot reintroduce the
+class of bug the newtypes were added to prevent — which is what makes it worth
+extracting rather than merely possible.
 
-So: a primitives crate is defensible and a `baud-core` split is not, and they
-are not the same proposal. The cost of the primitives crate is that
-`baud-core`'s "zero dependencies" becomes "one first-party dependency", which
-is a claim in the README and an owner's decision rather than a technical one.
+That gives three layers, each with one job:
+
+```
+baud-domain            the type system
+baud-isa-<arch>        ISA implementations of domain-typed operations
+baud-core              the terminal
+```
+
+The line falls in the same place for a second, independent reason. Domain
+newtypes are `repr(transparent)` and `#[inline(always)]`, and this repo has
+already measured that typing the hot path is free — so they cross a crate
+boundary the way they cross a function boundary. `feed_with` is the one thing
+that must not move: it holds all state behind `&mut self`, a measured 16-34%
+against file-scope globals, and it has to inline *into* the
+`#[target_feature]` entry point for the whole loop to get the extended feature
+set.
+
+The revised claim is not that a boundary would be slow — it most likely would
+not — but that the inlining stops being guaranteed by construction and becomes
+something CI has to check. baud already has that check.
+
+The cost is that `baud-core`'s "zero dependencies" becomes "two first-party
+dependencies", which is a README claim and an owner's decision rather than a
+technical one.
 
 ## Per-microarchitecture kernels are already possible here
 
