@@ -20,6 +20,12 @@ pub struct LaneMask(pub(crate) u32);
 
 impl LaneMask {
     /// From a `movemask` intrinsic or a portable `Mask::to_bitmask`.
+    /// The raw lane bits, for a caller matching a *pattern* across lanes
+    /// rather than finding the first set one. `RouteBlock::stride_three` is
+    /// the caller; nothing else should need this.
+    pub fn bits(self) -> u32 {
+        self.0
+    }
     pub fn from_movemask(bits: u32) -> LaneMask {
         LaneMask(bits)
     }
@@ -481,6 +487,43 @@ impl RouteBlock {
     #[inline(always)]
     pub fn is_not(self, r: Route) -> LaneMask {
         LaneMask::from_movemask(self.0.simd_ne(Simd::splat(r as u8)).to_bitmask() as u32)
+    }
+
+    /// How many complete **three-byte** characters lead this block.
+    ///
+    /// **This is what a block loop needs and a homogeneity gate cannot give
+    /// it.** The bulk writers key on a run of one character *class*, which
+    /// `cat-cjk.raw` essentially never has -- its median wide run is one. A run
+    /// of one *stride* is a far weaker condition and a far commoner one: every
+    /// character in the BMP above `U+07FF` is three bytes, so CJK, Hangul,
+    /// Devanagari and box drawing all qualify together.
+    ///
+    /// Three bytes rather than two or four because it is the common case by a
+    /// wide margin -- 81% of `cat-cjk.raw` is on the UTF-8 route and almost
+    /// all of it is three-byte -- and because a four-byte lead is where the
+    /// emoji are, which need the cluster machine one codepoint at a time.
+    ///
+    /// Returns 0 when the block does not begin with one, so a caller can fall
+    /// through without a second test.
+    pub fn stride_three(self) -> usize {
+        // Lanes 0, 3, 6, 9, 12 -- where a lead must sit for the stride to be
+        // three all the way.
+        const LEADS: u32 = 0b0001_0010_0100_1001;
+        let leads = self.is(Route::Lead3).bits();
+        let conts = self.is(Route::Cont).bits();
+        // The first lane that is neither a three-byte lead nor a continuation
+        // bounds the run; five characters is all sixteen lanes can hold.
+        let covered = (!(leads | conts) & 0xffff).trailing_zeros() as usize;
+        let k = (covered / 3).min(5);
+        if k == 0 {
+            return 0;
+        }
+        let span = (1u32 << (3 * k)) - 1;
+        // Every lead exactly on a multiple of three, and nothing else a lead.
+        match leads & span == LEADS & span {
+            true => k,
+            false => 0,
+        }
     }
 
     /// The route of one lane, for the scalar tail and for tests.

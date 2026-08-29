@@ -231,6 +231,12 @@ impl Rows {
     pub(crate) fn from_ws(n: u16) -> Rows {
         Rows((n as usize).max(1))
     }
+    /// A row count that is already known, such as the length of a slice the
+    /// caller placed. `WinSize::geometry` is the path for geometry that came
+    /// off the wire; this is for one that did not.
+    pub fn of_index(n: usize) -> Rows {
+        Rows(n.max(1))
+    }
     pub fn index(self) -> usize {
         self.0
     }
@@ -295,6 +301,30 @@ impl RowBlock {
     }
     pub fn of_mut<T>(self, buf: &mut [T]) -> &mut [T] {
         &mut buf[self.start..self.start + self.len]
+    }
+    /// How many entries the block spans, for a caller *allocating* it. Every
+    /// other caller should hand the buffer to `of` or `fits` and never see
+    /// the number.
+    pub fn len(self) -> usize {
+        self.len
+    }
+    /// Is the block empty? `clippy::len_without_is_empty` asks, and a block of
+    /// no rows is a real state during a resize.
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+    /// Does a buffer hold this block? The one question a caller can ask
+    /// without being handed the arithmetic back.
+    pub fn fits<T>(self, buf: &[T]) -> bool {
+        buf.len() >= self.start + self.len
+    }
+    /// Rotate a buffer left by this block's worth of entries.
+    ///
+    /// Takes the shift as a block rather than a count so the row count and the
+    /// stride cannot be transposed at the call site -- which is a plausible
+    /// number and a silently wrong grid.
+    pub fn rotate_left_by<T>(self, buf: &mut [T], by: RowBlock) {
+        self.of_mut(buf).rotate_left(by.len);
     }
 }
 

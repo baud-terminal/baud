@@ -9,6 +9,7 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 
 [dependencies]
 baud-core2 = { path = "../baud-core2", features = ["alloc"] }
+baud-core = { path = "../baud-core" }
 libc = "0.2"
 
 

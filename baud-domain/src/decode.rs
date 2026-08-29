@@ -259,6 +259,27 @@ impl StreamByte {
     pub fn is_printable_ascii(self) -> bool {
         (0x20..0x7f).contains(&self.0)
     }
+    /// The six payload bits of a continuation byte, **without checking that
+    /// it is one**.
+    ///
+    /// For a caller that has already established the shape by another route --
+    /// `RouteBlock` classifies sixteen bytes in one shuffle and says which are
+    /// continuations, so re-testing here would be asking a question that is
+    /// already answered. `utf8_continuation` is the checking form and is what
+    /// a byte-at-a-time caller wants.
+    pub const fn continuation_bits(self) -> u32 {
+        (self.0 & 0x3f) as u32
+    }
+
+    /// The payload bits of a lead byte owing `n` continuations, on the same
+    /// contract: the caller has established the length.
+    ///
+    /// A lead of length `n` keeps `7 - n` bits, which is why the mask is
+    /// derived from the length rather than written out four times.
+    pub const fn lead_bits(self, n: usize) -> u32 {
+        (self.0 & (0x7f >> n)) as u32
+    }
+
     pub const fn utf8_continuation(self) -> Option<u32> {
         match self.0 & 0xc0 {
             0x80 => Some((self.0 & 0x3f) as u32),

@@ -13,6 +13,15 @@ default = []
 # allocates; this is a convenience for callers who would otherwise have to find
 # 24 MB of static storage.
 alloc = []
+# Ceiling arms. Each is incorrect by construction and off by default; they
+# exist so the next person re-measures where the time is instead of arguing
+# about it, which is how this crate came to be written at all.
+#
+# `no-write`   the routes are computed and nothing reaches the grid
+# `no-classify` characters are decoded and assumed narrow: prices the
+#              128 KB property table lookup, one load a character
+ceiling-no-write = []
+ceiling-no-classify = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

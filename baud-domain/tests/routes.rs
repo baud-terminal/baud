@@ -69,3 +69,73 @@ fn a_run_of_text_is_one_route() {
     );
     assert!(r.is(Route::Text).first().is_some(), "every lane is text");
 }
+
+// ── stride runs ─────────────────────────────────────────────────────────────
+
+fn block_of(bytes: &[u8]) -> RouteBlock {
+    let mut b = [StreamByte::from_stream(b'!'); LANE_COUNT];
+    for (i, x) in bytes.iter().take(LANE_COUNT).enumerate() {
+        b[i] = StreamByte::from_stream(*x);
+    }
+    Vectorized::<Printable>::load(&b).routes()
+}
+
+/// Five three-byte characters fill a block exactly, and the sixteenth byte
+/// cannot be part of a sixth.
+#[test]
+fn a_block_of_three_byte_characters_yields_five() {
+    let mut v = Vec::new();
+    for _ in 0..6 {
+        v.extend_from_slice("世".as_bytes());
+    }
+    assert_eq!(block_of(&v).stride_three(), 5);
+}
+
+/// A run that stops is counted up to where it stops, not past it.
+#[test]
+fn a_run_is_counted_only_to_where_it_stops() {
+    let mut v = Vec::new();
+    v.extend_from_slice("世界".as_bytes()); // two characters, six bytes
+    v.extend_from_slice(b"abc");
+    assert_eq!(block_of(&v).stride_three(), 2);
+}
+
+/// **A different stride is not a three-stride run**, however many
+/// continuations follow. A two-byte lead puts the next lead at the wrong lane
+/// and the pattern test is what rejects it.
+#[test]
+fn a_two_byte_character_is_not_a_three_stride_run() {
+    let mut v = Vec::new();
+    v.extend_from_slice("é".as_bytes()); // two bytes
+    v.extend_from_slice("世界界".as_bytes());
+    assert_eq!(block_of(&v).stride_three(), 0);
+}
+
+/// A four-byte lead is where the emoji are, and they need the cluster machine
+/// one codepoint at a time.
+#[test]
+fn a_four_byte_character_is_refused() {
+    let mut v = Vec::new();
+    v.extend_from_slice("🚀".as_bytes());
+    v.extend_from_slice("世界".as_bytes());
+    assert_eq!(block_of(&v).stride_three(), 0);
+}
+
+/// Text is not a stride run either -- it has its own, cheaper route.
+#[test]
+fn printable_text_yields_no_stride_run() {
+    assert_eq!(block_of(b"hello world!!!!!").stride_three(), 0);
+}
+
+/// A truncated character at the end of the block is not counted: the caller
+/// would read past the bytes it has.
+#[test]
+fn a_truncated_character_is_not_counted() {
+    let mut v = Vec::new();
+    for _ in 0..5 {
+        v.extend_from_slice("世".as_bytes());
+    }
+    v.push(0xe4); // a lead with no continuations in this block
+    let n = block_of(&v).stride_three();
+    assert_eq!(n, 5, "the five complete characters, and not the sixth");
+}
