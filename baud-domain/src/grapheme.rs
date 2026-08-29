@@ -160,6 +160,16 @@ impl ClusterBreak {
     ///
     /// Rule numbers are `[[source: uax29]]`'s, and the order is theirs: the
     /// first matching rule wins, and GB999 ("anything else breaks") is last.
+    /// `#[inline(always)]`, with `decide` and `advance` deliberately **not**.
+    ///
+    /// The fast path below is six compares and a table lookup, and it answers
+    /// for every ordinary character. Left as a real call it profiled at
+    /// **24.6%** of `cat-cjk.raw` -- its own leaf frame, which is the tell --
+    /// and the same shape cost `View::clear_partners` 11% until it was
+    /// inlined. The rules and the state machine stay out of line so that
+    /// inlining this does not drag six hundred bytes of cold arms into
+    /// `feed_with`, which this repo has measured being sensitive to.
+    #[inline(always)]
     pub fn is_break(&mut self, c: Codepoint) -> bool {
         let cur = GraphemeClass::of(c);
         let cp = c.value();
@@ -214,6 +224,7 @@ impl ClusterBreak {
             .is_some_and(|w| w & (1u64 << (blk % 64)) != 0)
     }
 
+    #[inline(never)]
     fn decide(&self, cur: GraphemeClass, cp: u32) -> bool {
         use GraphemeClass::*;
         // GB1: sot ÷ Any -- there *is* a boundary before the first codepoint,
@@ -266,6 +277,7 @@ impl ClusterBreak {
         true
     }
 
+    #[inline(never)]
     fn advance(&mut self, cur: GraphemeClass, cp: u32, brk: bool) {
         use GraphemeClass::*;
         self.prev = Some(cur);
