@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [2.19× ghostty on spans, 1.50× on cells](#the-number) — ahead in both representations, on both payloads |
+| **Throughput** | ✅ [2.24× ghostty on spans, 1.50× on cells](#the-number) — ahead in both representations, on both payloads |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -117,22 +117,24 @@ allocated nothing still cost 22%, because the array grew past cache.
 
 ## The number
 
-*Apple M5 Max, 2026-08-28, commit `0bcd659`, **on mains**, in-memory transport,
+*Apple M5 Max, 2026-08-28, commit `e4505e7`, **on mains**, in-memory transport,
 medians of 9, interleaved, two runs quoted. ghostty is built from an unchanged
-checkout and is the control. Full table and every caveat in
-[MEASUREMENTS.md](MEASUREMENTS.md).*
+checkout and is the control — it reads 1117.4 / 1116.8 across the two runs,
+0.05% apart, which is what makes the rest of the column readable. Full table and
+every caveat in [MEASUREMENTS.md](MEASUREMENTS.md).*
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** (spans) | **2510.3 / 2416.0** MB/s | **2887.8 / 2761.3** MB/s |
-| **baud** (cells, computed) | **1706.7 / 1661.8** | **1693.3 / 1547.1** |
-| ghostty (libghostty-vt) | 1140.0 / 1101.6 | 1066.2 / 1021.1 |
-| termwiz (wezterm) parse only | 379.8 / 375.8 | 369.5 / 360.8 |
-| alacritty_terminal | 225.8 / 202.5 | 276.7 / 268.2 |
-| vt100 crate | 166.9 / 160.5 | 217.0 / 204.9 |
-| wezterm (full terminal) | 17.7 / 17.5 | 32.3 / 31.7 |
+| **baud** (spans) | **2498.3 / 2433.1** MB/s | **3005.7 / 2926.3** MB/s |
+| **baud** (cells, templated) | **1702.4 / 1661.8** | **1574.3 / 1558.9** |
+| **baud** (cells, computed) | **1676.9 / 1661.2** | **1578.4 / 1510.1** |
+| ghostty (libghostty-vt) | 1117.4 / 1116.8 | 1049.8 / 1047.5 |
+| termwiz (wezterm) parse only | 374.4 / 376.5 | 367.9 / 366.9 |
+| alacritty_terminal | 219.9 / 211.1 | 272.6 / 268.7 |
+| vt100 crate | 169.9 / 168.3 | 220.9 / 219.1 |
+| wezterm (full terminal) | 17.3 / 17.8 | 31.9 / 32.2 |
 
-**Spans: 2.19x ghostty streaming, 2.70x TUI. Cells: 1.50x and 1.55x.**
+**Spans: 2.24x ghostty streaming, 2.86x TUI. Cells: 1.50x and 1.50x.**
 
 ## The synthetic payloads went **down** while every real recording went up
 
@@ -141,19 +143,20 @@ one. Over one session, measured with `ingest` against the same starting commit:
 
 | real capture | before | after | |
 |---|---|---|---|
-| `less-pager.raw` | 26.6 | **931** | **35x** |
-| `vim-unicode.raw` | 246 | **343** | **+40%** |
-| `btop.raw` | 452 | **550** | **+22%** |
-| `cat-scroll.raw` | 778 | **841** | +8% |
-| `git-log.raw` | 990 | 990 | flat |
-| `cat-cjk.raw`, `less-cjk.raw` | *did not exist* | 194, 205 | — |
+| `less-pager.raw` | 26.6 | **943** | **35x** |
+| `vim-unicode.raw` | 246 | **404** | **+64%** |
+| `btop.raw` | 452 | **619** | **+37%** |
+| `cat-scroll.raw` | 778 | **885** | **+14%** |
+| `git-log.raw` | 990 | **1048** | +6% |
+| `asciiquarium.raw` | 301 | **316** | +5% |
+| `cat-cjk.raw`, `less-cjk.raw` | *did not exist* | 227, 238 | — |
 
 | synthetic payload | before | after | |
 |---|---|---|---|
-| `payload::streaming`, cells | 1327 | 1241 | **-6.5%** |
-| `payload::streaming`, runs | 1714 | 1632 | **-4.8%** |
-| `payload::tui`, cells | 1414 | 1307 | **-7.6%** |
-| `payload::tui`, runs | 1470 | 1226 | **-16.6%** |
+| `payload::streaming`, cells | 1327 | 1297 | -2.3% |
+| `payload::streaming`, runs | 1714 | 1707 | flat |
+| `payload::tui`, cells | 1414 | 1324 | **-6.4%** |
+| `payload::tui`, runs | 1470 | 1283 | **-12.7%** |
 
 Two causes, and neither is avoidable:
 
