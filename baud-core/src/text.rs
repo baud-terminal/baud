@@ -111,7 +111,7 @@ impl<'a> Term<'a> {
         let took = wrote / 2;
         self.cells_written.add(wrote);
         #[cfg(feature = "instrument")]
-        self.cells_single.add(wrote);
+        self.cells_wide.add(wrote);
         self.cx = Col::at_index(x + wrote);
         if took > 0 {
             // `REP` repeats the last graphic character, so it must be the last

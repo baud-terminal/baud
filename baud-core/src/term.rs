@@ -354,8 +354,19 @@ pub struct Term<'a> {
     /// two is what turns a time share into a cost per cell.
     pub cells_bulk: Stat,
     /// Cells written one at a time by `put_cp`: anything that is not a run of
-    /// printable ASCII, so wide characters, combining marks and `REP`.
+    /// printable ASCII and not a run of plain wide characters, so combining
+    /// marks, narrow non-ASCII, astral codepoints and `REP`.
     pub cells_single: Stat,
+    /// Cells written by `put_wide_run`, the bulk path for runs of plain
+    /// double-width characters.
+    ///
+    /// **Split out of `cells_single` because lumping them together hid the
+    /// question this counter exists to answer.** The bulk path prices a wide
+    /// character at 1.3 ns against `put_cp`'s 6-8, so "36% single" on a CJK
+    /// recording can mean either that the bulk path is carrying the text or
+    /// that it is never engaging, and those call for opposite work. A profile
+    /// cannot separate them either: both end in a cell store.
+    pub cells_wide: Stat,
     /// Cells written by scrolling, erasing and blanking -- `fill` and
     /// `fill_row`. Overlaps `cells_blanked` by construction; kept separate so
     /// the three attribution counters sum to `cells_written`.
@@ -534,6 +545,7 @@ impl<'a> Term<'a> {
             bytes_text: Stat::ZERO,
             cells_bulk: Stat::ZERO,
             cells_single: Stat::ZERO,
+            cells_wide: Stat::ZERO,
             cells_fill: Stat::ZERO,
             cells_scroll: Stat::ZERO,
             scrolls: Stat::ZERO,
@@ -637,18 +649,19 @@ impl<'a> Term<'a> {
     /// building: the literature's 10x applies to these bytes and no others.
     /// Where the written cells came from, as shares of `cells_written`.
     ///
-    /// `(bulk, single, fill)`. They sum to 1.0 when every write site is
+    /// `(bulk, wide, single, fill)`. They sum to 1.0 when every write site is
     /// attributed, and `cell_attribution_accounts_for_every_write` asserts it
     /// -- the same invariant `path_split` carries, and for the same reason: an
     /// unattributed write is one nobody will think to look for.
-    pub fn cell_attribution(&self) -> (f64, f64, f64) {
+    pub fn cell_attribution(&self) -> (f64, f64, f64, f64) {
         let n = self.cells_written.count();
         if n == 0 {
-            return (0.0, 0.0, 0.0);
+            return (0.0, 0.0, 0.0, 0.0);
         }
         let f = |x: u64| x as f64 / n as f64;
         (
             f(self.cells_bulk.count()),
+            f(self.cells_wide.count()),
             f(self.cells_single.count()),
             f(self.cells_fill.count()),
         )

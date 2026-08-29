@@ -412,16 +412,19 @@ fn cell_attribution_accounts_for_every_write() {
         }
 
         let total = t.cells_written.count();
-        let parts = t.cells_bulk.count() + t.cells_single.count() + t.cells_fill.count();
+        let parts = t.cells_bulk.count()
+            + t.cells_wide.count()
+            + t.cells_single.count()
+            + t.cells_fill.count();
         assert!(total > 0, "{name}: the payload wrote no cells");
         assert_eq!(
             parts, total,
             "{name}: attribution sums to {parts} against {total} written -- a \
              write site has no counter"
         );
-        let (b, s2, f) = t.cell_attribution();
+        let (b, w, s2, f) = t.cell_attribution();
         assert!(
-            (b + s2 + f - 1.0).abs() < 1e-9,
+            (b + w + s2 + f - 1.0).abs() < 1e-9,
             "{name}: shares sum to {}",
             b + s2 + f
         );
@@ -581,10 +584,17 @@ fn the_utf8_path_carries_cjk_capture() {
             slow * 100.0
         );
 
-        let (_, single, _) = t.cell_attribution();
+        // `wide` counts the bulk path for runs of double-width characters,
+        // which used to be part of `single`. The assertion is about the
+        // *recording* still carrying wide characters, not about which of the
+        // two paths writes them, so it takes the sum -- reading `single`
+        // alone would now fail on exactly the recordings it was written to
+        // protect.
+        let (_, wide, single, _) = t.cell_attribution();
+        let single = single + wide;
         assert!(
             single > min_single,
-            "{name}: only {:.1}% of cells came from the per-codepoint path. \
+            "{name}: only {:.1}% of cells came off the ASCII bulk path. \
              A wide character cannot use `put_ascii_run`, so a low figure here \
              means the recording stopped carrying wide characters",
             single * 100.0
