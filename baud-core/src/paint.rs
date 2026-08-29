@@ -216,9 +216,17 @@ impl<'a> Paint<'a> {
             return self.view.rot();
         }
         let rot = self.view.advance_rot(1);
+        // **Ceiling arm: the blank behind a scroll.** The ring still advances
+        // and the row is still counted, so both arms attribute the same cells
+        // and only the stores differ -- which is what the previous core's
+        // blanking arm got wrong, reporting a full row on one side and the
+        // used extent on the other.
+        #[cfg(not(feature = "ceiling-no-blank"))]
         let n = self
             .view
             .fill_row(Row::from_index(last), PackedCell::empty_with(self.style));
+        #[cfg(feature = "ceiling-no-blank")]
+        let n = self.view.extent(Row::from_index(last));
         self.cells = self.cells.plus(n.index());
         rot
     }

@@ -38,6 +38,8 @@ probe-double-classify-block = []
 probe-double-masks = []
 # The walk stubbed: the block is classified and then discarded.
 ceiling-no-walk = []
+# The blank behind a scroll, with the ring still advancing.
+ceiling-no-blank = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

@@ -189,6 +189,15 @@ pub(crate) fn put_run_of(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: 
     }
     // Mixed widths, or the row is about to end: one at a time, which also
     // handles the wrap.
+    //
+    // **The second `Classified::of` here is not a duplicate worth removing.**
+    // Carrying the width alongside the codepoint, so this loop reads what the
+    // loop above computed, measured **632-638 against 675-680**: a
+    // `[bool; 32]` beside the decode buffer is a store a character in the hot
+    // loop, and the lookup it saves is on a table the probe above prices at
+    // **0%** -- fully hidden behind the work around it. Removing a free load
+    // by adding a store is a loss, and this is the second time that shape has
+    // measured one here.
     for cp in cps.iter().take(k) {
         let w = Classified::of(*cp).width(AmbiguousWidth::Narrow);
         p.glyph(*cp, w);
