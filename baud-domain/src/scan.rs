@@ -2,6 +2,8 @@ use crate::StreamByte;
 use core::marker::PhantomData;
 use core::simd::Simd;
 use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
+use core::simd::num::SimdUint as _;
+
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::*;
@@ -376,6 +378,166 @@ impl<K: Kind> Vectorized<K> {
             v,
             _kind: PhantomData,
         }
+    }
+}
+
+/// Which route a byte takes out of a ground node.
+///
+/// **This is the graph's ground row, reduced to what a block can answer.** The
+/// parse graph is indexed by `(node, byte)` and gives a full edge; a *block*
+/// classifier cannot carry a node, because the node changes within the block.
+/// What it can answer is the question every byte of ground-state input poses --
+/// which route starts here and how many bytes it consumes -- and that is a
+/// function of the byte alone.
+///
+/// **It is a function of the high nibble alone, with one correction**, and
+/// that is the fact that makes it one instruction: a nibble-indexed shuffle
+/// (`vqtbl1q_u8`, `pshufb`) is a 16-entry table applied to 16 bytes at once,
+/// and there are exactly 16 high nibbles. `0x7f` is the correction, because it
+/// shares a nibble with printable ASCII and is not printable -- the same
+/// `0x7f` that once went missing from the AVX2 stop mask.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum Route {
+    /// `00..1F`: a C0 control, which executes or begins a sequence.
+    Control = 0,
+    /// `20..7E`: printable ASCII. The only route the run scanner can take.
+    Text = 1,
+    /// `7F`: neither text nor control. Its own route because it is the
+    /// exception the nibble cannot express.
+    Del = 2,
+    /// `80..BF`: a UTF-8 continuation, or a C1 control outside UTF-8.
+    Cont = 3,
+    /// `C0..DF`: a two-byte lead.
+    Lead2 = 4,
+    /// `E0..EF`: a three-byte lead -- CJK, Hangul, most of the BMP.
+    Lead3 = 5,
+    /// `F0..FF`: a four-byte lead -- the astral planes, which is where the
+    /// emoji are and therefore where the cluster machine is needed.
+    Lead4 = 6,
+}
+
+impl Route {
+    /// How many bytes the character starting here occupies, or zero when the
+    /// byte does not start one.
+    pub const fn width(self) -> usize {
+        match self {
+            Route::Lead2 => 2,
+            Route::Lead3 => 3,
+            Route::Lead4 => 4,
+            Route::Cont => 0,
+            _ => 1,
+        }
+    }
+
+    /// The route for one byte, scalar. **The definition the block classifier
+    /// answers to**, exhaustively, over all 256 bytes.
+    pub const fn of(b: StreamByte) -> Route {
+        match b.raw_byte() {
+            0x00..=0x1f => Route::Control,
+            0x20..=0x7e => Route::Text,
+            0x7f => Route::Del,
+            0x80..=0xbf => Route::Cont,
+            0xc0..=0xdf => Route::Lead2,
+            0xe0..=0xef => Route::Lead3,
+            _ => Route::Lead4,
+        }
+    }
+
+    /// The 16-entry table the shuffle uses, indexed by the high nibble.
+    const BY_NIBBLE: [u8; 16] = [
+        Route::Control as u8,
+        Route::Control as u8,
+        Route::Text as u8,
+        Route::Text as u8,
+        Route::Text as u8,
+        Route::Text as u8,
+        Route::Text as u8,
+        Route::Text as u8, // 7x, with 0x7f corrected below
+        Route::Cont as u8,
+        Route::Cont as u8,
+        Route::Cont as u8,
+        Route::Cont as u8,
+        Route::Lead2 as u8,
+        Route::Lead2 as u8,
+        Route::Lead3 as u8,
+        Route::Lead4 as u8,
+    ];
+}
+
+/// Sixteen bytes' routes, in one register.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct RouteBlock(Simd<u8, LANE_COUNT>);
+
+impl RouteBlock {
+    /// Lanes whose route is exactly `r`.
+    #[inline(always)]
+    pub fn is(self, r: Route) -> LaneMask {
+        LaneMask::from_movemask(self.0.simd_eq(Simd::splat(r as u8)).to_bitmask() as u32)
+    }
+
+    /// Lanes that are **not** `r` -- for finding where a run of one route ends.
+    #[inline(always)]
+    pub fn is_not(self, r: Route) -> LaneMask {
+        LaneMask::from_movemask(self.0.simd_ne(Simd::splat(r as u8)).to_bitmask() as u32)
+    }
+
+    /// The route of one lane, for the scalar tail and for tests.
+    #[inline(always)]
+    pub fn at(self, i: usize) -> Route {
+        ROUTE_FROM_INDEX[self.0[i] as usize]
+    }
+}
+
+/// Index back to the enum, so `RouteBlock::at` needs no cast in the caller.
+static ROUTE_FROM_INDEX: [Route; 7] = [
+    Route::Control,
+    Route::Text,
+    Route::Del,
+    Route::Cont,
+    Route::Lead2,
+    Route::Lead3,
+    Route::Lead4,
+];
+
+impl Vectorized<Printable> {
+    /// **The whole ground row of the parse graph, for sixteen bytes, in one
+    /// shuffle.**
+    ///
+    /// `swizzle_dyn` is `vqtbl1q_u8` on aarch64 and `pshufb` on x86-64: a
+    /// 16-entry table applied to 16 indices at once. The indices are the high
+    /// nibbles, which is why the table is 16 entries and not 256 -- the route
+    /// is a function of the high nibble, and `0x7f` is the single exception,
+    /// corrected with one compare and one select.
+    ///
+    /// This replaces asking a hand-written predicate per byte per question.
+    /// `Scan::run`, `Scan::final_byte` and `Scan::st` each walk the block with
+    /// their own compare; the routes answer all of them from one pass, and
+    /// they answer the question those three cannot: **where each character
+    /// starts and how long it is**, which is what a writer needs to take a run
+    /// whose median length is one.
+    #[inline(always)]
+    pub fn routes(self) -> RouteBlock {
+        let v = self.lanes();
+        let mut tbl = [0u8; LANE_COUNT];
+        let mut i = 0;
+        while i < 16 {
+            tbl[i] = Route::BY_NIBBLE[i];
+            i += 1;
+        }
+        let r = Simd::from_array(tbl).swizzle_dyn(v >> Simd::splat(4));
+        // `7F` shares the `7x` nibble with printable ASCII and is not text.
+        // One compare and one blend, which is the whole correction.
+        // **The `7F` correction, without a mask.** `Text` is 1 and `Del` is 2,
+        // so the whole fix is "add one where the byte is `7F`" -- and
+        // `1 - (b ^ 0x7F)` saturating *is* that indicator: the xor is zero
+        // only at `7F`, where the subtract yields 1, and at least 1
+        // everywhere else, where it saturates to 0. Two vector instructions
+        // and no lane-mask conversion, which this toolchain's portable-simd
+        // does not offer for `u8` anyway.
+        let is_del = Simd::splat(1u8).saturating_sub(v ^ Simd::splat(0x7f));
+        RouteBlock(r + is_del)
     }
 }
 
