@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.03–4.10× on committed capture |
+| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.12–4.31× on committed capture |
 | Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
 | Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
 | Renderer | ⬜ not started |
@@ -124,17 +124,18 @@ Full tables, other hosts, and every caveat in
 
 | recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1209.9** | 295.1 | 242.9 | **4.10x** |
-| `ascii/cat-scroll.raw` | **1040.9** | 430.9 | 203.9 | **2.42x** |
-| `ascii/git-log.raw` | **1223.4** | 526.0 | 213.0 | **2.33x** |
-| `ascii/asciiquarium.raw` | **380.5** | 202.5 | 244.9 | **1.88x** |
-| `utf8/less-cjk.raw` | **417.7** | 253.8 | 274.8 | **1.65x** |
-| `utf8/btop.raw` | **760.9** | 507.8 | 324.3 | **1.50x** |
-| `utf8/vim-unicode.raw` | **451.2** | 354.0 | 290.3 | **1.27x** |
-| `utf8/cat-cjk.raw` | **403.7** | 391.1 | 229.8 | **1.03x** |
+| `ascii/less-pager.raw` | **1251.7** | 290.5 | 236.9 | **4.31x** |
+| `ascii/git-log.raw` | **1236.5** | 526.5 | 214.7 | **2.35x** |
+| `ascii/cat-scroll.raw` | **1077.5** | 429.9 | 205.8 | **2.51x** |
+| `utf8/btop.raw` | **790.4** | 513.1 | 330.7 | **1.54x** |
+| `utf8/vim-unicode.raw` | **491.9** | 361.4 | 285.9 | **1.36x** |
+| `utf8/less-cjk.raw` | **476.0** | 260.7 | 273.6 | **1.83x** |
+| `utf8/cat-cjk.raw` | **463.7** | 415.5 | 234.0 | **1.12x** |
+| `ascii/asciiquarium.raw` | **385.8** | 202.4 | 247.8 | **1.91x** |
 
-Ahead on all eight. These are committed recordings of real programs, in
-`baud-core/tests/recordings/`.
+Ahead on all eight, and the closest row is no longer close: `cat-cjk` was
+1.03x and is 1.12x, from baud moving rather than ghostty. These are committed
+recordings of real programs, in `baud-core/tests/recordings/`.
 
 And on generated payloads, where every core is driven through the same
 harness. `payload::streaming` models `cat`, logs and build output;
