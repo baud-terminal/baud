@@ -49,6 +49,7 @@ ceiling-no-write = []
 fast3 = []
 ceiling-no-attach = []
 ceiling-cheap-emoji = []
+merged-trie = []
 # **A ceiling arm, not a shipping option.** Makes `fill_row_counted` count and
 # not write, so the grid is wrong on purpose: it answers "what would blanking
 # cost if it were free" and nothing else. Compiled out rather than switched at

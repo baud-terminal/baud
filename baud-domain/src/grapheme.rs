@@ -63,6 +63,15 @@ pub struct Lookback(pub(crate) u8);
 
 impl Lookback {
     pub const NONE: Lookback = Lookback(0);
+    /// The raw membership bits, for tooling that has to reason about how many
+    /// of them a merged table would have to carry.
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+    /// Rebuild from the bits a generated table stored.
+    pub fn from_bits(b: u8) -> Lookback {
+        Lookback(b)
+    }
     /// In no lookback table at all -- 98.9% of the space.
     #[inline(always)]
     pub fn is_none(self) -> bool {
@@ -333,6 +342,19 @@ impl ClusterBreak {
     #[inline(always)]
     pub fn is_break(&mut self, c: Codepoint) -> bool {
         let (cur, lb) = GraphemeClass::of_with_lookback(c);
+        self.is_break_classified(cur, lb)
+    }
+
+    /// The same decision, for a caller that already has the classification.
+    ///
+    /// **Split so one table lookup can serve both questions.** `Width::of` and
+    /// `of_with_lookback` are separate tries over the same `cp >> 8` shape, so
+    /// a caller that needs the width -- which is every caller on the text path,
+    /// since the width decides how many cells the character occupies -- was
+    /// paying two lookups for one codepoint. [`Classified`] answers both from
+    /// one, and this is the half of `is_break` that does not need the table.
+    #[inline(always)]
+    pub fn is_break_classified(&mut self, cur: GraphemeClass, lb: Lookback) -> bool {
         // **An ordinary character after an ordinary character, with no lookback
         // live.** Han, kana and most punctuation are all `Other`, so this is
         // the shape a page of CJK text has, and both halves below are provably

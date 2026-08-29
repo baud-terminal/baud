@@ -276,7 +276,19 @@ impl<'a> Term<'a> {
             self.put_glyph(cp, w);
             return;
         }
-        if !self.cluster.is_break(cp) && self.cx != Col::ZERO {
+        // **One table lookup, not two.** `Width::of` and
+        // `GraphemeClass::of_with_lookback` are two two-stage tries over the
+        // same `cp >> 8` shape, so the caller already paid one to get `w` and
+        // this paid another for the same codepoint. `Classified` answers both
+        // from one lookup and a palette read; see `baud-domain/src/merged.rs`.
+        #[cfg(feature = "merged-trie")]
+        let brk = {
+            let cl = Classified::of(cp);
+            self.cluster.is_break_classified(cl.class, cl.lookback)
+        };
+        #[cfg(not(feature = "merged-trie"))]
+        let brk = self.cluster.is_break(cp);
+        if !brk && self.cx != Col::ZERO {
             self.attach_mark(cp);
             return;
         }
