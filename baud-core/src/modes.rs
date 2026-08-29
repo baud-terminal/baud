@@ -32,7 +32,8 @@ impl<'a> Term<'a> {
     /// paste and the alternate screen are recognised by the parser and
     /// deliberately not recorded here -- they are input-side or need a second
     /// screen buffer, and pretending otherwise would be worse than ignoring.
-    pub(crate) fn set_private_mode(&mut self, m: PrivateMode, on: bool) {
+    pub(crate) fn set_private_mode(&mut self, m: PrivateMode, change: ModeChange) {
+        let on = change == ModeChange::Set;
         match m {
             PrivateMode::CursorVisible => self.modes.apply(ModeBit::CursorVisible, on),
             PrivateMode::Origin => {
@@ -92,9 +93,9 @@ impl<'a> Term<'a> {
             // treats each DECSET as selecting one, and 1003 is a superset of
             // 1002 which is a superset of 1000. Resetting any of them turns
             // tracking off, which is what applications expect from `?1000 l`.
-            PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, on),
-            PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, on),
-            PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, on),
+            PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, change),
+            PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, change),
+            PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, change),
             PrivateMode::MouseSgr => {
                 // Resetting `?1006` returns to X10, which is the protocol's
                 // default rather than "off" -- there is no off.
@@ -251,7 +252,7 @@ impl<'a> Term<'a> {
     pub(crate) fn apply_private_modes(&mut self, change: ModeChange) {
         let (ps, n) = (self.params, self.nparams());
         for p in ps.iter().take(n) {
-            self.set_private_mode(PrivateMode::from_wire(*p), change.is_set());
+            self.set_private_mode(PrivateMode::from_wire(*p), change);
         }
     }
 

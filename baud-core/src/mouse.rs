@@ -1,8 +1,14 @@
 use crate::*;
 
 impl<'a> Term<'a> {
-    pub(crate) fn set_tracking(&mut self, level: MouseTracking, on: bool) {
-        self.mouse = if on { level } else { MouseTracking::Off };
+    /// Takes the [`ModeChange`] the caller already holds rather than a `bool`.
+    /// `set_private_mode` had one and spelled `change.is_set()` to call this,
+    /// degrading a domain type to a primitive and reconstructing it here.
+    pub(crate) fn set_tracking(&mut self, level: MouseTracking, change: ModeChange) {
+        self.mouse = match change {
+            ModeChange::Set => level,
+            ModeChange::Reset => MouseTracking::Off,
+        };
     }
 
     /// Whether `?1001` highlight tracking is on.

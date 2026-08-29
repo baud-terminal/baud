@@ -74,3 +74,20 @@ pub struct Anchor {
     /// stays valid across a resize while a `RowIdx` does not.
     pub row_within: RowCount,
 }
+
+/// Which way `DECIC`/`DECDC` move the cells in a row.
+///
+/// **Not a `bool`, because the two are opposites and a call site spelling
+/// `true` names neither.** `shift_columns(n, true)` inserted and
+/// `shift_columns(n, false)` deleted -- two destructive grid operations
+/// selected by a literal, where getting it backwards destroys text instead of
+/// making room for it. The audit gates `baud-domain` at zero `bool` *fields*
+/// for this reason; a `bool` parameter choosing between opposite effects is
+/// the same defect one indirection away.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColumnShift {
+    /// `DECIC`: open a gap at the cursor, pushing cells toward the margin.
+    Insert,
+    /// `DECDC`: close a gap at the cursor, pulling cells back from it.
+    Delete,
+}

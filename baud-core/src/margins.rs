@@ -37,7 +37,7 @@ impl<'a> Term<'a> {
         if !self.within_margins() {
             return;
         }
-        self.shift_columns(n, true);
+        self.shift_columns(n, ColumnShift::Insert);
     }
 
     /// DECDC, `CSI Pn ' ~`. The inverse, filling at the right margin.
@@ -45,7 +45,7 @@ impl<'a> Term<'a> {
         if !self.within_margins() {
             return;
         }
-        self.shift_columns(n, false);
+        self.shift_columns(n, ColumnShift::Delete);
     }
 
     /// Is the cursor inside the scrolling region, in both axes?
@@ -64,17 +64,16 @@ impl<'a> Term<'a> {
     ///
     /// Rows outside the *vertical* region are untouched: DECIC's "scrolling
     /// region" is the rectangle both margin pairs define, not the full height.
-    pub(crate) fn shift_columns(&mut self, n: Count, insert: bool) {
+    pub(crate) fn shift_columns(&mut self, n: Count, dir: ColumnShift) {
         let blank = PackedCell::empty_with(self.style);
         let (from, to) = (self.cx, self.right_margin.after());
         let (top, bot) = (self.scroll_top.index(), self.scroll_bot.index());
         for y in top..=bot {
             let r = Row::from_index(y);
             self.discard_row(r);
-            if insert {
-                self.insert_cells_counted(r, from, n, to, blank);
-            } else {
-                self.delete_cells_counted(r, from, n, to, blank);
+            match dir {
+                ColumnShift::Insert => self.insert_cells_counted(r, from, n, to, blank),
+                ColumnShift::Delete => self.delete_cells_counted(r, from, n, to, blank),
             }
         }
     }

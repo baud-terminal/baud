@@ -56,16 +56,16 @@ fi
 # `app: bool`. Widening it found 13 more across baud-core that had never been
 # counted.
 #
-# 13 is a FLOOR TO DRIVE DOWN, not slack, and it is deliberately not folded
+# 10 is a FLOOR TO DRIVE DOWN, not slack, and it is deliberately not folded
 # into the 8: that limit was calibrated against the narrower detector, and
 # raising it to fit a wider one is the move this repo's notes forbid. Every one
-# of the 13 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
+# of the 10 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
 # for it. `key.rs` went from 8 to 0 by using them; the rest can too.
-if [ "$sig" -gt 13 ]; then
-  echo "  FAIL baud-core+isa signatures: $sig raw-primitive params/returns (limit 13)"
+if [ "$sig" -gt 10 ]; then
+  echo "  FAIL baud-core+isa signatures: $sig raw-primitive params/returns (limit 10)"
   fail=1
 else
-  echo "  ok   baud-core+isa signatures: $sig (limit 13, a floor to drive down)"
+  echo "  ok   baud-core+isa signatures: $sig (limit 10, a floor to drive down)"
 fi
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
