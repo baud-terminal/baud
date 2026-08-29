@@ -116,6 +116,13 @@ fn main() {
             t.blocks,
             br as f64 / t.blocks as f64
         );
+        let m: usize = t.miss_first.iter().sum();
+        let names = ["text", "ctrl", "2B", "3B", "4B", "other"];
+        print!("  blocks missing every fast path, by first lane:");
+        for (i, n) in t.miss_first.iter().enumerate() {
+            print!(" {}:{:.0}%", names[i], 100.0 * *n as f64 / m as f64);
+        }
+        println!();
         print!("  runs by encoded length:");
         for (k, n) in t.run_len.iter().enumerate().skip(2) {
             print!(" {k}B:{:.0}%", 100.0 * *n as f64 / tot as f64);

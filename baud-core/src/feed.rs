@@ -57,11 +57,23 @@ impl Term<'_> {
             // of a read goes a byte at a time, which is at most fifteen bytes
             // per `read(2)` and so cannot be hot.
             if node.is_ground() && i + LANE_COUNT <= len {
-                let routes = Vectorized::<Printable>::load(StreamByte::slice_from(
+                let block16 = Vectorized::<Printable>::load(StreamByte::slice_from(
                     &p.arena[from + i..from + i + LANE_COUNT],
-                ))
-                .routes();
-                let took = block(&mut p, base.advance(ByteLen::from_index(i)), routes);
+                ));
+                // **Priced by doing it twice.** Removing the classification
+                // changes which path every byte takes, so an arm that stubs it
+                // measures a different program; a second identical
+                // classification leaves every counter alone and costs exactly
+                // one.
+                #[cfg(feature = "probe-double-classify-block")]
+                core::hint::black_box(block16.routes());
+                let routes = block16.routes();
+                let took = block(
+                    &mut p,
+                    base.advance(ByteLen::from_index(i)),
+                    routes,
+                    ByteLen::from_index(len - i),
+                );
                 if !took.is_zero() {
                     i += took.index();
                     continue;
@@ -89,6 +101,9 @@ impl Term<'_> {
                 self.run_len[i] += p.run_len[i];
             }
             self.blocks += p.blocks;
+            for i in 0..6 {
+                self.miss_first[i] += p.miss_first[i];
+            }
             for i in 0..10 {
                 self.block_runs[i] += p.block_runs[i];
             }
@@ -115,7 +130,7 @@ impl Term<'_> {
 /// times per character and the block buys nothing. The first version did
 /// exactly that and measured identical to the core it replaces.
 #[inline(always)]
-fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
+fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) -> ByteLen {
     // **Six mask extractions a block, and cutting them to three lost.**
     // `to_bitmask` has no single instruction on aarch64 -- a shift-narrow and
     // a move across register files -- so this looked like the walk's cost.
@@ -157,10 +172,66 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
         return ByteLen::from_index(15);
     }
     if text == 0xffff {
-        p.text(from, ByteLen::from_index(LANE_COUNT));
+        // **A long text run is the one shape worth looking ahead for**, and
+        // the test is free here because the mask is already in hand. Doing it
+        // *before* the walk instead -- so the caller could decide -- extracted
+        // the text mask twice and measured 644-655 against 688-693 on
+        // `cat-cjk.raw`, a payload whose blocks are never all text.
+        let mut n = LANE_COUNT;
+        if left.index() >= 2 * LANE_COUNT {
+            let next = Vectorized::<Printable>::load(StreamByte::slice_from(
+                &p.arena[from.index() + LANE_COUNT..from.index() + 2 * LANE_COUNT],
+            ))
+            .routes();
+            if next.is(Route::Text).bits() == 0xffff {
+                n = 2 * LANE_COUNT;
+            }
+        }
+        p.text(from, ByteLen::from_index(n));
+        return ByteLen::from_index(n);
+    }
+
+    // Priced the same way as the classification: a second identical set of
+    // extractions, so every counter is unchanged and the cost is exactly one.
+    #[cfg(feature = "probe-double-masks")]
+    {
+        core::hint::black_box((
+            routes.is(Route::Text).bits(),
+            routes.is(Route::Control).bits(),
+            routes.is(Route::Cont).bits(),
+            routes.is(Route::Lead2).bits(),
+            routes.is(Route::Lead3).bits(),
+            routes.is(Route::Lead4).bits(),
+        ));
+    }
+
+    // **Ceiling arm: the walk, priced whole.** The block is classified, the
+    // masks are taken, and then nothing is done with them -- so the pair with
+    // the default build separates "finding the runs and dispatching them"
+    // from "classifying the block", which the two probes above already put at
+    // 3% between them.
+    #[cfg(feature = "ceiling-no-walk")]
+    {
+        core::hint::black_box((text, ctrl, cont, leads));
         return ByteLen::from_index(LANE_COUNT);
     }
 
+    // What the blocks that miss every fast path actually look like, by the
+    // route of their first lane and how far the walk gets.
+    #[cfg(feature = "diag")]
+    {
+        let first = match () {
+            _ if text & 1 != 0 => 0,
+            _ if ctrl & 1 != 0 => 1,
+            _ if leads[0] & 1 != 0 => 2,
+            _ if leads[1] & 1 != 0 => 3,
+            _ if leads[2] & 1 != 0 => 4,
+            _ => 5,
+        };
+        p.miss_first[first] += 1;
+    }
+
+    #[allow(unreachable_code)]
     let mut off = 0usize;
     #[cfg(feature = "diag")]
     let mut iters = 0usize;

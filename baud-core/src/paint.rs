@@ -61,6 +61,10 @@ pub(crate) struct Paint<'a> {
     pub(crate) blocks: usize,
     #[cfg(feature = "diag")]
     pub(crate) block_runs: [usize; 10],
+    /// What a block that missed every fast path begins with: text, control,
+    /// a two/three/four-byte lead, or something else.
+    #[cfg(feature = "diag")]
+    pub(crate) miss_first: [usize; 6],
 }
 
 impl<'a> Paint<'a> {
@@ -99,6 +103,8 @@ impl<'a> Paint<'a> {
             blocks: 0,
             #[cfg(feature = "diag")]
             block_runs: [0; 10],
+            #[cfg(feature = "diag")]
+            miss_first: [0; 6],
         }
     }
 

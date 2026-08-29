@@ -32,6 +32,12 @@ no-extend = []
 ceiling-no-classify = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
+# The block classification itself, priced by doing it twice.
+probe-double-classify-block = []
+# The six lane-mask extractions, priced by doing them twice.
+probe-double-masks = []
+# The walk stubbed: the block is classified and then discarded.
+ceiling-no-walk = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
