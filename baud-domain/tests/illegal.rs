@@ -54,3 +54,20 @@ fn dig(n: u8) -> Digit {
 pub struct Cell2 {
     pub v: u16,
 }
+
+/// The lead table must answer exactly what the ranges did, for all 256 bytes.
+#[test]
+fn the_lead_table_matches_the_ranges() {
+    for b in 0u8..=255 {
+        let want = match b {
+            0xc2..=0xdf => Some((1u8, u32::from(b & 0x1f), 0u8)),
+            0xe0..=0xef => Some((2, u32::from(b & 0x0f), 1)),
+            0xf0..=0xf4 => Some((3, u32::from(b & 0x07), 2)),
+            _ => None,
+        };
+        let got = baud_domain::StreamByte::from_stream(b)
+            .utf8_lead()
+            .map(|(r, bits, m)| (r, bits, m as u8));
+        assert_eq!(got, want, "lead byte {b:#04x}");
+    }
+}

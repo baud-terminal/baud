@@ -182,13 +182,29 @@ impl StreamByte {
     }
     /// Lead byte of a UTF-8 sequence: how many continuation bytes follow, and
     /// the payload bits. `None` for ASCII and for stray continuation bytes.
+    /// **A load, not four range tests.** This is a branchy match evaluated once
+    /// per non-ASCII character -- 81% of `cat-cjk.raw`'s bytes -- and it is the
+    /// same shape as `ClusterBreak::decide`, which cost 8% until it became a
+    /// table. A lead byte is one bounded input, so its answer is precomputable:
+    /// 256 entries, low byte the continuation count with `0xff` for "not a
+    /// lead", high byte the payload bits, and the shortest-form floor derived
+    /// from the count.
+    #[inline(always)]
     pub fn utf8_lead(self) -> Option<(u8, u32, Utf8Min)> {
-        match self.0 {
-            0xc2..=0xdf => Some((1, (self.0 & 0x1f) as u32, Utf8Min::Two)),
-            0xe0..=0xef => Some((2, (self.0 & 0x0f) as u32, Utf8Min::Three)),
-            0xf0..=0xf4 => Some((3, (self.0 & 0x07) as u32, Utf8Min::Four)),
-            _ => None,
+        let e = UTF8_LEAD[self.0 as usize];
+        let rem = (e & 0xff) as u8;
+        if rem == 0xff {
+            return None;
         }
+        Some((
+            rem,
+            u32::from(e >> 8),
+            match rem {
+                1 => Utf8Min::Two,
+                2 => Utf8Min::Three,
+                _ => Utf8Min::Four,
+            },
+        ))
     }
     /// `20..=7E`: a byte that stands for itself.
     pub fn is_printable_ascii(self) -> bool {
@@ -635,4 +651,25 @@ impl InputEncoding {
             }
         }
     }
+}
+
+/// Low byte: continuation count, `0xff` when the byte cannot lead. High byte:
+/// the lead's payload bits. Built at compile time from the same ranges the
+/// match used, and `the_lead_table_matches_the_ranges` checks all 256.
+static UTF8_LEAD: [u16; 256] = build_lead_table();
+
+const fn build_lead_table() -> [u16; 256] {
+    let mut t = [0x00ffu16; 256];
+    let mut b = 0usize;
+    while b < 256 {
+        let v = b as u8;
+        t[b] = match v {
+            0xc2..=0xdf => 1 | (((v & 0x1f) as u16) << 8),
+            0xe0..=0xef => 2 | (((v & 0x0f) as u16) << 8),
+            0xf0..=0xf4 => 3 | (((v & 0x07) as u16) << 8),
+            _ => 0x00ff,
+        };
+        b += 1;
+    }
+    t
 }
