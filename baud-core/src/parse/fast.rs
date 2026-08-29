@@ -816,10 +816,34 @@ impl<'a> Term<'a> {
         if from + need > end {
             return None;
         }
-        let mut acc = Utf8Acc::lead(bits);
-        for k in 1..need {
-            acc = acc.push(StreamByte::from_stream(self.s.arena[from + k]).utf8_continuation()?);
-        }
+        // The three-byte case is 81% of this recording; taking it straight
+        // line keeps the two continuation loads independent and the combine a
+        // tree. See `Utf8Acc::three`.
+        #[cfg(feature = "fast3")]
+        let acc = match rem {
+            2 => Utf8Acc::three(
+                bits,
+                StreamByte::from_stream(self.s.arena[from + 1]).utf8_continuation()?,
+                StreamByte::from_stream(self.s.arena[from + 2]).utf8_continuation()?,
+            ),
+            _ => {
+                let mut a = Utf8Acc::lead(bits);
+                for k in 1..need {
+                    a = a
+                        .push(StreamByte::from_stream(self.s.arena[from + k]).utf8_continuation()?);
+                }
+                a
+            }
+        };
+        #[cfg(not(feature = "fast3"))]
+        let acc = {
+            let mut acc = Utf8Acc::lead(bits);
+            for k in 1..need {
+                acc =
+                    acc.push(StreamByte::from_stream(self.s.arena[from + k]).utf8_continuation()?);
+            }
+            acc
+        };
         // Past here nothing can decline, so the mutations begin.
         #[cfg(feature = "instrument")]
         self.bytes_utf8.add(need);
@@ -988,12 +1012,29 @@ impl<'a> Term<'a> {
             }
             let mut acc2 = Utf8Acc::lead(bits2);
             let mut ok = true;
-            for k in 1..need2 {
-                match StreamByte::from_stream(self.s.arena[from + used + k]).utf8_continuation() {
-                    Some(cont) => acc2 = acc2.push(cont),
-                    None => {
-                        ok = false;
-                        break;
+            #[cfg(feature = "fast3")]
+            let three = rem2 == 2;
+            #[cfg(not(feature = "fast3"))]
+            let three = false;
+            if three {
+                // Straight line, so the two loads issue together and the
+                // combine is a tree of depth two. See `Utf8Acc::three`.
+                match (
+                    StreamByte::from_stream(self.s.arena[from + used + 1]).utf8_continuation(),
+                    StreamByte::from_stream(self.s.arena[from + used + 2]).utf8_continuation(),
+                ) {
+                    (Some(c1), Some(c2)) => acc2 = Utf8Acc::three(bits2, c1, c2),
+                    _ => ok = false,
+                }
+            } else {
+                for k in 1..need2 {
+                    match StreamByte::from_stream(self.s.arena[from + used + k]).utf8_continuation()
+                    {
+                        Some(cont) => acc2 = acc2.push(cont),
+                        None => {
+                            ok = false;
+                            break;
+                        }
                     }
                 }
             }

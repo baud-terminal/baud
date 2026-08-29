@@ -470,6 +470,21 @@ impl Utf8Acc {
     pub fn lead(bits: u32) -> Utf8Acc {
         Utf8Acc(bits)
     }
+    /// Combine a three-byte sequence as a tree rather than as a chain.
+    ///
+    /// **The same value, half the dependency depth.** `push` is
+    /// `(acc << 6) | cont`, so three bytes accumulate in three *dependent*
+    /// steps inside a loop whose bound is only known at run time, which stops
+    /// it unrolling. Written out, the terms are independent and the ors are a
+    /// tree of depth two, and the three byte loads can issue together.
+    ///
+    /// It matters because three-byte sequences are **81% of `cat-cjk.raw`**
+    /// and the slow path is ~64% decode by a ceiling arm -- and because this
+    /// loop is latency-bound, where shortening a chain is the only thing that
+    /// has ever helped. Vectorising the decode *lengthened* it and lost twice.
+    pub fn three(bits: u32, c1: u32, c2: u32) -> Utf8Acc {
+        Utf8Acc((bits << 12) | (c1 << 6) | c2)
+    }
     pub fn push(self, cont: u32) -> Utf8Acc {
         Utf8Acc((self.0 << 6) | cont)
     }
