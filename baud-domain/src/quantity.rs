@@ -365,15 +365,27 @@ impl Width {
     ///
     /// ASCII returns before touching a table, which is the ~94% path.
     ///
-    /// `#[inline(never)]`, and measured. This is only ever reached from the
-    /// `Utf8` arm of the state machine -- printable ASCII is taken by the run
-    /// scanner and never decoded here -- so inlining it only grows `control`,
-    /// which is reached from the `#[inline(always)]` ingest loop. Letting it
-    /// inline cost ~5% of the streaming cells path (1046.8 [1042.9-1052.4] down
-    /// to 994.0 [985.1-1003.4], ranges not overlapping, ghostty stable across
-    /// both). Same finding as `open_gap` and `anywhere_c0`: what costs is the
-    /// size of what the ingest loop inlines, not the work inside it.
-    #[inline(never)]
+    /// **~~`#[inline(never)]`, and measured.~~ Reversed, and the reason it was
+    /// right is the reason it no longer is.**
+    ///
+    /// It read: "this is only ever reached from the `Utf8` arm of the state
+    /// machine, so inlining it only grows `control`, which is reached from the
+    /// `#[inline(always)]` ingest loop. Letting it inline cost ~5% of the
+    /// streaming cells path (1046.8 [1042.9-1052.4] down to 994.0
+    /// [985.1-1003.4], ranges not overlapping)."
+    ///
+    /// Both halves of that premise have since gone. The body was **three binary
+    /// searches over 677 ranges** and is now two indexed loads, so there is
+    /// almost nothing left to grow the caller with; and `fast_utf8` calls this
+    /// directly rather than through `control`. Re-measured at HEAD, inlining is
+    /// **+4.8%** on less-cjk, +4% on `payload::cjk`, +3.6% on vim and +3.4% on
+    /// cat-cjk, with streaming, cat-scroll, git-log, less-pager and
+    /// asciiquarium all flat -- the payloads the old number was taken on.
+    ///
+    /// Carried rather than deleted because the old measurement was correct when
+    /// it was made. What dated it was two other changes, neither of which
+    /// looked like it touched this decision.
+    ///
     /// **Two indexed loads, not three binary searches.**
     ///
     /// This ran `in_ranges` over `ZERO`, then `WIDE`, then `AMBIGUOUS` -- up to
@@ -387,6 +399,11 @@ impl Width {
     /// which `width_tables_match_the_pinned_data` runs. A generated table
     /// nobody verifies is the "guessed table would look like it worked" failure
     /// this repo already records.
+    /// It profiled at **6.7%** of `cat-cjk.raw` with its own leaf frame, which
+    /// is the tell: an inlined two-load helper does not get one. The same shape
+    /// was worth 11% on `View::clear_partners`, 7% on `ClusterBreak::is_break`
+    /// and 6.5% on `View::fill_row`.
+    #[inline(always)]
     pub fn of(c: Codepoint, ambiguous: AmbiguousWidth) -> Width {
         let cp = c.value();
         if cp < 0x80 {
