@@ -43,7 +43,7 @@ impl<'a> Term<'a> {
                 self.psub.drop_first(i),
             )) {
                 Some((attr, used)) => {
-                    self.style_raw = attr.fold(self.style_raw);
+                    attr.fold_into(&mut self.style_raw);
                     i = i.advance(used.at_least_one_count());
                 }
                 None => break,

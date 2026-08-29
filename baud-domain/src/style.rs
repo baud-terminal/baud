@@ -398,6 +398,28 @@ impl StyleWord {
     pub fn with_attrs(self, a: Attrs) -> StyleWord {
         StyleWord { attrs: a, ..self }
     }
+
+    /// In-place setters, for [`SgrAttr::fold_into`].
+    ///
+    /// The `with_*` forms above copy the whole twenty-byte word to change four
+    /// bytes of it, and SGR handling is roughly **half** of `asciiquarium.raw`
+    /// by `opcost`. A rendition is folded once per attribute and then assigned
+    /// back, so the by-value form moved sixty bytes to set one field.
+    pub fn set_fg(&mut self, c: ColorWord) {
+        self.fg = c;
+    }
+    pub fn set_bg(&mut self, c: ColorWord) {
+        self.bg = c;
+    }
+    pub fn set_attrs(&mut self, a: Attrs) {
+        self.attrs = a;
+    }
+    pub fn set_font(&mut self, f: FontId) {
+        self.font = f;
+    }
+    pub fn set_underline(&mut self, c: ColorWord) {
+        self.underline = c;
+    }
     /// The fields that distinguish one rendition from another, folded into one
     /// integer for hashing.
     ///

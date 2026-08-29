@@ -218,6 +218,25 @@ impl SgrAttr {
     /// `Set`, `Unset` and every `Bg`, so bold, italic, underline, reverse,
     /// blink, conceal, strike and all background colours were parsed and then
     /// silently discarded.
+    /// Fold this attribute into `cur` **in place**.
+    ///
+    /// [`SgrAttr::fold`] copies the twenty-byte rendition in and out to change
+    /// four bytes of it, and the caller then assigns the result back. SGR
+    /// handling is roughly half of `asciiquarium.raw` by `opcost`, and one
+    /// attribute was moving sixty bytes to set one field.
+    #[inline(always)]
+    pub fn fold_into(self, cur: &mut StyleWord) {
+        match self {
+            SgrAttr::Reset => *cur = StyleWord::DEFAULT,
+            SgrAttr::Set(a) => cur.set_attrs(cur.attrs().with(a)),
+            SgrAttr::Unset(a) => cur.set_attrs(cur.attrs().without(a)),
+            SgrAttr::Fg(c) => cur.set_fg(ColorWord::from_color(c)),
+            SgrAttr::Bg(c) => cur.set_bg(ColorWord::from_color(c)),
+            SgrAttr::Font(f) => cur.set_font(f),
+            SgrAttr::Underline(c) => cur.set_underline(ColorWord::from_color(c)),
+        }
+    }
+
     pub fn fold(self, cur: StyleWord) -> StyleWord {
         match self {
             // `[[source: ecma48]]` § 8.3.117: SGR 0 "cancels the effect of any
