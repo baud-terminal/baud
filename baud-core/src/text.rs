@@ -317,7 +317,15 @@ impl<'a> Term<'a> {
             let edge = self.right_margin.after();
             self.open_gap(n, edge);
         }
+        // **Ceiling arm: what the per-character write costs.** Incorrect by
+        // construction -- nothing reaches the grid, so `cells_written` moves
+        // and this is an upper bound rather than a measurement. It exists to
+        // split the slow path's ~51 cycles a character between classification,
+        // which two probes already price at ~20% of it, and everything else.
+        #[cfg(not(feature = "ceiling-no-write"))]
         self.write_cell(cp, w);
+        #[cfg(feature = "ceiling-no-write")]
+        core::hint::black_box((cp, w));
         self.last_cp = Some((cp, w));
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
     }
