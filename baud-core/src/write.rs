@@ -21,6 +21,12 @@ use baud_domain::*;
 pub(crate) fn put_one(p: &mut Paint<'_>, from: BytePos, len: ByteLen) {
     let len = len.index();
     let at = from.index();
+    #[cfg(feature = "ceiling-no-decode")]
+    {
+        let _ = (at, len);
+        return;
+    }
+    #[allow(unreachable_code)]
     let s = StreamByte::slice_from(&p.arena[at..at + len]);
     // Unchecked: the route map established the shape for all sixteen lanes at
     // once, so the checking forms would re-ask a settled question.
@@ -37,6 +43,21 @@ pub(crate) fn put_one(p: &mut Paint<'_>, from: BytePos, len: ByteLen) {
         true => Codepoint::REPLACEMENT,
         false => Codepoint::decoded(raw),
     };
+    // **Batching these into one vectored write was tried twice and lost
+    // twice.** The runs break on *encoded length* because that is what makes
+    // the decode strided, and 69% of them are one character -- but the writer
+    // only cares about *width*, so consecutive wide characters of different
+    // encodings could share one `put_wide_run` however their runs were cut.
+    // Correct (cells byte-identical) and **567-581 against 620-635**: the
+    // flush has to happen on every path that reads or moves the cursor, and on
+    // a recording that alternates scripts those paths are as frequent as the
+    // characters. Deferring a write costs more than the store it saves.
+    #[cfg(feature = "ceiling-no-write")]
+    {
+        let _ = cp;
+        return;
+    }
+    #[allow(unreachable_code)]
     p.glyph(cp, Classified::of(cp).width(AmbiguousWidth::Narrow));
 }
 

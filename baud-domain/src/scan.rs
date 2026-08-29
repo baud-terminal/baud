@@ -493,6 +493,23 @@ impl RouteBlock {
         LaneMask::from_movemask(self.0.simd_eq(Simd::splat(r as u8)).to_bitmask() as u32)
     }
 
+    /// Lanes that begin a multi-byte character, of any length.
+    ///
+    /// **One compare for all three lead lengths**, which the route's ordering
+    /// is chosen to allow: `Lead2`, `Lead3` and `Lead4` are the three largest
+    /// values, so "is a lead" is `route >= Lead2`. That matters because
+    /// `to_bitmask` has no single instruction on aarch64 -- it lowers to a
+    /// shift-narrow and a move across register files -- so the mask
+    /// extractions, not the classification, are what a block walk spends its
+    /// time on. Six of them a block was 40% of the per-character budget.
+    ///
+    /// Which length is a question for the *run*, not for every lane, and one
+    /// scalar test on the lead byte answers it.
+    #[inline(always)]
+    pub fn leads(self) -> LaneMask {
+        LaneMask::from_movemask(self.0.simd_ge(Simd::splat(Route::Lead2 as u8)).to_bitmask() as u32)
+    }
+
     /// Lanes that are **not** `r` -- for finding where a run of one route ends.
     #[inline(always)]
     pub fn is_not(self, r: Route) -> LaneMask {

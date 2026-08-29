@@ -201,3 +201,19 @@ fn the_quad_ignores_the_bytes_past_its_run() {
     assert_eq!(qa, qb);
     assert_eq!(qa, [Codepoint::decoded(0x4e16); 4]);
 }
+
+/// `leads` must be exactly the union of the three lead routes, which is what
+/// makes one compare stand in for three masks.
+#[test]
+fn the_lead_mask_is_the_union_of_the_three_lengths() {
+    for raw in 0u8..=255 {
+        let mut b = [StreamByte::from_stream(b'!'); LANE_COUNT];
+        b[0] = StreamByte::from_stream(raw);
+        let r = Vectorized::<Printable>::load(&b).routes();
+        let want = matches!(
+            Route::of(StreamByte::from_stream(raw)),
+            Route::Lead2 | Route::Lead3 | Route::Lead4
+        );
+        assert_eq!(r.leads().bits() & 1 != 0, want, "byte {raw:#04x}");
+    }
+}

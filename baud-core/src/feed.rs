@@ -112,6 +112,15 @@ impl Term<'_> {
 /// exactly that and measured identical to the core it replaces.
 #[inline(always)]
 fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
+    // **Six mask extractions a block, and cutting them to three lost.**
+    // `to_bitmask` has no single instruction on aarch64 -- a shift-narrow and
+    // a move across register files -- so this looked like the walk's cost.
+    // Replacing the three per-length lead masks with one `route >= Lead2`
+    // compare plus a scalar nibble test to find the length measured **584-611
+    // against 638-646**: the masks are paid once a *block* and amortised over
+    // its five characters, and the byte test is paid once a *run* -- of which
+    // 69% are a single character. Fewer vector operations, more scalar ones,
+    // and the scalar ones ran five times as often.
     let text = routes.is(Route::Text).bits();
     let ctrl = routes.is(Route::Control).bits();
     let cont = routes.is(Route::Cont).bits();

@@ -24,6 +24,9 @@ alloc = []
 # a throughput number cannot answer.
 diag = []
 ceiling-no-write = []
+# The single-character decode stubbed: with `ceiling-no-write` it brackets
+# what the per-character path costs on a recording whose runs are one long.
+ceiling-no-decode = []
 ceiling-no-classify = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
