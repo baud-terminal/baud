@@ -238,6 +238,56 @@ impl Pending {
 pub struct Codepoint(pub(crate) u32);
 
 impl Codepoint {
+    /// Is this codepoint unconditionally wide, ordinary, and in no lookback
+    /// table -- so that both Unicode tries can be skipped?
+    ///
+    /// **Four range tests standing in for two two-stage tries.** The bulk wide
+    /// collector asks `Width::of` and `GraphemeClass::of_with_lookback` per
+    /// character. Over the three-byte space those answers are constant across
+    /// four large runs, and this is them.
+    ///
+    /// The ranges are not hand-picked. They were found by walking the
+    /// generated tables and taking the maximal runs where all three properties
+    /// hold, and `the_wide_ordinary_ranges_agree_with_the_tables` re-derives
+    /// that agreement over **every** codepoint from U+0800 to U+FFFF -- the
+    /// whole of what three bytes can encode. That is the direction that
+    /// matters: the predicate may be *incomplete*, and a codepoint it declines
+    /// merely takes the slow path, but it must never be *wrong*, because a
+    /// character it wrongly admits skips both tables and is written with the
+    /// wrong width.
+    ///
+    /// Hiragana and katakana are two ranges rather than one because U+3099 and
+    /// U+309A -- the combining voiced sound marks -- sit between them, and
+    /// they are exactly the characters that must not skip the cluster machine.
+    /// A codepoint already proven wide, ordinary and unlooked.
+    ///
+    /// The vectorised decoder range-tests four at once, so by the time it has
+    /// them the general constructor's validity check is work it has already
+    /// done. This is that knowledge spent. `debug_assert` rather than an
+    /// `Option` because the caller is one function and the property is
+    /// enumerated by a test.
+    #[inline(always)]
+    pub fn wide_ordinary(v: u32) -> Codepoint {
+        debug_assert!(
+            Codepoint(v).is_wide_ordinary(),
+            "not a wide ordinary codepoint"
+        );
+        Codepoint(v)
+    }
+
+    #[inline(always)]
+    pub fn is_wide_ordinary(self) -> bool {
+        let v = self.0;
+        // CJK from the enclosed forms through Yi, which is one run of 29,171.
+        (0x329a..=0xa48c).contains(&v)
+            // Hiragana, stopping before the two combining marks.
+            || (0x3041..=0x3096).contains(&v)
+            // Katakana, resuming after them.
+            || (0x309b..=0x30ff).contains(&v)
+            // Fullwidth forms.
+            || (0xff01..=0xff60).contains(&v)
+    }
+
     pub const REPLACEMENT: Codepoint = Codepoint(0xFFFD);
     pub const SPACE: Codepoint = Codepoint(0x20);
 

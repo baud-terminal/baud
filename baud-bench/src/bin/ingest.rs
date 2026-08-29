@@ -94,6 +94,11 @@ fn main() {
         // only ever run on one-column text.
         "cat-cjk" => recording("utf8/cat-cjk.raw"),
         "less-cjk" => recording("utf8/less-cjk.raw"),
+        // A path under `tests/recordings/` runs directly, so a diagnostic
+        // variant of a recording can be measured without being committed as
+        // one. Counterfactual payloads are contamination-free where a ceiling
+        // arm is not: nothing about the build changes, only the bytes.
+        other if other.contains('/') => recording(other),
         other => panic!("unknown payload {other}"),
     };
 
