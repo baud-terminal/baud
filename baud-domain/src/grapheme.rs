@@ -202,8 +202,40 @@ impl ClusterBreak {
             return true;
         }
         let brk = self.decide(cur, cp);
-        self.advance(cur, cp, brk);
+        // **Split by the bitmap, not inside the callee.** A codepoint outside
+        // the lookback blocks -- 98.9% of the space, and everything in Hangul,
+        // Han and kana -- needs three state writes and no table at all. Left
+        // inside `advance`, which is `#[inline(never)]` so the emoji and Indic
+        // arms stay out of `feed_with`, that cheap case paid a call as well.
+        match Self::listed(cp) {
+            true => self.advance(cur, cp, brk),
+            false => self.advance_plain(cur, brk),
+        }
         brk
+    }
+
+    /// `advance` for a codepoint in no lookback table: three writes.
+    ///
+    /// Exactly what the four searches in `advance` would have concluded -- not
+    /// pictographic, not a consonant, not a linker, not an extend -- with the
+    /// `in_run` arms kept because they depend on state rather than on a lookup.
+    #[inline(always)]
+    fn advance_plain(&mut self, cur: GraphemeClass, brk: bool) {
+        use GraphemeClass::*;
+        self.prev = Some(cur);
+        self.ri = match cur == RegionalIndicator && brk {
+            true => RiParity::Odd,
+            false => RiParity::Even,
+        };
+        let in_run = self.pict == PictLookback::Pictographic;
+        self.pict = if in_run && cur == Extend {
+            PictLookback::Pictographic
+        } else if in_run && cur == Zwj {
+            PictLookback::PictographicZwj
+        } else {
+            PictLookback::None
+        };
+        self.incb = IncbLookback::None;
     }
 
     /// Is `cp` in a 32-codepoint block holding any lookback-table entry?
