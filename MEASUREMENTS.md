@@ -18,7 +18,12 @@ Ranges are quoted as `[min-max]`. **If two ranges overlap there is no result.**
 
 ## Host
 
-Apple M5 Max, macOS 27.0.0, on AC power. Commit `e363859`.
+Apple M5 Max, macOS 27.0.0, on AC power. Commit `90076f9`.
+
+The two CJK rows were re-measured after the flat BMP property table landed
+(+2.3% cat-cjk, +2.4% less-cjk). The other six predate it and are unchanged by
+it only to the extent that they carry little non-ASCII -- `vim-unicode` and
+`btop` moved and should be re-run.
 
 ## Against other implementations, on real capture
 
@@ -32,10 +37,10 @@ reads, and every core is configured with **10,000 lines of scrollback**.
 | `ascii/cat-scroll.raw` | **1040.9** | 430.9 | 203.9 | **2.42x** |
 | `ascii/git-log.raw` | **1223.4** | 526.0 | 213.0 | **2.33x** |
 | `ascii/asciiquarium.raw` | **380.5** | 202.5 | 244.9 | **1.88x** |
-| `utf8/less-cjk.raw` | **417.7** | 253.8 | 274.8 | **1.65x** |
+| `utf8/less-cjk.raw` | **425.4** | 255.8 | 271.6 | **1.66x** |
 | `utf8/btop.raw` | **760.9** | 507.8 | 324.3 | **1.50x** |
 | `utf8/vim-unicode.raw` | **451.2** | 354.0 | 290.3 | **1.27x** |
-| `utf8/cat-cjk.raw` | **403.7** | 391.1 | 229.8 | **1.03x** |
+| `utf8/cat-cjk.raw` | **410.9** | 394.8 | 222.6 | **1.04x** |
 
 MB/s. baud is `OpMode::Computed`; see [baud's representations](#bauds-representations)
 for why that is the row quoted.
