@@ -110,6 +110,12 @@ fn main() {
             print!(" {k}:{:.0}%", 100.0 * *n as f64 / tot as f64);
         }
         println!();
+        let br: usize = t.block_runs.iter().enumerate().map(|(k, n)| k * n).sum();
+        println!(
+            "  {} blocks, {:.1} walk iterations each",
+            t.blocks,
+            br as f64 / t.blocks as f64
+        );
         print!("  runs by encoded length:");
         for (k, n) in t.run_len.iter().enumerate().skip(2) {
             print!(" {k}B:{:.0}%", 100.0 * *n as f64 / tot as f64);

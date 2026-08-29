@@ -54,6 +54,13 @@ pub(crate) struct Paint<'a> {
     pub(crate) runs: [usize; 8],
     #[cfg(feature = "diag")]
     pub(crate) run_len: [usize; 5],
+    /// How many times the walk goes round per block. **If this is close to the
+    /// characters in a block, the block bought nothing**: the loop is per
+    /// character wearing a block's clothes.
+    #[cfg(feature = "diag")]
+    pub(crate) blocks: usize,
+    #[cfg(feature = "diag")]
+    pub(crate) block_runs: [usize; 10],
 }
 
 impl<'a> Paint<'a> {
@@ -88,6 +95,10 @@ impl<'a> Paint<'a> {
             runs: [0; 8],
             #[cfg(feature = "diag")]
             run_len: [0; 5],
+            #[cfg(feature = "diag")]
+            blocks: 0,
+            #[cfg(feature = "diag")]
+            block_runs: [0; 10],
         }
     }
 

@@ -52,6 +52,10 @@ pub struct Term<'b> {
     pub runs: [usize; 8],
     #[cfg(feature = "diag")]
     pub run_len: [usize; 5],
+    #[cfg(feature = "diag")]
+    pub blocks: usize,
+    #[cfg(feature = "diag")]
+    pub block_runs: [usize; 10],
 }
 
 impl<'b> Term<'b> {
@@ -80,6 +84,10 @@ impl<'b> Term<'b> {
             runs: [0; 8],
             #[cfg(feature = "diag")]
             run_len: [0; 5],
+            #[cfg(feature = "diag")]
+            blocks: 0,
+            #[cfg(feature = "diag")]
+            block_runs: [0; 10],
         }
     }
 

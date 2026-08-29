@@ -88,6 +88,10 @@ impl Term<'_> {
             for i in 0..5 {
                 self.run_len[i] += p.run_len[i];
             }
+            self.blocks += p.blocks;
+            for i in 0..10 {
+                self.block_runs[i] += p.block_runs[i];
+            }
         }
         self.node = node;
         self.utf8 = utf8;
@@ -129,8 +133,42 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
         routes.is(Route::Lead3).bits(),
         routes.is(Route::Lead4).bits(),
     ];
+    // **The shapes that dominate, each taken in one step.** The walk is
+    // general and costs a `run_at` and a dispatch per run; a block that is
+    // *entirely* one thing needs neither, and the `diag` histogram says those
+    // blocks are most of the recording -- 63% of the multi-character runs the
+    // walk finds are a full block of five CJK characters, and `cat`'s blocks
+    // are all text.
+    //
+    // Each is one compare against a constant. The masks are already in
+    // registers, so a shape that does not match costs a test and nothing else.
+    // **Order is by how often each fires, and it was measured.** Five CJK
+    // characters first, all-text second: the reverse cost `cat-cjk` 4% for
+    // the 14% it gave `cat`, because a test that rarely matches is a test the
+    // common payload pays on every block. A third arm for four four-byte
+    // characters -- the emoji shape -- was tried and dropped: emoji arrive as
+    // ZWJ sequences with joiners between them, so the exact shape almost never
+    // occurs and the test was pure cost.
+    //
+    // Five three-byte characters fill fifteen lanes; the sixteenth begins a
+    // run the next block continues.
+    if leads[1] & 0x7fff == 0x1249 && cont & 0x7fff == 0x6db6 {
+        put_run_of(p, from, ByteLen::from_index(3), Count::of(5));
+        return ByteLen::from_index(15);
+    }
+    if text == 0xffff {
+        p.text(from, ByteLen::from_index(LANE_COUNT));
+        return ByteLen::from_index(LANE_COUNT);
+    }
+
     let mut off = 0usize;
+    #[cfg(feature = "diag")]
+    let mut iters = 0usize;
     while off < LANE_COUNT {
+        #[cfg(feature = "diag")]
+        {
+            iters += 1;
+        }
         let here = 1u32 << off;
         if text & here != 0 {
             // The first non-text lane at or after `off`. A whole block of text
@@ -164,6 +202,7 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
         // makes a run's length a property of the recording, and it is what the
         // vectored decode and the vectored write both need to engage.
         let mut n = k.index();
+        #[cfg(not(feature = "no-extend"))]
         if off + len.index() * n == LANE_COUNT {
             // Bounded by what the decode buffer has left, not by `STRIDE_MAX`
             // alone -- the block already contributed `n` and the first version
@@ -183,6 +222,11 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock) -> ByteLen {
             _ => put_run_of(p, at, len, Count::of(n)),
         }
         off += len.index() * n;
+    }
+    #[cfg(feature = "diag")]
+    {
+        p.blocks += 1;
+        p.block_runs[iters.min(9)] += 1;
     }
     ByteLen::from_index(off)
 }
@@ -222,6 +266,19 @@ fn extend(arena: &[u8], at: BytePos, len: ByteLen, limit: Count) -> Count {
 ///
 /// Pure bit work: no lane is read individually, so the classification stays in
 /// a register for the whole walk.
+///
+/// **A branchless form of this was written and is flat.** A run of one encoded
+/// length has a constant bit pattern -- at stride three the leads sit on lanes
+/// 0, 3, 6, 9, 12, which is `0x1249` -- so "where does the pattern break" is
+/// one exclusive-or and a `trailing_zeros`, against a loop that goes round
+/// once a character. It measured 628-636 against this loop's 623-640, ranges
+/// overlapping, so there is no result and the simpler form stays.
+///
+/// The first version of it measured **580-591**, a clear loss, for a reason
+/// worth carrying: `first / len` with the length from a runtime match is an
+/// *integer divide*, twenty-odd cycles on this core. Choosing the pattern and
+/// the division together, so each arm sees its own constant, recovered all of
+/// it. A bit trick that ends in a division by a variable is not a bit trick.
 #[inline(always)]
 fn run_at(leads: &[u32; 3], cont: u32, off: usize) -> (ByteLen, Count) {
     let here = 1u32 << off;
