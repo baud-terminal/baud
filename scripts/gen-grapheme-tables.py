@@ -105,29 +105,59 @@ CLASSES = ["Other", "Cr", "Lf", "Control", "Extend", "Zwj", "RegionalIndicator",
 BLOCK = 256
 
 
-def build_break_trie(rows):
-    """A two-stage table for Grapheme_Cluster_Break, checked against the ranges.
+# The four lookback tables, as bits 4-7 of each trie byte. Order is the
+# contract with `ClusterBreak::Lookback` in grapheme.rs, and
+# `the_break_trie_agrees_with_the_class_enum` pins it.
+LOOKBACK = ["Extended_Pictographic", "Linker", "Consonant", "Extend"]
 
-    `GraphemeClass::of` binary searched 1,386 ranges for every non-ASCII
-    codepoint -- about eleven data-dependent branches. It profiled at **27.1%**
-    of the CJK path, the single largest item, and a ceiling arm returning a
-    constant measured +21 to +29%.
 
-    Fourteen classes fit four bits, two per byte. At 256-codepoint blocks the
-    result is 16,000 bytes against the range table's ~16,632, so this is
-    smaller as well as flatter.
+def build_break_trie(rows, ext, incb_raw):
+    """One two-stage table carrying **both** the class and the lookback flags.
+
+    Low four bits are the `GraphemeClass` discriminant, high four are membership
+    of the four lookback tables in `LOOKBACK` order.
+
+    They are together because they are needed together. `ClusterBreak` asked
+    for the class, then tested a 32-codepoint bitmap to decide whether to
+    consult the lookback tables, then binary searched up to four of them --
+    `Extended_Pictographic` (156 ranges), `INCB_Consonant` (76), `INCB_Linker`
+    (20), `INCB_Extend` (377). One indexed load now answers all of it, and a
+    probe that *added* a whole extra table lookup to `Width::of` measured
+    **flat**, so the loads were never the cost: the binary searches' branches
+    were.
+
+    It also makes `listed` exact rather than a 32-codepoint superset, so more
+    codepoints reach the fast path.
+
+    32,768 bytes against 21,032 -- the 16,000-byte class trie plus 5,032 of
+    ranges -- and it retires the 4,352-byte bitmap as well.
     """
     idxof = {c: i for i, c in enumerate(CLASSES)}
-    assert len(CLASSES) <= 16, "four bits per value"
+    assert len(CLASSES) <= 16, "four bits per class"
+    assert len(LOOKBACK) <= 4, "four bits per lookback set"
     cls = bytearray(0x110000)
     for lo, hi, k in rows:
         v = idxof[k]
         for cp in range(lo, min(hi, 0x10FFFF) + 1):
             cls[cp] = v
 
+    flags = bytearray(0x110000)
+    sets = {
+        "Extended_Pictographic": ext.get("Extended_Pictographic", []),
+        "Linker": incb_raw.get("Linker", []),
+        "Consonant": incb_raw.get("Consonant", []),
+        "Extend": incb_raw.get("Extend", []),
+    }
+    for bit, name in enumerate(LOOKBACK):
+        for lo, hi in coalesce(sets[name]):
+            for cp in range(lo, min(hi, 0x10FFFF) + 1):
+                flags[cp] |= 1 << bit
+
+    combined = bytes((cls[i] | (flags[i] << 4)) for i in range(0x110000))
+
     blocks, index = {}, []
     for base in range(0, 0x110000, BLOCK):
-        key = bytes(cls[base : base + BLOCK])
+        key = combined[base : base + BLOCK]
         if key not in blocks:
             blocks[key] = len(blocks)
         index.append(blocks[key])
@@ -135,16 +165,14 @@ def build_break_trie(rows):
 
     packed = bytearray()
     for key in blocks:
-        for i in range(0, BLOCK, 2):
-            packed.append(key[i] | (key[i + 1] << 4))
+        packed.extend(key)
 
     # Exhaustive, against the ranges this file is generated from.
     for cp in range(0x110000):
-        blk = index[cp >> 8]
-        byte = packed[blk * (BLOCK // 2) + ((cp & 0xFF) >> 1)]
-        got = (byte >> ((cp & 1) * 4)) & 0xF
-        if got != cls[cp]:
-            raise SystemExit(f"trie disagrees at U+{cp:04X}: {got} != {cls[cp]}")
+        got = packed[index[cp >> 8] * BLOCK + (cp & 0xFF)]
+        want = cls[cp] | (flags[cp] << 4)
+        if got != want:
+            raise SystemExit(f"trie disagrees at U+{cp:04X}: {got} != {want}")
     return index, packed, len(blocks)
 
 
@@ -163,7 +191,7 @@ def as_bytestring(name, data, doc):
     return "\n".join([doc, f'pub static {name}: &[u8; {len(data)}] = b"\\', *body, '";'])
 
 
-bp_index, bp_packed, bp_blocks = build_break_trie(rows)
+bp_index, bp_packed, bp_blocks = build_break_trie(rows, ext, incb_raw)
 parts.append(as_bytestring(
     "BREAK_INDEX", bp_index,
     "\n".join([
@@ -177,57 +205,27 @@ parts.append(as_bytestring(
         "/// single largest item in that profile. A ceiling arm returning a",
         "/// constant measured +21 to +29%.",
         "///",
-        "/// Values are `GraphemeClass` discriminants in declaration order;",
-        "/// `the_break_trie_agrees_with_the_class_enum` pins that correspondence,",
-        "/// because a reordered enum would remap every codepoint silently.",
+        "/// **Low four bits** are `GraphemeClass` discriminants in declaration",
+        "/// order; `the_break_trie_agrees_with_the_class_enum` pins that",
+        "/// correspondence, because a reordered enum would remap every codepoint",
+        "/// silently.",
+        "///",
+        "/// **High four bits** are membership of the four lookback tables, in",
+        "/// the order `Extended_Pictographic`, `INCB_Linker`, `INCB_Consonant`,",
+        "/// `INCB_Extend` -- see `ClusterBreak::Lookback`. They are in the same",
+        "/// byte because they are needed in the same place: the cluster rules",
+        "/// ask for the class and then, for the codepoints that matter, whether",
+        "/// it is pictographic or an Indic consonant. That was a bitmap probe",
+        "/// plus up to four binary searches.",
     ])))
 parts.append(as_bytestring(
     "BREAK_BLOCKS", bp_packed,
     "/// Stage 2: four-bit class values, two per byte, low nibble first."))
 
-# A membership bitmap over the four *lookback* tables, at 32 codepoints a bit.
-#
-# `ClusterBreak::advance` runs for every codepoint and, above the `cp < 0xa9`
-# guard, did two unconditional binary searches -- `EXTENDED_PICTOGRAPHIC` and
-# `INCB_CONSONANT` -- to learn that an ordinary character is neither an emoji
-# nor an Indic consonant. btop draws with `U+2500..U+257F` and paid both on
-# every box-drawing character.
-#
-# 32 rather than 256 codepoints a bit because the block matters: `U+25xx`
-# contains box drawing *and* emoji (`U+25AA`, `U+25B6`, `U+25FB..FE`), so a
-# 256-wide block cannot separate them and a 32-wide one can.
-LOOKBACK_SHIFT = 5
-LB_N = 0x110000 >> LOOKBACK_SHIFT
-lb = [0] * ((LB_N + 63) // 64)
-for tbl in (ext["Extended_Pictographic"],
-            incb_raw.get("Consonant", []),
-            incb_raw.get("Linker", []),
-            incb_raw.get("Extend", [])):
-    for a, b in coalesce(tbl):
-        for blk in range(a >> LOOKBACK_SHIFT, (b >> LOOKBACK_SHIFT) + 1):
-            lb[blk // 64] |= 1 << (blk % 64)
-lb_set = sum(bin(w).count("1") for w in lb)
-lines = [f"/// One bit per {1 << LOOKBACK_SHIFT} codepoints: set when the block holds any",
-         "/// entry of the four lookback tables `ClusterBreak::advance` consults.",
-         "///",
-         "/// A clear bit means the codepoint is in none of them, so all four",
-         "/// searches are skipped -- `advance` ran two of them unconditionally for",
-         f"/// every codepoint above `U+00A9`. {lb_set} of {LB_N} blocks are set.",
-         f"pub static LOOKBACK_BLOCKS: [u64; {len(lb)}] = ["]
-lines += [f"    0x{w:016x}," for w in lb]
-lines.append("];")
-parts.append("\n".join(lines))
+# The lookback bitmap is gone: membership now rides in the high nibble of the
+# class trie, exactly rather than as a 32-codepoint superset, so there is
+# nothing left for a separate probe to answer.
 
-parts.append(emit_ranges("EXTENDED_PICTOGRAPHIC", ext["Extended_Pictographic"],
-    "/// `Extended_Pictographic`, from emoji-data.txt. GB11 needs it: an emoji\n"
-    "/// joined by ZWJ to another emoji is **one** cluster."))
-parts.append(emit_ranges("INCB_LINKER", incb_raw.get("Linker", []),
-    "/// `InCB=Linker` — the virama. GB9c, added in Unicode 15.1, keeps an Indic\n"
-    "/// conjunct together."))
-parts.append(emit_ranges("INCB_CONSONANT", incb_raw.get("Consonant", []),
-    "/// `InCB=Consonant`. GB9c."))
-parts.append(emit_ranges("INCB_EXTEND", incb_raw.get("Extend", []),
-    "/// `InCB=Extend`. GB9c."))
 
 out = "\n\n".join(parts) + "\n"
 target = pathlib.Path("baud-domain/src/grapheme_data.rs")

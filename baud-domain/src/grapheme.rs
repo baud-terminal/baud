@@ -53,20 +53,37 @@ impl GraphemeClass {
     ];
 }
 
-fn lookup(table: &[(u32, u32)], cp: u32) -> bool {
-    let (mut lo, mut hi) = (0usize, table.len());
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        let (a, b) = table[mid];
-        if cp < a {
-            hi = mid;
-        } else if cp > b {
-            lo = mid + 1;
-        } else {
-            return true;
-        }
+/// Which lookback tables a codepoint belongs to, as four bits.
+///
+/// Carried in the high nibble of the class trie, because the rules ask for the
+/// class and these together. The bit order is the generator's `LOOKBACK` list
+/// and `the_break_trie_agrees_with_the_class_enum` pins it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Lookback(pub(crate) u8);
+
+impl Lookback {
+    pub const NONE: Lookback = Lookback(0);
+    /// In no lookback table at all -- 98.9% of the space.
+    #[inline(always)]
+    pub fn is_none(self) -> bool {
+        self.0 == 0
     }
-    false
+    #[inline(always)]
+    pub fn pictographic(self) -> bool {
+        self.0 & 1 != 0
+    }
+    #[inline(always)]
+    pub fn linker(self) -> bool {
+        self.0 & 2 != 0
+    }
+    #[inline(always)]
+    pub fn consonant(self) -> bool {
+        self.0 & 4 != 0
+    }
+    #[inline(always)]
+    pub fn incb_extend(self) -> bool {
+        self.0 & 8 != 0
+    }
 }
 
 impl GraphemeClass {
@@ -90,9 +107,37 @@ impl GraphemeClass {
         //
         // `cp` is a `Codepoint`, so it is below 0x110000 and both indices are
         // in range by construction.
+        GraphemeClass::of_with_lookback(c).0
+    }
+
+    /// The class **and** the four lookback-table bits, from one indexed load.
+    ///
+    /// They live in one byte because they are wanted in one place: the rules
+    /// ask for the class, then -- for the few codepoints that matter -- whether
+    /// it is `Extended_Pictographic` or an Indic consonant, linker or extend.
+    /// That used to be a 32-codepoint bitmap probe followed by up to four
+    /// binary searches over 629 ranges.
+    ///
+    /// It also makes membership **exact** where the bitmap was a superset, so
+    /// more codepoints reach `is_break`'s fast path.
+    #[inline(always)]
+    pub fn of_with_lookback(c: Codepoint) -> (GraphemeClass, Lookback) {
+        let cp = c.value();
+        if cp < 0x80 {
+            let k = match cp {
+                0x0a => GraphemeClass::Lf,
+                0x0d => GraphemeClass::Cr,
+                0x00..=0x1f | 0x7f => GraphemeClass::Control,
+                _ => GraphemeClass::Other,
+            };
+            return (k, Lookback::NONE);
+        }
         let block = grapheme_data::BREAK_INDEX[(cp >> 8) as usize] as usize;
-        let byte = grapheme_data::BREAK_BLOCKS[block * 128 + ((cp as usize & 0xff) >> 1)];
-        GraphemeClass::FROM_INDEX[((byte >> ((cp & 1) * 4)) & 0xf) as usize]
+        let byte = grapheme_data::BREAK_BLOCKS[block * 256 + (cp as usize & 0xff)];
+        (
+            GraphemeClass::FROM_INDEX[(byte & 0xf) as usize],
+            Lookback(byte >> 4),
+        )
     }
 }
 
@@ -171,8 +216,7 @@ impl ClusterBreak {
     /// `feed_with`, which this repo has measured being sensitive to.
     #[inline(always)]
     pub fn is_break(&mut self, c: Codepoint) -> bool {
-        let cur = GraphemeClass::of(c);
-        let cp = c.value();
+        let (cur, lb) = GraphemeClass::of_with_lookback(c);
         // **An ordinary character after an ordinary character, with no lookback
         // live.** Han, kana and most punctuation are all `Other`, so this is
         // the shape a page of CJK text has, and both halves below are provably
@@ -197,19 +241,19 @@ impl ClusterBreak {
             && self.ri == RiParity::Even
             && self.pict == PictLookback::None
             && self.incb == IncbLookback::None
-            && !Self::listed(cp)
+            && lb.is_none()
         {
             return true;
         }
-        let brk = self.decide(cur, cp);
+        let brk = self.decide(cur, lb);
         // **Split by the bitmap, not inside the callee.** A codepoint outside
         // the lookback blocks -- 98.9% of the space, and everything in Hangul,
         // Han and kana -- needs three state writes and no table at all. Left
         // inside `advance`, which is `#[inline(never)]` so the emoji and Indic
         // arms stay out of `feed_with`, that cheap case paid a call as well.
-        match Self::listed(cp) {
-            true => self.advance(cur, cp, brk),
-            false => self.advance_plain(cur, brk),
+        match lb.is_none() {
+            false => self.advance(cur, brk, lb),
+            true => self.advance_plain(cur, brk),
         }
         brk
     }
@@ -238,26 +282,8 @@ impl ClusterBreak {
         self.incb = IncbLookback::None;
     }
 
-    /// Is `cp` in a 32-codepoint block holding any lookback-table entry?
-    ///
-    /// One bit per 32 codepoints, set when the block holds an entry of the four
-    /// lookback tables; 391 of 34,816 are set, so 98.9% of the space answers
-    /// here rather than in four binary searches. 32 and not 256 because
-    /// `U+25xx` holds box drawing *and* emoji -- `U+25AA`, `U+25B6`,
-    /// `U+25FB..FE` -- so a wider block cannot separate them.
-    #[inline(always)]
-    fn listed(cp: u32) -> bool {
-        if cp < 0xa9 {
-            return false;
-        }
-        let blk = (cp >> 5) as usize;
-        grapheme_data::LOOKBACK_BLOCKS
-            .get(blk / 64)
-            .is_some_and(|w| w & (1u64 << (blk % 64)) != 0)
-    }
-
     #[inline(never)]
-    fn decide(&self, cur: GraphemeClass, cp: u32) -> bool {
+    fn decide(&self, cur: GraphemeClass, lb: Lookback) -> bool {
         use GraphemeClass::*;
         // GB1: sot ÷ Any -- there *is* a boundary before the first codepoint,
         // which is what the leading `÷` in every conformance case means.
@@ -291,14 +317,11 @@ impl ClusterBreak {
             return false;
         }
         // GB9c: an Indic conjunct stays whole.
-        if self.incb == IncbLookback::ConsonantLinker && lookup(&grapheme_data::INCB_CONSONANT, cp)
-        {
+        if self.incb == IncbLookback::ConsonantLinker && lb.consonant() {
             return false;
         }
         // GB11: ExtPict Extend* ZWJ × ExtPict
-        if self.pict == PictLookback::PictographicZwj
-            && lookup(&grapheme_data::EXTENDED_PICTOGRAPHIC, cp)
-        {
+        if self.pict == PictLookback::PictographicZwj && lb.pictographic() {
             return false;
         }
         // GB12/13: RI × RI, pairwise.
@@ -310,52 +333,15 @@ impl ClusterBreak {
     }
 
     #[inline(never)]
-    fn advance(&mut self, cur: GraphemeClass, cp: u32, brk: bool) {
+    fn advance(&mut self, cur: GraphemeClass, brk: bool, lb: Lookback) {
         use GraphemeClass::*;
         self.prev = Some(cur);
 
-        // The four lookback tables start at U+00A9, U+0300, U+0915 and U+094D,
-        // so nothing below U+00A9 can be in any of them. Without this guard
-        // every codepoint paid four binary searches to learn it was not an
-        // emoji, a virama or an Indic consonant. Measured: ASCII segmentation
-        // went from 93 to 338 Mcp/s with this and the class fast path.
-        if cp < 0xa9 {
-            self.ri = RiParity::Even;
-            self.pict = PictLookback::None;
-            self.incb = IncbLookback::None;
-            return;
-        }
-
-        // **Above the guard, every codepoint paid two binary searches to learn
-        // it is neither an emoji nor an Indic consonant.** `LOOKBACK_BLOCKS`
-        // is one bit per 32 codepoints, set when the block holds any entry of
-        // the four lookback tables; 391 of 34,816 are set, so 98.9% of the
-        // space answers here. btop draws with `U+2500..U+257F` and profiled at
-        // 12-13% in `is_break`.
-        //
-        // 32 codepoints a bit and not 256, because `U+25xx` holds box drawing
-        // *and* emoji -- `U+25AA`, `U+25B6`, `U+25FB..FE` -- so a wider block
-        // cannot separate them.
-        if !Self::listed(cp) {
-            // Exactly what the four searches below would have concluded: not
-            // pictographic, not a consonant, not a linker, not an extend. The
-            // `in_run` arms survive because they do not depend on a lookup.
-            self.ri = if cur == RegionalIndicator && brk {
-                RiParity::Odd
-            } else {
-                RiParity::Even
-            };
-            let in_run = self.pict == PictLookback::Pictographic;
-            self.pict = if in_run && cur == Extend {
-                PictLookback::Pictographic
-            } else if in_run && cur == Zwj {
-                PictLookback::PictographicZwj
-            } else {
-                PictLookback::None
-            };
-            self.incb = IncbLookback::None;
-            return;
-        }
+        // **Only reached when the codepoint is in a lookback table.**
+        // `is_break` splits on `Lookback::is_none`, so the guards this used to
+        // open with -- `cp < 0xa9`, then a bitmap probe -- are both dead here:
+        // `advance_plain` handles everything they used to send home early, and
+        // it is inlined.
 
         // A boundary resets the parity, so a third indicator starts a new pair
         // rather than extending the flag before it.
@@ -370,23 +356,22 @@ impl ClusterBreak {
         };
 
         let in_run = self.pict == PictLookback::Pictographic;
-        self.pict =
-            if lookup(&grapheme_data::EXTENDED_PICTOGRAPHIC, cp) || (in_run && cur == Extend) {
-                // `Extend` does not end the run: GB11 looks back *through* it.
-                PictLookback::Pictographic
-            } else if in_run && cur == Zwj {
-                PictLookback::PictographicZwj
-            } else {
-                PictLookback::None
-            };
+        self.pict = if lb.pictographic() || (in_run && cur == Extend) {
+            // `Extend` does not end the run: GB11 looks back *through* it.
+            PictLookback::Pictographic
+        } else if in_run && cur == Zwj {
+            PictLookback::PictographicZwj
+        } else {
+            PictLookback::None
+        };
 
-        self.incb = if lookup(&grapheme_data::INCB_CONSONANT, cp) {
+        self.incb = if lb.consonant() {
             IncbLookback::Consonant
         } else if self.incb == IncbLookback::None {
             IncbLookback::None
-        } else if lookup(&grapheme_data::INCB_LINKER, cp) {
+        } else if lb.linker() {
             IncbLookback::ConsonantLinker
-        } else if lookup(&grapheme_data::INCB_EXTEND, cp) {
+        } else if lb.incb_extend() {
             self.incb
         } else {
             IncbLookback::None
