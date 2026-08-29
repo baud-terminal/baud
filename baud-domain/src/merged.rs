@@ -19,7 +19,7 @@
 //! Ambiguous depends on a policy the embedder owns, so a table cannot bake it
 //! in. `[[source: uax11]]` § 5 is why that policy exists at all.
 
-use crate::merged_data::{MERGED_BLOCKS, MERGED_INDEX, MERGED_PALETTE};
+use crate::merged_data::{BMP_DIRECT, MERGED_BLOCKS, MERGED_INDEX, MERGED_PALETTE};
 use crate::{AmbiguousWidth, Codepoint, GraphemeClass, Lookback, Width};
 
 /// Everything the per-character path needs to know about one codepoint.
@@ -33,9 +33,32 @@ pub struct Classified {
 
 impl Classified {
     /// Both answers, from one two-stage lookup and a palette read.
+    /// **One load for the Basic Multilingual Plane.**
+    ///
+    /// Every other table here is two dependent loads -- a stage-1 index, then
+    /// a block -- and this session measured three separate changes that removed
+    /// work and lost because they *lengthened* the chain. The flat table is the
+    /// opposite trade: 128 KB of rodata to make the lookup depth one.
+    ///
+    /// The size is affordable because only touched pages cost anything.
+    /// `cat-cjk.raw` uses 3,175 distinct BMP codepoints, which is **113 cache
+    /// lines -- 7.1 KB** -- and real text clusters by script, so this is the
+    /// usual shape rather than a lucky one.
+    ///
+    /// Astral codepoints keep the two-stage path: they are 4% of `cat-cjk` and
+    /// a flat table for them would be 2 MB.
     #[inline(always)]
     pub fn of(c: Codepoint) -> Classified {
         let cp = c.value();
+        if cp < 0x10000 {
+            let i = (cp as usize) << 1;
+            let v = u16::from_le_bytes([BMP_DIRECT[i], BMP_DIRECT[i + 1]]);
+            return Classified {
+                class: GraphemeClass::FROM_INDEX[(v & 0xf) as usize],
+                lookback: Lookback::from_bits(((v >> 4) & 0xf) as u8),
+                code: (v >> 8) as u8,
+            };
+        }
         // ASCII never reaches the per-character path -- `put_ascii_run` takes
         // it -- but `Codepoint` allows it and the tries answer for it, so this
         // must too.

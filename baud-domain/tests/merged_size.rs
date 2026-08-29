@@ -156,13 +156,40 @@ fn emit_merged_table() {
         out.push(*l);
         out.push(*w);
     }
+    // A *flat* BMP table: one load, no stage-1 indirection. 128 KB of rodata,
+    // but only the touched pages matter and real text touches few.
+    let mut bmp: Vec<u8> = Vec::with_capacity(0x10000 * 2);
+    for cp in 0..0x10000u32 {
+        let v = match Codepoint::new(cp) {
+            Some(c) => {
+                let (cl, lb) = GraphemeClass::of_with_lookback(c);
+                let (n, w) = (
+                    Width::of(c, AmbiguousWidth::Narrow),
+                    Width::of(c, AmbiguousWidth::Wide),
+                );
+                let code: u16 = if n != w {
+                    3
+                } else if n == Width::ZERO {
+                    1
+                } else if n == Width::WIDE {
+                    2
+                } else {
+                    0
+                };
+                u16::from(cl as u8) | (u16::from(lb.bits()) << 4) | (code << 8)
+            }
+            None => 0,
+        };
+        bmp.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&bmp);
     for d in ["merged.bin", "../merged.bin"] {
         if std::fs::write(d, &out).is_ok() {
             break;
         }
     }
     println!(
-        "  dumped: index {} blocks {} palette {} -> {} bytes of table",
+        "  dumped: index {} blocks {} palette {} -> {} bytes of table (+128 KB flat BMP)",
         index.len(),
         blocks.len() / 256,
         pal.len(),

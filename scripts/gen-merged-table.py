@@ -15,6 +15,8 @@ ni, nb, npal = struct.unpack_from("<III", raw, 0)
 o = 12
 index, blocks = raw[o:o+ni], raw[o+ni:o+ni+nb]
 pal = raw[o+ni+nb:o+ni+nb+npal*3]
+bmp = raw[o+ni+nb+npal*3:]
+assert len(bmp) == 0x10000 * 2, f"flat BMP is {len(bmp)} bytes"
 
 def bytestr(v, per=24):
     out = []
@@ -53,7 +55,20 @@ pub static MERGED_INDEX: &[u8; {ni}] = b"\\
 /// {nb // 256} deduplicated blocks of 256 palette ids.
 pub static MERGED_BLOCKS: &[u8; {nb}] = b"\\
     {bytestr(blocks)}";
+
+/// The Basic Multilingual Plane, **flat**: one load, no stage-1 indirection.
+///
+/// Little-endian `u16` per codepoint, `class | lookback << 4 | width << 8`.
+/// 128 KB of rodata, and only the touched pages cost anything -- `cat-cjk.raw`
+/// uses 3,175 distinct BMP codepoints, which is **113 cache lines, 7.1 KB**.
+///
+/// Depth is the point. Every other table here is two dependent loads; this is
+/// one, and on this path a change is only worth making if it shortens the
+/// critical path.
+pub static BMP_DIRECT: &[u8; {len(bmp)}] = b"\\
+    {bytestr(bmp)}";
 '''
 pathlib.Path("baud-domain/src/merged_data.rs").write_text(src)
 print(f"  merged_data.rs: index {ni}, blocks {nb//256}, palette {npal} -> {total} bytes")
+print(f"  flat BMP: {len(bmp)} bytes of rodata, 113 lines touched by cat-cjk")
 print(f"  against the two tries' 44,032 = {100*(total/44032-1):+.0f}%")

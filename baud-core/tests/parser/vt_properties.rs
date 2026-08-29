@@ -1757,3 +1757,52 @@ proptest! {
         prop_assert!(c.index() <= 260, "cursor column in the resized grid");
     }
 }
+
+/// The case `decsed_erases_a_subset_of_ed` shrank to, pinned as a plain test.
+///
+/// `CSI 1 J` erases from the start of the display to the cursor; `CSI ? 1 J`
+/// is the same span but spares protected cells. So DECSED must never touch a
+/// cell ED leaves alone. Found by the property at 20,000 cases with no DECSCA
+/// anywhere in the program, which means the protection it is respecting came
+/// from somewhere that never set it.
+#[test]
+fn decsed_matches_ed_when_nothing_was_protected() {
+    let ops = [
+        Op::Utf8(6),
+        Op::Rep(5),
+        Op::Cht(0),
+        Op::Rep(0),
+        Op::Nel,
+        FLUSH,
+    ];
+    let before = grid_then(&ops, &[]);
+    let sel = grid_then(&ops, &[Op::Decsed(1)]);
+    let plain = grid_then(&ops, &[Op::Ed(1)]);
+    let mut bad = Vec::new();
+    for i in 0..before.len() {
+        let ok = (sel[i] == before[i] || sel[i] == plain[i])
+            && (plain[i] != before[i] || sel[i] == before[i]);
+        if !ok {
+            bad.push((
+                i,
+                (
+                    before[i].content == plain[i].content,
+                    before[i].style,
+                    before[i].flags.bits(),
+                ),
+                (
+                    plain[i].content == sel[i].content,
+                    plain[i].style,
+                    plain[i].flags.bits(),
+                ),
+                (sel[i].style, sel[i].flags.bits()),
+            ));
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "cells where DECSED and ED disagree with no DECSCA in the program \
+         (index, [before: sameContent, style, flags], [ed: ...], [decsed: style, flags]): {:?}",
+        &bad[..bad.len().min(8)]
+    );
+}

@@ -799,8 +799,21 @@ impl<'a> View<'a> {
         if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
             return;
         }
-        let i = self.phys(r) * self.stride.index() + c.col().index();
+        let p = self.phys(r);
+        let i = p * self.stride.index() + c.col().index();
         self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
+        // **And the extent has to move with it.** `RowExtent` records where the
+        // row stops being *uniform*, not where the glyphs are, and a cell
+        // carrying `MARKED` is not equal to the blank in front of it. Setting
+        // the bit without raising the mark left the row non-uniform beyond its
+        // own extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a
+        // mark that `CSI 1 J` left alone, which
+        // `decsed_matches_ed_when_nothing_was_protected` reports.
+        //
+        // This is the same defect `ECH` at the last column already had, and
+        // that this file records: an operation that makes a cell differ from
+        // the blank must say so.
+        self.used[p] = self.used[p].reached(c.col().index() + 1);
     }
 
     fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
