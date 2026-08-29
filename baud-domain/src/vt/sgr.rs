@@ -51,6 +51,43 @@ impl SgrAttr {
     /// Consumes as many parameters as the attribute needs and reports how many.
     /// Returning the consumed count is what keeps `38;2;r;g;b` from being
     /// misread as five separate attributes.
+    /// Is the parameter mask empty -- no colon-joined groups anywhere?
+    ///
+    /// The gate on [`SgrAttr::parse_one`]: a colon form can make a single
+    /// parameter part of a longer group, and the fast path must not see one.
+    #[inline(always)]
+    pub fn is_plain(sub: SubParams) -> bool {
+        sub.0 == 0
+    }
+
+    /// One parameter, no colon groups, and not one of the multi-parameter
+    /// colour introducers.
+    ///
+    /// `CSI 32 m`, `CSI 0 m`, `CSI 1 m` -- what a sixteen-colour program emits,
+    /// and **86%** of `asciiquarium.raw`'s SGRs. `apply_sgr` reaches this
+    /// without building a `Params` at all, which is the whole point: `opcost`
+    /// prices one `SgrAttr::parse` at **3.3 ns** of SGR's ~10, and most of a
+    /// single-parameter parse is arriving at the value.
+    ///
+    /// Returns `None` for `38`, `48` and `58`, which consume following
+    /// parameters and need the general path, and for anything this does not
+    /// recognise -- so the caller falls back rather than dropping the
+    /// attribute.
+    #[inline(always)]
+    pub fn parse_one(v: u16) -> Option<SgrAttr> {
+        Some(match v {
+            30..=37 => SgrAttr::Fg(Color::Indexed(Chan::from_offset(v, 30))),
+            40..=47 => SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 40))),
+            90..=97 => SgrAttr::Fg(Color::Indexed(Chan::from_offset(v, 90 - 8))),
+            100..=107 => SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 100 - 8))),
+            0 => SgrAttr::Reset,
+            1 => SgrAttr::Set(Attrs::BOLD),
+            39 => SgrAttr::Fg(Color::Default),
+            49 => SgrAttr::Bg(Color::Default),
+            _ => return None,
+        })
+    }
+
     pub fn parse(params: Params<'_>) -> Option<(SgrAttr, ParamCount)> {
         let v = params.at(ParamIdx::FIRST).map_or(0, |x| x.0);
         Some(match v {

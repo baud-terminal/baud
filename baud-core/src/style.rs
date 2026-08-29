@@ -36,6 +36,25 @@ impl<'a> Term<'a> {
         // *and* realigns the sub-parameter mask, and those two must step
         // together. Two bare integers here is how the colon form would come to
         // be read correctly for the first attribute and wrongly for the rest.
+        // **One parameter, no colon groups**: `CSI 32 m`, `CSI 0 m`, `CSI 1 m`.
+        // That is what a sixteen-colour program emits and 86% of
+        // `asciiquarium.raw`'s SGRs, and it reaches the attribute without
+        // building a `Params` -- `opcost` prices one `SgrAttr::parse` at
+        // **3.3 ns** of SGR's ~10, and most of a single-parameter parse is
+        // arriving at the value.
+        //
+        // `parse_one` returns `None` for `38`/`48`/`58` and anything it does
+        // not recognise, so an unhandled attribute falls through to the general
+        // loop rather than being dropped.
+        if n == 1 && baud_domain::SgrAttr::is_plain(self.psub) {
+            if let Some(v) = self.params[0] {
+                if let Some(attr) = baud_domain::SgrAttr::parse_one(v.value()) {
+                    attr.fold_into(&mut self.style_raw);
+                    self.style = self.intern_style(self.style_raw);
+                    return;
+                }
+            }
+        }
         let mut i = ParamIdx::FIRST;
         while i.raw_index() < n {
             match baud_domain::SgrAttr::parse(Params::with_subs(
