@@ -260,6 +260,22 @@ impl<'a> Term<'a> {
             let k = self.cx.index() * MAX_ROWS + self.cy.index();
             core::hint::black_box(self.s.arena[k.wrapping_mul(2_654_435_761) % ARENA]);
         }
+        // **Ceiling arm: what emoji cost on the real recording.** For a
+        // pictographic codepoint -- wide and not `is_wide_ordinary` -- skip
+        // the cluster machine and the marks table entirely and write the cell.
+        // Incorrect by construction: every emoji becomes its own cluster and a
+        // ZWJ family renders as four people, so `cells_written` moves and this
+        // is an upper bound.
+        //
+        // It exists to check the counterfactual this file's emoji figure rests
+        // on. That figure came from a *modified recording*, which this repo no
+        // longer does; an arm on the real bytes is the honest form of the same
+        // question.
+        #[cfg(feature = "ceiling-cheap-emoji")]
+        if w == Width::WIDE && !cp.is_wide_ordinary() {
+            self.put_glyph(cp, w);
+            return;
+        }
         if !self.cluster.is_break(cp) && self.cx != Col::ZERO {
             self.attach_mark(cp);
             return;
