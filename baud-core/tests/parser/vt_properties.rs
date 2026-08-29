@@ -736,6 +736,36 @@ proptest! {
         }
     }
 
+    /// The aarch64 body and the portable path must agree on valid sequences.
+    ///
+    /// **The mirror of the AVX2 property, and it exists for the same reason
+    /// that one does.** `Neon` differs from `Portable` in exactly one place --
+    /// the lane mask comes out of `shrn`, in nibble encoding, where the
+    /// portable form gets one bit a lane. Getting that wrong is a factor-of-
+    /// four error in the returned offset that is invisible whenever the first
+    /// match lands in lane zero, which on real text is most of the time.
+    ///
+    /// Unlike the AVX2 one this actually runs on a development machine here,
+    /// so it is the first of the pair that is not taken on trust from CI.
+    #[test]
+    #[cfg(target_arch = "aarch64")]
+    fn generated_programs_match_on_neon(ops in program(), chunk in 1usize..=128) {
+        let b = bytes_of(&ops);
+        let mut store = Storage::boxed();
+        let mut t = Term::new(&mut store, OpMode::Computed);
+        let mut i = 0;
+        while i < b.len() {
+            let n = chunk.min(READ_CHUNK).min(b.len() - i);
+            let mut slot = t.read_slot();
+            let base = slot.base();
+            let filled = slot.write(StreamByte::slice_from(&b[i..i + n]));
+            t.feed_neon(base, filled.len());
+            t.commit_read(filled.len());
+            i += n;
+        }
+        prop_assert_eq!(t.viewport().to_vec(), drive(&b, chunk, OpMode::Computed).0);
+    }
+
     /// The AVX2 body and the portable path must agree on valid sequences too.
     #[test]
     #[cfg(target_arch = "x86_64")]

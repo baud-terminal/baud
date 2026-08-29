@@ -16,3 +16,5 @@ libc = "0.2"
 # Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
+# Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
+scan-neon = []

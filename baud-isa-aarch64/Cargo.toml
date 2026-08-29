@@ -1,0 +1,12 @@
+[package]
+name = "baud-isa-aarch64"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aarch64 implementations of baud-isa's domain-typed scan operations. no_std, ARM only."
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }
+baud-isa = { path = "../baud-isa" }

@@ -23,6 +23,8 @@ dependencies = [
  "baud-core",
  "baud-domain",
  "baud-isa",
+ "baud-isa-aarch64",
+ "baud-isa-x86-64",
  "proptest",
  "zerocopy",
 ]
@@ -39,6 +41,22 @@ name = "baud-isa"
 version = "0.1.0"
 dependencies = [
  "baud-domain",
+]
+
+[[package]]
+name = "baud-isa-aarch64"
+version = "0.1.0"
+dependencies = [
+ "baud-domain",
+ "baud-isa",
+]
+
+[[package]]
+name = "baud-isa-x86-64"
+version = "0.1.0"
+dependencies = [
+ "baud-domain",
+ "baud-isa",
 ]
 
 [[package]]

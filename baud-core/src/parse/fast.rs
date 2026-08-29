@@ -819,6 +819,20 @@ impl<'a> Term<'a> {
         self.bytes_in.add(n.index());
     }
 
+    /// Ingest with the aarch64 scanner.
+    ///
+    /// Same 16-byte step as `feed`, one instruction different: the lane mask
+    /// comes out of `shrn` rather than the `uzp1`/`zip1`/`addv` sequence
+    /// `core::simd`'s `to_bitmask` lowers to here. See `baud-isa-aarch64`.
+    ///
+    /// NEON is baseline on aarch64, so unlike `feed_avx2` there is nothing for
+    /// the caller to have detected -- the target is the guarantee.
+    #[cfg(target_arch = "aarch64")]
+    pub fn feed_neon(&mut self, base: BytePos, n: ByteLen) {
+        // SAFETY: NEON is baseline on aarch64.
+        unsafe { self.feed_with::<baud_isa_aarch64::Neon>(base, n) }
+    }
+
     /// Ingest, scanning 32 bytes at a time instead of 16.
     ///
     /// Measured 278.5 MB/s against 240.8 for the portable path *when the
@@ -831,6 +845,6 @@ impl<'a> Term<'a> {
     #[target_feature(enable = "avx2")]
     pub unsafe fn feed_avx2(&mut self, base: BytePos, n: ByteLen) {
         // SAFETY: caller established AVX2.
-        unsafe { self.feed_with::<Avx2>(base, n) }
+        unsafe { self.feed_with::<baud_isa_x86_64::Avx2>(base, n) }
     }
 }

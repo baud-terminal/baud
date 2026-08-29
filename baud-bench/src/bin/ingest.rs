@@ -114,6 +114,12 @@ fn main() {
             let base = slot.base();
             let f = slot.write(StreamByte::slice_from(&data[at..]));
             let n = f.len();
+            // **Compiled, not switched.** This repo has measured a fake
+            // 13-17% from a runtime `if` selecting a variant, so the scanner
+            // is a build choice: `--features scan-neon` against the default.
+            #[cfg(all(feature = "scan-neon", target_arch = "aarch64"))]
+            t.feed_neon(base, n);
+            #[cfg(not(all(feature = "scan-neon", target_arch = "aarch64")))]
             t.feed(base, n);
             t.commit_read(n);
             at += n.index();

@@ -1,13 +1,19 @@
-#[cfg(target_arch = "x86_64")]
-use crate::Scan;
-#[cfg(target_arch = "x86_64")]
+//! x86-64 scan implementations: AVX2, 32 bytes a step.
+//!
+//! Split from `baud-isa` so a consumer on another architecture never builds
+//! it. The only `unsafe` in baud's scan path lives here, and
+//! `generated_programs_match_on_avx2` requires this to agree with the portable
+//! form for every generated input.
+
+#![no_std]
+#![cfg(target_arch = "x86_64")]
+
 use baud_domain::*;
+use baud_isa::Scan;
 
 /// 32-byte lanes on x86-64. Requires AVX2.
-#[cfg(target_arch = "x86_64")]
 pub struct Avx2;
 
-#[cfg(target_arch = "x86_64")]
 impl Scan for Avx2 {
     unsafe fn run(buf: &[StreamByte]) -> ByteLen {
         unsafe { scan_avx2(buf) }
@@ -25,7 +31,6 @@ impl Scan for Avx2 {
 /// # Safety
 /// AVX2 must be available. `no_std` has no runtime feature detection, so
 /// the caller decides once at startup — see [`Term::feed_avx2`].
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn scan_avx2(buf: &[StreamByte]) -> ByteLen {
     use core::arch::x86_64::*;
@@ -67,7 +72,6 @@ pub unsafe fn scan_avx2(buf: &[StreamByte]) -> ByteLen {
 ///
 /// # Safety
 /// AVX2 must be available.
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn find_final(buf: &[StreamByte]) -> Option<ByteLen> {
     use core::arch::x86_64::*;
@@ -101,7 +105,6 @@ pub unsafe fn find_final(buf: &[StreamByte]) -> Option<ByteLen> {
 ///
 /// # Safety
 /// AVX2 must be available.
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn find_st(buf: &[StreamByte]) -> Option<ByteLen> {
     use core::arch::x86_64::*;

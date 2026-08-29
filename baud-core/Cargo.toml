@@ -45,6 +45,15 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 baud-domain = { path = "../baud-domain" }
 baud-isa = { path = "../baud-isa" }
 
+# **Per-architecture, so a consumer builds only its own.** Cargo resolves these
+# by target, which is the packaging half of the reason these are crates rather
+# than modules: an aarch64 build never compiles the AVX2 code and vice versa.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa-x86-64 = { path = "../baud-isa-x86-64" }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa-aarch64 = { path = "../baud-isa-aarch64" }
+
 [dev-dependencies]
 proptest = "1"
 baud-core = { path = ".", features = ["alloc"] }

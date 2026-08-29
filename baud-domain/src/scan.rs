@@ -44,6 +44,37 @@ impl Lane {
     }
 }
 
+/// A lane mask in aarch64's **nibble** encoding, as `shrn #4` produces it.
+///
+/// **A different encoding, not a different meaning, and that is exactly why it
+/// is a different type.** `[[source: arm-neon-bitmask]]` shows that NEON's
+/// cheapest `movemask` equivalent is `shrn` -- read the 128-bit compare result
+/// as eight 16-bit lanes, shift right by four and narrow to eight bytes, which
+/// leaves a 64-bit value carrying **four bits per input byte** rather than one.
+///
+/// So the first set lane is `trailing_zeros() / 4`, not `trailing_zeros()`.
+/// Handing that `u64` to `LaneMask` would compile and be wrong by a factor of
+/// four -- silently, and only on inputs where the match is not in lane zero.
+/// Both types produce a `Lane` and neither lets an index out any other way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NibbleMask(u64);
+
+impl NibbleMask {
+    /// From `vshrn_n_u16(cmp, 4)` reinterpreted as a `u64`.
+    pub fn from_shrn(bits: u64) -> NibbleMask {
+        NibbleMask(bits)
+    }
+    pub fn any(self) -> bool {
+        self.0 != 0
+    }
+    /// The first matching lane, if any. Four bits a lane, so the count of
+    /// trailing zeros is four times the index.
+    pub fn first(self) -> Option<Lane> {
+        self.any()
+            .then(|| Lane(self.0.trailing_zeros() as usize / 4))
+    }
+}
+
 /// A block of `StreamByte`s as a vector, and the operations a scanner needs.
 ///
 /// **The lane type, not `Simd<u8, 16>`.** Every scanner in this project used

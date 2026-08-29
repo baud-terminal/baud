@@ -2,7 +2,6 @@
 
 use baud_domain::*;
 
-mod avx2;
 mod portable;
 
 pub use portable::*;
@@ -10,8 +9,6 @@ pub use portable::*;
 // `#[cfg(target_arch = "x86_64")]` item resolves to nothing elsewhere, and the
 // host build never notices because the cfg is off there too. The bare-metal
 // `x86_64-unknown-none` gate is what catches it.
-#[cfg(target_arch = "x86_64")]
-pub use avx2::*;
 
 /// A scan backend.
 ///
