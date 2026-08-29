@@ -383,7 +383,45 @@ impl<'a> Term<'a> {
         }
         let w = Width::of(c, self.width.ambiguous);
         self.put_cp(c, w);
-        Some(ByteLen::from_index(need))
+
+        // Keep going while the next character is also multi-byte.
+        let mut used = need;
+        while from + used < end {
+            let b0 = StreamByte::from_stream(self.s.arena[from + used]);
+            let Some((rem2, bits2, min2)) = b0.utf8_lead() else {
+                break;
+            };
+            let need2 = usize::from(rem2) + 1;
+            if from + used + need2 > end {
+                break;
+            }
+            let mut acc2 = Utf8Acc::lead(bits2);
+            let mut ok = true;
+            for k in 1..need2 {
+                match StreamByte::from_stream(self.s.arena[from + used + k]).utf8_continuation() {
+                    Some(cont) => acc2 = acc2.push(cont),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if !ok {
+                break;
+            }
+            #[cfg(feature = "instrument")]
+            self.bytes_utf8.add(need2);
+            #[cfg(feature = "instrument")]
+            self.bytes_text.add(need2);
+            let c2 = acc2.finish(min2);
+            if c2 == Codepoint::REPLACEMENT {
+                self.replacements.inc();
+            }
+            let w2 = Width::of(c2, self.width.ambiguous);
+            self.put_cp(c2, w2);
+            used += need2;
+        }
+        Some(ByteLen::from_index(used))
     }
 
     /// Ingest, portable. Vectorises through `core::simd` on any target that has
