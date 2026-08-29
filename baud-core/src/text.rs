@@ -26,6 +26,25 @@ impl<'a> Term<'a> {
         )
     }
 
+    /// Read-only counterpart of [`Term::view`], for the questions that only
+    /// the grid can answer -- which column owns a character, above all.
+    #[inline(always)]
+    pub(crate) fn view_ref(&self) -> ViewRef<'_> {
+        let rot = self.active_rot();
+        // Buffer and rotation from one `alt`, for the reason `view` says.
+        let cells = match self.screen {
+            Screen::Alternate => &self.s.alt,
+            Screen::Normal => &self.s.vp,
+        };
+        View::new_ref(
+            cells,
+            Cols::from_stride(MAX_COLS),
+            self.cols,
+            self.rows,
+            rot,
+        )
+    }
+
     /// Write one decoded codepoint at the cursor: the orphan repair, the
     /// glyph, and a wide character's tail, through **one** `View`.
     ///
@@ -229,11 +248,6 @@ impl<'a> Term<'a> {
         self.cx = self.cx.try_advance(w, self.cols).unwrap_or(Col::ZERO);
     }
 
-    /// Attach a zero-width codepoint to the cell the cursor last wrote.
-    ///
-    /// `#[inline(never)]`: `put_cp` is on the decode path and this is the rare
-    /// arm, the same reason `open_gap` and `anywhere_c0` are out of line.
-    #[inline(never)]
     /// What identifies the cell at a screen position, right now.
     ///
     /// **Three things, and using fewer was three bugs.** The surface, because
@@ -242,7 +256,14 @@ impl<'a> Term<'a> {
     /// the ring recycles physical rows. A key of `(Row, Col)` named a cell
     /// that had scrolled away, and named the primary screen's cell from the
     /// alternate one.
-    pub(crate) fn mark_key(&self, r: Row, c: Col) -> MarkKey {
+    ///
+    /// A **fourth** was the column: a mark belongs to the character, and a
+    /// double-width character's glyph is in its lead cell. Keying on
+    /// `cx.before()` put every ZWJ sequence's continuations on the
+    /// `WIDE_TAIL`, where they were stored, counted as attached, and
+    /// unreachable -- so a family emoji rendered as its first person. Taking
+    /// [`LeadCol`] rather than `Col` is why that cannot be spelled again.
+    pub(crate) fn mark_key(&self, r: Row, c: LeadCol) -> MarkKey {
         let p = self.phys_row(r);
         MarkKey::new(
             match self.screen {
@@ -250,7 +271,7 @@ impl<'a> Term<'a> {
                 Screen::Normal => Surface::Primary,
             },
             p,
-            c,
+            c.col(),
             self.s.mark_gen[p.index()],
         )
     }
@@ -283,6 +304,17 @@ impl<'a> Term<'a> {
         self.s.mark_gen[self.phys_row(r).index()].bump();
     }
 
+    /// Attach a zero-width codepoint to the cell the cursor last wrote.
+    ///
+    /// `#[inline(never)]`: `put_cp` is on the decode path and this is the rare
+    /// arm, the same reason `open_gap` and `anywhere_c0` are out of line.
+    ///
+    /// This attribute and this comment spent a session attached to `mark_key`
+    /// below, because an edit landed between them and the signature they were
+    /// written for. The effect was the exact inverse of both: a four-load pure
+    /// function forced out of line, called once per attached codepoint, and
+    /// this arm inlined into the decode path it says it stays out of.
+    #[inline(never)]
     fn attach_mark(&mut self, cp: Codepoint) {
         // A mark with nothing before it on the line has no base to attach to.
         // Dropping it is correct -- `[[source: uax29]]` GB1 puts a boundary at
@@ -291,7 +323,11 @@ impl<'a> Term<'a> {
             self.marks_dropped.inc();
             return;
         }
-        let key = self.mark_key(self.cy, self.cx.before());
+        // **Ask the grid which cell owns that column.** The cursor sits after
+        // the character it just wrote, so one column back is that character --
+        // unless it was double-width, where one column back is its tail.
+        let owner = self.view_ref().lead(self.cy, self.cx.before());
+        let key = self.mark_key(self.cy, owner);
         let i = key.slot(NMARK);
         if !self.s.marks[i].is_for(key) {
             if !self.s.marks[i].is_empty() {

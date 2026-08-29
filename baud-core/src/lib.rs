@@ -24,14 +24,14 @@ pub use baud_domain::{
     Charset, ClipboardOp, ClusterBreak, Codepoint, Col, ColSpan, ColorWord, Cols, Content, Count,
     Csi, CursorStyle, Dcs, DecSet, DeviceAttribute, Encoding, EraseExtent, Esc, Filled, FinalByte,
     FnKey, GSlot, GraphemeClass, HighlightRegion, HighlightTracking, InputEncoding, Introducer,
-    KeyCode, KeyEvent, KeyEventKind, KeypadKey, KeypadMode, Lane, LaneMask, Level, LineSlot,
-    LinkId, MarginMode, MarkGen, MarkKey, MarkSlot, Marker, ModeBit, ModeChange, ModeState, Modes,
-    Modifiers, MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods, MouseTracking, Nrcs,
-    OneBased, Osc, PackedCell, Param, ParamIdx, Params, Pending, PhysRow, Prefix, PrivateMode,
-    Protection, Report, ReportBytes, RingPos, Room, Row, RowBlock, RowExtent, RowRot, Rows, Run,
-    RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId, StyleWord, SubParams,
-    Surface, TerminalMode, Utf8Acc, Utf8Min, View, Vt52, Vt52Coord, Width, WidthTable, WinSize,
-    XColor,
+    KeyCode, KeyEvent, KeyEventKind, KeypadKey, KeypadMode, Lane, LaneMask, LeadCol, Level,
+    LineSlot, LinkId, MarginMode, MarkGen, MarkKey, MarkSlot, Marker, ModeBit, ModeChange,
+    ModeState, Modes, Modifiers, MouseButton, MouseEncoding, MouseEvent, MouseKind, MouseMods,
+    MouseTracking, Nrcs, OneBased, Osc, PackedCell, Param, ParamIdx, Params, Pending, PhysRow,
+    Prefix, PrivateMode, Protection, Report, ReportBytes, RingPos, Room, Row, RowBlock, RowExtent,
+    RowRot, Rows, Run, RunCount, Slot, Stat, StatusTarget, StreamByte, StringTerm, StyleId,
+    StyleWord, SubParams, Surface, TerminalMode, Utf8Acc, Utf8Min, View, ViewRef, Vt52, Vt52Coord,
+    Width, WidthTable, WinSize, XColor,
 };
 
 mod charset;

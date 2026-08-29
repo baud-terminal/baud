@@ -170,6 +170,20 @@ impl<'a> ViewRef<'a> {
             PackedCell::EMPTY
         }
     }
+
+    /// Which cell owns the character at `c`.
+    ///
+    /// `c` itself, unless `c` names a double-width character's tail, in which
+    /// case the character lives one column back. **This is the only way to
+    /// build a [`LeadCol`]**, because the grid is the only thing that knows
+    /// which columns hold tails -- the same reason `snap_at` widens a fill to
+    /// whole characters rather than trusting the caller's bounds.
+    pub fn lead(&self, r: Row, c: Col) -> LeadCol {
+        match c.index() > 0 && self.get(r, c).content.is_wide_tail() {
+            true => LeadCol(c.before()),
+            false => LeadCol(c),
+        }
+    }
 }
 
 /// A viewport laid out over a caller-owned cell array, addressed by axis.

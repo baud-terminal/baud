@@ -119,3 +119,70 @@ fn a_mark_survives_writes_elsewhere_on_the_screen() {
         "writing elsewhere must not strand a mark"
     );
 }
+
+/// **The bug this file's fourth entry is about.** A double-width base puts
+/// its glyph in the lead cell and `WIDE_TAIL` in the next one. `cx.before()`
+/// names the tail, so every ZWJ continuation was stored against a cell no
+/// renderer asks about: nothing was dropped, nothing was counted wrong, and
+/// the family emoji rendered as one person.
+#[test]
+fn a_wide_base_carries_its_marks_on_the_lead_cell() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    feed(&mut t, "\u{1f468}\u{200d}\u{1f469}");
+    let lead = marks_at(&t, 0, 0);
+    let tail = marks_at(&t, 0, 1);
+    assert_eq!(
+        lead,
+        vec![0x200d, 0x1f469],
+        "lead has {lead:x?}, tail has {tail:x?}"
+    );
+}
+
+/// A cell rewritten in place must not keep the previous character's marks.
+#[test]
+fn overwriting_a_cell_does_not_inherit_its_old_marks() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    feed(&mut t, "e\u{0301}");
+    assert_eq!(marks_at(&t, 0, 0), vec![0x301], "setup");
+    feed(&mut t, "\r x");
+    assert_eq!(
+        marks_at(&t, 0, 1),
+        Vec::<u32>::new(),
+        "x inherited the accent"
+    );
+}
+
+/// A base in the last column still owns what follows it. The `Col::ZERO`
+/// guard in `attach_mark` is about start-of-line, and the cursor parked at
+/// the right margin must not read as one.
+#[test]
+fn a_mark_attaches_to_a_base_in_the_last_column() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    let cols = 200;
+    feed(&mut t, &"a".repeat(cols - 1));
+    feed(&mut t, "e\u{0301}");
+    let d = t.marks_dropped.count();
+    assert_eq!(marks_at(&t, 0, cols - 1), vec![0x301], "dropped={d}");
+}
+
+/// **Why the owning cell is resolved from the grid and not remembered.**
+/// Nothing here is adjacent in the stream: the cursor writes a wide
+/// character, leaves, comes back with `CUP`, and only then does a mark
+/// arrive. A base position cached at write time would have been overwritten
+/// by everything in between; the grid still knows which column holds a tail.
+#[test]
+fn a_mark_finds_its_base_after_the_cursor_has_been_away() {
+    let mut st = Storage::boxed();
+    let mut t = Term::new(&mut st, OpMode::Computed);
+    feed(&mut t, "\u{4e00}");
+    feed(&mut t, "\r\nelsewhere\x1b[1;3H");
+    feed(&mut t, "\u{0301}");
+    assert_eq!(
+        marks_at(&t, 0, 0),
+        vec![0x301],
+        "the mark belongs to the wide character at column 0"
+    );
+}

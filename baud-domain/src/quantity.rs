@@ -508,6 +508,32 @@ impl Col {
     }
 }
 
+/// The column that **owns** the character occupying a position.
+///
+/// Not a `Col`, and the difference was a bug that stored data nothing could
+/// read. A double-width character occupies two cells: its glyph is in the
+/// lead and `Content::WIDE_TAIL` is in the column after it. A combining mark
+/// or a ZWJ continuation belongs to the *character*, and a renderer draws the
+/// character at its lead -- so a mark keyed on the tail is written, counted as
+/// attached, and then unreachable, which is what every ZWJ emoji sequence did.
+///
+/// `Col::before` answers "one column back", which is the tail. This answers
+/// "which cell does that position belong to", and it can only be obtained
+/// from [`ViewRef::lead`], because the grid is the only thing that knows
+/// whether a column holds a tail.
+///
+/// [`ViewRef::lead`]: crate::ViewRef::lead
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LeadCol(pub(crate) Col);
+
+impl LeadCol {
+    /// The underlying column, for addressing.
+    pub fn col(self) -> Col {
+        self.0
+    }
+}
+
 /// A monotonic event counter. Not a `u64`: a statistic cannot be added to a
 /// length, a byte position or a column, and nothing can be assigned into it
 /// except by counting.

@@ -182,8 +182,12 @@ impl<'a> Term<'a> {
     /// cell holds the base and this holds what combines with it. Empty for the
     /// overwhelming majority of cells, which is why the marks live in a side
     /// table rather than in `PackedCell`'s eight measured bytes.
+    /// Asking about a double-width character's tail returns the same marks as
+    /// asking about its lead: both columns are one character, and the marks
+    /// belong to the character. A renderer that iterates cells therefore never
+    /// has to know which half it is looking at.
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = Codepoint> + '_ {
-        let key = self.mark_key(r, c);
+        let key = self.mark_key(r, self.view_ref().lead(r, c));
         let slot = &self.s.marks[key.slot(NMARK)];
         slot.marks().take(if slot.is_for(key) {
             MarkSlot::CAPACITY
