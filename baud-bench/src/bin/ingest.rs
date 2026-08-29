@@ -232,6 +232,19 @@ fn main() {
                 / d.cp_wide.count().max(1) as f64,
         );
     }
+    // Which route each byte took. On a payload that is mostly UTF-8 the ASCII
+    // scanner does little, and `bytes_slow` is the byte-at-a-time state
+    // machine -- the one route with no bulk path behind it at all.
+    {
+        let tot = t.bytes_in.count().max(1) as f64;
+        println!(
+            "  bytes by route: bulk {:.1}%, utf8 {:.1}%, seq {:.1}%, one-at-a-time {:.1}%",
+            100.0 * t.bytes_bulk.count() as f64 / tot,
+            100.0 * t.bytes_utf8.count() as f64 / tot,
+            100.0 * t.bytes_seq.count() as f64 / tot,
+            100.0 * t.bytes_slow.count() as f64 / tot,
+        );
+    }
     println!(
         "  {} dispatches, one per {:.0} bytes; {} scrolls blanking {} cells",
         t.dispatches.count(),
