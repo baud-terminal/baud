@@ -279,6 +279,24 @@ impl<'a> Term<'a> {
             core::hint::black_box(base);
             return;
         }
+        // **Ceiling arm: the floor of a block loop.** The same nothing the
+        // `ceiling-floor` arm does, iterated sixteen bytes at a time instead
+        // of one character at a time -- so the pair measures exactly the
+        // iteration overhead the corpus says is the cost, and nothing else.
+        #[cfg(feature = "ceiling-block-loop")]
+        {
+            let (b, nn) = (base.index(), n.index());
+            let mut i = 0usize;
+            while i + baud_isa::LANES <= nn {
+                let block = baud_domain::Vectorized::<baud_domain::Printable>::load(
+                    StreamByte::slice_from(&self.s.arena[b + i..b + i + baud_isa::LANES]),
+                );
+                core::hint::black_box(block.routes().is_not(baud_domain::Route::Text));
+                i += baud_isa::LANES;
+            }
+            core::hint::black_box(i);
+            return;
+        }
         #[allow(unreachable_code)]
         let (b, nn) = (base.index(), n.index());
         let mut i = 0usize;
