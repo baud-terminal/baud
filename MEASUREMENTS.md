@@ -205,6 +205,44 @@ not equal the *default* blank, so it counts as full of text. A high-water mark
 records where glyphs reached and is immune to that, which is the whole reason
 it is the surviving proposal -- so the measurement had to be immune too.
 
+## A ceiling arm that changed the work, and how to notice
+
+*Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28.*
+
+Stubbing `apply_sgr` to return immediately measured **+22% on
+`payload::streaming`**, +21% on asciiquarium and +16% on btop, which reads as
+"SGR handling is a fifth of the cells path". Four separate attempts to claim
+some of it measured **flat**: an SGR fast path in `dispatch` skipping the `Csi`
+construction, skipping the interning re-hash when the slot still holds the
+rendition, and two others.
+
+The arm was not measuring what it looked like. `cells_written` under it:
+
+| payload | real | SGR stubbed | |
+|---|---|---|---|
+| `payload::streaming` | 9,838,503 | **5,999,072** | **-39%** |
+| `ascii/asciiquarium.raw` | 534,917 | 524,712 | -2% |
+| `utf8/btop.raw` | 394,112 | 394,112 | **0** |
+
+Disabling SGR freezes the rendition, and a frozen rendition means the blank
+never changes -- so `fill_row`'s O(1) "has the template changed" test succeeds
+every time and blanking stops at the used extent on every row. On streaming,
+which is 70% fill, that is most of the "+22%".
+
+**btop's cell count is identical in both arms, so its +16% is real**, and
+asciiquarium's is nearly so. What is not real is the streaming figure, which is
+the one that made the whole thing look like a headline opportunity.
+
+The discipline that catches this is already in this repo, applied to the
+blanking ceiling: *"Both arms report identical cell attribution -- 18,539,140
+cells, 27% bulk, 73% fill -- so the counters agree about the work and only the
+stores differ."* That sentence is the check. It was not run here until four
+flat results made the ceiling itself suspect.
+
+**So: read the counters on both arms of a ceiling before believing the
+number.** A ceiling arm removes work by definition; the question is whether it
+removed only the work you named.
+
 ## Against the other cores on **real capture**: ahead on six, behind on two
 
 *Host: M5 Max, macOS 27.0.0, AC power. Date: 2026-08-28, commit `a61f333`.
