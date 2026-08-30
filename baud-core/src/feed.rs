@@ -235,6 +235,18 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
     }
 
     #[allow(unreachable_code)]
+    // **The walk is a dependency chain through `off`** -- each round computes
+    // `1 << off`, tests it against the masks, walks `run_at`, and only then
+    // knows the next `off` -- which is what ~9.5 cycles an iteration for ~15
+    // instructions was saying: IPC 1.6 on straight-line integer code.
+    //
+    // Iterating the *character-start* mask instead (`starts = !cont`, then
+    // `m &= m - 1`) makes that chain three operations, and each character's
+    // length falls out as the distance to the next start rather than being
+    // searched for. It measured **633-668 against 706-721**, cells identical:
+    // maintaining the mask across a text run (`m &= !((1 << off) - 1)`) and
+    // validating the route's length against the bit distance cost more than
+    // the shorter chain saved. The chain was real; it was not the constraint.
     let mut off = 0usize;
     #[cfg(feature = "diag")]
     let mut iters = 0usize;
