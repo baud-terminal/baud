@@ -217,3 +217,16 @@ fn the_lead_mask_is_the_union_of_the_three_lengths() {
         assert_eq!(r.leads().bits() & 1 != 0, want, "byte {raw:#04x}");
     }
 }
+
+/// `from_three` must agree with the general constructor on every value a
+/// three-byte sequence can produce, which is all sixteen bits.
+#[test]
+fn the_three_byte_constructor_agrees_with_the_general_one() {
+    for v in 0u32..=0xffff {
+        let want = match v < 0x800 {
+            true => Codepoint::REPLACEMENT,
+            false => Codepoint::decoded(v),
+        };
+        assert_eq!(Codepoint::from_three(v), want, "{v:#06x}");
+    }
+}

@@ -472,15 +472,6 @@ impl Route {
     ];
 }
 
-/// One three-byte scalar value, or the replacement when it is not a character.
-#[inline(always)]
-fn three_byte(raw: u32) -> Codepoint {
-    match raw < 0x800 {
-        true => Codepoint::REPLACEMENT,
-        false => Codepoint::decoded(raw),
-    }
-}
-
 /// Sixteen bytes' routes, in one register.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -610,10 +601,10 @@ impl Vectorized<Printable> {
         // `U+10FFFF`, neither of which a three-byte form can reach anyway.
         let v = raw.to_array();
         [
-            three_byte(v[0]),
-            three_byte(v[1]),
-            three_byte(v[2]),
-            three_byte(v[3]),
+            Codepoint::from_three(v[0]),
+            Codepoint::from_three(v[1]),
+            Codepoint::from_three(v[2]),
+            Codepoint::from_three(v[3]),
         ]
     }
 
