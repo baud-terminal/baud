@@ -154,6 +154,28 @@ impl<'a> Paint<'a> {
             self.wrap();
         }
         let (style, flags) = (self.style, self.flags);
+        // **Making the wide tail implicit is worth 3%, not the 23% the store
+        // accounting implied.** A wide character occupies two cells and writes
+        // both, which is two stores on the path 69% of runs take, so a width
+        // bit on the lead instead of a `WIDE_TAIL` cell looked like halving
+        // the dominant store category. Priced with a ceiling arm that simply
+        // does not write the tail -- incorrect by construction, since nothing
+        // then marks the covered column -- it measures **712-745 against
+        // 712-723**.
+        //
+        // The reason is locality: the tail lands on the cache line the lead
+        // has just dirtied, so the second store is nearly free, and the runs
+        // long enough to matter already go through `put_wide_run` eight cells
+        // at a time. This is the same shape as blanking, which is 46% of every
+        // cell written and 3% of the clock. **Cell traffic is not the cost
+        // here, and a store-count argument is not a timing argument.**
+        //
+        // Worth knowing because the change it argued for -- a different grid
+        // representation, with readers checking the preceding cell -- is
+        // invasive and shared with `baud-core2`, and it would have bought 3%.
+        #[cfg(feature = "ceiling-implicit-tail")]
+        let tail: Option<PackedCell> = None;
+        #[cfg(not(feature = "ceiling-implicit-tail"))]
         let tail = match w == Width::WIDE {
             true => Some(PackedCell::wide_tail(style, flags)),
             false => None,
