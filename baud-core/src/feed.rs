@@ -290,6 +290,21 @@ fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) ->
             )
             .index();
         }
+        // **Gathering consecutive wide characters across run boundaries has
+        // now lost three times.** The run detector keys on *encoded length*
+        // because that is what makes the decode strided; the writer keys on
+        // *width*, and on this recording those differ constantly -- three-byte
+        // CJK alternating with four-byte emoji, both two cells -- so 69% of
+        // runs are one character and each takes its own two-cell write.
+        //
+        // Held across `feed` calls: **567-581 against 620-635**, because the
+        // flush lands on every path that reads the cursor. Held as a `Paint`
+        // buffer: the same, plus it dropped characters at the row edge.
+        // Gathered *block-locally*, with no flush hazard at all: **639-661
+        // against 704-712**, because the lookahead re-runs the run detector
+        // and the decode per character and usually finds one more.
+        //
+        // The recording alternates. There is no run there to find.
         let at = from.advance(ByteLen::from_index(off));
         match n {
             1 => put_one(p, at, len),
