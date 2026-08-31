@@ -346,3 +346,44 @@ fn every_parameter_of_a_private_mode_sequence_is_applied() {
     let (_, ck, _, meta, _, eight) = after(b"\x1b[?1;1036;1034h");
     assert!(ck && meta && eight, "all three, not just the first");
 }
+
+/// **DECSC saves the wrap flag and origin mode, and neither core restored
+/// them.**
+///
+/// `[[source: vt510-decsc]]` lists seven items: cursor position, SGR
+/// attributes, the character sets in GL and GR, the wrap flag, the state of
+/// origin mode, the selective erase attribute, and any SS2/SS3 sent. The
+/// coverage table called this `done` on the strength of the first two.
+///
+/// Origin mode is the one that bites: it decides where home *is*, so an
+/// application that sets it, saves, resets it and restores gets the wrong
+/// coordinate system for everything that follows.
+#[test]
+fn a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode() {
+    // DECSTBM 2;3 makes origin mode observable: with it set, `CUP 1;1` homes
+    // to row 2 rather than row 1.
+    //
+    // Set origin, save, reset origin, restore, then home. If DECRC brought
+    // origin mode back, home is inside the region.
+    let r = row_n(
+        b"\x1b[2;3r\x1b[?6h\x1b7\x1b[?6l\x1b8\x1b[1;1HX",
+        4096,
+        10,
+        1,
+    );
+    assert_eq!(&r[..1], "X", "origin mode must survive DECSC/DECRC");
+
+    // And with origin left off across the pair, home is row 0.
+    let r = row_n(
+        b"\x1b[2;3r\x1b[?6l\x1b7\x1b[?6h\x1b8\x1b[1;1HX",
+        4096,
+        10,
+        0,
+    );
+    assert_eq!(&r[..1], "X", "and so must its absence");
+
+    // The wrap flag likewise: DECAWM off, save, on, restore -> still off, so a
+    // line longer than the row clips instead of wrapping to row 1.
+    let r = row_n(b"\x1b[?7l\x1b7\x1b[?7h\x1b8abcdefghijkl", 4096, 10, 1);
+    assert_eq!(&r, "..........", "autowrap must survive DECSC/DECRC");
+}

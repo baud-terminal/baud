@@ -12,6 +12,14 @@ pub enum ModeChange {
 }
 
 impl ModeChange {
+    /// From a flag that is already known, for saving and restoring one.
+    pub fn of(on: bool) -> ModeChange {
+        match on {
+            true => ModeChange::Set,
+            false => ModeChange::Reset,
+        }
+    }
+
     /// `h` sets, `l` resets. The final byte is the only thing that decides.
     pub fn from_final(f: FinalByte) -> Option<ModeChange> {
         Some(match f.raw() {

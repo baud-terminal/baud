@@ -26,6 +26,16 @@ pub struct Saved {
     pub(crate) style_raw: StyleWord,
     pub(crate) flags: CellFlags,
     pub(crate) charset: Charset,
+    /// DECAWM, because `[[source: vt510-decsc]]` lists "Wrap flag (autowrap or
+    /// no autowrap)" among the seven things DECSC saves.
+    pub(crate) autowrap: ModeChange,
+    /// DECOM, likewise: "State of origin mode (DECOM)".
+    ///
+    /// **Restoring it is not cosmetic.** Origin mode decides where home *is*,
+    /// so an application that sets it, saves, resets it and restores must get
+    /// its own coordinate system back -- and until this was read off the
+    /// manual rather than assumed, neither core restored either flag.
+    pub(crate) origin: ModeChange,
 }
 
 /// How many `SGR` sequences the byte-keyed table holds.

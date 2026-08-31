@@ -494,8 +494,8 @@ without these.
 
 | seq | name | status |
 |---|---|---|
-| `ESC 7` | DECSC save cursor | done |
-| `ESC 8` | DECRC restore cursor | done |
+| `ESC 7` | DECSC save cursor | **partial** — `[[source: vt510-decsc]]` lists seven items and `baud-core` saves five: cursor position, SGR attributes, the wrap flag, origin mode, and the selective erase attribute. The character set is saved as the one slot this core has rather than G0-G3 across GL and GR, and **any SS2/SS3 in flight is not saved** because single shifts are not implemented. The row said `done` on the strength of the first two until the manual was read rather than assumed |
+| `ESC 8` | DECRC restore cursor | **partial** — restores what DECSC saved, clamped to the grid that exists now. `a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode` pins the two flags that were silently dropped |
 | `ESC D` | IND index | done — column preserved (was resetting it) |
 | `ESC E` | NEL next line | done |
 | `ESC M` | RI reverse index | done |

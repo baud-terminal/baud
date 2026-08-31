@@ -36,7 +36,7 @@ missing is everything between that grid and a window.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 149 operations, [enumerated against primary sources](docs/vt-coverage.md) |
+| **VT protocol** | ✅ 147 operations at **done** and 2 at **partial**, [enumerated against primary sources](docs/vt-coverage.md) — DECSC/DECRC are the partial pair: they save five of the seven items `[[source: vt510-decsc]]` lists |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.12–4.31× on committed capture |

@@ -47,6 +47,8 @@ impl Paint<'_> {
             style_raw: self.style_raw,
             flags: self.flags,
             charset: self.charset,
+            autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
+            origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
         }
     }
 
@@ -61,6 +63,17 @@ impl Paint<'_> {
         self.style_raw = s.style_raw;
         self.flags = s.flags;
         self.charset = s.charset;
+        // **The two flags DECSC saves that neither core restored.**
+        // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
+        // origin mode are two of them. Origin mode especially is not
+        // cosmetic: it decides where home is, so an application that sets it,
+        // saves, resets it and restores must get its coordinate system back.
+        self.cold
+            .modes
+            .apply(ModeBit::AutoWrap, s.autowrap == ModeChange::Set);
+        self.cold
+            .modes
+            .apply(ModeBit::Origin, s.origin == ModeChange::Set);
     }
 
     fn blank(&self) -> PackedCell {
