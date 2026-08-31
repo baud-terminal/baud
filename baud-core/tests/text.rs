@@ -22,6 +22,7 @@ fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
     let mut cells3 = vec![PackedCell::EMPTY; CELLS3];
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
+    let mut reply = vec![0u8; REPLY];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: cols as u16,
@@ -34,6 +35,7 @@ fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
             &mut cells3,
             &mut tmpl,
             &mut tabs,
+            &mut reply,
         ),
         &ws,
     );
@@ -168,4 +170,105 @@ fn a_run_agrees_with_the_same_characters_written_singly() {
             assert_eq!(row0(src, chunk, cols), whole, "cols {cols}, chunk {chunk}");
         }
     }
+}
+
+/// Feed `bytes` and return whatever the terminal owes the host.
+fn reply_to(bytes: &[u8]) -> Vec<u8> {
+    let rows = 4usize;
+    let mut arena = vec![0u8; READ_CHUNK];
+    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut used = vec![RowExtent::ZERO; rows];
+    let mut cells3 = vec![PackedCell::EMPTY; 0];
+    let mut tmpl = vec![None; NSTYLE];
+    let mut tabs = vec![false; MAX_COLS];
+    let mut reply = vec![0u8; REPLY];
+    let ws = WinSize {
+        ws_row: rows as u16,
+        ws_col: 20,
+    };
+    let mut t = Term::new(
+        Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+            &mut reply,
+        ),
+        &ws,
+    );
+    t.write_at(BytePos::from_index(0), bytes);
+    t.feed(BytePos::from_index(0), ReadLen::from_index(bytes.len()));
+    t.reply().to_vec()
+}
+
+/// **`DA` under-claims as a VT102, and the shape is the whole point.**
+///
+/// An application parses whatever arrives as the report it asked for, so a
+/// reply in the wrong shape is worse than silence -- which is why every answer
+/// goes through a named `Report` rather than bytes chosen at the call site.
+#[test]
+fn a_device_attributes_query_is_answered_as_a_vt102() {
+    assert_eq!(reply_to(b"\x1b[c"), b"\x1b[?6c");
+    // `CSI 0 c` is the same query with an explicit default.
+    assert_eq!(reply_to(b"\x1b[0c"), b"\x1b[?6c");
+}
+
+/// `CSI 5 n` is "are you well", `CSI 6 n` is "where is the cursor", 1-based.
+#[test]
+fn a_status_query_is_answered_and_an_unknown_one_is_not() {
+    assert_eq!(reply_to(b"\x1b[5n"), b"\x1b[0n");
+    // Home is row 1, column 1.
+    assert_eq!(reply_to(b"\x1b[6n"), b"\x1b[1;1R");
+    // Three characters in, still on row 1.
+    assert_eq!(reply_to(b"abc\x1b[6n"), b"\x1b[1;4R");
+    // **A DSR baud does not implement gets no answer at all.** Replying `0`
+    // would tell the application the report exists.
+    assert!(reply_to(b"\x1b[99n").is_empty());
+}
+
+/// Several queries in one read all reach the host, in order.
+#[test]
+fn a_read_carrying_two_queries_answers_both() {
+    assert_eq!(reply_to(b"\x1b[c\x1b[5n"), b"\x1b[?6c\x1b[0n");
+}
+
+/// The buffer is emptied by the embedder, not by the next read.
+#[test]
+fn a_reply_survives_until_it_is_cleared() {
+    let rows = 4usize;
+    let mut arena = vec![0u8; READ_CHUNK];
+    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut used = vec![RowExtent::ZERO; rows];
+    let mut cells3 = vec![PackedCell::EMPTY; 0];
+    let mut tmpl = vec![None; NSTYLE];
+    let mut tabs = vec![false; MAX_COLS];
+    let mut reply = vec![0u8; REPLY];
+    let ws = WinSize {
+        ws_row: rows as u16,
+        ws_col: 20,
+    };
+    let mut t = Term::new(
+        Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+            &mut reply,
+        ),
+        &ws,
+    );
+    let q = b"\x1b[c";
+    t.write_at(BytePos::from_index(0), q);
+    t.feed(BytePos::from_index(0), ReadLen::from_index(q.len()));
+    assert_eq!(t.reply(), b"\x1b[?6c");
+    // A second read that says nothing must not erase what is owed.
+    t.write_at(BytePos::from_index(0), b"x");
+    t.feed(BytePos::from_index(0), ReadLen::from_index(1));
+    assert_eq!(t.reply(), b"\x1b[?6c", "an unrelated read must not drop it");
+    t.clear_reply();
+    assert!(t.reply().is_empty());
 }

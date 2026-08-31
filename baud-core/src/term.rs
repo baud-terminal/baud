@@ -172,6 +172,12 @@ pub struct Term<'b> {
     pub scroll_rot: usize,
     #[cfg(feature = "diag")]
     pub scroll_copy: usize,
+    /// How many bytes of `store.reply` are pending.
+    pub(crate) reply_len: ByteLen,
+    /// Replies dropped because the buffer was full. Counted rather than
+    /// silently lost: a truncated reply is a wrong answer, and this file's
+    /// rule is that a wrong answer is worse than silence.
+    pub reply_overflows: usize,
     pub fast_try: usize,
     #[cfg(feature = "diag")]
     pub fast_hit: usize,
@@ -274,6 +280,8 @@ impl<'b> Term<'b> {
             scroll_rot: 0,
             #[cfg(feature = "diag")]
             scroll_copy: 0,
+            reply_len: ByteLen::ZERO,
+            reply_overflows: 0,
             fast_try: 0,
             #[cfg(feature = "diag")]
             fast_hit: 0,
@@ -343,5 +351,20 @@ impl<'b> Term<'b> {
 
     pub fn cursor(&self) -> (Row, Col) {
         (self.cy, self.cx)
+    }
+}
+
+impl<'b> Term<'b> {
+    /// Bytes the terminal owes the host, e.g. the answer to a `DA` or `DSR`.
+    ///
+    /// Write these back to wherever the input came from, then call
+    /// [`Term::clear_reply`]. Empty when there is nothing to say.
+    pub fn reply(&self) -> &[u8] {
+        &self.store.reply[..self.reply_len.index()]
+    }
+
+    /// Drop the pending reply after sending it.
+    pub fn clear_reply(&mut self) {
+        self.reply_len = ByteLen::ZERO;
     }
 }

@@ -42,6 +42,6 @@ pub use baud_domain::{
 pub use graph::Node;
 
 pub use storage::{
-    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NSTYLE, READ_CHUNK, Storage,
+    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NSTYLE, READ_CHUNK, REPLY, Storage,
 };
 pub use term::Term;

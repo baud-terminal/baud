@@ -66,6 +66,7 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
     let mut cells3 = vec![new::PackedCell::EMPTY; new::CELLS3];
     let mut tmpl = vec![None; new::NSTYLE];
     let mut tabs = vec![false; new::MAX_COLS];
+    let mut reply = vec![0u8; new::REPLY];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -74,6 +75,7 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
             &mut cells3,
             &mut tmpl,
             &mut tabs,
+            &mut reply,
         ),
         &ws,
     );
@@ -277,6 +279,7 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
     let mut cells3 = vec![new::PackedCell::EMPTY; new::CELLS3];
     let mut tmpl = vec![None; new::NSTYLE];
     let mut tabs = vec![false; new::MAX_COLS];
+    let mut reply = vec![0u8; new::REPLY];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -285,6 +288,7 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
             &mut cells3,
             &mut tmpl,
             &mut tabs,
+            &mut reply,
         ),
         &ws,
     );

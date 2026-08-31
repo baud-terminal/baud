@@ -47,6 +47,7 @@ impl Term<'_> {
             self.flags,
             self.charset,
             &mut self.cold,
+            self.reply_len,
         );
         // The ASCII-only ladder never leaves `Ground`, so it advances none of
         // these; the graph loop below does.
@@ -209,6 +210,9 @@ impl Term<'_> {
         self.style_raw = p.style_raw;
         self.flags = p.flags;
         self.charset = p.charset;
+        // Replies queued during the read, carried back like the cursor.
+        self.reply_len = p.reply_len;
+        self.reply_overflows += p.reply_overflows;
         self.cells_written += p.cells.index();
         #[cfg(feature = "diag")]
         {

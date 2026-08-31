@@ -106,6 +106,7 @@ pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
     let mut cells3: Vec<nb::PackedCell> = Vec::new();
     let mut tmpl = vec![None; nb::NSTYLE];
     let mut tabs = vec![false; nb::MAX_COLS];
+    let mut reply = vec![0u8; nb::REPLY];
     let mut t = nb::Term::new(
         nb::Storage::new(
             &mut arena,
@@ -114,6 +115,7 @@ pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
             &mut cells3,
             &mut tmpl,
             &mut tabs,
+            &mut reply,
         ),
         &ws,
     );

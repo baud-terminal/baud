@@ -73,6 +73,15 @@ pub(crate) struct Paint<'a> {
     /// `Paint` is inlined into the per-character loop. Carrying it meant
     /// carrying all of that; an indirection costs one load on a path taken
     /// once a control sequence.
+    /// Bytes owed to the host, and how many are pending.
+    ///
+    /// **A slice rather than a report queued for later.** A single read can
+    /// carry several queries -- an application probing on startup sends `DA`
+    /// and `DSR` together -- so there is nothing to hold them in but the
+    /// buffer itself.
+    pub(crate) reply: &'a mut [u8],
+    pub(crate) reply_len: ByteLen,
+    pub(crate) reply_overflows: usize,
     pub(crate) cold: &'a mut crate::term::Cold,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -163,6 +172,7 @@ impl<'a> Paint<'a> {
         flags: CellFlags,
         charset: Charset,
         cold: &'a mut crate::term::Cold,
+        reply_len: ByteLen,
     ) -> Paint<'a> {
         let Storage {
             arena,
@@ -171,6 +181,7 @@ impl<'a> Paint<'a> {
             cells3,
             tmpl,
             tabs,
+            reply,
         } = store;
         // The three-byte cell table is read only by `put_run` under
         // `cell-table`; the default build must not carry a borrow of it.
@@ -182,6 +193,9 @@ impl<'a> Paint<'a> {
             cells3,
             tmpl,
             tabs,
+            reply,
+            reply_len,
+            reply_overflows: 0,
             cold,
             view: View::new(vp, used, stride, cols, rows, rot),
             cy,
@@ -498,6 +512,34 @@ impl<'a> Paint<'a> {
 
     /// **DECAWM off means the cursor stays put and the character overwrites**,
     /// which is what a status line drawn to the last column depends on.
+    /// Queue a report for the host.
+    ///
+    /// **The only way bytes reach the reply buffer**, so the shape is chosen
+    /// by the [`Report`] variant rather than by the call site: a `DSR` cannot
+    /// be answered with a `DA`'s bytes, which `docs/vt-coverage.md` calls the
+    /// one thing a terminal must never do.
+    ///
+    /// **Seven-bit introducers, always.** This core implements neither `S7C1T`
+    /// nor `S8C1T`, so it has never been told to move to the 8-bit C1 forms,
+    /// and passing a mode it does not track would be recording a bit nothing
+    /// sets.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn want_reply(&mut self, r: Report) {
+        let bytes = r.encode(C1Transmit::SevenBit);
+        let b = bytes.as_bytes();
+        let at = self.reply_len.index();
+        match at + b.len() <= self.reply.len() {
+            true => {
+                self.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+            }
+            // A truncated reply is a wrong answer, so it is dropped whole and
+            // counted rather than half-sent.
+            false => self.reply_overflows += 1,
+        }
+    }
+
     pub(crate) fn wrap(&mut self) {
         if !self.cold.modes.is_set(ModeBit::AutoWrap) {
             self.cx = Col::at_index(self.cols.index() - 1);

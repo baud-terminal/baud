@@ -80,6 +80,16 @@ pub struct Storage<'b> {
     pub(crate) tmpl: &'b mut [Option<StyleWord>],
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
+    /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
+    /// `DECRQM` or an `XTVERSION`.
+    ///
+    /// **Caller-provided like everything else.** This core owns nothing, which
+    /// is the property `multibench`'s manifest calls "the point of it" -- so
+    /// the reply buffer is a slice the embedder hands over, not an array the
+    /// core keeps. Without one the queries were recognised, counted and
+    /// deliberately unanswered, which `docs/vt-coverage.md` rates as better
+    /// than answering in the wrong shape but worse than answering.
+    pub(crate) reply: &'b mut [u8],
 }
 
 /// How many renditions the template table holds. Bounded so it cannot walk out
@@ -90,6 +100,12 @@ pub const NSTYLE: usize = 1024;
 pub const CELLS3_PREFIXES: usize = 16 * 64;
 /// Entries in the three-byte cell table.
 pub const CELLS3: usize = CELLS3_PREFIXES * 256;
+
+/// How many bytes of reply the core will hold before it starts counting
+/// losses. `baud-core2` uses the same number and for the same reason: the
+/// longest thing this can queue is a `DECRQSS` rendition string, and 256
+/// bounds it with room while staying far below anything that matters.
+pub const REPLY: usize = 256;
 
 impl<'b> Storage<'b> {
     /// # Panics
@@ -104,6 +120,7 @@ impl<'b> Storage<'b> {
         cells3: &'b mut [PackedCell],
         tmpl: &'b mut [Option<StyleWord>],
         tabs: &'b mut [bool],
+        reply: &'b mut [u8],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // `RowBlock` computes the span so the two operands cannot be the
@@ -117,6 +134,7 @@ impl<'b> Storage<'b> {
         );
         assert!(tmpl.len() == NSTYLE, "the rendition table is NSTYLE slots");
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
+        assert!(reply.len() >= REPLY, "the reply buffer is REPLY bytes");
         Storage {
             arena,
             vp,
@@ -124,6 +142,7 @@ impl<'b> Storage<'b> {
             cells3,
             tmpl,
             tabs,
+            reply,
         }
     }
 }

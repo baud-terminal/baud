@@ -1129,14 +1129,38 @@ fn csi_final(p: &mut Paint<'_>, csi: &Csi, f: FinalByte) {
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
-        // **Recognised, and deliberately not answered.** Everything below
-        // either needs a reply channel this core does not have or is input
-        // state with nothing yet to serve. `docs/vt-coverage.md`'s rule is
-        // that a sequence parsed and dropped is worse than one unimplemented,
-        // so they are counted rather than silently swallowed.
+        // **Answered, now that there is a channel.** Each goes through a named
+        // `Report`, so the shape is chosen by the variant rather than by the
+        // call site -- `docs/vt-coverage.md`'s rule is that answering in the
+        // wrong shape is worse than silence, because an application parses
+        // whatever arrives as the report it asked for.
+        DomCsi::DeviceAttributes => {
+            p.want_reply(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102))
+        }
+        // **`DSR 6` is the cursor, `DSR 5` is health, and nothing else is
+        // answered.** An unimplemented `DSR` gets no reply at all rather than
+        // a plausible one.
+        DomCsi::DeviceStatus(k) => match k {
+            // **Relative to the origin when DECOM is set**, which is what
+            // `[[source: vt510-decom]]` requires: an application inside a
+            // margin asks where it is and must be told in its own coordinates.
+            Some(StatusKind::CursorPosition) => {
+                let base = p.origin_row().index();
+                let row = Row::from_index(p.cy.index().saturating_sub(base));
+                p.want_reply(Report::CursorPosition {
+                    row: row.one_based(),
+                    col: p.cx.one_based(),
+                });
+            }
+            Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
+            _ => {}
+        },
+        // **Still not answered, and each for its own reason.** `CursorStyle`
+        // is a set rather than a query; `RequestMode` needs every mode's real
+        // state, which this core does not yet expose; `RequestVersion` would
+        // name a version this core does not have; and highlight tracking needs
+        // a selection model. Counted rather than silently swallowed.
         DomCsi::CursorStyle(_)
-        | DomCsi::DeviceAttributes
-        | DomCsi::DeviceStatus(_)
         | DomCsi::RequestMode { .. }
         | DomCsi::RequestVersion
         | DomCsi::HighlightMouseTracking(_)

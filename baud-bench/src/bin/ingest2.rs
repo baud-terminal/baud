@@ -141,6 +141,7 @@ fn main() {
     let mut cells3: Vec<PackedCell> = Vec::new();
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
+    let mut reply = vec![0u8; REPLY];
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -149,6 +150,7 @@ fn main() {
             &mut cells3,
             &mut tmpl,
             &mut tabs,
+            &mut reply,
         ),
         &ws,
     );
