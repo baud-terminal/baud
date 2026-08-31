@@ -76,6 +76,7 @@ fn main() {
         "streaming" => payload::streaming(1 << 20, &mut seq),
         "tui" => payload::tui(1 << 19, &mut seq),
         "cjk" => payload::cjk(1 << 20, &mut seq),
+        "cava" => recording("utf8/cava.raw"),
         "btop" => recording("utf8/btop.raw"),
         "asciiquarium" => recording("ascii/asciiquarium.raw"),
         "vim" => recording("utf8/vim-unicode.raw"),

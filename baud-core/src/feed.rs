@@ -1,44 +1,39 @@
-//! The ingest loop, sixteen bytes at a time.
+//! Ingest: one lookup a character, and the loop is one line.
 //!
-//! **This is the reason the crate exists.** Ceiling arms on the previous core
-//! priced everything the parser *does* -- decode, classification, clustering,
-//! marks, cell writes, scrolling -- at 45% of `cat-cjk.raw` between them.
-//! Remove all of it and the recording still runs at ~660 MB/s. What was left
-//! was the loop, and the corpus said its cost is per **iteration**:
+//! **The whole decision is in the table.** `graph` says what a byte does and
+//! where that leaves the parser; the action says how many bytes it eats. So a
+//! three-byte character is one lookup and one step, not three -- which is what
+//! makes a table-driven loop competitive with a hand-written one instead of
+//! several times slower.
 //!
-//! | payload | floor with every action stubbed | bytes an iteration |
-//! |---|---|---|
-//! | `cat`, long printable runs | 2830 | ~30 |
-//! | `cat-cjk`, 2.23-byte characters | 670 | 2.23 |
-//!
-//! The same nothing, iterated sixteen bytes at a time, measured **14,100**.
-//!
-//! So the loop below advances by a *block*. Each iteration classifies sixteen
-//! bytes with one `vqtbl1q_u8` -- `Route` is a function of a byte's high
-//! nibble, which is why sixteen fit one shuffle -- and then spends that answer
-//! on as much of the block as it can account for.
-//!
-//! **What it does not buy is a faster predicate.** The old scanner was already
-//! free: pricing it by running it twice measured 0%. What it buys is one
-//! iteration covering sixteen bytes.
+//! This replaced a block classifier and about two hundred lines of walk: six
+//! mask extractions a block, run detection, run-length extension past the
+//! block boundary, whole-block fast paths and three specialised writers.
+//! Everything they did is either in the table now or in one of nine action
+//! arms. `CLAUDE.md` records what each of those pieces measured, because
+//! several were worth real percentages and the next person should know what
+//! was given up for the simplicity.
 
+use crate::graph::{Edge, Node, split};
+// `Act` names the ASCII-only ladder's arms and nothing else in this file, so
+// the import carries the same gate the block does.
+#[cfg(feature = "ascii-only")]
+use crate::graph::Act;
 use crate::paint::Paint;
-use crate::storage::STRIDE_MAX;
 use crate::term::Term;
-use crate::write::{control, one, put_one, put_run_of};
+use crate::write::{Csi, act};
 use baud_domain::*;
 
 impl Term<'_> {
     /// Ingest `n` bytes starting at `base`.
     ///
-    /// **One borrow of the grid for the whole read.** The walk used to build a
-    /// `View` per run, and on `cat-cjk.raw` a run is a handful of bytes -- six
-    /// fields and a bounds re-derivation, paid thousands of times to guard
-    /// stores of eight cells. `Paint` holds it once.
+    /// **`ReadLen`, not `ByteLen`.** `ByteLen` is a `u16` that saturates, and
+    /// taking one here silently discarded everything past 65,535 bytes of a
+    /// read -- which read as a chunk-invariance bug in the parser and was a
+    /// length lost before it arrived.
     #[inline(always)]
-    pub fn feed(&mut self, base: BytePos, n: ByteLen) {
+    pub fn feed(&mut self, base: BytePos, n: ReadLen) {
         self.bytes_in += n.index();
-        let (from, len) = (base.index(), n.index());
         let mut p = Paint::new(
             &mut self.store,
             self.cy,
@@ -46,66 +41,196 @@ impl Term<'_> {
             self.rows,
             self.cols,
             self.rot,
+            self.stride,
             self.style,
+            self.style_raw,
             self.flags,
             self.charset,
+            &mut self.cold,
         );
-        let (mut node, mut utf8, mut min) = (self.node, self.utf8, self.utf8_min);
-        let mut i = 0usize;
-        while i < len {
-            // One classification for the whole block. A short tail at the end
-            // of a read goes a byte at a time, which is at most fifteen bytes
-            // per `read(2)` and so cannot be hot.
-            if node.is_ground() && i + LANE_COUNT <= len {
-                let block16 = Vectorized::<Printable>::load(StreamByte::slice_from(
-                    &p.arena[from + i..from + i + LANE_COUNT],
-                ));
-                // **Priced by doing it twice.** Removing the classification
-                // changes which path every byte takes, so an arm that stubs it
-                // measures a different program; a second identical
-                // classification leaves every counter alone and costs exactly
-                // one.
-                #[cfg(feature = "probe-double-classify-block")]
-                core::hint::black_box(block16.routes());
-                let routes = block16.routes();
-                let took = block(
-                    &mut p,
-                    base.advance(ByteLen::from_index(i)),
-                    routes,
-                    ByteLen::from_index(len - i),
-                );
-                if !took.is_zero() {
-                    i += took.index();
+        // The ASCII-only ladder never leaves `Ground`, so it advances none of
+        // these; the graph loop below does.
+        #[cfg_attr(feature = "ascii-only", allow(unused_mut, unused_variables))]
+        let (enc, mut node, mut utf8, mut min) =
+            (self.encoding, self.node, self.utf8, self.utf8_min);
+        let csi = &mut self.csi;
+        // **One induction variable, as the untyped draft had.** Carrying a
+        // position *and* a remaining count, each updated per step, cost 4% of
+        // `cat-cjk.raw` and **13% of `asciiquarium.raw`** -- the payload with
+        // the most steps per byte. Two counters where the loop needs one is
+        // not a typing cost, and the newtypes are free the moment the shape
+        // matches: `advance_read` and `less` are an add and a subtract on the
+        // same value the untyped loop computed.
+        // **The ASCII-only arm: one table, one lookup, one cell, per byte.**
+        //
+        // No decode, no run scan, no multi-byte nodes -- every byte is a single
+        // index into a 256-entry table and the action it names. This is the
+        // O(1)-per-byte shape in its purest form, and it exists to answer what
+        // that shape actually delivers before any encoding is layered on.
+        //
+        // Incorrect for any non-ASCII byte by construction, so `cells_written`
+        // moves on a payload that has one; `ascii/cat-scroll.raw` is 403
+        // non-ASCII bytes in 448,460 and `ascii/git-log.raw` 444 in 501,185.
+        #[cfg(feature = "ascii-only")]
+        {
+            let mut i = 0usize;
+            while i < n.index() {
+                let b = StreamByte::from_stream(p.arena[base.index() + i]);
+                #[cfg(feature = "diag")]
+                {
+                    self.iters += 1;
+                }
+                // **The same ceiling arm, on the ASCII loop.** The lookup and
+                // the dispatch still run and nothing reaches the grid, so the
+                // pair brackets what a one-byte-an-iteration loop costs
+                // against what its per-cell write costs -- which is the only
+                // way to tell "the table is slow" from "the write is not
+                // vectored".
+                #[cfg(feature = "ceiling-no-act")]
+                {
+                    core::hint::black_box(crate::graph::ascii(b));
+                    i += 1;
                     continue;
                 }
+                #[allow(unreachable_code)]
+                match crate::graph::ascii(b) {
+                    Act::Text => p.glyph(Codepoint::from_ascii(b), Width::NARROW),
+                    Act::Index => {
+                        p.index();
+                    }
+                    Act::Return => p.cx = Col::ZERO,
+                    Act::Backspace => {
+                        if p.cx.index() > 0 {
+                            p.cx = Col::at_index(p.cx.index() - 1);
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
             }
-            i += one(
+            self.cy = p.cy;
+            self.cx = p.cx;
+            self.rot = p.view.rot();
+            self.cells_written += p.cells.index();
+            return;
+        }
+        // The segment arm below consumes the whole read itself and leaves
+        // nothing for the main loop, so the initialiser is dead under it.
+        #[cfg_attr(feature = "ceiling-segment-cache", allow(unused_assignments))]
+        #[allow(unreachable_code)]
+        let mut done = ReadLen::ZERO;
+        #[cfg(feature = "diag")]
+        let mut iters = 0usize;
+
+        // **Ceiling arm: a repeated redraw costs a hash instead of the loop.**
+        //
+        // A TUI redraws the same regions over and over. Split `btop.raw` at
+        // every absolute cursor move -- the unit it repaints -- and **41.3% of
+        // its bytes lie in segments whose exact bytes have been seen before**
+        // (vim 61.7%, and asciiquarium only 5.7%). Its loop is 93% of its
+        // clock, so this arm asks what is left if those bytes are hashed and
+        // skipped rather than parsed.
+        //
+        // Incorrect by construction -- a skipped segment is never drawn, so
+        // the screen is wrong and `cells_written` falls, which is the arm
+        // announcing itself. The hash is *inside* the timing, so this is a
+        // realistic ceiling rather than an infinite one.
+        //
+        // **Valid only at whole-file reads.** A segment split across two
+        // `read(2)`s would be hashed as two different segments, which prices a
+        // different program. Run it at `CHUNK=400000`; the same precondition
+        // `probe-pinned-node` carries.
+        #[cfg(feature = "ceiling-segment-cache")]
+        {
+            let bytes = StreamByte::slice_from(&p.arena[base.index()..base.index() + n.index()]);
+            let mut at = 0usize;
+            while at < bytes.len() {
+                // The segment runs to the next absolute cursor move.
+                let mut end = at + 1;
+                while end < bytes.len() {
+                    if bytes[end] == StreamByte::ESC
+                        && end + 1 < bytes.len()
+                        && bytes[end + 1] == StreamByte::CSI_BRACKET
+                        && is_redraw_start(&bytes[end..])
+                    {
+                        break;
+                    }
+                    end += 1;
+                }
+                let h = SegHash::of(&bytes[at..end]);
+                let slot = h.slot(SEGS);
+                match self.seen[slot] == h {
+                    // Seen: the whole segment is free, and the screen is wrong.
+                    true => {}
+                    false => {
+                        self.seen[slot] = h;
+                        let mut d = ReadLen::ZERO;
+                        let seg = ReadLen::from_index(end - at);
+                        while d < seg {
+                            d = d.plus(step(
+                                &mut p,
+                                enc,
+                                &mut node,
+                                &mut utf8,
+                                &mut min,
+                                csi,
+                                base.advance_read(ReadLen::from_index(at)).advance_read(d),
+                                seg.less(d),
+                            ));
+                        }
+                    }
+                }
+                at = end;
+            }
+            done = n;
+        }
+
+        while done < n {
+            #[cfg(feature = "diag")]
+            {
+                iters += 1;
+            }
+            done = done.plus(step(
                 &mut p,
+                enc,
                 &mut node,
                 &mut utf8,
                 &mut min,
-                base.advance(ByteLen::from_index(i)),
-            )
-            .index();
+                csi,
+                base.advance_read(done),
+                n.less(done),
+            ));
         }
+
         self.cy = p.cy;
         self.cx = p.cx;
         self.rot = p.view.rot();
+        self.style = p.style;
+        self.style_raw = p.style_raw;
+        self.flags = p.flags;
+        self.charset = p.charset;
         self.cells_written += p.cells.index();
         #[cfg(feature = "diag")]
         {
-            for i in 0..8 {
-                self.runs[i] += p.runs[i];
+            self.iters += iters;
+            self.table_hits += p.table_hits;
+            self.hist.add(&p.hist);
+            for (a, b) in self.unsupported.iter_mut().zip(p.unsupported.iter()) {
+                *a += *b;
             }
-            for i in 0..5 {
-                self.run_len[i] += p.run_len[i];
+            self.scroll_rot += p.scroll_rot;
+            self.scroll_copy += p.scroll_copy;
+            self.fast_try += p.fast_try;
+            self.fast_hit += p.fast_hit;
+            #[cfg(feature = "sgr-table")]
+            {
+                self.sgr_hit += p.sgr_hit;
             }
-            self.blocks += p.blocks;
-            for i in 0..6 {
-                self.miss_first[i] += p.miss_first[i];
+            for (a, b) in self.runs.iter_mut().zip(p.runs.iter()) {
+                *a += *b;
             }
-            for i in 0..10 {
-                self.block_runs[i] += p.block_runs[i];
+            for (a, b) in self.run_len.iter_mut().zip(p.run_len.iter()) {
+                *a += *b;
             }
         }
         self.node = node;
@@ -114,299 +239,97 @@ impl Term<'_> {
     }
 }
 
-/// One block's worth of work: **as much of the sixteen bytes as the route map
-/// can account for**, and zero when none of it can.
+/// One step: look the byte up, move where it says, do what it says, and report
+/// how much of the read it consumed.
 ///
-/// The walk is over *masks*, not over lanes. One shuffle has already answered
-/// "what is each of these sixteen"; `is()` turns that into a sixteen-bit
-/// integer per route, and everything below is a shift and a test in
-/// general-purpose registers. Reading a lane by a runtime index instead forces
-/// the vector to memory on every step, and measured **430 against 503**.
-///
-/// **Every route is handled here, not just the convenient ones.** A walk that
-/// breaks out on a two- or four-byte lead sends that character to the byte
-/// path, which then re-classifies the whole block from one byte further along
-/// -- so a recording that interleaves scripts pays the classification several
-/// times per character and the block buys nothing. The first version did
-/// exactly that and measured identical to the core it replaces.
+/// **Never zero.** Every action eats at least the byte it was found by, so the
+/// loop cannot stall on malformed input.
 #[inline(always)]
-fn block(p: &mut Paint<'_>, from: BytePos, routes: RouteBlock, left: ByteLen) -> ByteLen {
-    // **Six mask extractions a block, and cutting them to three lost.**
-    // `to_bitmask` has no single instruction on aarch64 -- a shift-narrow and
-    // a move across register files -- so this looked like the walk's cost.
-    // Replacing the three per-length lead masks with one `route >= Lead2`
-    // compare plus a scalar nibble test to find the length measured **584-611
-    // against 638-646**: the masks are paid once a *block* and amortised over
-    // its five characters, and the byte test is paid once a *run* -- of which
-    // 69% are a single character. Fewer vector operations, more scalar ones,
-    // and the scalar ones ran five times as often.
-    let text = routes.is(Route::Text).bits();
-    let ctrl = routes.is(Route::Control).bits();
-    let cont = routes.is(Route::Cont).bits();
-    // **Three values, not a `[u32; 3]`.** An array indexed by a runtime length
-    // is an address computation the compiler has to keep somewhere, and the
-    // walk reads it once a run; three named locals stay in registers.
-    let (l2, l3, l4) = (
-        routes.is(Route::Lead2).bits(),
-        routes.is(Route::Lead3).bits(),
-        routes.is(Route::Lead4).bits(),
-    );
-    // **The shapes that dominate, each taken in one step.** The walk is
-    // general and costs a `run_at` and a dispatch per run; a block that is
-    // *entirely* one thing needs neither, and the `diag` histogram says those
-    // blocks are most of the recording -- 63% of the multi-character runs the
-    // walk finds are a full block of five CJK characters, and `cat`'s blocks
-    // are all text.
+#[allow(clippy::too_many_arguments)]
+fn step(
+    p: &mut Paint<'_>,
+    enc: InputEncoding,
+    node: &mut Node,
+    utf8: &mut Utf8Acc,
+    min: &mut Utf8Min,
+    csi: &mut Csi,
+    from: BytePos,
+    left: ReadLen,
+) -> ReadLen {
+    let b = StreamByte::from_stream(p.arena[from.index()]);
+    // **Phase 0b: is the node a loop-carried chain?** `graph[node][byte]` is
+    // one load whose *address* needs `node`, which the previous iteration's
+    // load produced -- a load-to-load dependence once an iteration that
+    // nothing can overlap. This arm indexes the Ground row unconditionally.
     //
-    // Each is one compare against a constant. The masks are already in
-    // registers, so a shape that does not match costs a test and nothing else.
-    // **Order is by how often each fires, and it was measured.** Five CJK
-    // characters first, all-text second: the reverse cost `cat-cjk` 4% for
-    // the 14% it gave `cat`, because a test that rarely matches is a test the
-    // common payload pays on every block. A third arm for four four-byte
-    // characters -- the emoji shape -- was tried and dropped: emoji arrive as
-    // ZWJ sequences with joiners between them, so the exact shape almost never
-    // occurs and the test was pure cost.
+    // **The claim that this is exact on a whole-file read is false, and the
+    // counters say so.** It read: "the non-Ground nodes exist only for a
+    // character a `read(2)` cut in half, so with one read there are none".
+    // That is true of the *UTF-8* nodes and of nothing else -- `Escape`,
+    // `CsiParam`, `CsiInter`, `CsiIgnore`, `Str` and `StrEsc` are entered by
+    // every escape sequence in the stream, whatever the read size. Pinned at
+    // `Ground` an escape is never parsed and its parameter bytes are drawn as
+    // text: at `CHUNK=400000`, `asciiquarium.raw` goes **3,389,132 cells to
+    // 29,325,329** and `btop.raw` **7,482,240 to 53,034,740**.
     //
-    // Five three-byte characters fill fifteen lanes; the sixteenth begins a
-    // run the next block continues.
-    if l3 & 0x7fff == 0x1249 && cont & 0x7fff == 0x6db6 {
-        put_run_of(p, from, ByteLen::from_index(3), Count::of(5));
-        return ByteLen::from_index(15);
-    }
-    if text == 0xffff {
-        // **A long text run is the one shape worth looking ahead for**, and
-        // the test is free here because the mask is already in hand. Doing it
-        // *before* the walk instead -- so the caller could decide -- extracted
-        // the text mask twice and measured 644-655 against 688-693 on
-        // `cat-cjk.raw`, a payload whose blocks are never all text.
-        let mut n = LANE_COUNT;
-        if left.index() >= 2 * LANE_COUNT {
-            let next = Vectorized::<Printable>::load(StreamByte::slice_from(
-                &p.arena[from.index() + LANE_COUNT..from.index() + 2 * LANE_COUNT],
-            ))
-            .routes();
-            if next.is(Route::Text).bits() == 0xffff {
-                n = 2 * LANE_COUNT;
-            }
-        }
-        p.text(from, ByteLen::from_index(n));
-        return ByteLen::from_index(n);
-    }
-
-    // Priced the same way as the classification: a second identical set of
-    // extractions, so every counter is unchanged and the cost is exactly one.
-    #[cfg(feature = "probe-double-masks")]
-    {
-        core::hint::black_box((
-            routes.is(Route::Text).bits(),
-            routes.is(Route::Control).bits(),
-            routes.is(Route::Cont).bits(),
-            routes.is(Route::Lead2).bits(),
-            routes.is(Route::Lead3).bits(),
-            routes.is(Route::Lead4).bits(),
-        ));
-    }
-
-    // **Ceiling arm: the walk, priced whole.** The block is classified, the
-    // masks are taken, and then nothing is done with them -- so the pair with
-    // the default build separates "finding the runs and dispatching them"
-    // from "classifying the block", which the two probes above already put at
-    // 3% between them.
-    #[cfg(feature = "ceiling-no-walk")]
-    {
-        core::hint::black_box((text, ctrl, cont, l2, l3, l4));
-        return ByteLen::from_index(LANE_COUNT);
-    }
-
-    // What the blocks that miss every fast path actually look like, by the
-    // route of their first lane and how far the walk gets.
-    #[cfg(feature = "diag")]
-    {
-        let first = match () {
-            _ if text & 1 != 0 => 0,
-            _ if ctrl & 1 != 0 => 1,
-            _ if l2 & 1 != 0 => 2,
-            _ if l3 & 1 != 0 => 3,
-            _ if l4 & 1 != 0 => 4,
-            _ => 5,
-        };
-        p.miss_first[first] += 1;
-    }
-
-    #[allow(unreachable_code)]
-    // **The walk is a dependency chain through `off`** -- each round computes
-    // `1 << off`, tests it against the masks, walks `run_at`, and only then
-    // knows the next `off` -- which is what ~9.5 cycles an iteration for ~15
-    // instructions was saying: IPC 1.6 on straight-line integer code.
+    // So this arm prices the node chain only on a payload with **no escapes**
+    // -- `utf8/cat-cjk.raw` and `ascii/cat-scroll.raw` are the two -- and on
+    // anything else it is timing a different program that happens to compile.
+    // The stated precondition was checked against the UTF-8 half of the graph
+    // and never against the half that produced it.
+    #[cfg(feature = "probe-pinned-node")]
+    let mut e = Edge::of(enc, Node::Ground, b);
+    #[cfg(not(feature = "probe-pinned-node"))]
+    let mut e = Edge::of(enc, *node, b);
+    // **Whether a character fits is a property of the read, not of the byte**,
+    // so the table cannot answer it and the loop does. A lead whose
+    // continuations have not arrived becomes a `Begin`, which parks the
+    // accumulator and waits -- at most once per `read(2)`.
     //
-    // Iterating the *character-start* mask instead (`starts = !cont`, then
-    // `m &= m - 1`) makes that chain three operations, and each character's
-    // length falls out as the distance to the next start rather than being
-    // searched for. It measured **633-668 against 706-721**, cells identical:
-    // maintaining the mask across a text run (`m &= !((1 << off) - 1)`) and
-    // validating the route's length against the bit distance cost more than
-    // the shorter chain saved. The chain was real; it was not the constraint.
-    let mut off = 0usize;
-    #[cfg(feature = "diag")]
-    let mut iters = 0usize;
-    while off < LANE_COUNT {
-        #[cfg(feature = "diag")]
-        {
-            iters += 1;
-        }
-        let here = 1u32 << off;
-        if text & here != 0 {
-            // The first non-text lane at or after `off`. A whole block of text
-            // leaves `off` at sixteen and the run continues next iteration.
-            let n = ((!text >> off).trailing_zeros() as usize).min(LANE_COUNT - off);
-            p.text(
-                from.advance(ByteLen::from_index(off)),
-                ByteLen::from_index(n),
-            );
-            off += n;
-            continue;
-        }
-        if ctrl & here != 0 {
-            control(p, from.advance(ByteLen::from_index(off)));
-            off += 1;
-            continue;
-        }
-        // **How many back-to-back characters of one encoded length start
-        // here.** Not a homogeneity gate on character class: every BMP
-        // character above `U+07FF` is three bytes, so CJK, Hangul and box
-        // drawing all qualify together -- which is the condition a real
-        // recording meets and one character class is not.
-        let (len, k) = run_at(l2, l3, l4, cont, off);
-        if k.index() == 0 {
-            break;
-        }
-        // **A run that reaches the end of the block is probably not the end of
-        // the run.** Sixteen bytes hold at most five three-byte characters, and
-        // the histogram says 25% of runs are exactly five -- which is the lane
-        // count talking, not the text. Extending past the boundary is what
-        // makes a run's length a property of the recording, and it is what the
-        // vectored decode and the vectored write both need to engage.
-        let mut n = k.index();
-        #[cfg(not(feature = "no-extend"))]
-        if off + len.index() * n == LANE_COUNT {
-            // Bounded by what the decode buffer has left, not by `STRIDE_MAX`
-            // alone -- the block already contributed `n` and the first version
-            // added another 31 to it, which overran the buffer. The five short
-            // tests passed and the recording panicked.
-            n += extend(
-                p.arena,
-                from.advance(ByteLen::from_index(off + len.index() * n)),
-                len,
-                Count::of(STRIDE_MAX - n),
-            )
-            .index();
-        }
-        // **Gathering consecutive wide characters across run boundaries has
-        // now lost three times.** The run detector keys on *encoded length*
-        // because that is what makes the decode strided; the writer keys on
-        // *width*, and on this recording those differ constantly -- three-byte
-        // CJK alternating with four-byte emoji, both two cells -- so 69% of
-        // runs are one character and each takes its own two-cell write.
-        //
-        // Held across `feed` calls: **567-581 against 620-635**, because the
-        // flush lands on every path that reads the cursor. Held as a `Paint`
-        // buffer: the same, plus it dropped characters at the row edge.
-        // Gathered *block-locally*, with no flush hazard at all: **639-661
-        // against 704-712**, because the lookahead re-runs the run detector
-        // and the decode per character and usually finds one more.
-        //
-        // The recording alternates. There is no run there to find.
-        let at = from.advance(ByteLen::from_index(off));
-        match n {
-            1 => put_one(p, at, len),
-            _ => put_run_of(p, at, len, Count::of(n)),
-        }
-        off += len.index() * n;
+    // Bounded by the *read*, not by the arena. Bounding a forward scan by
+    // `arena.len()` was a real bug here: it consumed a character before it had
+    // arrived, and `cells_written` then depended on the read size -- 8,325,429
+    // at 4 KB chunks against 3,322,229 at 256 KB, the same bytes and two
+    // answers.
+    if !left.holds(e.act.width()) {
+        e = split(e.act);
     }
     #[cfg(feature = "diag")]
     {
-        p.blocks += 1;
-        p.block_runs[iters.min(9)] += 1;
+        crate::graph::count_node(&mut p.hist, *node);
+        crate::graph::count_act(&mut p.hist, e.act);
     }
-    ByteLen::from_index(off)
+    *node = e.next;
+    act(p, e.act, node, utf8, min, csi, from, left)
 }
 
-/// How many more characters of `len` bytes follow at `at`, past the block the
-/// classifier covered.
-///
-/// **Three compares a character, not a decode.** This is a scan and this repo
-/// records that "a path that decides by scanning either commits or wastes the
-/// scan" -- here it commits: every character counted is decoded and written by
-/// the caller immediately, so the scan is never thrown away.
-///
-/// Bounded by `limit` -- what the caller's decode buffer has left after the
-/// block's own contribution -- and by the arena, so a run at the end of a read
-/// stops rather than reading a character the next `read(2)` still owes.
-#[inline(always)]
-fn extend(arena: &[u8], at: BytePos, len: ByteLen, limit: Count) -> Count {
-    let (mut at, len, limit) = (at.index(), len.index(), limit.index());
-    let mut k = 0usize;
-    while k < limit && at + len <= arena.len() {
-        let s = StreamByte::slice_from(&arena[at..at + len]);
-        let owed = match s[0].utf8_lead() {
-            Some((rem, _, _)) => usize::from(rem) + 1,
-            None => break,
-        };
-        if owed != len || s[1..].iter().any(|b| b.utf8_continuation().is_none()) {
-            break;
-        }
-        k += 1;
-        at += len;
-    }
-    Count::of(k)
-}
+/// How many segment hashes the ceiling arm remembers. `btop.raw` has 1,126
+/// distinct redraw segments, so 4096 holds them all.
+#[cfg(feature = "ceiling-segment-cache")]
+pub(crate) const SEGS: usize = 4096;
 
-/// The encoded length starting at lane `off`, and how many characters of that
-/// length follow back to back within the block.
+/// Whether a redraw unit begins at the front of `b`: a `CSI` whose final byte
+/// moves the cursor somewhere absolute (`CUP`, `VPA`/`HVP`), which is what a
+/// TUI emits before repainting a region.
 ///
-/// Pure bit work: no lane is read individually, so the classification stays in
-/// a register for the whole walk.
-///
-/// **A branchless form of this was written and is flat.** A run of one encoded
-/// length has a constant bit pattern -- at stride three the leads sit on lanes
-/// 0, 3, 6, 9, 12, which is `0x1249` -- so "where does the pattern break" is
-/// one exclusive-or and a `trailing_zeros`, against a loop that goes round
-/// once a character. It measured 628-636 against this loop's 623-640, ranges
-/// overlapping, so there is no result and the simpler form stays.
-///
-/// The first version of it measured **580-591**, a clear loss, for a reason
-/// worth carrying: `first / len` with the length from a runtime match is an
-/// *integer divide*, twenty-odd cycles on this core. Choosing the pattern and
-/// the division together, so each arm sees its own constant, recovered all of
-/// it. A bit trick that ends in a division by a variable is not a bit trick.
+/// **It takes the slice, not an index.** The first version took a `Count`,
+/// which is a `u16`, so every position past 65,535 saturated and the scan
+/// inspected the wrong byte -- the arm then found 8% of `btop.raw`'s repeats
+/// instead of 39% and read as a much worse ceiling than it is. Same failure as
+/// `feed` taking a `ByteLen` for a read length, which this file already
+/// records; a bounded type on an unbounded quantity does not fail loudly.
+#[cfg(feature = "ceiling-segment-cache")]
 #[inline(always)]
-fn run_at(l2: u32, l3: u32, l4: u32, cont: u32, off: usize) -> (ByteLen, Count) {
-    let here = 1u32 << off;
-    // Three-byte first: it is 50% of this corpus's runs and 100% of a CJK
-    // page, so the common case takes one test rather than two.
-    let (len, lead) = match () {
-        _ if l3 & here != 0 => (3, l3),
-        _ if l4 & here != 0 => (4, l4),
-        _ if l2 & here != 0 => (2, l2),
-        // A stray continuation, a `DEL`, or a lead the nibble allows and UTF-8
-        // does not. The byte path answers for those.
-        _ => return (ByteLen::ZERO, Count::ZERO),
-    };
-    let mut k = 0usize;
-    let mut o = off;
-    while o + len <= LANE_COUNT {
-        if lead & (1 << o) == 0 {
-            break;
-        }
-        // Every byte after the lead must be a continuation, or the character
-        // is malformed and the byte path owes it a replacement.
-        let tail = ((1u32 << (len - 1)) - 1) << (o + 1);
-        if cont & tail != tail {
-            break;
-        }
-        k += 1;
-        o += len;
+fn is_redraw_start(b: &[StreamByte]) -> bool {
+    let mut j = 2;
+    while j < b.len() && FinalByte::from_stream(b[j]).is_none() {
+        j += 1;
     }
-    (ByteLen::from_index(len), Count::of(k))
+    match j < b.len() {
+        false => false,
+        true => matches!(
+            FinalByte::from_stream(b[j]),
+            Some(FinalByte::CUP) | Some(FinalByte::VPA) | Some(FinalByte::HVP)
+        ),
+    }
 }

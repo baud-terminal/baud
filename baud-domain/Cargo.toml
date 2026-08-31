@@ -11,5 +11,21 @@ description = "The type system: every quantity is a type, every invariant the co
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 
 [features]
+probe-double-fold = []
+colour-in-match = []
+# The per-character row-extent read-modify-write, priced by doing it twice.
+# Identical work, so every counter and every extent is unchanged and the cost
+# is exactly one.
+probe-double-extent = []
+# **The cell stores, and nothing else.** `ceiling-no-write` in the core stops
+# the cursor advancing too, so it also removes every wrap and every scroll and
+# its `cells_written` falls by 60% -- it prices the whole write *path*, not the
+# stores. This arm keeps the addressing, the bounds, the extent, the cursor and
+# the scroll, and skips only the two `PackedCell` writes, so both arms attribute
+# identical cells and only the stores differ.
+ceiling-no-store = []
+# The grid stride as a compile-time constant, to price the general multiply
+# and the bounds checks a runtime stride prevents the compiler discharging.
+probe-const-stride = []
 # Ceiling arm: `View::fill_row` does the bookkeeping and skips the stores.
 ceiling-no-rowfill = []

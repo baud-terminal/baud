@@ -12,6 +12,9 @@ alacritty_terminal = "0.26"
 vt100 = "0.16"
 termwiz = { version = "0.23", default-features = false }
 baud-core2 = { path = "../../baud-core2", features = ["alloc"] }
+# The new core. No `alloc` feature: it owns nothing, so the harness provides
+# every buffer -- which is the point of it and has to be visible here too.
+baud-core = { path = "../../baud-core" }
 libc = "0.2"
 tattoy-wezterm-term = "0.1.0-fork.5"
 

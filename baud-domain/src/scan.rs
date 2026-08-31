@@ -2,7 +2,6 @@ use crate::StreamByte;
 use core::marker::PhantomData;
 use core::simd::Simd;
 use core::simd::cmp::{SimdPartialEq, SimdPartialOrd};
-use core::simd::num::SimdInt as _;
 use core::simd::num::SimdUint as _;
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
@@ -376,6 +375,40 @@ impl<K: Kind> Vectorized<K> {
         Simd::from_array(self.v)
     }
 
+    /// How many consecutive three-byte characters this block begins with,
+    /// **without building a route map**.
+    ///
+    /// `routes()` costs a `tbl` and the `7F` correction, and `stride_three`
+    /// then takes **two** lane-mask extractions off it -- and aarch64 has no
+    /// `movemask`, so each is a shift-narrow plus a move across register
+    /// files. None of that is needed to answer this question: a three-byte
+    /// lead is `(b & 0xF0) == 0xE0` and a continuation is `(b & 0xC0) == 0x80`,
+    /// both direct compares on the raw bytes. Selecting between them by lane
+    /// position gets the whole answer into **one** extraction.
+    ///
+    /// The two forms may disagree by design and
+    /// `the_direct_stride_scan_never_overcounts` is what pins the contract:
+    /// where a lead sits at a position that should hold a continuation, the
+    /// route form returns 0 and this returns the characters before it. Both
+    /// are safe -- the scalar tail continues from wherever the vector stops --
+    /// and the totals agree, which `cells_written` checks.
+    #[inline(always)]
+    pub fn stride_three_run(self) -> usize {
+        use core::simd::Mask;
+        let v = self.lanes();
+        let is_lead = (v & Simd::splat(0xf0)).simd_eq(Simd::splat(0xe0));
+        let is_cont = (v & Simd::splat(0xc0)).simd_eq(Simd::splat(0x80));
+        // Lanes 0, 3, 6, 9, 12 must lead; every other lane must continue.
+        const AT_LEAD: [bool; LANE_COUNT] = [
+            true, false, false, true, false, false, true, false, false, true, false, false, true,
+            false, false, false,
+        ];
+        let at_lead: Mask<i8, LANE_COUNT> = Mask::from_array(AT_LEAD);
+        let ok = (at_lead & is_lead) | (!at_lead & is_cont);
+        // Leading run of correct lanes; three lanes to a character.
+        (ok.to_bitmask().trailing_ones() as usize / 3).min(5)
+    }
+
     /// Load one block. The caller has checked there are `LANE_COUNT` bytes.
     #[inline(always)]
     pub fn load(buf: &[StreamByte]) -> Vectorized<K> {
@@ -551,6 +584,38 @@ impl RouteBlock {
     }
 }
 
+/// How many bytes the character starting at this byte occupies, for all 256 of
+/// them. **Zero means the byte cannot start one** -- a continuation, and the
+/// question a stride run asks about every byte after a lead.
+///
+/// `Route::of` is a `const fn` and answers the same question, but it is a
+/// seven-way range match and the run scanner reaches it **per byte of every
+/// multi-byte run** and again per continuation byte. A byte-indexed table is
+/// one load whose address depends on the byte alone, so it issues immediately
+/// and never joins the loop-carried chain --
+/// `[[source: regex-automata-dense]]` adds exactly such a load for byte classes
+/// and calls the cost negligible.
+///
+/// `the_route_width_table_agrees_with_the_routes` checks all 256 against
+/// `Route::of(..).width()`, which stays as the definition this answers to.
+pub static ROUTE_WIDTH: [u8; 256] = route_widths();
+
+const fn route_widths() -> [u8; 256] {
+    let mut t = [0u8; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        t[i] = Route::of(StreamByte::ALL[i]).width() as u8;
+        i += 1;
+    }
+    t
+}
+
+/// The character length this byte claims, or zero if it continues one.
+#[inline(always)]
+pub fn lead_width(b: StreamByte) -> usize {
+    ROUTE_WIDTH[b.index()] as usize
+}
+
 /// Index back to the enum, so `RouteBlock::at` needs no cast in the caller.
 static ROUTE_FROM_INDEX: [Route; 7] = [
     Route::Control,
@@ -658,6 +723,78 @@ impl Vectorized<Printable> {
         let lo = Simd::splat(0x20);
         let span = Simd::splat(0x7e - 0x20);
         LaneMask::from_movemask((v - lo).simd_gt(span).to_bitmask() as u32)
+    }
+
+    /// How far a printable-ASCII run reaches, **extracting once per four
+    /// vectors instead of once per vector**.
+    ///
+    /// aarch64 has no `movemask`. `to_bitmask` lowers to a shift-narrow and a
+    /// move across register files, and that pair is most of what a
+    /// sixteen-byte step costs: the compare itself is one instruction. Four
+    /// compares OR together in vector registers for free, so a sixty-four-byte
+    /// step pays **one** extraction rather than four, and only a block that
+    /// actually ends the run pays the per-sixteen search.
+    ///
+    /// Measured against the one-at-a-time form: the scan was 10-17% of every
+    /// text payload, priced by running it twice.
+    ///
+    /// Returns the length of the run, which is `s.len()` when it does not end
+    /// inside the slice.
+    #[inline(always)]
+    pub fn printable_run(s: &[StreamByte]) -> usize {
+        use core::simd::cmp::SimdOrd as _;
+        use core::simd::num::SimdUint as _;
+        let lo = Simd::splat(0x20u8);
+        let mut n = 0usize;
+        // **Sixteen at a time until the run has proven long.** The wide step
+        // below is worth +7% where runs are a screen wide and **-5% on vim**,
+        // whose runs are a few characters: a run that ends in the first block
+        // must not pay for machinery aimed at one that does not. Four blocks
+        // is the threshold, because that is where the wide step starts to have
+        // anything to amortise.
+        let narrow = (4 * LANE_COUNT).min(s.len());
+        while n + LANE_COUNT <= narrow {
+            if let Some(l) = Vectorized::<Printable>::load(&s[n..])
+                .not_printable()
+                .first()
+            {
+                return n + l.index();
+            }
+            n += LANE_COUNT;
+        }
+        // **Accumulated with `max`, not with a mask.** `b - 0x20` is `0..=0x5e`
+        // exactly for a printable byte, so the largest such difference across
+        // sixty-four bytes answers "were they all printable" -- and `umax` is
+        // one instruction where a compare, a select and an or are three. Four
+        // vectors accumulate in registers and pay **one** reduction, which on
+        // aarch64 is the expensive half: there is no `movemask`, so extraction
+        // is a shift-narrow and a move across register files.
+        while n + 4 * LANE_COUNT <= s.len() {
+            let mut acc = Simd::<u8, LANE_COUNT>::splat(0);
+            let mut k = 0;
+            while k < 4 {
+                let v = Vectorized::<Printable>::load(&s[n + k * LANE_COUNT..]).lanes();
+                acc = acc.simd_max(v - lo);
+                k += 1;
+            }
+            if acc.reduce_max() > 0x7e - 0x20 {
+                break;
+            }
+            n += 4 * LANE_COUNT;
+        }
+        while n + LANE_COUNT <= s.len() {
+            if let Some(l) = Vectorized::<Printable>::load(&s[n..])
+                .not_printable()
+                .first()
+            {
+                return n + l.index();
+            }
+            n += LANE_COUNT;
+        }
+        while n < s.len() && s[n].is_printable_ascii() {
+            n += 1;
+        }
+        n
     }
 
     /// Lanes holding a byte in `lo..=hi`, inclusive.
@@ -913,5 +1050,73 @@ impl Vectorized<Utf8> {
             }
             out
         }
+    }
+}
+
+#[cfg(test)]
+mod stride_direct {
+    use crate::*;
+
+    /// **The contract is "never claim a character that is not there".**
+    ///
+    /// The direct form and the route form may disagree on how much they take
+    /// -- see `stride_three_run` -- so equality is the wrong test. What must
+    /// hold is that every character the scan claims really is a well-formed
+    /// three-byte sequence, because `put_run` decodes them without re-checking.
+    #[test]
+    fn the_direct_stride_scan_never_overcounts() {
+        // A small alphabet with one byte from each class that matters, so the
+        // combinations are walkable: a lead, a continuation, ASCII, a two-byte
+        // lead, a four-byte lead, and a stray continuation-looking byte.
+        const SYMS: [u8; 6] = [0xe3, 0x81, 0x41, 0xc3, 0xf0, 0xbf];
+        let mut checked = 0usize;
+        let mut claimed = 0usize;
+        // Six positions is enough to cover two whole characters and the
+        // boundary after them; the rest of the block is held at a continuation
+        // so it cannot end the run early for an unrelated reason.
+        for a in SYMS {
+            for b in SYMS {
+                for c in SYMS {
+                    for d in SYMS {
+                        for e in SYMS {
+                            for f in SYMS {
+                                let mut buf = [0x81u8; LANE_COUNT];
+                                buf[..6].copy_from_slice(&[a, b, c, d, e, f]);
+                                let bytes = StreamByte::slice_from(&buf);
+                                let k = Vectorized::<Printable>::load(bytes).stride_three_run();
+                                assert!(k <= 5, "at most five characters fit");
+                                for i in 0..k {
+                                    let (x, y, z) = (buf[3 * i], buf[3 * i + 1], buf[3 * i + 2]);
+                                    assert_eq!(x & 0xf0, 0xe0, "claimed lead at {i}: {x:02x}");
+                                    assert_eq!(y & 0xc0, 0x80, "claimed cont at {i}: {y:02x}");
+                                    assert_eq!(z & 0xc0, 0x80, "claimed cont at {i}: {z:02x}");
+                                }
+                                claimed += k;
+                                checked += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 6usize.pow(6), "every combination walked");
+        assert!(
+            claimed > 0,
+            "the scan must accept something, or it cannot fire"
+        );
+    }
+
+    /// It must take the whole block when the block is whole.
+    #[test]
+    fn a_full_block_of_three_byte_characters_is_five() {
+        let mut buf = [0u8; LANE_COUNT];
+        for i in 0..5 {
+            buf[3 * i] = 0xe4;
+            buf[3 * i + 1] = 0xb8;
+            buf[3 * i + 2] = 0x80;
+        }
+        buf[15] = 0x41;
+        let n = Vectorized::<Printable>::load(StreamByte::slice_from(&buf)).stride_three_run();
+        assert_eq!(n, 5);
     }
 }

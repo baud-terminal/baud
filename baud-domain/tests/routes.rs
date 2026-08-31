@@ -230,3 +230,34 @@ fn the_three_byte_constructor_agrees_with_the_general_one() {
         assert_eq!(Codepoint::from_three(v), want, "{v:#06x}");
     }
 }
+
+/// **The width table answers to `Route::of`, exhaustively.**
+///
+/// It exists because the run scanner reached that seven-way range match per
+/// byte of every multi-byte run; a table is only allowed to replace a function
+/// if it agrees with it on every input, and for a byte-indexed table "every
+/// input" is 256 cases.
+#[test]
+fn the_route_width_table_agrees_with_the_routes() {
+    for (i, b) in StreamByte::ALL.iter().enumerate() {
+        assert_eq!(
+            baud_domain::lead_width(*b),
+            Route::of(*b).width(),
+            "byte {i:#04x}"
+        );
+    }
+}
+
+/// A continuation is exactly the byte that claims no length of its own, which
+/// is the second question the scanner asks off the same load.
+#[test]
+fn width_zero_means_continuation() {
+    for b in StreamByte::ALL.iter() {
+        assert_eq!(
+            baud_domain::lead_width(*b) == 0,
+            matches!(Route::of(*b), Route::Cont),
+            "byte {:#04x}",
+            b.raw_byte()
+        );
+    }
+}

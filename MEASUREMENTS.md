@@ -45,6 +45,46 @@ reads, and every core is configured with **10,000 lines of scrollback**.
 MB/s. baud is `OpMode::Computed`; see [baud's representations](#bauds-representations)
 for why that is the row quoted.
 
+## cava, and every implementation on it
+
+`utf8/cava.raw` -- a spectrum analyser, 636 KB, one escape per 12.1 bytes,
+19.5% non-ASCII block glyphs, and **the only recording in the corpus that
+scrolls inside a scrolling region it set** (51 copied scrolls a rep against
+zero for every other one).
+
+Same harness, `TRANSPORT=memory`, 4096-byte reads, median of 9, interleaved and
+rotated. **These are one fresh run and are not mixed with the table above**,
+which was measured on a different day -- this file's own rule is that only
+same-box, same-session numbers may be compared.
+
+| core | cava.raw | baud-core is |
+|---|---|---|
+| **baud-core (new)** | **567.4** [558.0-576.6] | -- |
+| baud-core2, cells | 447.4 [442.0-454.1] | **1.27x** |
+| vt100 crate | 402.0 [391.1-415.0] | **1.41x** |
+| alacritty_terminal | 366.0 [348.6-381.8] | **1.55x** |
+| ghostty (libghostty-vt) | 319.5 [315.5-322.8] | **1.78x** |
+| termwiz (wezterm) parse only | 281.5 [278.8-284.1] | **2.02x** |
+| wezterm (full terminal) | 135.3 [133.7-136.4] | **4.19x** |
+
+**cava is stable to about 1.5% across four independent pairings** -- 567.4,
+568.6, 567.4, 559.7 for the new core -- which is tighter than most rows here
+and makes it a good instrument as well as a good payload.
+
+Alongside it, from the same four runs, on the recordings it was paired with:
+
+| recording | baud-core (new) | baud-core2 | ghostty | alacritty |
+|---|---|---|---|---|
+| `ascii/cat-scroll.raw` | **1872.7** | 1079.1 | 383.9 | 199.7 |
+| `utf8/btop.raw` | **904.9** | 780.0 | 508.3 | 330.1 |
+| `utf8/vim-unicode.raw` | **747.3** | 488.4 | 349.4 | 284.5 |
+| **`utf8/cava.raw`** | **567.4** | 447.4 | 319.5 | 366.0 |
+| `ascii/asciiquarium.raw` | **553.7** | 371.1 | 200.8 | 244.2 |
+
+**alacritty beats ghostty on cava and on nothing else here**, which is worth
+noticing rather than smoothing over: cava is the region-scrolling payload, and
+ghostty's row falls furthest exactly where the scrolling regions are.
+
 ## Against other implementations, on generated payloads
 
 Same harness and statistic. `payload::streaming` models `cat`, logs and build

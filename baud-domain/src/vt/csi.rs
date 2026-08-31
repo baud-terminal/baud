@@ -94,6 +94,54 @@ impl ParamCount {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct Param(pub(crate) u16);
 
+impl Digit {
+    /// The value of an ASCII digit. **Infallible on purpose**: the parse graph
+    /// only names a digit action for `0x30..=0x39`, so a caller that has one
+    /// has already been told. Re-testing it there re-asks a settled question
+    /// and produces a `None` arm that cannot be taken.
+    pub const fn of_ascii(b: StreamByte) -> Digit {
+        Digit(b.raw_byte().wrapping_sub(b'0') & 0x0f)
+    }
+
+    /// A digit read back out of a table entry that stored one.
+    ///
+    /// Masked rather than checked: the caller is a compile-time table whose
+    /// entries were built from `of_ascii`, so there is no failing arm to take
+    /// and an `Option` here would be one the graph has made unreachable.
+    pub const fn of_value(v: u8) -> Digit {
+        Digit(v & 0x0f)
+    }
+
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+/// Two decimal digits, `0..=99`, as one value.
+///
+/// **The thing a two-byte key can hand back that a byte-class key cannot.**
+/// A class says "a digit"; the parameter needs "a 3", and the pair `38`
+/// arrives as one lookup rather than two.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DigitPair(pub(crate) u8);
+
+impl DigitPair {
+    /// Only ever built from two bytes the caller has already established are
+    /// ASCII digits, so there is no failing arm to take.
+    pub const fn of(hi: Digit, lo: Digit) -> DigitPair {
+        DigitPair(hi.0 * 10 + lo.0)
+    }
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+
+    /// A pair read back out of a table entry that stored one.
+    pub const fn of_value(v: u8) -> DigitPair {
+        DigitPair(v)
+    }
+}
+
 impl Param {
     pub const ZERO: Param = Param(0);
     /// The value, for an encoder that has to write it out.
@@ -101,11 +149,49 @@ impl Param {
     /// `u16` because that is what a parameter *is* -- `push` saturates at
     /// 65535 -- and narrowing it here would silently truncate the very
     /// saturation the parser is careful to produce.
+    /// As an index or a count. The cast lives here because a newtype's job is
+    /// to hold one; a caller doing `as usize` is a raw-integer site.
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+    /// The value, or one, which is the default nearly every CSI parameter has.
+    pub fn or_one(self) -> usize {
+        match self.0 {
+            0 => 1,
+            n => n as usize,
+        }
+    }
     pub fn value(self) -> u16 {
         self.0
     }
     pub fn push(self, d: Digit) -> Param {
         Param(self.0.saturating_mul(10).saturating_add(d.0 as u16))
+    }
+
+    /// A `Param` from a stored value. **For a test that has to start from an
+    /// arbitrary accumulator**, and for nothing on the hot path.
+    pub const fn from_raw(v: u16) -> Param {
+        Param(v)
+    }
+
+    /// Fold in one or two digits at once: `p * m + v`, saturating.
+    ///
+    /// **The multiplier is data, not a branch.** One digit folds with 10 and
+    /// two with 100, and a table entry carries which -- so the per-digit path
+    /// is straight-line arithmetic rather than a data-dependent dispatch on
+    /// how many digits arrived.
+    pub fn saturating_scale(self, m: u16, v: u16) -> Param {
+        Param(self.0.saturating_mul(m).saturating_add(v))
+    }
+
+    /// Two digits at once.
+    ///
+    /// **Identical to two `push`es, saturation included**: both forms reach
+    /// 65535 and stay there, so a parameter accumulated a pair at a time
+    /// cannot differ from one accumulated a digit at a time. `the_pair_form_
+    /// agrees_with_two_pushes` checks every value against every pair.
+    pub fn push_pair(self, d: DigitPair) -> Param {
+        Param(self.0.saturating_mul(100).saturating_add(d.0 as u16))
     }
 }
 
@@ -197,6 +283,15 @@ impl<'a> Params<'a> {
     /// Length of the colon-joined group that starts at `i`, counting `i`.
     ///
     /// `38:2:0:1:2:3` from index 0 is 6; a bare `38` is 1.
+    /// How many parameters the colon group starting at `i` spans.
+    ///
+    /// **An explicit early-out for the empty mask is measured flat.** A colour
+    /// introducer runs this on every `SGR 38`, `48` and `58`, and the
+    /// semicolon form -- which is what every recording sends -- has no
+    /// sub-parameters, so guarding on `is_plain` looked like skipping a loop.
+    /// It is not: the loop's first test is one mask AND against a zero word,
+    /// which is the same work as the guard, so the guard only adds a branch.
+    /// btop 936.5 to 928.6, git-log 1862 to 1831, the rest flat.
     pub fn group_len(&self, i: ParamIdx) -> u8 {
         let mut n: u8 = 1;
         while (i.0 + n) < 16
@@ -502,6 +597,13 @@ impl Csi {
     /// The ambiguity is in the protocol, not in this parser, and it cannot be
     /// resolved without the mode -- so the mode is a parameter rather than
     /// something the caller patches up afterwards.
+    /// **`#[inline]` so the construct-and-match pair can collapse.** This
+    /// builds a 44-variant enum that `baud-core`'s `csi_final` destructures
+    /// immediately -- two dispatches on the same final byte where one would
+    /// do. Across a call boundary LLVM cannot see that; inlined it can thread
+    /// the construction straight into the caller's arms. The caller is
+    /// `#[cold] #[inline(never)]`, so nothing here reaches the per-byte loop.
+    #[inline]
     pub fn parse_with(
         marker: Marker,
         inter: Option<StreamByte>,
@@ -522,6 +624,7 @@ impl Csi {
         Csi::parse_inner(marker, inter, p, f)
     }
 
+    #[inline]
     fn parse_inner(marker: Marker, inter: Option<StreamByte>, p: Params<'_>, f: FinalByte) -> Csi {
         // `<` and `=` open namespaces baud implements nothing in. Falling
         // through would read them against the *standard* table, so `CSI < c`
@@ -826,5 +929,30 @@ impl Csi {
 
             Unsupported { .. } => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod digit_pair {
+    use super::*;
+
+    /// The pair form and two single pushes must agree, **including where they
+    /// saturate**. `p * 100 + 10a + b` and `((p * 10) + a) * 10 + b` are the
+    /// same number until `Param`'s ceiling is reached, and this is the check
+    /// that they are still the same afterwards.
+    #[test]
+    fn the_pair_form_agrees_with_two_pushes() {
+        for p in [0u16, 1, 9, 65, 655, 6553, 6554, 65535] {
+            for a in 0..10u8 {
+                for b in 0..10u8 {
+                    let (da, db) = (Digit(a), Digit(b));
+                    assert_eq!(
+                        Param(p).push_pair(DigitPair::of(da, db)),
+                        Param(p).push(da).push(db),
+                        "p={p} a={a} b={b}"
+                    );
+                }
+            }
+        }
     }
 }

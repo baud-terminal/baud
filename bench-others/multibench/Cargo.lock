@@ -188,6 +188,16 @@ dependencies = [
  "baud-isa",
  "baud-isa-aarch64",
  "baud-isa-x86-64",
+]
+
+[[package]]
+name = "baud-core2"
+version = "0.1.0"
+dependencies = [
+ "baud-domain",
+ "baud-isa",
+ "baud-isa-aarch64",
+ "baud-isa-x86-64",
  "zerocopy",
 ]
 
@@ -1129,6 +1139,7 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "baud-core",
+ "baud-core2",
  "libc",
  "tattoy-wezterm-term",
  "termwiz",

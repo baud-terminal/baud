@@ -138,6 +138,35 @@ impl LinkId {
 }
 
 impl CellFlags {
+    /// **What the cursor advances by, parked in the flag field.** The cursor
+    /// *position* is unbounded state and no table can enumerate it -- but the
+    /// *delta* is one column or two, which is a bounded function of the bytes
+    /// and so belongs in the entry beside the cell. A write replaces the flags
+    /// with the terminal's own, so the slot is free until then.
+    ///
+    /// **Both, because they are different questions.** The advance is one
+    /// column or two -- never zero, since without a cluster machine a
+    /// zero-width character still takes a cell. The width is 0, 1 or 2 and is
+    /// what a cluster machine will read. Dropping the width and keeping only
+    /// the advance made `the_cell_table_is_what_core2_writes` fail on `E0 A0 96`
+    /// (U+0816 SAMARITAN MARK IN), which is the test saying the entry no longer
+    /// carried enough.
+    ///
+    /// Low two bits the advance, next two the width. A write replaces the flags
+    /// with the terminal's own, so the field is free until then.
+    pub fn of_entry(w: Width) -> CellFlags {
+        CellFlags((1 + (w.cells() == 2) as u16) | ((w.cells() as u16) << 2))
+    }
+    pub fn advance_of(self) -> usize {
+        (self.0 & 0b11) as usize
+    }
+    pub fn width_of(self) -> Width {
+        Width((self.0 >> 2) as u8)
+    }
+    pub fn is_wide(self) -> bool {
+        self.0 & 0b11 == 2
+    }
+
     pub const NONE: CellFlags = CellFlags(0);
     /// DECSCA: DECSED and DECSEL may not erase this cell.
     ///
@@ -313,6 +342,17 @@ impl PackedCell {
     /// DEC Special Graphics designated, `<C2 41>` put an `A` on the screen
     /// where every other route puts a line-drawing glyph.
     pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
+        // **ASCII is the answer, not a case of the general one.** Without this
+        // the common path builds a throwaway `PackedCell`, runs the charset
+        // map that has nothing to do, and then round-trips the content back
+        // through `Codepoint::new`'s range-and-surrogate check -- on a byte the
+        // caller has already proven printable ASCII -- after which the caller
+        // builds a *second* cell from the result. Two cell constructions and a
+        // validity check per byte, on the path `cat-cjk.raw` takes for 39% of
+        // its characters.
+        if matches!(set, Charset::Ascii) {
+            return Codepoint::from_ascii(b);
+        }
         let blank = PackedCell::glyph(Codepoint::from_ascii(b), StyleId::DEFAULT, CellFlags::NONE);
         match blank.with_charset(b, set).content.as_codepoint() {
             Some(cp) => cp,
@@ -375,6 +415,12 @@ impl PackedCell {
     ///
     /// Each set replaces a handful of ASCII positions and leaves the rest
     /// alone, so an unlisted byte is itself.
+    /// **A linear search, and it should be an index.** `nrcs_data.rs` is
+    /// generated and its pair arrays are private, so spreading them into
+    /// direct-indexed rows needs a generator change rather than a hand edit --
+    /// `nrcs_tables_match_the_pinned_source` correctly rejected the hand edit.
+    /// Left as it is because a charset is not on the ingest path: the new core
+    /// never leaves `Charset::Ascii`.
     pub fn with_nrcs(self, b: StreamByte, table: &[(u8, u32)]) -> PackedCell {
         let v = b.raw_byte();
         let cp = match table.iter().find(|(k, _)| *k == v) {

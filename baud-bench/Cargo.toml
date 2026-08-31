@@ -11,6 +11,7 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 baud-core2 = { path = "../baud-core2", features = ["alloc"] }
 baud-core = { path = "../baud-core" }
 libc = "0.2"
+zerocopy = "0.8"
 
 
 [features]
@@ -32,6 +33,51 @@ attach-probe = ["baud-core2/attach-probe"]
 pipeline-decode = ["baud-core2/pipeline-decode"]
 short-wide = ["baud-core2/short-wide"]
 ceiling-no-write = ["baud-core2/ceiling-no-write"]
+# The new core's arms, named apart from core2's so one `--features` cannot
+# silently arm the wrong crate.
+new-no-write = ["baud-core/ceiling-no-write"]
+new-no-classify = ["baud-core/ceiling-no-classify"]
+new-no-decode = ["baud-core/ceiling-no-decode"]
+new-no-scroll = ["baud-core/ceiling-no-scroll"]
+new-no-blank = ["baud-core/ceiling-no-blank"]
+new-no-text = ["baud-core/ceiling-no-text"]
+probe-double-extent = ["baud-core/probe-double-extent"]
+new-no-store = ["baud-core/ceiling-no-store"]
+new-double-classify = ["baud-core/probe-double-classify"]
+new-no-act = ["baud-core/ceiling-no-act"]
+new-double-decode = ["baud-core/probe-double-decode"]
+new-free-width = ["baud-core/probe-free-width"]
+new-pinned-node = ["baud-core/probe-pinned-node"]
+new-const-stride = ["baud-core/probe-const-stride"]
+new-double-scan = ["baud-core/probe-double-scan"]
+ascii-only = ["baud-core/ascii-only"]
+cell-table = ["baud-core/cell-table"]
+param3 = ["baud-core/param3"]
+probe-no-fast-csi = ["baud-core/probe-no-fast-csi"]
+probe-no-csi-op = ["baud-core/probe-no-csi-op"]
+probe-no-csi-params = ["baud-core/probe-no-csi-params"]
+probe-double-params = ["baud-core/probe-double-params"]
+probe-csi-scratch = ["baud-core/probe-csi-scratch"]
+two-pass-csi = ["baud-core/two-pass-csi"]
+route-stride = ["baud-core/route-stride"]
+probe-double-final-scan = ["baud-core/probe-double-final-scan"]
+ceiling-free-sgr = ["baud-core/ceiling-free-sgr"]
+ceiling-no-region-copy = ["baud-core/ceiling-no-region-copy"]
+ceiling-segment-cache = ["baud-core/ceiling-segment-cache"]
+sgr-table = ["baud-core/sgr-table"]
+probe-double-text-scan = ["baud-core/probe-double-text-scan"]
+probe-double-sgr = ["baud-core/probe-double-sgr"]
+probe-sgr-copy = ["baud-core/probe-sgr-copy"]
+probe-double-fold = ["baud-core/probe-double-fold"]
+colour-in-match = ["baud-core/colour-in-match"]
+probe-double-intern = ["baud-core/probe-double-intern"]
+probe-double-intern-full = ["baud-core/probe-double-intern-full"]
+probe-double-parse = ["baud-core/probe-double-parse"]
+# The harness alone: the chunk is copied into the arena and never parsed, so
+# the reported rate is what `write_at` costs. Every arm pays it, and a ceiling
+# arm that runs at thousands of MB/s is measuring it as much as the loop.
+harness-only = []
+new-double-put = ["baud-core/probe-double-put"]
 fast3 = ["baud-core2/fast3"]
 ceiling-no-attach = ["baud-core2/ceiling-no-attach"]
 ceiling-cheap-emoji = ["baud-core2/ceiling-cheap-emoji"]

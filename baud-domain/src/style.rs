@@ -128,10 +128,10 @@ impl Attrs {
     pub fn bits(self) -> u32 {
         self.0
     }
-    pub fn with(self, o: Attrs) -> Attrs {
+    pub const fn with(self, o: Attrs) -> Attrs {
         Attrs(self.0 | o.0)
     }
-    pub fn without(self, o: Attrs) -> Attrs {
+    pub const fn without(self, o: Attrs) -> Attrs {
         Attrs(self.0 & !o.0)
     }
     pub fn has(self, o: Attrs) -> bool {
@@ -155,7 +155,7 @@ impl Chan {
     pub fn from_param(p: Option<Param>) -> Chan {
         Chan(p.map_or(0, |x| x.0.min(255)) as u8)
     }
-    pub fn from_offset(v: u16, base: u16) -> Chan {
+    pub const fn from_offset(v: u16, base: u16) -> Chan {
         Chan(v.saturating_sub(base) as u8)
     }
     pub fn get(self) -> u8 {
@@ -328,8 +328,13 @@ impl FontId {
     pub const PRIMARY: FontId = FontId(0);
 
     /// From an SGR parameter in `10..=19`, or `None` for anything else.
-    pub fn from_sgr(n: u16) -> Option<FontId> {
-        (10..=19).contains(&n).then(|| FontId(n - 10))
+    /// `const` so the single-parameter `SGR` table can be built at compile
+    /// time; it is a pure range test either way.
+    pub const fn from_sgr(n: u16) -> Option<FontId> {
+        match n >= 10 && n <= 19 {
+            true => Some(FontId(n - 10)),
+            false => None,
+        }
     }
 
     /// `0` for the primary font, `1..=9` for the alternates.
@@ -475,5 +480,369 @@ impl StyleWord {
             | (u64::from(self.attrs.bits()) << 32)
             | (u64::from(self.font.0) << 48);
         base ^ tail.wrapping_mul(M)
+    }
+}
+
+/// How many bytes a [`StyleWord`] is, for the fold below.
+const STYLE_BYTES: usize = core::mem::size_of::<StyleWord>();
+
+/// The bit pattern half of a [`StyleFold`].
+///
+/// A newtype rather than a bare array because the two halves mean different
+/// things -- which bits the fold *forces* and what it forces them *to* -- and
+/// passing them the wrong way round would compile and produce a plausible
+/// rendition.
+#[repr(transparent)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct StyleBits([u8; STYLE_BYTES]);
+
+/// A rendition change as a **masked replace**, which is what every
+/// [`SgrAttr`] arm already is: `Reset` replaces the whole word, `Set` and
+/// `Unset` force attribute bits, and the colour and font arms replace a
+/// field. None of them reads the bits it writes.
+///
+/// Masked replaces **compose** -- applying `(m1,v1)` then `(m2,v2)` is
+/// `(m1|m2, (v1 & !m2) | v2)` -- so an entire `SGR` sequence, however many
+/// parameters it carries, collapses to one pair that is a pure function of
+/// the sequence's bytes. That is what makes a repeated `SGR` answerable from
+/// a table keyed on those bytes, without the parameter walk or the parse.
+///
+/// **The pair is derived, not hand-written.** `derive` runs the fold on two
+/// witnesses whose bytes differ in *every* bit, so a bit the fold forces comes
+/// out equal on both and a bit it passes through comes out different:
+/// `mask = !(a ^ b)`. Nothing here needs to know a field's offset, which is
+/// the part a hand-written mask would get wrong the next time `StyleWord`
+/// grows -- and it has grown twice.
+///
+/// Both witnesses are valid: `StyleWord` is `FromBytes`, so every bit pattern
+/// is one.
+#[repr(C)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct StyleFold {
+    mask: StyleBits,
+    value: StyleBits,
+}
+
+impl StyleFold {
+    // `as_mut_bytes` comes from `IntoBytes`.
+
+    /// Changes nothing.
+    pub const IDENTITY: StyleFold = StyleFold {
+        mask: StyleBits([0; STYLE_BYTES]),
+        value: StyleBits([0; STYLE_BYTES]),
+    };
+
+    /// The masked replace equivalent to running `f`.
+    ///
+    /// Only sound for an `f` that is one -- every `SgrAttr` is, and
+    /// `a_fold_is_a_masked_replace_of_the_style_word` checks that claim
+    /// against `fold_into` over every attribute and a spread of start words.
+    pub fn derive<F: Fn(&mut StyleWord)>(f: F) -> StyleFold {
+        let mut a = StyleWord::DEFAULT;
+        let mut b = StyleWord::DEFAULT;
+        b.as_mut_bytes().fill(0xff);
+        f(&mut a);
+        f(&mut b);
+        let mut mask = [0u8; STYLE_BYTES];
+        let mut value = [0u8; STYLE_BYTES];
+        for (i, (x, y)) in a.as_bytes().iter().zip(b.as_bytes().iter()).enumerate() {
+            mask[i] = !(x ^ y);
+            value[i] = x & mask[i];
+        }
+        StyleFold {
+            mask: StyleBits(mask),
+            value: StyleBits(value),
+        }
+    }
+
+    /// Apply it in place.
+    ///
+    /// **Word-sized, not byte-sized.** The first version looped over the
+    /// twenty bytes one at a time and that was most of what made the table
+    /// slower than the parameter walk it replaces: sixty operations to do
+    /// what three `u64`s do in nine. `STYLE_BYTES` is checked against the
+    /// chunking below so the next widening of `StyleWord` cannot silently
+    /// leave a field unfolded.
+    #[inline(always)]
+    pub fn apply(self, cur: &mut StyleWord) {
+        let dst = cur.as_mut_bytes();
+        let (m, v) = (&self.mask.0, &self.value.0);
+        for i in (0..STYLE_BYTES - STYLE_BYTES % 8).step_by(8) {
+            let mut w = [0u8; 8];
+            w.copy_from_slice(&dst[i..i + 8]);
+            let mut mw = [0u8; 8];
+            mw.copy_from_slice(&m[i..i + 8]);
+            let mut vw = [0u8; 8];
+            vw.copy_from_slice(&v[i..i + 8]);
+            let out = (u64::from_le_bytes(w) & !u64::from_le_bytes(mw)) | u64::from_le_bytes(vw);
+            dst[i..i + 8].copy_from_slice(&out.to_le_bytes());
+        }
+        for i in STYLE_BYTES - STYLE_BYTES % 8..STYLE_BYTES {
+            dst[i] = (dst[i] & !m[i]) | v[i];
+        }
+    }
+}
+
+#[cfg(test)]
+mod style_fold {
+    use crate::*;
+    use zerocopy::IntoBytes;
+
+    /// **Every `SgrAttr` is a masked replace, and this is the claim the SGR
+    /// table rests on.** If one arm ever reads a bit it writes, the derived
+    /// pair silently produces a different rendition -- so it is checked
+    /// against `fold_into` itself, over every attribute the grammar can
+    /// produce and a spread of starting words including both witnesses.
+    #[test]
+    fn a_fold_is_a_masked_replace_of_the_style_word() {
+        let mut starts = [StyleWord::DEFAULT; 66];
+        starts[1].as_mut_bytes().fill(0xff);
+        // A spread of ordinary renditions, so a pass-through bit that happens
+        // to agree on the two witnesses would still be caught.
+        for (seed, w) in starts.iter_mut().enumerate().skip(2) {
+            for (i, b) in w.as_mut_bytes().iter_mut().enumerate() {
+                let h = (seed as u32)
+                    .wrapping_mul(2_654_435_761)
+                    .wrapping_add(i as u32);
+                *b = (h >> 13) as u8;
+            }
+        }
+
+        let mut checked = 0usize;
+        for v in 0u16..=200 {
+            let Some(attr) = SgrAttr::parse_one(v) else {
+                continue;
+            };
+            let fold = StyleFold::derive(|w| attr.fold_into(w));
+            for s in starts.iter() {
+                let (mut want, mut got) = (*s, *s);
+                attr.fold_into(&mut want);
+                fold.apply(&mut got);
+                assert_eq!(want, got, "SGR {v} from {s:?}");
+            }
+            checked += 1;
+        }
+        // The count is asserted so the test cannot quietly stop reaching the
+        // grammar -- a probe that cannot fire looks exactly like a pass.
+        assert_eq!(checked, 36, "single-parameter SGR values in 0..=200");
+    }
+
+    /// Composition: two folds applied in turn must equal the pair that
+    /// composes them, which is what lets one entry stand for a whole sequence.
+    #[test]
+    fn folds_compose() {
+        for a in [0u16, 1, 31, 44, 22, 39] {
+            for b in [0u16, 7, 34, 49, 24, 1] {
+                let (Some(x), Some(y)) = (SgrAttr::parse_one(a), SgrAttr::parse_one(b)) else {
+                    continue;
+                };
+                let both = StyleFold::derive(|w| {
+                    x.fold_into(w);
+                    y.fold_into(w);
+                });
+                let mut want = StyleWord::DEFAULT;
+                x.fold_into(&mut want);
+                y.fold_into(&mut want);
+                let mut got = StyleWord::DEFAULT;
+                both.apply(&mut got);
+                assert_eq!(want, got, "SGR {a} then {b}");
+            }
+        }
+    }
+}
+
+/// How many bytes of an `SGR` sequence a [`SgrKey`] holds.
+///
+/// **Measured, not guessed.** The longest plain `SGR` in the corpus is
+/// `ESC [ 38 ; 2 ; 204 ; 204 ; 204 m` at 17 bytes after the `ESC [`, and
+/// `btop.raw` sends it 4,943 times a rep. Twenty-four covers every recording
+/// with room, and pads to three `u64` reads so the hash touches every byte
+/// without a loop.
+pub const SGR_KEY_BYTES: usize = 24;
+
+/// The bytes of a plain `SGR` sequence, after the `ESC [` and including the
+/// final `m`, zero-padded.
+///
+/// **The key is the sequence itself**, which is what makes the answer to it a
+/// pure function: parsing `ESC [ 38 ; 2 ; 204 ; 204 ; 204 m` cannot depend on
+/// anything but those bytes. A shorter sequence pads with zeros, and zero is
+/// not a byte any `SGR` contains, so two different sequences cannot share a
+/// key.
+#[repr(C)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct SgrKey {
+    bytes: [u8; SGR_KEY_BYTES],
+    /// Zero for the empty slot. A real sequence is at least `m`, so a length
+    /// of zero can never match one and no separate occupancy flag is needed.
+    len: u8,
+    _pad: [u8; 7],
+}
+
+impl SgrKey {
+    /// The slot a fresh table is full of, and a key nothing matches.
+    pub const EMPTY: SgrKey = SgrKey {
+        bytes: [0; SGR_KEY_BYTES],
+        len: 0,
+        _pad: [0; 7],
+    };
+
+    /// The key for a sequence, or `None` if it is longer than the table can
+    /// hold. Declining is how a long sequence keeps the normal path rather
+    /// than being answered wrongly.
+    ///
+    /// **Only the miss path builds one.** A lookup hashes and compares the
+    /// bytes where they already are; materialising 32 bytes to ask a question
+    /// is what made the first version of this table slower than the walk it
+    /// replaces.
+    pub fn of(seq: &[StreamByte]) -> Option<SgrKey> {
+        match seq.len() <= SGR_KEY_BYTES && !seq.is_empty() {
+            false => None,
+            true => {
+                let mut k = SgrKey::EMPTY;
+                for (dst, src) in k.bytes.iter_mut().zip(seq.iter()) {
+                    *dst = src.raw_byte();
+                }
+                k.len = seq.len() as u8;
+                Some(k)
+            }
+        }
+    }
+
+    /// The slot a sequence hashes to, read straight from the stream.
+    ///
+    /// **Eight bytes and the length, not all twenty-four.** The distinct
+    /// sequences number 168 at worst, and a truecolor `SGR`'s first eight
+    /// bytes -- `38;2;204` against `48;2;0;0` -- already separate the families;
+    /// what they do not separate, the full compare does. Reading three
+    /// `u64`s to spread 168 keys was pure cost on the hit path.
+    #[inline(always)]
+    pub fn bucket_of(seq: &[StreamByte], buckets: usize) -> usize {
+        debug_assert!(buckets.is_power_of_two());
+        let mut w = [0u8; 8];
+        for (dst, src) in w.iter_mut().zip(seq.iter()) {
+            *dst = src.raw_byte();
+        }
+        let h =
+            (u64::from_le_bytes(w) ^ (seq.len() as u64) << 56).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        let shift = 64 - buckets.trailing_zeros();
+        (h >> shift) as usize
+    }
+
+    /// Whether this key is that sequence, comparing only the bytes it has.
+    #[inline(always)]
+    pub fn matches(&self, seq: &[StreamByte]) -> bool {
+        if self.len as usize != seq.len() {
+            return false;
+        }
+        for (a, b) in self.bytes.iter().zip(seq.iter()) {
+            if *a != b.raw_byte() {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// One entry: the sequence, and the rendition change it means.
+#[repr(C)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, Immutable, KnownLayout,
+)]
+pub struct SgrSlot {
+    pub key: SgrKey,
+    pub fold: StyleFold,
+}
+
+impl SgrSlot {
+    pub const EMPTY: SgrSlot = SgrSlot {
+        key: SgrKey::EMPTY,
+        fold: StyleFold::IDENTITY,
+    };
+}
+
+/// The shortest `SGR` sequence worth answering from the table.
+///
+/// **A short sequence is already cheaper than any lookup**, and this constant
+/// is the whole difference between the table being a win and a regression.
+/// `ESC [ 4 0 m` is a three-byte parameter walk -- three iterations of a
+/// predictable match -- which no hash, compare and masked replace can beat.
+/// The first version consulted the table for every `SGR` and measured
+/// **-34% on asciiquarium**, whose sequences are all this shape.
+///
+/// The corpus splits cleanly, which is why a threshold works at all. Plain
+/// `SGR` length after the `ESC [`:
+///
+/// | recording | 1-6 bytes | 11-17 bytes |
+/// |---|---|---|
+/// | `btop.raw` | 25% | **75%** |
+/// | `asciiquarium.raw` | **100%** | 0% |
+/// | `git-log.raw` | **100%** | 0% |
+/// | `less-pager.raw` | **100%** | 0% |
+///
+/// So eight excludes every recording whose sequences the walk already handles
+/// well, and admits the truecolor `ESC [ 38 ; 2 ; r ; g ; b m` that is 45% of
+/// `btop.raw`'s alone.
+pub const SGR_MIN_BYTES: usize = 8;
+
+/// The hash of a redraw segment, for `baud-core`'s `ceiling-segment-cache`
+/// arm.
+///
+/// **Eight bytes a multiply, not one.** A byte-at-a-time FNV is one dependent
+/// multiply per byte at three to four cycles of latency, which is *more* than
+/// the parser costs per byte -- the first version of that arm measured btop
+/// 935 -> 566 while skipping 81% of the cells, and it was pricing the hash
+/// rather than the idea. Two accumulators, so the chain is two deep.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SegHash(u64);
+
+impl SegHash {
+    const SEED_A: u64 = 0xcbf2_9ce4_8422_2325;
+    const SEED_B: u64 = 0x9E37_79B9_7F4A_7C15;
+    const PRIME: u64 = 0x0100_0000_01b3;
+
+    /// Nothing hashed. A real segment is at least one byte, so this cannot
+    /// collide with one by accident often enough to matter in a ceiling arm.
+    pub const ZERO: SegHash = SegHash(0);
+
+    #[inline(always)]
+    pub fn of(seg: &[StreamByte]) -> SegHash {
+        let (mut a, mut b) = (Self::SEED_A, Self::SEED_B);
+        let mut c = seg.chunks_exact(16);
+        for q in &mut c {
+            a = (a ^ Self::word(&q[..8])).wrapping_mul(Self::PRIME);
+            b = (b ^ Self::word(&q[8..])).wrapping_mul(Self::PRIME);
+        }
+        let mut tail = [StreamByte::NUL; 16];
+        for (d, x) in tail.iter_mut().zip(c.remainder().iter()) {
+            *d = *x;
+        }
+        a = (a ^ Self::word(&tail[..8])).wrapping_mul(Self::PRIME);
+        b = (b ^ Self::word(&tail[8..]) ^ seg.len() as u64).wrapping_mul(Self::PRIME);
+        SegHash(a ^ b.rotate_left(32))
+    }
+
+    /// **One load, not eight byte copies.** `StreamByte` is
+    /// `repr(transparent)` and `IntoBytes`, so eight of them *are* a `u64` in
+    /// memory. Spelling that as a byte loop -- which the first typed version
+    /// did -- took the arm from 664 to 363 on btop: a newtype is free when the
+    /// shape matches, and a manual copy is not the shape of a load.
+    #[inline(always)]
+    fn word(b: &[StreamByte]) -> u64 {
+        let mut w = [0u8; 8];
+        w.copy_from_slice(&b.as_bytes()[..8]);
+        u64::from_le_bytes(w)
+    }
+
+    /// High bits, the same rule as every other table here.
+    pub fn slot(self, buckets: usize) -> usize {
+        debug_assert!(buckets.is_power_of_two());
+        (self.0 >> (64 - buckets.trailing_zeros())) as usize
     }
 }

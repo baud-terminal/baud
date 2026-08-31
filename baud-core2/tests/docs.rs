@@ -250,7 +250,12 @@ fn every_test_named_in_the_docs_exists() {
             }
         }
     }
-    for d in ["baud-core2", "baud-domain"] {
+    // **`baud-core` is in this list because the gate must follow the code.**
+    // The new core carries its own tests and `CLAUDE.md` cites them; a
+    // collector that walked only core2 would report every one of them as a
+    // citation to nothing, which is the "instrumentation outlived what fed it"
+    // failure this repo already records twice.
+    for d in ["baud-core", "baud-core2", "baud-domain", "baud-bench"] {
         collect(&root().join(d), &mut have);
     }
 

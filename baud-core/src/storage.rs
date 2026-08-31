@@ -57,17 +57,53 @@ pub struct Storage<'b> {
     /// How far each physical row stops being uniform. Blanking stops here, so
     /// a mostly-empty row costs a fraction of its width.
     pub(crate) used: &'b mut [RowExtent],
+    /// **The cells a three-byte character becomes, indexed by its bytes.**
+    ///
+    /// `table[b0][b1][b2]` -- 1024 prefixes x 256 entries -- so the write is a
+    /// store of a value already in hand rather than a decode, a property
+    /// lookup and a construction. Built once by [`Term::new`], which is why it
+    /// is caller-provided memory rather than rodata: 2 MiB is more than a
+    /// `const fn` should evaluate, and nothing about it is per-terminal.
+    ///
+    /// Nothing dedupes here and that is the point: a row carrying the codepoint
+    /// is unique by construction, because the codepoint *is* the concatenation
+    /// of the index bytes. Storing it is how you stop computing it.
+    pub(crate) cells3: &'b mut [PackedCell],
+    /// The rendition table. A cell holds a [`StyleId`] *index* into this;
+    /// **bounded by construction and evicting on collision**, which is the
+    /// contract every content-keyed table in this project carries -- a
+    /// growable one is the content-addressing failure mode this repo records.
+    ///
+    /// `Option` rather than a parallel validity array: absent and occupied are
+    /// two states of one thing, and a `bool` beside it is the missing enum the
+    /// audit exists to catch.
+    pub(crate) tmpl: &'b mut [Option<StyleWord>],
+    /// Tab stops, one per column.
+    pub(crate) tabs: &'b mut [bool],
 }
+
+/// How many renditions the template table holds. Bounded so it cannot walk out
+/// of cache under truecolour key pressure.
+pub const NSTYLE: usize = 1024;
+
+/// How many `(lead, continuation)` prefixes a three-byte character has.
+pub const CELLS3_PREFIXES: usize = 16 * 64;
+/// Entries in the three-byte cell table.
+pub const CELLS3: usize = CELLS3_PREFIXES * 256;
 
 impl<'b> Storage<'b> {
     /// # Panics
     /// If any slice is shorter than the geometry needs. Checked once, here,
     /// rather than on every access -- the parser addresses this memory
     /// millions of times a second and cannot re-establish the invariant.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         arena: &'b mut [u8],
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
+        cells3: &'b mut [PackedCell],
+        tmpl: &'b mut [Option<StyleWord>],
+        tabs: &'b mut [bool],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // `RowBlock` computes the span so the two operands cannot be the
@@ -75,6 +111,19 @@ impl<'b> Storage<'b> {
         // silently wrong slice.
         let span = RowBlock::leading(Rows::of_index(used.len()), Cols::from_stride(MAX_COLS));
         assert!(span.fits(vp), "viewport is short of its rows");
-        Storage { arena, vp, used }
+        assert!(
+            cells3.len() == CELLS3 || cells3.is_empty(),
+            "the three-byte cell table is 1024 x 256 entries, or absent"
+        );
+        assert!(tmpl.len() == NSTYLE, "the rendition table is NSTYLE slots");
+        assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
+        Storage {
+            arena,
+            vp,
+            used,
+            cells3,
+            tmpl,
+            tabs,
+        }
     }
 }

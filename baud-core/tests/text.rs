@@ -8,25 +8,47 @@ use baud_core::*;
 
 /// Feed `bytes` in `chunk`-sized reads and return the first row as text.
 fn row0(bytes: &[u8], chunk: usize, cols: usize) -> String {
+    row_n(bytes, chunk, cols, 0)
+}
+
+/// The same, for row `y`. **Row 0 is not where a wrap bug lives**: a writer
+/// that clips at the margin leaves row 0 perfectly correct and loses
+/// everything that belonged on row 1.
+fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
     let rows = 4usize;
     let mut arena = vec![0u8; READ_CHUNK];
     let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
     let mut used = vec![RowExtent::ZERO; rows];
+    let mut cells3 = vec![PackedCell::EMPTY; CELLS3];
+    let mut tmpl = vec![None; NSTYLE];
+    let mut tabs = vec![false; MAX_COLS];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: cols as u16,
     };
-    let mut t = Term::new(Storage::new(&mut arena, &mut vp, &mut used), &ws);
+    let mut t = Term::new(
+        Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+        ),
+        &ws,
+    );
     let mut i = 0;
     while i < bytes.len() {
         let n = chunk.min(bytes.len() - i);
         t.write_at(BytePos::from_index(0), &bytes[i..i + n]);
-        t.feed(BytePos::from_index(0), ByteLen::from_index(n));
+        t.feed(BytePos::from_index(0), ReadLen::from_index(n));
         i += n;
     }
+    let w = t.stride().index();
     let vp = t.viewport();
+    let row = &vp[y * w..];
     (0..cols)
-        .map(|c| match vp[c].content.as_codepoint() {
+        .map(|c| match row[c].content.as_codepoint() {
             Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
             None => '.',
         })
@@ -106,4 +128,44 @@ fn overwriting_the_tail_clears_the_lead() {
     let r = row0("ab\u{8}世".as_bytes(), 4096, 8);
     assert_eq!(r.chars().next(), Some('a'));
     assert_eq!(r.chars().nth(1), Some('世'));
+}
+
+/// **A line longer than the row wraps; it does not stop.**
+///
+/// The one-line loop hands a writer the whole run, so a 300-byte line arrives
+/// as one call where the block walk delivered it sixteen bytes at a time. The
+/// blitter clipped to the margin and returned, and every later run found no
+/// room and vanished in silence -- 3.6M cells of `btop.raw`, and the screen
+/// simply stopped accepting text.
+///
+/// **Chunk invariance did not catch it and could not**, which is the part
+/// worth keeping: the drop was driven by the *screen* being full, not by where
+/// the read fell, so every chunk size agreed with every other on the same
+/// wrong answer. A property that says "two runs agree" is silent when both are
+/// wrong the same way.
+#[test]
+fn a_line_longer_than_the_row_wraps_instead_of_stopping() {
+    // Ten columns, twelve characters: `kl` belongs on row 1, and the clipping
+    // writer left row 0 exactly right while losing them.
+    assert_eq!(&row0(b"abcdefghijkl", 4096, 10), "abcdefghij");
+    assert_eq!(&row_n(b"abcdefghijkl", 4096, 10, 1), "kl........");
+    // And the row must go on accepting text afterwards, which is the part
+    // that cost `btop.raw` 3.6M cells: once the margin was reached, every
+    // later run found no room and vanished.
+    assert_eq!(&row_n(b"abcdefghijklZ", 4096, 10, 1), "klZ.......");
+}
+
+/// A run and the same bytes one at a time must put the same thing on the
+/// screen. **The writer's chunking is not allowed to be visible**, which is
+/// the same rule as the read boundary one level down -- and it is the one that
+/// bites, because a bulk writer and a per-character writer are different code.
+#[test]
+fn a_run_agrees_with_the_same_characters_written_singly() {
+    let src = b"the quick brown fox jumps over the lazy dog, twice over and again";
+    for cols in [8usize, 10, 16, 17, 33, 64] {
+        let whole = row0(src, 4096, cols);
+        for chunk in [1usize, 2, 3, 5, 16, 17] {
+            assert_eq!(row0(src, chunk, cols), whole, "cols {cols}, chunk {chunk}");
+        }
+    }
 }

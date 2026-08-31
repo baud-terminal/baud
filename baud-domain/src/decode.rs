@@ -135,19 +135,40 @@ pub struct Digit(pub(crate) u8);
 pub struct FinalByte(pub(crate) u8);
 
 impl FinalByte {
+    /// How many final bytes ECMA-48 allows: `0x40..=0x7e`.
+    pub const COUNT: usize = 0x3f;
+
+    /// The `i`th final byte. For building a table over the whole space.
+    pub const fn at(i: usize) -> FinalByte {
+        FinalByte(0x40 + i as u8)
+    }
+
+    /// Position in that space, so a caller indexes a table without doing the
+    /// subtraction and the cast itself.
+    pub const fn slot(self) -> usize {
+        (self.0 - 0x40) as usize
+    }
+
+    /// The final byte a parser has already been told it has. **Infallible on
+    /// purpose**, like `Digit::of_ascii`: the graph names `CsiFinal` only for
+    /// `0x40..=0x7e`, so a caller holding one has been told, and re-testing it
+    /// produces a `None` arm that cannot be taken. Anything else saturates into
+    /// the space rather than escaping it.
+    pub const fn of_final(b: StreamByte) -> FinalByte {
+        FinalByte(0x40 + ((b.raw_byte().wrapping_sub(0x40)) % (Self::COUNT as u8)))
+    }
+
     pub const fn from_stream(b: StreamByte) -> Option<FinalByte> {
         match b.0 >= 0x40 && b.0 <= 0x7e {
             true => Some(FinalByte(b.0)),
             false => None,
         }
     }
-    pub(crate) fn raw(self) -> u8 {
+    /// The byte itself. `pub const` because the table over the final-byte
+    /// space is built at compile time and its generator matches on the byte.
+    pub const fn raw(self) -> u8 {
         self.0
     }
-    /// The byte, for an encoder that has to write it out.
-    ///
-    /// A `StreamByte` rather than a `u8`: it is going back onto the wire, and
-    /// that is the type for a byte on the wire.
     /// `m`, the SGR final.
     ///
     /// Named rather than spelled `b'm'` at the call site: `Term::dispatch`
@@ -156,12 +177,25 @@ impl FinalByte {
     /// change and one place to grep.
     pub const SGR: FinalByte = FinalByte(b'm');
 
+    /// `H`, CUP -- absolute row and column.
+    pub const CUP: FinalByte = FinalByte(b'H');
+    /// `d`, VPA -- absolute row.
+    pub const VPA: FinalByte = FinalByte(b'd');
+    /// `f`, HVP -- absolute row and column, the other spelling.
+    pub const HVP: FinalByte = FinalByte(b'f');
+
+    /// The byte, for an encoder that has to write it out.
+    ///
+    /// A `StreamByte` rather than a `u8`: it is going back onto the wire, and
+    /// that is the type for a byte on the wire.
     pub fn byte(self) -> StreamByte {
         StreamByte(self.0)
     }
 }
 
 impl StreamByte {
+    /// `[`, the byte after `ESC` that introduces a `CSI`.
+    pub const CSI_BRACKET: StreamByte = StreamByte(b'[');
     pub const LF: StreamByte = StreamByte(b'\n');
     pub const CR: StreamByte = StreamByte(b'\r');
     pub const ESC: StreamByte = StreamByte(0x1b);
@@ -505,6 +539,14 @@ impl Codepoint {
     /// decode. Branching on the length to reach it from the general
     /// single-character path measured *slower* -- 670-704 against 702-705 --
     /// because the test costs more than the two compares it saves.
+    /// The scalar value a three-byte sequence encodes, from the bytes as
+    /// indices. **For a table builder**, which walks the byte space rather than
+    /// the codepoint space; the cast lives here because a newtype's job is to
+    /// hold one.
+    pub fn from_three_bytes(b0: usize, b1: usize, b2: usize) -> u32 {
+        (((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)) as u32
+    }
+
     pub fn from_three(v: u32) -> Codepoint {
         match v >= 0x800 && (v ^ 0xd800) >= 0x800 {
             true => Codepoint(v),

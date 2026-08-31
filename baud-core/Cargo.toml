@@ -8,6 +8,14 @@ repository.workspace = true
 description = "A terminal emulator core: PTY bytes through VT parse into a grid. no_std, allocation-free."
 
 [features]
+# **`param3` is off, and it used to be on.** Three bytes an edge in the
+# parameter table was +17% on `btop.raw` when `Act::Digit` walked parameters
+# through the graph. `fast_esc` and `fast_csi` now take an entire sequence in
+# one iteration, so that action is never reached -- it does not appear in any
+# recording's histogram at all -- and the table is 1.31 MB of rodata nothing
+# reads. Off, it is flat on btop and asciiquarium and **better** on cat-scroll,
+# git-log and less-pager, which is the rodata-layout class this file records
+# three times.
 default = []
 # `Storage::boxed`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
@@ -40,6 +48,90 @@ probe-double-masks = []
 ceiling-no-walk = []
 # The blank behind a scroll, with the ring still advancing.
 ceiling-no-blank = []
+# The whole of `Paint::index`: no row change, no rotation, no blank.
+ceiling-no-scroll = []
+# The per-character row-extent read-modify-write, priced by doing it twice.
+probe-double-extent = ["baud-domain/probe-double-extent"]
+# Only the two cell stores, with the cursor, wrap, scroll and extent intact.
+ceiling-no-store = ["baud-domain/ceiling-no-store"]
+# The loop with every action free: lookup, dispatch and run scans only.
+ceiling-no-act = []
+# The per-character decode, priced by doing it twice.
+probe-double-decode = []
+# Phase 0: the width taken from a register compare instead of the classify
+# load, to price the loop-carried dependency through the cursor.
+probe-free-width = []
+# Phase 0b: the graph indexed at a constant node, to price the loop-carried
+# load-to-load dependence through the node. Exact on a whole-file read.
+probe-pinned-node = []
+probe-const-stride = ["baud-domain/probe-const-stride"]
+# The run scan, priced by doing it twice: 7% of cat-cjk.
+probe-double-scan = []
+# The ASCII-only ingest arm: one 256-entry table, one lookup per byte, no scan.
+ascii-only = []
+# The write is a lookup: the cell comes from table[b0][b1][b2], not a decode.
+cell-table = []
+# Three bytes an edge in the parameter table instead of two: 1.31 MB of rodata
+# against 128 KB, and it takes a three-digit parameter in one step.
+param3 = []
+# The accelerated CSI path declines every time. **Not a ceiling arm**: the graph
+# walks the sequence instead, so the screen is identical and only the route
+# differs -- which is what makes it a clean discriminator between the fast path
+# and the plumbing that reaches it.
+probe-no-fast-csi = []
+# The sequence is scanned and its parameters accumulated, and then nothing is
+# performed. **`cells_written` is unchanged for an SGR-only payload**, because
+# a rendition change writes no cells -- so this is a clean price for dispatch
+# and the operation, not a ceiling arm that removes work downstream.
+probe-no-csi-op = []
+# The parameters are not accumulated: the scan runs, the loop runs, and the
+# digits are discarded. Prices the parameter walk inside the fast path.
+probe-no-csi-params = []
+# The parameter walk run twice into a scratch and discarded: the additive
+# counterpart to `probe-no-csi-params`, which also removes the truecolor SGR
+# chain and therefore over-prices the walk.
+probe-double-params = []
+probe-csi-scratch = []
+# **The two-pass `CSI` path, kept for A/B.** `final_byte_at` scanned for the
+# terminator and the walk then classified the same eight to twelve bytes again;
+# one pass does both, because the walk's fallthrough arm *is* the terminator.
+# Fusing them is +9.5% asciiquarium, +5.8% vim, +4.7% btop with nothing
+# regressing, so the fused form is the default and this restores the old one.
+two-pass-csi = []
+route-stride = []
+probe-double-final-scan = []
+ceiling-free-sgr = []
+ceiling-no-region-copy = []
+ceiling-segment-cache = []
+# **The byte-keyed `SGR` table, off.** A plain `SGR` is a pure function of
+# its bytes and its result is a masked replace of the rendition word, so a
+# repeated one can be answered from a 256-slot table keyed on the sequence --
+# and `btop.raw` draws 19,984 of them from 168 distinct strings. It is correct,
+# it hits 67% of btop's, and it is worth **1.3% against a 4.8% A/A floor**,
+# with `less-pager` and `git-log` slightly down. Compiled so the next person
+# re-measures rather than rebuilds.
+sgr-table = []
+# The printable-run scan, priced by running it twice. Same bytes, same answer,
+# every counter unchanged -- so it is a marginal cost and not a ceiling.
+probe-double-text-scan = []
+# The SGR fold priced by doing it twice: same parameters, same result, every
+# counter unchanged.
+probe-double-sgr = []
+probe-sgr-copy = []
+probe-double-fold = ["baud-domain/probe-double-fold"]
+colour-in-match = ["baud-domain/colour-in-match"]
+# The rendition intern priced by doing it twice.
+probe-double-intern = []
+probe-double-intern-full = []
+# `Csi::parse_with` priced by doing it twice -- the general grammar, which
+# every non-SGR sequence goes through.
+probe-double-parse = []
+# The per-character write, priced by doing it twice. `put_glyph_fresh` is
+# idempotent, so the counters and the screen are unchanged.
+probe-double-put = []
+# The text run's bulk writer, so `put_ascii_run` can be priced against the
+# per-character path it replaces.
+ceiling-no-text = []
 # The wide tail not written at all: an upper bound on making it implicit.
 ceiling-implicit-tail = []
 

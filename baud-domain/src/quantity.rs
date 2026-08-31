@@ -28,6 +28,72 @@ impl Width {
     }
 }
 
+/// How many bytes one `read(2)` delivered.
+///
+/// **Separate from [`ByteLen`] because that one saturates.** `ByteLen` is a
+/// `u16` and its `from_index` clamps at 65,535 -- correct for a length *inside*
+/// a control sequence, where anything longer is malformed input rather than an
+/// overflow. A read length is not that: it is a count the caller measured, and
+/// clamping it silently drops bytes the terminal was given.
+///
+/// It did. Handing `feed` a 256 KB chunk through `ByteLen` parsed 65,535 bytes
+/// and discarded the rest, so `cells_written` came out at 3,322,229 against
+/// 8,325,429 for the same recording and read as a chunk-invariance bug in the
+/// parser. The parser was right and the length was lost before it arrived. A
+/// 64 KB chunk lost exactly one byte per read, which is the same failure
+/// small enough to look like noise.
+///
+/// Bounded by the arena rather than by a word size, so the ceiling is the one
+/// the caller can actually observe.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[repr(transparent)]
+pub struct ReadLen(usize);
+
+impl ReadLen {
+    pub const ZERO: ReadLen = ReadLen(0);
+    /// One byte of a read, which is what most actions consume.
+    pub const ONE: ReadLen = ReadLen(1);
+    /// What a read actually placed. The single place a `len()` becomes a read
+    /// length.
+    pub fn of(s: &[u8]) -> ReadLen {
+        ReadLen(s.len())
+    }
+    /// From a `read(2)` return value.
+    pub fn from_index(n: usize) -> ReadLen {
+        ReadLen(n)
+    }
+    pub fn index(self) -> usize {
+        self.0
+    }
+    pub fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+    /// What is left of the read after `n` bytes of it have been consumed.
+    /// Saturating, so a step that overshot cannot wrap the loop bound into a
+    /// huge positive number.
+    pub fn less(self, n: ReadLen) -> ReadLen {
+        ReadLen(self.0.saturating_sub(n.0))
+    }
+    pub fn plus(self, n: ReadLen) -> ReadLen {
+        ReadLen(self.0 + n.0)
+    }
+    /// A character's encoded length, as an amount of the read.
+    ///
+    /// **One direction only.** A `ByteLen` is a `u16` and a `ReadLen` is not,
+    /// so the conversion back would have to clamp -- and a clamp on the ingest
+    /// loop is a silent truncation waiting to happen, which is the bug this
+    /// type exists because of.
+    pub fn of_bytes(n: ByteLen) -> ReadLen {
+        ReadLen(n.index())
+    }
+    /// Whether `n` bytes are still to come. The one question the split test
+    /// asks, so it is spelled once here rather than as a comparison at the
+    /// call site with the operands free to be swapped.
+    pub fn holds(self, n: ByteLen) -> bool {
+        n.index() <= self.0
+    }
+}
+
 /// A length in **bytes**. Has no path to [`Col`] or [`Width`], by construction.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
@@ -37,6 +103,14 @@ pub struct ByteLen(pub(crate) u16);
 
 impl ByteLen {
     pub const ZERO: ByteLen = ByteLen(0);
+    /// **The four lengths UTF-8 allows**, as `const`s a compile-time table can
+    /// hold. An action in the parse graph carries how many bytes it eats, and
+    /// that value is also the length its decoder reads -- naming them once is
+    /// what stops those being two literals free to disagree.
+    pub const ONE: ByteLen = ByteLen(1);
+    pub const TWO: ByteLen = ByteLen(2);
+    pub const THREE: ByteLen = ByteLen(3);
+    pub const FOUR: ByteLen = ByteLen(4);
     /// Length of a byte slice. The single place a `len()` becomes a quantity.
     pub fn of(s: &[u8]) -> ByteLen {
         ByteLen::from_index(s.len())

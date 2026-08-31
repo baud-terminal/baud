@@ -270,6 +270,51 @@ impl<'a> View<'a> {
         self.rot
     }
 
+    /// Retreat the rotation by `n` rows: a reverse scroll, from the view's
+    /// side. The counterpart of [`View::advance_rot`], and it exists for the
+    /// same reason: a scroll that moves an index costs one row of blanking
+    /// where one that moves the rows costs the whole screen.
+    pub fn retreat_rot(&mut self, n: usize) -> RowRot {
+        self.rot = self.rot.retreat(n, self.rows);
+        self.rot
+    }
+
+    /// Put the rotation back to identity.
+    ///
+    /// **For entering the alternate screen**, whose buffer is about to be
+    /// cleared: a rotation left over from the last visit describes rows that
+    /// are about to stop existing.
+    pub fn reset_rot(&mut self) {
+        self.rot = RowRot::NONE;
+    }
+
+    /// Copy screen row `from` over screen row `to`, extent included.
+    ///
+    /// **For repairing the rows a rotation moved that should not have moved.**
+    /// A scrolling region that does not span the screen cannot be a whole-grid
+    /// rotation -- but it can be one *plus* putting the few rows outside the
+    /// region back, and for the usual shape (a full-height region with a
+    /// status line under it) that is one row instead of forty-nine.
+    pub fn copy_row(&mut self, from: Row, to: Row) {
+        let (a, b) = (self.phys(from), self.phys(to));
+        if a == b {
+            return;
+        }
+        let w = self.cols.index();
+        let stride = self.stride.index();
+        let (lo, hi) = match a < b {
+            true => (a, b),
+            false => (b, a),
+        };
+        let (head, tail) = self.cells.split_at_mut(hi * stride);
+        let (src, dst) = match a < b {
+            true => (&head[lo * stride..lo * stride + w], &mut tail[..w]),
+            false => (&tail[..w], &mut head[lo * stride..lo * stride + w]),
+        };
+        dst.copy_from_slice(src);
+        self.used[b] = self.used[a];
+    }
+
     /// The mark for screen row `r`.
     pub fn extent(&self, r: Row) -> RowExtent {
         self.used[self.phys(r)]
@@ -636,7 +681,16 @@ impl<'a> View<'a> {
     }
 
     fn put_ascii_vectored(dst: &mut [PackedCell], src: &[u8], proto: PackedCell) {
-        #[cfg(target_endian = "little")]
+        // `ceiling-no-store` keeps every setup -- row resolution, orphan
+        // repair, extent, clip -- and skips only the stores, so a pair with the
+        // default build separates writing the cells from deciding where they
+        // go. On `cat-scroll.raw` that split is **28% stores, 21% setup**.
+        #[cfg(feature = "ceiling-no-store")]
+        {
+            let _ = (dst, src, proto);
+            return;
+        }
+        #[cfg(all(target_endian = "little", not(feature = "ceiling-no-store")))]
         {
             use core::simd::Simd;
             use core::simd::num::SimdUint;
@@ -665,7 +719,7 @@ impl<'a> View<'a> {
                 *dc = proto.with_ascii(StreamByte::from_stream(b));
             }
         }
-        #[cfg(not(target_endian = "little"))]
+        #[cfg(all(not(target_endian = "little"), not(feature = "ceiling-no-store")))]
         for (dc, &b) in dst.iter_mut().zip(src) {
             *dc = proto.with_ascii(StreamByte::from_stream(b));
         }
@@ -730,19 +784,6 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Write one glyph, and a wide character's tail, in **one** pass.
-    ///
-    /// This was `clear_partners`, then `put`, then `put` again: three `phys`
-    /// computations, two bounds checks and three read-modify-writes of the
-    /// used extent, for a character that occupies two cells. It runs once per
-    /// **non-ASCII codepoint** -- ASCII goes through `put_ascii_run` -- so it
-    /// is most of what the CJK path is made of, and `cat-cjk.raw` is where baud
-    /// is furthest behind another implementation.
-    ///
-    /// The orphan repair is the same rule as everywhere else, against the base
-    /// already computed: a write starting on a tail orphans the lead in front
-    /// of it, and one ending on a lead orphans the tail after it.
-    #[inline(always)]
     /// The same, for a caller that already knows the row is uniform from `c`
     /// onward -- so there is no wide half to orphan and no probe to make.
     ///
@@ -769,17 +810,40 @@ impl<'a> View<'a> {
         // than the store it saves. This is the dominant write on CJK text
         // (69% of runs are one character, so the vectored run writer never
         // sees them), which is why it was worth trying and worth recording.
-        self.cells[base + x] = lead;
+        #[cfg(not(feature = "ceiling-no-store"))]
+        {
+            self.cells[base + x] = lead;
+        }
         let end = match tail {
-            Some(t) if x + 1 < cols => {
-                self.cells[base + x + 1] = t;
+            Some(_t) if x + 1 < cols => {
+                #[cfg(not(feature = "ceiling-no-store"))]
+                {
+                    self.cells[base + x + 1] = _t;
+                }
                 x + 2
             }
             _ => x + 1,
         };
         self.used[p] = self.used[p].reached(end);
+        #[cfg(feature = "probe-double-extent")]
+        {
+            self.used[p] = self.used[p].reached(end);
+        }
     }
 
+    /// Write one glyph, and a wide character's tail, in **one** pass.
+    ///
+    /// This was `clear_partners`, then `put`, then `put` again: three `phys`
+    /// computations, two bounds checks and three read-modify-writes of the
+    /// used extent, for a character that occupies two cells. It runs once per
+    /// **non-ASCII codepoint** -- ASCII goes through `put_ascii_run` -- so it
+    /// is most of what the CJK path is made of, and `cat-cjk.raw` is where baud
+    /// is furthest behind another implementation.
+    ///
+    /// The orphan repair is the same rule as everywhere else, against the base
+    /// already computed: a write starting on a tail orphans the lead in front
+    /// of it, and one ending on a lead orphans the tail after it.
+    #[inline(always)]
     pub fn put_glyph(
         &mut self,
         r: Row,

@@ -27,15 +27,21 @@
 
 mod feed;
 mod graph;
+#[cfg(feature = "diag")]
+pub use graph::Hist;
+mod ops;
 mod paint;
 mod storage;
 mod term;
 mod write;
 
 pub use baud_domain::{
-    ByteLen, BytePos, Charset, Codepoint, Col, Cols, Content, InputEncoding, PackedCell, Row,
-    RowBlock, RowExtent, Rows, StreamByte, Width, WinSize,
+    ByteLen, ByteLen as DomByteLen, BytePos, Charset, Codepoint, Col, Cols, Content, FinalByte,
+    InputEncoding, PackedCell, ReadLen, Row, RowBlock, RowExtent, Rows, StyleWord, Width, WinSize,
 };
 pub use graph::Node;
-pub use storage::{ARENA, GRID, MAX_COLS, MAX_ROWS, READ_CHUNK, Storage};
+
+pub use storage::{
+    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NSTYLE, READ_CHUNK, Storage,
+};
 pub use term::Term;

@@ -15,6 +15,7 @@ dependencies = [
  "baud-core",
  "baud-core2",
  "libc",
+ "zerocopy",
 ]
 
 [[package]]

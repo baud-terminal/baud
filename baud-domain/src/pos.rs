@@ -25,6 +25,11 @@ impl BytePos {
     pub fn advance(self, n: ByteLen) -> BytePos {
         BytePos(self.0 + n.get() as u64)
     }
+    /// Forward by part of a read. Separate from `advance` because a `ByteLen`
+    /// saturates at 65,535 and a read does not.
+    pub fn advance_read(self, n: ReadLen) -> BytePos {
+        BytePos(self.0 + n.index() as u64)
+    }
     /// Distance, saturating. Deliberately not `Sub`, so a negative gap cannot
     /// wrap into a huge positive one.
     pub fn gap(self, earlier: BytePos) -> ByteGap {

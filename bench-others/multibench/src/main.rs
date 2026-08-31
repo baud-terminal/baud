@@ -22,6 +22,7 @@ const CORES: &[&str] = &[
     "termwiz (wezterm) parse only",
     "baud (cells, computed)",
     "baud (cells, templated)",
+    "baud-core (new)",
 ];
 
 fn main() {

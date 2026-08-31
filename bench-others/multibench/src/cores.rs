@@ -85,6 +85,44 @@ pub(crate) fn baud_rep(p: &[u8], total: usize, mode: baud_core2::OpMode) -> f64 
     })
 }
 
+/// The new core: caller-provided storage, no allocator of its own.
+///
+/// **Every buffer is the harness's**, which is the contract the crate is built
+/// to -- it is `no_std`, `alloc`-free and borrows all of it. Built fresh per
+/// rep like every other core here.
+pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
+    use baud_core as nb;
+    let ws = nb::WinSize {
+        ws_row: crate::ROWS as u16,
+        ws_col: crate::COLS as u16,
+    };
+    let (_, rows) = ws.geometry();
+    let span = nb::RowBlock::leading(rows, nb::Cols::from_stride(nb::MAX_COLS));
+    let mut arena = vec![0u8; nb::ARENA];
+    let mut vp = vec![nb::PackedCell::EMPTY; span.len()];
+    let mut used = vec![nb::RowExtent::ZERO; rows.index()];
+    // Empty declines the three-byte cell table, whose only read is behind
+    // `cell-table`; filling it costs 2 MiB of stores per core construction.
+    let mut cells3: Vec<nb::PackedCell> = Vec::new();
+    let mut tmpl = vec![None; nb::NSTYLE];
+    let mut tabs = vec![false; nb::MAX_COLS];
+    let mut t = nb::Term::new(
+        nb::Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+        ),
+        &ws,
+    );
+    drive(p, total, |chunk| {
+        t.write_at(nb::BytePos::ZERO, chunk);
+        t.feed(nb::BytePos::ZERO, nb::ReadLen::from_index(chunk.len()));
+    })
+}
+
 /// One rep of one core, with state built fresh exactly as before.
 ///
 /// Indexed rather than a closure per core so the driver can interleave them.
@@ -100,6 +138,7 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
             std::hint::black_box(c);
         }),
         1 => baud_rep(p, total, baud_core2::OpMode::Runs),
+        9 => baud_new_rep(p, total),
         2 => {
             let mut cfg = Config::default();
             cfg.scrolling_history = 10_000;

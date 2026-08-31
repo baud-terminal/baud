@@ -1,0 +1,614 @@
+//! What a control sequence does to the grid.
+//!
+//! **Every one of these delegates to `View`.** `baud-domain` already owns
+//! `insert_lines_in`, `delete_lines_in`, `delete_cells`, `insert_cells`,
+//! `fill` and `fill_row`, and `baud-core2` reaches the same primitives; a
+//! second spelling of a grid operation here is the "one write path knowing a
+//! rule the other did not" failure this repo records four times. What lives in
+//! this file is the *state* -- the region, the modes, the saved cursor -- and
+//! the arithmetic that turns a parameter into a span.
+//!
+//! Out of the per-byte loop on purpose: the write path calls none of it, and
+//! this repo has measured that a large `match` inlined into a per-byte body
+//! costs every payload whether or not it executes.
+
+use crate::paint::Paint;
+use crate::storage::NSTYLE;
+use crate::term::Saved;
+use baud_domain::*;
+
+impl Paint<'_> {
+    /// Where row 1 is. DECOM makes the scrolling region's top the origin.
+    pub(crate) fn origin_row(&self) -> Row {
+        match self.cold.modes.is_set(ModeBit::Origin) {
+            true => self.cold.top,
+            false => Row::ZERO,
+        }
+    }
+
+    /// **DECOM confines all cursor movement, not just absolute addressing.**
+    /// `[[source: vt510-decom]]`, and the first implementation in this repo
+    /// confined only CUP.
+    pub(crate) fn confine(&self, r: Row) -> Row {
+        match self.cold.modes.is_set(ModeBit::Origin) {
+            false => r,
+            true => Row::from_index(
+                r.index()
+                    .clamp(self.cold.top.index(), self.cold.bot.index()),
+            ),
+        }
+    }
+
+    pub(crate) fn save(&self) -> Saved {
+        Saved {
+            cy: self.cy,
+            cx: self.cx,
+            style: self.style,
+            style_raw: self.style_raw,
+            flags: self.flags,
+            charset: self.charset,
+        }
+    }
+
+    /// **Clamped, because the save may predate a resize.** An unclamped
+    /// restore puts the cursor outside the grid, and writes and erases index
+    /// with it.
+    pub(crate) fn restore(&mut self, s: Option<Saved>) {
+        let Some(s) = s else { return };
+        let r = Row::from_index(s.cy.index().min(self.rows.index() - 1));
+        self.goto(r, Col::at_index(s.cx.index().min(self.cols.index() - 1)));
+        self.style = s.style;
+        self.style_raw = s.style_raw;
+        self.flags = s.flags;
+        self.charset = s.charset;
+    }
+
+    fn blank(&self) -> PackedCell {
+        PackedCell::empty_with(self.style)
+    }
+
+    fn fill_counted(&mut self, r: Row, from: Col, to: Col) {
+        let b = self.blank();
+        let n = self.view.fill(r, from, to, b);
+        self.cells = self.cells.plus(n);
+    }
+
+    fn fill_row_counted(&mut self, r: Row) {
+        let b = self.blank();
+        let n = self.view.fill_row(r, b);
+        self.cells = self.cells.plus(n.index());
+    }
+
+    // ---- scrolling ------------------------------------------------------
+
+    /// **The full-screen case rotates and the region case copies**, which is
+    /// the split this repo already measured at 45%: a scroll that moves an
+    /// index costs one row of blanking where one that moves the rows costs the
+    /// whole region.
+    pub(crate) fn scroll_region_up(&mut self, n: Count) {
+        let (top, bot) = (self.cold.top, self.cold.bot);
+        if top.index() > bot.index() {
+            return;
+        }
+        let k = n.at_least_one().min(bot.index() + 1 - top.index());
+        let last = self.rows.index() - 1;
+        if top.index() == 0 && bot.index() == last {
+            #[cfg(feature = "diag")]
+            {
+                self.scroll_rot += k;
+            }
+            for _ in 0..k {
+                self.view.advance_rot(1);
+                self.fill_row_counted(Row::from_index(last));
+            }
+            return;
+        }
+        // **A region anchored at the top is a rotation plus a repair**, and the
+        // repair is the rows *outside* it rather than the rows inside.
+        //
+        // The shape every status-line application has -- `less`, `vim`, `htop`,
+        // `tmux` -- is `DECSTBM 1 ; rows-1`, so the region is the whole screen
+        // but one line. Copying it moves forty-nine rows a scroll; rotating and
+        // putting the one row below the region back moves **one**.
+        //
+        // Found by concatenating the corpus into one stream: a program that
+        // sets a region and does not reset it leaves the next one scrolling by
+        // copy, and the mixed stream took **89,209 scrolls, 100% of them
+        // copying**, at 201 MB/s against the 835 the recordings predict
+        // individually. Every recording measured alone shows zero, because
+        // each starts from a fresh terminal -- which is this repo's "payloads
+        // that don't exercise the case" rule, found at last.
+        // **A region anchored at the top is a rotation plus a repair**, and
+        // the repair is the rows *outside* it rather than the rows inside.
+        //
+        // The shape every status-line application has -- `less`, `vim`,
+        // `htop`, `tmux` -- is `DECSTBM 1 ; rows-1`, so the region is the whole
+        // screen but one line. Copying it moves forty-nine rows a scroll;
+        // rotating and putting the one row below the region back moves **one**.
+        let below = last - bot.index();
+        if top.index() == 0 && below < bot.index() + 1 - top.index() {
+            #[cfg(feature = "diag")]
+            {
+                self.scroll_rot += k;
+            }
+            for _ in 0..k {
+                self.view.advance_rot(1);
+                // **Descending, so a row is read before it is overwritten.**
+                for y in (bot.index() + 1..=last).rev() {
+                    self.view
+                        .copy_row(Row::from_index(y - 1), Row::from_index(y));
+                }
+                self.fill_row_counted(bot);
+            }
+            self.cells = self.cells.plus(k * below * self.cols.index());
+            return;
+        }
+        #[cfg(feature = "diag")]
+        {
+            self.scroll_copy += k;
+        }
+        // **Ceiling arm: the region move, priced.** Incorrect by construction --
+        // a region that never scrolls leaves stale rows on the screen -- but
+        // the cell accounting below still runs, so both arms attribute the
+        // same work and only the stores differ. Same shape as
+        // `ceiling-no-blank`, and it exists because `utf8/cava.raw` is the
+        // first recording in the corpus that reaches this path at all: 51
+        // copied region scrolls a rep against zero everywhere else.
+        #[cfg(not(feature = "ceiling-no-region-copy"))]
+        {
+            let b = self.blank();
+            self.view.delete_lines_in(top, n, bot, b);
+        }
+        // **The whole region, not `k` rows.** `delete_lines_in` moves every
+        // row inside the region and blanks `k`; counting only the blanks
+        // undercounted the copying path by the height of the region, which is
+        // exactly the traffic the rotation above avoids.
+        self.cells = self
+            .cells
+            .plus((bot.index() + 1 - top.index()) * self.cols.index());
+    }
+
+    pub(crate) fn scroll_region_down(&mut self, n: Count) {
+        let (top, bot) = (self.cold.top, self.cold.bot);
+        if top.index() > bot.index() {
+            return;
+        }
+        let k = n.at_least_one().min(bot.index() + 1 - top.index());
+        let last = self.rows.index() - 1;
+        if top.index() == 0 && bot.index() == last {
+            for _ in 0..k {
+                self.view.retreat_rot(1);
+                self.fill_row_counted(Row::ZERO);
+            }
+            return;
+        }
+        #[cfg(feature = "diag")]
+        {
+            self.scroll_copy += k;
+        }
+        let b = self.blank();
+        self.view.insert_lines_in(top, n, bot, b);
+        self.cells = self
+            .cells
+            .plus((bot.index() + 1 - top.index()) * self.cols.index());
+    }
+
+    /// DECSTBM. **A region needs at least two rows**, and setting one homes
+    /// the cursor.
+    pub(crate) fn set_scroll_region(&mut self, top: OneBased, bottom: Option<OneBased>) {
+        let last = Row::from_index(self.rows.index() - 1);
+        let t = top.to_row(self.rows);
+        let b = bottom.map_or(last, |v| v.to_row(self.rows));
+        if t.index() >= b.index() {
+            return;
+        }
+        self.cold.top = t;
+        self.cold.bot = b;
+        self.goto(t, Col::ZERO);
+    }
+
+    /// IL. **Outside the region it does nothing**, which is the rule that
+    /// keeps a pager's `IL` from disturbing its status line.
+    pub(crate) fn insert_lines(&mut self, n: Count) {
+        if self.cy.index() < self.cold.top.index() || self.cy.index() > self.cold.bot.index() {
+            return;
+        }
+        let (at, bot) = (self.cy, self.cold.bot);
+        let k = n.at_least_one().min(bot.index() + 1 - at.index());
+        let b = self.blank();
+        self.view.insert_lines_in(at, n, bot, b);
+        self.cells = self.cells.plus(k * self.cols.index());
+        self.row_changed_to(self.cy);
+    }
+
+    /// DL.
+    pub(crate) fn delete_lines(&mut self, n: Count) {
+        if self.cy.index() < self.cold.top.index() || self.cy.index() > self.cold.bot.index() {
+            return;
+        }
+        let (at, bot) = (self.cy, self.cold.bot);
+        let k = n.at_least_one().min(bot.index() + 1 - at.index());
+        let b = self.blank();
+        self.view.delete_lines_in(at, n, bot, b);
+        self.cells = self.cells.plus(k * self.cols.index());
+        self.row_changed_to(self.cy);
+    }
+
+    // ---- erasing --------------------------------------------------------
+
+    /// ECH: blank `n` cells from the cursor, without moving anything.
+    pub(crate) fn erase_chars(&mut self, n: Count) {
+        let (r, from) = (self.cy, self.cx);
+        let to = Col::at_index((self.cx.index() + n.at_least_one()).min(self.cols.index()));
+        self.fill_counted(r, from, to);
+    }
+
+    /// DCH: pull the rest of the row left over `n` cells.
+    pub(crate) fn delete_chars(&mut self, n: Count) {
+        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let to = Col::at_index(self.cols.index());
+        self.view.delete_cells(r, at, n, to, b);
+        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.row_changed_to(r);
+    }
+
+    /// ICH: push the rest of the row right over `n` blanks.
+    pub(crate) fn insert_blanks(&mut self, n: Count) {
+        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let to = Col::at_index(self.cols.index());
+        self.view.insert_cells(r, at, n, to, b);
+        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.row_changed_to(r);
+    }
+
+    /// DECSED / DECSEL: erase only what DECSCA left unprotected.
+    pub(crate) fn selective_erase_line(&mut self, e: EraseExtent) {
+        let (a, b) = self.line_span(e);
+        self.selective_wipe(self.cy, a, b);
+    }
+
+    pub(crate) fn selective_erase_display(&mut self, e: EraseExtent) {
+        let cols = Col::at_index(self.cols.index());
+        let (from, to) = self.display_rows(e);
+        for y in from.index()..to.index() {
+            self.selective_wipe(Row::from_index(y), Col::ZERO, cols);
+        }
+        if e != EraseExtent::All {
+            let (a, b) = self.line_span(e);
+            self.selective_wipe(self.cy, a, b);
+        }
+    }
+
+    fn selective_wipe(&mut self, r: Row, from: Col, to: Col) {
+        let b = self.blank();
+        for x in from.index()..to.index() {
+            let c = Col::at_index(x);
+            if !self.view.get(r, c).is_protected() {
+                self.view.put(r, c, b);
+                self.cells = self.cells.plus(1);
+            }
+        }
+        self.row_changed_to(r);
+    }
+
+    /// The span `EraseExtent` names on the cursor's row.
+    pub(crate) fn line_span(&self, e: EraseExtent) -> (Col, Col) {
+        let cols = Col::at_index(self.cols.index());
+        match e {
+            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.index() + 1)),
+            EraseExtent::All => (Col::ZERO, cols),
+            EraseExtent::ToEnd => (self.cx, cols),
+        }
+    }
+
+    /// The whole rows `EraseExtent` names, excluding the cursor's own.
+    ///
+    /// A pair of `Row`s and not of integers: the two are a half-open span of
+    /// *screen rows*, and the one place this repo let a row be a bare index it
+    /// went through `View::phys` unrotated and marks read the wrong cell.
+    pub(crate) fn display_rows(&self, e: EraseExtent) -> (Row, Row) {
+        let rows = Row::from_index(self.rows.index());
+        match e {
+            EraseExtent::ToStart => (Row::ZERO, self.cy),
+            EraseExtent::All => (Row::ZERO, rows),
+            EraseExtent::ToEnd => (Row::from_index(self.cy.index() + 1), rows),
+        }
+    }
+
+    // ---- rendition ------------------------------------------------------
+
+    /// **A bounded, evict-on-collision table**, the same contract `StyleWord`
+    /// carries in `baud-core2`. A growable one is the content-addressing
+    /// failure mode this repo already measured at -18%.
+    fn intern_style(&mut self, raw: StyleWord) -> StyleId {
+        #[cfg(feature = "probe-double-intern")]
+        core::hint::black_box(StyleId::bucket(raw, NSTYLE));
+        // **The whole intern, not just the hash.** `probe-double-intern`
+        // doubles `bucket` only and reads flat, which prices the multiply and
+        // says nothing about the 24-byte store -- and the store is what a
+        // lazy intern would skip. Storing twice to the same slot is
+        // idempotent, so every counter is unchanged.
+        #[cfg(feature = "probe-double-intern-full")]
+        {
+            let k2 = StyleId::bucket(raw, NSTYLE);
+            self.tmpl[k2] = Some(raw);
+        }
+        let k = StyleId::bucket(raw, NSTYLE);
+        // **Stored unconditionally, and comparing first was measured flat.**
+        // `Option<StyleWord>` is 24 bytes and `btop.raw` sends ~20,000 SGRs a
+        // rep, so skipping the store on a hit looked like obvious duplicate
+        // work -- `baud-core2` does exactly that. It is worth nothing here:
+        // btop 814-818 against 806-811, asciiquarium and vim overlapping. The
+        // slot is already in L1 and already dirty, so the store is free and
+        // the compare is not.
+        self.tmpl[k] = Some(raw);
+        StyleId::from_index(k)
+    }
+
+    /// SGR. **The single-parameter form first**, because that is what a
+    /// sixteen-colour program emits and it reaches the attribute without
+    /// building a `Params` at all.
+    pub(crate) fn apply_sgr(&mut self, csi: &crate::write::Csi) {
+        // **Folded in place, not through a copy.** `StyleWord` is twenty
+        // bytes, and reading it into a local, folding, and writing it back was
+        // forty bytes of copying per `SGR` -- on `asciiquarium.raw`, where the
+        // fold is 24% of the clock and there are 876,840 of them a rep.
+        #[cfg(feature = "probe-double-sgr")]
+        {
+            let mut again = self.style_raw;
+            csi.fold_sgr(&mut again);
+            core::hint::black_box(again);
+        }
+        // **The copy alone, so it can be subtracted.** `probe-double-sgr`
+        // reads the twenty-byte `StyleWord` into a local and `black_box`es it
+        // back to memory, and the real path does neither -- so its figure is
+        // the fold *plus* a copy and a forced spill per `SGR`. Same
+        // contamination as `probe-csi-scratch`, and the same fix.
+        #[cfg(feature = "probe-sgr-copy")]
+        {
+            let again = self.style_raw;
+            core::hint::black_box(again);
+        }
+        // **One parameter is a table lookup, not a grammar walk.** It is 43%
+        // of `btop.raw`'s `SGR`s and 80% of `asciiquarium.raw`'s, and the
+        // answer is a pure function of the value. `get` declines the colour
+        // introducers and anything the grammar does not recognise, which fall
+        // through to the general path rather than silently applying nothing.
+        csi.fold_sgr(&mut self.style_raw);
+        self.style = self.intern_style(self.style_raw);
+    }
+
+    /// The same rendition change, from the table instead of from the bytes.
+    ///
+    /// This is the whole hit path: no parameter walk, no `SgrAttr::parse`, no
+    /// fold over the parameter array -- one masked replace and the intern that
+    /// `apply_sgr` also does. `probe-double-intern` prices the intern at
+    /// nothing, so what is left of the `SGR` route on a hit is the compare.
+    #[cfg(feature = "sgr-table")]
+    #[inline(always)]
+    pub(crate) fn apply_fold(&mut self, f: StyleFold) {
+        f.apply(&mut self.style_raw);
+        self.style = self.intern_style(self.style_raw);
+    }
+
+    /// Recombine DECSCA protection with the active character set, so the write
+    /// path reads one value instead of two.
+    pub(crate) fn refresh_flags(&mut self) {
+        self.flags = match self.charset {
+            Charset::DecGraphics => self.cold.protect.with(CellFlags::GRAPHICS),
+            _ => self.cold.protect,
+        };
+    }
+
+    /// REP: repeat the last graphic character. Bounded by the row, so
+    /// `CSI 65535 b` cannot spin.
+    pub(crate) fn repeat(&mut self, c: Count) {
+        let Some((cp, w)) = self.last_cp else {
+            return;
+        };
+        for _ in 0..c.at_least_one().min(self.cols.index()) {
+            self.glyph(cp, w);
+        }
+    }
+
+    // ---- tabs -----------------------------------------------------------
+
+    pub(crate) fn reset_tabs(&mut self) {
+        for (i, stop) in self.tabs.iter_mut().enumerate() {
+            *stop = i % 8 == 0 && i != 0;
+        }
+    }
+
+    pub(crate) fn tab_forward(&mut self, n: Count) {
+        let last = self.cols.index() - 1;
+        for _ in 0..n.at_least_one().min(self.cols.index()) {
+            let mut x = self.cx.index();
+            loop {
+                if x >= last {
+                    x = last;
+                    break;
+                }
+                x += 1;
+                if self.tabs[x] {
+                    break;
+                }
+            }
+            self.cx = Col::at_index(x);
+        }
+    }
+
+    pub(crate) fn tab_back(&mut self, n: Count) {
+        for _ in 0..n.at_least_one().min(self.cols.index()) {
+            let mut x = self.cx.index();
+            loop {
+                if x == 0 {
+                    break;
+                }
+                x -= 1;
+                if self.tabs[x] {
+                    break;
+                }
+            }
+            self.cx = Col::at_index(x);
+        }
+    }
+
+    pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
+        match w {
+            Some(TabClear::All) => self.tabs.fill(false),
+            _ => {
+                let x = self.cx.index();
+                if x < self.tabs.len() {
+                    self.tabs[x] = false;
+                }
+            }
+        }
+    }
+
+    // ---- margins and columns -------------------------------------------
+
+    /// DECSLRM. **Recorded and not acted on** would be the failure this repo
+    /// names `parsed`; the margins bound `insert_cells`/`delete_cells` below.
+    pub(crate) fn set_side_margins(&mut self, _left: OneBased, _right: OneBased) {
+        // Left/right margins need DECLRMM set to mean anything, and this core
+        // does not record them yet -- so the sequence is counted rather than
+        // half-applied. A margin stored and ignored confines nothing and
+        // explains nothing.
+    }
+
+    pub(crate) fn insert_columns(&mut self, n: Count) {
+        let (b, to) = (self.blank(), Col::at_index(self.cols.index()));
+        for y in self.cold.top.index()..=self.cold.bot.index() {
+            self.view
+                .insert_cells(Row::from_index(y), self.cx, n, to, b);
+            self.cells = self.cells.plus(self.cols.index() - self.cx.index());
+        }
+    }
+
+    pub(crate) fn delete_columns(&mut self, n: Count) {
+        let (b, to) = (self.blank(), Col::at_index(self.cols.index()));
+        for y in self.cold.top.index()..=self.cold.bot.index() {
+            self.view
+                .delete_cells(Row::from_index(y), self.cx, n, to, b);
+            self.cells = self.cells.plus(self.cols.index() - self.cx.index());
+        }
+    }
+
+    // ---- modes ----------------------------------------------------------
+
+    pub(crate) fn apply_private_modes(&mut self, csi: &crate::write::Csi, change: ModeChange) {
+        // **Every parameter, not the first.** `CSI ? 1 ; 3 ; 4 ; 6 l` sets
+        // four modes and rxvt's own reset string is exactly that; reading one
+        // left the rest silently unset.
+        csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change));
+    }
+
+    fn set_private_mode(&mut self, m: PrivateMode, change: ModeChange) {
+        let on = change == ModeChange::Set;
+        match m {
+            PrivateMode::Origin => {
+                self.cold.modes.apply(ModeBit::Origin, on);
+                // Both directions home the cursor, and where home *is* depends
+                // on the mode just applied.
+                let r = match on {
+                    true => self.cold.top,
+                    false => Row::ZERO,
+                };
+                self.goto(r, Col::ZERO);
+            }
+            PrivateMode::AutoWrap => self.cold.modes.apply(ModeBit::AutoWrap, on),
+            PrivateMode::CursorVisible => self.cold.modes.apply(ModeBit::CursorVisible, on),
+            PrivateMode::ReverseVideo => self.cold.modes.apply(ModeBit::ReverseVideo, on),
+            // `[[source: ctlseqs]]` for `?1049 h`: save the cursor as DECSC,
+            // switch to the alternate buffer, clear it. For `?1049 l`: use the
+            // normal buffer and restore as DECRC.
+            //
+            // **Idempotent in both directions.** A second `?1049 h` must not
+            // re-save over the cursor it saved on the way in.
+            PrivateMode::AltScreen => self.set_alt_screen(change),
+            _ => {}
+        }
+    }
+
+    /// **`ModeChange`, not a `bool`.** The two states already have a name in
+    /// the protocol, and this repo's audit exists to stop that name being
+    /// thrown away at a call site -- `set_alt_screen(true)` reads as nothing
+    /// in particular where `ModeChange::Set` reads as DECSET.
+    fn set_alt_screen(&mut self, change: ModeChange) {
+        use crate::term::Screen;
+        match (change == ModeChange::Set, self.cold.screen) {
+            (true, Screen::Normal) => {
+                self.cold.alt_saved = Some(self.save());
+                self.cold.screen = Screen::Alternate;
+                self.view.reset_rot();
+                self.clear_screen();
+                self.goto(Row::ZERO, Col::ZERO);
+            }
+            (false, Screen::Alternate) => {
+                self.cold.screen = Screen::Normal;
+                let s = self.cold.alt_saved.take();
+                self.restore(s);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn apply_ansi_mode(&mut self, change: ModeChange, mode: AnsiMode) {
+        let on = change == ModeChange::Set;
+        match mode {
+            AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
+            AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
+            _ => {}
+        }
+    }
+
+    pub(crate) fn clear_screen(&mut self) {
+        for y in 0..self.rows.index() {
+            let b = self.blank();
+            let n = self.view.fill_row(Row::from_index(y), b);
+            self.cells = self.cells.plus(n.index());
+        }
+    }
+
+    /// DECALN: fill the screen with `E`, home the cursor, drop the region.
+    pub(crate) fn screen_alignment(&mut self) {
+        let cell = PackedCell::glyph(
+            Codepoint::from_ascii(StreamByte::from_stream(b'E')),
+            self.style,
+            self.flags,
+        );
+        for y in 0..self.rows.index() {
+            let n = self.view.fill_row(Row::from_index(y), cell);
+            self.cells = self.cells.plus(n.index());
+        }
+        self.cold.top = Row::ZERO;
+        self.cold.bot = Row::from_index(self.rows.index() - 1);
+        self.goto(Row::ZERO, Col::ZERO);
+    }
+
+    /// RIS. **Everything a soft reset does, and the screen as well.**
+    pub(crate) fn hard_reset(&mut self) {
+        self.soft_reset();
+        self.view.reset_rot();
+        self.clear_screen();
+        self.reset_tabs();
+        self.last_cp = None;
+        self.goto(Row::ZERO, Col::ZERO);
+    }
+
+    /// DECSTR. **A soft reset leaves the alternate screen**, which the first
+    /// implementation of it in this repo did not.
+    pub(crate) fn soft_reset(&mut self) {
+        self.set_alt_screen(ModeChange::Reset);
+        self.cold.modes = Modes::default();
+        self.cold.top = Row::ZERO;
+        self.cold.bot = Row::from_index(self.rows.index() - 1);
+        self.cold.protect = CellFlags::NONE;
+        self.style_raw = StyleWord::DEFAULT;
+        self.cold.saved = None;
+        self.style = StyleId::DEFAULT;
+        self.charset = Charset::Ascii;
+        self.refresh_flags();
+        self.goto(Row::ZERO, Col::ZERO);
+    }
+}
