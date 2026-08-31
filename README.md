@@ -40,8 +40,9 @@ missing is everything between that grid and a window.
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.12–4.31× on committed capture |
-| Scrollback | ◐ stored and measured, `SB = 10_000` lines — but no accessor reads above the viewport, so it is storage rather than a feature |
-| Input path | ◐ started — sources pinned, [112 key rows enumerated](docs/input-coverage.md), types in; no encoder yet |
+| Scrollback | ◐ **`baud-core2` only** — stored and measured, `SB = 10_000` lines, but no accessor reads above the viewport, so it is storage rather than a feature. The newer `baud-core` has none: retired rows are overwritten by `RowRot` |
+| Input path | ◐ **`baud-core2` only** — sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done), and `Term::key` encodes the base layer: cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, and the meta/alt modes. The two *negotiated* enhancements — fixterms `CSI u` and kitty progressive enhancement — are unbuilt |
+| Reply channel | ◐ **`baud-core2` only** — the newer `baud-core` has no reply buffer, so `DA`, `DSR`, `DECRQM`, `XTVERSION`, cursor style and mouse highlighting are recognised and counted there but deliberately unanswered |
 | Renderer | ⬜ not started |
 | Font shaping | ⬜ not started — and the largest unknown in the project |
 
@@ -220,8 +221,15 @@ confident guesses more than once, and the commit log says where.
   220,000× cliff.
 - **Reflow, selection, search.** All need random access by `(line, column)`
   into variable-length spans.
-- **Scrollback as a feature.** Lines above the viewport are stored, but nothing
-  reads them — there is no accessor, so it is storage rather than scrollback.
+- **Scrollback as a feature.** In `baud-core2` lines above the viewport are
+  stored, but nothing reads them — there is no accessor, so it is storage
+  rather than scrollback. In `baud-core` they are not stored at all.
+- **The two cores are not the same program.** Every throughput row below is
+  `baud-core`, which is the faster one and has neither scrollback, a reply
+  channel, nor an input path; `baud-core2` has all three. The ingest comparison
+  is like for like — both parse the same bytes into the same grid — but the
+  engineering contract is not, and this repo already applies that rule to
+  ghostty, so it applies it to itself.
 - **Concurrency and GPU.** Unevaluable on the hardware to hand.
 
 ## Releases
