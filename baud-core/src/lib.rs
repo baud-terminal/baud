@@ -37,7 +37,8 @@ mod write;
 
 pub use baud_domain::{
     ByteLen, ByteLen as DomByteLen, BytePos, Charset, Codepoint, Col, Cols, Content, FinalByte,
-    InputEncoding, PackedCell, ReadLen, Row, RowBlock, RowExtent, Rows, StyleWord, Width, WinSize,
+    InputEncoding, KeypadMode, PackedCell, ReadLen, Row, RowBlock, RowExtent, Rows, StyleWord,
+    Width, WinSize,
 };
 pub use graph::Node;
 

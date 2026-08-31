@@ -57,6 +57,12 @@ pub struct Cold {
     pub(crate) sgr: [SgrSlot; NSGR],
     /// DECSCA protection, kept apart from the cell flags so the charset and
     /// the protection each change without recomputing the other wrongly.
+    /// DECKPAM/DECKPNM, `ESC =` and `ESC >`.
+    ///
+    /// **Not a mode bit.** It has no `SM`/`RM` wire number to live under, and
+    /// it is input-side: it decides what the keypad sends, which is why the
+    /// core's part is to record it and expose it.
+    pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
     /// The scrolling region, inclusive at both ends.
@@ -72,6 +78,7 @@ impl Cold {
         Cold {
             #[cfg(feature = "sgr-table")]
             sgr: [SgrSlot::EMPTY; NSGR],
+            keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
             top: Row::ZERO,
@@ -366,5 +373,37 @@ impl<'b> Term<'b> {
     /// Drop the pending reply after sending it.
     pub fn clear_reply(&mut self) {
         self.reply_len = ByteLen::ZERO;
+    }
+}
+
+impl Term<'_> {
+    /// DECCKM `?1`. Whether the arrow keys send `SS3 A` rather than `CSI A`.
+    ///
+    /// **Exposed rather than acted on internally, and that is the acting.** An
+    /// embedder cannot encode a key press without knowing this, and being told
+    /// is the whole of the terminal's part -- the same contract
+    /// `bracketed_paste` already has.
+    pub fn cursor_keys_application(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::CursorKeys)
+    }
+
+    /// DECKPAM/DECKPNM. Whether the keypad sends `SS3`-prefixed sequences.
+    pub fn keypad(&self) -> KeypadMode {
+        self.cold.keypad
+    }
+
+    /// `?1036` metaSendsEscape. Whether Meta prefixes `ESC`.
+    pub fn meta_sends_escape(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::MetaSendsEscape)
+    }
+
+    /// `?1039` altSendsEscape. Whether Alt prefixes `ESC`.
+    pub fn alt_sends_escape(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::AltSendsEscape)
+    }
+
+    /// `?1034` eightBitInput. Whether Alt/Meta add 128 instead of prefixing.
+    pub fn eight_bit_input(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::EightBitInput)
     }
 }

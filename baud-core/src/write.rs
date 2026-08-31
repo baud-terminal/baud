@@ -1243,10 +1243,15 @@ fn esc_final(p: &mut Paint<'_>, csi: &Csi, b: StreamByte) {
             }
         }
         Esc::Reset => p.hard_reset(),
-        // Keypad modes are input-side and this core has no input path; they
-        // are counted rather than recorded, because a bit set and never read
-        // is the same failure as a sequence parsed and dropped.
-        Esc::KeypadApplication | Esc::KeypadNumeric | Esc::Unsupported => {}
+        // **DECKPAM and DECKPNM, recorded and exposed.** They decide what the
+        // keypad sends, so the terminal's whole part is to know which mode is
+        // live and let the embedder ask -- the same argument
+        // `ModeBit::BracketedPaste` makes. Dropping them was the `parsed`
+        // failure `docs/vt-coverage.md` names: accepted, did nothing, and no
+        // way for an application to find out.
+        Esc::KeypadApplication => p.cold.keypad = KeypadMode::Application,
+        Esc::KeypadNumeric => p.cold.keypad = KeypadMode::Numeric,
+        Esc::Unsupported => {}
     }
 }
 

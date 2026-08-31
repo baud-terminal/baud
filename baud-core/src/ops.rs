@@ -517,6 +517,16 @@ impl Paint<'_> {
                 self.goto(r, Col::ZERO);
             }
             PrivateMode::AutoWrap => self.cold.modes.apply(ModeBit::AutoWrap, on),
+            // **The input-side modes.** Each decides what a *key* sends, so
+            // "acting on it" is exposing it -- the same argument
+            // `ModeBit::BracketedPaste` already makes: an embedder cannot
+            // implement the mode without being told, and being told is the
+            // whole of the terminal's part. `Term::cursor_keys_application`
+            // and friends are the channel, and the key encoder reads them.
+            PrivateMode::CursorKeys => self.cold.modes.apply(ModeBit::CursorKeys, on),
+            PrivateMode::MetaSendsEscape => self.cold.modes.apply(ModeBit::MetaSendsEscape, on),
+            PrivateMode::AltSendsEscape => self.cold.modes.apply(ModeBit::AltSendsEscape, on),
+            PrivateMode::EightBitInput => self.cold.modes.apply(ModeBit::EightBitInput, on),
             PrivateMode::CursorVisible => self.cold.modes.apply(ModeBit::CursorVisible, on),
             PrivateMode::ReverseVideo => self.cold.modes.apply(ModeBit::ReverseVideo, on),
             // `[[source: ctlseqs]]` for `?1049 h`: save the cursor as DECSC,

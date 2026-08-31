@@ -41,7 +41,7 @@ missing is everything between that grid and a window.
 | **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.12–4.31× on committed capture |
 | Scrollback | ◐ **`baud-core2` only** — stored and measured, `SB = 10_000` lines, but no accessor reads above the viewport, so it is storage rather than a feature. The newer `baud-core` has none: retired rows are overwritten by `RowRot` |
-| Input path | ◐ **`baud-core2` only** — sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done), and `Term::key` encodes the base layer: cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, and the meta/alt modes. The two *negotiated* enhancements — fixterms `CSI u` and kitty progressive enhancement — are unbuilt |
+| Input path | ◐ sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done). `baud-core2` encodes the base layer in `Term::key`: cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, and the meta/alt modes. `baud-core` now records and exposes the state that encoder needs — DECCKM, DECKPAM/DECKPNM, `?1036`, `?1039`, `?1034` — but the encoder itself is not yet ported. The two *negotiated* enhancements, fixterms `CSI u` and kitty progressive enhancement, are unbuilt in both |
 | Reply channel | ◐ both cores have one, caller-provided. `baud-core` answers `DA` (under-claiming as a VT102) and `DSR` 5/6; `DECRQM`, `XTVERSION`, `DECSCUSR` and highlight tracking are recognised and counted but unanswered there, each for a named reason. `baud-core2` answers the full set |
 | Renderer | ⬜ not started |
 | Font shaping | ⬜ not started — and the largest unknown in the project |

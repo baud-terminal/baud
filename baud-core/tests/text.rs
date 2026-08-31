@@ -272,3 +272,77 @@ fn a_reply_survives_until_it_is_cleared() {
     t.clear_reply();
     assert!(t.reply().is_empty());
 }
+
+/// Drive `bytes` and hand the terminal back, so input state can be read off it.
+fn after(bytes: &[u8]) -> (Vec<u8>, bool, bool, bool, bool, bool) {
+    let rows = 4usize;
+    let mut arena = vec![0u8; READ_CHUNK];
+    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut used = vec![RowExtent::ZERO; rows];
+    let mut cells3 = vec![PackedCell::EMPTY; 0];
+    let mut tmpl = vec![None; NSTYLE];
+    let mut tabs = vec![false; MAX_COLS];
+    let mut reply = vec![0u8; REPLY];
+    let ws = WinSize {
+        ws_row: rows as u16,
+        ws_col: 20,
+    };
+    let mut t = Term::new(
+        Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+            &mut reply,
+        ),
+        &ws,
+    );
+    t.write_at(BytePos::from_index(0), bytes);
+    t.feed(BytePos::from_index(0), ReadLen::from_index(bytes.len()));
+    (
+        t.reply().to_vec(),
+        t.cursor_keys_application(),
+        t.keypad() == KeypadMode::Application,
+        t.meta_sends_escape(),
+        t.alt_sends_escape(),
+        t.eight_bit_input(),
+    )
+}
+
+/// **The input-side modes are recorded and readable.**
+///
+/// Each decides what a *key* sends, so the terminal's part is to know which is
+/// live and let the embedder ask. Dropping them was the `parsed` failure:
+/// accepted, did nothing, and no way for an application to find out.
+#[test]
+fn the_input_modes_are_recorded_and_readable() {
+    // Defaults: cursor keys normal, keypad numeric.
+    let (_, ck, kp, ..) = after(b"");
+    assert!(!ck, "DECCKM is reset on a fresh terminal");
+    assert!(!kp, "the keypad starts numeric");
+
+    // DECCKM both ways.
+    assert!(after(b"\x1b[?1h").1, "?1h sets application cursor keys");
+    assert!(!after(b"\x1b[?1h\x1b[?1l").1, "?1l puts them back");
+
+    // DECKPAM / DECKPNM are escapes, not modes -- `ESC =` and `ESC >`.
+    assert!(after(b"\x1b=").2, "ESC = is DECKPAM");
+    assert!(!after(b"\x1b=\x1b>").2, "ESC > is DECKPNM");
+
+    // The three `ESC`-prefix modes.
+    assert!(after(b"\x1b[?1036h").3, "?1036 metaSendsEscape");
+    assert!(after(b"\x1b[?1039h").4, "?1039 altSendsEscape");
+    assert!(after(b"\x1b[?1034h").5, "?1034 eightBitInput");
+}
+
+/// **Several private modes in one sequence all take effect.**
+///
+/// `CSI ? 1 ; 1036 ; 1034 h` is three modes, and reading only the first is a
+/// bug this repo has already had once.
+#[test]
+fn every_parameter_of_a_private_mode_sequence_is_applied() {
+    let (_, ck, _, meta, _, eight) = after(b"\x1b[?1;1036;1034h");
+    assert!(ck && meta && eight, "all three, not just the first");
+}
