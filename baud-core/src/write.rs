@@ -945,33 +945,36 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // operations of `Paint::glyph`: box drawing, braille, Devanagari, kana,
     // narrow CJK punctuation, Greek, Cyrillic. This file already prices that
     // inversion at 266 MB/s against a wide character's 1155.
-    // **The bulk writers do not consult the cluster machine, so the run has to
-    // prove it does not need one.** `put_wide_run` and `put_narrow_run` write
-    // eight cells to a store and ask nothing about class; a run admitted on
-    // *encoded length* -- which is all `run_of` checks -- can hold a ZWJ, a
-    // regional indicator or an Extend, every one of which belongs to the cell
-    // before it rather than to one of its own.
+    // **The bulk writers ask the machine nothing, so a run may only reach one
+    // if the machine can be advanced across it without walking it.**
     //
-    // Two conditions and both are cheap. The machine must be in the one state
-    // that cannot be mid-cluster, which `ordinary_run_ready` answers as a
-    // compare against a constant; and every character must be class `Other`
-    // with no lookback, which the loop above learns from the `Classified` it
-    // already loaded for the width. A run of ordinary characters from that
-    // state leaves the machine where it found it, so the bulk write needs no
-    // advance afterwards.
+    // That is possible exactly when the run leaves the machine somewhere that
+    // does not depend on where it started, and for class `Other` with no
+    // lookback it does: an ordinary character ends any regional-indicator run,
+    // clears the `Extended_Pictographic` lookback GB11 needs and clears the
+    // Indic lookback GB9c needs. `one_ordinary_character_lands_in_one_state_
+    // from_every_state` checks that against `CLUSTER_NEXT` for all 94 reachable
+    // states rather than arguing it from the rules.
     //
-    // Anything else falls to the per-character path, where `glyph` asks once
-    // per codepoint. That is the admission test `baud-core2`'s collectors use,
-    // and this file records what relaxing it costs: -17%, because what the
-    // strict gate refuses is the *inside* of the emoji sequences rather than
-    // the Han around them.
-    #[cfg(feature = "ceiling-no-run-gate")]
-    let admit = {
-        let _ = all_ordinary;
-        true
+    // **So the gate asks about the first character, not about the state.** The
+    // first version required `ordinary_run_ready()` -- the machine already in
+    // that state -- and refused the whole run otherwise, which
+    // `ceiling-no-run-gate` then priced at **33.7% of cat-cjk**: on text that
+    // alternates scripts the machine is mid-cluster at most run boundaries, so
+    // most runs were refused and every character took the per-character path.
+    // One `is_break_classified` on a `Copy` answers instead whether the run's
+    // first character starts a cluster, and characters two onward cannot
+    // disagree -- they begin from the converged state, where an ordinary
+    // character always breaks.
+    //
+    // The `Copy` matters: the real machine must advance exactly once per
+    // character, and `set_after_ordinary` below is that advance for the whole
+    // run at once. Asking on the live machine would advance it twice for the
+    // first character.
+    let admit = all_ordinary && k > 0 && {
+        let mut probe = p.cluster;
+        probe.is_break_classified(GraphemeClass::Other, Lookback::from_bits(0))
     };
-    #[cfg(not(feature = "ceiling-no-run-gate"))]
-    let admit = all_ordinary && p.cluster.ordinary_run_ready();
     if !admit {
         for cp in cps.iter().take(k) {
             glyph(p, *cp);
@@ -985,6 +988,11 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     };
     if let Some(w) = uniform.filter(|w| k > 0 && p.fits(count, *w)) {
         p.run(&cps[..k], w);
+        // **The advance for the whole run, in one store.** Every character in
+        // it was ordinary and the first one broke, so the machine ends where
+        // one ordinary character leaves it -- which the domain test above pins
+        // as the same state from all 94.
+        p.cluster = ClusterBreak::after_ascii_run();
         return;
     }
     // Mixed widths, or the row is about to end: one at a time, which also
