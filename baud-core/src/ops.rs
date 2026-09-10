@@ -732,7 +732,7 @@ impl Paint<'_, '_> {
         match mode {
             AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
             AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
-            _ => {}
+            _ => self.unsupported_param += 1,
         }
     }
 

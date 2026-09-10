@@ -422,6 +422,17 @@ const OSC: &[u8] = b"\x1b]0;title\x07AAA\r\n\x1b]0;title\x1b\\BBB\r\n\x1b]8;;htt
 /// CAN and SUB inside a CSI, and CAN straight after a bare ESC.
 const CANCEL: &[u8] = b"\x1b[1;5\x18~ab\r\n\x1b[1;5\x1a~cd\r\n\x1b\x18~ef";
 
+/// **Malformed UTF-8, which hung `baud-core` until the conformance suite fed
+/// it a real terminfo capability.**
+///
+/// Every shape here is a lead byte whose continuations do not arrive: ASCII
+/// after a three-, two- and four-byte lead, leads back to back, a truncated
+/// emoji at end of stream, and the C1 bytes that are continuations in UTF-8
+/// and cannot begin anything. `[[source: unicode-ch3]]` 3.9.5 governs what
+/// each emits, and `baud-core2` is what says whether this core agrees.
+const BADUTF8: &[u8] =
+    b"\xe2Aab\r\n\xc2Bcd\r\n\xf0Cef\r\n\xe2\xe2\xe2gh\r\n\x80\x81\x82ij\r\n\xe2\x80Akl";
+
 /// **HT is dropped, and the tab machinery it should reach is already there.**
 ///
 /// `baud-core`'s `c0()` names `0x0a`/`0x0b`/`0x0c`, `0x0d` and `0x08`, and
@@ -793,6 +804,7 @@ fn every_fixture_renders_the_same_at_every_read_size() {
         ("charset", CHARSET),
         ("osc", OSC),
         ("cancel", CANCEL),
+        ("bad utf8", BADUTF8),
         ("alt-rot", ALT_ROT),
     ] {
         let want = new_screen(bytes, 4096);
@@ -1299,6 +1311,7 @@ fn both_cores_put_the_cursor_in_the_same_place() {
         ("charset", CHARSET),
         ("osc", OSC),
         ("cancel", CANCEL),
+        ("bad utf8", BADUTF8),
         ("alt-rot", ALT_ROT),
         // The margin, both ways: a line that stops exactly on it and one that
         // runs past. The first leaves pending wrap set, the second clears it.
@@ -1715,4 +1728,32 @@ fn new_mouse(
         t.highlight_tracking(),
         t.highlight_region(),
     )
+}
+
+/// **A lead byte with no continuation hung the loop, and this is the oracle
+/// for what it should have drawn instead.**
+///
+/// `run_of` counts whole characters, so `E2 41` counts **zero** -- and `chars`
+/// consumed `3 * 0` while `step` had already moved the node to `Ground`. The
+/// same byte was then looked up again, answered `Char3` again, and scanned to
+/// zero again, with nothing in the loop bounding it. A pty delivers whatever
+/// the far end sends, so this is a hang on hostile input rather than on a
+/// corner case, and it was found by `ansi`'s `acsc` capability -- a hundred
+/// bytes of raw high bytes, which is what an alternate-character-set map is.
+///
+/// The fix emits the **maximal subpart** and re-dispatches the rest, and
+/// asserting that against `baud-core2` rather than against my reading of
+/// 3.9.5 is the whole point of keeping an oracle.
+#[test]
+fn malformed_utf8_renders_the_way_core2_renders_it() {
+    let bytes = BADUTF8;
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert!(
+        d.is_empty(),
+        "{} cells differ on malformed UTF-8.\n  core2: {:?}\n  new  : {:?}",
+        d.len(),
+        x,
+        y,
+    );
 }

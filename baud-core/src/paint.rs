@@ -107,6 +107,22 @@ pub(crate) struct Paint<'a, 'b> {
     /// so recording an unlisted final as a set would make it look designated.
     /// `Charset::Other` is what the slot holds, and this is how often.
     pub(crate) charset_unsupported: usize,
+    /// Control sequences recognised by the grammar and not acted on.
+    ///
+    /// **Always on, where the per-final histogram is behind `diag`.** The
+    /// conformance suites ask one question per terminfo capability -- "was
+    /// anything left unsupported after this?" -- and a counter that only
+    /// exists in a diagnostic build cannot answer it in a normal test run.
+    /// Incremented in an arm that is already `#[cold]`, so the ingest path
+    /// pays nothing.
+    pub(crate) unsupported_total: usize,
+    /// Mode parameters this core does not recognise, and `U+FFFD`s written for
+    /// bytes that could not be decoded. **Counted rather than silent** for the
+    /// reason every counter here is: an embedder cannot tell a mode that did
+    /// nothing from one that was never sent, and a replacement is the parser
+    /// saying it lost data.
+    pub(crate) unsupported_param: usize,
+    pub(crate) replacements: usize,
     pub(crate) string_truncations: usize,
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
@@ -268,6 +284,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             vt52_unsupported: 0,
             bells: 0,
             charset_unsupported: 0,
+            unsupported_total: 0,
+            unsupported_param: 0,
+            replacements: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
@@ -491,6 +510,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One glyph under the cursor, wrapping first if it will not fit.
     #[inline(always)]
     pub(crate) fn glyph(&mut self, cp: Codepoint, w: Width) {
+        if cp == Codepoint::REPLACEMENT {
+            self.replacements += 1;
+        }
         // **A zero-width codepoint gets no cell, and that needs no cluster
         // machine.** A combining mark, a ZWJ or a variation selector took a
         // full cell here and advanced the cursor a column, so everything after

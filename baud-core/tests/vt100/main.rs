@@ -28,26 +28,20 @@ mod tabs;
 /// that is the probe-that-cannot-fire this repo records seven times -- an
 /// ignore nobody counts is a test nobody runs -- so the list is asserted.
 ///
-/// A fourth ignore fails this. Fixing one of the three fails it too, which is
+/// A third ignore fails this. Fixing one of the two fails it too, which is
 /// the point: the pin has to move when the gap does, in either direction.
 /// Same instrument as `the_glyph_gap_is_pinned`, which pins non-zero gaps at
 /// what they *are* rather than asserting zero.
 ///
 /// What each one is:
 ///
-/// * **The successor byte after a malformed sequence.** `ESC ( 0` then
-///   `C2 71 71`: `71` cannot continue the two-byte sequence `C2` opened, so
-///   `[[source: unicode-ch3]]` § 3.9.5 requires a replacement **and** the `71`
-///   re-dispatched -- "must not consume the successor bytes". `Act::Char2`
-///   takes both bytes on the strength of the lead alone, so the first `q` is
-///   eaten. A real conformance bug, in the hot decode path.
 /// * **DECAWM off leaves the cursor one past the last column**, where it
 ///   should stay on it. `ICH` then acts off the row.
 /// * **`?45` reverse wraparound is not recorded**, so `DECRQM` answers `0`.
 ///   Recording it without acting on it would be the worse half, so this is a
 ///   feature rather than an accessor.
 #[test]
-fn the_known_vt100_gaps_are_these_three() {
+fn the_known_vt100_gaps_are_these_two() {
     let mut ignored = Vec::new();
     for f in [
         "c0.rs",
@@ -81,7 +75,6 @@ fn the_known_vt100_gaps_are_these_three() {
     assert_eq!(
         ignored,
         [
-            "ascii_recovered_after_a_bad_sequence_is_still_translated",
             "autowrap_off_leaves_the_cursor_on_the_last_column",
             "decrqm_reports_each_mode",
         ],

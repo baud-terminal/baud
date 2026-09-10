@@ -96,7 +96,6 @@ fn surrogates_and_out_of_range_are_not_characters() {
 /// machine — so the `A` fell through to "stray continuation byte or 0x7f: not
 /// text" and produced a second replacement.
 #[test]
-#[ignore = "baud-core consumes the successor byte after a malformed sequence -- see the_known_encoding_gaps"]
 fn a_truncated_lead_does_not_consume_a_valid_successor() {
     assert_eq!(
         decode(&[0xc2, 0x41, 0x42]),
@@ -107,7 +106,6 @@ fn a_truncated_lead_does_not_consume_a_valid_successor() {
 
 /// Recovery already worked for these, and must keep working.
 #[test]
-#[ignore = "baud-core consumes the successor byte after a malformed sequence -- see the_known_encoding_gaps"]
 fn recovery_resynchronises_on_other_byte_classes() {
     assert_eq!(
         decode(&[0xc2, 0xe4, 0xb8, 0xad]),
@@ -178,7 +176,6 @@ fn both_charset_selectors_are_honoured() {
 /// ops to a program was invisible, and against a program ending mid-sequence
 /// it is not.
 #[test]
-#[ignore = "baud-core consumes the successor byte after a malformed sequence -- see the_known_encoding_gaps"]
 fn an_incomplete_sequence_at_the_end_renders_nothing_until_flushed() {
     assert!(
         decode(&[0xe2, 0x86]).is_empty(),
@@ -195,4 +192,57 @@ fn an_incomplete_sequence_at_the_end_renders_nothing_until_flushed() {
         "a byte that cannot continue it flushes exactly one FFFD, and the \
          escape is applied rather than printed"
     );
+}
+
+/// **A three-byte lead followed by a byte that cannot continue it hung the
+/// parser**, and `ansi`'s `acsc` capability is a hundred bytes of exactly that.
+///
+/// `run_of` counts whole characters, so `E2 41` counts zero and `chars`
+/// consumed `3 * 0`. `step` had already moved the node to `Ground`, so the same
+/// byte was looked up again, answered `Char3` again, and scanned to zero again.
+/// Nothing in the loop bounded it: a pty can deliver any bytes at all, so this
+/// is a hang on hostile input rather than on a corner case.
+///
+/// `[[source: unicode-ch3]]` 3.9.5 fixes what to emit -- the **maximal
+/// subpart** is `E2` alone, because `41` cannot continue it -- so one `U+FFFD`
+/// and the `A` is re-dispatched and rendered.
+#[test]
+fn a_lead_whose_continuation_is_malformed_does_not_hang() {
+    for bad in [
+        b"\xe2A".as_slice(),        // three-byte lead, ASCII after it
+        b"\xe2\x80A".as_slice(),    // two of three, then ASCII
+        b"\xc2A".as_slice(),        // two-byte lead
+        b"\xf0A".as_slice(),        // four-byte lead
+        b"\xe2\xe2\xe2".as_slice(), // leads all the way down
+        b"\xf0\x9f\x98".as_slice(), // a truncated emoji at end of stream
+    ] {
+        support::with_corpus(|t| {
+            support::feed(t, bad);
+            // Reaching here at all is the assertion: the loop terminated.
+            // What it drew is pinned by the row for the two that render.
+            let (cols, _) = t.geometry();
+            assert!(
+                t.cursor().1.index() <= cols.index(),
+                "cursor stayed in range"
+            );
+        });
+    }
+
+    // The maximal subpart is one unit, so the `A` survives.
+    support::with_corpus(|t| {
+        support::feed(t, b"\xe2A");
+        let w = t.stride().index();
+        let vp = t.viewport();
+        assert_eq!(
+            vp[0].content.as_codepoint().map(|c| c.value()),
+            Some(0xfffd),
+            "the lead becomes one replacement"
+        );
+        assert_eq!(
+            vp[1].content.as_codepoint().map(|c| c.value()),
+            Some(u32::from(b'A')),
+            "and the byte that could not continue it is re-dispatched"
+        );
+        let _ = w;
+    });
 }

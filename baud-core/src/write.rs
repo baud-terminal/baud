@@ -661,6 +661,26 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     // `stride_three` takes two of them.
     #[cfg(feature = "probe-double-scan")]
     core::hint::black_box(run_of(p, from, left, len));
+    // **A lead byte whose continuations are malformed, which used to hang.**
+    // `run_of` counts whole characters, so `E2 41` -- a three-byte lead
+    // followed by an `A` -- counts **zero**, and `len * 0` is zero. `step` has
+    // already moved the node to `Ground`, so the same byte was looked up
+    // again, answered `Char3` again, and scanned to zero again: an unbounded
+    // loop on input a terminal must survive, since anything can arrive on a
+    // pty. `ansi`'s `acsc` capability is a hundred raw high bytes and it hung
+    // the conformance suite for as long as it was given.
+    //
+    // `[[source: unicode-ch3]]` 3.9.5 says what to emit: the **maximal
+    // subpart** of the ill-formed sequence is one unit here, because `41`
+    // cannot continue `E2`. So one `U+FFFD` for the lead and the byte after it
+    // is re-dispatched -- which is `Act::Bad`'s behaviour, reached by a
+    // different route.
+    if k.index() == 0 {
+        let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
+        let n = maximal_subpart(s, len);
+        p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
+        return n;
+    }
     match k.index() {
         1 => put_one(p, from, len),
         _ => put_run(p, from, len, k, left),
@@ -697,6 +717,43 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
 ///
 /// **Never zero**: the graph only names a character action for a byte that
 /// leads one, and the split test has already established its bytes are here.
+/// Are the `len - 1` bytes after the lead all continuations?
+///
+/// The graph answers "how long does this lead **claim** to be"; only the bytes
+/// after it say whether the claim holds. Splitting the two is what `Act::Bad`
+/// already does for a byte that can begin nothing, and this is the same
+/// question one byte later.
+#[inline(always)]
+fn well_formed(s: &[StreamByte], len: ByteLen) -> bool {
+    if s.len() < len.index() {
+        return false;
+    }
+    let mut i = 1;
+    while i < len.index() {
+        if lead_width(s[i]) != 0 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// How many bytes the ill-formed sequence at `s` occupies.
+///
+/// `[[source: unicode-ch3]]` 3.9.5: one `U+FFFD` per **maximal subpart**,
+/// which is the lead plus every continuation that really follows it. `E2 41`
+/// is one byte and `E2 80 41` is two, so the `A` is re-dispatched in both --
+/// against `E2 80` being silently eaten, which is the shape that loses data
+/// rather than the shape that renders it oddly.
+#[inline(always)]
+fn maximal_subpart(s: &[StreamByte], len: ByteLen) -> ReadLen {
+    let mut n = 1;
+    while n < len.index() && n < s.len() && lead_width(s[n]) == 0 {
+        n += 1;
+    }
+    ReadLen::from_index(n)
+}
+
 #[inline(always)]
 fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
     let (left, len) = (left.index(), len.index());
@@ -705,6 +762,16 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
     // without a load.** Ungated, most of what a vector scan does is discover a
     // run of one; the gate was worth 6.7% when it was written for stride three
     // and it generalises to any stride unchanged.
+    // **The first character has to be well-formed, and this assumed it was.**
+    // The table names `Char3` from the *lead byte alone* -- it cannot see the
+    // continuations, which is the whole reason a scan exists -- so answering
+    // `1` here handed `put_one` an ill-formed sequence and consumed all three
+    // bytes of it. `E2 41 61` swallowed the `A` and the `a`, which is exactly
+    // what `[[source: unicode-ch3]]` 3.9.5 forbids: "must not consume the
+    // successor bytes".
+    if !well_formed(s, ByteLen::from_index(len)) {
+        return Count::ZERO;
+    }
     if left < 2 * len || lead_width(s[len]) != len {
         return Count::of(1);
     }
@@ -1365,6 +1432,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // do and which has closed four others.
         DomCsi::RequestVersion => p.want_reply(Report::Version),
         DomCsi::Unsupported { .. } => {
+            p.unsupported_total += 1;
             #[cfg(feature = "diag")]
             {
                 p.unsupported[f.slot()] += 1;

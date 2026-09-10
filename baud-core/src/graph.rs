@@ -1391,4 +1391,62 @@ mod classes {
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
     const CLASSES: usize = 30;
+    /// **The loop always advances**, and it is a table property rather than a
+    /// hope.
+    ///
+    /// `feed` is `while done < n { done += step(..) }`, so a step that consumes
+    /// nothing must at least *move*, to a node where the same byte does consume.
+    /// `Act::Resync` is the one zero-width action -- it makes a partial
+    /// character a replacement and re-dispatches the byte, which
+    /// `[[source: unicode-ch3]]` 3.9.5 requires -- and its whole safety
+    /// argument is that the node it lands in cannot produce it again.
+    ///
+    /// That argument was a comment. `acsc` in the `ansi` terminfo entry is a
+    /// hundred bytes of raw high bytes and it hung the parser, so the comment
+    /// was wrong somewhere; this walks every node against every byte under both
+    /// encodings and says where.
+    /// What `write::act` consumes, which is **not** `Act::width()`.
+    ///
+    /// `width` is the byte length of the *character* an act writes; two acts
+    /// consume nothing at all and re-dispatch the byte. A first version of the
+    /// gate below asked `width` and passed against a live hang -- the
+    /// probe-that-cannot-fire shape this file records eight times, and the
+    /// eighth was mine.
+    fn consumed(a: Act) -> ByteLen {
+        match a {
+            Act::Resync | Act::Again => ByteLen::ZERO,
+            _ => a.width(),
+        }
+    }
+
+    #[test]
+    fn every_step_of_the_loop_advances() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in Node::FROM_INDEX {
+                for i in 0..256usize {
+                    let byte = StreamByte::ALL[i];
+                    // Follow the zero-consuming edges. Each one must reach a
+                    // node that consumes, in fewer hops than there are nodes --
+                    // anything longer is a cycle by the pigeonhole principle.
+                    let mut at = node;
+                    let mut path = [node; NNODE];
+                    let mut hops = 0usize;
+                    loop {
+                        let e = Edge::of(enc, at, byte);
+                        if consumed(e.act).index() > 0 {
+                            break;
+                        }
+                        assert!(
+                            hops < NNODE,
+                            "{enc:?} byte {i:#04x} cycles without consuming: \
+                             {path:?} -- the loop cannot advance"
+                        );
+                        path[hops] = e.next;
+                        hops += 1;
+                        at = e.next;
+                    }
+                }
+            }
+        }
+    }
 }

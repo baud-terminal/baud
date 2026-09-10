@@ -599,7 +599,6 @@ fn nrcs_tables_match_the_pinned_source() {
 /// successor byte "must not be consumed", so it is re-dispatched one at a time
 /// -- and with DEC Special Graphics in force it was written untranslated.
 #[test]
-#[ignore = "baud-core swallows the successor byte after a malformed UTF-8 sequence -- see the_known_vt100_gaps_are_these_three"]
 fn ascii_recovered_after_a_bad_sequence_is_still_translated() {
     // `ESC ( 0` designates DEC graphics; `C2` opens a two-byte sequence that
     // `71` cannot continue, so the `q` is re-dispatched from ground.

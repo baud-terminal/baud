@@ -305,6 +305,10 @@ pub struct Term<'b> {
     /// than recorded**: a name means the designation was understood, so
     /// storing an unlisted final as a set would make it look designated.
     pub charset_unsupported: usize,
+    /// Control sequences recognised and not acted on. See `Paint`.
+    pub unsupported: usize,
+    pub unsupported_param: usize,
+    pub replacements: usize,
     pub string_truncations: usize,
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
@@ -555,6 +559,9 @@ impl<'b> Term<'b> {
             vt52_unsupported: 0,
             bells: 0,
             charset_unsupported: 0,
+            unsupported: 0,
+            unsupported_param: 0,
+            replacements: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
@@ -610,6 +617,31 @@ impl<'b> Term<'b> {
     /// The live geometry, which a resize can change.
     pub fn geometry(&self) -> (Cols, Rows) {
         (self.cols, self.rows)
+    }
+
+    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
+    ///
+    /// **This core never changes it**, which is the gap
+    /// `the_known_encoding_gaps` pins: the selectors are not routed, so the
+    /// answer is always UTF-8. The accessor is real and the switch is not.
+    pub fn input_encoding(&self) -> InputEncoding {
+        self.encoding
+    }
+
+    /// How wide a `CSI` this core writes. Always seven-bit: it implements
+    /// neither `S7C1T` nor `S8C1T`, so it has never been told to move to the
+    /// eight-bit C1 forms.
+    pub fn c1_transmit(&self) -> C1Transmit {
+        C1Transmit::SevenBit
+    }
+
+    /// What a G-slot holds, as distinct from which slot is invoked.
+    ///
+    /// `ESC ) 0` loads G1 and `SO` selects it; [`Term::charset`] answers the
+    /// second question and this one answers the first, which is what a
+    /// conformance check on designation has to ask.
+    pub fn charset_in(&self, slot: GSlot) -> Charset {
+        self.cold.g[slot.index()]
     }
 
     /// The character set in force -- the resolved one, `g[gl]`.
