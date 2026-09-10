@@ -872,6 +872,26 @@ fn both_cores_agree_about_what_a_control_string_did() {
         ("cancel mid-body", b"\x1b]0;ti\x18tle\x07"),
         ("cancel then a real one", b"\x1b]0;bad\x18\x1b]0;good\x07"),
         ("sub mid-body", b"\x1b]0;ti\x1atle\x07"),
+        // **A C0 that is neither a terminator nor a cancel.**
+        // `[[source: williams]]` makes only `20-7F` `osc_put`; `01-17`, `19`
+        // and `1C-1F` take the *ignore* action, so the byte is dropped and the
+        // string continues. An OSC payload is attacker-supplied, so a raw
+        // control byte landing in a title is in the threat model rather than
+        // only in the conformance table.
+        ("c0 in body", b"\x1b]0;ti\x01tle\x07"),
+        ("c0 low", b"\x1b]2;a\x02b\x07"),
+        ("c0 high", b"\x1b]2;a\x1fb\x07"),
+        ("nul in body", b"\x1b]2;a\0b\x07"),
+        ("c0 in a uri", b"\x1b]8;;http://a\x01b\x1b\\Z\x1b]8;;\x1b\\"),
+        // A title is bytes, not ASCII: every byte at or above 0x20 is
+        // payload, the continuation bytes of a multi-byte character
+        // included. `DEL` is payload too -- williams puts `7F` inside
+        // `osc_put`'s range, not in the ignored set.
+        (
+            "utf8 title",
+            "\x1b]2;\u{6f22}\u{5b57} caf\u{e9} \u{1f680}\x07".as_bytes(),
+        ),
+        ("del in body", b"\x1b]2;a\x7fb\x07"),
         // A body past `OSC_MAX`, which both cores clip rather than grow.
         ("overlong", &LONG_OSC),
     ];

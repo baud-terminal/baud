@@ -81,16 +81,17 @@ impl Paint<'_, '_> {
         // Split the borrow: `Osc::parse` holds the payload while the setters
         // want the other buffers. Every arm resolves to owned values first.
         match Osc::parse(&self.strs.pending[..n]) {
-            Osc::SetTitle(t) => {
-                let t = clip(t);
-                self.title_len = copy_bounded(self.strs.title, t);
-            }
-            Osc::SetIcon(t) => {
-                let t = clip(t);
-                self.icon_len = copy_bounded(self.strs.icon, t);
-            }
+            // **No trailing-NUL trim, because a NUL cannot get here.**
+            // `baud-core2` carries a `clip` helper for emitters that put a NUL
+            // before the real terminator, and this core had one too until the
+            // parser started ignoring C0 in the payload: `graph::string` drops
+            // `00-06` outright, so there is no trailing NUL left to trim.
+            // Neutering the helper changed no row of the differential, which
+            // is a function that cannot fire -- the shape this repo has now
+            // recorded seven times.
+            Osc::SetTitle(t) => self.title_len = copy_bounded(self.strs.title, t),
+            Osc::SetIcon(t) => self.icon_len = copy_bounded(self.strs.icon, t),
             Osc::SetIconAndTitle(t) => {
-                let t = clip(t);
                 self.title_len = copy_bounded(self.strs.title, t);
                 self.icon_len = copy_bounded(self.strs.icon, t);
             }
@@ -159,17 +160,6 @@ impl Paint<'_, '_> {
             b,
             term,
         });
-    }
-}
-
-/// Trim a trailing NUL from a payload.
-///
-/// Some emitters put one before the real terminator. Keeping it would leave a
-/// stray byte at the end of every title they set.
-fn clip(s: &[u8]) -> &[u8] {
-    match s.last() {
-        Some(0) => &s[..s.len() - 1],
-        _ => s,
     }
 }
 

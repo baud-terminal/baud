@@ -722,6 +722,20 @@ const fn string(b: StreamByte) -> Edge {
         // `ST` would drop nearly every title it was sent.
         0x07 => edge(Act::StrEnd, Node::Ground),
         0x1b => edge(Act::Consume, Node::StrEsc),
+        // **A C0 in the payload is ignored, not stored.**
+        // `[[source: williams]]`'s `osc_string` makes only `20-7F` `osc_put`;
+        // `00-06`, `08-17`, `19` and `1C-1F` take the *ignore* action, so the
+        // byte is dropped and the string continues rather than ending or
+        // being recorded. `18` and `1A` are absent here because the `anywhere`
+        // rule takes them first -- they cancel.
+        //
+        // An OSC payload is **attacker-supplied**, so a raw control byte
+        // landing in a window title is in the threat model rather than only in
+        // the conformance table. This core stored them until
+        // `both_cores_agree_about_what_a_control_string_did` grew a row for it:
+        // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
+        // `baud-core2` set it to `title`.
+        0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, Node::Str),
         _ => edge(Act::StrPut, Node::Str),
     }
 }
@@ -934,6 +948,7 @@ mod classes {
         // | `CAN`/`SUB` -- the `anywhere` edge | 24/477/8,352/137,338 | +11.5% |
         // | `Act::ShiftOut`/`ShiftIn` -- SO and SI | 26/571/11,294/211,410 | **+54%** |
         // | `StrStart`/`StrPut`/`StrEnd` -- OSC | 26/574/11,478/217,172 | +2.7% |
+        // | C0 in a payload ignored, not stored | 26/574/11,455/216,403 | **-0.4%** |
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
@@ -950,6 +965,14 @@ mod classes {
         // new -- which is why 26 holds and the wider strides grow by 2.7%
         // rather than by the 54% two genuinely new splits cost.
         //
+        // **And the row after it is the first one that goes down.** Ignoring
+        // C0 inside a payload adds a rule and *removes* 769 stride-4 classes,
+        // because those bytes used to be `StrPut` -- indistinguishable from
+        // the printable payload around them -- and are now `Consume` back into
+        // `Str`, which is what an unrouted byte already does in three other
+        // nodes. Telling two bytes apart can make the alphabet smaller when
+        // the class it moves them into already exists.
+        //
         // Which is the argument for this representation stated as arithmetic.
         // Telling bytes apart in a *table* costs entries; telling them apart
         // in the `match` costs the per-byte loop. The first is a number you
@@ -962,8 +985,8 @@ mod classes {
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 574, "stride 2");
-        assert_eq!(three.len(), 11_478, "stride 3");
-        assert_eq!(four.len(), 217_172, "stride 4");
+        assert_eq!(three.len(), 11_455, "stride 3");
+        assert_eq!(four.len(), 216_403, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
