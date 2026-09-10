@@ -14,7 +14,7 @@
 
 use crate::paint::Paint;
 use crate::storage::NSTYLE;
-use crate::term::Saved;
+use crate::term::{Saved, Screen};
 use baud_domain::*;
 
 impl Paint<'_, '_> {
@@ -79,7 +79,7 @@ impl Paint<'_, '_> {
             .apply(ModeBit::Origin, s.origin == ModeChange::Set);
     }
 
-    fn blank(&self) -> PackedCell {
+    pub(crate) fn blank(&self) -> PackedCell {
         PackedCell::empty_with(self.style)
     }
 
@@ -564,6 +564,39 @@ impl Paint<'_, '_> {
                 self.goto(r, Col::ZERO);
             }
             PrivateMode::AutoWrap => self.cold.modes.apply(ModeBit::AutoWrap, on),
+            // **`?3` DECCOLM is not just a bit.** `[[source: ctlseqs]]` has it
+            // reset the scrolling region, home the cursor and **clear the
+            // screen**, either way -- an application uses it to get a known
+            // state, so a core that recorded the width and left the grid alone
+            // would leave the previous screen under the new geometry. The
+            // *width* itself is the embedder's: this core does not resize
+            // itself, because the window belongs to whoever owns it.
+            PrivateMode::Column132 => {
+                self.cold.modes.apply(ModeBit::Column132, on);
+                self.cold.top = Row::ZERO;
+                self.cold.bot = Row::from_index(self.rows.index() - 1);
+                self.cy = Row::ZERO;
+                self.cx = Col::ZERO;
+                self.clear_screen();
+            }
+            // **`?4` and `?8` are recorded and exposed, which is what acting
+            // on them means here.** Smooth scroll is renderer policy and
+            // auto-repeat is keyboard policy; this core has neither, and an
+            // embedder cannot implement either without being told. Dropping
+            // them is the "set and never read" failure in reverse -- a mode
+            // parsed and discarded, which `docs/vt-coverage.md` rates worse
+            // than not implementing it.
+            // **`?12` changes whether the cursor blinks, not what shape it
+            // is.** Blink is a property of the shape here -- `BlinkingBar` and
+            // `SteadyBar` are one cursor in two states -- so it folds into the
+            // style rather than setting a bit beside it, and `DECSCUSR`'s
+            // shape survives the toggle. A separate bit would let the two
+            // disagree about the same cursor.
+            PrivateMode::CursorBlink => {
+                self.cold.cursor_style = self.cold.cursor_style.with_blink(on);
+            }
+            PrivateMode::SmoothScroll => self.cold.modes.apply(ModeBit::SmoothScroll, on),
+            PrivateMode::AutoRepeat => self.cold.modes.apply(ModeBit::AutoRepeat, on),
             // **The input-side modes.** Each decides what a *key* sends, so
             // "acting on it" is exposing it -- the same argument
             // `ModeBit::BracketedPaste` already makes: an embedder cannot
@@ -753,5 +786,100 @@ impl Paint<'_, '_> {
         self.invoke();
         self.refresh_flags();
         self.goto(Row::ZERO, Col::ZERO);
+    }
+}
+
+/// [`ModeState`] for one bit, so `mode_state` reads as a table rather than as
+/// a chain of ifs.
+fn bit_state(m: Modes, b: ModeBit) -> ModeState {
+    match m.is_set(b) {
+        true => ModeState::Set,
+        false => ModeState::Reset,
+    }
+}
+
+fn tracking_state(cur: MouseTracking, level: MouseTracking) -> ModeState {
+    match cur == level {
+        true => ModeState::Set,
+        false => ModeState::Reset,
+    }
+}
+
+impl Paint<'_, '_> {
+    /// `DECRQM`: what state is this mode in?
+    ///
+    /// **`NotRecognized` is the answer for anything this core does not
+    /// record**, and that is the whole discipline. Answering `Reset` for a
+    /// mode that does not exist tells an application the mode is available; it
+    /// then sets the mode and believes it took effect. `docs/vt-coverage.md`
+    /// refuses that outright, and the arms below are exactly the modes
+    /// `set_private_mode` and `apply_ansi_mode` actually store -- so the
+    /// answer cannot drift from the behaviour without one of them failing.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn mode_state(&self, marker: Marker, mode: Param) -> ModeState {
+        if marker != Marker::Private {
+            return match AnsiMode::from_wire(Some(mode)) {
+                AnsiMode::LineFeedNewLine => bit_state(self.cold.modes, ModeBit::LineFeedNewLine),
+                AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
+                _ => ModeState::NotRecognized,
+            };
+        }
+        match PrivateMode::from_wire(Some(mode)) {
+            PrivateMode::Origin => bit_state(self.cold.modes, ModeBit::Origin),
+            PrivateMode::AutoWrap => bit_state(self.cold.modes, ModeBit::AutoWrap),
+            PrivateMode::CursorKeys => bit_state(self.cold.modes, ModeBit::CursorKeys),
+            PrivateMode::SmoothScroll => bit_state(self.cold.modes, ModeBit::SmoothScroll),
+            PrivateMode::ReverseVideo => bit_state(self.cold.modes, ModeBit::ReverseVideo),
+            PrivateMode::AutoRepeat => bit_state(self.cold.modes, ModeBit::AutoRepeat),
+            PrivateMode::MetaSendsEscape => bit_state(self.cold.modes, ModeBit::MetaSendsEscape),
+            PrivateMode::AltSendsEscape => bit_state(self.cold.modes, ModeBit::AltSendsEscape),
+            PrivateMode::EightBitInput => bit_state(self.cold.modes, ModeBit::EightBitInput),
+            PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
+            PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),
+            // Not a `Modes` bit -- the cursor shape is a value, and whether it
+            // blinks is a property of the shape rather than a mode of its own.
+            PrivateMode::CursorBlink => match self.cold.cursor_style.blinks() {
+                true => ModeState::Set,
+                false => ModeState::Reset,
+            },
+            PrivateMode::AnsiMode => match self.cold.terminal {
+                TerminalMode::Ansi => ModeState::Set,
+                TerminalMode::Vt52 => ModeState::Reset,
+            },
+            PrivateMode::HighlightTracking => match self.cold.highlight {
+                HighlightTracking::On => ModeState::Set,
+                HighlightTracking::Off => ModeState::Reset,
+            },
+            PrivateMode::MouseNormal => tracking_state(self.cold.mouse, MouseTracking::Normal),
+            PrivateMode::MouseButtonEvent => {
+                tracking_state(self.cold.mouse, MouseTracking::ButtonEvent)
+            }
+            PrivateMode::MouseAnyEvent => tracking_state(self.cold.mouse, MouseTracking::AnyEvent),
+            PrivateMode::MouseSgr => match self.cold.mouse_encoding {
+                MouseEncoding::Sgr => ModeState::Set,
+                MouseEncoding::X10 => ModeState::Reset,
+            },
+            // The alternate screen is a whole buffer rather than a flag, and it
+            // is implemented, so `DECRQM` must not deny it.
+            PrivateMode::AltScreen => match self.cold.screen {
+                Screen::Alternate => ModeState::Set,
+                Screen::Normal => ModeState::Reset,
+            },
+            // **`?1020` is not answered here and that is deliberate.** It
+            // mirrors the live input encoding, which lives on `Term` rather
+            // than on `Paint` -- the per-byte loop carries the encoding as a
+            // local and never reads it back. Threading a field through `Paint`
+            // to answer one query is the trade this file prices at 5-10%, so
+            // the honest answer is `NotRecognized` rather than a value read
+            // from the wrong place. `baud-core2` answers it; the difference is
+            // recorded rather than papered over.
+            //
+            // `?2027`: this core clusters per `[[source: uax29]]` and has no
+            // mode that stops it, so `1` would invite an application to try
+            // turning it off. `3` is the value DECRPM has for exactly this.
+            PrivateMode::GraphemeClustering => ModeState::PermanentlySet,
+            _ => ModeState::NotRecognized,
+        }
     }
 }

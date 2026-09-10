@@ -122,6 +122,11 @@ pub struct Cold {
     /// only ever consulted when something asks which one is live.
     pub(crate) terminal: TerminalMode,
     pub(crate) vt52_row: Vt52Coord,
+    /// `DECSCUSR`. Which cursor a renderer should draw, and whether it
+    /// blinks. Recorded and exposed for the reason every renderer-side mode
+    /// here is: an embedder cannot honour it without being told, and a shape
+    /// parsed and dropped is worse than one not implemented.
+    pub(crate) cursor_style: CursorStyle,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -148,6 +153,7 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            cursor_style: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
@@ -275,6 +281,19 @@ pub struct Term<'b> {
     /// Being unable to tell that one arrived is a different thing, and is what
     /// these turn from a bare `=> {}` into a number.
     pub vt52_unsupported: usize,
+    /// How many `BEL`s arrived.
+    ///
+    /// A count rather than a callback, because the core cannot make a sound
+    /// and an embedder can -- and a **field** rather than an accessor, which
+    /// is the convention its neighbours already set: `reply_overflows` and
+    /// `string_truncations` are read the same way. The audit is what settled
+    /// it, refusing a `-> usize` return where a public field is not a
+    /// signature at all.
+    pub bells: usize,
+    /// Character-set designations this core does not name. **Counted rather
+    /// than recorded**: a name means the designation was understood, so
+    /// storing an unlisted final as a set would make it look designated.
+    pub charset_unsupported: usize,
     pub string_truncations: usize,
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
@@ -523,6 +542,8 @@ impl<'b> Term<'b> {
             icon_len: ByteLen::ZERO,
             link: LinkId::NONE,
             vt52_unsupported: 0,
+            bells: 0,
+            charset_unsupported: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
@@ -535,6 +556,67 @@ impl<'b> Term<'b> {
             #[cfg(all(feature = "diag", feature = "sgr-table"))]
             sgr_hit: 0,
         }
+    }
+
+    /// One row of the grid, resolved through the rotation.
+    ///
+    /// **Takes `&self` where `viewport` takes `&mut self`.** `viewport`
+    /// un-rotates the whole grid in place so a renderer gets one contiguous
+    /// slice; a single row is already contiguous wherever it sits, so `phys`
+    /// answers it with arithmetic and nothing moves.
+    pub fn row(&self, y: Row) -> &[PackedCell] {
+        View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot).row_slice(y)
+    }
+
+    /// The live geometry, which a resize can change.
+    pub fn geometry(&self) -> (Cols, Rows) {
+        (self.cols, self.rows)
+    }
+
+    /// The character set in force -- the resolved one, `g[gl]`.
+    ///
+    /// Designation and invocation are different things: `ESC ) 0` loads G1 and
+    /// `SO` selects it. This is what the write path reads, which is neither
+    /// slot nor shift but their resolution.
+    pub fn charset(&self) -> Charset {
+        self.charset
+    }
+
+    /// `DECSCUSR`. The cursor shape an application asked for.
+    pub fn cursor_style(&self) -> CursorStyle {
+        self.cold.cursor_style
+    }
+
+    /// `?25` DECTCEM. Whether the cursor should be drawn.
+    pub fn cursor_visible(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::CursorVisible)
+    }
+
+    /// `?4` DECSCLM. Smooth scroll -- renderer policy, recorded and exposed.
+    pub fn smooth_scroll(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::SmoothScroll)
+    }
+
+    /// `?8` DECARM. Auto-repeat -- keyboard policy, recorded and exposed.
+    pub fn auto_repeat(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::AutoRepeat)
+    }
+
+    /// `?3` DECCOLM. Whether the application asked for 132 columns.
+    ///
+    /// **The width is not changed here.** This core's geometry is the
+    /// embedder's -- it comes from a `WinSize` and moves through
+    /// [`Term::resize`] -- so DECCOLM records the request and performs the
+    /// side effects the specification attaches to it: the region resets, the
+    /// cursor homes and the screen clears.
+    pub fn column_mode(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::Column132)
+    }
+
+    /// `?5` DECSCNM, reverse video. Recorded and exposed, not drawn: which
+    /// pixels invert is the renderer's.
+    pub fn reverse_video(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::ReverseVideo)
     }
 
     /// Bytes ingested and cells written, for the amplification ratio rule #1

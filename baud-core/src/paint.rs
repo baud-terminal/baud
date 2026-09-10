@@ -99,6 +99,14 @@ pub(crate) struct Paint<'a, 'b> {
     /// **Counted rather than silent**, because `unsupported` is indexed by
     /// `FinalByte::slot()` and a VT52 command byte is not a `FinalByte`.
     pub(crate) vt52_unsupported: usize,
+    pub(crate) bells: usize,
+    /// Character-set designations this core does not name.
+    ///
+    /// **Counted rather than recorded**, which is the distinction the eleven
+    /// named sets exist to make: a name means the designation was understood,
+    /// so recording an unlisted final as a set would make it look designated.
+    /// `Charset::Other` is what the slot holds, and this is how often.
+    pub(crate) charset_unsupported: usize,
     pub(crate) string_truncations: usize,
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
@@ -258,6 +266,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             icon_len,
             link,
             vt52_unsupported: 0,
+            bells: 0,
+            charset_unsupported: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
@@ -335,6 +345,35 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// IRM: open a gap of `n` cells at the cursor before writing into it.
+    ///
+    /// **`CSI 4 h` was recorded and never read.** `apply_ansi_mode` stored
+    /// `ModeBit::InsertReplace` and nothing in the write path consulted it, so
+    /// insert mode overwrote the tail of the line exactly as replace mode
+    /// does -- the "a bit that is set and never read is the same failure as a
+    /// sequence parsed and dropped" rule, and five ported tests found it.
+    ///
+    /// The shift is `insert_cells`, which `ICH` already uses, so there is one
+    /// spelling of "move the tail right and blank what it left". Called **once
+    /// per run** rather than once per cell, which is where the mode read
+    /// belongs: this file prices a runtime flag inside a per-cell loop at 5%,
+    /// and a run-level branch at nothing.
+    #[cold]
+    #[inline(never)]
+    fn open_gap(&mut self, n: Count) {
+        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let to = Col::at_index(self.cols.index());
+        self.view.insert_cells(r, at, n, to, b);
+        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.row_changed_to(r);
+    }
+
+    /// Whether `CSI 4 h` is in force.
+    #[inline(always)]
+    fn inserting(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::InsertReplace)
+    }
+
     /// As much of a run as the row has room for, by whichever writer fits.
     ///
     /// **A short run does not want the blitter.** `put_ascii_run` resolves the
@@ -357,6 +396,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         // `ClusterBreak::after_ascii_run` exists to carry.
         self.cluster = ClusterBreak::new();
         let k = n.index();
+        // **No gap here.** `piece` is a router: it hands the run to `glyph`
+        // per character or to `blit` whole, and both open their own. Opening
+        // one here as well shifted the tail twice -- `abcd` + insert `XY` gave
+        // `XY..abcd` instead of `XYabcd`, a gap of four for a write of two,
+        // which is what the doubled shift looks like from the screen.
         #[cfg(feature = "ceiling-no-text")]
         {
             self.cells = self.cells.plus(k);
@@ -398,6 +442,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         // No clip: `text` sized the piece to the row before calling. Clipping
         // here is what silently dropped the tail of a long line.
         let k = n.index();
+        if self.inserting() {
+            self.open_gap(Count::of(k));
+        }
         let src = &self.arena[from.index()..from.index() + k];
         self.view
             .put_ascii_run(self.cy, self.cx, src, self.style, self.flags, self.charset);
@@ -465,6 +512,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         let need = 1 + usize::from(w == Width::WIDE);
         if self.cx.index() + need > self.cols.index() {
             self.wrap();
+        }
+        // After the wrap, because the gap belongs in the row the character
+        // lands in rather than the one it was pushed off.
+        if self.inserting() {
+            self.open_gap(Count::of(need));
         }
         let (style, flags) = (self.style, self.flags);
         // **Making the wide tail implicit is worth 3%, not the 23% the store
@@ -779,6 +831,23 @@ impl<'a, 'b> Paint<'a, 'b> {
     ///
     /// The scroll is a rotation: the view advances its own and the only cells
     /// written are the incoming row's, which stop at its used extent.
+    /// `LF`, `VT` and `FF`: down one line, and a carriage return **only**
+    /// when LNM is set.
+    ///
+    /// **The mode was recorded and never read**, which is the failure
+    /// `docs/vt-coverage.md` rates worse than not implementing it: `CSI 20 h`
+    /// set a bit `apply_ansi_mode` stored and nothing consulted, so `LF` moved
+    /// down and left the column alone whatever the application asked for.
+    /// `baud-core2` has always read it here, and the ported
+    /// `lf_returns_to_column_one_when_lnm_is_set` is what found the gap.
+    #[inline(always)]
+    pub(crate) fn line_feed(&mut self) {
+        self.index();
+        if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
+            self.cx = Col::ZERO;
+        }
+    }
+
     pub(crate) fn index(&mut self) -> RowRot {
         // **Ceiling arm: scrolling, priced whole.** The profile puts `index`
         // at 7.6% of cat-cjk and it is the one named frame that survived

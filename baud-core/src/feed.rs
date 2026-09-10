@@ -226,6 +226,8 @@ impl Term<'_> {
         self.icon_len = p.icon_len;
         self.link = p.link;
         self.vt52_unsupported += p.vt52_unsupported;
+        self.bells += p.bells;
+        self.charset_unsupported += p.charset_unsupported;
         self.string_truncations += p.string_truncations;
         self.strings_ignored += p.strings_ignored;
         self.clipboard_reads_refused += p.clipboard_reads_refused;

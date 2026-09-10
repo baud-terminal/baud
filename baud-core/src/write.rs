@@ -53,6 +53,15 @@ pub(crate) struct Csi {
     /// operations from `CSI q`, so an intermediate cannot be consumed and
     /// forgotten either.
     inter: Option<StreamByte>,
+    /// The **second** intermediate, for `ESC ( % 6` and friends.
+    ///
+    /// `[[source: williams]]`'s `escape_intermediate` collects intermediates
+    /// rather than replacing them, and keeping one meant the `(` was gone
+    /// before the final arrived -- so eleven two-byte designations resolved to
+    /// nothing at all. Two slots is what the grammar this core implements can
+    /// actually produce: a `CSI` takes at most one, and a designation takes a
+    /// slot selector plus a set selector.
+    inter2: Option<StreamByte>,
 }
 
 impl Csi {
@@ -62,6 +71,7 @@ impl Csi {
         sub: SubParams::NONE,
         marker: Marker::Standard,
         inter: None,
+        inter2: None,
     };
     fn reset(&mut self) {
         *self = Csi::NEW;
@@ -107,8 +117,17 @@ impl Csi {
     fn set_marker(&mut self, m: Marker) {
         self.marker = m;
     }
+    /// Collect an intermediate, rather than replace the last one.
     fn set_inter(&mut self, b: StreamByte) {
-        self.inter = Some(b);
+        match self.inter {
+            None => self.inter = Some(b),
+            Some(_) => self.inter2 = Some(b),
+        }
+    }
+
+    /// The second intermediate, if the sequence carried two.
+    fn intermediate2(&self) -> Option<StreamByte> {
+        self.inter2
     }
     /// How many parameter slots the sequence carries.
     ///
@@ -289,7 +308,7 @@ pub(crate) fn act(
         }
         // The edge named the operation; there is nothing left to test.
         Act::Index => {
-            p.index();
+            p.line_feed();
             ReadLen::ONE
         }
         // **`CR LF` is one step, not two.** `Return` and `Index` were 22.5%
@@ -536,6 +555,10 @@ pub(crate) fn act(
         }
         // The three VT52 arms. Each body is `#[cold] #[inline(never)]`, so
         // what lands in the per-byte loop is a call.
+        Act::Bell => {
+            p.bells += 1;
+            ReadLen::ONE
+        }
         Act::Vt52Dispatch => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             p.vt52(Vt52::parse(b), node);
@@ -1319,15 +1342,23 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // be confused here; the arity is the discriminator and it is one line
         // above in a crate both cores share.
         DomCsi::HighlightMouseTracking(r) => p.cold.highlight_region = r,
-        // **Still not answered, and each for its own reason.** `CursorStyle`
-        // is a set rather than a query; `RequestMode` needs every mode's real
-        // state, which this core does not yet expose; and `RequestVersion`
-        // would name a version this core does not have. Counted rather than
-        // silently swallowed.
-        DomCsi::CursorStyle(_)
-        | DomCsi::RequestMode { .. }
-        | DomCsi::RequestVersion
-        | DomCsi::Unsupported { .. } => {
+        DomCsi::CursorStyle(c) => p.cold.cursor_style = c,
+        // **DECRQM, answered from the modes this core actually stores.**
+        // `Paint::mode_state` returns `NotRecognized` for everything else,
+        // which is the rule `docs/vt-coverage.md` states: answering `Reset`
+        // for a mode that does not exist tells an application the mode is
+        // available, and it then sets it and believes it took effect.
+        DomCsi::RequestMode { marker, mode } => {
+            let state = p.mode_state(marker, mode);
+            p.want_reply(Report::ModeStatus {
+                marker,
+                mode,
+                state,
+            });
+        }
+        // Still not answered: `RequestVersion` would name a version this core
+        // does not have. Counted rather than silently swallowed.
+        DomCsi::RequestVersion | DomCsi::Unsupported { .. } => {
             #[cfg(feature = "diag")]
             {
                 p.unsupported[f.slot()] += 1;
@@ -1380,7 +1411,18 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte) {
             // made `baud-core` render `ESC ) 0` as though it were `ESC ( 0`.
             b'(' | b')' | b'*' | b'+' => {
                 if let Some(slot) = GSlot::from_intermediate(i) {
-                    p.cold.g[slot.index()] = Charset::from_final(b);
+                    // **A second intermediate names the set, not the slot.**
+                    // `ESC ( % 6` is G0 <- Portuguese: `(` selects the slot and
+                    // `% 6` the set, so a resolver reading only the final sees
+                    // `6` and answers `Other`.
+                    let set = match csi.intermediate2() {
+                        Some(i2) => Charset::from_multi(i2, b),
+                        None => Charset::from_final(b),
+                    };
+                    if set == Charset::Other {
+                        p.charset_unsupported += 1;
+                    }
+                    p.cold.g[slot.index()] = set;
                     p.invoke();
                 }
             }

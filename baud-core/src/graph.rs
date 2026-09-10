@@ -93,7 +93,7 @@ pub(crate) const NNODE: usize = 20;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 36;
+pub(crate) const NACT: usize = 37;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -192,6 +192,14 @@ pub enum Act {
     StrStart,
     /// One byte of a control string's body.
     StrPut,
+    /// `BEL`. Counted, because the core cannot make a sound and an embedder
+    /// can -- a `BEL` consumed silently is a protocol event the application
+    /// has no way to learn was received.
+    ///
+    /// Distinct from the `BEL` inside a control string, which is `StrEnd`:
+    /// there it terminates an `OSC` rather than ringing anything, and the node
+    /// is what tells them apart.
+    Bell,
     /// A VT52 command byte, handed to `Vt52::parse` at run time.
     ///
     /// **One action for fifteen commands**, because a stride-k table is
@@ -344,6 +352,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Consume => "Consume",
         Act::StrStart => "StrStart",
         Act::StrPut => "StrPut",
+        Act::Bell => "Bell",
         Act::Vt52Dispatch => "Vt52Dispatch",
         Act::Vt52SetRow => "Vt52SetRow",
         Act::Vt52Address => "Vt52Address",
@@ -386,6 +395,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Consume,
     Act::StrStart,
     Act::StrPut,
+    Act::Bell,
     Act::Vt52Dispatch,
     Act::Vt52SetRow,
     Act::Vt52Address,
@@ -585,6 +595,7 @@ const fn c0(b: StreamByte) -> Act {
         0x09 => Act::Tab,
         0x0e => Act::ShiftOut,
         0x0f => Act::ShiftIn,
+        0x07 => Act::Bell,
         _ => Act::Consume,
     }
 }
@@ -1153,6 +1164,7 @@ mod classes {
         // | C0 in a payload ignored, not stored | 26/574/11,455/216,403 | **-0.4%** |
         // | `Act::DcsQuery` -- DECRQSS's `$ q` prefix | 29/641/12,596/235,526 | +8.8% |
         // | VT52 -- seven nodes, three actions | 30/662/13,143/247,683 | +5.2% |
+        // | `Act::Bell` -- BEL counted, not consumed | 30/665/13,339/255,588 | +3.2% |
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
@@ -1206,9 +1218,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 662, "stride 2");
-        assert_eq!(three.len(), 13_143, "stride 3");
-        assert_eq!(four.len(), 247_683, "stride 4");
+        assert_eq!(two.len(), 665, "stride 2");
+        assert_eq!(three.len(), 13_339, "stride 3");
+        assert_eq!(four.len(), 255_588, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
