@@ -677,7 +677,7 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
 | `CSI ? 1006 h/l` | SGR mouse encoding | done — no ordinate limit; see below |
 | X10 mouse encoding (`ESC [ M Cb Cx Cy`) | the default, what `?1000` gives without `?1006` | done — positions past 223 refused and counted, not truncated |
-| `CSI ? 1001 h/l` | highlight tracking | **out of scope** — "requires a cooperating program, else xterm will hang" |
+| `CSI ? 1001 h/l` | highlight tracking | done — recorded in both cores; see the mode table. The "xterm will hang" warning describes an event loop, and neither core has one |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
 
@@ -693,7 +693,6 @@ Recorded so that "not implemented" is a decision rather than an omission.
 | Kitty graphics `APC G` | image protocol | As above. The `APC` **string must still be consumed** — that is Tier 0, and it is a bug today. |
 | `DCS ... | DECUDK` | user-defined keys | Input-side; baud has no input path. |
 | `CSI > ... m` | XTMODKEYS | Input-side. |
-| `CSI ... T` XTHIMOUSE | mouse highlight tracking | Requires a reply channel and a UI. |
 | ReGIS, Tektronix | vector graphics | Historical; no modern application emits them. |
 | National replacement charsets | DECNRCM | Superseded by UTF-8. Recorded because `[[source: ctlseqs]]` documents them and a reader will ask. |
 

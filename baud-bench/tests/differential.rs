@@ -13,6 +13,7 @@
 
 use baud_core as new;
 use baud_core2 as old;
+use new::{HighlightRegion, HighlightTracking, MouseTracking};
 
 const COLS: usize = 200;
 const ROWS: usize = 50;
@@ -878,6 +879,100 @@ fn every_fixture_renders_the_same_at_every_read_size() {
     }
 }
 
+/// **Where the cursor is, which neither pinned gate can see.**
+///
+/// `the_glyph_gap_is_pinned` reads content and `the_rendition_gap_is_pinned`
+/// reads the resolved `StyleWord`. The cursor is in neither, so a core that
+/// drew every cell correctly and left the cursor a column out would pass both
+/// -- and the *next* character it writes would land in the wrong place. This
+/// file already records that shape twice: a test that counts what an operation
+/// did cannot see it being done to the wrong object.
+///
+/// Both cores clamp on the way out, and that is the interesting part rather
+/// than an accident. After a character in the last column the cursor is in
+/// **pending wrap**: logically past the margin, so the next graphic character
+/// wraps, and physically on the last column, because that is where a renderer
+/// must draw it. `baud-core2::cursor` takes `min(cols - 1)` explicitly, and
+/// `baud-core` did **not** -- it returned column 200 on a 200-column screen
+/// after `HT` ran to the right margin, which is not a position a renderer can
+/// draw in. That is what this test found on its first run, on the first
+/// fixture, in state both pinned gates are blind to.
+#[test]
+fn both_cores_put_the_cursor_in_the_same_place() {
+    let rows: &[(&str, &[u8])] = &[
+        ("tab", TAB),
+        ("alt", ALT),
+        ("charset", CHARSET),
+        ("osc", OSC),
+        ("cancel", CANCEL),
+        ("alt-rot", ALT_ROT),
+        // The margin, both ways: a line that stops exactly on it and one that
+        // runs past. The first leaves pending wrap set, the second clears it.
+        ("margin-exact", &[b'x'; COLS]),
+        ("margin-past", &[b'x'; COLS + 1]),
+        // Backwards over a wrap, and the addressing operations that have their
+        // own clamps -- CUP past the last row, CHA past the last column.
+        ("wrap-back", b"\x1b[50;200Hz\x08\x08"),
+        ("cup-past", b"\x1b[999;999H"),
+        ("cha-past", b"\x1b[1;1H\x1b[999G"),
+        // Origin mode confines movement, and both cores must agree on where
+        // "row 1" is while it is set.
+        ("decom", b"\x1b[5;10r\x1b[?6h\x1b[1;1H"),
+    ];
+    for (name, bytes) in rows {
+        assert_eq!(
+            old_cursor(bytes),
+            new_cursor(bytes),
+            "{name}: the cursor is in a different place"
+        );
+    }
+    for rec in ["ascii/cat-scroll.raw", "utf8/cava.raw"] {
+        let bytes = recording(rec);
+        assert_eq!(
+            old_cursor(&bytes),
+            new_cursor(&bytes),
+            "{rec}: the cursor is in a different place"
+        );
+    }
+}
+
+/// `(row, col)` after `baud-core2` has read every byte.
+fn old_cursor(bytes: &[u8]) -> (usize, usize) {
+    let mut store = old::Storage::boxed();
+    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = old::READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(old::StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    let (r, c) = t.cursor();
+    (r.index(), c.index())
+}
+
+/// The same, for `baud-core`.
+fn new_cursor(bytes: &[u8]) -> (usize, usize) {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = new::READ_CHUNK.min(bytes.len() - i);
+        t.write_at(new::BytePos::ZERO, &bytes[i..i + n]);
+        t.feed(new::BytePos::ZERO, new::ReadLen::from_index(n));
+        i += n;
+    }
+    let (r, c) = t.cursor();
+    (r.index(), c.index())
+}
+
 /// **The key encoder is shared, so what this compares is the plumbing.**
 ///
 /// `baud_domain::encode_key` is one function and both cores call it, which
@@ -1160,6 +1255,22 @@ fn both_cores_report_a_mouse_event_the_same_way() {
             b"\x1b[?1000h\x1b[?1006h",
             at(MouseKind::Press, MouseButton::Left, 400, 2),
         ),
+        // `?1001` highlight tracking, which neither core acts on and both
+        // record. The comparison is the recorded state, not a report.
+        (
+            b"\x1b[?1001h",
+            at(MouseKind::Press, MouseButton::Left, 3, 4),
+        ),
+        (
+            b"\x1b[?1001h\x1b[?1001l",
+            at(MouseKind::Press, MouseButton::Left, 3, 4),
+        ),
+        // XTHIMOUSE. Five parameters on a final that also spells SD with one,
+        // and reading it as SD is what scrolled the screen in the other core.
+        (
+            b"\x1b[?1001h\x1b[1;2;3;4;5T",
+            at(MouseKind::Press, MouseButton::Left, 3, 4),
+        ),
     ];
     for (setup, e) in rows {
         let (a, b) = (core2_mouse(setup, *e), new_mouse(setup, *e));
@@ -1174,7 +1285,16 @@ fn both_cores_report_a_mouse_event_the_same_way() {
 }
 
 /// Feed `setup` to `baud-core2`, report `e`, and return `(queued, reply)`.
-fn core2_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
+fn core2_mouse(
+    setup: &[u8],
+    e: new::MouseEvent,
+) -> (
+    bool,
+    Vec<u8>,
+    MouseTracking,
+    HighlightTracking,
+    HighlightRegion,
+) {
     let mut store = old::Storage::boxed();
     let mut t = old::Term::new(&mut store, old::OpMode::Computed);
     let mut i = 0;
@@ -1189,11 +1309,26 @@ fn core2_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
     }
     t.clear_reply();
     let q = t.mouse_report(e);
-    (q, t.reply().to_vec())
+    (
+        q,
+        t.reply().to_vec(),
+        t.mouse_tracking(),
+        t.highlight_tracking(),
+        t.highlight_region(),
+    )
 }
 
 /// The same, for `baud-core`.
-fn new_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
+fn new_mouse(
+    setup: &[u8],
+    e: new::MouseEvent,
+) -> (
+    bool,
+    Vec<u8>,
+    MouseTracking,
+    HighlightTracking,
+    HighlightRegion,
+) {
     let ws = new::WinSize {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
@@ -1204,5 +1339,11 @@ fn new_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
     t.feed(new::BytePos::ZERO, new::ReadLen::from_index(setup.len()));
     t.clear_reply();
     let q = t.mouse_report(e);
-    (q, t.reply().to_vec())
+    (
+        q,
+        t.reply().to_vec(),
+        t.mouse_tracking(),
+        t.highlight_tracking(),
+        t.highlight_region(),
+    )
 }

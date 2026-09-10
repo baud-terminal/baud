@@ -1273,15 +1273,28 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte) {
             Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
             _ => {}
         },
+        // **Recorded, not acted on, and those are different things.** The
+        // region is what an application asks the terminal to highlight; baud
+        // has no selection model to highlight *with*, which is a reason not to
+        // draw it and not a reason to discard the request. An embedder that
+        // has one reads it from [`Term::highlight_region`].
+        //
+        // It is also the arity trap. `CSI Ps T` is SD and `CSI Ps ; Ps ; Ps ;
+        // Ps ; Ps T` is this, and reading the five-parameter form as SD makes
+        // a highlight request **scroll the screen** -- silently, because SD is
+        // implemented and the sequence reaches a real handler.
+        // `baud_domain::Csi` splits them on `p.len() >= 5`, so the two cannot
+        // be confused here; the arity is the discriminator and it is one line
+        // above in a crate both cores share.
+        DomCsi::HighlightMouseTracking(r) => p.cold.highlight_region = r,
         // **Still not answered, and each for its own reason.** `CursorStyle`
         // is a set rather than a query; `RequestMode` needs every mode's real
-        // state, which this core does not yet expose; `RequestVersion` would
-        // name a version this core does not have; and highlight tracking needs
-        // a selection model. Counted rather than silently swallowed.
+        // state, which this core does not yet expose; and `RequestVersion`
+        // would name a version this core does not have. Counted rather than
+        // silently swallowed.
         DomCsi::CursorStyle(_)
         | DomCsi::RequestMode { .. }
         | DomCsi::RequestVersion
-        | DomCsi::HighlightMouseTracking(_)
         | DomCsi::Unsupported { .. } => {
             #[cfg(feature = "diag")]
             {

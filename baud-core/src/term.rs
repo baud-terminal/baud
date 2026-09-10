@@ -437,8 +437,27 @@ impl<'b> Term<'b> {
         self.store.arena[from..from + src.len()].copy_from_slice(src);
     }
 
+    /// Where a renderer should draw the cursor.
+    ///
+    /// **Clamped to the last column, and that is the contract rather than a
+    /// safety net.** After a character lands in the last column the cursor is
+    /// in *pending wrap*: `cx` is `cols`, one past the margin, so the next
+    /// graphic character wraps to the next row instead of overwriting what is
+    /// there. That is the right internal state and it is not a position --
+    /// there is no column `cols` to draw in, and a renderer indexing a row
+    /// with it reads past the end of the row.
+    ///
+    /// So the accessor answers the question a renderer is asking. `baud-core2`
+    /// takes `min(cols - 1)` here for the same reason, and
+    /// `both_cores_put_the_cursor_in_the_same_place` is what found that this
+    /// core did not: on a 200-column screen it returned **column 200** after
+    /// `HT` ran to the right margin. Both cores' *internal* `cx` was 200 and
+    /// they rendered identically, so neither pinned gate could see it -- the
+    /// glyph gate reads content and the rendition gate reads the style word,
+    /// and the cursor is in neither.
     pub fn cursor(&self) -> (Row, Col) {
-        (self.cy, self.cx)
+        let last = Col::at_index(self.cols.index() - 1);
+        (self.cy, Col::at_index(self.cx.index().min(last.index())))
     }
 }
 
