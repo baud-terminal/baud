@@ -49,6 +49,12 @@ pub use baud_domain::{
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
 pub use baud_domain::{ClusterId, ClusterSlot};
+/// Mouse reporting's vocabulary: an embedder that cannot name a
+/// `MouseEvent` cannot call [`Term::mouse_report`].
+pub use baud_domain::{
+    HighlightRegion, HighlightTracking, MouseButton, MouseEncoding, MouseEvent, MouseKind,
+    MouseMods, MouseTracking,
+};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, Modifiers};
 pub use graph::Node;
 

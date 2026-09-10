@@ -563,6 +563,28 @@ impl Paint<'_, '_> {
             //
             // **Idempotent in both directions.** A second `?1049 h` must not
             // re-save over the cursor it saved on the way in.
+            // **Mouse tracking is a level, not three flags.** `[[source:
+            // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
+            // `?1003` is a superset of `?1002` which is a superset of `?1000`
+            // -- so resetting any of them turns tracking off, which is what an
+            // application expects from `?1000 l`.
+            PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, change),
+            PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, change),
+            PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, change),
+            PrivateMode::MouseSgr => {
+                // Resetting `?1006` returns to X10, the protocol's default
+                // rather than "off" -- there is no off.
+                self.cold.mouse_encoding = match on {
+                    true => MouseEncoding::Sgr,
+                    false => MouseEncoding::X10,
+                }
+            }
+            PrivateMode::HighlightTracking => {
+                self.cold.highlight = match on {
+                    true => HighlightTracking::On,
+                    false => HighlightTracking::Off,
+                }
+            }
             PrivateMode::AltScreen => self.set_alt_screen(change),
             _ => {}
         }
@@ -572,6 +594,16 @@ impl Paint<'_, '_> {
     /// the protocol, and this repo's audit exists to stop that name being
     /// thrown away at a call site -- `set_alt_screen(true)` reads as nothing
     /// in particular where `ModeChange::Set` reads as DECSET.
+    /// Takes the [`ModeChange`] the caller already holds rather than a `bool`:
+    /// degrading a domain type to a primitive and reconstructing it here is
+    /// what the audit exists to stop.
+    fn set_tracking(&mut self, level: MouseTracking, change: ModeChange) {
+        self.cold.mouse = match change {
+            ModeChange::Set => level,
+            ModeChange::Reset => MouseTracking::Off,
+        };
+    }
+
     fn set_alt_screen(&mut self, change: ModeChange) {
         use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {

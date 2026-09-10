@@ -92,6 +92,19 @@ pub struct Cold {
     /// `SO`/`SI` did nothing at all.
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
+    /// **Mouse reporting, all of it in `Cold`.** Every field here is written
+    /// by a control sequence and read by an embedder calling
+    /// [`Term::mouse_report`] -- never by the per-byte loop -- so it costs the
+    /// ingest path nothing at all.
+    pub(crate) mouse: MouseTracking,
+    /// `?1006`. Resetting it returns to X10, which is the protocol's default
+    /// rather than "off": there is no off.
+    pub(crate) mouse_encoding: MouseEncoding,
+    /// `?1001`. Recorded and exposed, because a core with no selection model
+    /// has no other way to act on it -- and answering `DECRQM` truthfully
+    /// requires knowing.
+    pub(crate) highlight: HighlightTracking,
+    pub(crate) highlight_region: HighlightRegion,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -110,6 +123,10 @@ impl Cold {
             sgr: [SgrSlot::EMPTY; NSGR],
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
+            mouse: MouseTracking::Off,
+            mouse_encoding: MouseEncoding::X10,
+            highlight: HighlightTracking::Off,
+            highlight_region: HighlightRegion::default(),
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
@@ -238,6 +255,14 @@ pub struct Term<'b> {
     /// It is no longer "every mark": most now land in [`ClusterStore`]. What
     /// remains is that store's bound, stated as a number rather than implied.
     pub marks_dropped: usize,
+    /// Mouse reports refused because the position had no encoding.
+    ///
+    /// X10 caps each ordinate at 223 against a 2048-column grid, so a report
+    /// from column 400 has no byte -- and the one it would produce names a
+    /// *different cell* rather than a truncated one, which is the wrong-shaped
+    /// answer `docs/vt-coverage.md` rules out. Refused and counted, like
+    /// `clipboard_reads_refused`.
+    pub mouse_unencodable: usize,
     pub fast_try: usize,
     #[cfg(feature = "diag")]
     pub fast_hit: usize,
@@ -344,6 +369,7 @@ impl<'b> Term<'b> {
             reply_len: ByteLen::ZERO,
             reply_overflows: 0,
             marks_dropped: 0,
+            mouse_unencodable: 0,
             fast_try: 0,
             #[cfg(feature = "diag")]
             fast_hit: 0,
@@ -451,6 +477,82 @@ impl<'b> Term<'b> {
             .get(cell.flags.cluster(), cell.content)
             .into_iter()
             .flat_map(|s| s.marks())
+    }
+
+    /// What tracking the application asked for: `?1000`, `?1002`, `?1003`.
+    pub fn mouse_tracking(&self) -> MouseTracking {
+        self.cold.mouse
+    }
+
+    /// Whether `?1001` highlight tracking is on.
+    ///
+    /// An embedder with a selection model can implement it; this core records
+    /// the request and does nothing else. `[[source: ctlseqs]]`'s warning that
+    /// it "requires a cooperating program, else xterm will hang" describes an
+    /// event loop blocking on a reply, and this core has none -- so whether to
+    /// wait is a decision it does not make.
+    pub fn highlight_tracking(&self) -> HighlightTracking {
+        self.cold.highlight
+    }
+
+    /// The region from the last `CSI Ps ; Ps ; Ps ; Ps ; Ps T`.
+    pub fn highlight_region(&self) -> HighlightRegion {
+        self.cold.highlight_region
+    }
+
+    /// Queue a mouse report, if the application asked for this kind of event.
+    ///
+    /// Returns whether anything was queued, so an embedder can tell "the
+    /// application does not want this" from "it was sent".
+    ///
+    /// **Two gates, and both are refusals rather than omissions.** The
+    /// tracking level decides which *kinds* are reported: motion is dropped
+    /// under `?1000`, and motion with no button held under anything below
+    /// `?1003`, because sending it anyway floods an application that asked
+    /// only for clicks. And the *position* has to be encodable -- X10 caps
+    /// each ordinate at 223 against a 2048-column grid, so a report from
+    /// column 400 has no byte, and the one it would produce names a
+    /// **different cell** rather than a truncated one. Those are refused and
+    /// counted in [`Term::mouse_unencodable`]; everything that fits is sent,
+    /// which is every position on a terminal anyone actually runs.
+    pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
+        let wanted = match (self.cold.mouse, e.kind) {
+            (MouseTracking::Off, _) => false,
+            (MouseTracking::Normal, MouseKind::Motion) => false,
+            (MouseTracking::ButtonEvent, MouseKind::Motion) => e.button != MouseButton::None,
+            _ => true,
+        };
+        if !wanted {
+            return false;
+        }
+        if let Some(max) = self.cold.mouse_encoding.max_ordinate() {
+            let (r, c) = (e.row.one_based().get(), e.col.one_based().get());
+            if r > max || c > max {
+                self.mouse_unencodable += 1;
+                return false;
+            }
+            self.queue(Report::MouseX10(e));
+            return true;
+        }
+        self.queue(Report::MouseSgr(e));
+        true
+    }
+
+    /// Put a report in the reply buffer.
+    ///
+    /// The same rule `Paint::want_reply` follows: a truncated reply is a wrong
+    /// answer, so it is dropped whole and counted rather than half-sent.
+    fn queue(&mut self, r: Report) {
+        let bytes = r.encode(C1Transmit::SevenBit);
+        let b = bytes.as_bytes();
+        let at = self.reply_len.index();
+        match at + b.len() <= self.store.reply.len() {
+            true => {
+                self.store.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+            }
+            false => self.reply_overflows += 1,
+        }
     }
 
     /// Encode a key press into the reply buffer.

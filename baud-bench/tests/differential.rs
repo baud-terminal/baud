@@ -1073,3 +1073,136 @@ fn a_flag_is_one_cluster_and_the_run_gate_is_what_keeps_it_one() {
         "a flag rendered as two characters.\n  core2: {x:?}\n  new  : {y:?}",
     );
 }
+
+/// **Both cores must report a mouse event the same way**, and what this
+/// compares is the wiring rather than the encoding.
+///
+/// `Report::MouseX10` and `Report::MouseSgr` live in `baud-domain` and both
+/// cores hand them the same event, so the bytes are the same by construction.
+/// What is *not* shared is how each core arrives at the tracking level and the
+/// encoding: `baud-core` reads `cold.mouse` and `cold.mouse_encoding`, core2
+/// reads its own fields, and each applies `?1000`/`?1002`/`?1003`/`?1006`
+/// through its own mode path. A core that recognised `?1006` and never
+/// switched encoding would send X10 bytes for every event and no test of the
+/// encoder could see it.
+///
+/// The refusals are compared too, and they are the interesting half: motion
+/// under `?1000`, motion with no button under `?1002`, and a position past
+/// X10's 223rd column all have to be refused *identically*, because a report
+/// that names the wrong cell is worse than no report.
+#[test]
+fn both_cores_report_a_mouse_event_the_same_way() {
+    use new::{Col as NCol, MouseButton, MouseEvent, MouseKind, MouseMods, Row as NRow};
+    let at = |kind, button, x: usize, y: usize| MouseEvent {
+        button,
+        mods: MouseMods::NONE,
+        kind,
+        col: NCol::at_index(x),
+        row: NRow::from_index(y),
+    };
+    let rows: &[(&[u8], MouseEvent)] = &[
+        // Tracking off: everything is refused.
+        (b"", at(MouseKind::Press, MouseButton::Left, 3, 4)),
+        // `?1000` normal: presses yes, motion no.
+        (
+            b"\x1b[?1000h",
+            at(MouseKind::Press, MouseButton::Left, 3, 4),
+        ),
+        (
+            b"\x1b[?1000h",
+            at(MouseKind::Release, MouseButton::Left, 3, 4),
+        ),
+        (
+            b"\x1b[?1000h",
+            at(MouseKind::Motion, MouseButton::Left, 3, 4),
+        ),
+        // `?1002` button-event: motion only with a button held.
+        (
+            b"\x1b[?1002h",
+            at(MouseKind::Motion, MouseButton::Left, 5, 6),
+        ),
+        (
+            b"\x1b[?1002h",
+            at(MouseKind::Motion, MouseButton::None, 5, 6),
+        ),
+        // `?1003` any-event: bare motion too.
+        (
+            b"\x1b[?1003h",
+            at(MouseKind::Motion, MouseButton::None, 7, 8),
+        ),
+        // Resetting any level turns tracking off, whichever was set.
+        (
+            b"\x1b[?1003h\x1b[?1000l",
+            at(MouseKind::Press, MouseButton::Left, 1, 1),
+        ),
+        // `?1006` SGR, and back to X10 -- which is the default rather than
+        // "off": there is no off.
+        (
+            b"\x1b[?1000h\x1b[?1006h",
+            at(MouseKind::Press, MouseButton::Right, 9, 9),
+        ),
+        (
+            b"\x1b[?1000h\x1b[?1006h\x1b[?1006l",
+            at(MouseKind::Press, MouseButton::Right, 9, 9),
+        ),
+        // **Past X10's 223rd ordinate**: no byte can name it, so both must
+        // refuse rather than name a different cell.
+        (
+            b"\x1b[?1000h",
+            at(MouseKind::Press, MouseButton::Left, 400, 2),
+        ),
+        (
+            b"\x1b[?1000h",
+            at(MouseKind::Press, MouseButton::Left, 2, 300),
+        ),
+        // The same positions under SGR, which writes decimal and has no cap.
+        (
+            b"\x1b[?1000h\x1b[?1006h",
+            at(MouseKind::Press, MouseButton::Left, 400, 2),
+        ),
+    ];
+    for (setup, e) in rows {
+        let (a, b) = (core2_mouse(setup, *e), new_mouse(setup, *e));
+        assert_eq!(
+            a,
+            b,
+            "setup {setup:?} event {:?} at {:?}",
+            e.kind,
+            (e.col, e.row)
+        );
+    }
+}
+
+/// Feed `setup` to `baud-core2`, report `e`, and return `(queued, reply)`.
+fn core2_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
+    let mut store = old::Storage::boxed();
+    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
+    let mut i = 0;
+    while i < setup.len() {
+        let n = old::READ_CHUNK.min(setup.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(old::StreamByte::slice_from(&setup[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    t.clear_reply();
+    let q = t.mouse_report(e);
+    (q, t.reply().to_vec())
+}
+
+/// The same, for `baud-core`.
+fn new_mouse(setup: &[u8], e: new::MouseEvent) -> (bool, Vec<u8>) {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
+    t.write_at(new::BytePos::ZERO, setup);
+    t.feed(new::BytePos::ZERO, new::ReadLen::from_index(setup.len()));
+    t.clear_reply();
+    let q = t.mouse_report(e);
+    (q, t.reply().to_vec())
+}
