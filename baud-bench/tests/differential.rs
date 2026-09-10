@@ -1046,3 +1046,30 @@ fn new_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
     t.key(e);
     t.reply().to_vec()
 }
+
+/// **A flag is the payload that exercises the run gate, and nothing else in
+/// the repository does.**
+///
+/// `run_of` admits a run on *encoded length*, and a regional-indicator pair is
+/// two four-byte characters side by side -- so `🇬🇧` is the one shape that
+/// reaches `put_run` with `k >= 2` while GB12/13 says the two are **one
+/// cluster**. Everything else that clusters is separated by a ZWJ or an
+/// Extend of a different length, which breaks the stride run and sends each
+/// character to `put_one` at `k == 1`, where the gate is never consulted.
+///
+/// That is why this exists: `ceiling-no-run-gate` -- the gate always admitting
+/// -- changes **no cell on any of the nine recordings** and passed every other
+/// test in this file. A guard nothing can fail is the shape this repo has
+/// recorded five times, and it was about to be a sixth.
+#[test]
+fn a_flag_is_one_cluster_and_the_run_gate_is_what_keeps_it_one() {
+    // Two flags and a letter, so a wrong answer shifts visible text.
+    let bytes = "\u{1f1ec}\u{1f1e7}\u{1f1eb}\u{1f1f7}X".as_bytes();
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert_eq!(
+        d.len(),
+        0,
+        "a flag rendered as two characters.\n  core2: {x:?}\n  new  : {y:?}",
+    );
+}

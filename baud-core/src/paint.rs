@@ -511,6 +511,17 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clusters.refused += 1;
             return;
         }
+        // **Priced by doing it twice, discarding the first.** The lead
+        // resolution is a grid read and `intern` is idempotent on the same
+        // cluster -- it finds the slot it just filled and returns the same id
+        // -- so the state and every counter come out unchanged and the delta
+        // is the work rather than its consequences.
+        #[cfg(feature = "probe-double-attach")]
+        {
+            let o = self.view.lead(self.cy, self.cx.before());
+            let c = self.view.cell_at(self.cy, o);
+            core::hint::black_box(self.clusters.get(c.flags.cluster(), c.content).is_some());
+        }
         let (r, owner) = (self.cy, self.view.lead(self.cy, self.cx.before()));
         let cell = self.view.cell_at(r, owner);
         if cell.content.is_empty() {

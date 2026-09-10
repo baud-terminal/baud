@@ -965,7 +965,14 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // and this file records what relaxing it costs: -17%, because what the
     // strict gate refuses is the *inside* of the emoji sequences rather than
     // the Han around them.
-    if !(all_ordinary && p.cluster.ordinary_run_ready()) {
+    #[cfg(feature = "ceiling-no-run-gate")]
+    let admit = {
+        let _ = all_ordinary;
+        true
+    };
+    #[cfg(not(feature = "ceiling-no-run-gate"))]
+    let admit = all_ordinary && p.cluster.ordinary_run_ready();
+    if !admit {
         for cp in cps.iter().take(k) {
             glyph(p, *cp);
         }
@@ -1024,6 +1031,17 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
         // The `cx` test is not belt and braces: `[[source: uax29]]` GB1 puts a
         // boundary at start of text, so a continuation at column zero has no
         // base and is written as its own character rather than attached.
+        // **Priced by adding one, on a `Copy` so the machine advances once.**
+        // Calling it twice on the real machine advances the cluster state
+        // twice, which stops marks attaching and moves `cells_written` -- the
+        // contamination this file records from the same probe in the other
+        // core, where four of eighteen points were the extra writes rather
+        // than the call.
+        #[cfg(feature = "probe-double-break")]
+        {
+            let mut c = p.cluster;
+            core::hint::black_box(c.is_break_classified(cl.class, cl.lookback));
+        }
         if !p.cluster.is_break_classified(cl.class, cl.lookback) && p.cx != Col::ZERO {
             p.attach(cp);
             return;

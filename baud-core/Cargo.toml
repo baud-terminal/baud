@@ -38,6 +38,24 @@ ceiling-no-decode = []
 # Runs stop at the block edge instead of being extended past it.
 no-extend = []
 ceiling-no-classify = []
+# **The three components of the cluster machine, priced one at a time.**
+# The machine cost a third of `cat-cjk` and the first explanation offered for
+# it -- the all-or-nothing run gate -- was built and measured at nothing, so
+# these exist because attributing a cost is not the same as pricing one.
+#
+# `is_break_classified`, run twice on a `Copy` so the machine advances once.
+# Additive and idempotent: every counter is unchanged, so the delta is the
+# call and nothing else.
+probe-double-break = []
+# The attach path -- the lead resolution, the store lookup and the intern --
+# run twice with the first result discarded. `intern` is idempotent on the same
+# cluster, so the state and every counter are unchanged.
+probe-double-attach = []
+# **A ceiling, not a probe**: the run gate always admits, so a run containing a
+# ZWJ or a regional indicator is bulk-written as separate characters. Incorrect
+# by construction and `cells_written` says so, which makes it an upper bound on
+# what the gate's fallback costs rather than a measurement of it.
+ceiling-no-run-gate = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
 # The block classification itself, priced by doing it twice.
