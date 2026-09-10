@@ -163,6 +163,14 @@ pub struct Term<'b> {
     pub(crate) style_raw: StyleWord,
     pub(crate) flags: CellFlags,
     pub(crate) charset: Charset,
+    /// The UAX #29 cluster machine, carried between reads.
+    ///
+    /// **Beside `charset` on the hot path rather than in `Cold`**, because it
+    /// is read once per non-ASCII character where `Cold` is read once per
+    /// control sequence. It is the whole state: one table id and four
+    /// lookback fields, which `CLUSTER_NEXT` collapses to a single indexed
+    /// load.
+    pub(crate) cluster: ClusterBreak,
     /// Everything a control sequence changes that the per-character loop does
     /// not read. **One struct so `Paint::new` does not grow an argument per
     /// operation**, which is the shape that gets two of them swapped at a call
@@ -310,6 +318,7 @@ impl<'b> Term<'b> {
             style_raw: StyleWord::DEFAULT,
             flags: CellFlags::NONE,
             charset: Charset::Ascii,
+            cluster: ClusterBreak::new(),
             cold: Cold::new(rows),
             utf8: Utf8Acc::lead(0),
             utf8_min: Utf8Min::Two,

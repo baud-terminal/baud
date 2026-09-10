@@ -808,6 +808,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     #[allow(unreachable_code)]
     let mut cps = [Codepoint::REPLACEMENT; STRIDE_MAX];
     let (mut all_wide, mut all_narrow) = (true, true);
+    let mut all_ordinary = true;
 
     // **Four characters a step, in vectors, when the stride is three.** The
     // route map has already fixed every byte's position, so the swizzle
@@ -838,9 +839,11 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
                 // sent the run to `put_narrow_run` -- so U+0947 got a cell at
                 // 4096-byte reads and none at one-byte reads, the same bytes
                 // and two screens.
-                let cw = Classified::of(*cp).width(AmbiguousWidth::Narrow);
+                let c = Classified::of(*cp);
+                let cw = c.width(AmbiguousWidth::Narrow);
                 all_wide &= cw == Width::WIDE;
                 all_narrow &= cw == Width::NARROW;
+                all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
                 cps[done + j] = *cp;
             }
             done += 4;
@@ -897,9 +900,11 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
             // Neither uniform, so the run falls to the per-character path and
             // every character gets the same answer. Rare by construction: a
             // run has to *contain* a zero-width character to take it.
-            let cw = Classified::of(cp).width(AmbiguousWidth::Narrow);
+            let c = Classified::of(cp);
+            let cw = c.width(AmbiguousWidth::Narrow);
             all_wide &= cw == Width::WIDE;
             all_narrow &= cw == Width::NARROW;
+            all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
         }
         // **Priced by adding one, not by removing it.** Removing the lookup
         // changes `all_wide` and so changes which writer takes the run -- the
@@ -911,6 +916,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
         {
             all_wide = false;
             all_narrow = false;
+            all_ordinary = false;
         }
         *slot = cp;
     }
@@ -939,6 +945,32 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // operations of `Paint::glyph`: box drawing, braille, Devanagari, kana,
     // narrow CJK punctuation, Greek, Cyrillic. This file already prices that
     // inversion at 266 MB/s against a wide character's 1155.
+    // **The bulk writers do not consult the cluster machine, so the run has to
+    // prove it does not need one.** `put_wide_run` and `put_narrow_run` write
+    // eight cells to a store and ask nothing about class; a run admitted on
+    // *encoded length* -- which is all `run_of` checks -- can hold a ZWJ, a
+    // regional indicator or an Extend, every one of which belongs to the cell
+    // before it rather than to one of its own.
+    //
+    // Two conditions and both are cheap. The machine must be in the one state
+    // that cannot be mid-cluster, which `ordinary_run_ready` answers as a
+    // compare against a constant; and every character must be class `Other`
+    // with no lookback, which the loop above learns from the `Classified` it
+    // already loaded for the width. A run of ordinary characters from that
+    // state leaves the machine where it found it, so the bulk write needs no
+    // advance afterwards.
+    //
+    // Anything else falls to the per-character path, where `glyph` asks once
+    // per codepoint. That is the admission test `baud-core2`'s collectors use,
+    // and this file records what relaxing it costs: -17%, because what the
+    // strict gate refuses is the *inside* of the emoji sequences rather than
+    // the Han around them.
+    if !(all_ordinary && p.cluster.ordinary_run_ready()) {
+        for cp in cps.iter().take(k) {
+            glyph(p, *cp);
+        }
+        return;
+    }
     let uniform = match (all_wide, all_narrow) {
         (true, _) => Some(Width::WIDE),
         (_, true) => Some(Width::NARROW),
@@ -977,7 +1009,27 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
-    let w = Classified::of(cp).width(AmbiguousWidth::Narrow);
+    let w = {
+        // **One lookup, and the break decision rides on it.** `Classified::of`
+        // answers width, class and lookback together from one load, and this
+        // core read the width and threw the other two away -- which are
+        // exactly the operands `is_break_classified` takes. So GB11 costs a
+        // table index on a value already in a register, not a second lookup.
+        let cl = Classified::of(cp);
+        let w = cl.width(AmbiguousWidth::Narrow);
+        // **Does this codepoint continue the cluster before it?** If so it
+        // belongs to the previous cell rather than to one of its own, which is
+        // what makes `U+1F468 ZWJ U+1F469` one family instead of two people.
+        //
+        // The `cx` test is not belt and braces: `[[source: uax29]]` GB1 puts a
+        // boundary at start of text, so a continuation at column zero has no
+        // base and is written as its own character rather than attached.
+        if !p.cluster.is_break_classified(cl.class, cl.lookback) && p.cx != Col::ZERO {
+            p.attach(cp);
+            return;
+        }
+        w
+    };
     // **Phase 0: is there a loop-carried dependency through the cursor?**
     // `cx += need` waits on `need`, which waits on `w`, which waits on a load
     // from `BMP_DIRECT` -- so character N+1's store address cannot be computed

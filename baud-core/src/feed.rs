@@ -46,6 +46,7 @@ impl Term<'_> {
             self.style_raw,
             self.flags,
             self.charset,
+            self.cluster,
             &mut self.cold,
             self.reply_len,
         );
@@ -210,6 +211,7 @@ impl Term<'_> {
         self.style_raw = p.style_raw;
         self.flags = p.flags;
         self.charset = p.charset;
+        self.cluster = p.cluster;
         // Replies queued during the read, carried back like the cursor.
         self.reply_len = p.reply_len;
         self.reply_overflows += p.reply_overflows;

@@ -52,6 +52,7 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) style: StyleId,
     pub(crate) flags: CellFlags,
     pub(crate) charset: Charset,
+    pub(crate) cluster: ClusterBreak,
     /// The rendition being built, which `SGR` folds into.
     ///
     /// **A flat field and not part of `cold`, for the reason `last_cp` is.**
@@ -193,6 +194,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         style_raw: StyleWord,
         flags: CellFlags,
         charset: Charset,
+        cluster: ClusterBreak,
         cold: &'a mut crate::term::Cold,
         reply_len: ByteLen,
     ) -> Paint<'a, 'b> {
@@ -231,6 +233,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             style,
             flags,
             charset,
+            cluster,
             style_raw,
             last_cp: None,
             cells: Cells::ZERO,
@@ -300,6 +303,18 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// its text runs are short.
     #[inline(always)]
     fn piece(&mut self, from: BytePos, n: ByteLen) {
+        // **Printable ASCII is blitted and never reaches the cluster machine,
+        // so it has to be told.** Every ASCII character is class `Other` with
+        // no lookback, so a run of them ends any cluster in progress -- and a
+        // machine left mid-cluster would have the *next* non-ASCII character
+        // wrongly continue a base that text has already scrolled past.
+        //
+        // One store per **run**, not per byte, so it is off the per-byte path
+        // this file is careful about. `new` rather than `after_ascii_run`: the
+        // truthful state is `prev = Some(Other)` and the two are
+        // observationally equivalent here, which is the argument
+        // `ClusterBreak::after_ascii_run` exists to carry.
+        self.cluster = ClusterBreak::new();
         let k = n.index();
         #[cfg(feature = "ceiling-no-text")]
         {
@@ -337,6 +352,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// The vectored form, for a run long enough to fill a store.
     #[inline(always)]
     fn blit(&mut self, from: BytePos, n: ByteLen) {
+        // Told for the same reason `piece` is, and once per run.
+        self.cluster = ClusterBreak::new();
         // No clip: `text` sized the piece to the row before calling. Clipping
         // here is what silently dropped the tail of a long line.
         let k = n.index();
@@ -486,7 +503,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the two CJK recordings. The gate stays in `glyph`; the work does not.
     #[cold]
     #[inline(never)]
-    fn attach(&mut self, cp: Codepoint) {
+    pub(crate) fn attach(&mut self, cp: Codepoint) {
         // A continuation with nothing before it on the line has no base.
         // Dropping it is correct: `[[source: uax29]]` GB1 puts a boundary at
         // start of text, so it is its own cluster and there is no cell for it.

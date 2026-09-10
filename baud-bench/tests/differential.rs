@@ -337,24 +337,17 @@ fn the_glyph_gap_is_pinned() {
         ("ascii/less-pager.raw", 0),
         ("utf8/btop.raw", 0),
         ("utf8/cava.raw", 0),
-        // **The clustering two**, and what is left of them is the *break
-        // decision* rather than the width. Suppressing zero-width cells took
-        // cat-cjk 355 -> 266 and vim 517 -> 297; the residue is GB9a
-        // `SpacingMark` and GB12/13 regional-indicator pairing, which are
-        // NARROW and WIDE and so need the machine that `Classified` already
-        // has the operands for. Zero when `baud-core` asks it.
-        ("utf8/cat-cjk.raw", 266),
-        ("utf8/vim-unicode.raw", 297),
-        // **`less-cjk` is not a third, and it never was.** Its 2,185 was
-        // entirely the alternate screen: `less` draws CJK in it and then
-        // exits, so core2's final screen is the restored primary and
-        // `baud-core` was showing what `less` had drawn. Parking the primary
-        // took it to zero in one step, which is what says the gap was never
-        // clustering -- and this file recorded it under "the clustering three"
-        // for as long as it stood.
-        //
-        // It is listed below rather than here because the row is now
-        // **blank against blank** and pins nothing at all.
+        // **Zero, all nine.** These were the last three: 355, 517 and 452
+        // cells of clustering, closed by giving `baud-core` the UAX #29 break
+        // decision on the operands `Classified::of` was already returning and
+        // discarding. Every recording in the corpus now renders cell for cell
+        // as `baud-core2` renders it.
+        ("utf8/cat-cjk.raw", 0),
+        ("utf8/vim-unicode.raw", 0),
+        // `less-cjk`'s end-of-stream row is blank against blank and pins
+        // nothing -- see `ENDS_BLANK` and
+        // `less_cjk_agrees_where_its_content_is`, which compares it where its
+        // content is.
         ("utf8/less-cjk.raw", 0),
     ] {
         let b = recording(name);
@@ -722,7 +715,7 @@ fn less_cjk_agrees_where_its_content_is() {
         "nothing on screen at the exit: {content} cells"
     );
     let d = (0..x.len()).filter(|&i| x[i] != y[i]).count();
-    assert_eq!(d, 311, "less-cjk's clustering gap moved");
+    assert_eq!(d, 0, "less-cjk's clustering gap moved");
 }
 
 /// **A combining mark takes no cell, and the codepoint is recoverable.**
