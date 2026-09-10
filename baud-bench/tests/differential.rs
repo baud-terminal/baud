@@ -401,6 +401,33 @@ fn row_pair(bytes: &[u8], y: usize) -> (String, String) {
     (take(&a), take(&b))
 }
 
+// ── The fixture payloads ──────────────────────────────────────────────────
+//
+// **Named once, because two tests drive each of them.** The gap test below
+// pins what the two cores disagree about at one read size;
+// `every_fixture_renders_the_same_at_every_read_size` drives the identical
+// bytes at eight. A payload spelled twice would let those two answer for
+// different streams, which is the shape this file already records for a
+// benchmark and a differential quoting the same recording name.
+
+/// HT against three stop regimes: the default table, one stop set at column 6,
+/// and no stops at all.
+const TAB: &[u8] = b"a\tb\tc\r\n\x1b[3g\x1b[6GX\x1bH\x1b[1GA\tB\r\n\x1b[3gP\tQ";
+
+/// Enter the alternate screen over two used rows, write in it, leave.
+/// The `!` after the exit pins the DECRC half of `?1049l`, which does work.
+const ALT: &[u8] = b"PRIMARY\r\nSECOND\x1b[?1049hALT\x1b[?1049l!";
+
+/// Designation into each slot against invocation with SI/SO.
+const CHARSET: &[u8] =
+    b"\x1b)0qqq\r\n\x0eqqq\r\n\x0fqqq\r\n\x1b(0qqq\r\n\x1b(Bqqq\r\n\x1b)0q\x0eq\x0fq\r\n";
+
+/// Every way a control string can end: BEL, ST, an embedded C0, CAN and SUB.
+const OSC: &[u8] = b"\x1b]0;title\x07AAA\r\n\x1b]0;title\x1b\\BBB\r\n\x1b]8;;http://example.com\x1b\\CCC\x1b]8;;\x1b\\DDD\r\n\x1b]0;a\nb\rc\x07EEE\r\n\x1b]0;t\x18FFF\x07GGG\r\n\x1b]0;t\x1aHHH\x07III";
+
+/// CAN and SUB inside a CSI, and CAN straight after a bare ESC.
+const CANCEL: &[u8] = b"\x1b[1;5\x18~ab\r\n\x1b[1;5\x1a~cd\r\n\x1b\x18~ef";
+
 /// **HT is dropped, and the tab machinery it should reach is already there.**
 ///
 /// `baud-core`'s `c0()` names `0x0a`/`0x0b`/`0x0c`, `0x0d` and `0x08`, and
@@ -423,7 +450,7 @@ fn a_tab_moves_the_cursor_the_way_core2_moves_it() {
     // column 6, `HTS` sets a stop *there*, so the tab from column 1 lands on
     // 6 rather than on 8. Row 2: stops cleared and never re-set, so HT runs to
     // the right margin.
-    let bytes = b"a\tb\tc\r\n\x1b[3g\x1b[6GX\x1bH\x1b[1GA\tB\r\n\x1b[3gP\tQ";
+    let bytes = TAB;
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert!(
@@ -463,7 +490,7 @@ fn leaving_the_alternate_screen_restores_the_primary() {
     // -- `SECOND` gone -- which says the *entry* clear destroyed it. The `!`
     // after the exit lands at (1,6) in both cores and must stay equal: it pins
     // the DECRC half of `?1049l`, which does work.
-    let bytes = b"PRIMARY\r\nSECOND\x1b[?1049hALT\x1b[?1049l!";
+    let bytes = ALT;
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
@@ -495,8 +522,7 @@ fn leaving_the_alternate_screen_restores_the_primary() {
 /// discrimination this shape was chosen for.
 #[test]
 fn designating_a_charset_is_not_invoking_it() {
-    let bytes =
-        b"\x1b)0qqq\r\n\x0eqqq\r\n\x0fqqq\r\n\x1b(0qqq\r\n\x1b(Bqqq\r\n\x1b)0q\x0eq\x0fq\r\n";
+    let bytes = CHARSET;
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
@@ -525,7 +551,7 @@ fn designating_a_charset_is_not_invoking_it() {
 /// text.
 #[test]
 fn a_control_string_ends_where_the_specification_says_it_does() {
-    let bytes = b"\x1b]0;title\x07AAA\r\n\x1b]0;title\x1b\\BBB\r\n\x1b]8;;http://example.com\x1b\\CCC\x1b]8;;\x1b\\DDD\r\n\x1b]0;a\nb\rc\x07EEE\r\n\x1b]0;t\x18FFF\x07GGG\r\n\x1b]0;t\x1aHHH\x07III";
+    let bytes = OSC;
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 4);
     assert_eq!(
@@ -558,7 +584,7 @@ fn a_control_string_ends_where_the_specification_says_it_does() {
 /// forgetting it, which is how all six forgot it in the first place.
 #[test]
 fn a_cancel_outside_a_string_cancels_the_sequence() {
-    let bytes = b"\x1b[1;5\x18~ab\r\n\x1b[1;5\x1a~cd\r\n\x1b\x18~ef";
+    let bytes = CANCEL;
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
@@ -566,4 +592,40 @@ fn a_cancel_outside_a_string_cancels_the_sequence() {
         0,
         "the cancel gap moved.\n  core2: {x:?}\n  new  : {y:?}",
     );
+}
+
+/// **The gap tests drive one read size, and it is the one where the
+/// accelerated path is live.**
+///
+/// `diff_at` renders `baud-core` at 4096, so every pin above says the two
+/// cores agree *at that chunk*. It says nothing about whether `fast_csi` and
+/// `fast_esc` -- which take a whole sequence in one loop iteration -- agree
+/// with the graph they are allowed to decline to. That contract is
+/// **may only decline, never disagree**, and this repo has paid for the
+/// alternative once: `csi_whole` leaked half-parsed parameters on the way out.
+///
+/// Read size is the instrument that separates them. **At `CHUNK=1` the
+/// accelerated path can never fire**, because a whole sequence is never in one
+/// read; at 400000 it always does. So identical cells across the range means
+/// both paths render the same screen.
+///
+/// It matters most for exactly these payloads: `0x18` and `0x1a` appear in no
+/// recording in the corpus, so the chunk sweep run over `tests/recordings/`
+/// cannot say anything at all about the bytes the cancel edge changed.
+#[test]
+fn every_fixture_renders_the_same_at_every_read_size() {
+    for (name, bytes) in [
+        ("tab", TAB),
+        ("alt", ALT),
+        ("charset", CHARSET),
+        ("osc", OSC),
+        ("cancel", CANCEL),
+    ] {
+        let want = new_screen(bytes, 4096);
+        for k in [1usize, 2, 3, 5, 17, 512, 4096, 400_000] {
+            let got = new_screen(bytes, k);
+            let d = (0..want.len()).filter(|&i| want[i] != got[i]).count();
+            assert_eq!(d, 0, "{name}: chunk {k} renders differently from 4096");
+        }
+    }
 }

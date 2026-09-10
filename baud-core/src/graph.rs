@@ -982,6 +982,57 @@ mod classes {
         }
     }
 
+    /// **Every node that must cancel does, checked against the shipped table
+    /// rather than against the function that built it.**
+    ///
+    /// The rule lives in one place in [`one`] and therefore cannot be
+    /// half-applied -- but nothing enforced that it stays in one place, and
+    /// the shape it had before was six node functions each remembering it,
+    /// which all six got wrong. The two differential fixtures drive `CsiParam`,
+    /// `Escape` and `Str`; **`CsiEntry`, `CsiInter`, `CsiIgnore` and `StrEsc`
+    /// are reached by no payload in the repository**, so a refactor that
+    /// pushed the test back into the node functions would leave four nodes
+    /// broken and every test green.
+    ///
+    /// This is exhaustive over both encodings and all eleven nodes, so the
+    /// claim is a gate rather than a comment.
+    #[test]
+    fn can_and_sub_cancel_from_every_node_that_is_not_ground_like() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in Node::FROM_INDEX {
+                let ground_like = matches!(
+                    node,
+                    Node::Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+                );
+                for b in [StreamByte::CAN, StreamByte::SUB] {
+                    let got = Edge::of(enc, node, b);
+                    match ground_like {
+                        // Nothing to cancel: `Ground` consumes it as an
+                        // unrouted C0, and mid-character it is a byte that
+                        // cannot continue the character, so the partial one
+                        // becomes a replacement and the byte is re-dispatched
+                        // from `Ground` without being swallowed.
+                        true => assert_eq!(
+                            got,
+                            match node {
+                                Node::Ground => edge(Act::Consume, Node::Ground),
+                                _ => edge(Act::Resync, Node::Ground),
+                            },
+                            "{node:?} {enc:?} byte {:#04x}",
+                            b.raw_byte()
+                        ),
+                        false => assert_eq!(
+                            got,
+                            edge(Act::Consume, Node::Ground),
+                            "{node:?} {enc:?} byte {:#04x} does not cancel",
+                            b.raw_byte()
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
     /// The measured count, pinned. `CLASSES^4` is what a four-byte window
     /// costs as a perfect index.
     ///
