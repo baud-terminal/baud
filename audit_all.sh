@@ -58,6 +58,11 @@ sig=0
 # `baud-core/src` would have reported the count dropping from 8 to 2 and called
 # it progress. That is the "instrumentation outlived what fed it" failure this
 # repo already records: the gate must follow the code in the same commit.
+files=$(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' 2>/dev/null | sort)
+if [ -z "$files" ]; then
+  echo "  FAIL baud-core2/src: no sources found -- this gate audited nothing"
+  fail=1
+fi
 for f in $(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' | sort); do
   out=$(python3 impl_audit.py "$f")
   n=$(echo "$out" | grep '^  total' | awk '{print $2}')
@@ -113,6 +118,11 @@ fi
 # re-scoping.
 new=0
 newsig=0
+files=$(find baud-core/src -name '*.rs' 2>/dev/null | sort)
+if [ -z "$files" ]; then
+  echo "  FAIL baud-core/src: no sources found -- this gate audited nothing"
+  fail=1
+fi
 for f in $(find baud-core/src -name '*.rs' 2>/dev/null | sort); do
   out=$(python3 impl_audit.py "$f")
   n=$(echo "$out" | grep '^  total' | awk '{print $2}')
@@ -142,6 +152,11 @@ fi
 # sites than 4 did. The real fix is to teach impl_audit.py the difference
 # between a field and a parameter.
 bench=0
+files=$(find baud-bench/src -name '*.rs' 2>/dev/null | sort)
+if [ -z "$files" ]; then
+  echo "  FAIL baud-bench/src: no sources found -- this gate audited nothing"
+  fail=1
+fi
 for f in $(find baud-bench/src -name '*.rs' | sort); do
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
   bench=$((bench + n))
@@ -155,9 +170,24 @@ else
 fi
 
 for f in baud-core2/tests/*.rs baud-difftest/src/main.rs; do
+  # **A gate that cannot find its input must fail, not pass.** An unmatched
+  # glob passes through literally in bash, so with `baud-core2` deleted this
+  # loop would run `impl_audit.py` on the pattern itself, `n` would come back
+  # empty, `[ "$n" -gt 0 ]` would error, and the `else` branch would print
+  # `ok` -- a gate reporting success having audited nothing. Same family as
+  # `inf x amplification`, the stale `scan path: AVX2` and `fast_hit`, and the
+  # one that was going to bite on the commit that finally removes core2.
+  if [ ! -f "$f" ]; then
+    echo "  FAIL $f: no such file -- this gate audited nothing"
+    fail=1
+    continue
+  fi
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
   limit=0
-  if [ "$n" -gt "$limit" ]; then
+  if [ -z "$n" ]; then
+    echo "  FAIL $f: the audit produced no count"
+    fail=1
+  elif [ "$n" -gt "$limit" ]; then
     echo "  FAIL $f: $n raw-integer sites (limit $limit)"
     fail=1
   else
