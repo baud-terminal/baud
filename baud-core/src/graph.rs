@@ -701,11 +701,23 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // consumed to its terminator and then ignored -- consumed is the half
         // that matters, because a DCS body reaching the screen would render an
         // application's private protocol as glyphs.
+        // **A C0 or `DEL` in the prefix is ignored, and the prefix survives
+        // it.** Both of these sent anything unrecognised to `Str`, so a `DEL`
+        // between `ESC P` and the `$` turned a `DECRQSS` into a generic
+        // control string -- the request was dropped and the application got no
+        // reply, which for a *query* is the worst of the three outcomes.
+        //
+        // `[[source: williams]]`'s `dcs_entry`, `dcs_param` and
+        // `dcs_intermediate` all give `00-17`, `19`, `1C-1F` and `7F` the
+        // *ignore* action: the byte goes nowhere and the state does not move.
+        // `18` and `1A` are absent because the `anywhere` rule takes them
+        // first -- they cancel.
         Node::Dcs => {
             return match b.raw_byte() {
                 b'$' => edge(Act::Consume, Node::DcsDollar),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x07 => edge(Act::StrEnd, Node::Ground),
+                0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::Dcs),
                 _ => edge(Act::Consume, Node::Str),
             };
         }
@@ -714,6 +726,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 b'q' => edge(Act::DcsQuery, Node::Str),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x07 => edge(Act::StrEnd, Node::Ground),
+                0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
                 _ => edge(Act::Consume, Node::Str),
             };
         }
@@ -1187,6 +1200,13 @@ mod classes {
         // | VT52 -- seven nodes, three actions | 30/662/13,143/247,683 | +5.2% |
         // | `Act::Bell` -- BEL counted, not consumed | 30/921/13,339/255,588 | +3.2% |
         // | **the 8-bit C1 controls, routed** | **34/921/22,619/522,818** | **+105%** |
+        // | C0 and `DEL` ignored in a DCS prefix | **34/958/24,113/566,827** | +8.4% |
+        //
+        // The last row added **no class at stride 1** -- `Act::Consume` with a
+        // different next node, the cheapest kind of edge this graph has, the
+        // same shape `CAN`/`SUB` took. Stride 1 is unchanged at 34 and every
+        // wider stride grows, because what changed is which *node* a byte
+        // leaves the prefix in, and that is only visible to a word.
         //
         // **That last row is the largest move the ladder has recorded, and it
         // added no `Act` at all.** `80..9F` under Latin-1 stopped being one
@@ -1253,9 +1273,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 921, "stride 2");
-        assert_eq!(three.len(), 22_619, "stride 3");
-        assert_eq!(four.len(), 522_818, "stride 4");
+        assert_eq!(two.len(), 958, "stride 2");
+        assert_eq!(three.len(), 24_113, "stride 3");
+        assert_eq!(four.len(), 566_827, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a

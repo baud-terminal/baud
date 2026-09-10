@@ -485,6 +485,29 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = self.row_written.max(self.cx);
     }
 
+    /// Advance past a character just written, leaving the pending-wrap
+    /// sentinel only where `DECAWM` can consume it.
+    ///
+    /// **With `DECAWM` off there is no sentinel**, because nothing will ever
+    /// wrap: the cursor stays *on* the last writable column and further
+    /// characters overwrite it. Advancing to `right + 1` there left every
+    /// later operation addressing off the row -- `ICH` inserted its blank
+    /// outside the margin, so the test that found this asserts on `ICH` rather
+    /// than on the cursor: an operation is the only thing that can tell where
+    /// the cursor *really* is.
+    ///
+    /// `Term::cursor` clamps the same value for the same reason, and `CPR` now
+    /// does too. Three places, one sentinel, and this is the one that stops it
+    /// being created.
+    #[inline(always)]
+    fn advance(&mut self, need: Count) {
+        let to = self.cx.index() + need.index();
+        self.cx = match self.cold.modes.is_set(ModeBit::AutoWrap) {
+            true => Col::at_index(to),
+            false => Col::at_index(to.min(self.cold.right.index())),
+        };
+    }
+
     /// A cell that was **looked up, not computed** -- content and width came
     /// from one load into the three-byte table, so nothing here decodes,
     /// classifies or constructs a codepoint.
@@ -516,7 +539,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             }
         }
         self.cells = self.cells.plus(need);
-        self.cx = Col::at_index(self.cx.index() + need);
+        self.advance(Count::of(need));
         self.row_written = self.row_written.max(self.cx);
     }
 
@@ -601,7 +624,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             }
         }
         self.cells = self.cells.plus(need);
-        self.cx = Col::at_index(self.cx.index() + need);
+        self.advance(Count::of(need));
         self.row_written = self.row_written.max(self.cx);
     }
 

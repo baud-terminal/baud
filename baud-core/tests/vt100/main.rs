@@ -20,65 +20,24 @@ mod private_modes;
 mod scrolling;
 mod tabs;
 
-/// **The VT100 gaps `baud-core` still has, pinned as a list.**
+/// **No gaps, and the gate stays so a new one has to say so.**
 ///
-/// Moving `baud-core2`'s suite across found six capability gaps and two
-/// defects; five are closed and three are not, and an `#[ignore]` with a
-/// reason is how a known gap stays visible without a red build. On its own
-/// that is the probe-that-cannot-fire this repo records seven times -- an
-/// ignore nobody counts is a test nobody runs -- so the list is asserted.
+/// Both closed, and neither was an accessor:
 ///
-/// A third ignore fails this. Fixing one of the two fails it too, which is
-/// the point: the pin has to move when the gap does, in either direction.
-/// Same instrument as `the_glyph_gap_is_pinned`, which pins non-zero gaps at
-/// what they *are* rather than asserting zero.
-///
-/// What each one is:
-///
-/// * **DECAWM off leaves the cursor one past the last column**, where it
-///   should stay on it. `ICH` then acts off the row.
-/// * **`?45` reverse wraparound is not recorded**, so `DECRQM` answers `0`.
-///   Recording it without acting on it would be the worse half, so this is a
-///   feature rather than an accessor.
+/// * **`DECAWM` off left the cursor one past the last column.** The
+///   pending-wrap sentinel only makes sense where something will wrap, and
+///   with `DECAWM` off nothing will -- so `ICH` inserted its blank off the
+///   row. The test asserts on `ICH` rather than on the cursor, because an
+///   operation is the only thing that can say where the cursor *really* is.
+///   Fixing it found a second bug: `Term::resize` reset the vertical margins
+///   and not the side ones, so a resize from 200 columns to 8 left the write
+///   path believing it had 192 more than the grid has.
+/// * **`?45` reverse wraparound.** Recorded nowhere, so `DECRQM` answered `0`
+///   -- correctly, because recording a mode nothing acts on is the failure
+///   `docs/vt-coverage.md` rates worst. The bit and the behaviour landed
+///   together: a `BS` at the left margin now moves to the right margin of the
+///   previous line, bounded by the scrolling region's top rather than by row 0.
 #[test]
-fn the_known_vt100_gaps_are_these_two() {
-    let mut ignored = Vec::new();
-    for f in [
-        "c0.rs",
-        "charsets.rs",
-        "cursor.rs",
-        "erase.rs",
-        "irm.rs",
-        "modes.rs",
-        "private_modes.rs",
-        "scrolling.rs",
-        "tabs.rs",
-    ] {
-        let p = format!("{}/tests/vt100/{f}", env!("CARGO_MANIFEST_DIR"));
-        let src = std::fs::read_to_string(&p).expect("suite file");
-        for (i, line) in src.lines().enumerate() {
-            if line.trim_start().starts_with("#[ignore") {
-                let name = src
-                    .lines()
-                    .skip(i)
-                    .find_map(|l| {
-                        l.trim_start()
-                            .strip_prefix("fn ")
-                            .map(|n| n.split('(').next().unwrap_or(n).to_string())
-                    })
-                    .unwrap_or_else(|| "<no fn follows>".into());
-                ignored.push(name);
-            }
-        }
-    }
-    ignored.sort();
-    assert_eq!(
-        ignored,
-        [
-            "autowrap_off_leaves_the_cursor_on_the_last_column",
-            "decrqm_reports_each_mode",
-        ],
-        "the ignore list moved -- a gap was added or closed, and this pin has \
-         to move with it"
-    );
+fn the_known_vt100_gaps() {
+    support::ignores_are("vt100", &["cursor.rs", "private_modes.rs"], &[]);
 }

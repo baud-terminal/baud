@@ -14,24 +14,24 @@ mod param_overflow;
 mod rep_align;
 mod subparams;
 
-/// One, about what the parameter walk hands on.
+/// **No gaps, and the gate stays so a new one has to say so.**
 ///
-/// **`REP` closed, and it was two defects rather than the one recorded here.**
-/// `blit` writes eight cells to a store and never recorded what it wrote, so
-/// whether `REP` worked depended on how long the run before it was -- the
-/// short-run path goes through `glyph`, which did. And `last_cp` lived only on
-/// `Paint`, which is built once per `feed`, so it did not survive a read
-/// boundary either: `ab` then `CSI 3 b` in two reads repeated nothing where
-/// the same bytes in one read repeat correctly.
+/// Both were about what the parameter walk hands on, and both were deliberate
+/// trades whose reasons did not survive being tested:
 ///
-/// * A parameter past `NPARAM` is merged into the last slot rather than
-///   dropped, so `CSI 1;2;...;40 m` applies an attribute nobody sent.
-
+/// * **A parameter past capacity overwrote the last one.** `sep` saturated at
+///   the final real slot, so `CSI 0;...;1;4 m` applied the underline and lost
+///   the bold -- the opposite of truncation. The comment called it a trade
+///   against "a bounds check on the hot path for input no application sends",
+///   and the trade was unnecessary: **one more array element** is the same
+///   thing with no branch, because everything past capacity folds into a slot
+///   nothing reads.
+/// * **`REP` after a bulk run repeated nothing.** `blit` writes eight cells to
+///   a store and never recorded what it wrote -- only `glyph` did, which is the
+///   short-run path, so whether `REP` worked depended on how long the run
+///   before it was. Fixing that found a second half: `last_cp` did not survive
+///   a read boundary either.
 #[test]
 fn the_known_sgr_gaps() {
-    support::ignores_are(
-        "sgr",
-        &["param_overflow.rs", "rep_align.rs"],
-        &["the_parameter_past_capacity_is_dropped_not_merged"],
-    );
+    support::ignores_are("sgr", &["param_overflow.rs", "rep_align.rs"], &[]);
 }

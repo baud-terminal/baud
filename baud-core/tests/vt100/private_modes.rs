@@ -171,7 +171,6 @@ fn legacy_alt_screen_does_not_save_the_cursor() {
 /// Every one of these is reported by DECRQM, which is what makes them
 /// discoverable rather than merely present.
 #[test]
-#[ignore = "baud-core does not record ?45 reverse wraparound -- see the_known_vt100_gaps_are_these_three"]
 fn decrqm_reports_each_mode() {
     let ask = |b: &[u8]| {
         let mut t = T {

@@ -233,7 +233,6 @@ fn text_after_a_dcs_still_prints() {
 /// controls are executed immediately". Same byte, different state, different
 /// rule — which is exactly why the states are separate.
 #[test]
-#[ignore = "baud-core does not ignore C0/DEL inside a DCS prefix -- see the_known_vt220_gaps"]
 fn a_c0_in_the_dcs_prefix_does_not_discard_it() {
     assert_eq!(
         replies(b"\x1bP\x00$qm\x1b\\"),
@@ -248,7 +247,6 @@ fn a_c0_in_the_dcs_prefix_does_not_discard_it() {
 
 /// DEL likewise.
 #[test]
-#[ignore = "baud-core does not ignore C0/DEL inside a DCS prefix -- see the_known_vt220_gaps"]
 fn a_del_in_the_dcs_prefix_does_not_discard_it() {
     assert_eq!(
         replies(b"\x1bP\x7f$qm\x1b\\"),

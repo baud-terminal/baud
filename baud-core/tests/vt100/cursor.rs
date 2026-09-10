@@ -153,7 +153,6 @@ fn scosc_and_decsc_share_a_slot() {
 /// the same text taken by the run scanner. Invisible in `cursor()`, which
 /// clamps; visible to the next operation that acts at the cursor.
 #[test]
-#[ignore = "baud-core leaves the cursor one past the last column with DECAWM reset -- see the_known_vt100_gaps_are_these_three"]
 fn autowrap_off_leaves_the_cursor_on_the_last_column() {
     // DECAWM off, cursor to the last column, more text than fits, then `ICH` --
     // which inserts a blank *at the cursor* and so reports where it actually

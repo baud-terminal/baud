@@ -33,6 +33,14 @@ pub struct Saved {
     /// the restore away.
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
+    /// **`DECSCA`'s protection, which is not the same word as `flags`.**
+    /// `[[source: vt510-decsc]]` lists "selective erase attribute" among what
+    /// `DECSC` saves. `flags` is what the write path stamps into a cell and
+    /// `protect` is the bit `DECSCA` sets for the *next* write; saving only
+    /// the first meant a `DECRC` restored the rendition and left the
+    /// protection wherever the stream had since moved it, so a selective erase
+    /// after a restore spared the wrong cells.
+    pub(crate) protect: CellFlags,
     /// DECAWM, because `[[source: vt510-decsc]]` lists "Wrap flag (autowrap or
     /// no autowrap)" among the seven things DECSC saves.
     pub(crate) autowrap: ModeChange,
@@ -521,6 +529,18 @@ impl<'b> Term<'b> {
         self.cx = Col::ZERO;
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
+        // **The side margins go with the vertical ones**, and leaving them was
+        // worse than leaving a scrolling region: `cold.right` is what `room()`
+        // and every wrap test read, so a resize from 200 columns to 8 left the
+        // write path believing it had 192 more than the grid has. A stale
+        // region is a region; a stale *margin* is an addressing error.
+        //
+        // Found by `autowrap_off_leaves_the_cursor_on_the_last_column`, which
+        // resizes to 4x8 first -- the margins work added the field and reset it
+        // on `RIS` and `DECSTR` and missed the third place that changes the
+        // geometry.
+        self.cold.left = Col::ZERO;
+        self.cold.right = Col::at_index(cols.index().saturating_sub(1));
         // Before the blanks, and both of them.
         self.rot = RowRot::NONE;
         self.store.alt.rot = RowRot::NONE;

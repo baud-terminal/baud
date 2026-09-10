@@ -105,19 +105,23 @@ fn links_and_styles_are_independent() {
 
 /// A link survives a wrap onto the next line.
 #[test]
-#[ignore = "baud-core loses the OSC 8 link across a wrap -- see the_known_xterm_gaps"]
 fn a_link_survives_a_wrap() {
     let mut v = b"\x1b]8;;http://a\x1b\\".to_vec();
     v.extend(std::iter::repeat(b'x').take(205));
     let s = run(&v);
     assert!(s.uris[0].is_some());
-    // Row 1, column 0 is index 2048.
+    // **Row 1, column 0 -- at the live stride, not at `MAX_COLS`.** This read
+    // index `2048` and found a cell no addressing path can reach: core2 strides
+    // by the maximum, this core by the live column count, which is worth +14%
+    // on anything that scrolls. Fifth instance of that porting bug, and the
+    // reason `support` hands back the stride beside the cells.
     let ws = support::CORPUS;
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
     t.write_at(BytePos::ZERO, &v);
     t.feed(BytePos::ZERO, ReadLen::from_index((&v).len()));
-    let wrapped = t.viewport()[2048];
+    let w = t.stride().index();
+    let wrapped = t.viewport()[w];
     assert!(
         t.link_uri(wrapped.flags.link()).is_some(),
         "the wrapped cells are still in the link"

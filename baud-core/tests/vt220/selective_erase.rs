@@ -223,7 +223,6 @@ fn decstr_clears_protection() {
 /// save keeps, so a program can set protection, save, change it, restore, and
 /// find the original in force.
 #[test]
-#[ignore = "baud-core does not carry DECSCA protection through DECSC/DECRC -- see the_known_vt220_gaps"]
 fn decsc_and_decrc_carry_the_protection() {
     // Protect, save, unprotect, restore, then write: the write must be
     // protected because the restore brought DECSCA 1 back.

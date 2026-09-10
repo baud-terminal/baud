@@ -59,7 +59,6 @@ fn the_capacity_covers_the_longest_reply_baud_emits() {
 /// clear. A digit merge turns the last one into `14` -- a font selection --
 /// and loses bold, which is how the bug announced itself.
 #[test]
-#[ignore = "baud-core merges rather than drops a parameter past capacity -- see the_known_sgr_gaps"]
 fn the_parameter_past_capacity_is_dropped_not_merged() {
     let mut p = b"\x1b[".to_vec();
     for _ in 0..ParamIdx::CAPACITY - 1 {

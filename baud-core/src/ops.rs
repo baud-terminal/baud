@@ -48,6 +48,7 @@ impl Paint<'_, '_> {
             flags: self.flags,
             g: self.cold.g,
             gl: self.cold.gl,
+            protect: self.cold.protect,
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
         }
@@ -65,6 +66,7 @@ impl Paint<'_, '_> {
         self.flags = s.flags;
         self.cold.g = s.g;
         self.cold.gl = s.gl;
+        self.cold.protect = s.protect;
         self.invoke();
         // **The two flags DECSC saves that neither core restored.**
         // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
@@ -675,6 +677,7 @@ impl Paint<'_, '_> {
             // clearing it puts the margins back rather than leaving a region
             // no mode admits to. `[[source: ctlseqs]]` for `?69 l`: "disable
             // left and right margin mode".
+            PrivateMode::ReverseWrap => self.cold.modes.apply(ModeBit::ReverseWrap, on),
             PrivateMode::LeftRightMargin => {
                 self.cold.modes.apply(ModeBit::SideMargins, on);
                 if !on {
@@ -968,6 +971,7 @@ impl Paint<'_, '_> {
                 InputEncoding::Utf8 => ModeState::Set,
                 InputEncoding::Latin1 => ModeState::Reset,
             },
+            PrivateMode::ReverseWrap => bit_state(self.cold.modes, ModeBit::ReverseWrap),
             PrivateMode::LeftRightMargin => bit_state(self.cold.modes, ModeBit::SideMargins),
             PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => {

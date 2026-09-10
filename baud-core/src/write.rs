@@ -39,7 +39,18 @@ pub(crate) struct Csi {
     /// `Option`, because an omitted parameter is not a zero: `CSI 1;;4 m` has
     /// a hole in the middle and every operation defaults it differently --
     /// CUP to 1;1, SU to 1, SGR to 0, DECSTBM to the whole screen.
-    p: [Option<Param>; NPARAM],
+    /// **`NPARAM + 1`, and the extra slot is a bin.**
+    ///
+    /// `sep` used to saturate at the last real slot, so a sequence with more
+    /// parameters than this **overwrote** it -- `CSI 0;...;1;4 m` applied the
+    /// underline and lost the bold, which is the opposite of
+    /// `[[source: ecma48]]`'s "the parameter string is truncated". The comment
+    /// on `sep` called it a deliberate trade against "a bounds check on the hot
+    /// path for input no application sends"; the trade was not needed, because
+    /// one more array element buys the same thing with no branch at all.
+    ///
+    /// Everything past capacity folds into index `NPARAM` and nothing reads it.
+    p: [Option<Param>; NPARAM + 1],
     n: ParamIdx,
     /// Which parameters arrived after a `:` rather than a `;`. The colon form
     /// is a *group*, and without this `38:2:r:g:b` reads as `38;2;r;g;b` --
@@ -66,7 +77,7 @@ pub(crate) struct Csi {
 
 impl Csi {
     pub(crate) const NEW: Csi = Csi {
-        p: [None; NPARAM],
+        p: [None; NPARAM + 1],
         n: ParamIdx::FIRST,
         sub: SubParams::NONE,
         marker: Marker::Standard,
@@ -100,12 +111,12 @@ impl Csi {
         self.p[i] = Some(e.fold(self.p[i].unwrap_or(Param::ZERO)));
     }
 
-    /// **Saturating, not wrapping.** A sequence with more parameters than this
-    /// keeps overwriting the last one rather than walking off the array; the
-    /// alternative is a bounds check on the hot path for input no application
-    /// sends.
+    /// **Saturating into the bin, not over the last parameter.** Once `n`
+    /// reaches `NPARAM` every later digit folds into a slot nothing reads, so
+    /// the parameters past capacity are *dropped* -- which is what truncation
+    /// means -- rather than merged into the last storable one.
     fn sep(&mut self) {
-        if self.n.raw_index() + 1 < NPARAM {
+        if self.n.raw_index() < NPARAM {
             self.n = self.n.next();
         }
     }
@@ -327,9 +338,27 @@ pub(crate) fn act(
                 false => ReadLen::ONE,
             }
         }
+        // **`BS`, and `?45` is what it does at the left margin.**
+        // `[[source: ctlseqs]]`'s XTREVWRAP: "Reverse-wraparound mode" -- a
+        // backspace at the left margin moves to the **right margin of the
+        // previous line** instead of stopping. Off, it stops, which is the
+        // default and was the only behaviour.
+        //
+        // `?45` was *recorded nowhere*, so `DECRQM` answered `0` and
+        // `docs/vt-coverage.md` called it a gap rather than an accessor --
+        // correctly: recording a mode nothing acts on is the failure that file
+        // rates worst, so the bit and the behaviour had to land together.
+        //
+        // Bounded by the scrolling region's top, not by row 0: reverse-wrapping
+        // out of a region would put the cursor somewhere the application has
+        // told the terminal it is not drawing.
         Act::Backspace => {
-            if p.cx.index() > 0 {
+            if p.cx.index() > p.cold.left.index() {
                 p.cx = Col::at_index(p.cx.index() - 1);
+            } else if p.cold.modes.is_set(ModeBit::ReverseWrap) && p.cy.index() > p.cold.top.index()
+            {
+                p.cy = Row::from_index(p.cy.index() - 1);
+                p.cx = p.cold.right;
             }
             ReadLen::ONE
         }
@@ -1388,9 +1417,16 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
             Some(StatusKind::CursorPosition) => {
                 let base = p.origin_row().index();
                 let row = Row::from_index(p.cy.index().saturating_sub(base));
+                // **The last writable column, not the sentinel one past
+                // it.** With `DECAWM` on, the cursor parks one past the right
+                // margin until the next character wraps it, and `CPR`
+                // reported that -- a column the application cannot address,
+                // off the end of its own row. The same clamp `Term::cursor`
+                // carries, which is where this was found the first time.
+                let col = Col::at_index(p.cx.index().min(p.cold.right.index()));
                 p.want_reply(Report::CursorPosition {
                     row: row.one_based(),
-                    col: p.cx.one_based(),
+                    col: col.one_based(),
                 });
             }
             Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),

@@ -164,7 +164,6 @@ fn overflow_is_counted_not_silent() {
 /// cursor is and restores it later drifts by one column, silently, and only on
 /// lines that happen to be full.
 #[test]
-#[ignore = "baud-core does not clamp CPR at the pending-wrap column -- see the_known_vt220_gaps"]
 fn cpr_clamps_the_pending_wrap_sentinel() {
     let full: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
     let mut q = full.clone();
