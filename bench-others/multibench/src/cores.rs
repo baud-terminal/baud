@@ -109,6 +109,7 @@ pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
     let mut reply = vec![0u8; nb::REPLY];
     let mut alt = vec![nb::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![nb::RowExtent::ZERO; rows.index()];
+    let mut clusters = vec![nb::ClusterSlot::EMPTY; nb::NCLUSTER];
     let mut t = nb::Term::new(
         nb::Storage::new(
             &mut arena,
@@ -120,6 +121,7 @@ pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut clusters,
         ),
         &ws,
     );

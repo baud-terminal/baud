@@ -224,13 +224,53 @@ impl CellFlags {
     /// the cell to twelve. Three flag bits are in use and thirteen are not, so
     /// a link index fits with 13 bits of room, against `NLINK` of 128.
     const LINK_SHIFT: u16 = 3;
+    /// The link takes exactly the bits `NLINK = 128` needs, and no more.
+    ///
+    /// **It used to take all thirteen**, which was harmless while nothing else
+    /// wanted them and became a bug the moment something did: `link()` read
+    /// `self.0 >> 3` unmasked, so any bit above the link's own range came back
+    /// as part of the link index. Bounding it here is what makes the top six
+    /// bits available to [`ClusterId`] rather than a hazard.
+    const LINK_BITS: u16 = 7;
+    const LINK_MASK: u16 = (1 << CellFlags::LINK_BITS) - 1;
+    /// Where the cluster index lives: the six bits above the link.
+    const CLUSTER_SHIFT: u16 = CellFlags::LINK_SHIFT + CellFlags::LINK_BITS;
+    const CLUSTER_MASK: u16 = 0x3f;
 
     pub fn with_link(self, l: LinkId) -> CellFlags {
-        let flags = self.0 & ((1 << CellFlags::LINK_SHIFT) - 1);
-        CellFlags(flags | ((l.index() as u16) << CellFlags::LINK_SHIFT))
+        let keep = self.0 & !(CellFlags::LINK_MASK << CellFlags::LINK_SHIFT);
+        CellFlags(keep | ((l.index() as u16 & CellFlags::LINK_MASK) << CellFlags::LINK_SHIFT))
     }
     pub fn link(self) -> LinkId {
-        LinkId::from_index((self.0 >> CellFlags::LINK_SHIFT) as usize)
+        LinkId::from_index(((self.0 >> CellFlags::LINK_SHIFT) & CellFlags::LINK_MASK) as usize)
+    }
+
+    /// **The cluster this cell's continuations live under, carried *in* the
+    /// cell.**
+    ///
+    /// That placement is the whole design. `baud-core2` keys its marks on
+    /// *where the cell is* -- surface, physical row, column, generation -- and
+    /// an adversarial review reproduced what that costs: `Term::viewport`
+    /// un-rotates the grid in place and does not move the table with it, so a
+    /// renderer reading **one frame** loses a cell's marks and the next write
+    /// to that address inherits a stranger's. An index that rides in the cell
+    /// survives rotation, `viewport` and the alternate screen for free,
+    /// because it moves when the cell moves.
+    ///
+    /// Same shape as [`StyleId`] into the rendition table, which this codebase
+    /// already trusts: a bounded, content-addressed side table whose index is
+    /// in the cell.
+    pub fn with_cluster(self, c: ClusterId) -> CellFlags {
+        let keep = self.0 & !(CellFlags::CLUSTER_MASK << CellFlags::CLUSTER_SHIFT);
+        CellFlags(
+            keep | ((c.index() as u16 & CellFlags::CLUSTER_MASK) << CellFlags::CLUSTER_SHIFT)
+                | CellFlags::MARKED.0,
+        )
+    }
+    pub fn cluster(self) -> ClusterId {
+        ClusterId::from_index(
+            ((self.0 >> CellFlags::CLUSTER_SHIFT) & CellFlags::CLUSTER_MASK) as usize,
+        )
     }
     pub fn protection(on: bool) -> CellFlags {
         CellFlags(u16::from(on))
@@ -248,6 +288,20 @@ impl CellFlags {
     /// separately for the places that mean *only* the flags.
     pub fn bare(self) -> CellFlags {
         CellFlags(self.0 & ((1 << CellFlags::LINK_SHIFT) - 1))
+    }
+    /// Everything but the cluster index, for a write that replaces the cell's
+    /// content: a fresh character has no continuations, and leaving the old
+    /// index would hand it the previous occupant's.
+    ///
+    /// It is rarely needed, because every ordinary write builds a fresh
+    /// `PackedCell` from the terminal's current flags, which never carry a
+    /// cluster -- so **overwriting a cell un-records its continuations without
+    /// the write path doing anything**, which is the same property
+    /// `CellFlags::MARKED` was introduced for.
+    pub fn without_cluster(self) -> CellFlags {
+        CellFlags(
+            self.0 & !((CellFlags::CLUSTER_MASK << CellFlags::CLUSTER_SHIFT) | CellFlags::MARKED.0),
+        )
     }
     /// The byte, for the one place a flag set has to survive a round trip
     /// through [`Run`]'s fixed layout.
@@ -646,5 +700,171 @@ impl MarkSlot {
         self.cps[..(self.len as usize).min(MarkSlot::CAPACITY)]
             .iter()
             .filter_map(|c| Codepoint::new(*c))
+    }
+}
+
+/// Which interned cluster a cell's continuations live in, or none.
+///
+/// Zero is "no continuations", so a zeroed grid has none and there is no
+/// parallel validity array to keep in step -- the same trick [`LinkId`] and
+/// `ColorWord` already use.
+///
+/// **Six bits, and the bound is a consequence rather than a choice.**
+/// `PackedCell` is eight bytes because this file measured the ninth costing a
+/// round to twelve; `CellFlags` is the `u16` that used to be padding; three
+/// bits are flags and `NLINK = 128` needs seven. Six are left, so
+/// [`ClusterStore`] holds **63** distinct clusters at once.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ClusterId(u8);
+
+impl ClusterId {
+    pub const NONE: ClusterId = ClusterId(0);
+    pub fn from_index(i: usize) -> ClusterId {
+        ClusterId((i & 0x3f) as u8)
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// One interned cluster: the codepoints that follow a cell's base character.
+///
+/// **The base is not here.** It is in the cell's `Content`, so storing it again
+/// would be storing what the index already implies -- and comparing it on
+/// lookup is what lets an evicted slot be *detected* rather than believed.
+#[derive(Clone, Copy)]
+pub struct ClusterSlot {
+    /// The base character these continuations belong to.
+    ///
+    /// Checked on read against the cell's own content. A slot is only reused
+    /// by a cluster with the same continuations, so this cannot go stale under
+    /// the shipped policy -- it is here because "cannot" is a claim, and a
+    /// cheap check that turns a wrong answer into an empty one is worth more
+    /// than the claim.
+    pub base: Content,
+    len: u8,
+    cps: [u32; ClusterSlot::CAPACITY],
+}
+
+impl ClusterSlot {
+    /// A base plus this many continuations.
+    ///
+    /// **Eight, because a ZWJ family is seven codepoints.** `U+1F468 ZWJ
+    /// U+1F469 ZWJ U+1F467 ZWJ U+1F466` is a base and six attachments, and a
+    /// capacity of three -- justified once as "a base plus two accents, past
+    /// which no normal orthography stacks further" -- dropped three of them.
+    /// That reasoning was true of Latin, Devanagari and kana and false of
+    /// emoji, which are not orthography.
+    ///
+    /// It still does not cover every RGI sequence: a four-person family with a
+    /// skin tone on each member is eleven codepoints, and those lose their
+    /// tail. That is a bounded table behaving as one, stated rather than
+    /// implied by a number.
+    pub const CAPACITY: usize = 8;
+
+    pub const EMPTY: ClusterSlot = ClusterSlot {
+        base: Content::EMPTY,
+        len: 0,
+        cps: [0; ClusterSlot::CAPACITY],
+    };
+
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
+    pub fn marks(&self) -> impl Iterator<Item = u32> + '_ {
+        self.cps[..self.len as usize].iter().copied()
+    }
+    /// Whether this slot holds exactly these continuations under this base.
+    fn is(&self, base: Content, cps: &[u32]) -> bool {
+        self.len as usize == cps.len() && self.base == base && self.cps[..cps.len()] == *cps
+    }
+}
+
+/// A bounded, content-addressed store of clusters, indexed from the cell.
+///
+/// **It refuses rather than evicts, and that is the whole difference from the
+/// rendition table.** `StyleId` into `StyleWord` evicts on collision because a
+/// wrong colour renders wrong and is rewritten next frame; a wrong *cluster*
+/// puts somebody else's accent on your character and is unrecoverable by a
+/// renderer, a selection or a copy. So a collision is refused and counted, the
+/// way `OSC 52` clipboard reads are refused and counted: the answer is never
+/// wrong, and how often it is missing is a number.
+pub struct ClusterStore<'b> {
+    slots: &'b mut [ClusterSlot],
+    /// Clusters that did not fit. Never silent.
+    pub refused: usize,
+}
+
+impl<'b> ClusterStore<'b> {
+    pub fn new(slots: &'b mut [ClusterSlot]) -> ClusterStore<'b> {
+        ClusterStore { slots, refused: 0 }
+    }
+
+    /// The continuations `id` names, if it still names them.
+    pub fn get(&self, id: ClusterId, base: Content) -> Option<&ClusterSlot> {
+        let s = self.slots.get(id.index().checked_sub(1)?)?;
+        match !s.is_empty() && s.base == base {
+            true => Some(s),
+            false => None,
+        }
+    }
+
+    /// Intern `base` plus `cps`, returning the id to write into the cell.
+    ///
+    /// **Content-addressed: the same cluster twice is one slot.** A page of
+    /// repeated emoji costs one entry, which is the property position-keying
+    /// cannot have -- there, every occurrence of the same family is its own
+    /// slot and its own eviction.
+    pub fn intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
+        if cps.is_empty() || cps.len() > ClusterSlot::CAPACITY {
+            self.refused += 1;
+            return ClusterId::NONE;
+        }
+        let n = self.slots.len().min(63);
+        if n == 0 {
+            self.refused += 1;
+            return ClusterId::NONE;
+        }
+        // Multiplicative hash on the **high** bits, which is the correction
+        // this codebase already paid for once: `StyleId::bucket` masked the low
+        // bits and collided every SGR colour, because they are multiples of
+        // 0x101010.
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        h ^= u64::from(base.0);
+        h = h.wrapping_mul(0x1000_0000_01b3);
+        for c in cps {
+            h ^= u64::from(*c);
+            h = h.wrapping_mul(0x1000_0000_01b3);
+        }
+        let start = ((h >> 32) as usize) % n;
+        // Two probes, not a walk: a bounded table with a bounded probe cannot
+        // degrade into a scan under adversarial content.
+        for k in 0..2 {
+            let i = (start + k) % n;
+            if self.slots[i].is(base, cps) {
+                return ClusterId::from_index(i + 1);
+            }
+            if self.slots[i].is_empty() {
+                let mut s = ClusterSlot::EMPTY;
+                s.base = base;
+                s.len = cps.len() as u8;
+                s.cps[..cps.len()].copy_from_slice(cps);
+                self.slots[i] = s;
+                return ClusterId::from_index(i + 1);
+            }
+        }
+        self.refused += 1;
+        ClusterId::NONE
+    }
+
+    /// Forget everything. Every cell that named a slot is being blanked.
+    pub fn reset(&mut self) {
+        for s in self.slots.iter_mut() {
+            *s = ClusterSlot::EMPTY;
+        }
     }
 }

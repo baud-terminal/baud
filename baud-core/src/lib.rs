@@ -43,10 +43,12 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+pub use baud_domain::{ClusterId, ClusterSlot};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, Modifiers};
 pub use graph::Node;
 
 pub use storage::{
-    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NSTYLE, READ_CHUNK, REPLY, Storage,
+    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NCLUSTER, NSTYLE, READ_CHUNK, REPLY,
+    Storage,
 };
 pub use term::Term;

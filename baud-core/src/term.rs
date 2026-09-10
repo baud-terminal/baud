@@ -217,18 +217,18 @@ pub struct Term<'b> {
     /// silently lost: a truncated reply is a wrong answer, and this file's
     /// rule is that a wrong answer is worse than silence.
     pub reply_overflows: usize,
-    /// Zero-width codepoints received and **not stored**.
+    /// Zero-width codepoints received and **not stored**: a continuation with
+    /// no base on the line, a cluster past `ClusterSlot::CAPACITY`, or a
+    /// [`ClusterStore`] with no free slot for it.
     ///
-    /// A combining mark, a ZWJ or a variation selector gets no cell here --
-    /// which is what `baud-core2` does -- but this core has nowhere to attach
-    /// it, so the codepoint is dropped. **Counted, because the glyph
-    /// differential structurally cannot see the difference**: it compares cell
-    /// content and an attached mark writes no cell, so a core that stores them
-    /// and a core that discards them are the same to that gate.
+    /// **Counted, because the glyph differential structurally cannot see the
+    /// difference**: it compares cell content and a continuation writes no
+    /// cell, so a core that stores them and one that discards them are the
+    /// same to that gate. Same shape as `clipboard_reads_refused` -- baud
+    /// refuses, and says how often.
     ///
-    /// Same shape as `clipboard_reads_refused`, and for the same reason: an
-    /// embedder that wants to know can, and a gap that is counted is a gap
-    /// somebody can find. It goes to zero when a marks table lands.
+    /// It is no longer "every mark": most now land in [`ClusterStore`]. What
+    /// remains is that store's bound, stated as a number rather than implied.
     pub marks_dropped: usize,
     pub fast_try: usize,
     #[cfg(feature = "diag")]
@@ -419,6 +419,29 @@ impl<'b> Term<'b> {
     /// Drop the pending reply after sending it.
     pub fn clear_reply(&mut self) {
         self.reply_len = ByteLen::ZERO;
+    }
+
+    /// The codepoints attached to the cell at `(r, c)`, after its base.
+    ///
+    /// **Resolved through the grid, not from a position key.** The cell holds
+    /// the cluster index, so this is one load and a bounds check, and it is
+    /// correct after a scroll, after `viewport` and on either screen -- the
+    /// index moved when the cell moved. `baud-core2` answers the same question
+    /// from a table keyed on surface, physical row, column and generation, and
+    /// an adversarial review reproduced what that costs: one `viewport()` call
+    /// and the answer is empty, then a stranger's.
+    ///
+    /// Empty when the cell has no continuations, and empty rather than wrong
+    /// when the store refused the cluster -- the count is
+    /// [`Term::marks_dropped`].
+    pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = u32> + '_ {
+        let cell =
+            View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot).get(r, c);
+        self.store
+            .clusters
+            .get(cell.flags.cluster(), cell.content)
+            .into_iter()
+            .flat_map(|s| s.marks())
     }
 
     /// Encode a key press into the reply buffer.

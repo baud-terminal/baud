@@ -957,6 +957,41 @@ impl<'a> View<'a> {
     /// [`CellFlags::MARKED`], so overwriting a cell un-records its marks. That
     /// is the whole point of keeping the bit here rather than in the table --
     /// a table keyed on cell identity cannot see a cell rewritten in place.
+    /// Which cell owns the character at `c`. Mirrors [`ViewRef::lead`], which
+    /// is the definition; a `View` is a `ViewRef` that can also write, and a
+    /// caller holding one should not have to give up the write to ask.
+    pub fn lead(&self, r: Row, c: Col) -> LeadCol {
+        match c.index() > 0 && self.get(r, c).content.is_wide_tail() {
+            true => LeadCol(c.before()),
+            false => LeadCol(c),
+        }
+    }
+
+    /// The cell at `c`, for a caller that has to read its cluster before
+    /// extending it.
+    pub fn cell_at(&self, r: Row, c: LeadCol) -> PackedCell {
+        match r.index() < self.rows.index() && c.col().index() < self.cols.index() {
+            true => self.cells[self.phys(r) * self.stride.index() + c.col().index()],
+            false => PackedCell::EMPTY,
+        }
+    }
+
+    /// Point a cell at an interned cluster.
+    ///
+    /// Raises `RowExtent` for the same reason [`View::set_marked`] does, and
+    /// that reason is written out there: a cell carrying continuations is not
+    /// equal to the blank in front of it, so a row left non-uniform beyond its
+    /// own mark has a later erase skip it.
+    pub fn set_cluster(&mut self, r: Row, c: LeadCol, id: ClusterId) {
+        if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
+            return;
+        }
+        let p = self.phys(r);
+        let i = p * self.stride.index() + c.col().index();
+        self.cells[i].flags = self.cells[i].flags.with_cluster(id);
+        self.used[p] = self.used[p].reached(c.col().index() + 1);
+    }
+
     pub fn set_marked(&mut self, r: Row, c: LeadCol) {
         if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
             return;

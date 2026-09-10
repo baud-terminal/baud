@@ -82,19 +82,6 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) reply: &'a mut [u8],
     pub(crate) reply_len: ByteLen,
     pub(crate) reply_overflows: usize,
-    /// Zero-width codepoints this core received and **did not store**.
-    ///
-    /// **Counted because refusing is not the same as not knowing.** This core
-    /// suppresses a combining mark's cell -- which is what `baud-core2` does
-    /// -- but has nowhere to attach it, so the codepoint is dropped. The glyph
-    /// differential cannot see the difference: it compares cell *content*, and
-    /// an attached mark writes no cell. So a core that stores them and a core
-    /// that discards them are identical to that gate, which is the
-    /// probe-that-cannot-fire failure this file records four times, pre-loaded.
-    ///
-    /// This counter is what makes them distinguishable. Same shape as
-    /// `clipboard_reads_refused`: baud refuses, and says how often.
-    pub(crate) marks_dropped: usize,
     /// The parked primary screen, reached **once per alt-screen transition**
     /// and never by the per-character loop.
     ///
@@ -105,6 +92,18 @@ pub(crate) struct Paint<'a, 'b> {
     /// separately, and carrying it by reference is what that grouping buys on
     /// the other side.
     pub(crate) alt: &'a mut crate::storage::AltBuf<'b>,
+    /// Where a cluster's continuations go. Reached once per zero-width
+    /// codepoint, which ASCII never is.
+    ///
+    /// **One word, behind a pointer, and that is measured rather than tidy.**
+    /// Carried as a slice plus a counter -- three words -- it cost **4.2% on
+    /// asciiquarium and 2.9% on cava**, neither of which contains a single
+    /// zero-width codepoint, so neither can reach the code at all. `Paint` is
+    /// inlined into the per-byte loop and this file records that class twice
+    /// before: the span attempt and the row map, both 5-10% for two more words,
+    /// and both recovered by a thin reference. `AltBuf` was grouped for the
+    /// same reason one change earlier.
+    pub(crate) clusters: &'a mut ClusterStore<'b>,
     pub(crate) cold: &'a mut crate::term::Cold,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -206,6 +205,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             tabs,
             reply,
             alt,
+            clusters,
         } = store;
         // The three-byte cell table is read only by `put_run` under
         // `cell-table`; the default build must not carry a borrow of it.
@@ -220,8 +220,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             reply,
             reply_len,
             reply_overflows: 0,
-            marks_dropped: 0,
             alt,
+            clusters,
             cold,
             view: View::new(vp, used, stride, cols, rows, rot),
             cy,
@@ -401,7 +401,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // What it does not reproduce is *storing* the codepoint. core2
         // attaches it to the base cell; this drops it, and says so.
         if w == Width::ZERO {
-            self.marks_dropped += 1;
+            self.attach(cp);
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);
@@ -458,6 +458,71 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.cells = self.cells.plus(need);
         self.cx = Col::at_index(self.cx.index() + need);
         self.row_written = self.row_written.max(self.cx);
+    }
+
+    /// Attach a zero-width codepoint to the cell that owns the column before
+    /// the cursor.
+    ///
+    /// **Ask the grid which cell that is; do not compute it.** The cursor sits
+    /// after the character it just wrote, so one column back is that character
+    /// -- *unless it was double-width*, where one column back is its
+    /// `WIDE_TAIL`. `ViewRef::lead` answers with a [`LeadCol`], a type only it
+    /// can build, so "one column back" and "the cell that owns this position"
+    /// cannot be confused at a call site. `baud-core2` attached every ZWJ
+    /// sequence to the tail before that type existed, and no counter
+    /// disagreed: the marks were all stored, on the wrong cell.
+    ///
+    /// The cluster is **re-interned on every continuation**, because a cluster
+    /// is not known until the codepoint after it arrives. Six continuations of
+    /// a family cost six interns of a growing list, against the six hashes and
+    /// six probes a position key costs for the same family -- so this is not
+    /// more hashing than the design it replaces.
+    /// **`#[cold]` and out of line, for the reason `want_reply` is.** `glyph`
+    /// is inlined into the per-byte loop, so a body added here is paid by
+    /// every payload whether or not it runs -- this file records
+    /// `for w in [WIDE, NARROW]` costing 3.5% on pure ASCII that could not
+    /// execute it. Inlined, this cost **3.1% on asciiquarium and 4.1% on
+    /// cava**, neither of which contains a zero-width codepoint, and 15% on
+    /// the two CJK recordings. The gate stays in `glyph`; the work does not.
+    #[cold]
+    #[inline(never)]
+    fn attach(&mut self, cp: Codepoint) {
+        // A continuation with nothing before it on the line has no base.
+        // Dropping it is correct: `[[source: uax29]]` GB1 puts a boundary at
+        // start of text, so it is its own cluster and there is no cell for it.
+        if self.cx == Col::ZERO {
+            self.clusters.refused += 1;
+            return;
+        }
+        let (r, owner) = (self.cy, self.view.lead(self.cy, self.cx.before()));
+        let cell = self.view.cell_at(r, owner);
+        if cell.content.is_empty() {
+            self.clusters.refused += 1;
+            return;
+        }
+        let mut cps = [0u32; ClusterSlot::CAPACITY];
+        let mut n = 0usize;
+        if let Some(s) = self.clusters.get(cell.flags.cluster(), cell.content) {
+            for c in s.marks() {
+                if n < cps.len() {
+                    cps[n] = c;
+                    n += 1;
+                }
+            }
+        }
+        if n == cps.len() {
+            // A cluster past the table's capacity keeps what it has rather
+            // than losing its head, and says one was lost.
+            self.clusters.refused += 1;
+            return;
+        }
+        cps[n] = cp.value();
+        n += 1;
+        let id = self.clusters.intern(cell.content, &cps[..n]);
+        match id.is_none() {
+            true => {}
+            false => self.view.set_cluster(r, owner, id),
+        }
     }
 
     /// A run of one width, eight cells to a store.

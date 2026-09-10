@@ -655,6 +655,15 @@ impl Paint<'_, '_> {
         self.soft_reset();
         self.view.reset_rot();
         self.clear_screen();
+        // **Here and not in `clear_screen`, and the difference is the
+        // alternate screen.** Entering it clears the grid while the primary's
+        // cells wait in `AltBuf` still naming their clusters, so a reset there
+        // would lose exactly the marks the parking exists to keep. Nothing
+        // overwrites them meanwhile: the store *refuses* a colliding cluster
+        // rather than evicting one, so the alternate screen can be denied a
+        // slot but cannot take an occupied one. `RIS` is the one point where
+        // every cell really is gone.
+        self.clusters.reset();
         self.reset_tabs();
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);

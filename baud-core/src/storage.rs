@@ -107,6 +107,13 @@ pub struct Storage<'b> {
     /// copy of the grid per transition -- ~78 KB at the corpus geometry,
     /// microseconds, on a path a session takes a handful of times. The whole
     /// corpus contains **one** alt-screen exit.
+    /// Interned grapheme clusters, indexed **from the cell**.
+    ///
+    /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
+    /// the cell moves -- which is what makes it survive `RowRot`, `viewport`
+    /// and the alternate screen without a parallel structure to keep in step,
+    /// and is exactly what `baud-core2`'s position key does not.
+    pub(crate) clusters: ClusterStore<'b>,
     pub(crate) alt: AltBuf<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
     /// `DECRQM` or an `XTVERSION`.
@@ -143,6 +150,15 @@ pub struct AltBuf<'b> {
     pub(crate) rot: RowRot,
 }
 
+/// How many distinct grapheme clusters can be live at once.
+///
+/// **63, and the bound comes from the cell rather than from a sweep.** The
+/// index rides in `CellFlags`, `PackedCell` is eight bytes because a ninth
+/// rounds it to twelve, three bits are flags and `NLINK = 128` takes seven --
+/// which leaves six. `ClusterStore` refuses beyond that and counts, so the
+/// answer is never wrong and how often it is missing is a number.
+pub const NCLUSTER: usize = 64;
+
 /// How many renditions the template table holds. Bounded so it cannot walk out
 /// of cache under truecolour key pressure.
 pub const NSTYLE: usize = 1024;
@@ -174,6 +190,7 @@ impl<'b> Storage<'b> {
         reply: &'b mut [u8],
         alt: &'b mut [PackedCell],
         alt_used: &'b mut [RowExtent],
+        clusters: &'b mut [ClusterSlot],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // `RowBlock` computes the span so the two operands cannot be the
@@ -198,6 +215,10 @@ impl<'b> Storage<'b> {
         assert!(tmpl.len() == NSTYLE, "the rendition table is NSTYLE slots");
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
         assert!(reply.len() >= REPLY, "the reply buffer is REPLY bytes");
+        assert!(
+            clusters.len() == NCLUSTER,
+            "the cluster store is NCLUSTER slots"
+        );
         Storage {
             arena,
             vp,
@@ -206,6 +227,7 @@ impl<'b> Storage<'b> {
             tmpl,
             tabs,
             reply,
+            clusters: ClusterStore::new(clusters),
             alt: AltBuf {
                 cells: alt,
                 used: alt_used,

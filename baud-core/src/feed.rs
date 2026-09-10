@@ -213,7 +213,7 @@ impl Term<'_> {
         // Replies queued during the read, carried back like the cursor.
         self.reply_len = p.reply_len;
         self.reply_overflows += p.reply_overflows;
-        self.marks_dropped += p.marks_dropped;
+        self.marks_dropped = p.clusters.refused;
         self.cells_written += p.cells.index();
         #[cfg(feature = "diag")]
         {

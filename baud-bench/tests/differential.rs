@@ -69,6 +69,7 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
     let mut reply = vec![0u8; new::REPLY];
     let mut alt = vec![new::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -80,6 +81,7 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut clusters,
         ),
         &ws,
     );
@@ -274,6 +276,7 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
     let mut reply = vec![0u8; new::REPLY];
     let mut alt = vec![new::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -285,6 +288,7 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut clusters,
         ),
         &ws,
     );
@@ -721,43 +725,90 @@ fn less_cjk_agrees_where_its_content_is() {
     assert_eq!(d, 311, "less-cjk's clustering gap moved");
 }
 
-/// **A combining mark takes no cell, and the codepoint is dropped -- counted,
-/// not silently.**
+/// **A combining mark takes no cell, and the codepoint is recoverable.**
 ///
-/// This pins a trade rather than a fix, and the trade should be read before it
-/// is extended. `baud-core` now gives a zero-width codepoint no cell, which is
-/// what `baud-core2` does and is what stops everything after it on the row
-/// sitting one column right of where core2 puts it. It has nowhere to attach
-/// the codepoint, so it drops it -- **which is verbatim the defect core2 once
-/// had** and whose fix its own source describes: "This returned early, so
-/// every combining mark was silently thrown away: `e` + U+0301 stored `e` and
-/// the accent was gone."
+/// Both halves matter and the second is the one that needed a store. Giving a
+/// zero-width codepoint no cell is what stops everything after it on the row
+/// sitting a column right of where `baud-core2` puts it. *Keeping* it is what
+/// stops that being the defect core2 already fixed once -- its own source:
+/// "every combining mark was silently thrown away: `e` + U+0301 stored `e` and
+/// the accent was gone -- not mis-measured, absent, and unrecoverable."
 ///
-/// The word that has to stay true is *silently*. `Term::marks_dropped` is the
-/// difference, and this test is what makes it load-bearing: the glyph
-/// differential structurally **cannot** tell a core that stores marks from one
-/// that discards them, because it compares cell content and an attached mark
-/// writes no cell. Without a counter, closing the gap and losing the text look
-/// identical -- the fifth instance of the probe-that-cannot-fire failure this
-/// repo records, and the only one that was seen coming.
+/// The glyph differential cannot check the second half. It compares cell
+/// content, and a continuation writes no cell, so a core that stores marks and
+/// one that discards them are identical to it. **This test is the only thing
+/// that can tell them apart**, which is why it asserts the codepoint by value
+/// rather than asserting a count is zero -- the assertion
+/// `a_zwj_family_keeps_all_of_its_codepoints` made while attaching every
+/// family to the wrong cell.
 #[test]
-fn a_combining_mark_takes_no_cell_and_says_it_was_dropped() {
-    // `e` + U+0301, then a marker, so the column of the marker is the
-    // assertion: core2 puts it at column 1 and so must this.
+fn a_combining_mark_takes_no_cell_and_is_still_recoverable() {
     let bytes = "e\u{301}X".as_bytes();
     assert_eq!(diff_at(bytes).len(), 0, "the mark still takes a cell");
 
-    let dropped = new_dropped(bytes);
-    assert_eq!(dropped, 1, "the dropped codepoint was not counted");
+    let (marks, dropped) = new_marks(bytes, 0, 0);
+    assert_eq!(marks, vec![0x301], "the accent is not recoverable");
+    assert_eq!(dropped, 0, "it was dropped rather than stored");
 
-    // A ZWJ family is a base plus six continuations, all of which this core
-    // drops. Pinned so the number moves the day a cluster store lands.
-    let fam = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}".as_bytes();
-    assert_eq!(new_dropped(fam), 3, "the family's joiners were not counted");
+    // The base is unchanged, so a renderer reads `e` and asks for its marks.
+    // Column 1 is the `X`, which owns nothing.
+    assert!(new_marks(bytes, 0, 1).0.is_empty(), "X inherited a mark");
 }
 
-/// Zero-width codepoints `baud-core` received and did not store.
-fn new_dropped(bytes: &[u8]) -> usize {
+/// **The store survives a scroll, and `baud-core2`'s does not survive a
+/// frame.**
+///
+/// This is the case that decided the design. core2 keys marks on surface,
+/// physical row, column and generation; `Term::viewport` un-rotates the grid
+/// in place and does not move the table with it, so an adversarial review
+/// reproduced a renderer reading **one frame** and the marks being gone --
+/// then the next write to that address inheriting a stranger's.
+///
+/// Here the index rides in `CellFlags`, so it moves when the cell moves. The
+/// payload scrolls the mark's row up by fifty-three lines, which is more than
+/// the screen holds, so `RowRot` is non-zero and the cell is nowhere near
+/// where it was written.
+#[test]
+fn a_mark_survives_the_grid_moving_under_it() {
+    let mut v = String::from("e\u{301}\r\n");
+    for i in 0..53 {
+        v.push_str(&std::format!("line{i}\r\n"));
+    }
+    let b = v.as_bytes();
+    // The mark's row has scrolled off, so nothing should be recoverable at the
+    // top -- but nothing should be *wrong* there either.
+    for c in 0..3 {
+        assert!(
+            new_marks(b, 0, c).0.is_empty(),
+            "a scrolled-away mark came back at row 0 col {c}",
+        );
+    }
+
+    // **Scroll first, then write the mark, then scroll again**, so `RowRot` is
+    // non-zero *and* the mark's row is still on screen. A first version wrote
+    // the mark and then ten lines onto a fifty-row screen -- which does not
+    // scroll at all, so it asserted recovery from a grid that had not moved.
+    let mut v = String::new();
+    for i in 0..60 {
+        v.push_str(&std::format!("pre{i}\r\n"));
+    }
+    v.push_str("e\u{301}\r\n");
+    for i in 0..5 {
+        v.push_str(&std::format!("post{i}\r\n"));
+    }
+    let b = v.as_bytes();
+    let found: Vec<usize> = (0..ROWS)
+        .filter(|&y| new_marks(b, y, 0).0 == vec![0x301])
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "the mark should be on exactly one row after the grid rotated, found {found:?}",
+    );
+}
+
+/// The marks at `(r, c)` and how many codepoints `baud-core` refused.
+fn new_marks(bytes: &[u8], r: usize, c: usize) -> (Vec<u32>, usize) {
     let ws = new::WinSize {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
@@ -773,6 +824,7 @@ fn new_dropped(bytes: &[u8]) -> usize {
     let mut reply = vec![0u8; new::REPLY];
     let mut alt = vec![new::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -784,12 +836,16 @@ fn new_dropped(bytes: &[u8]) -> usize {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut clusters,
         ),
         &ws,
     );
     t.write_at(new::BytePos::ZERO, bytes);
     t.feed(new::BytePos::ZERO, new::ReadLen::from_index(bytes.len()));
-    t.marks_dropped
+    let m: Vec<u32> = t
+        .marks(new::Row::from_index(r), new::Col::at_index(c))
+        .collect();
+    (m, t.marks_dropped)
 }
 
 /// **The gap tests drive one read size, and it is the one where the
@@ -970,6 +1026,7 @@ fn new_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
     let mut reply = vec![0u8; new::REPLY];
     let mut alt = vec![new::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -981,6 +1038,7 @@ fn new_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
             &mut reply,
             &mut alt,
             &mut alt_used,
+            &mut clusters,
         ),
         &ws,
     );
