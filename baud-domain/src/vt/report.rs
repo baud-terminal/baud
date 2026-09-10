@@ -305,25 +305,9 @@ impl ReportBytes {
     }
     /// Decimal, most significant digit first.
     fn push_num(&mut self, v: u16) {
-        const DIGITS: &[u8; 10] = b"0123456789";
-        let mut tmp = [0u8; 5];
-        let mut i = tmp.len();
-        let mut n = v;
-        loop {
-            i -= 1;
-            // Indexed rather than `(n % 10) as u8`: the cast would be another
-            // raw-integer site against the audit budget, and a table lookup
-            // says what it means.
-            tmp[i] = DIGITS[usize::from(n % 10)];
-            n /= 10;
-            if n == 0 || i == 0 {
-                break;
-            }
-        }
-        let mut k = i;
-        while k < tmp.len() {
-            self.push(tmp[k]);
-            k += 1;
+        let d = Decimal::of(v);
+        for b in d.as_bytes() {
+            self.push(*b);
         }
     }
 }
@@ -344,5 +328,42 @@ impl StatusKind {
             6 => Some(StatusKind::CursorPosition),
             _ => None,
         }
+    }
+}
+
+/// A `u16` in decimal, without an allocator and without a cast.
+///
+/// **Written once because it had been written twice.** `ReportBytes::push_num`
+/// and the key encoder both need it, and `baud-core2`'s reply path spells it
+/// twice more as `emit_param` and `emit_dec` -- four copies of a loop whose
+/// only interesting property is that it indexes a digit table rather than
+/// casting `n % 10`, which would be another raw-integer site against the
+/// audit budget.
+///
+/// Five digits, because `u16` saturates at 65535 and `Param` saturates there
+/// deliberately so a reply can carry the value back.
+pub(crate) struct Decimal {
+    buf: [u8; 5],
+    at: usize,
+}
+
+impl Decimal {
+    pub(crate) fn of(v: u16) -> Decimal {
+        const DIGITS: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 5];
+        let mut i = buf.len();
+        let mut n = v;
+        loop {
+            i -= 1;
+            buf[i] = DIGITS[usize::from(n % 10)];
+            n /= 10;
+            if n == 0 || i == 0 {
+                break;
+            }
+        }
+        Decimal { buf, at: i }
+    }
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.buf[self.at..]
     }
 }

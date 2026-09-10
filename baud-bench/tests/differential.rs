@@ -752,3 +752,170 @@ fn every_fixture_renders_the_same_at_every_read_size() {
         }
     }
 }
+
+/// **The key encoder is shared, so what this compares is the plumbing.**
+///
+/// `baud_domain::encode_key` is one function and both cores call it, which
+/// makes the bytes it produces the same by construction. What is *not* shared
+/// is how each core arrives at the five inputs: `baud-core` reads
+/// `cold.modes` and `cold.keypad`, `baud-core2` reads its own fields, and each
+/// applies DECCKM, DECKPAM, LNM, `?1036` and `?1039` through its own mode
+/// path. A core that recognised `?1` and never set the bit would encode every
+/// arrow key wrongly and no test of the encoder could see it.
+///
+/// So each row sets modes by **feeding both cores the same bytes**, then asks
+/// both for the same key. That is the same instrument as the rest of this
+/// file, pointed at the input side.
+///
+/// Two inputs are constants in `baud-core` and are excluded deliberately:
+/// `S8C1T`, which it does not implement, and VT52, which it cannot enter --
+/// so every row here is 7-bit and ANSI, and a row that set them would be
+/// comparing a core against a feature it does not claim.
+#[test]
+fn both_cores_encode_a_key_the_same_way() {
+    use new::{KeyCode, KeyEvent, Modifiers};
+    // `(what sets the mode, what to press)`. The setup bytes go through the
+    // parser, so this exercises the mode path rather than a setter.
+    let rows: &[(&[u8], KeyEvent)] = &[
+        (b"", KeyEvent::press(KeyCode::Up, Modifiers::NONE)),
+        // DECCKM: the arrows become `SS3 A` rather than `CSI A`.
+        (b"\x1b[?1h", KeyEvent::press(KeyCode::Up, Modifiers::NONE)),
+        (
+            b"\x1b[?1h\x1b[?1l",
+            KeyEvent::press(KeyCode::Up, Modifiers::NONE),
+        ),
+        // A modified cursor key is `CSI 1 ; mod A` even in application mode.
+        (
+            b"\x1b[?1h",
+            KeyEvent::press(KeyCode::Left, Modifiers::SHIFT),
+        ),
+        (b"", KeyEvent::press(KeyCode::Home, Modifiers::CTRL)),
+        (b"", KeyEvent::press(KeyCode::End, Modifiers::NONE)),
+        // The editing keypad does not follow DECCKM.
+        (
+            b"\x1b[?1h",
+            KeyEvent::press(KeyCode::Insert, Modifiers::NONE),
+        ),
+        (b"", KeyEvent::press(KeyCode::Delete, Modifiers::ALT)),
+        (b"", KeyEvent::press(KeyCode::PageUp, Modifiers::NONE)),
+        (b"", KeyEvent::press(KeyCode::PageDown, Modifiers::SHIFT)),
+        // LNM: Return sends `CR`, and `CR LF` once set.
+        (b"", KeyEvent::press(KeyCode::Enter, Modifiers::NONE)),
+        (
+            b"\x1b[20h",
+            KeyEvent::press(KeyCode::Enter, Modifiers::NONE),
+        ),
+        (b"", KeyEvent::press(KeyCode::Tab, Modifiers::NONE)),
+        (b"", KeyEvent::press(KeyCode::Tab, Modifiers::SHIFT)),
+        (b"", KeyEvent::press(KeyCode::Backspace, Modifiers::NONE)),
+        (b"", KeyEvent::press(KeyCode::Escape, Modifiers::NONE)),
+        // Text, and the two modifiers that change the bytes rather than
+        // adding a parameter.
+        (
+            b"",
+            KeyEvent::press(KeyCode::Char(cp('a')), Modifiers::NONE),
+        ),
+        (
+            b"",
+            KeyEvent::press(KeyCode::Char(cp('a')), Modifiers::CTRL),
+        ),
+        (b"", KeyEvent::press(KeyCode::Char(cp('a')), Modifiers::ALT)),
+        // `?1039` altSendsEscape and `?1036` metaSendsEscape, which the two
+        // cores record through different mode tables.
+        (
+            b"\x1b[?1039h",
+            KeyEvent::press(KeyCode::Char(cp('a')), Modifiers::ALT),
+        ),
+        (
+            b"\x1b[?1036h",
+            KeyEvent::press(KeyCode::Char(cp('a')), Modifiers::META),
+        ),
+        (
+            b"",
+            KeyEvent::press(KeyCode::Char(cp('\u{e9}')), Modifiers::NONE),
+        ),
+        (
+            b"",
+            KeyEvent::press(KeyCode::Char(cp('\u{1f600}')), Modifiers::NONE),
+        ),
+    ];
+    for (setup, e) in rows {
+        let (a, b) = (core2_key(setup, *e), new_key(setup, *e));
+        assert_eq!(a, b, "setup {setup:?} key {:?}", e.code);
+    }
+}
+
+fn cp(c: char) -> new::Codepoint {
+    new::Codepoint::new(u32::from(c)).expect("a real character")
+}
+
+/// Feed `setup` to `baud-core2`, press `e`, and return what it replies.
+fn core2_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
+    let mut store = old::Storage::boxed();
+    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
+    let mut i = 0;
+    while i < setup.len() {
+        let n = old::READ_CHUNK.min(setup.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(old::StreamByte::slice_from(&setup[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    t.clear_reply();
+    t.key(old_event(e));
+    t.reply().to_vec()
+}
+
+/// The same event, named through `baud-core2`'s re-export.
+///
+/// Both crates re-export the *same* `baud_domain` types, so this is an
+/// identity -- written out because the two paths are spelled differently and a
+/// reader should be able to see that nothing is converted.
+fn old_event(e: new::KeyEvent) -> old::KeyEvent {
+    e
+}
+
+/// Feed `setup` to `baud-core`, press `e`, and return what it replies.
+fn new_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let (_, rows) = ws.geometry();
+    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
+    let mut arena = vec![0u8; new::ARENA];
+    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
+    let mut used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut cells3: Vec<new::PackedCell> = Vec::new();
+    let mut tmpl = vec![None; new::NSTYLE];
+    let mut tabs = vec![false; new::MAX_COLS];
+    let mut reply = vec![0u8; new::REPLY];
+    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut t = new::Term::new(
+        new::Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+            &mut reply,
+            &mut alt,
+            &mut alt_used,
+        ),
+        &ws,
+    );
+    let mut i = 0;
+    while i < setup.len() {
+        let n = new::READ_CHUNK.min(setup.len() - i);
+        t.write_at(new::BytePos::ZERO, &setup[i..i + n]);
+        t.feed(new::BytePos::ZERO, new::ReadLen::from_index(n));
+        i += n;
+    }
+    t.clear_reply();
+    t.key(e);
+    t.reply().to_vec()
+}

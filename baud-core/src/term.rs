@@ -406,6 +406,61 @@ impl<'b> Term<'b> {
     pub fn clear_reply(&mut self) {
         self.reply_len = ByteLen::ZERO;
     }
+
+    /// Encode a key press into the reply buffer.
+    ///
+    /// Returns whether anything was written; `false` is "this key sends
+    /// nothing", which is a real answer rather than a failure -- ctlseqs gives
+    /// no modified form for `SS3 j`, and a codepoint above `U+00FF` has no
+    /// ISO 8859-1 byte. Inventing a sequence for either would be answering
+    /// with a shape no application asked for, which this core already refuses
+    /// to do on the output side.
+    ///
+    /// **The encoding is `baud_domain::encode_key`, shared with
+    /// `baud-core2`.** What is here is the part that belongs to a terminal
+    /// rather than to the protocol: reading the modes off `Term` and putting
+    /// the bytes where the replies already go. The alternative was porting 485
+    /// lines and having two spellings of the input protocol, which is what a
+    /// hand-written CSI recogniser beside the table cost this repo once.
+    ///
+    /// Two of the five inputs are constants here and say why:
+    ///
+    /// * **`C1Transmit::SevenBit`**, because this core does not implement
+    ///   `S8C1T` -- the same constant `want_reply` already passes, so a key
+    ///   and a `DA` cannot disagree about how wide a `CSI` is.
+    /// * **`TerminalMode::Ansi`**, because this core has no VT52 sub-graph and
+    ///   no DECANM to leave ANSI with. The encoder carries the VT52 keyboard
+    ///   and this core cannot reach it, which is a gap in *this* core rather
+    ///   than in the encoder.
+    pub fn key(&mut self, e: KeyEvent) -> bool {
+        let s = KeyState {
+            modes: self.cold.modes,
+            keypad: self.cold.keypad,
+            c1: C1Transmit::SevenBit,
+            terminal: TerminalMode::Ansi,
+            encoding: self.encoding,
+        };
+        let Some(k) = encode_key(e, s) else {
+            return false;
+        };
+        let b = k.as_bytes();
+        let at = self.reply_len.index();
+        // A truncated key is a wrong answer, so it is dropped whole and
+        // counted rather than half-sent -- the same rule `want_reply` follows,
+        // and for the same reason: an application reads the first byte as the
+        // start of a sequence that never arrives.
+        match at + b.len() <= self.store.reply.len() {
+            true => {
+                self.store.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+                true
+            }
+            false => {
+                self.reply_overflows += 1;
+                false
+            }
+        }
+    }
 }
 
 impl Term<'_> {

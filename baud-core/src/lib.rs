@@ -40,6 +40,10 @@ pub use baud_domain::{
     InputEncoding, KeypadMode, PackedCell, ReadLen, Row, RowBlock, RowExtent, Rows, StyleWord,
     Width, WinSize,
 };
+// **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
+// caller that cannot name one cannot call it -- an entry point whose argument
+// type is unreachable is the same failure as a mode recorded and never read.
+pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, Modifiers};
 pub use graph::Node;
 
 pub use storage::{
