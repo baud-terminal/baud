@@ -830,9 +830,17 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
             ))
             .stride_three_quad();
             for (j, cp) in quad.iter().enumerate() {
-                let wide = Classified::of(*cp).width(AmbiguousWidth::Narrow) == Width::WIDE;
-                all_wide &= wide;
-                all_narrow &= !wide;
+                // Zero-width is neither, exactly as in the scalar tail below.
+                // **This is the second of two accumulators and the first edit
+                // missed it**, which chunk invariance caught immediately: a
+                // Devanagari run of four or more three-byte characters takes
+                // the vector path, kept `all_narrow` true through a mark, and
+                // sent the run to `put_narrow_run` -- so U+0947 got a cell at
+                // 4096-byte reads and none at one-byte reads, the same bytes
+                // and two screens.
+                let cw = Classified::of(*cp).width(AmbiguousWidth::Narrow);
+                all_wide &= cw == Width::WIDE;
+                all_narrow &= cw == Width::NARROW;
                 cps[done + j] = *cp;
             }
             done += 4;
@@ -875,14 +883,23 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
         // cheaper.
         #[cfg(not(feature = "ceiling-no-classify"))]
         {
-            // **Zero-width counts as narrow, and that is not a rounding.**
-            // `Paint::glyph` gives a combining mark `need = 1`, so a run of
-            // marks already occupies one cell each; calling them narrow here
-            // keeps `cells_written` byte-identical against the per-character
-            // path, which is the check that says the two are doing equal work.
-            let wide = Classified::of(cp).width(AmbiguousWidth::Narrow) == Width::WIDE;
-            all_wide &= wide;
-            all_narrow &= !wide;
+            // **~~Zero-width counts as narrow~~ -- it did, and it stopped
+            // being true the moment `Paint::glyph` started suppressing it.**
+            // The old comment's reason was that `glyph` gave a combining mark
+            // `need = 1`, so a run of marks already occupied one cell each and
+            // calling them narrow kept `cells_written` byte-identical against
+            // the per-character path. `glyph` now writes them no cell, so a
+            // run called narrow here would go to `put_narrow_run` at eight
+            // cells a store while the single path suppresses them -- the two
+            // paths would disagree, which is exactly what that check exists to
+            // catch.
+            //
+            // Neither uniform, so the run falls to the per-character path and
+            // every character gets the same answer. Rare by construction: a
+            // run has to *contain* a zero-width character to take it.
+            let cw = Classified::of(cp).width(AmbiguousWidth::Narrow);
+            all_wide &= cw == Width::WIDE;
+            all_narrow &= cw == Width::NARROW;
         }
         // **Priced by adding one, not by removing it.** Removing the lookup
         // changes `all_wide` and so changes which writer takes the run -- the

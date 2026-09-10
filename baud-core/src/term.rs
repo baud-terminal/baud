@@ -217,6 +217,19 @@ pub struct Term<'b> {
     /// silently lost: a truncated reply is a wrong answer, and this file's
     /// rule is that a wrong answer is worse than silence.
     pub reply_overflows: usize,
+    /// Zero-width codepoints received and **not stored**.
+    ///
+    /// A combining mark, a ZWJ or a variation selector gets no cell here --
+    /// which is what `baud-core2` does -- but this core has nowhere to attach
+    /// it, so the codepoint is dropped. **Counted, because the glyph
+    /// differential structurally cannot see the difference**: it compares cell
+    /// content and an attached mark writes no cell, so a core that stores them
+    /// and a core that discards them are the same to that gate.
+    ///
+    /// Same shape as `clipboard_reads_refused`, and for the same reason: an
+    /// embedder that wants to know can, and a gap that is counted is a gap
+    /// somebody can find. It goes to zero when a marks table lands.
+    pub marks_dropped: usize,
     pub fast_try: usize,
     #[cfg(feature = "diag")]
     pub fast_hit: usize,
@@ -321,6 +334,7 @@ impl<'b> Term<'b> {
             scroll_copy: 0,
             reply_len: ByteLen::ZERO,
             reply_overflows: 0,
+            marks_dropped: 0,
             fast_try: 0,
             #[cfg(feature = "diag")]
             fast_hit: 0,

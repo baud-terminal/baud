@@ -333,9 +333,14 @@ fn the_glyph_gap_is_pinned() {
         ("ascii/less-pager.raw", 0),
         ("utf8/btop.raw", 0),
         ("utf8/cava.raw", 0),
-        // **The clustering two.** Zero when `baud-core` grows a cluster machine.
-        ("utf8/cat-cjk.raw", 355),
-        ("utf8/vim-unicode.raw", 517),
+        // **The clustering two**, and what is left of them is the *break
+        // decision* rather than the width. Suppressing zero-width cells took
+        // cat-cjk 355 -> 266 and vim 517 -> 297; the residue is GB9a
+        // `SpacingMark` and GB12/13 regional-indicator pairing, which are
+        // NARROW and WIDE and so need the machine that `Classified` already
+        // has the operands for. Zero when `baud-core` asks it.
+        ("utf8/cat-cjk.raw", 266),
+        ("utf8/vim-unicode.raw", 297),
         // **`less-cjk` is not a third, and it never was.** Its 2,185 was
         // entirely the alternate screen: `less` draws CJK in it and then
         // exits, so core2's final screen is the restored primary and
@@ -713,7 +718,78 @@ fn less_cjk_agrees_where_its_content_is() {
         "nothing on screen at the exit: {content} cells"
     );
     let d = (0..x.len()).filter(|&i| x[i] != y[i]).count();
-    assert_eq!(d, 452, "less-cjk's clustering gap moved");
+    assert_eq!(d, 311, "less-cjk's clustering gap moved");
+}
+
+/// **A combining mark takes no cell, and the codepoint is dropped -- counted,
+/// not silently.**
+///
+/// This pins a trade rather than a fix, and the trade should be read before it
+/// is extended. `baud-core` now gives a zero-width codepoint no cell, which is
+/// what `baud-core2` does and is what stops everything after it on the row
+/// sitting one column right of where core2 puts it. It has nowhere to attach
+/// the codepoint, so it drops it -- **which is verbatim the defect core2 once
+/// had** and whose fix its own source describes: "This returned early, so
+/// every combining mark was silently thrown away: `e` + U+0301 stored `e` and
+/// the accent was gone."
+///
+/// The word that has to stay true is *silently*. `Term::marks_dropped` is the
+/// difference, and this test is what makes it load-bearing: the glyph
+/// differential structurally **cannot** tell a core that stores marks from one
+/// that discards them, because it compares cell content and an attached mark
+/// writes no cell. Without a counter, closing the gap and losing the text look
+/// identical -- the fifth instance of the probe-that-cannot-fire failure this
+/// repo records, and the only one that was seen coming.
+#[test]
+fn a_combining_mark_takes_no_cell_and_says_it_was_dropped() {
+    // `e` + U+0301, then a marker, so the column of the marker is the
+    // assertion: core2 puts it at column 1 and so must this.
+    let bytes = "e\u{301}X".as_bytes();
+    assert_eq!(diff_at(bytes).len(), 0, "the mark still takes a cell");
+
+    let dropped = new_dropped(bytes);
+    assert_eq!(dropped, 1, "the dropped codepoint was not counted");
+
+    // A ZWJ family is a base plus six continuations, all of which this core
+    // drops. Pinned so the number moves the day a cluster store lands.
+    let fam = "\u{1f468}\u{200d}\u{1f469}\u{200d}\u{1f467}\u{200d}\u{1f466}".as_bytes();
+    assert_eq!(new_dropped(fam), 3, "the family's joiners were not counted");
+}
+
+/// Zero-width codepoints `baud-core` received and did not store.
+fn new_dropped(bytes: &[u8]) -> usize {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let (_, rows) = ws.geometry();
+    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
+    let mut arena = vec![0u8; new::ARENA];
+    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
+    let mut used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut cells3: Vec<new::PackedCell> = Vec::new();
+    let mut tmpl = vec![None; new::NSTYLE];
+    let mut tabs = vec![false; new::MAX_COLS];
+    let mut reply = vec![0u8; new::REPLY];
+    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
+    let mut t = new::Term::new(
+        new::Storage::new(
+            &mut arena,
+            &mut vp,
+            &mut used,
+            &mut cells3,
+            &mut tmpl,
+            &mut tabs,
+            &mut reply,
+            &mut alt,
+            &mut alt_used,
+        ),
+        &ws,
+    );
+    t.write_at(new::BytePos::ZERO, bytes);
+    t.feed(new::BytePos::ZERO, new::ReadLen::from_index(bytes.len()));
+    t.marks_dropped
 }
 
 /// **The gap tests drive one read size, and it is the one where the

@@ -204,8 +204,9 @@ fn main() {
         power_source()
     );
     println!(
-        "  cells {cells} written ({:.1}x per byte)",
-        cells as f64 / bytes_in as f64
+        "  cells {cells} written ({:.1}x per byte), {} zero-width dropped",
+        cells as f64 / bytes_in as f64,
+        t.marks_dropped,
     );
     #[cfg(feature = "diag")]
     {

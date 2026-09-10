@@ -82,6 +82,19 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) reply: &'a mut [u8],
     pub(crate) reply_len: ByteLen,
     pub(crate) reply_overflows: usize,
+    /// Zero-width codepoints this core received and **did not store**.
+    ///
+    /// **Counted because refusing is not the same as not knowing.** This core
+    /// suppresses a combining mark's cell -- which is what `baud-core2` does
+    /// -- but has nowhere to attach it, so the codepoint is dropped. The glyph
+    /// differential cannot see the difference: it compares cell *content*, and
+    /// an attached mark writes no cell. So a core that stores them and a core
+    /// that discards them are identical to that gate, which is the
+    /// probe-that-cannot-fire failure this file records four times, pre-loaded.
+    ///
+    /// This counter is what makes them distinguishable. Same shape as
+    /// `clipboard_reads_refused`: baud refuses, and says how often.
+    pub(crate) marks_dropped: usize,
     /// The parked primary screen, reached **once per alt-screen transition**
     /// and never by the per-character loop.
     ///
@@ -207,6 +220,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             reply,
             reply_len,
             reply_overflows: 0,
+            marks_dropped: 0,
             alt,
             cold,
             view: View::new(vp, used, stride, cols, rows, rot),
@@ -372,6 +386,24 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One glyph under the cursor, wrapping first if it will not fit.
     #[inline(always)]
     pub(crate) fn glyph(&mut self, cp: Codepoint, w: Width) {
+        // **A zero-width codepoint gets no cell, and that needs no cluster
+        // machine.** A combining mark, a ZWJ or a variation selector took a
+        // full cell here and advanced the cursor a column, so everything after
+        // it on the row sat one place right of where `baud-core2` puts it --
+        // which is what 84% of the pinned glyph divergence is.
+        //
+        // `baud-core2` reaches the same answer through a *second* arm that
+        // fires whatever the break decision was (`put_cp_classified`, and
+        // `ClusterBreak::after_ascii_run`'s doc says so in as many words), so
+        // this reproduces its cell output exactly rather than approximately,
+        // for every input, with no state and no 24 KB transition table.
+        //
+        // What it does not reproduce is *storing* the codepoint. core2
+        // attaches it to the base cell; this drops it, and says so.
+        if w == Width::ZERO {
+            self.marks_dropped += 1;
+            return;
+        }
         let need = 1 + usize::from(w == Width::WIDE);
         if self.cx.index() + need > self.cols.index() {
             self.wrap();
