@@ -804,6 +804,141 @@ fn every_fixture_renders_the_same_at_every_read_size() {
     }
 }
 
+/// **A DECRQSS reply, which no gate in this repo could fail on.**
+///
+/// A `DCS $ q ... ST` writes no cells, so the glyph gate, the rendition gate,
+/// `cells_written` and every chunk-invariance property pass identically
+/// whether the reply is right, wrong or absent. `baud-core`'s own `reply_to`
+/// fed the whole input in one `feed`, so it could not see a handover either.
+///
+/// The rows are the five targets `[[source: ctlseqs]]` lists plus the shapes
+/// that must be refused, and each is compared **at every chunk size** -- at a
+/// chunk of one the `$`, the `q` and every payload byte arrive in separate
+/// reads, so the prefix state has to survive a `feed` boundary.
+#[test]
+fn both_cores_answer_a_decrqss_the_same_way() {
+    let rows: &[(&str, &[u8])] = &[
+        // The default rendition, and a loaded one. The reply is the tail of
+        // the CSI that would set it, so an application can echo it back.
+        ("sgr default", b"\x1bP$qm\x1b\\"),
+        ("sgr bold", b"\x1b[1m\x1bP$qm\x1b\\"),
+        ("sgr many", b"\x1b[1;3;4;7;9m\x1bP$qm\x1b\\"),
+        ("sgr 256 fg", b"\x1b[38;5;200m\x1bP$qm\x1b\\"),
+        ("sgr truecolour", b"\x1b[38;2;12;34;56;48;2;65;43;21m\x1bP$qm\x1b\\"),
+        ("sgr underline colour", b"\x1b[58;5;9m\x1bP$qm\x1b\\"),
+        ("sgr font", b"\x1b[13m\x1bP$qm\x1b\\"),
+        // **The widest rendition the wire can carry.** This is the only thing
+        // checking the reply buffer against a full SGR string.
+        (
+            "sgr widest",
+            b"\x1b[1;2;3;4;5;7;8;9;21;53m\x1b[38;2;255;255;255m\x1b[48;2;255;255;255m\x1b[58;2;255;255;255m\x1bP$qm\x1b\\",
+        ),
+        // DECSTBM, default and set.
+        ("stbm default", b"\x1bP$qr\x1b\\"),
+        ("stbm set", b"\x1b[5;40r\x1bP$qr\x1b\\"),
+        // DECSCA, both states.
+        ("decsca off", b"\x1bP$q\"q\x1b\\"),
+        ("decsca on", b"\x1b[1\"q\x1bP$q\"q\x1b\\"),
+        // Recorded by neither core, so both must answer `0$r` rather than
+        // inventing a value or saying nothing.
+        ("nonsense", b"\x1bP$qZZZ\x1b\\"),
+        ("empty target", b"\x1bP$q\x1b\\"),
+        // A DCS that is not a DECRQSS: consumed, and no reply.
+        ("sixel", b"\x1bPq#0;2;0;0;0#0~~@@vv@@~~@@~~$\x1b\\"),
+        ("decudk", b"\x1bP1;1|17/ab\x1b\\"),
+        ("bare dcs", b"\x1bPhello\x1b\\"),
+        // Terminated by BEL rather than ST, which xterm accepts.
+        ("bel terminated", b"\x1bP$qm\x07"),
+        // **Cancelled.** A bare `ESC` that is not `ESC \` cancels the string,
+        // so no reply -- and `CAN` and `SUB` cancel it too.
+        ("cancelled by can", b"\x1bP$qm\x18\x1b\\"),
+        ("cancelled by sub", b"\x1bP$qm\x1a\x1b\\"),
+        // Two in a row, which is where a prefix state that is not reset at the
+        // introducer leaks into the next string.
+        ("two in a row", b"\x1bP$qm\x1b\\\x1bP$qr\x1b\\"),
+        ("non-query then query", b"\x1bPhello\x1b\\\x1bP$qm\x1b\\"),
+    ];
+    for (name, bytes) in rows {
+        assert_eq!(old_reply(bytes), new_reply(bytes, 400_000), "{name}");
+        let want = new_reply(bytes, 400_000);
+        for k in [1usize, 2, 3, 5, 17, 512, 4096] {
+            assert_eq!(new_reply(bytes, k), want, "{name}: chunk {k}");
+        }
+    }
+
+    // **Two targets where the cores differ, pinned at what they are.**
+    //
+    // These are capability gaps rather than defects, and pinning them is what
+    // stops the gap being rediscovered as a bug and what makes it move the day
+    // it closes -- the same instrument as the three non-zero rows in
+    // `the_glyph_gap_is_pinned`. Asserting equality would force baud-core to
+    // fabricate a value it does not hold; deleting the rows would leave the
+    // difference unrecorded.
+    //
+    // `baud-core` answers `0$r` for both because it records neither setting,
+    // and `0$r` is DECRQSS's shape for "not recognised". That is the right
+    // answer for a core without them, and it is not the same answer as
+    // core2's.
+    for (name, bytes, old_want, new_want) in [
+        // DECSLRM: core2 keeps left/right margins, baud-core does not --
+        // `Paint::set_margins` says so in as many words.
+        (
+            "decslrm",
+            b"\x1bP$qs\x1b\\".as_slice(),
+            b"\x1bP1$r1;200s\x1b\\".as_slice(),
+            b"\x1bP0$r\x1b\\".as_slice(),
+        ),
+        // DECSCUSR: core2 records a cursor style, baud-core counts the set as
+        // unsupported and keeps no value.
+        (
+            "decscusr",
+            b"\x1bP$q q\x1b\\".as_slice(),
+            b"\x1bP1$r1 q\x1b\\".as_slice(),
+            b"\x1bP0$r\x1b\\".as_slice(),
+        ),
+    ] {
+        assert_eq!(old_reply(bytes), old_want, "{name}: core2 moved");
+        assert_eq!(
+            new_reply(bytes, 400_000),
+            new_want,
+            "{name}: baud-core moved"
+        );
+    }
+}
+
+fn old_reply(bytes: &[u8]) -> Vec<u8> {
+    let mut store = old::Storage::boxed();
+    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = old::READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(old::StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    t.reply().to_vec()
+}
+
+fn new_reply(bytes: &[u8], chunk: usize) -> Vec<u8> {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = chunk.min(bytes.len() - i);
+        t.write_at(new::BytePos::ZERO, &bytes[i..i + n]);
+        t.feed(new::BytePos::ZERO, new::ReadLen::from_index(n));
+        i += n;
+    }
+    t.reply().to_vec()
+}
+
 /// **What a control string did, which neither pinned gate can see either.**
 ///
 /// A window title changes no cell, so `the_glyph_gap_is_pinned` cannot see it.

@@ -11,6 +11,7 @@
 //! instead of once a run.
 
 use crate::graph::{Act, Node};
+use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::storage::STRIDE_MAX;
 #[cfg(feature = "sgr-table")]
@@ -537,6 +538,10 @@ pub(crate) fn act(
         }
         Act::StrPut => {
             p.str_put(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
+        Act::DcsQuery => {
+            p.cold.str_kind = StrKind::Decrqss;
             ReadLen::ONE
         }
         Act::StrEnd => {

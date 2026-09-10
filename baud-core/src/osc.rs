@@ -67,6 +67,11 @@ impl Paint<'_, '_> {
         };
         match self.cold.str_kind {
             StrKind::Osc => self.dispatch_osc(term),
+            StrKind::Decrqss => {
+                let n = self.cold.str_len.index();
+                let target = StatusTarget::parse(&self.strs.pending[..n]);
+                self.report_status(target);
+            }
             // `SOS`, `PM` and `APC` have no defined content here, and `DCS`
             // has no prefix parser yet. **Consumed is the part that matters**:
             // a body that reached the screen as text would render an
@@ -171,13 +176,16 @@ fn copy_bounded(dst: &mut [u8], src: &[u8]) -> ByteLen {
 
 /// Which control string is being accumulated.
 ///
-/// Two states rather than five, because the body node is shared and only `OSC`
-/// is acted on. A `bool` here would be the missing two-state enum the audit
-/// exists to catch, and this has to grow a third state the day `DCS` gets its
-/// prefix parser.
+/// Three states rather than five. `SOS`, `PM` and `APC` share `Other` because
+/// neither core acts on any of them and their bodies are consumed identically;
+/// `Decrqss` is separate because it is reached through a **prefix** -- `$ q`
+/// after the introducer -- rather than through the introducer alone, so
+/// `StrKind::of` cannot name it and `Act::DcsQuery` sets it two bytes later.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum StrKind {
     Osc,
+    /// A `DCS $ q`, which is the one DCS either core acts on.
+    Decrqss,
     Other,
 }
 

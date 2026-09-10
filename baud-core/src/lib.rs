@@ -30,6 +30,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod dcs;
 mod feed;
 mod graph;
 #[cfg(feature = "diag")]

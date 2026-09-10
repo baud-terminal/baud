@@ -55,17 +55,21 @@ pub enum Node {
     /// A `CSI` that broke its own grammar: swallow to the final byte.
     CsiIgnore,
     /// The body of a control string -- `OSC`, `DCS`, `SOS`, `PM`, `APC`.
+    /// `ESC P`: a DCS, before its prefix is known.
+    Dcs,
+    /// `ESC P $`: one byte from being a DECRQSS.
+    DcsDollar,
     Str,
     /// An `ESC` inside a control string: `\` ends it, anything else cancels.
     StrEsc,
 }
 
-pub(crate) const NNODE: usize = 11;
+pub(crate) const NNODE: usize = 13;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 32;
+pub(crate) const NACT: usize = 33;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -78,6 +82,8 @@ impl Node {
         Node::CsiParam,
         Node::CsiInter,
         Node::CsiIgnore,
+        Node::Dcs,
+        Node::DcsDollar,
         Node::Str,
         Node::StrEsc,
     ];
@@ -155,6 +161,13 @@ pub enum Act {
     StrStart,
     /// One byte of a control string's body.
     StrPut,
+    /// The `q` of a `DCS $ q`: this control string is a DECRQSS.
+    ///
+    /// One action rather than the two a separate DCS body would need, because
+    /// the body, the terminator and the accumulator are already `StrPut` and
+    /// `StrEnd` -- a DCS payload and an OSC payload are the same bytes with a
+    /// different prefix, and only the prefix differs.
+    DcsQuery,
     /// `BEL`, or the `\` of an `ST`: the string is complete, act on it.
     ///
     /// Distinct from the `Consume` that the `anywhere` rule uses for `CAN` and
@@ -214,8 +227,10 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::CsiParam => 6,
         Node::CsiInter => 7,
         Node::CsiIgnore => 8,
-        Node::Str => 9,
-        Node::StrEsc => 10,
+        Node::Dcs => 9,
+        Node::DcsDollar => 10,
+        Node::Str => 11,
+        Node::StrEsc => 12,
     }] += 1;
 }
 
@@ -242,6 +257,8 @@ const fn node_name(n: Node) -> &'static str {
         Node::CsiParam => "CsiParam",
         Node::CsiInter => "CsiInter",
         Node::CsiIgnore => "CsiIgnore",
+        Node::Dcs => "Dcs",
+        Node::DcsDollar => "DcsDollar",
         Node::Str => "Str",
         Node::StrEsc => "StrEsc",
     }
@@ -271,6 +288,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Consume => "Consume",
         Act::StrStart => "StrStart",
         Act::StrPut => "StrPut",
+        Act::DcsQuery => "DcsQuery",
         Act::StrEnd => "StrEnd",
         Act::CsiStart => "CsiStart",
         Act::EscStart => "EscStart",
@@ -309,6 +327,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Consume,
     Act::StrStart,
     Act::StrPut,
+    Act::DcsQuery,
     Act::StrEnd,
     Act::CsiStart,
     Act::Digit,
@@ -569,6 +588,29 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         Node::CsiParam => return csi_param(b),
         Node::CsiInter => return csi_inter(b),
         Node::CsiIgnore => return csi_ignore(b),
+        // **Both rows are `Act::Consume` with a different next node**, which
+        // is the cheapest kind of edge this graph has: it costs table content
+        // and nothing in the dispatch, the way `CAN`/`SUB` did. Anything that
+        // is not the DECRQSS prefix falls to `Str`, where the body is still
+        // consumed to its terminator and then ignored -- consumed is the half
+        // that matters, because a DCS body reaching the screen would render an
+        // application's private protocol as glyphs.
+        Node::Dcs => {
+            return match b.raw_byte() {
+                b'$' => edge(Act::Consume, Node::DcsDollar),
+                0x1b => edge(Act::Consume, Node::StrEsc),
+                0x07 => edge(Act::StrEnd, Node::Ground),
+                _ => edge(Act::Consume, Node::Str),
+            };
+        }
+        Node::DcsDollar => {
+            return match b.raw_byte() {
+                b'q' => edge(Act::DcsQuery, Node::Str),
+                0x1b => edge(Act::Consume, Node::StrEsc),
+                0x07 => edge(Act::StrEnd, Node::Ground),
+                _ => edge(Act::Consume, Node::Str),
+            };
+        }
         Node::Str => return string(b),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
@@ -647,7 +689,12 @@ const fn escape(b: StreamByte) -> Edge {
         // resets the accumulator; a string that is cancelled never reaches a
         // terminator, so resetting at the *start* is what makes both the
         // completed and the cancelled case right.
-        0x5d | 0x50 | 0x58 | 0x5e | 0x5f => edge(Act::StrStart, Node::Str),
+        0x5d | 0x58 | 0x5e | 0x5f => edge(Act::StrStart, Node::Str),
+        // `DCS` alone, because it has a **prefix**: `[[source: ctlseqs]]`
+        // gives DECRQSS as `DCS $ q Pt ST`, so two bytes stand between the
+        // introducer and the payload. `OSC` has none -- its parameters are in
+        // the payload -- which is why the other four share one node.
+        0x50 => edge(Act::StrStart, Node::Dcs),
         // **Recorded, not consumed.** `ESC ( B` designates a character set
         // and `ESC B` does not exist; dropping the `(` made every charset
         // designation land on the same arm as its final byte alone.
@@ -949,6 +996,7 @@ mod classes {
         // | `Act::ShiftOut`/`ShiftIn` -- SO and SI | 26/571/11,294/211,410 | **+54%** |
         // | `StrStart`/`StrPut`/`StrEnd` -- OSC | 26/574/11,478/217,172 | +2.7% |
         // | C0 in a payload ignored, not stored | 26/574/11,455/216,403 | **-0.4%** |
+        // | `Act::DcsQuery` -- DECRQSS's `$ q` prefix | 29/641/12,596/235,526 | +8.8% |
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
@@ -973,6 +1021,15 @@ mod classes {
         // nodes. Telling two bytes apart can make the alphabet smaller when
         // the class it moves them into already exists.
         //
+        // **DECRQSS is the first move to shift stride 1**, 26 -> 29, and one
+        // new action does not explain three. Two of the three are the *nodes*:
+        // `$` and `q` now do something no other byte does from `Dcs` and
+        // `DcsDollar`, so each earns a class of its own, and `Act::DcsQuery`
+        // is the third. That is what a **prefix** costs as against an
+        // operation -- `OSC` added three actions and moved stride 1 by nothing
+        // at all, because its parameters live in the payload, where the graph
+        // never looks at them.
+        //
         // Which is the argument for this representation stated as arithmetic.
         // Telling bytes apart in a *table* costs entries; telling them apart
         // in the `match` costs the per-byte loop. The first is a number you
@@ -984,9 +1041,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 574, "stride 2");
-        assert_eq!(three.len(), 11_455, "stride 3");
-        assert_eq!(four.len(), 216_403, "stride 4");
+        assert_eq!(two.len(), 641, "stride 2");
+        assert_eq!(three.len(), 12_596, "stride 3");
+        assert_eq!(four.len(), 235_526, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1142,5 +1199,5 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    const CLASSES: usize = 26;
+    const CLASSES: usize = 29;
 }

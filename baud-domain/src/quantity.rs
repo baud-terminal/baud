@@ -417,6 +417,34 @@ impl Row {
     }
 }
 
+/// A value written to the wire as decimal, bounded to a byte.
+///
+/// **It exists to be un-confusable with [`OneBased`].** Both end up as decimal
+/// digits in a reply and they are not interchangeable: this is at most three
+/// digits and saturates the moment a value exceeds 255, where a coordinate can
+/// be five digits and a right margin can sit past column 255. Passing a margin
+/// to a byte-wide emitter does not fail -- it silently writes the wrong
+/// number, which is the class this repo's audit exists to catch and the reason
+/// `baud-core2`'s `emit_num` carries a comment saying it is "wider than
+/// `emit_dec`".
+///
+/// Everything it wraps is a wire code an SGR or an `OSC 4` already defines as
+/// a byte: an attribute's parameter, a font's `SGR 1x`, a colour introducer,
+/// an indexed colour, an RGB channel.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default, Hash)]
+#[repr(transparent)]
+pub struct WireByte(pub(crate) u8);
+
+impl WireByte {
+    pub const fn of(v: u8) -> WireByte {
+        WireByte(v)
+    }
+
+    pub fn get(self) -> u8 {
+        self.0
+    }
+}
+
 /// A parameter exactly as it appears on the wire: **1-based**, because ECMA-48
 /// numbers rows and columns from 1 while every buffer indexes from 0.
 ///
