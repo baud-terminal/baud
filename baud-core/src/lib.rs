@@ -25,6 +25,11 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+// **Only for [`Owned`], and only behind the feature.** The default build and
+// the `x86_64-unknown-none` target still see nothing but `core`.
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod feed;
 mod graph;
 #[cfg(feature = "diag")]
@@ -47,6 +52,11 @@ pub use baud_domain::{ClusterId, ClusterSlot};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, Modifiers};
 pub use graph::Node;
 
+/// The nine allocations a `Storage` borrows, for a caller that has an
+/// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
+/// nothing for a `Box` to own.
+#[cfg(feature = "alloc")]
+pub use storage::Owned;
 pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NCLUSTER, NSTYLE, READ_CHUNK, REPLY,
     Storage,

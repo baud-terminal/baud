@@ -157,6 +157,14 @@ ceiling-implicit-tail = []
 baud-domain = { path = "../baud-domain" }
 baud-isa = { path = "../baud-isa" }
 
+# **The property suite, and the first dev-dependency this crate has had.**
+# `baud-core2` carries 606 tests and all the proptest machinery; this crate had
+# 20 tests and no generator at all, and every clustering defect in this repo's
+# history was found by something it did not have.
+[dev-dependencies]
+proptest = "1"
+baud-core = { path = ".", features = ["alloc"] }
+
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 baud-isa-x86-64 = { path = "../baud-isa-x86-64" }
 

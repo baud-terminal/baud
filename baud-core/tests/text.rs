@@ -16,35 +16,16 @@ fn row0(bytes: &[u8], chunk: usize, cols: usize) -> String {
 /// everything that belonged on row 1.
 fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
     let rows = 4usize;
-    let mut arena = vec![0u8; READ_CHUNK];
-    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut used = vec![RowExtent::ZERO; rows];
-    let mut cells3 = vec![PackedCell::EMPTY; CELLS3];
-    let mut tmpl = vec![None; NSTYLE];
-    let mut tabs = vec![false; MAX_COLS];
-    let mut reply = vec![0u8; REPLY];
-    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut alt_used = vec![RowExtent::ZERO; rows];
-    let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: cols as u16,
     };
-    let mut t = Term::new(
-        Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    // **Twenty-five lines of `vec!` used to live here**, handing nine `&mut`s
+    // to `Storage::new` in the right order -- nine chances to swap two
+    // arguments of the same type, repeated in every test file that drives this
+    // crate. `Owned` holds the allocations and lends them once.
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
     let mut i = 0;
     while i < bytes.len() {
         let n = chunk.min(bytes.len() - i);

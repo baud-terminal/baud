@@ -1,9 +1,16 @@
 //! Caller-provided storage: the arena bytes come in through, and the cells
 //! they become.
 //!
-//! **Nothing here allocates.** The core is `no_std` and `alloc`-free; a caller
-//! with an allocator gets `Storage::boxed` behind the `alloc` feature, and one
-//! without hands in a `&'static mut`.
+//! **Nothing here allocates.** The core is `no_std` and `alloc`-free: a caller
+//! without an allocator hands in `&'static mut` slices from a linker section.
+//!
+//! **A caller *with* one gets [`Owned`], behind the `alloc` feature, and it is
+//! not `Storage::boxed`.** This file used to claim it was, which was a
+//! sentence carried over from `baud-core2` and false here: core2's `Storage`
+//! *owns* `[PackedCell; GRID]` and can be boxed zeroed, while this one holds
+//! **borrows**, so there is nothing for a `Box<Storage>` to own. [`Owned`]
+//! holds the nine allocations and lends them, which is the same convenience in
+//! the shape this design admits.
 
 use baud_domain::*;
 
@@ -148,6 +155,74 @@ pub struct AltBuf<'b> {
     /// cleared on entry, so a rotation left over from last time describes
     /// nothing.
     pub(crate) rot: RowRot,
+}
+
+/// The nine allocations a `Storage` borrows, owned in one place.
+///
+/// **A convenience for tests and embedders with an allocator, and nothing the
+/// core itself uses.** Every test file that drives this crate otherwise
+/// repeats the same twenty-five lines of `vec!` and hands nine `&mut`s to
+/// `Storage::new` in the right order -- which is nine chances to swap two
+/// arguments of the same type, and the reason the property suite could not be
+/// written cheaply before this existed.
+///
+/// Behind `alloc`, so the default build is still allocation-free and the
+/// `no_std` target still compiles with nothing but `core`.
+#[cfg(feature = "alloc")]
+pub struct Owned {
+    arena: alloc::vec::Vec<u8>,
+    vp: alloc::vec::Vec<PackedCell>,
+    used: alloc::vec::Vec<RowExtent>,
+    cells3: alloc::vec::Vec<PackedCell>,
+    tmpl: alloc::vec::Vec<Option<StyleWord>>,
+    tabs: alloc::vec::Vec<bool>,
+    reply: alloc::vec::Vec<u8>,
+    alt: alloc::vec::Vec<PackedCell>,
+    alt_used: alloc::vec::Vec<RowExtent>,
+    clusters: alloc::vec::Vec<ClusterSlot>,
+}
+
+#[cfg(feature = "alloc")]
+impl Owned {
+    /// Sized to `ws`, with the three-byte cell table **absent**.
+    ///
+    /// An empty `cells3` is how a caller declines it, and declining is the
+    /// default: its only reader is behind `cell-table`, and passing the full
+    /// 2 MiB otherwise costs 262,144 property-table lookups and 2 MiB of
+    /// stores at construction for a table no read will consult.
+    pub fn new(ws: &WinSize) -> Owned {
+        use alloc::vec;
+        let (_, rows) = ws.geometry();
+        let span = RowBlock::leading(rows, Cols::from_stride(MAX_COLS));
+        Owned {
+            arena: vec![0u8; ARENA],
+            vp: vec![PackedCell::EMPTY; span.len()],
+            used: vec![RowExtent::ZERO; rows.index()],
+            cells3: vec::Vec::new(),
+            tmpl: vec![None; NSTYLE],
+            tabs: vec![false; MAX_COLS],
+            reply: vec![0u8; REPLY],
+            alt: vec![PackedCell::EMPTY; span.len()],
+            alt_used: vec![RowExtent::ZERO; rows.index()],
+            clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
+        }
+    }
+
+    /// Lend all nine to a `Storage`, in the one order that is correct.
+    pub fn storage(&mut self) -> Storage<'_> {
+        Storage::new(
+            &mut self.arena,
+            &mut self.vp,
+            &mut self.used,
+            &mut self.cells3,
+            &mut self.tmpl,
+            &mut self.tabs,
+            &mut self.reply,
+            &mut self.alt,
+            &mut self.alt_used,
+            &mut self.clusters,
+        )
+    }
 }
 
 /// How many distinct grapheme clusters can be live at once.

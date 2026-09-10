@@ -22,10 +22,12 @@ dependencies = [
 name = "baud-core"
 version = "0.1.0"
 dependencies = [
+ "baud-core",
  "baud-domain",
  "baud-isa",
  "baud-isa-aarch64",
  "baud-isa-x86-64",
+ "proptest",
 ]
 
 [[package]]
