@@ -142,6 +142,8 @@ fn main() {
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
+    let mut alt = vec![PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![RowExtent::ZERO; rows.index()];
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -151,6 +153,8 @@ fn main() {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );

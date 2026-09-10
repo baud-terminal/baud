@@ -28,7 +28,7 @@ use baud_domain::*;
 const SHORT_TEXT: usize = 2;
 
 /// The grid, the bytes, and the cursor, borrowed together for one read.
-pub(crate) struct Paint<'a> {
+pub(crate) struct Paint<'a, 'b> {
     pub(crate) arena: &'a [u8],
     /// The three-byte cell table; empty when the core is computing instead.
     ///
@@ -82,6 +82,16 @@ pub(crate) struct Paint<'a> {
     pub(crate) reply: &'a mut [u8],
     pub(crate) reply_len: ByteLen,
     pub(crate) reply_overflows: usize,
+    /// The parked primary screen, reached **once per alt-screen transition**
+    /// and never by the per-character loop.
+    ///
+    /// One word, deliberately. This file records two slices carried through
+    /// the inlined loop costing 5-10% -- the span attempt and the row map,
+    /// both of which a thin reference recovered most of. [`AltBuf`] groups the
+    /// cells, the extents and the rotation so they cannot be parked
+    /// separately, and carrying it by reference is what that grouping buys on
+    /// the other side.
+    pub(crate) alt: &'a mut crate::storage::AltBuf<'b>,
     pub(crate) cold: &'a mut crate::term::Cold,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -155,12 +165,12 @@ pub(crate) struct Paint<'a> {
     pub(crate) sgr_hit: usize,
 }
 
-impl<'a> Paint<'a> {
+impl<'a, 'b> Paint<'a, 'b> {
     /// **One destructure, one view.** `arena` and `vp` are different fields of
     /// the same `Storage`, so splitting the single `&mut` is what lets a run be
     /// blitted straight out of the arena with no copy in between.
     pub(crate) fn new(
-        store: &'a mut Storage<'_>,
+        store: &'a mut Storage<'b>,
         cy: Row,
         cx: Col,
         rows: Rows,
@@ -173,7 +183,7 @@ impl<'a> Paint<'a> {
         charset: Charset,
         cold: &'a mut crate::term::Cold,
         reply_len: ByteLen,
-    ) -> Paint<'a> {
+    ) -> Paint<'a, 'b> {
         let Storage {
             arena,
             vp,
@@ -182,6 +192,7 @@ impl<'a> Paint<'a> {
             tmpl,
             tabs,
             reply,
+            alt,
         } = store;
         // The three-byte cell table is read only by `put_run` under
         // `cell-table`; the default build must not carry a borrow of it.
@@ -196,6 +207,7 @@ impl<'a> Paint<'a> {
             reply,
             reply_len,
             reply_overflows: 0,
+            alt,
             cold,
             view: View::new(vp, used, stride, cols, rows, rot),
             cy,

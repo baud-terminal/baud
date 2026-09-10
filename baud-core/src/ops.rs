@@ -17,7 +17,7 @@ use crate::storage::NSTYLE;
 use crate::term::Saved;
 use baud_domain::*;
 
-impl Paint<'_> {
+impl Paint<'_, '_> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
         match self.cold.modes.is_set(ModeBit::Origin) {
@@ -563,12 +563,38 @@ impl Paint<'_> {
             (true, Screen::Normal) => {
                 self.cold.alt_saved = Some(self.save());
                 self.cold.screen = Screen::Alternate;
+                // **Park the primary before anything clears it.** This is the
+                // whole of the second buffer: the grid is handed to the
+                // alternate screen and the primary waits in `AltBuf` until the
+                // exit brings it back. Cells, extents and rotation go together
+                // in one call so two of the three cannot travel.
+                // **Counted, because it is write traffic to the grid.** This
+                // file records a region copy that counted only the blanks it
+                // left and so undercounted by the height of the region;
+                // parking is the same shape, one screen at a time. Both arms
+                // of any A/B must attribute it or the counter stops being the
+                // check that two arms did equal work.
+                let (rot, n) = self.view.save_to(self.alt.cells, self.alt.used);
+                self.alt.rot = rot;
+                self.cells = self.cells.plus(n);
+                // The alternate screen is cleared on entry, so a rotation left
+                // from the last time an application was in it describes
+                // nothing. Blanks rotate to blanks, so this is tidiness rather
+                // than a fix -- and an invariant that holds only by accident is
+                // one the next change breaks.
                 self.view.reset_rot();
                 self.clear_screen();
                 self.goto(Row::ZERO, Col::ZERO);
             }
             (false, Screen::Alternate) => {
                 self.cold.screen = Screen::Normal;
+                // Cells first, then the cursor: `restore` clamps against the
+                // geometry and moves the cursor, and it should be moving over
+                // the screen the application is about to see.
+                let n = self
+                    .view
+                    .restore_from(self.alt.cells, self.alt.used, self.alt.rot);
+                self.cells = self.cells.plus(n);
                 let s = self.cold.alt_saved.take();
                 self.restore(s);
             }

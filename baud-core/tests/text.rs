@@ -23,6 +23,8 @@ fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
+    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut alt_used = vec![RowExtent::ZERO; rows];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: cols as u16,
@@ -36,6 +38,8 @@ fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );
@@ -182,6 +186,8 @@ fn reply_to(bytes: &[u8]) -> Vec<u8> {
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
+    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut alt_used = vec![RowExtent::ZERO; rows];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
@@ -195,6 +201,8 @@ fn reply_to(bytes: &[u8]) -> Vec<u8> {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );
@@ -245,6 +253,8 @@ fn a_reply_survives_until_it_is_cleared() {
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
+    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut alt_used = vec![RowExtent::ZERO; rows];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
@@ -258,6 +268,8 @@ fn a_reply_survives_until_it_is_cleared() {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );
@@ -283,6 +295,8 @@ fn after(bytes: &[u8]) -> (Vec<u8>, bool, bool, bool, bool, bool) {
     let mut tmpl = vec![None; NSTYLE];
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
+    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
+    let mut alt_used = vec![RowExtent::ZERO; rows];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
@@ -296,6 +310,8 @@ fn after(bytes: &[u8]) -> (Vec<u8>, bool, bool, bool, bool, bool) {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );

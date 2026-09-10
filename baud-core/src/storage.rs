@@ -80,6 +80,24 @@ pub struct Storage<'b> {
     pub(crate) tmpl: &'b mut [Option<StyleWord>],
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
+    /// **Where the primary screen waits while the alternate screen is up.**
+    ///
+    /// One buffer and not a second live surface, and the difference is worth
+    /// stating because `baud-core2` made the other choice. `[[source:
+    /// ctlseqs]]`'s `?1049` *clears* the alternate screen on entry, and so
+    /// does `?47` as this core implements it -- so the alternate's content
+    /// never has to survive an exit, and "two surfaces, pick one per
+    /// operation" and "park the primary, hand the grid over" render the same
+    /// screen.
+    ///
+    /// Parking is what costs nothing on the path that matters. core2 branches
+    /// on `screen` at every site that builds a `View`; here `View` is built
+    /// **once per read** and always addresses `vp`, so the per-character loop
+    /// never learns the alternate screen exists. What it costs instead is one
+    /// copy of the grid per transition -- ~78 KB at the corpus geometry,
+    /// microseconds, on a path a session takes a handful of times. The whole
+    /// corpus contains **one** alt-screen exit.
+    pub(crate) alt: AltBuf<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
     /// `DECRQM` or an `XTVERSION`.
     ///
@@ -90,6 +108,29 @@ pub struct Storage<'b> {
     /// deliberately unanswered, which `docs/vt-coverage.md` rates as better
     /// than answering in the wrong shape but worse than answering.
     pub(crate) reply: &'b mut [u8],
+}
+
+/// The parked primary screen: its cells, its extents and its rotation.
+///
+/// **One struct rather than three fields, so they cannot be parked
+/// separately.** `RowExtent` is indexed by *physical* row and `RowRot` is what
+/// makes a physical row out of a screen row, so the three are one value; a
+/// restore missing either gives a grid whose rows are in the wrong order or
+/// whose blanking stops at the other surface's marks. `View::save_to` and
+/// `View::restore_from` take all three in one call for the same reason.
+///
+/// It is also why `Paint` carries **one** word for this rather than two
+/// slices: this file records a thin reference recovering most of the cost of
+/// carrying a slice through the inlined loop, and the grouping was chosen for
+/// correctness first and gets that for free.
+pub struct AltBuf<'b> {
+    pub(crate) cells: &'b mut [PackedCell],
+    pub(crate) used: &'b mut [RowExtent],
+    /// The rotation the parked cells are in. `RowRot::NONE` when nothing is
+    /// parked, which is also what the alternate screen starts at -- it is
+    /// cleared on entry, so a rotation left over from last time describes
+    /// nothing.
+    pub(crate) rot: RowRot,
 }
 
 /// How many renditions the template table holds. Bounded so it cannot walk out
@@ -121,6 +162,8 @@ impl<'b> Storage<'b> {
         tmpl: &'b mut [Option<StyleWord>],
         tabs: &'b mut [bool],
         reply: &'b mut [u8],
+        alt: &'b mut [PackedCell],
+        alt_used: &'b mut [RowExtent],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // `RowBlock` computes the span so the two operands cannot be the
@@ -128,6 +171,16 @@ impl<'b> Storage<'b> {
         // silently wrong slice.
         let span = RowBlock::leading(Rows::of_index(used.len()), Cols::from_stride(MAX_COLS));
         assert!(span.fits(vp), "viewport is short of its rows");
+        // **Required, not optional.** An absent buffer would mean the
+        // alternate screen is recognised, entered, and then quietly destroys
+        // the primary on the way out -- which `docs/vt-coverage.md` rates as
+        // worse than not implementing it, because the application is given no
+        // way to find out.
+        assert!(span.fits(alt), "the parked primary is short of its rows");
+        assert!(
+            alt_used.len() >= used.len(),
+            "the parked extents are one per row"
+        );
         assert!(
             cells3.len() == CELLS3 || cells3.is_empty(),
             "the three-byte cell table is 1024 x 256 entries, or absent"
@@ -143,6 +196,11 @@ impl<'b> Storage<'b> {
             tmpl,
             tabs,
             reply,
+            alt: AltBuf {
+                cells: alt,
+                used: alt_used,
+                rot: RowRot::NONE,
+            },
         }
     }
 }

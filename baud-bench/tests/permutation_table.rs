@@ -79,6 +79,8 @@ fn the_cell_table_is_what_core2_writes() {
     let mut tmpl = vec![None; baud_core::NSTYLE];
     let mut tabs = vec![false; baud_core::MAX_COLS];
     let mut reply = vec![0u8; baud_core::REPLY];
+    let mut alt = vec![baud_core::PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![baud_core::RowExtent::ZERO; rows.index()];
     let store = baud_core::Storage::new(
         &mut arena,
         &mut vp,
@@ -87,6 +89,8 @@ fn the_cell_table_is_what_core2_writes() {
         &mut tmpl,
         &mut tabs,
         &mut reply,
+        &mut alt,
+        &mut alt_used,
     );
     let t = baud_core::Term::new(store, &ws);
     drop(t);

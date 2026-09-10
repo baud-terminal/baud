@@ -216,7 +216,7 @@ impl Csi {
 /// same byte cannot produce it again.
 #[inline(always)]
 pub(crate) fn act(
-    p: &mut Paint<'_>,
+    p: &mut Paint<'_, '_>,
     a: Act,
     node: &mut Node,
     utf8: &mut Utf8Acc,
@@ -535,7 +535,7 @@ pub(crate) fn act(
 /// One subtract and one unsigned compare over sixteen bytes, then a scalar
 /// tail. **Never zero**: the table only names `Text` for a byte that is one.
 #[inline(always)]
-fn run_of_text(p: &Paint<'_>, from: BytePos, left: ReadLen) -> ByteLen {
+fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
     let left = left.index();
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left]);
     let mut n = 0usize;
@@ -581,7 +581,7 @@ fn run_of_text(p: &Paint<'_>, from: BytePos, left: ReadLen) -> ByteLen {
 /// run scan at all before this**, one character each by omission, and they are
 /// 7% and 25% of `cat-cjk.raw`'s dispatched actions.
 #[inline(always)]
-fn chars(p: &mut Paint<'_>, from: BytePos, left: ReadLen, len: ByteLen) -> ReadLen {
+fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> ReadLen {
     let k = run_of(p, from, left, len);
     // **The run scan, priced by doing it twice.** Same bytes, same answer,
     // every counter unchanged. It is **7% of cat-cjk** -- the largest single
@@ -627,7 +627,7 @@ fn chars(p: &mut Paint<'_>, from: BytePos, left: ReadLen, len: ByteLen) -> ReadL
 /// **Never zero**: the graph only names a character action for a byte that
 /// leads one, and the split test has already established its bytes are here.
 #[inline(always)]
-fn run_of(p: &Paint<'_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
+fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
     let (left, len) = (left.index(), len.index());
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left]);
     // **The median run here is one character, and one byte test says so
@@ -685,7 +685,7 @@ fn run_of(p: &Paint<'_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
 /// paying for a buffer to hold one codepoint, plus the `all_wide` bookkeeping
 /// and the writer choice that a run of one has already settled.
 #[inline(always)]
-fn put_one(p: &mut Paint<'_>, from: BytePos, len: ByteLen) {
+fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     #[cfg(feature = "diag")]
     {
         p.runs[1] += 1;
@@ -777,7 +777,7 @@ fn put_one(p: &mut Paint<'_>, from: BytePos, len: ByteLen) {
 /// before, as a gate on the cluster machine, is what refused 92% of candidates
 /// in the previous core.
 #[inline(always)]
-fn put_run(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: Count, left: ReadLen) {
+fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, left: ReadLen) {
     #[cfg(feature = "diag")]
     {
         p.runs[count.index().min(7)] += 1;
@@ -940,7 +940,7 @@ fn put_run(p: &mut Paint<'_>, from: BytePos, len: ByteLen, count: Count, left: R
 /// incorrect by construction and both move `cells_written`, so a pair that
 /// disagrees there is not measuring what it says.
 #[inline(always)]
-fn glyph(p: &mut Paint<'_>, cp: Codepoint) {
+fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -1053,7 +1053,7 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 /// a per-byte body costs every payload whether or not it executes.
 #[cold]
 #[inline(never)]
-fn csi_final(p: &mut Paint<'_>, csi: &Csi, f: FinalByte) {
+fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte) {
     #[cfg(feature = "probe-no-csi-op")]
     {
         let _ = (&p, &csi, f);
@@ -1213,7 +1213,7 @@ mod tables {
 /// call a byte.
 #[cold]
 #[inline(never)]
-fn esc_final(p: &mut Paint<'_>, csi: &Csi, b: StreamByte) {
+fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte) {
     // A designator is an *intermediate plus* a final: `ESC ( B` selects
     // USASCII into G0 and `ESC B` is a different sequence entirely.
     if let Some(i) = csi.intermediate() {
@@ -1269,7 +1269,7 @@ fn esc_final(p: &mut Paint<'_>, csi: &Csi, b: StreamByte) {
 /// tail cannot drift from the vector body.
 #[inline(always)]
 #[cfg(feature = "two-pass-csi")]
-fn final_byte_at(p: &Paint<'_>, from: BytePos, left: ReadLen) -> Option<ByteLen> {
+fn final_byte_at(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> Option<ByteLen> {
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
     let (lo, hi) = (StreamByte::from_stream(0x40), StreamByte::from_stream(0x7e));
     let mut n = 0usize;
@@ -1321,7 +1321,7 @@ fn final_byte_at(p: &Paint<'_>, from: BytePos, left: ReadLen) -> Option<ByteLen>
 /// and the parameter walk are small; only `csi_final`'s match is big, and that
 /// is `#[cold]` on its own.
 #[inline(always)]
-fn fast_csi(p: &mut Paint<'_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
+fn fast_csi(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
     #[cfg(feature = "probe-no-fast-csi")]
     {
         let _ = (&p, &csi, from, left);
@@ -1621,7 +1621,7 @@ fn fast_csi(p: &mut Paint<'_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> O
 /// the corpus sends: `ESC [ ... final`, `ESC <intermediate> <final>` -- the
 /// character-set designators -- and the bare two-byte `ESC <final>`.
 #[inline(always)]
-fn fast_esc(p: &mut Paint<'_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
+fn fast_esc(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
     if left.index() < 2 {
         return None;
     }
@@ -1676,7 +1676,7 @@ fn fast_esc(p: &mut Paint<'_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> O
 /// what stops every other payload paying for it.
 #[cfg(feature = "sgr-table")]
 #[inline(never)]
-fn sgr_from_table(p: &mut Paint<'_>, seq: &[StreamByte]) -> bool {
+fn sgr_from_table(p: &mut Paint<'_, '_>, seq: &[StreamByte]) -> bool {
     if seq.len() > SGR_KEY_BYTES {
         return false;
     }
@@ -1698,7 +1698,7 @@ fn sgr_from_table(p: &mut Paint<'_>, seq: &[StreamByte]) -> bool {
 /// lookups.
 #[cfg(feature = "sgr-table")]
 #[inline(never)]
-fn sgr_into_table(p: &mut Paint<'_>, csi: &Csi, seq: &[StreamByte]) {
+fn sgr_into_table(p: &mut Paint<'_, '_>, csi: &Csi, seq: &[StreamByte]) {
     if let Some(key) = SgrKey::of(seq) {
         let fold = StyleFold::derive(|w| csi.fold_sgr(w));
         p.cold.sgr[SgrKey::bucket_of(seq, NSGR)] = SgrSlot { key, fold };

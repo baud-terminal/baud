@@ -258,6 +258,50 @@ impl<'a> View<'a> {
         self.rot
     }
 
+    /// **Park this surface whole, or bring a parked one back.** Cells, extents
+    /// and rotation move together in one call, and that is the entire point of
+    /// the shape.
+    ///
+    /// The three are one value. `RowExtent` is *where the row stops being
+    /// uniform*, indexed by **physical** row, and `RowRot` is what makes a
+    /// physical row out of a screen row -- so a save that took the cells and
+    /// left either behind would restore a grid whose rows are in the wrong
+    /// order or whose blanking stops at another surface's marks. The second is
+    /// the quiet one: a later erase would skip cells that are not blank.
+    ///
+    /// `baud-core2` keeps two live surfaces and pairs each with its rotation
+    /// through one accessor, which its own comment says exists because of a bug
+    /// "before the alternate screen had a rotation". Here there is one surface
+    /// and a parked copy, so the pairing is enforced by the signature instead:
+    /// there is no way to call this and get two of the three.
+    pub fn save_to(&self, cells: &mut [PackedCell], used: &mut [RowExtent]) -> (RowRot, usize) {
+        // **The live region, not the allocation.** `vp` is sized for
+        // `MAX_COLS` so the geometry can grow, and the stride is the *live*
+        // column count -- 200 against 2048 at the corpus geometry, so the
+        // cells that mean anything are the first 10,000 of 102,400. Copying
+        // the slice would move ten times the bytes and park 92,400 cells no
+        // addressing path can reach.
+        let n = self.live();
+        cells[..n].copy_from_slice(&self.cells[..n]);
+        let m = self.rows.index();
+        used[..m].copy_from_slice(&self.used[..m]);
+        (self.rot, n)
+    }
+
+    /// Cells the addressing paths can actually reach: rows by stride.
+    fn live(&self) -> usize {
+        self.rows.index() * self.stride.index()
+    }
+
+    /// The inverse of [`View::save_to`], and it must be given all three.
+    pub fn restore_from(&mut self, cells: &[PackedCell], used: &[RowExtent], rot: RowRot) -> usize {
+        let (n, m) = (self.live(), self.rows.index());
+        self.cells[..n].copy_from_slice(&cells[..n]);
+        self.used[..m].copy_from_slice(&used[..m]);
+        self.rot = rot;
+        n
+    }
+
     /// Advance the rotation by `n` rows: a scroll, from the view's side.
     ///
     /// The view holds the rotation by value, so a caller that keeps one across

@@ -67,6 +67,8 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
     let mut tmpl = vec![None; new::NSTYLE];
     let mut tabs = vec![false; new::MAX_COLS];
     let mut reply = vec![0u8; new::REPLY];
+    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -76,6 +78,8 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );
@@ -268,6 +272,8 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
     let mut tmpl = vec![None; new::NSTYLE];
     let mut tabs = vec![false; new::MAX_COLS];
     let mut reply = vec![0u8; new::REPLY];
+    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
+    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
     let mut t = new::Term::new(
         new::Storage::new(
             &mut arena,
@@ -277,6 +283,8 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
             &mut tmpl,
             &mut tabs,
             &mut reply,
+            &mut alt,
+            &mut alt_used,
         ),
         &ws,
     );
@@ -325,17 +333,50 @@ fn the_glyph_gap_is_pinned() {
         ("ascii/less-pager.raw", 0),
         ("utf8/btop.raw", 0),
         ("utf8/cava.raw", 0),
-        // The clustering three. Zero when `baud-core` grows a cluster machine.
+        // **The clustering two.** Zero when `baud-core` grows a cluster machine.
         ("utf8/cat-cjk.raw", 355),
-        ("utf8/less-cjk.raw", 2185),
         ("utf8/vim-unicode.raw", 517),
+        // **`less-cjk` is not a third, and it never was.** Its 2,185 was
+        // entirely the alternate screen: `less` draws CJK in it and then
+        // exits, so core2's final screen is the restored primary and
+        // `baud-core` was showing what `less` had drawn. Parking the primary
+        // took it to zero in one step, which is what says the gap was never
+        // clustering -- and this file recorded it under "the clustering three"
+        // for as long as it stood.
+        //
+        // It is listed below rather than here because the row is now
+        // **blank against blank** and pins nothing at all.
+        ("utf8/less-cjk.raw", 0),
     ] {
         let b = recording(name);
         let (x, y) = (old_screen(&b, old::READ_CHUNK), new_screen(&b, 4096));
         let d = (0..x.len()).filter(|&i| x[i] != y[i]).count();
+        // **A row whose reference screen is empty cannot fail.** Comparing two
+        // blank grids is the probe-that-cannot-fire shape this repo has
+        // recorded four times, and the alternate-screen fix created a fresh
+        // one by making a recording end on a screen with nothing on it. The
+        // guard is here so the next recording that ends blank is a decision
+        // rather than a discovery.
+        let content = x.iter().filter(|c| **c != ' ' && **c != '\0').count();
+        assert!(
+            content > 0 || ENDS_BLANK.contains(&name),
+            "{name}: core2's final screen is empty, so this row pins nothing"
+        );
         assert_eq!(d, want, "{name}: cells whose glyph differs from core2");
     }
 }
+
+/// Recordings whose final screen is empty, so a cell-for-cell comparison of it
+/// is vacuous.
+///
+/// **One entry, and it is a statement about the corpus rather than a
+/// convenience.** `less-cjk.raw` is the only recording that leaves the
+/// alternate screen, and what it leaves behind is the shell's screen before
+/// `less` started, which is blank. Every CJK cluster in that recording is
+/// drawn *inside* the alternate screen and is not on the grid this compares.
+/// So the clustering gap is pinned by `cat-cjk` at 355 and `vim-unicode` at
+/// 517, and `less-cjk` contributes nothing to it either way.
+const ENDS_BLANK: [&str; 1] = ["utf8/less-cjk.raw"];
 
 /// **A scrolling region that does not span the screen, against core2.**
 ///
@@ -495,7 +536,7 @@ fn leaving_the_alternate_screen_restores_the_primary() {
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
         d.len(),
-        13,
+        0,
         "the alternate-screen gap moved.\n  core2: {x:?}\n  new  : {y:?}",
     );
 }
@@ -594,6 +635,43 @@ fn a_cancel_outside_a_string_cancels_the_sequence() {
     );
 }
 
+/// A primary that has scrolled, an alternate screen that scrolls too, and the
+/// exit. **This is the shape one round trip cannot see.**
+const ALT_ROT: &[u8] = b"P00\r\nP01\r\nP02\r\nP03\r\nP04\r\nP05\r\nP06\r\nP07\r\nP08\r\nP09\r\nP10\r\nP11\r\nP12\r\nP13\r\nP14\r\nP15\r\nP16\r\nP17\r\nP18\r\nP19\r\nP20\r\nP21\r\nP22\r\nP23\r\nP24\r\nP25\r\nP26\r\nP27\r\nP28\r\nP29\r\nP30\r\nP31\r\nP32\r\nP33\r\nP34\r\nP35\r\nP36\r\nP37\r\nP38\r\nP39\r\nP40\r\nP41\r\nP42\r\nP43\r\nP44\r\nP45\r\nP46\r\nP47\r\nP48\r\nP49\r\nP50\r\nP51\r\nP52\r\nP53\r\nP54\r\nP55\r\nP56\r\nP57\r\nP58\r\nP59\r\n\x1b[?1049hA00\r\nA01\r\nA02\r\nA03\r\nA04\r\nA05\r\nA06\r\nA07\r\nA08\r\nA09\r\nA10\r\nA11\r\nA12\r\nA13\r\nA14\r\nA15\r\nA16\r\nA17\r\nA18\r\nA19\r\nA20\r\nA21\r\nA22\r\nA23\r\nA24\r\nA25\r\nA26\r\nA27\r\nA28\r\nA29\r\nA30\r\nA31\r\nA32\r\nA33\r\nA34\r\nA35\r\nA36\r\nA37\r\nA38\r\nA39\r\nA40\r\nA41\r\nA42\r\nA43\r\nA44\r\nA45\r\nA46\r\nA47\r\nA48\r\nA49\r\nA50\r\nA51\r\nA52\r\nA53\r\nA54\r\nA55\r\nA56\r\nA57\r\nA58\r\nA59\r\nA60\r\nA61\r\nA62\r\nA63\r\nA64\r\nA65\r\nA66\r\nA67\r\nA68\r\nA69\r\nA70\r\nA71\r\nA72\r\nA73\r\nA74\r\nA75\r\nA76\r\nA77\r\nA78\r\nA79\r\nA80\r\nA81\r\nA82\r\n\x1b[?1049l\x1b[41;1H\x1b[J!";
+
+/// **Both surfaces scroll, so the rotation has to be parked with the cells.**
+///
+/// `leaving_the_alternate_screen_restores_the_primary` enters, writes and
+/// leaves once, and a restore that dropped the rotation would still pass it:
+/// nothing has scrolled, so screen row `y` is physical row `y` on both sides
+/// and the wrong rotation is the identity.
+///
+/// Here the primary scrolls sixty lines onto a fifty-row screen before the
+/// alternate screen is entered, and the alternate scrolls sixty more. `RowRot`
+/// is what makes a physical row out of a screen row, so restoring the cells
+/// under the *alternate's* rotation would bring the primary back with its rows
+/// in the wrong order -- every row wrong, silently, with no crash and no cell
+/// count to disagree.
+///
+/// This is the failure `baud-core2` records from the other side: its own
+/// note says the accessor pairing a rotation with a buffer exists because of a
+/// bug "before the alternate screen had a rotation", and CLAUDE.md records a
+/// parallel array not moving with `rotate_left` breaking
+/// `the_alt_screen_never_leaks_into_the_primary` at 20,000 cases. Here the
+/// pairing is in the signature -- `View::save_to` and `View::restore_from`
+/// take cells, extents and rotation together -- and this is the payload that
+/// proves the signature is doing the work.
+#[test]
+fn a_scrolled_primary_comes_back_in_the_order_it_left() {
+    let d = diff_at(ALT_ROT);
+    let (x, y) = row_pair(ALT_ROT, 0);
+    assert_eq!(
+        d.len(),
+        0,
+        "the primary came back rotated wrongly.\n  core2: {x:?}\n  new  : {y:?}",
+    );
+}
+
 /// **The gap tests drive one read size, and it is the one where the
 /// accelerated path is live.**
 ///
@@ -620,6 +698,7 @@ fn every_fixture_renders_the_same_at_every_read_size() {
         ("charset", CHARSET),
         ("osc", OSC),
         ("cancel", CANCEL),
+        ("alt-rot", ALT_ROT),
     ] {
         let want = new_screen(bytes, 4096);
         for k in [1usize, 2, 3, 5, 17, 512, 4096, 400_000] {

@@ -251,7 +251,7 @@ impl Term<'_> {
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
 fn step(
-    p: &mut Paint<'_>,
+    p: &mut Paint<'_, '_>,
     enc: InputEncoding,
     node: &mut Node,
     utf8: &mut Utf8Acc,
