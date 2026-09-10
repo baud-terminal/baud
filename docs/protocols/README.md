@@ -5,10 +5,10 @@ One document per protocol level, mirroring the code and the tests:
 | protocol | implementation | tests | doc |
 |---|---|---|---|
 | VT52 | `baud-core/src/vt52.rs`, `baud-domain/src/vt/vt52.rs` | `baud-core/tests/vt52/` | [vt52.md](vt52.md) |
-| VT100 / ANSI | `baud-core/src/{cursor,scroll,erase,tabs,text}.rs` | `baud-core/tests/vt100/` | [vt100.md](vt100.md) |
-| VT220 | `baud-core/src/{dcs,reply}.rs`, erase.rs | `baud-core/tests/vt220/` | [vt220.md](vt220.md) |
-| VT420 | `baud-core/src/margins.rs` | `baud-core/tests/vt420/` | [vt420.md](vt420.md) |
-| xterm | `baud-core/src/{osc,mouse,modes}.rs` | `baud-core/tests/xterm/` | [xterm.md](xterm.md) |
+| VT100 / ANSI | `baud-core/src/{write,ops,paint}.rs` | `baud-core/tests/vt100/` | [vt100.md](vt100.md) |
+| VT220 | `baud-core/src/dcs.rs`, `baud-core/src/write.rs` | `baud-core/tests/vt220/` | [vt220.md](vt220.md) |
+| VT420 | `baud-core2/src/margins.rs` | `baud-core/tests/vt420/` | [vt420.md](vt420.md) |
+| xterm | `baud-core/src/osc.rs`, `baud-core/src/ops.rs` | `baud-core/tests/xterm/` | [xterm.md](xterm.md) |
 
 Each says what the level is, what baud implements of it, what it declines and
 why, and which primary sources the claims rest on.

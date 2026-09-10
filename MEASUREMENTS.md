@@ -158,7 +158,7 @@ leads on exactly the payloads where deferral is worth most.
 
 `Storage::boxed()` is ~24 MB *virtual*. Measured RSS after allocating it,
 initialising a 50x200 grid and feeding data is **+0.3 MB**: untouched pages are
-never faulted in. `baud-core/tests/perf_floor.rs` asserts the bound.
+never faulted in. `baud-core2/tests/perf_floor.rs` asserts the bound.
 
 ## Write amplification
 

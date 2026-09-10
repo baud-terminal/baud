@@ -763,7 +763,7 @@ Two things came from that and both are gates rather than notes:
   erases in both op modes on the alternate screen. The mode pair is the point:
   `Computed` was always right, so a fix that broke it to satisfy `Runs` shows
   up instead of passing.
-* `baud-core/tests/screen_isolation.rs` requires every function touching the
+* `baud-core2/tests/screen_isolation.rs` requires every function touching the
   run table to be screen-aware. It is structural because the state is
   **invisible**: in `Runs` nothing renders spans, so a wrongly-zeroed run count
   cannot be seen through any public accessor, and the first attempt at a

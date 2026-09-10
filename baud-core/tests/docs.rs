@@ -1,0 +1,415 @@
+#![deny(dead_code)]
+// A test whose `#[test]` is lost still compiles, still satisfies
+// `every_test_named_in_the_docs_exists` -- which looks for `fn <name>`, not for
+// the attribute -- and silently stops running. That happened to
+// the blanking test in `amplification.rs` -- then named
+// `blanking_writes_the_whole_row_and_that_is_the_cheaper_choice`, and since
+// renamed because the decision it pinned was reversed by measurement -- whose
+// assertion was wrong for two commits without anyone finding out. The
+// compiler's own dead-code analysis is the check that catches it.
+//! The documentation, checked rather than asserted.
+//!
+//! `tests/coverage.rs` already checks that every **done** row in
+//! `docs/vt-coverage.md` names a tested operation, that no row is unfinished,
+//! and that the counts quoted elsewhere match the table.
+//! `scripts/check-sources.sh` checks that every `[[source: …]]` citation
+//! resolves to a hash-pinned document. This file covers what neither did: that
+//! the docs' *references to the repository itself* are still true.
+//!
+//! Every one of these has been wrong here at least once. `docs/vt-coverage.md`
+//! spent most of this project's life naming `tests/coverage.rs` as the
+//! mechanism that kept it honest, in a file that did not exist; README pointed
+//! at `bench/src/payload.rs` after the crate was renamed to `baud-bench`. The
+//! failure mode is always the same — the prose stays put while the thing it
+//! names moves — and it is exactly the mechanical kind, so a test can hold it.
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn root() -> PathBuf {
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+}
+
+/// Every `.md` in the repository, excluding build output.
+/// Markdown **and Rust**, because a test can be cited from either.
+///
+/// It was markdown only, and a doc comment in `vt_properties.rs` claimed
+/// a test covered the charset rows while no such function existed. That is the same defect as a `done` row with no test, one
+/// file type over, and the scanner could not see it.
+///
+/// Rust files are read whole rather than only their `///` lines: a name cited
+/// in an ordinary `//` comment is just as wrong, and the multi-underscore rule
+/// below already keeps this from firing on identifiers.
+fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if p.is_dir() {
+            if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
+                continue;
+            }
+            walk(&p, out, want_rust);
+        } else if name.ends_with(".md") || (want_rust && name.ends_with(".rs")) {
+            out.push(p);
+        }
+    }
+}
+
+fn markdown_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk(&root(), &mut out, false);
+    out.sort();
+    out
+}
+
+/// Markdown **and Rust**, for the test-name check only.
+///
+/// Links and repository paths are a markdown concern; a `crate::AmbiguousWidth`
+/// in a Rust doc comment is not a path and reading it as one produces noise.
+/// A cited *test* is different: it is just as wrong in a `///` comment as in a
+/// table, and the scanner could not see it.
+fn doc_and_code_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk(&root(), &mut out, true);
+    out.sort();
+    out
+}
+
+fn rel(p: &Path) -> String {
+    p.strip_prefix(root())
+        .unwrap_or(p)
+        .display()
+        .to_string()
+        .replace("../", "")
+}
+
+/// **Every relative link in every document resolves to a file that exists.**
+///
+/// Checked mechanically because checking it by eye is how they rot: a link is
+/// only ever followed by someone who does not already know where the thing is,
+/// which is the person least able to tell that it is wrong.
+#[test]
+fn every_relative_link_resolves() {
+    let mut broken = Vec::new();
+    let mut checked = 0usize;
+    for f in markdown_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        let dir = f.parent().unwrap().to_path_buf();
+        // `](target)` — markdown inline links.
+        let mut rest = src.as_str();
+        while let Some(i) = rest.find("](") {
+            rest = &rest[i + 2..];
+            let Some(end) = rest.find(')') else { break };
+            let target = &rest[..end];
+            rest = &rest[end..];
+            // External, anchor-only, or mail: not this test's business.
+            if target.starts_with("http")
+                || target.starts_with('#')
+                || target.starts_with("mailto:")
+                || target.is_empty()
+            {
+                continue;
+            }
+            // Strip any `#anchor`.
+            let path = target.split('#').next().unwrap_or(target);
+            if path.is_empty() {
+                continue;
+            }
+            checked += 1;
+            if !dir.join(path).exists() {
+                broken.push(format!("{} -> {target}", rel(&f)));
+            }
+        }
+    }
+    assert!(
+        checked > 20,
+        "only {checked} links checked -- the link scanner stopped matching"
+    );
+    assert!(
+        broken.is_empty(),
+        "{} broken link(s):\n  {}",
+        broken.len(),
+        broken.join("\n  ")
+    );
+}
+
+/// **Every repository path a document names in backticks exists.**
+///
+/// Documents here cite real paths constantly — `baud-core2/src/parse/fast.rs`,
+/// `scripts/check-sources.sh`, `docs/research/notes/g-text-encoding.md` — and
+/// those are load-bearing: they are how a reader gets from a claim to the code
+/// that implements it. A path that has moved turns the claim into folklore.
+///
+/// Only strings that unambiguously *look* like repository paths are checked: a
+/// backticked token containing `/`, starting with a known top-level directory,
+/// and ending in a real file extension. That deliberately misses some and
+/// invents none.
+#[test]
+fn every_repository_path_named_in_the_docs_exists() {
+    const ROOTS: &[&str] = &[
+        "baud-core/",
+        "baud-core2/",
+        "baud-domain/",
+        "baud-bench/",
+        "bench-others/",
+        "docs/",
+        "scripts/",
+        ".github/",
+        "assets/",
+    ];
+    const EXTS: &[&str] = &[".rs", ".md", ".sh", ".toml", ".nix", ".py", ".yml", ".yaml"];
+    let mut missing = BTreeSet::new();
+    let mut checked = 0usize;
+    for f in markdown_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        for tok in src.split('`').skip(1).step_by(2) {
+            let tok = tok.trim();
+            if !tok.contains('/') || tok.contains(' ') {
+                continue;
+            }
+            if !ROOTS.iter().any(|r| tok.starts_with(r)) {
+                continue;
+            }
+            if !EXTS.iter().any(|e| tok.ends_with(e)) {
+                continue;
+            }
+            for path in expand_braces(tok) {
+                checked += 1;
+                if !root().join(&path).exists() {
+                    missing.insert(format!("{}: {path}", rel(&f)));
+                }
+            }
+        }
+    }
+    assert!(
+        checked > 15,
+        "only {checked} paths checked -- the path scanner stopped matching"
+    );
+    assert!(
+        missing.is_empty(),
+        "{} path(s) named in docs that do not exist:\n  {}",
+        missing.len(),
+        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+    );
+}
+
+/// Expand shell-style `{a,b,c}` shorthand, which the protocol docs use to name
+/// a group of modules in one breath: `baud-core2/src/{osc,mouse,modes}.rs`.
+/// Readable, and not a path — so it is expanded rather than banned.
+fn expand_braces(tok: &str) -> Vec<String> {
+    let (Some(open), Some(close)) = (tok.find('{'), tok.find('}')) else {
+        return vec![tok.to_string()];
+    };
+    if close < open {
+        return vec![tok.to_string()];
+    }
+    let (pre, mid, post) = (&tok[..open], &tok[open + 1..close], &tok[close + 1..]);
+    mid.split(',')
+        .map(|m| format!("{pre}{}{post}", m.trim()))
+        .collect()
+}
+
+/// **Every test named in a document exists.**
+///
+/// Documents point at tests by name as evidence — "`no_row_is_unfinished` fails
+/// if one does", "`a_private_marker_after_a_parameter_is_ignored` pins both".
+/// A named test that has been renamed or deleted is a citation to nothing, and
+/// it reads exactly like a citation to something.
+#[test]
+fn every_test_named_in_the_docs_exists() {
+    // Gather every `fn <name>` in the test tree and the source.
+    let mut have = BTreeSet::new();
+    fn collect(dir: &Path, have: &mut BTreeSet<String>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                if p.file_name().and_then(|n| n.to_str()) == Some("target") {
+                    continue;
+                }
+                collect(&p, have);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                if let Ok(src) = fs::read_to_string(&p) {
+                    let mut rest = src.as_str();
+                    while let Some(i) = rest.find("fn ") {
+                        rest = &rest[i + 3..];
+                        let name: String = rest
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() {
+                            have.insert(name);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // **`baud-core` is in this list because the gate must follow the code.**
+    // The new core carries its own tests and `CLAUDE.md` cites them; a
+    // collector that walked only core2 would report every one of them as a
+    // citation to nothing, which is the "instrumentation outlived what fed it"
+    // failure this repo already records twice.
+    for d in ["baud-core", "baud-core2", "baud-domain", "baud-bench"] {
+        collect(&root().join(d), &mut have);
+    }
+
+    // snake_case identifiers in these docs that are deliberately *not* baud
+    // tests. Kept explicit and tiny, as in `coverage.rs`: a growing list here
+    // means the check is being worked around rather than a citation fixed.
+    const NOT_A_TEST: &[(&str, &str)] = &[
+        (
+            "sos_pm_apc_string",
+            "a williams parser state, named in the Tier 0 table",
+        ),
+        (
+            "treat_east_asian_ambiguous_width_as_wide",
+            "wezterm's config option, cited in note G's comparison",
+        ),
+        (
+            "blanking_writes_the_whole_row_and_that_is_the_cheaper_choice",
+            "a historical name. The test still exists as              `blanking_stops_at_the_used_extent`; it was renamed when the              decision it pinned -- that a full-width blank is cheaper than              avoiding one -- was reversed by measurement. The old name is kept              in the dead-code header comments because that is the incident              they describe",
+        ),
+        (
+            "_vte_row_data_get",
+            "VTE's C accessor, quoted in note F where it returns NULL past the              row's stored length",
+        ),
+        (
+            "_mm256_movemask_epi8",
+            "an x86 intrinsic, named where CI checks the binary for its              instruction rather than trusting the AVX2 property's output match",
+        ),
+    ];
+
+    let mut missing = BTreeSet::new();
+    let mut checked = 0usize;
+    for f in doc_and_code_files() {
+        let Ok(src) = fs::read_to_string(&f) else {
+            continue;
+        };
+        for tok in src.split('`').skip(1).step_by(2) {
+            let tok = tok.trim();
+            if NOT_A_TEST.iter().any(|(n, _)| *n == tok) {
+                continue;
+            }
+            // A test name: snake_case, several words, no punctuation. The
+            // multi-underscore rule is what keeps this from firing on every
+            // ordinary identifier.
+            if tok.len() < 12
+                || tok.matches('_').count() < 3
+                || !tok
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            {
+                continue;
+            }
+            checked += 1;
+            if !have.contains(tok) {
+                missing.insert(format!("{}: {tok}", rel(&f)));
+            }
+        }
+    }
+    assert!(
+        checked > 10,
+        "only {checked} test names checked -- the scanner stopped matching"
+    );
+    assert!(
+        missing.is_empty(),
+        "{} test(s) named in docs that do not exist:\n  {}",
+        missing.len(),
+        missing.into_iter().collect::<Vec<_>>().join("\n  ")
+    );
+}
+
+/// **Nothing is listed as absent that the coverage table marks done.**
+///
+/// This is the class that got past every other check. `CLAUDE.md` listed
+/// `OSC 8` under "Unmeasured — do not assert", beside reflow and selection, as
+/// something still needing random access into variable-length spans. Hyperlinks
+/// are implemented: the link index rides in spare `CellFlags` bits and `NLINK`
+/// slots evict on collision. An agent reading that list would conclude they
+/// were unbuilt, and might build them a second time.
+///
+/// No path was broken and no test name was stale, so `every_relative_link_
+/// resolves` and friends all passed. The document was simply *wrong about the
+/// code*, which is the one thing they cannot see — and it is the exact failure
+/// `vt-coverage.md` exists to prevent, one file over.
+///
+/// The check is narrow on purpose: a mnemonic named in a "not done" section
+/// that also has a **done** row in the coverage table is a contradiction
+/// between two documents in the same repository, and one of them is wrong.
+#[test]
+fn nothing_disclaimed_is_also_marked_done() {
+    let root = root();
+    let coverage = fs::read_to_string(root.join("docs/vt-coverage.md")).expect("vt-coverage.md");
+
+    // Mnemonics with a `done` row.
+    let mut done = BTreeSet::new();
+    for line in coverage.lines() {
+        let l = line.trim();
+        if !l.starts_with('|') || !l.contains("| done") {
+            continue;
+        }
+        for tok in l.split(|c: char| !c.is_ascii_alphanumeric()) {
+            if tok.len() >= 3
+                && tok.len() <= 8
+                && tok
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                && tok.chars().any(|c| c.is_ascii_uppercase())
+            {
+                done.insert(tok.to_string());
+            }
+        }
+    }
+    assert!(
+        done.len() > 20,
+        "only {} done mnemonics parsed -- the parser stopped matching",
+        done.len()
+    );
+
+    // Sections that claim something is *not* there.
+    const DISCLAIMERS: &[&str] = &[
+        "## Unmeasured — do not assert",
+        "## Things already tried that lost",
+    ];
+    let mut contradictions = Vec::new();
+    for f in ["CLAUDE.md", "docs/vt-coverage.md", "README.md"] {
+        let Ok(src) = fs::read_to_string(root.join(f)) else {
+            continue;
+        };
+        for start in DISCLAIMERS {
+            let Some(i) = src.find(start) else { continue };
+            let rest = &src[i + start.len()..];
+            let end = rest.find("\n## ").unwrap_or(rest.len());
+            let section = &rest[..end];
+            for (n, line) in section.lines().enumerate() {
+                // Struck-through entries are records of things that *were*
+                // true, and say so.
+                if line.contains("~~") {
+                    continue;
+                }
+                for tok in line.split(|c: char| !c.is_ascii_alphanumeric()) {
+                    if done.contains(tok) {
+                        contradictions.push(format!(
+                            "{f}: {start:?} names `{tok}`, which vt-coverage.md marks done\n      {}",
+                            line.trim()
+                        ));
+                        let _ = n;
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        contradictions.is_empty(),
+        "{} contradiction(s) between a disclaimer and the coverage table:\n  {}",
+        contradictions.len(),
+        contradictions.join("\n  ")
+    );
+}

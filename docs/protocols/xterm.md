@@ -3,7 +3,7 @@
 Not DEC protocol, and mostly not in any standard — but applications depend on
 them, which is the only bar that matters here.
 
-- **Implementation:** `baud-core/src/{osc,mouse,modes}.rs`
+- **Implementation:** `baud-core/src/osc.rs`, `baud-core/src/ops.rs`
 - **Tests:** `baud-core/tests/xterm/`
 - **Conformance:** `xterm` (83 caps), `xterm-16color` (84),
   `xterm-256color` (82), `rxvt` (66), `nsterm` (70), `dtterm` (58)

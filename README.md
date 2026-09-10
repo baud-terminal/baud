@@ -83,18 +83,24 @@ terminal will be built on, and it is published because it is useful on its own
 for anything that needs to interpret a VT stream.
 
 ```rust
-use baud_core::{OpMode, Storage, StreamByte, Term};
+use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
 
-// Storage is caller-owned and fixed-size: no allocator on the ingest path.
-let mut store = Storage::boxed();
-let mut term = Term::new(&mut store, OpMode::Computed);
+// Storage is the caller's, and its size is the geometry: no allocator on
+// the ingest path. `Owned` is the convenience behind the `alloc` feature;
+// without it, `Storage::new` takes the same buffers as borrows.
+let ws = WinSize {
+    ws_row: 50,
+    ws_col: 200,
+};
+let mut store = Owned::new(&ws);
+let mut term = Term::new(store.storage(), &ws);
 
-// Feed bytes exactly as they arrive from read(2) — split anywhere.
-let mut slot = term.read_slot();
-let base = slot.base();
-let filled = slot.write(StreamByte::slice_from(b"\x1b[1;32mhello\x1b[m"));
-term.feed(base, filled.len());
-term.commit_read(filled.len());
+// Feed bytes exactly as they arrive from read(2) -- split anywhere. The
+// core never copies on the parse path: a read writes into the arena and
+// `feed` parses it in place.
+let bytes = b"\x1b[1;32mhello\x1b[m";
+term.write_at(BytePos::ZERO, bytes);
+term.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 
 // A terminal is not write-only: drain anything it owes the host.
 let owed = term.reply().len(); // e.g. the answer to a DSR

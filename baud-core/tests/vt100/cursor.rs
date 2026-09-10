@@ -167,3 +167,67 @@ fn autowrap_off_leaves_the_cursor_on_the_last_column() {
          is on it rather than one past"
     );
 }
+
+/// `CUU`, `CUD` and `CUB` -- the three the coverage gate found nothing for.
+///
+/// All three are implemented and every ported suite *uses* them; none named
+/// them, so `every_done_row_is_mentioned_by_a_test` counted three `done` rows
+/// with no test behind them. That is the gate working: a row moves to **done**
+/// only when a test exists that would fail if the operation regressed, and
+/// "some other test happens to send the sequence" is not that test.
+///
+/// `[[source: ctlseqs]]`: each defaults to 1, each stops at the edge rather
+/// than wrapping, and `CUD` is bounded by the scrolling region's bottom rather
+/// than by the screen when the cursor starts inside it.
+#[test]
+fn cuu_cud_and_cub_move_and_stop_at_the_edges() {
+    support::with_corpus(|t| {
+        // Defaults are 1.
+        support::feed(t, b"\x1b[10;10H\x1b[A");
+        assert_eq!(t.cursor(), (Row::from_index(8), Col::at_index(9)), "CUU 1");
+        support::feed(t, b"\x1b[B");
+        assert_eq!(t.cursor(), (Row::from_index(9), Col::at_index(9)), "CUD 1");
+        support::feed(t, b"\x1b[D");
+        assert_eq!(t.cursor(), (Row::from_index(9), Col::at_index(8)), "CUB 1");
+
+        // Counts, and the edges clamp rather than wrap.
+        support::feed(t, b"\x1b[10;10H\x1b[3A");
+        assert_eq!(t.cursor().0, Row::from_index(6), "CUU 3");
+        support::feed(t, b"\x1b[5B");
+        assert_eq!(t.cursor().0, Row::from_index(11), "CUD 5");
+        support::feed(t, b"\x1b[4D");
+        assert_eq!(t.cursor().1, Col::at_index(5), "CUB 4");
+
+        support::feed(t, b"\x1b[1;1H\x1b[99A");
+        assert_eq!(t.cursor().0, Row::ZERO, "CUU stops at the top");
+        support::feed(t, b"\x1b[99D");
+        assert_eq!(t.cursor().1, Col::ZERO, "CUB stops at the left");
+        support::feed(t, b"\x1b[999B");
+        assert_eq!(t.cursor().0, Row::from_index(49), "CUD stops at the bottom");
+    });
+
+    // **A scrolling region alone does not bound them; `DECOM` does.** This
+    // assertion was written the other way round first -- "CUD stops at the
+    // region's bottom" -- from reading `[[source: ctlseqs]]`'s sentence
+    // without the clause in front of it. `confine` clamps to the margins only
+    // when Origin mode is set, in both cores, so the region on its own leaves
+    // the whole screen reachable. The oracle said so before the spec did.
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[5;20r\x1b[10;1H\x1b[99B");
+        assert_eq!(
+            t.cursor().0,
+            Row::from_index(49),
+            "without DECOM the region does not bound CUD"
+        );
+    });
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[5;20r\x1b[?6h\x1b[6;1H\x1b[99B");
+        assert_eq!(
+            t.cursor().0,
+            Row::from_index(19),
+            "with DECOM it stops at the region's bottom"
+        );
+        support::feed(t, b"\x1b[99A");
+        assert_eq!(t.cursor().0, Row::from_index(4), "and at its top");
+    });
+}

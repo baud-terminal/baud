@@ -6,7 +6,7 @@
 
 ## What it is
 
-`baud-core/src/parse/graph.rs` holds the VT protocol as a **directed graph**:
+`baud-core2/src/parse/graph.rs` holds the VT protocol as a **directed graph**:
 23 nodes, one per parser state, each with 256 out-edges, one per input byte.
 An edge carries what to do and where to go. Feeding a byte is `edge =
 graph[node][byte]`, and feeding a stream is walking the graph — `graph[n0][b0]`
