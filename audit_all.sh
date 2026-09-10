@@ -58,12 +58,24 @@ sig=0
 # `baud-core/src` would have reported the count dropping from 8 to 2 and called
 # it progress. That is the "instrumentation outlived what fed it" failure this
 # repo already records: the gate must follow the code in the same commit.
-files=$(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' 2>/dev/null | sort)
+# **Split, because one budget over two crates hides which one spends it.**
+# This gate read `baud-core+isa ... limit 14` while walking `baud-core2/src`
+# and the three ISA crates together. Measured apart: core2 is **11 raw and all
+# 10 signature slots**, the ISA crates are **3 and zero**. So on the commit
+# that deletes core2 the find would still match -- the empty guard below would
+# not fire -- and the gate would check 3 against 14 and 0 against 10, going
+# green with eleven sites of slack that nothing occupies. "A budget that is not
+# equal to the count is not measuring anything", and a budget that outlives the
+# code it was calibrated against is the same failure with a delay on it.
+#
+# Now each crate carries its own, so deleting core2 deletes its budget in the
+# same commit and the ISA limit is already tight.
+files=$(find baud-core2/src -name '*.rs' 2>/dev/null | sort)
 if [ -z "$files" ]; then
   echo "  FAIL baud-core2/src: no sources found -- this gate audited nothing"
   fail=1
 fi
-for f in $(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' | sort); do
+for f in $(find baud-core2/src -name '*.rs' | sort); do
   out=$(python3 impl_audit.py "$f")
   n=$(echo "$out" | grep '^  total' | awk '{print $2}')
   m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
@@ -71,11 +83,11 @@ for f in $(find baud-core2/src baud-isa/src baud-isa-x86-64/src baud-isa-aarch64
   sig=$((sig + m))
   [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
 done
-if [ "$core" -gt 14 ]; then
-  echo "  FAIL baud-core+isa: $core raw-integer sites (limit 14)"
+if [ "$core" -gt 11 ]; then
+  echo "  FAIL baud-core2/src: $core raw-integer sites (limit 11)"
   fail=1
 else
-  echo "  ok   baud-core+isa: $core (limit 14)"
+  echo "  ok   baud-core2/src: $core (limit 11)"
 fi
 
 # **A second gate, because the first could not see these.** The rule above
@@ -90,10 +102,39 @@ fi
 # of the 10 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
 # for it. `key.rs` went from 8 to 0 by using them; the rest can too.
 if [ "$sig" -gt 10 ]; then
-  echo "  FAIL baud-core+isa signatures: $sig raw-primitive params/returns (limit 10)"
+  echo "  FAIL baud-core2/src signatures: $sig raw-primitive params/returns (limit 10)"
   fail=1
 else
-  echo "  ok   baud-core+isa signatures: $sig (limit 10, a floor to drive down)"
+  echo "  ok   baud-core2/src signatures: $sig (limit 10, and core2 is being deleted)"
+fi
+
+# **The ISA crates, on their own budget.** Three raw-integer sites and zero
+# signature primitives, and all three are the same site: the cast feeding
+# `LaneMask::from_movemask`, which is the one point where an intrinsic's return
+# value enters the type system. They were inside `baud-core+isa`'s 14 and
+# invisible there -- moving the scanners into their own crates moved the sites
+# with them, and this repo already records that "the gate must follow the code
+# in the same commit". It did not, for as long as one limit covered both.
+isa=0
+isasig=0
+files=$(find baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' 2>/dev/null | sort)
+if [ -z "$files" ]; then
+  echo "  FAIL baud-isa*/src: no sources found -- this gate audited nothing"
+  fail=1
+fi
+for f in $files; do
+  out=$(python3 impl_audit.py "$f")
+  n=$(echo "$out" | grep '^  total' | awk '{print $2}')
+  m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
+  isa=$((isa + n))
+  isasig=$((isasig + m))
+  [ "$n" -gt 0 ] && echo "  ..   $f: $n + $m sig"
+done
+if [ "$isa" -gt 3 ] || [ "$isasig" -gt 0 ]; then
+  echo "  FAIL baud-isa*: $isa raw-integer sites, $isasig signature (limit 3 and 0)"
+  fail=1
+else
+  echo "  ok   baud-isa*: $isa and $isasig (limit 3 and 0, the movemask casts)"
 fi
 
 # The new core, on its own budget. **Two, and every one enumerated**:
@@ -169,7 +210,47 @@ else
   echo "  ok   baud-bench/src: $bench (limit 14)"
 fi
 
-for f in baud-core2/tests/*.rs baud-difftest/src/main.rs; do
+# **The glob is flat, and three quarters of each core's tests are behind it.**
+# `baud-core2/tests/*.rs` matches the **15** loose files and none of the **47**
+# in `conformance/`, `vt100/`, `xterm/`, `parser/` and the rest -- which carry
+# **49** raw-integer sites between them and have been audited by nothing for as
+# long as those directories have existed. The limit-0 discipline below is real
+# and it covers a quarter of the tree.
+#
+# That is the same shape as `docs.rs`'s `ROOTS` list, which named every crate
+# but the newer core: a gate scoped to less than it appears to cover, which
+# looks exactly like passing. It is not something the port introduced -- both
+# cores measure the same, because they are the same tests.
+#
+# The trees are gated below at their counts rather than at zero, because a
+# limit set to a number nobody has driven to is a limit that fails on the next
+# commit for a reason unrelated to it. **They are floors**: the loose files
+# reached 0 and these should.
+tree_audit() {
+  ta_name="$1"
+  ta_limit="$2"
+  ta_root="$3"
+  ta_total=0
+  ta_files=$(find "$ta_root" -mindepth 2 -name '*.rs' 2>/dev/null | sort)
+  if [ -z "$ta_files" ]; then
+    echo "  FAIL $ta_name: no sources found -- this gate audited nothing"
+    fail=1
+    return
+  fi
+  for ta_f in $ta_files; do
+    ta_total=$((ta_total + $(python3 impl_audit.py "$ta_f" | tail -1 | awk '{print $2}')))
+  done
+  if [ "$ta_total" -gt "$ta_limit" ]; then
+    echo "  FAIL $ta_name: $ta_total raw-integer sites (limit $ta_limit)"
+    fail=1
+  else
+    echo "  ok   $ta_name: $ta_total (limit $ta_limit, a floor to drive down)"
+  fi
+}
+tree_audit "baud-core/tests suites" 34 baud-core/tests
+tree_audit "baud-core2/tests suites" 49 baud-core2/tests
+
+for f in baud-core/tests/*.rs baud-core2/tests/*.rs baud-difftest/src/main.rs; do
   # **A gate that cannot find its input must fail, not pass.** An unmatched
   # glob passes through literally in bash, so with `baud-core2` deleted this
   # loop would run `impl_audit.py` on the pattern itself, `n` would come back
@@ -183,7 +264,17 @@ for f in baud-core2/tests/*.rs baud-difftest/src/main.rs; do
     continue
   fi
   n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
-  limit=0
+  # **Per file, and `baud-core`'s three are not zero.** `text.rs` 5,
+  # `properties.rs` 4 and `fixed.rs` 1 -- written for this core rather than
+  # ported, and never audited because the glob named the other one. Each is
+  # pinned at what it is so it cannot grow, which is the same contract the
+  # fifteen zeroes carry.
+  case "$f" in
+  baud-core/tests/text.rs) limit=5 ;;
+  baud-core/tests/properties.rs) limit=4 ;;
+  baud-core/tests/fixed.rs) limit=1 ;;
+  *) limit=0 ;;
+  esac
   if [ -z "$n" ]; then
     echo "  FAIL $f: the audit produced no count"
     fail=1
