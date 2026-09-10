@@ -239,6 +239,7 @@ pub(crate) fn act(
     p: &mut Paint<'_, '_>,
     a: Act,
     node: &mut Node,
+    enc: &mut InputEncoding,
     utf8: &mut Utf8Acc,
     min: &mut Utf8Min,
     csi: &mut Csi,
@@ -431,7 +432,7 @@ pub(crate) fn act(
         // definition of the protocol.
         Act::EscStart => {
             csi.reset();
-            match fast_esc(p, csi, from, left, node) {
+            match fast_esc(p, csi, from, left, node, enc) {
                 Some(n) => n,
                 None => ReadLen::ONE,
             }
@@ -590,7 +591,7 @@ pub(crate) fn act(
         }
         Act::EscFinal => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
-            esc_final(p, csi, b);
+            esc_final(p, csi, b, enc);
             ReadLen::ONE
         }
         Act::Again => ReadLen::ZERO,
@@ -1474,7 +1475,7 @@ mod tables {
 /// call a byte.
 #[cold]
 #[inline(never)]
-fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte) {
+fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEncoding) {
     // A designator is an *intermediate plus* a final: `ESC ( B` selects
     // USASCII into G0 and `ESC B` is a different sequence entirely.
     if let Some(i) = csi.intermediate() {
@@ -1503,6 +1504,26 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte) {
             // `ESC # 8` -- DECALN fills the screen with `E`, and it is how
             // vttest checks alignment.
             b'#' if b.raw_byte() == b'8' => p.screen_alignment(),
+            // **`ESC % @` and `ESC % G`, and this arm was the whole gap.**
+            // Both tables are built at compile time and `Edge::of` selects
+            // between them, so the Latin-1 half of the graph has existed and
+            // been unreachable -- `Act::Latin1` appeared in no recording's
+            // histogram because nothing could put the parser in the table that
+            // names it. `[[source: ctlseqs]]`: `ESC % @` selects ISO 8859-1,
+            // `ESC % G` UTF-8.
+            //
+            // It writes `p.cold` *and* the loop's live copy, because a stream
+            // can switch between two bytes of one `read(2)` and the next byte
+            // has to be parsed by the table this one selected.
+            b'%' => {
+                let want = match b.raw_byte() {
+                    b'@' => InputEncoding::Latin1,
+                    b'G' => InputEncoding::Utf8,
+                    _ => return,
+                };
+                p.cold.encoding = want;
+                *enc = want;
+            }
             _ => {}
         }
         return;
@@ -1918,6 +1939,7 @@ fn fast_esc(
     from: BytePos,
     left: ReadLen,
     node: &mut Node,
+    enc: &mut InputEncoding,
 ) -> Option<ReadLen> {
     if left.index() < 2 {
         return None;
@@ -1953,7 +1975,7 @@ fn fast_esc(
                     // byte was parsed as an escape continuation -- charset
                     // designation and both CJK recordings went red at once.
                     *node = Node::Ground;
-                    esc_final(p, csi, b2);
+                    esc_final(p, csi, b2, enc);
                     Some(ReadLen::from_index(3))
                 }
                 _ => None,
@@ -1964,7 +1986,7 @@ fn fast_esc(
         // body the graph has to walk.
         0x30..=0x4f | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
             *node = Node::Ground;
-            esc_final(p, csi, b1);
+            esc_final(p, csi, b1, enc);
             Some(ReadLen::from_index(2))
         }
         _ => None,

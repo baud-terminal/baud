@@ -143,6 +143,13 @@ pub struct Cold {
     /// margin per character.
     pub(crate) left: Col,
     pub(crate) right: Col,
+    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
+    ///
+    /// **In `Cold` rather than on `Term` because `Paint` has to write it.**
+    /// The loop carries a live copy so the table selection is a register
+    /// rather than a field read per byte; this is where it persists between
+    /// reads, and `esc_final` sets both.
+    pub(crate) encoding: InputEncoding,
     pub(crate) ambiguous: AmbiguousWidth,
     pub(crate) cursor_style: CursorStyle,
     pub(crate) keypad: KeypadMode,
@@ -171,6 +178,7 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            encoding: InputEncoding::Utf8,
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
             ambiguous: AmbiguousWidth::Narrow,
@@ -198,7 +206,6 @@ pub struct Term<'b> {
     pub(crate) store: Storage<'b>,
     /// Where the parser stands between reads.
     pub(crate) node: Node,
-    pub(crate) encoding: InputEncoding,
 
     pub(crate) cy: Row,
     pub(crate) cx: Col,
@@ -548,7 +555,6 @@ impl<'b> Term<'b> {
             seen: [SegHash::ZERO; crate::feed::SEGS],
             store,
             node: Node::Ground,
-            encoding: InputEncoding::Utf8,
             cy: Row::ZERO,
             cx: Col::ZERO,
             rows,
@@ -656,7 +662,7 @@ impl<'b> Term<'b> {
     /// `the_known_encoding_gaps` pins: the selectors are not routed, so the
     /// answer is always UTF-8. The accessor is real and the switch is not.
     pub fn input_encoding(&self) -> InputEncoding {
-        self.encoding
+        self.cold.encoding
     }
 
     /// How wide a `CSI` this core writes. Always seven-bit: it implements
@@ -1025,7 +1031,7 @@ impl<'b> Term<'b> {
             keypad: self.cold.keypad,
             c1: C1Transmit::SevenBit,
             terminal: self.cold.terminal,
-            encoding: self.encoding,
+            encoding: self.cold.encoding,
         };
         let Some(k) = encode_key(e, s) else {
             return false;

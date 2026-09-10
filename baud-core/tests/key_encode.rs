@@ -512,7 +512,6 @@ fn all_three_meta_modes_report_separately() {
 /// recorded and DECRQM reports it truthfully in both encodings; the encoding
 /// decides whether the shift applies.
 #[test]
-#[ignore = "baud-core never leaves UTF-8, so the Latin-1 half is unreachable -- see the_known_encoding_gaps"]
 fn eight_bit_input_applies_only_under_latin1() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
@@ -585,7 +584,6 @@ fn eight_bit_input_applies_only_under_latin1() {
 /// Above `U+00FF` there is no byte and no key on such a keyboard, so nothing
 /// is sent rather than UTF-8 the application would misread.
 #[test]
-#[ignore = "baud-core never leaves UTF-8, so the Latin-1 half is unreachable -- see the_known_encoding_gaps"]
 fn latin1_input_is_encoded_as_latin1() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
@@ -1060,25 +1058,14 @@ proptest! {
     }
 }
 
-/// **Two, and they are the encoding gap wearing an input-side face.**
+/// **None, and the gate stays so a new one has to say so.**
 ///
-/// The encoder itself is `baud_domain::encode_key` and both cores call it, so
-/// the bytes cannot differ; what differs is the *state* fed to it.
-/// `Term::key` reads `self.encoding`, and nothing in `baud-core` ever writes
-/// that field -- `ESC % @` and `ESC % G` are unrouted -- so it is always
-/// UTF-8 and the two Latin-1 rows cannot pass. The other 25 do, which is what
-/// says the wiring is right and only the switch is missing.
-///
-/// The same gate as every other suite: a new ignore fails this, and closing
-/// one fails it too.
+/// The two that were here were the encoding gap wearing an input-side face:
+/// `Term::key` reads `self.cold.encoding` and nothing wrote it, so the core
+/// was always UTF-8 and the Latin-1 rows could not pass. They closed when
+/// `ESC % @` was routed, without touching the encoder -- which is the point of
+/// `baud_domain::encode_key` being one function both cores call.
 #[test]
 fn the_known_key_gaps() {
-    support::ignores_are(
-        ".",
-        &["key_encode.rs"],
-        &[
-            "eight_bit_input_applies_only_under_latin1",
-            "latin1_input_is_encoded_as_latin1",
-        ],
-    );
+    support::ignores_are(".", &["key_encode.rs"], &[]);
 }

@@ -947,6 +947,15 @@ impl Paint<'_, '_> {
             PrivateMode::EightBitInput => bit_state(self.cold.modes, ModeBit::EightBitInput),
             PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
             PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),
+            // **`?1020` mirrors the encoding rather than carrying a bit.**
+            // There is nothing to set: the mode *is* the answer to "which
+            // table is the parser using", so a bit beside it could disagree
+            // with the parser and a recorded-and-never-read bit is the failure
+            // `docs/vt-coverage.md` rates worst.
+            PrivateMode::Utf8Resource => match self.cold.encoding {
+                InputEncoding::Utf8 => ModeState::Set,
+                InputEncoding::Latin1 => ModeState::Reset,
+            },
             PrivateMode::LeftRightMargin => bit_state(self.cold.modes, ModeBit::SideMargins),
             PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => {

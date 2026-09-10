@@ -718,7 +718,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(node, b),
-        Node::Str => return string(b),
+        Node::Str => return string(b, enc),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
@@ -763,16 +763,27 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // `Text`**, which names a *run* of printable ASCII -- the run scanner
         // would refuse the first byte of it and the loop would not advance.
         //
-        // **`80..9F` is wrong here and knowingly so.** Those are 8-bit C1
-        // controls, which `CLAUDE.md` records as working under Latin-1 --
-        // there is no multi-byte sequence for them to be part of outside
-        // UTF-8, which is why the refusal was scoped to the encoding rather
-        // than to the bytes. This row answers `Bad`, one U+FFFD, because the
-        // new core parses no control sequences at all yet and a C1 that
-        // introduced one would have nowhere to go. It is unreachable today --
-        // nothing switches the encoding -- and it is a wrong row in a table
-        // whose whole claim is to be the source of truth, so it is written
-        // down rather than left to be discovered.
+        // **`80..9F` are the 8-bit C1 controls, and each is `ESC` plus the
+        // same byte less `0x40`.** `9B` is `CSI`, `9D` is `OSC`, `90` is
+        // `DCS`, `9C` is `ST`, `84` is `IND` -- so the row is not a special
+        // case at all, it is the `Escape` row read at a different offset, and
+        // delegating is what keeps one definition of what each final means.
+        //
+        // This answered `Act::Bad` -- one `U+FFFD` -- under a comment saying
+        // it was "wrong here and knowingly so ... because the new core parses
+        // no control sequences at all yet". That reason expired the day the VT
+        // sub-graph landed, and the row outlived it because **nothing could
+        // reach this table**: no recording is Latin-1 and no sequence switched
+        // the encoding, so the wrong answer cost nothing and announced
+        // nothing. A row that cannot be reached is a row nobody re-reads.
+        //
+        // They are controls *here and not under UTF-8*, which is not an
+        // inconsistency: in UTF-8 `9B` is a continuation byte and cannot begin
+        // anything, and in ISO 8859-1 there is no multi-byte sequence for it
+        // to be part of.
+        if b.raw_byte() >= 0x80 && b.raw_byte() <= 0x9f {
+            return escape(StreamByte::from_stream(b.raw_byte() - 0x40));
+        }
         return match b.is_latin1_graphic() {
             true => edge(Act::Latin1, g),
             false => edge(Act::Bad, g),
@@ -921,7 +932,17 @@ const fn vt52(node: Node, b: StreamByte) -> Edge {
     }
 }
 
-const fn string(b: StreamByte) -> Edge {
+const fn string(b: StreamByte, enc: InputEncoding) -> Edge {
+    // **`9C` is `ST` and ends the string, under Latin-1 only.** The seven-bit
+    // form is `ESC \`, which the `StrEsc` node below takes; this is the same
+    // terminator arriving as one byte, and a string that ignored it would run
+    // to the end of the stream swallowing everything after it.
+    //
+    // Gated on the encoding rather than on the byte, because in UTF-8 `9C` is
+    // a continuation byte and belongs to whatever character opened it.
+    if matches!(enc, InputEncoding::Latin1) && b.raw_byte() == 0x9c {
+        return edge(Act::StrEnd, Node::Ground);
+    }
     match b.raw_byte() {
         // `BEL` ends an `OSC`. `[[source: ctlseqs]]` allows it beside `ST`
         // and applications overwhelmingly send it, so a core that took only
@@ -1164,7 +1185,21 @@ mod classes {
         // | C0 in a payload ignored, not stored | 26/574/11,455/216,403 | **-0.4%** |
         // | `Act::DcsQuery` -- DECRQSS's `$ q` prefix | 29/641/12,596/235,526 | +8.8% |
         // | VT52 -- seven nodes, three actions | 30/662/13,143/247,683 | +5.2% |
-        // | `Act::Bell` -- BEL counted, not consumed | 30/665/13,339/255,588 | +3.2% |
+        // | `Act::Bell` -- BEL counted, not consumed | 30/921/13,339/255,588 | +3.2% |
+        // | **the 8-bit C1 controls, routed** | **34/921/22,619/522,818** | **+105%** |
+        //
+        // **That last row is the largest move the ladder has recorded, and it
+        // added no `Act` at all.** `80..9F` under Latin-1 stopped being one
+        // undifferentiated `Act::Bad` and became the `Escape` row read at an
+        // offset -- so `9B` is a `CSI` introducer, `9D` an `OSC` one, `9C` a
+        // terminator, and the grammar now tells thirty-two bytes apart that it
+        // used to treat as one. Stride 4 **doubles**.
+        //
+        // Which is the trade stated exactly as this table exists to state it:
+        // the cost of an encoding is table *content*, paid in a table nobody
+        // has built, against a per-byte loop that is unchanged. The four
+        // numbers moved and the two pins caught it on the first run, which is
+        // the fourth time they have.
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
@@ -1218,9 +1253,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 665, "stride 2");
-        assert_eq!(three.len(), 13_339, "stride 3");
-        assert_eq!(four.len(), 255_588, "stride 4");
+        assert_eq!(two.len(), 921, "stride 2");
+        assert_eq!(three.len(), 22_619, "stride 3");
+        assert_eq!(four.len(), 522_818, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1390,7 +1425,7 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    const CLASSES: usize = 30;
+    const CLASSES: usize = 34;
     /// **The loop always advances**, and it is a table property rather than a
     /// hope.
     ///

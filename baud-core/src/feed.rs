@@ -56,8 +56,14 @@ impl Term<'_> {
         // The ASCII-only ladder never leaves `Ground`, so it advances none of
         // these; the graph loop below does.
         #[cfg_attr(feature = "ascii-only", allow(unused_mut, unused_variables))]
-        let (enc, mut node, mut utf8, mut min) =
-            (self.encoding, self.node, self.utf8, self.utf8_min);
+        // **`enc` is `mut` because `ESC % @` can change it mid-read**, and a
+        // stream that switches encoding between two bytes of one `read(2)`
+        // must have the second byte parsed by the table the first byte
+        // selected. Bound once and copied into `step`, the switch would take
+        // effect on the *next* read -- which is a screen that depends on where
+        // the reads fell, the exact class chunk invariance exists to catch.
+        let (mut enc, mut node, mut utf8, mut min) =
+            (p.cold.encoding, self.node, self.utf8, self.utf8_min);
         let csi = &mut self.csi;
         // **One induction variable, as the untyped draft had.** Carrying a
         // position *and* a remaining count, each updated per step, cost 4% of
@@ -197,7 +203,7 @@ impl Term<'_> {
             }
             done = done.plus(step(
                 &mut p,
-                enc,
+                &mut enc,
                 &mut node,
                 &mut utf8,
                 &mut min,
@@ -275,7 +281,7 @@ impl Term<'_> {
 #[allow(clippy::too_many_arguments)]
 fn step(
     p: &mut Paint<'_, '_>,
-    enc: InputEncoding,
+    enc: &mut InputEncoding,
     node: &mut Node,
     utf8: &mut Utf8Acc,
     min: &mut Utf8Min,
@@ -305,9 +311,9 @@ fn step(
     // The stated precondition was checked against the UTF-8 half of the graph
     // and never against the half that produced it.
     #[cfg(feature = "probe-pinned-node")]
-    let mut e = Edge::of(enc, Node::Ground, b);
+    let mut e = Edge::of(*enc, Node::Ground, b);
     #[cfg(not(feature = "probe-pinned-node"))]
-    let mut e = Edge::of(enc, *node, b);
+    let mut e = Edge::of(*enc, *node, b);
     // **Whether a character fits is a property of the read, not of the byte**,
     // so the table cannot answer it and the loop does. A lead whose
     // continuations have not arrived becomes a `Begin`, which parks the
@@ -327,7 +333,7 @@ fn step(
         crate::graph::count_act(&mut p.hist, e.act);
     }
     *node = e.next;
-    act(p, e.act, node, utf8, min, csi, from, left)
+    act(p, e.act, node, enc, utf8, min, csi, from, left)
 }
 
 /// How many segment hashes the ceiling arm remembers. `btop.raw` has 1,126

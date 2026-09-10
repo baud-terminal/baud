@@ -34,7 +34,6 @@ fn run(bytes: &[u8]) -> (Vec<u32>, Vec<u8>) {
 /// is two. That is the whole difference, and it is why an encoding a terminal
 /// gets wrong is not a cosmetic problem.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn the_same_bytes_decode_differently_per_encoding() {
     assert_eq!(run(b"\xc3\xa9").0, vec![0xe9], "UTF-8: one `é`");
     assert_eq!(
@@ -46,7 +45,6 @@ fn the_same_bytes_decode_differently_per_encoding() {
 
 /// `ESC % G` switches back, mid-stream.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn the_encoding_switches_both_ways() {
     assert_eq!(
         run(b"\x1b%@\xe9\x1b%G\xc3\xa9").0,
@@ -58,7 +56,6 @@ fn the_encoding_switches_both_ways() {
 /// Every Latin-1 byte above `0x9F` is a character, including ones UTF-8 would
 /// reject as a lead byte.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn latin1_has_no_ill_formed_bytes() {
     // 0xFF is never a valid UTF-8 lead byte; in Latin-1 it is `ÿ`.
     assert_eq!(run(b"\x1b%@\xff").0, vec![0xff], "0xFF is `ÿ`");
@@ -74,7 +71,6 @@ fn latin1_has_no_ill_formed_bytes() {
 /// `9B A` is `CSI A` — cursor up — so nothing prints and the cursor does not
 /// move, being already at the top.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn latin1_c1_bytes_are_controls_not_characters() {
     assert_eq!(
         run(b"\x1b%@\x9bA").0,
@@ -96,7 +92,6 @@ fn latin1_c1_bytes_are_controls_not_characters() {
 /// failure `docs/vt-coverage.md` refuses. xterm answers `MdBool` from the live
 /// `screen->utf8_mode` for the same reason.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn decrqm_1020_follows_the_live_encoding() {
     assert_eq!(run(b"\x1b[?1020$p").1, b"\x1b[?1020;1$y", "UTF-8: set");
     assert_eq!(
@@ -232,7 +227,6 @@ fn detection_does_not_switch_the_terminal() {
 /// `Escape` state rather than duplicating its table, which is what stops them
 /// drifting apart.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn eight_bit_csi_works_in_latin1_and_not_in_utf8() {
     // `9B 3 1 m` is `CSI 3 1 m` — set foreground red — then `X`.
     let latin1 = run(b"\x1b%@\x9b31mX");
@@ -250,7 +244,6 @@ fn eight_bit_csi_works_in_latin1_and_not_in_utf8() {
 
 /// The other introducers reach their string states.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn eight_bit_osc_and_dcs_work_in_latin1() {
     // `9D` is OSC: set the title, print nothing.
     let ws = support::CORPUS;
@@ -267,7 +260,6 @@ fn eight_bit_osc_and_dcs_work_in_latin1() {
 
 /// `9C` is ST, and `98`/`9E`/`9F` open strings that are consumed.
 #[test]
-#[ignore = "baud-core does not route ESC % @ / ESC % G -- see the_known_encoding_gaps"]
 fn eight_bit_string_terminators_are_honoured() {
     // `90` DCS ... `9C` ST: the payload must not reach the screen.
     let g = run(b"\x1b%@\x90q payload \x9cX");

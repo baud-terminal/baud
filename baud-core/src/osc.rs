@@ -192,7 +192,17 @@ pub(crate) enum StrKind {
 impl StrKind {
     pub(crate) const fn of(b: StreamByte) -> StrKind {
         match b.raw_byte() {
-            0x5d => StrKind::Osc,
+            // **Both spellings of the same introducer.** `ESC ]` is the
+            // seven-bit form and `9D` the eight-bit one, and the graph reaches
+            // the same node from either -- a Latin-1 `9D` is routed as
+            // `escape(9D - 0x40)`, which is `]`. But this reads the byte back
+            // out of the arena to name the kind, so it saw `9D` and answered
+            // `Other`: the string parsed, its body was consumed, and the title
+            // was silently dropped.
+            //
+            // The graph's delegation is what makes one row serve both, and
+            // this is the one place downstream that still had to be told.
+            0x5d | 0x9d => StrKind::Osc,
             _ => StrKind::Other,
         }
     }
