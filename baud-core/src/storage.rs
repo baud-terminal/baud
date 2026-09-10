@@ -84,11 +84,21 @@ pub struct Storage<'b> {
     ///
     /// One buffer and not a second live surface, and the difference is worth
     /// stating because `baud-core2` made the other choice. `[[source:
-    /// ctlseqs]]`'s `?1049` *clears* the alternate screen on entry, and so
-    /// does `?47` as this core implements it -- so the alternate's content
-    /// never has to survive an exit, and "two surfaces, pick one per
-    /// operation" and "park the primary, hand the grid over" render the same
-    /// screen.
+    /// ctlseqs]]`'s `?1049` *clears* the alternate screen on entry, so its
+    /// content never has to survive an exit -- which is what makes "two
+    /// surfaces, pick one per operation" and "park the primary, hand the grid
+    /// over" render the same screen.
+    ///
+    /// **`?1049` is the only alternate screen this core implements, and that
+    /// is load-bearing rather than incidental.** `?47` is the pre-1049 form
+    /// and it *switches buffers without clearing*, so its alternate content
+    /// does have to survive an exit -- which parking cannot express, because
+    /// the one grid is handed over and the parked copy holds the primary.
+    /// `baud-core` routes `PrivateMode::AltScreenLegacy` nowhere, so `?47` is
+    /// unimplemented here rather than wrong; `baud-core2` implements it with
+    /// two live surfaces, which is the shape it needs. Implementing `?47` here
+    /// means giving up parking, and this note is so that trade is made
+    /// deliberately.
     ///
     /// Parking is what costs nothing on the path that matters. core2 branches
     /// on `screen` at every site that builds a `View`; here `View` is built

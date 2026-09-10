@@ -672,6 +672,50 @@ fn a_scrolled_primary_comes_back_in_the_order_it_left() {
     );
 }
 
+/// **`less-cjk` compared where its content is, which is one sequence before
+/// the end.**
+///
+/// Its row in `the_glyph_gap_is_pinned` is blank against blank and pins
+/// nothing: the recording's **last eight bytes** are `ESC [ ? 1 0 4 9 l`, so
+/// the final screen is the restored primary and every CJK cluster `less` drew
+/// is behind it. Left at that, 84 KB of the most cluster-dense text in the
+/// corpus would contribute nothing to the differential and any future change
+/// that broke its rendering would be invisible.
+///
+/// So both cores are fed the bytes up to that exit. **This is not the prefix
+/// bisect this repo records as a failure** -- nothing is written to
+/// `tests/recordings/`, no throughput or `cells_written` number is taken off a
+/// cut, and the recording is untouched. Two implementations receive identical
+/// bytes and their cells are compared, which is what this file already does at
+/// eight chunk sizes.
+///
+/// **452 of 1,238 non-blank cells**, and they are clustering: a ZWJ, a
+/// variation selector or a combining mark takes its own cell where core2
+/// attaches it to the base, and everything after it on the row shifts a
+/// column. It joins `cat-cjk`'s 355 and `vim-unicode`'s 517 and goes to zero
+/// with them the day `baud-core` grows a cluster machine.
+#[test]
+fn less_cjk_agrees_where_its_content_is() {
+    let b = recording("utf8/less-cjk.raw");
+    let at = (0..=b.len() - 8)
+        .filter(|&i| &b[i..i + 8] == b"\x1b[?1049l")
+        .next_back()
+        .expect("less-cjk leaves the alternate screen");
+    let (x, y) = (
+        old_screen(&b[..at], old::READ_CHUNK),
+        new_screen(&b[..at], 4096),
+    );
+    // The guard the end-of-stream row needed: a comparison with nothing in it
+    // cannot fail, and that is the whole reason this test exists.
+    let content = x.iter().filter(|c| **c != ' ' && **c != '\0').count();
+    assert!(
+        content > 1000,
+        "nothing on screen at the exit: {content} cells"
+    );
+    let d = (0..x.len()).filter(|&i| x[i] != y[i]).count();
+    assert_eq!(d, 452, "less-cjk's clustering gap moved");
+}
+
 /// **The gap tests drive one read size, and it is the one where the
 /// accelerated path is live.**
 ///
