@@ -40,6 +40,7 @@ mod osc;
 mod paint;
 mod storage;
 mod term;
+mod vt52;
 mod write;
 
 pub use baud_domain::{
@@ -50,6 +51,8 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+/// VT52 is a protocol an embedder can be in, so it can be asked about.
+pub use baud_domain::TerminalMode;
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return.
 pub use baud_domain::{Chan, ClipboardOp, ColorWord, LinkId, Osc, StringTerm, XColor};

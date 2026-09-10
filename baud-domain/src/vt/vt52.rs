@@ -85,6 +85,9 @@ impl Vt52 {
 pub struct Vt52Coord(u8);
 
 impl Vt52Coord {
+    /// The origin, and what a `Cold` starts at: no `ESC Y` has been seen.
+    pub const ZERO: Vt52Coord = Vt52Coord(0);
+
     /// Undo the wire bias. Values below `0x20` would be negative coordinates,
     /// which no application sends; they clamp to the origin rather than wrap.
     pub fn from_wire(b: StreamByte) -> Vt52Coord {

@@ -114,6 +114,14 @@ pub struct Cold {
     /// because a string spans reads.
     pub(crate) str_kind: StrKind,
     pub(crate) str_len: ByteLen,
+    /// ANSI or VT52, and the row byte a half-finished `ESC Y` is holding.
+    ///
+    /// **Both land in existing padding**: `size_of::<Cold>()` does not change.
+    /// And both are in `Cold` rather than on `Paint` because the per-byte loop
+    /// must never read them -- the protocol is in the *node*, so the mode is
+    /// only ever consulted when something asks which one is live.
+    pub(crate) terminal: TerminalMode,
+    pub(crate) vt52_row: Vt52Coord,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -136,6 +144,8 @@ impl Cold {
             mouse_encoding: MouseEncoding::X10,
             highlight: HighlightTracking::Off,
             highlight_region: HighlightRegion::default(),
+            terminal: TerminalMode::Ansi,
+            vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
             keypad: KeypadMode::Numeric,
@@ -264,6 +274,7 @@ pub struct Term<'b> {
     /// asking, and what it would read back is whatever the user last copied.
     /// Being unable to tell that one arrived is a different thing, and is what
     /// these turn from a bare `=> {}` into a number.
+    pub vt52_unsupported: usize,
     pub string_truncations: usize,
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
@@ -397,6 +408,7 @@ impl<'b> Term<'b> {
             title_len: ByteLen::ZERO,
             icon_len: ByteLen::ZERO,
             link: LinkId::NONE,
+            vt52_unsupported: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
@@ -607,6 +619,16 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// ANSI or VT52.
+    ///
+    /// **The protocol lives in the parser node and this is the read-out.** An
+    /// embedder needs it because the two answer keys differently -- the VT52
+    /// keyboard sends `ESC A` where ANSI sends `CSI A` -- and `Term::key`
+    /// reads the same field for the same reason.
+    pub fn terminal_mode(&self) -> TerminalMode {
+        self.cold.terminal
+    }
+
     /// The window title, as the application set it. Bounded by `OSC_MAX`.
     pub fn title(&self) -> &[u8] {
         &self.store.strs.title[..self.title_len.index()]
@@ -659,21 +681,23 @@ impl<'b> Term<'b> {
     /// lines and having two spellings of the input protocol, which is what a
     /// hand-written CSI recogniser beside the table cost this repo once.
     ///
-    /// Two of the five inputs are constants here and say why:
+    /// **One of the five inputs is a constant here, and it used to be two.**
     ///
     /// * **`C1Transmit::SevenBit`**, because this core does not implement
     ///   `S8C1T` -- the same constant `want_reply` already passes, so a key
     ///   and a `DA` cannot disagree about how wide a `CSI` is.
-    /// * **`TerminalMode::Ansi`**, because this core has no VT52 sub-graph and
-    ///   no DECANM to leave ANSI with. The encoder carries the VT52 keyboard
-    ///   and this core cannot reach it, which is a gap in *this* core rather
-    ///   than in the encoder.
+    /// * `terminal` was `TerminalMode::Ansi` on the grounds that "this core
+    ///   has no VT52 sub-graph and no DECANM to leave ANSI with". It has both
+    ///   now, so it reads the mode. Leaving the constant would have made every
+    ///   arrow key send `CSI A` inside VT52, where the keyboard sends
+    ///   `ESC A` -- a gap that opened the moment the *parser* gained a feature
+    ///   the *encoder* had carried all along.
     pub fn key(&mut self, e: KeyEvent) -> bool {
         let s = KeyState {
             modes: self.cold.modes,
             keypad: self.cold.keypad,
             c1: C1Transmit::SevenBit,
-            terminal: TerminalMode::Ansi,
+            terminal: self.cold.terminal,
             encoding: self.encoding,
         };
         let Some(k) = encode_key(e, s) else {

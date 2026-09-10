@@ -54,22 +54,46 @@ pub enum Node {
     CsiInter,
     /// A `CSI` that broke its own grammar: swallow to the final byte.
     CsiIgnore,
-    /// The body of a control string -- `OSC`, `DCS`, `SOS`, `PM`, `APC`.
     /// `ESC P`: a DCS, before its prefix is known.
     Dcs,
     /// `ESC P $`: one byte from being a DECRQSS.
     DcsDollar,
+    /// The body of a control string -- `OSC`, `DCS`, `SOS`, `PM`, `APC`.
     Str,
     /// An `ESC` inside a control string: `\` ends it, anything else cancels.
     StrEsc,
+    /// Between characters in VT52. **A protocol is more nodes, not a runtime
+    /// flag** -- the rule this graph already applied to `ESC` and to the UTF-8
+    /// continuations, and the reason VT52 is a disjoint sub-graph rather than
+    /// a mode test inside the `Escape` arm. In VT52 `ESC [` is not a CSI
+    /// introducer: it is a command VT52 does not define. A flag would have to
+    /// be read on the path every byte takes; a node costs one row of a table.
+    Vt52Ground,
+    /// After `ESC` in VT52. One uniform row: the byte goes to `Vt52::parse` at
+    /// run time rather than being split into an action per command, because a
+    /// stride-k table is `CLASSES^k` and fifteen new byte classes would grow
+    /// stride 4 far past what two ever did.
+    Vt52Escape,
+    /// After `ESC Y`, owed the row byte of a direct address.
+    Vt52Row,
+    /// After `ESC Y <row>`, owed the column byte.
+    Vt52Col,
+    /// A character split across reads **in VT52**, with this many continuations
+    /// owed. Separate from the ANSI three because completing a character has to
+    /// return to the ground it started in -- otherwise a multi-byte character
+    /// straddling a `read(2)` silently leaves VT52, which is a chunk-invariance
+    /// failure rather than a rendering one.
+    Vt52Utf8One,
+    Vt52Utf8Two,
+    Vt52Utf8Three,
 }
 
-pub(crate) const NNODE: usize = 13;
+pub(crate) const NNODE: usize = 20;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 33;
+pub(crate) const NACT: usize = 36;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -86,6 +110,13 @@ impl Node {
         Node::DcsDollar,
         Node::Str,
         Node::StrEsc,
+        Node::Vt52Ground,
+        Node::Vt52Escape,
+        Node::Vt52Row,
+        Node::Vt52Col,
+        Node::Vt52Utf8One,
+        Node::Vt52Utf8Two,
+        Node::Vt52Utf8Three,
     ];
 }
 
@@ -161,6 +192,17 @@ pub enum Act {
     StrStart,
     /// One byte of a control string's body.
     StrPut,
+    /// A VT52 command byte, handed to `Vt52::parse` at run time.
+    ///
+    /// **One action for fifteen commands**, because a stride-k table is
+    /// `CLASSES^k`: an action per command would split fifteen byte values into
+    /// their own classes, and this file's own ladder prices two new actions at
+    /// +54% of stride 4.
+    Vt52Dispatch,
+    /// The row byte of `ESC Y`, biased by `0x20`.
+    Vt52SetRow,
+    /// The column byte of `ESC Y`, which completes the address.
+    Vt52Address,
     /// The `q` of a `DCS $ q`: this control string is a DECRQSS.
     ///
     /// One action rather than the two a separate DCS body would need, because
@@ -231,6 +273,13 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::DcsDollar => 10,
         Node::Str => 11,
         Node::StrEsc => 12,
+        Node::Vt52Ground => 13,
+        Node::Vt52Escape => 14,
+        Node::Vt52Row => 15,
+        Node::Vt52Col => 16,
+        Node::Vt52Utf8One => 17,
+        Node::Vt52Utf8Two => 18,
+        Node::Vt52Utf8Three => 19,
     }] += 1;
 }
 
@@ -261,6 +310,13 @@ const fn node_name(n: Node) -> &'static str {
         Node::DcsDollar => "DcsDollar",
         Node::Str => "Str",
         Node::StrEsc => "StrEsc",
+        Node::Vt52Ground => "Vt52Ground",
+        Node::Vt52Escape => "Vt52Escape",
+        Node::Vt52Row => "Vt52Row",
+        Node::Vt52Col => "Vt52Col",
+        Node::Vt52Utf8One => "Vt52Utf8One",
+        Node::Vt52Utf8Two => "Vt52Utf8Two",
+        Node::Vt52Utf8Three => "Vt52Utf8Three",
     }
 }
 
@@ -288,6 +344,9 @@ const fn act_name(a: Act) -> &'static str {
         Act::Consume => "Consume",
         Act::StrStart => "StrStart",
         Act::StrPut => "StrPut",
+        Act::Vt52Dispatch => "Vt52Dispatch",
+        Act::Vt52SetRow => "Vt52SetRow",
+        Act::Vt52Address => "Vt52Address",
         Act::DcsQuery => "DcsQuery",
         Act::StrEnd => "StrEnd",
         Act::CsiStart => "CsiStart",
@@ -327,6 +386,9 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Consume,
     Act::StrStart,
     Act::StrPut,
+    Act::Vt52Dispatch,
+    Act::Vt52SetRow,
+    Act::Vt52Address,
     Act::DcsQuery,
     Act::StrEnd,
     Act::CsiStart,
@@ -552,10 +614,20 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // successor not be swallowed, and the outcome is the same `Consume`.
     let ground_like = matches!(
         node,
-        Node::Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+        Node::Ground
+            | Node::Utf8One
+            | Node::Utf8Two
+            | Node::Utf8Three
+            | Node::Vt52Ground
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three
     );
+    // **Back to the ground it was in, not to ANSI ground.** A `CAN` inside a
+    // VT52 escape cancels the escape; it does not switch protocols, and
+    // `ground_of` is what says so in one place rather than at each return.
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
-        return edge(Act::Consume, Node::Ground);
+        return edge(Act::Consume, ground_of(node));
     }
 
     // Mid-character: only a continuation can follow, and it moves one node
@@ -581,6 +653,29 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             return match b.utf8_continuation() {
                 Some(_) => edge(Act::ContEnd, Node::Ground),
                 None => edge(Act::Resync, Node::Ground),
+            };
+        }
+        // **The same three rows in VT52, and they exist because of `read(2)`.**
+        // A character cut between two reads completes on the next one and has
+        // to complete into the ground it started in -- otherwise a multi-byte
+        // character straddling a read boundary silently leaves VT52, so the
+        // same bytes render differently depending on where the reads fell.
+        Node::Vt52Utf8Three => {
+            return match b.utf8_continuation() {
+                Some(_) => edge(Act::Cont, Node::Vt52Utf8Two),
+                None => edge(Act::Resync, Node::Vt52Ground),
+            };
+        }
+        Node::Vt52Utf8Two => {
+            return match b.utf8_continuation() {
+                Some(_) => edge(Act::Cont, Node::Vt52Utf8One),
+                None => edge(Act::Resync, Node::Vt52Ground),
+            };
+        }
+        Node::Vt52Utf8One => {
+            return match b.utf8_continuation() {
+                Some(_) => edge(Act::ContEnd, Node::Vt52Ground),
+                None => edge(Act::Resync, Node::Vt52Ground),
             };
         }
         Node::Escape => return escape(b),
@@ -611,6 +706,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 _ => edge(Act::Consume, Node::Str),
             };
         }
+        Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(node, b),
         Node::Str => return string(b),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
@@ -621,11 +717,23 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 false => edge(Act::Again, Node::Escape),
             };
         }
-        Node::Ground => {}
+        Node::Ground | Node::Vt52Ground => {}
     }
 
+    // **The ground the byte came from decides everything below.** One local,
+    // resolved once per table entry at build time, in place of the literal
+    // `Node::Ground` this body used to name in eight places.
+    let g = ground_of(node);
     if b.is(StreamByte::ESC) {
-        return edge(Act::EscStart, Node::Escape);
+        // **Not `Act::EscStart`.** That arm resets the parameter list and is
+        // the entry to the accelerated CSI path, and VT52 has no CSI -- `ESC [`
+        // there is a command VT52 does not define, not an introducer. Entering
+        // `fast_csi` from VT52 would parse a sequence that does not exist in
+        // this protocol.
+        return match g {
+            Node::Vt52Ground => edge(Act::Consume, Node::Vt52Escape),
+            _ => edge(Act::EscStart, Node::Escape),
+        };
     }
 
     // **`Route` is this row of the graph, and it is the same definition the
@@ -634,10 +742,10 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // run scanner would then be agreeing with a different function from the
     // one that dispatched to it.
     if matches!(Route::of(b), Route::Control) {
-        return edge(c0(b), Node::Ground);
+        return edge(c0(b), g);
     }
     if matches!(Route::of(b), Route::Text) {
-        return edge(Act::Text, Node::Ground);
+        return edge(Act::Text, g);
     }
     if matches!(enc, InputEncoding::Latin1) {
         // ISO 8859-1: one byte, one character, no decoder state. **Not
@@ -655,8 +763,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // whose whole claim is to be the source of truth, so it is written
         // down rather than left to be discovered.
         return match b.is_latin1_graphic() {
-            true => edge(Act::Latin1, Node::Ground),
-            false => edge(Act::Bad, Node::Ground),
+            true => edge(Act::Latin1, g),
+            false => edge(Act::Bad, g),
         };
     }
     // **The action carries the length, so the character is one lookup.** A
@@ -665,11 +773,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // says `Char3` and `Char3` eats three. The `Begin` forms exist only for a
     // character the read cut in half, which is at most one per `read(2)`.
     match b.utf8_lead() {
-        Some((1, _, _)) => edge(Act::Char2, Node::Ground),
-        Some((2, _, _)) => edge(Act::Char3, Node::Ground),
-        Some((3, _, _)) => edge(Act::Char4, Node::Ground),
+        Some((1, _, _)) => edge(Act::Char2, g),
+        Some((2, _, _)) => edge(Act::Char3, g),
+        Some((3, _, _)) => edge(Act::Char4, g),
         // A stray continuation, or a lead UTF-8 does not allow.
-        _ => edge(Act::Bad, Node::Ground),
+        _ => edge(Act::Bad, g),
     }
 }
 
@@ -762,6 +870,46 @@ const fn csi_ignore(b: StreamByte) -> Edge {
 }
 
 /// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
+/// Which ground a node returns to when its sequence or character completes.
+///
+/// **This is the whole of what makes VT52 a sub-graph rather than a mode.**
+/// Every place that used to name `Node::Ground` as a next node now names this,
+/// so a character, a C0 or a cancelled sequence returns to the protocol it was
+/// in. The alternative -- a `terminal_mode` test on the path every byte takes
+/// -- is a runtime flag in the hot loop, which this file prices at 13-17%.
+pub(crate) const fn ground_of(node: Node) -> Node {
+    match node {
+        Node::Vt52Ground
+        | Node::Vt52Escape
+        | Node::Vt52Row
+        | Node::Vt52Col
+        | Node::Vt52Utf8One
+        | Node::Vt52Utf8Two
+        | Node::Vt52Utf8Three => Node::Vt52Ground,
+        _ => Node::Ground,
+    }
+}
+
+/// `ESC` in VT52, and the two bytes of a direct address.
+const fn vt52(node: Node, b: StreamByte) -> Edge {
+    match node {
+        // **A second `ESC` restarts the sequence rather than dispatching.**
+        // `ESC ESC A` moves the cursor up; a uniform row would hand `ESC` to
+        // `Vt52::parse`, which does not name it, and the `A` would then be
+        // drawn as text. One compare in a `const fn` that runs at build time.
+        Node::Vt52Escape => match b.raw_byte() {
+            0x1b => edge(Act::Consume, Node::Vt52Escape),
+            b'Y' => edge(Act::Consume, Node::Vt52Row),
+            _ => edge(Act::Vt52Dispatch, Node::Vt52Ground),
+        },
+        // `ESC Y <row> <col>`, each biased by `0x20`. Two nodes because the
+        // pair is a parser sub-state nothing else in either protocol reaches,
+        // and because a read can fall between them.
+        Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
+        _ => edge(Act::Vt52Address, Node::Vt52Ground),
+    }
+}
+
 const fn string(b: StreamByte) -> Edge {
     match b.raw_byte() {
         // `BEL` ends an `OSC`. `[[source: ctlseqs]]` allows it beside `ST`
@@ -819,10 +967,17 @@ const fn build_ascii() -> Bytes<Act> {
 /// Chosen by the loop rather than by the table, because whether a character
 /// fits is a property of the *read*, not of the byte.
 #[inline(always)]
-pub(crate) fn split(act: Act) -> Edge {
-    match act {
-        Act::Char2 => edge(Act::Begin2, Node::Utf8One),
-        Act::Char3 => edge(Act::Begin3, Node::Utf8Two),
+pub(crate) fn split(act: Act, node: Node) -> Edge {
+    // **Which family of continuation nodes, not just how many are owed.** A
+    // character cut by a `read(2)` in VT52 has to resume in VT52; returning the
+    // ANSI nodes here would leave the protocol at a read boundary, so the same
+    // bytes would render differently depending on where the reads fell.
+    match (ground_of(node), act) {
+        (Node::Vt52Ground, Act::Char2) => edge(Act::Begin2, Node::Vt52Utf8One),
+        (Node::Vt52Ground, Act::Char3) => edge(Act::Begin3, Node::Vt52Utf8Two),
+        (Node::Vt52Ground, _) => edge(Act::Begin4, Node::Vt52Utf8Three),
+        (_, Act::Char2) => edge(Act::Begin2, Node::Utf8One),
+        (_, Act::Char3) => edge(Act::Begin3, Node::Utf8Two),
         _ => edge(Act::Begin4, Node::Utf8Three),
     }
 }
@@ -997,6 +1152,7 @@ mod classes {
         // | `StrStart`/`StrPut`/`StrEnd` -- OSC | 26/574/11,478/217,172 | +2.7% |
         // | C0 in a payload ignored, not stored | 26/574/11,455/216,403 | **-0.4%** |
         // | `Act::DcsQuery` -- DECRQSS's `$ q` prefix | 29/641/12,596/235,526 | +8.8% |
+        // | VT52 -- seven nodes, three actions | 30/662/13,143/247,683 | +5.2% |
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
@@ -1030,6 +1186,15 @@ mod classes {
         // at all, because its parameters live in the payload, where the graph
         // never looks at them.
         //
+        // **Seven nodes and three actions moved stride 1 by one.** Not by
+        // three: `Vt52Escape` is deliberately *one uniform row* handing the
+        // byte to `Vt52::parse` at run time, so the fifteen VT52 commands share
+        // a class instead of earning fifteen. What did earn one is `Y`, which
+        // alone leads to the two address nodes. An action per command is the
+        // honest-looking spelling and this file's own arithmetic says what it
+        // costs: `CLASSES^k`, so fifteen new classes at stride 4 is not fifteen
+        // times anything.
+        //
         // Which is the argument for this representation stated as arithmetic.
         // Telling bytes apart in a *table* costs entries; telling them apart
         // in the `match` costs the per-byte loop. The first is a number you
@@ -1041,9 +1206,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 641, "stride 2");
-        assert_eq!(three.len(), 12_596, "stride 3");
-        assert_eq!(four.len(), 235_526, "stride 4");
+        assert_eq!(two.len(), 662, "stride 2");
+        assert_eq!(three.len(), 13_143, "stride 3");
+        assert_eq!(four.len(), 247_683, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1142,15 +1307,29 @@ mod classes {
     /// pushed the test back into the node functions would leave four nodes
     /// broken and every test green.
     ///
-    /// This is exhaustive over both encodings and all eleven nodes, so the
+    /// This is exhaustive over both encodings and all twenty nodes, so the
     /// claim is a gate rather than a comment.
     #[test]
     fn can_and_sub_cancel_from_every_node_that_is_not_ground_like() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             for node in Node::FROM_INDEX {
+                // **Written against `ground_of`, not against a second copy of
+                // the list.** This test kept its own and expected the literal
+                // `Node::Ground`, so VT52 failed it on every VT52 node --
+                // correctly, because a cancel there must return to VT52 ground.
+                // Two spellings of one rule is the shape this repo records four
+                // times; the fix is to ask the function.
+                let g = ground_of(node);
                 let ground_like = matches!(
                     node,
-                    Node::Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+                    Node::Ground
+                        | Node::Utf8One
+                        | Node::Utf8Two
+                        | Node::Utf8Three
+                        | Node::Vt52Ground
+                        | Node::Vt52Utf8One
+                        | Node::Vt52Utf8Two
+                        | Node::Vt52Utf8Three
                 );
                 for b in [StreamByte::CAN, StreamByte::SUB] {
                     let got = Edge::of(enc, node, b);
@@ -1163,15 +1342,15 @@ mod classes {
                         true => assert_eq!(
                             got,
                             match node {
-                                Node::Ground => edge(Act::Consume, Node::Ground),
-                                _ => edge(Act::Resync, Node::Ground),
+                                Node::Ground | Node::Vt52Ground => edge(Act::Consume, g),
+                                _ => edge(Act::Resync, g),
                             },
                             "{node:?} {enc:?} byte {:#04x}",
                             b.raw_byte()
                         ),
                         false => assert_eq!(
                             got,
-                            edge(Act::Consume, Node::Ground),
+                            edge(Act::Consume, g),
                             "{node:?} {enc:?} byte {:#04x} does not cancel",
                             b.raw_byte()
                         ),
@@ -1199,5 +1378,5 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    const CLASSES: usize = 29;
+    const CLASSES: usize = 30;
 }

@@ -94,6 +94,11 @@ pub(crate) struct Paint<'a, 'b> {
     /// the two halves of `OSC 52`. **Refused is not the same as unnoticed**:
     /// silence is the right answer to a clipboard read, and being unable to
     /// tell that one arrived is a different thing.
+    /// VT52 commands this core does not act on: the six print functions
+    /// (`ESC ^ _ W X ] V`) and any byte that is not a VT52 command at all.
+    /// **Counted rather than silent**, because `unsupported` is indexed by
+    /// `FinalByte::slot()` and a VT52 command byte is not a `FinalByte`.
+    pub(crate) vt52_unsupported: usize,
     pub(crate) string_truncations: usize,
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
@@ -252,6 +257,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             title_len,
             icon_len,
             link,
+            vt52_unsupported: 0,
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,

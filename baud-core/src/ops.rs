@@ -533,14 +533,24 @@ impl Paint<'_, '_> {
 
     // ---- modes ----------------------------------------------------------
 
-    pub(crate) fn apply_private_modes(&mut self, csi: &crate::write::Csi, change: ModeChange) {
+    pub(crate) fn apply_private_modes(
+        &mut self,
+        csi: &crate::write::Csi,
+        change: ModeChange,
+        node: &mut crate::graph::Node,
+    ) {
         // **Every parameter, not the first.** `CSI ? 1 ; 3 ; 4 ; 6 l` sets
         // four modes and rxvt's own reset string is exactly that; reading one
         // left the rest silently unset.
-        csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change));
+        csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change, node));
     }
 
-    fn set_private_mode(&mut self, m: PrivateMode, change: ModeChange) {
+    fn set_private_mode(
+        &mut self,
+        m: PrivateMode,
+        change: ModeChange,
+        node: &mut crate::graph::Node,
+    ) {
         let on = change == ModeChange::Set;
         match m {
             PrivateMode::Origin => {
@@ -594,6 +604,23 @@ impl Paint<'_, '_> {
             //
             // **Idempotent in both directions.** A second `?1049 h` must not
             // re-save over the cursor it saved on the way in.
+            // **DECANM: `CSI ? 2 l` leaves ANSI, and leaving is a parser
+            // transition.** The mode is recorded *and* the node moves, because
+            // the very next byte has to be read by the VT52 graph -- `ESC [`
+            // there is a command VT52 does not define rather than an
+            // introducer. Recording the mode without moving the node is the
+            // "a bit that is set and never read" failure; moving the node
+            // without recording it would leave `terminal_mode()` lying.
+            PrivateMode::AnsiMode => {
+                self.cold.terminal = match change {
+                    ModeChange::Set => TerminalMode::Ansi,
+                    ModeChange::Reset => TerminalMode::Vt52,
+                };
+                *node = match self.cold.terminal {
+                    TerminalMode::Ansi => crate::graph::Node::Ground,
+                    TerminalMode::Vt52 => crate::graph::Node::Vt52Ground,
+                };
+            }
             PrivateMode::AltScreen => self.set_alt_screen(change),
             _ => {}
         }

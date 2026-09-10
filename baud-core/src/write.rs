@@ -412,11 +412,8 @@ pub(crate) fn act(
         // definition of the protocol.
         Act::EscStart => {
             csi.reset();
-            match fast_esc(p, csi, from, left) {
-                Some(n) => {
-                    *node = Node::Ground;
-                    n
-                }
+            match fast_esc(p, csi, from, left, node) {
+                Some(n) => n,
                 None => ReadLen::ONE,
             }
         }
@@ -441,11 +438,8 @@ pub(crate) fn act(
         // parameters on the way out and broke chunk invariance.
         Act::CsiStart => {
             csi.reset();
-            match fast_csi(p, csi, from, left) {
-                Some(n) => {
-                    *node = Node::Ground;
-                    n
-                }
+            match fast_csi(p, csi, from, left, node) {
+                Some(n) => n,
                 None => ReadLen::ONE,
             }
         }
@@ -540,6 +534,22 @@ pub(crate) fn act(
             p.str_put(StreamByte::from_stream(p.arena[from.index()]));
             ReadLen::ONE
         }
+        // The three VT52 arms. Each body is `#[cold] #[inline(never)]`, so
+        // what lands in the per-byte loop is a call.
+        Act::Vt52Dispatch => {
+            let b = StreamByte::from_stream(p.arena[from.index()]);
+            p.vt52(Vt52::parse(b), node);
+            ReadLen::ONE
+        }
+        Act::Vt52SetRow => {
+            p.cold.vt52_row = Vt52Coord::from_wire(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
+        Act::Vt52Address => {
+            let col = Vt52Coord::from_wire(StreamByte::from_stream(p.arena[from.index()]));
+            p.vt52_address(col);
+            ReadLen::ONE
+        }
         Act::DcsQuery => {
             p.cold.str_kind = StrKind::Decrqss;
             ReadLen::ONE
@@ -552,7 +562,7 @@ pub(crate) fn act(
             // The graph only names `CsiFinal` for `0x40..=0x7e`, and
             // `FinalByte` is the type that carries that proof.
             let b = StreamByte::from_stream(p.arena[from.index()]);
-            csi_final(p, csi, FinalByte::of_final(b));
+            csi_final(p, csi, FinalByte::of_final(b), node);
             ReadLen::ONE
         }
         Act::EscFinal => {
@@ -1186,7 +1196,7 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 /// a per-byte body costs every payload whether or not it executes.
 #[cold]
 #[inline(never)]
-fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte) {
+fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
     #[cfg(feature = "probe-no-csi-op")]
     {
         let _ = (&p, &csi, f);
@@ -1256,7 +1266,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte) {
         DomCsi::CursorForwardTab(c) => p.tab_forward(c),
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
-        DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change),
+        DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node),
         DomCsi::Mode { change, mode } => p.apply_ansi_mode(change, mode),
         DomCsi::SelectProtection { protect } => {
             p.cold.protect = CellFlags::protection(protect.is_protected());
@@ -1473,7 +1483,13 @@ fn final_byte_at(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> Option<Byte
 /// and the parameter walk are small; only `csi_final`'s match is big, and that
 /// is `#[cold]` on its own.
 #[inline(always)]
-fn fast_csi(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
+fn fast_csi(
+    p: &mut Paint<'_, '_>,
+    csi: &mut Csi,
+    from: BytePos,
+    left: ReadLen,
+    node: &mut Node,
+) -> Option<ReadLen> {
     #[cfg(feature = "probe-no-fast-csi")]
     {
         let _ = (&p, &csi, from, left);
@@ -1739,6 +1755,13 @@ fn fast_csi(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
     // into a cold frame to be told it did not need the grammar. Inlining
     // `fast_csi` itself was worth 3-5% for the same reason.
     let f = FinalByte::of_final(s[off]);
+    // **Commit the node here, before the dispatch, so the dispatch can
+    // override it.** `DECANM` leaves ANSI, and leaving is a parser transition:
+    // the next byte has to be read by the VT52 graph. Setting `Node::Ground`
+    // *after* `csi_final` -- which is where it used to live, in the
+    // `Act::CsiStart` arm -- would undo the switch and the very next byte
+    // would be parsed by the protocol the application just left.
+    *node = Node::Ground;
     match csi.is_plain_sgr(f) {
         true => {
             // **Insert on the miss, from the parse that just happened.**
@@ -1751,7 +1774,7 @@ fn fast_csi(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
             }
             p.apply_sgr(csi)
         }
-        false => csi_final(p, csi, f),
+        false => csi_final(p, csi, f, node),
     }
     // The `[`, the parameters, and the final byte.
     // **The one place this path commits.** `fast_hit` was declared, summed and
@@ -1773,7 +1796,13 @@ fn fast_csi(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
 /// the corpus sends: `ESC [ ... final`, `ESC <intermediate> <final>` -- the
 /// character-set designators -- and the bare two-byte `ESC <final>`.
 #[inline(always)]
-fn fast_esc(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) -> Option<ReadLen> {
+fn fast_esc(
+    p: &mut Paint<'_, '_>,
+    csi: &mut Csi,
+    from: BytePos,
+    left: ReadLen,
+    node: &mut Node,
+) -> Option<ReadLen> {
     if left.index() < 2 {
         return None;
     }
@@ -1787,6 +1816,7 @@ fn fast_esc(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
                 csi,
                 from.advance_read(ReadLen::ONE),
                 left.less(ReadLen::ONE),
+                node,
             )?;
             Some(n.plus(ReadLen::ONE))
         }
@@ -1799,6 +1829,14 @@ fn fast_esc(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
             match b2.raw_byte() {
                 0x30..=0x7e => {
                     csi.set_inter(b1);
+                    // The same commit `fast_csi` makes, and for the same
+                    // reason: this path used to leave the node to the caller,
+                    // and moving that reset into the fast paths so `DECANM`
+                    // could override it left these two branches setting
+                    // nothing at all. The node stayed `Escape` and the next
+                    // byte was parsed as an escape continuation -- charset
+                    // designation and both CJK recordings went red at once.
+                    *node = Node::Ground;
                     esc_final(p, csi, b2);
                     Some(ReadLen::from_index(3))
                 }
@@ -1809,6 +1847,7 @@ fn fast_esc(p: &mut Paint<'_, '_>, csi: &mut Csi, from: BytePos, left: ReadLen) 
         // introducers**: `P`, `X`, `]`, `^`, `_` open a control string whose
         // body the graph has to walk.
         0x30..=0x4f | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
+            *node = Node::Ground;
             esc_final(p, csi, b1);
             Some(ReadLen::from_index(2))
         }

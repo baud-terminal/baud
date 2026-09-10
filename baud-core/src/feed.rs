@@ -225,6 +225,7 @@ impl Term<'_> {
         self.title_len = p.title_len;
         self.icon_len = p.icon_len;
         self.link = p.link;
+        self.vt52_unsupported += p.vt52_unsupported;
         self.string_truncations += p.string_truncations;
         self.strings_ignored += p.strings_ignored;
         self.clipboard_reads_refused += p.clipboard_reads_refused;
@@ -313,7 +314,7 @@ fn step(
     // at 4 KB chunks against 3,322,229 at 256 KB, the same bytes and two
     // answers.
     if !left.holds(e.act.width()) {
-        e = split(e.act);
+        e = split(e.act, *node);
     }
     #[cfg(feature = "diag")]
     {

@@ -804,6 +804,138 @@ fn every_fixture_renders_the_same_at_every_read_size() {
     }
 }
 
+/// **VT52, which no recording contains a single byte of.**
+///
+/// `CSI ? 2 l` appears in none of the nine captures, so the case is
+/// structurally invisible to every recording-driven gate -- the same reason
+/// the tab, charset and alternate-screen fixtures exist. In VT52 **every byte
+/// parses differently**: `ESC [` is a command VT52 does not define rather than
+/// a CSI introducer, so a core that recorded the mode and left the parser in
+/// ANSI would draw an application's cursor moves as text.
+///
+/// Driven at every chunk size, which is the sharpest form of the check here:
+/// at a chunk of one a whole sequence is never inside one read, so the fast
+/// escape path can never fire and the graph must walk it to the same screen.
+#[test]
+fn vt52_agrees_with_core2() {
+    let rows: &[(&str, &[u8])] = &[
+        // Enter, move, leave. `ESC <` is the way back.
+        ("enter and leave", b"\x1b[?2lABC\x1b<DEF"),
+        ("cursor up", b"\x1b[?2lline1\r\nline2\x1bAX"),
+        ("cursor down", b"\x1b[?2lA\x1bBX"),
+        ("cursor right", b"\x1b[?2lA\x1bCX"),
+        ("cursor left", b"\x1b[?2lAB\x1bDX"),
+        ("home", b"\x1b[?2labc\r\ndef\x1bHX"),
+        ("reverse line feed", b"\x1b[?2l\r\n\r\nabc\x1bIX"),
+        // Direct addressing: `ESC Y <row+0x20> <col+0x20>`.
+        ("direct address", b"\x1b[?2l\x1bY\x28\x2aHERE"),
+        ("address origin", b"\x1b[?2lxxxx\x1bY  TOP"),
+        // Out of range both ways -- below the bias and past the screen. Both
+        // clamp; neither wraps to a cell that is not there.
+        ("address low", b"\x1b[?2l\x1bY\x01\x01LOW"),
+        ("address high", b"\x1b[?2l\x1bY\x7e\x7eHIGH"),
+        // Erase.
+        (
+            "erase to end of screen",
+            b"\x1b[?2labc\r\ndef\r\nghi\x1bY\x21\x21\x1bJ",
+        ),
+        ("erase to end of line", b"\x1b[?2labcdef\x1bY  \x1bK"),
+        // Graphics mode: `ESC F` and `ESC G` designate the DEC special set.
+        ("graphics on", b"\x1b[?2l\x1bFlqk\x1bGabc"),
+        // **`ESC [` is not an introducer here.** Under ANSI this sets a
+        // rendition; under VT52 the `[` is a command VT52 does not define and
+        // `31m` is text.
+        ("csi is not a csi", b"\x1b[?2l\x1b[31mTEXT"),
+        // A second `ESC` restarts the sequence rather than being dispatched.
+        ("esc esc", b"\x1b[?2l\x1b\x1bAX"),
+        // `CAN` and `SUB` cancel the escape and stay in VT52.
+        ("can cancels", b"\x1b[?2l\x1b\x18AX"),
+        ("sub cancels", b"\x1b[?2l\x1b\x1aBX"),
+        // The print functions, which neither core acts on.
+        (
+            "print functions",
+            b"\x1b[?2l\x1bW\x1bX\x1bV\x1b]\x1b^\x1b_ok",
+        ),
+        // Multi-byte text inside VT52, which is where the continuation nodes
+        // earn their place: a character cut by a read must resume in VT52.
+        (
+            "utf8 in vt52",
+            "\x1b[?2l\u{6f22}\u{5b57}\u{1f680}ok".as_bytes(),
+        ),
+        // **A VT52 command straight after a multi-byte character**, which
+        // is what makes the VT52 continuation nodes load-bearing. The row
+        // above cannot see them: it ends in plain text, which renders the
+        // same in either protocol, so removing the `Vt52Ground` arms from
+        // `split` left it green. Here the character is cut by a small read
+        // and the `ESC A` after it only moves the cursor if the character
+        // completed back into VT52.
+        (
+            "utf8 then a command",
+            "\x1b[?2l\u{6f22}\x1bAX\u{5b57}\x1bBY".as_bytes(),
+        ),
+        (
+            "4-byte then a command",
+            "\x1b[?2l\u{1f680}\x1bCZ".as_bytes(),
+        ),
+        (
+            "utf8 then esc Y",
+            "\x1b[?2l\u{6f22}\x1bY\x24\x24AT".as_bytes(),
+        ),
+        // Enter, leave, re-enter. The mode is not one-way.
+        ("round trip", b"\x1b[?2lA\x1b<\x1b[1mB\x1b[?2lC\x1b<D"),
+        // Leaving with `ESC <` must let the very next `ESC [` be a CSI again.
+        ("csi works after leaving", b"\x1b[?2l\x1b<\x1b[31mSTYLED"),
+    ];
+    for (name, bytes) in rows {
+        let want = old_screen(bytes, old::READ_CHUNK);
+        for k in [1usize, 2, 3, 5, 17, 512, 4096] {
+            let got = new_screen(bytes, k);
+            let d = (0..want.len()).filter(|&i| want[i] != got[i]).count();
+            assert_eq!(d, 0, "{name}: chunk {k}, {d} cells differ from core2");
+        }
+    }
+
+    // **The reply and the mode, which the cells cannot show.** `ESC Z` is the
+    // VT52 identity and is the one reply that is neither a CSI nor a control
+    // string; a screen comparison is blind to it.
+    for (name, bytes, mode) in [
+        (
+            "identify",
+            b"\x1b[?2l\x1bZ".as_slice(),
+            new::TerminalMode::Vt52,
+        ),
+        (
+            "identify after leaving",
+            b"\x1b[?2l\x1b<\x1bZ".as_slice(),
+            new::TerminalMode::Ansi,
+        ),
+        ("still ansi", b"\x1b[1m".as_slice(), new::TerminalMode::Ansi),
+    ] {
+        assert_eq!(old_reply(bytes), new_reply(bytes, 400_000), "{name}: reply");
+        for k in [1usize, 3, 512] {
+            assert_eq!(
+                new_reply(bytes, k),
+                new_reply(bytes, 400_000),
+                "{name}: chunk {k}"
+            );
+        }
+        assert_eq!(new_terminal_mode(bytes), mode, "{name}: mode");
+    }
+}
+
+/// Which protocol `baud-core` is in after reading `bytes`.
+fn new_terminal_mode(bytes: &[u8]) -> new::TerminalMode {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
+    t.write_at(new::BytePos::ZERO, bytes);
+    t.feed(new::BytePos::ZERO, new::ReadLen::from_index(bytes.len()));
+    t.terminal_mode()
+}
+
 /// **A DECRQSS reply, which no gate in this repo could fail on.**
 ///
 /// A `DCS $ q ... ST` writes no cells, so the glyph gate, the rendition gate,
