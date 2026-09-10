@@ -65,7 +65,7 @@ pub(crate) const NNODE: usize = 11;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 27;
+pub(crate) const NACT: usize = 29;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -111,6 +111,19 @@ pub enum Act {
     /// stops were maintained and the tab was dropped. No recording in the
     /// corpus contains one, which is why nothing caught it.
     Tab,
+    /// `SO` and `SI`. **Locking shifts: which G slot `GL` invokes.**
+    ///
+    /// `SO` (`0x0E`) invokes G1 and `SI` (`0x0F`) invokes G0, and they are the
+    /// other half of `ESC ( 0`: designation loads a slot, invocation decides
+    /// which slot the bytes are read through. `baud-core` had one `charset`
+    /// field, so designating into G1 changed what G0 rendered and neither
+    /// shift did anything -- the designation *was* the invocation.
+    ///
+    /// Two actions and not one carrying the byte: an arm that re-tested which
+    /// byte it had is the shape this file measured at +9% to remove, three
+    /// times in one change.
+    ShiftOut,
+    ShiftIn,
     /// A complete multi-byte character whose bytes are all in this read.
     /// The action decodes and writes it, and eats its length.
     Char2,
@@ -227,6 +240,8 @@ const fn act_name(a: Act) -> &'static str {
         Act::Return => "Return",
         Act::Backspace => "Backspace",
         Act::Tab => "Tab",
+        Act::ShiftOut => "ShiftOut",
+        Act::ShiftIn => "ShiftIn",
         Act::Char2 => "Char2",
         Act::Char3 => "Char3",
         Act::Char4 => "Char4",
@@ -260,6 +275,8 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Return,
     Act::Backspace,
     Act::Tab,
+    Act::ShiftOut,
+    Act::ShiftIn,
     Act::Char2,
     Act::Char3,
     Act::Char4,
@@ -351,28 +368,30 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Return => 2,
         Act::Backspace => 3,
         Act::Tab => 4,
-        Act::Char2 => 5,
-        Act::Char3 => 6,
-        Act::Char4 => 7,
-        Act::Begin2 => 8,
-        Act::Begin3 => 9,
-        Act::Begin4 => 10,
-        Act::Cont => 11,
-        Act::ContEnd => 12,
-        Act::Latin1 => 13,
-        Act::Bad => 14,
-        Act::Consume => 15,
-        Act::CsiStart => 16,
-        Act::EscStart => 26,
-        Act::Digit => 17,
-        Act::Marker => 18,
-        Act::Inter => 19,
-        Act::SubSep => 20,
-        Act::Sep => 21,
-        Act::CsiFinal => 22,
-        Act::EscFinal => 23,
-        Act::Again => 24,
-        Act::Resync => 25,
+        Act::ShiftOut => 5,
+        Act::ShiftIn => 6,
+        Act::Char2 => 7,
+        Act::Char3 => 8,
+        Act::Char4 => 9,
+        Act::Begin2 => 10,
+        Act::Begin3 => 11,
+        Act::Begin4 => 12,
+        Act::Cont => 13,
+        Act::ContEnd => 14,
+        Act::Latin1 => 15,
+        Act::Bad => 16,
+        Act::Consume => 17,
+        Act::CsiStart => 18,
+        Act::Digit => 19,
+        Act::Marker => 20,
+        Act::Inter => 21,
+        Act::SubSep => 22,
+        Act::Sep => 23,
+        Act::CsiFinal => 24,
+        Act::EscFinal => 25,
+        Act::Again => 26,
+        Act::Resync => 27,
+        Act::EscStart => 28,
     }] += 1;
 }
 
@@ -461,6 +480,8 @@ const fn c0(b: StreamByte) -> Act {
         0x0d => Act::Return,
         0x08 => Act::Backspace,
         0x09 => Act::Tab,
+        0x0e => Act::ShiftOut,
+        0x0f => Act::ShiftIn,
         _ => Act::Consume,
     }
 }
@@ -872,20 +893,27 @@ mod classes {
             three.len(),
             NNODE * three.len(),
         );
-        // **The ladder has moved twice, and neither move was a regression.**
-        // 22/402/6,441/96,812 -> 23/444/7,619/123,202 when `Act::Tab` landed,
-        // because HT had shared a class with every other unrouted C0 while
-        // they all fell to `Act::Consume`; then -> 24/477/8,352/137,338 when
-        // `CAN`/`SUB` gained the `anywhere` rule, for the same reason one step
-        // further out. Both times the pin caught it on the first run.
+        // **The ladder has moved three times and none was a regression.**
+        // Every move is the grammar starting to tell a byte apart that it used
+        // to treat as any other unrouted C0:
         //
-        // **The second move cost less than the first and no new action.**
-        // `Act::Tab` grew stride 4 by 27%; the cancel edge grows it 11.5% and
-        // adds nothing to the dispatch, because "consume and return to Ground"
-        // is `Act::Consume` with a different next node. A stride-k table is
-        // `CLASSES^k`, so telling two bytes apart is never free -- but telling
-        // them apart in the *table* is much cheaper than doing it in the
-        // `match`, which is the whole argument for this representation.
+        // | | stride 1-4 | stride 4 grows |
+        // |---|---|---|
+        // | before | 22/402/6,441/96,812 | -- |
+        // | `Act::Tab` -- HT routed | 23/444/7,619/123,202 | +27% |
+        // | `CAN`/`SUB` -- the `anywhere` edge | 24/477/8,352/137,338 | +11.5% |
+        // | `Act::ShiftOut`/`ShiftIn` -- SO and SI | 26/571/11,294/211,410 | **+54%** |
+        //
+        // **The cheapest move added no action at all.** `CAN`/`SUB` is
+        // `Act::Consume` with a different next node, so it cost table content
+        // and nothing in the dispatch. The dearest added two at once, and two
+        // is not twice one: a stride-k table is `CLASSES^k`, so actions
+        // compound -- 24 -> 26 is +8% at stride 1 and +54% at stride 4.
+        //
+        // Which is the argument for this representation stated as arithmetic.
+        // Telling bytes apart in a *table* costs entries; telling them apart
+        // in the `match` costs the per-byte loop. The first is a number you
+        // can look at before you pay it.
         //
         // **Pinned, because these numbers size a table.** Each is the count
         // of distinct behaviours a k-byte word can have across every node and
@@ -893,9 +921,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 477, "stride 2");
-        assert_eq!(three.len(), 8_352, "stride 3");
-        assert_eq!(four.len(), 137_338, "stride 4");
+        assert_eq!(two.len(), 571, "stride 2");
+        assert_eq!(three.len(), 11_294, "stride 3");
+        assert_eq!(four.len(), 211_410, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1036,8 +1064,8 @@ mod classes {
     /// The measured count, pinned. `CLASSES^4` is what a four-byte window
     /// costs as a perfect index.
     ///
-    /// **Twenty-four**, comparing whole edges. A four-byte window is
-    /// `24^4 = 331,776` entries and a three-byte window `13,824` -- both
+    /// **Twenty-six**, comparing whole edges. A four-byte window is
+    /// `26^4 = 456,976` entries and a three-byte window `17,576` -- both
     /// perfect indexes with no hash, where the same windows over raw bytes are
     /// 4.3 billion and 16.7 million. Comparing actions alone gives fewer,
     /// which is the wrong equivalence: two bytes are interchangeable only if
@@ -1047,8 +1075,9 @@ mod classes {
     /// telling apart**: 21 before `:` was distinguished from `;` and the
     /// private markers and intermediates stopped being consumed, 22 after, 23
     /// when HT was routed to the tab machinery, 24 when `CAN` and `SUB` gained
-    /// the `anywhere` cancel. A number that moves this way is the table
-    /// growing to fit the protocol, not a regression -- and the assertion is
-    /// here so that growth is a decision rather than a discovery.
-    const CLASSES: usize = 24;
+    /// the `anywhere` cancel, 26 when `SO` and `SI` became the locking shifts.
+    /// A number that moves this way is the table growing to fit the protocol,
+    /// not a regression -- and the assertion is here so that growth is a
+    /// decision rather than a discovery.
+    const CLASSES: usize = 26;
 }

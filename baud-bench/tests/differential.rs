@@ -568,7 +568,7 @@ fn designating_a_charset_is_not_invoking_it() {
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
         d.len(),
-        8,
+        0,
         "the charset gap moved.\n  core2: {x:?}\n  new  : {y:?}",
     );
 }

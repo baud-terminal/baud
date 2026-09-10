@@ -320,6 +320,22 @@ pub(crate) fn act(
             ReadLen::ONE
         }
 
+        // **The locking shifts: which slot `GL` reads through.** `SO` invokes
+        // G1 and `SI` invokes G0, and both go through the same `invoke` that
+        // designation does -- so "which set is in force" has one definition
+        // and the resolved byte the write path reads cannot go stale behind
+        // the slots.
+        Act::ShiftOut => {
+            p.cold.gl = GSlot::G1;
+            p.invoke();
+            ReadLen::ONE
+        }
+        Act::ShiftIn => {
+            p.cold.gl = GSlot::G0;
+            p.invoke();
+            ReadLen::ONE
+        }
+
         // A character the read cut in half: park the lead's bits and wait for
         // the rest, which arrives at the front of the next `read(2)`.
         //
@@ -1218,9 +1234,15 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte) {
     // USASCII into G0 and `ESC B` is a different sequence entirely.
     if let Some(i) = csi.intermediate() {
         match i.raw_byte() {
+            // **Designation loads a slot; it does not invoke one.** `ESC ) 0`
+            // puts DEC graphics in G1 and changes nothing on screen until an
+            // `SO` reads through it. Writing the resolved set here is what
+            // made `baud-core` render `ESC ) 0` as though it were `ESC ( 0`.
             b'(' | b')' | b'*' | b'+' => {
-                p.charset = Charset::from_final(b);
-                p.refresh_flags();
+                if let Some(slot) = GSlot::from_intermediate(i) {
+                    p.cold.g[slot.index()] = Charset::from_final(b);
+                    p.invoke();
+                }
             }
             // `ESC # 8` -- DECALN fills the screen with `E`, and it is how
             // vttest checks alignment.

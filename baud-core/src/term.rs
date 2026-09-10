@@ -25,7 +25,13 @@ pub struct Saved {
     pub(crate) style: StyleId,
     pub(crate) style_raw: StyleWord,
     pub(crate) flags: CellFlags,
-    pub(crate) charset: Charset,
+    /// **The four slots and which one `GL` invokes, not the resolved set.**
+    /// `[[source: vt510-decsc]]` lists "character sets G0-G3" among what DECSC
+    /// saves, and a saved *resolved* set restores into slots that no longer
+    /// agree with it -- the next `SI` would recompute from `g[gl]` and throw
+    /// the restore away.
+    pub(crate) g: [Charset; 4],
+    pub(crate) gl: GSlot,
     /// DECAWM, because `[[source: vt510-decsc]]` lists "Wrap flag (autowrap or
     /// no autowrap)" among the seven things DECSC saves.
     pub(crate) autowrap: ModeChange,
@@ -72,6 +78,20 @@ pub struct Cold {
     /// **Not a mode bit.** It has no `SM`/`RM` wire number to live under, and
     /// it is input-side: it decides what the keypad sends, which is why the
     /// core's part is to record it and expose it.
+    /// **The four G slots, and which one `GL` reads through.**
+    ///
+    /// Here rather than beside `charset` on the hot path, and that split is
+    /// the same one `style`/`style_raw` already makes: designation and the
+    /// locking shifts are control sequences, and what the per-character loop
+    /// needs is the *resolved* set. `Paint::charset` stays one byte and
+    /// `Paint::invoke` re-derives it whenever a slot or `gl` moves, so
+    /// `put_ascii_run` reads exactly what it read before.
+    ///
+    /// `baud-core` had only the resolved byte, which made designation and
+    /// invocation the same act: `ESC ) 0` changed what G0 rendered and
+    /// `SO`/`SI` did nothing at all.
+    pub(crate) g: [Charset; 4],
+    pub(crate) gl: GSlot,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -88,6 +108,8 @@ impl Cold {
         Cold {
             #[cfg(feature = "sgr-table")]
             sgr: [SgrSlot::EMPTY; NSGR],
+            g: [Charset::Ascii; 4],
+            gl: GSlot::G0,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,

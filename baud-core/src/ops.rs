@@ -46,7 +46,8 @@ impl Paint<'_, '_> {
             style: self.style,
             style_raw: self.style_raw,
             flags: self.flags,
-            charset: self.charset,
+            g: self.cold.g,
+            gl: self.cold.gl,
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
         }
@@ -62,7 +63,9 @@ impl Paint<'_, '_> {
         self.style = s.style;
         self.style_raw = s.style_raw;
         self.flags = s.flags;
-        self.charset = s.charset;
+        self.cold.g = s.g;
+        self.cold.gl = s.gl;
+        self.invoke();
         // **The two flags DECSC saves that neither core restored.**
         // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
         // origin mode are two of them. Origin mode especially is not
@@ -404,6 +407,18 @@ impl Paint<'_, '_> {
         self.style = self.intern_style(self.style_raw);
     }
 
+    /// **Resolve `GL` into the one byte the write path reads.**
+    ///
+    /// Designation loads a slot and a locking shift picks the slot; neither is
+    /// what `put_ascii_run` wants, which is *which set is in force*. So the
+    /// slots live in `Cold` and this is the single place that turns them into
+    /// `Paint::charset` -- called by every path that moves a slot or `gl`, so
+    /// the resolved byte cannot go stale behind them.
+    pub(crate) fn invoke(&mut self) {
+        self.charset = self.cold.g[self.cold.gl.index()];
+        self.refresh_flags();
+    }
+
     /// Recombine DECSCA protection with the active character set, so the write
     /// path reads one value instead of two.
     pub(crate) fn refresh_flags(&mut self) {
@@ -656,7 +671,9 @@ impl Paint<'_, '_> {
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
         self.style = StyleId::DEFAULT;
-        self.charset = Charset::Ascii;
+        self.cold.g = [Charset::Ascii; 4];
+        self.cold.gl = GSlot::G0;
+        self.invoke();
         self.refresh_flags();
         self.goto(Row::ZERO, Col::ZERO);
     }
