@@ -62,7 +62,8 @@ pub use baud_domain::{
 /// character set, a private-mode number, and the mode state a `DECRQM`
 /// reports. All three are `baud-domain`'s and neither core owns them.
 pub use baud_domain::{
-    Attrs, C1Transmit, Csi, CursorStyle, DecSet, GSlot, Level, Marker, ModeState, Nrcs, Params,
+    Attrs, C1Transmit, Csi, CursorStyle, DecSet, FnKey, GSlot, Level, Marker, ModeState, Nrcs,
+    Params,
 };
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return.

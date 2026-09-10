@@ -184,6 +184,18 @@ impl<'a> ViewRef<'a> {
             false => LeadCol(c),
         }
     }
+
+    /// The cell a [`LeadCol`] names -- the read-side counterpart of
+    /// [`View::cell_at`].
+    ///
+    /// It exists so a reader can go through `lead` without the field being
+    /// public. `LeadCol` has one constructor on purpose: making its inner
+    /// column reachable would put "one column back" and "the cell that owns
+    /// this position" back into the same type, which is the confusion it was
+    /// introduced to end.
+    pub fn cell_at(&self, r: Row, c: LeadCol) -> PackedCell {
+        self.get(r, c.0)
+    }
 }
 
 /// A viewport laid out over a caller-owned cell array, addressed by axis.

@@ -411,6 +411,27 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// Where row `y` stops being uniform.
+    ///
+    /// **Not "where the glyphs are", which is the reading that produced a
+    /// bug.** `ECH` at the last column writes a *styled* blank: it holds no
+    /// glyph and it does not match the default blanks in front of it, so the
+    /// row is non-uniform past its last character. Blanking stops here, and a
+    /// mark set past it raises it -- both directions are needed, and the
+    /// property suite caught the version that only lowered.
+    ///
+    /// Takes `&self`: the rotation is resolved here rather than undone, so
+    /// unlike [`Term::viewport`] this needs no mutation to answer.
+    pub fn row_extent(&self, y: Row) -> RowExtent {
+        // The rotation resolved here rather than through a `View`, which would
+        // need the cells this does not read. Both operands are below `rows`,
+        // so one conditional subtract does what `%` would -- the same shape
+        // `View::phys` uses, and worth ~4% there.
+        let rows = self.rows.index();
+        let p = y.index() + self.rot.index();
+        self.store.used[if p >= rows { p - rows } else { p }]
+    }
+
     /// How many rows the caller provisioned. See [`Storage::row_capacity`].
     ///
     /// Exposed on `Term` because that is where an embedder asks: it holds the
@@ -815,8 +836,18 @@ impl<'b> Term<'b> {
     /// when the store refused the cluster -- the count is
     /// [`Term::marks_dropped`].
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = u32> + '_ {
-        let cell =
-            View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot).get(r, c);
+        let v = View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot);
+        // **Either half of a wide character answers, and the lead is what
+        // holds them.** A renderer draws the glyph at the lead and a selection
+        // hands back whichever column the pointer landed on -- so a caller
+        // that asks the tail is asking about the same character, and getting
+        // nothing back is a wrong answer rather than a missing feature.
+        //
+        // `ViewRef::lead` is the one constructor of `LeadCol`, which exists
+        // because "one column back" and "the cell that owns this position" are
+        // different questions that used to be the same type. `attach` already
+        // goes through it; this is the read side of the same rule.
+        let cell = v.cell_at(r, v.lead(r, c));
         self.store
             .clusters
             .get(cell.flags.cluster(), cell.content)
