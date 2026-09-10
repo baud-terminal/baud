@@ -415,9 +415,15 @@ fn row_pair(bytes: &[u8], y: usize) -> (String, String) {
 /// every eighth column.
 #[test]
 fn a_tab_moves_the_cursor_the_way_core2_moves_it() {
-    // `a` at column 0, HT to column 8, `b` there; then a second tab from
-    // column 9 to 16. A core that drops HT puts `b` at column 1.
-    let bytes = b"a\tb\tc";
+    // Three stop regimes, so a table-driven HT is told apart from `8 - (x%8)`
+    // arithmetic -- which the default stops alone cannot do, because both
+    // cores set a stop at every eighth column and the two agree there.
+    //
+    // Row 0: default stops. Row 1: `TBC 3` clears them all, `CHA 6` moves to
+    // column 6, `HTS` sets a stop *there*, so the tab from column 1 lands on
+    // 6 rather than on 8. Row 2: stops cleared and never re-set, so HT runs to
+    // the right margin.
+    let bytes = b"a\tb\tc\r\n\x1b[3g\x1b[6GX\x1bH\x1b[1GA\tB\r\n\x1b[3gP\tQ";
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert!(
@@ -451,12 +457,106 @@ fn a_tab_moves_the_cursor_the_way_core2_moves_it() {
 /// give the shell its output back.
 #[test]
 fn leaving_the_alternate_screen_restores_the_primary() {
-    let bytes = b"PRIMARY\x1b[?1049hALTERNATE\x1b[?1049l";
+    // **Two kinds of divergence, and only a one-buffer core produces both.**
+    // Row 0 is char-against-char -- `ALT` written over `PRIMARY` -- which says
+    // the alternate buffer wrote into the primary. Row 1 is char-against-blank
+    // -- `SECOND` gone -- which says the *entry* clear destroyed it. The `!`
+    // after the exit lands at (1,6) in both cores and must stay equal: it pins
+    // the DECRC half of `?1049l`, which does work.
+    let bytes = b"PRIMARY\r\nSECOND\x1b[?1049hALT\x1b[?1049l!";
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert_eq!(
+        d.len(),
+        13,
+        "the alternate-screen gap moved.\n  core2: {x:?}\n  new  : {y:?}",
+    );
+}
+
+/// **Designating a character set is not invoking it, and `baud-core` conflates
+/// them.**
+///
+/// `baud-core2` keeps four slots and a `gl` pointer: `ESC ( 0` writes G0,
+/// `ESC ) 0` writes G1, and SO/SI move `gl` between them. `baud-core` has one
+/// `charset` field -- `write.rs` matches `b'(' | b')' | b'*' | b'+'` onto it
+/// and `grep` for a `GSlot` or a `g: [Charset` array over the whole crate
+/// returns nothing -- so `ESC ) 0` switches the *displayed* text to line
+/// drawing immediately, and SI cannot switch it back because there is nothing
+/// to switch to.
+///
+/// Six rows, one arm each, and three of them are controls that must agree:
+/// designating into G0 really does change the display, `ESC ( B` really does
+/// restore ASCII, and the run in row 1 agrees by coincidence rather than by
+/// correctness. `q` is U+2500 in the DEC set, so the two cores disagree about
+/// a glyph rather than about a column.
+///
+/// Goes to zero the day `baud-core` grows the four slots. **A partial fix that
+/// honours `(` and ignores `) * +` takes it to three, not zero**, which is the
+/// discrimination this shape was chosen for.
+#[test]
+fn designating_a_charset_is_not_invoking_it() {
+    let bytes =
+        b"\x1b)0qqq\r\n\x0eqqq\r\n\x0fqqq\r\n\x1b(0qqq\r\n\x1b(Bqqq\r\n\x1b)0q\x0eq\x0fq\r\n";
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert_eq!(
+        d.len(),
+        8,
+        "the charset gap moved.\n  core2: {x:?}\n  new  : {y:?}",
+    );
+}
+
+/// **`CAN` and `SUB` end a control string, and `baud-core`'s graph has no arm
+/// for either.**
+///
+/// `[[source: williams]]`: "CAN and SUB cancel any escape sequence".
+/// `baud-core`'s `string()` has three arms -- `0x07` to Ground, `0x1b` to
+/// StrEsc, everything else back to Str -- so a `CAN` inside an `OSC` is
+/// swallowed as body text and the string runs on, eating the characters that
+/// follow it until a real terminator arrives.
+///
+/// **Rows 0-3 are the part worth keeping even though they agree.** A window
+/// title changes no cell and an `OSC 8` link rides in `CellFlags`, which the
+/// glyph half does not read -- so well-formed OSC is *invisible* here by
+/// construction, and pinning that it consumes exactly its own bytes and no
+/// more is the only thing this comparison can say about it. Rows 4 and 5 are
+/// the defect, and they are visible because the swallow shifts real text.
+#[test]
+fn a_control_string_ends_where_the_specification_says_it_does() {
+    let bytes = b"\x1b]0;title\x07AAA\r\n\x1b]0;title\x1b\\BBB\r\n\x1b]8;;http://example.com\x1b\\CCC\x1b]8;;\x1b\\DDD\r\n\x1b]0;a\nb\rc\x07EEE\r\n\x1b]0;t\x18FFF\x07GGG\r\n\x1b]0;t\x1aHHH\x07III";
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 4);
+    assert_eq!(
+        d.len(),
+        12,
+        "the control-string gap moved.\n  core2 row4: {x:?}\n  new   row4: {y:?}",
+    );
+}
+
+/// **Outside a control string the same missing rule is worse than a swallow:
+/// `baud-core` performs an operation `baud-core2` cancelled.**
+///
+/// `CAN` inside a `CSI` falls through the parameter arm, so the parser stays
+/// in `CsiParam` and consumes the *next* byte in `0x40..=0x7e` as a final. The
+/// fixture uses `~` -- a final this core does not implement -- deliberately,
+/// so the pin does not drift when the operation table grows. With `I` instead
+/// the consequence is concrete and was measured: core2 renders `IJK` at
+/// columns 0-2 where `baud-core` dispatches `CSI 1 ; 5 I` as `CHT` and renders
+/// `JK` at columns 8-9. It moves the cursor because a cancel was ignored.
+///
+/// `ESC CAN` is the same shape one node up: `escape()` routes a C0 through
+/// `c0()` and stays in `Escape`, so the next printable is eaten as a final.
+///
+/// This is the third face of one missing edge, and the one no recording could
+/// ever show -- `0x18` and `0x1a` are absent from all nine.
+#[test]
+fn a_cancel_outside_a_string_cancels_the_sequence() {
+    let bytes = b"\x1b[1;5\x18~ab\r\n\x1b[1;5\x1a~cd\r\n\x1b\x18~ef";
     let d = diff_at(bytes);
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
         d.len(),
         9,
-        "the alternate-screen gap moved.\n  core2: {x:?}\n  new  : {y:?}",
+        "the cancel gap moved.\n  core2: {x:?}\n  new  : {y:?}",
     );
 }
