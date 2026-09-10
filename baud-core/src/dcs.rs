@@ -37,9 +37,10 @@ impl Paint<'_, '_> {
         // `DCS 1 $ r ST`: a "valid" flag over an **empty body**, which an
         // application reads as "the margins are unset" rather than as "I do
         // not implement that". `DECSCUSR` was here until the cursor style was
-        // recorded; `DECSLRM` still is, because this core keeps no left/right
-        // margins.
-        let unanswerable = matches!(t, StatusTarget::Unknown | StatusTarget::SideMargins);
+        // recorded and `DECSLRM` until the margins were, and both left the
+        // same way: the list shrinks when a feature lands, and the pin in
+        // `both_cores_answer_a_decrqss_the_same_way` goes red to say so.
+        let unanswerable = matches!(t, StatusTarget::Unknown);
         if unanswerable {
             self.emit(b"\x1bP0$r\x1b\\");
             return;
@@ -65,10 +66,16 @@ impl Paint<'_, '_> {
                 self.emit_dec(WireByte::of(u8::from(self.cold.protect.is_protected())));
                 self.emit(b"\"q");
             }
-            // Unreachable: the guard above answers both with `0$r`. Spelled
-            // out rather than `_ =>` so that adding a `StatusTarget` stops the
+            StatusTarget::SideMargins => {
+                self.emit_num(self.cold.left.one_based());
+                self.emit(b";");
+                self.emit_num(self.cold.right.one_based());
+                self.emit(b"s");
+            }
+            // Unreachable: the guard above answers it with `0$r`. Spelled out
+            // rather than `_ =>` so that adding a `StatusTarget` stops the
             // build here instead of silently joining them.
-            StatusTarget::SideMargins | StatusTarget::Unknown => {}
+            StatusTarget::Unknown => {}
         }
         self.emit(b"\x1b\\");
     }

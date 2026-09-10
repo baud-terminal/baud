@@ -358,7 +358,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// payload that wraps on almost nothing.
     #[inline(always)]
     pub(crate) fn text(&mut self, from: BytePos, n: ByteLen) {
-        match n.index() <= self.cols.index() - self.cx.index() {
+        match n.index() <= self.room().index() {
             true => self.piece(from, n),
             false => self.wrapped(from, n),
         }
@@ -443,10 +443,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn wrapped(&mut self, from: BytePos, n: ByteLen) {
         let (mut at, mut left) = (from.index(), n.index());
         while left > 0 {
-            if self.cx.index() >= self.cols.index() {
+            if self.cx.index() > self.cold.right.index() {
                 self.wrap();
             }
-            let k = left.min(self.cols.index() - self.cx.index());
+            let k = left.min(self.room().index());
             self.piece(BytePos::from_index(at), ByteLen::from_index(k));
             at += k;
             left -= k;
@@ -482,7 +482,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) fn indexed(&mut self, e: PackedCell) {
         let need = e.flags.advance_of();
-        if self.cx.index() + need > self.cols.index() {
+        if self.cx.index() + need > self.cold.right.index() + 1 {
             self.wrap();
         }
         let (style, flags) = (self.style, self.flags);
@@ -532,7 +532,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);
-        if self.cx.index() + need > self.cols.index() {
+        if self.cx.index() + need > self.cold.right.index() + 1 {
             self.wrap();
         }
         // After the wrap, because the gap belongs in the row the character
@@ -709,7 +709,18 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `Paint::run` discards.
     #[inline(always)]
     pub(crate) fn fits(&self, n: Count, w: Width) -> bool {
-        n.index() * (1 + usize::from(w == Width::WIDE)) <= self.cols.index() - self.cx.index()
+        n.index() * (1 + usize::from(w == Width::WIDE)) <= self.room().index()
+    }
+
+    /// Columns left before the **right margin**, which is the screen edge
+    /// until `DECSLRM` says otherwise.
+    ///
+    /// One field read on a path taken once a *run*, not once a character --
+    /// the same placement `charset` has, and the reason `Cold` holds the
+    /// margins rather than `Paint` resolving them per cell.
+    #[inline(always)]
+    pub(crate) fn room(&self) -> Count {
+        Count::of(self.cold.right.index() + 1 - self.cx.index())
     }
 
     /// Move the cursor anywhere on the screen.
@@ -799,11 +810,15 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// written for, and the first found by reading rather than by a compiler
     /// warning about a duplicated attribute.
     pub(crate) fn wrap(&mut self) {
+        // **The margin, not the edge.** With `DECAWM` off the cursor pins to
+        // the last *writable* column, and with it on the next row starts at
+        // the **left** margin -- `[[source: vt510-decslrm]]` makes the region
+        // a rectangle, so text confined to it stays confined across the wrap.
         if !self.cold.modes.is_set(ModeBit::AutoWrap) {
-            self.cx = Col::at_index(self.cols.index() - 1);
+            self.cx = self.cold.right;
             return;
         }
-        self.cx = Col::ZERO;
+        self.cx = self.cold.left;
         self.index();
     }
 

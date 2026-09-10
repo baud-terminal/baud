@@ -56,7 +56,6 @@ fn csi_s_is_scosc_without_declrmm() {
 
 /// With DECLRMM, the same bytes are DECSLRM and do **not** save the cursor.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn csi_s_is_decslrm_with_declrmm() {
     // `CSI 5;10 s` sets margins and homes the cursor, per the spec.
     assert_eq!(cursor(b"\x1b[?69h\x1b[9;9H\x1b[5;10s"), (0, 0));
@@ -111,7 +110,6 @@ fn a_zero_width_region_is_rejected() {
 /// Wrapping to column 0 would leave the scrolling region entirely, which is the
 /// whole thing side margins exist to prevent.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn text_wraps_within_the_margins() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1b[1;5H"); // to the left margin
@@ -123,7 +121,6 @@ fn text_wraps_within_the_margins() {
 
 /// With autowrap off the cursor pins to the right margin, not the last column.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn no_wrap_pins_to_the_right_margin() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1b[?7l\x1b[1;5H");
@@ -156,7 +153,6 @@ fn ich_stops_at_the_right_margin() {
 
 /// DCH does not pull text in from beyond the right margin.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn dch_does_not_pull_from_outside_the_margins() {
     let mut base = b"".to_vec();
     base.extend(std::iter::repeat(b'a').take(20));
@@ -196,7 +192,6 @@ fn decic_inserts_columns_within_the_margins() {
 
 /// DECDC deletes columns and fills at the right margin.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn decdc_deletes_columns_and_fills_at_the_margin() {
     let mut v = b"".to_vec();
     v.extend(std::iter::repeat(b'a').take(20));
@@ -214,7 +209,6 @@ fn decdc_deletes_columns_and_fills_at_the_margin() {
 /// `[[source: vt510-decic]]`: "DECIC has no effect outside the scrolling
 /// margins."
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn the_column_operations_are_inert_outside_the_margins() {
     let mut base = b"".to_vec();
     base.extend(std::iter::repeat(b'a').take(20));
@@ -232,7 +226,6 @@ fn the_column_operations_are_inert_outside_the_margins() {
 
 /// DECRQSS reports the margins in a form that can be sent straight back.
 #[test]
-#[ignore = "baud-core does not record left/right margins -- see the_known_vt420_gaps"]
 fn decrqss_reports_the_side_margins() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1bP$qs\x1b\\");

@@ -991,6 +991,11 @@ fn both_cores_answer_a_decrqss_the_same_way() {
         // the direction a pin is supposed to fail in.
         ("decscusr default", b"\x1bP$q q\x1b\\"),
         ("decscusr set", b"\x1b[5 q\x1bP$q q\x1b\\"),
+        // **DECSLRM was the last pinned difference.** Both the default
+        // margins and a set pair, because a core that answered a constant
+        // would pass the first row and fail the second.
+        ("decslrm default", b"\x1bP$qs\x1b\\"),
+        ("decslrm set", b"\x1b[?69h\x1b[5;10s\x1bP$qs\x1b\\"),
         // Recorded by neither core, so both must answer `0$r` rather than
         // inventing a value or saying nothing.
         ("nonsense", b"\x1bP$qZZZ\x1b\\"),
@@ -1018,35 +1023,20 @@ fn both_cores_answer_a_decrqss_the_same_way() {
         }
     }
 
-    // **One target where the cores differ, pinned at what it is.**
+    // **There is no target left where the cores differ, and this is where the
+    // list emptied.**
     //
-    // These are capability gaps rather than defects, and pinning them is what
-    // stops the gap being rediscovered as a bug and what makes it move the day
-    // it closes -- the same instrument as the three non-zero rows in
-    // `the_glyph_gap_is_pinned`. Asserting equality would force baud-core to
-    // fabricate a value it does not hold; deleting the rows would leave the
-    // difference unrecorded.
+    // It held DECSCUSR and DECSLRM. Both left the same way: the gap closed,
+    // this assertion went red because `baud-core` had stopped answering `0$r`,
+    // and the row moved up into the must-agree set. That is the direction a
+    // pin has to fail in, and it is the whole argument for pinning a gap at
+    // what it *is* rather than asserting zero or deleting the row -- asserting
+    // equality would have forced `baud-core` to fabricate a value it did not
+    // hold, and deleting it would have left the difference unrecorded.
     //
-    // `baud-core` answers `0$r` because it records no left/right margins, and
-    // `0$r` is DECRQSS's shape for "not recognised". That is the right answer
-    // for a core without them, and it is not core2's answer.
-    for (name, bytes, old_want, new_want) in [
-        // DECSLRM: core2 keeps left/right margins, baud-core does not --
-        // `Paint::set_margins` says so in as many words.
-        (
-            "decslrm",
-            b"\x1bP$qs\x1b\\".as_slice(),
-            b"\x1bP1$r1;200s\x1b\\".as_slice(),
-            b"\x1bP0$r\x1b\\".as_slice(),
-        ),
-    ] {
-        assert_eq!(old_reply(bytes), old_want, "{name}: core2 moved");
-        assert_eq!(
-            new_reply(bytes, 400_000),
-            new_want,
-            "{name}: baud-core moved"
-        );
-    }
+    // **Every `DECRQSS` target now answers identically in both cores**, which
+    // is one of the two things that were still keeping core2 alive as an
+    // oracle. The other is the corpus it can see and no test can.
 }
 
 fn old_reply(bytes: &[u8]) -> Vec<u8> {

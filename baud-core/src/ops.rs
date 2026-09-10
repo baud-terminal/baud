@@ -262,18 +262,22 @@ impl Paint<'_, '_> {
     /// DCH: pull the rest of the row left over `n` cells.
     pub(crate) fn delete_chars(&mut self, n: Count) {
         let (r, at, b) = (self.cy, self.cx, self.blank());
-        let to = Col::at_index(self.cols.index());
+        // **The right margin, not the row.** `to` was `cols` before the
+        // margins existed, so a `DCH` inside a region pulled text in from
+        // *outside* it -- correct only while the margin is the edge, which is
+        // every stream that never sends `DECSLRM`.
+        let to = self.cold.right.after();
         self.view.delete_cells(r, at, n, to, b);
-        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
     }
 
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
         let (r, at, b) = (self.cy, self.cx, self.blank());
-        let to = Col::at_index(self.cols.index());
+        let to = self.cold.right.after();
         self.view.insert_cells(r, at, n, to, b);
-        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
     }
 
@@ -504,30 +508,85 @@ impl Paint<'_, '_> {
 
     // ---- margins and columns -------------------------------------------
 
-    /// DECSLRM. **Recorded and not acted on** would be the failure this repo
-    /// names `parsed`; the margins bound `insert_cells`/`delete_cells` below.
-    pub(crate) fn set_side_margins(&mut self, _left: OneBased, _right: OneBased) {
-        // Left/right margins need DECLRMM set to mean anything, and this core
-        // does not record them yet -- so the sequence is counted rather than
-        // half-applied. A margin stored and ignored confines nothing and
-        // explains nothing.
+    /// The margins a `RIS`, a `DECSTR` or a resize puts back.
+    pub(crate) fn reset_side_margins(&mut self) {
+        self.cold.left = Col::ZERO;
+        self.cold.right = Col::at_index(self.cols.index() - 1);
     }
 
-    pub(crate) fn insert_columns(&mut self, n: Count) {
-        let (b, to) = (self.blank(), Col::at_index(self.cols.index()));
-        for y in self.cold.top.index()..=self.cold.bot.index() {
-            self.view
-                .insert_cells(Row::from_index(y), self.cx, n, to, b);
-            self.cells = self.cells.plus(self.cols.index() - self.cx.index());
+    /// `DECSLRM`, `CSI Pl ; Pr s`.
+    ///
+    /// `[[source: vt510-decslrm]]`: "The value of the left margin (Pl) must be
+    /// less than the right margin (Pr) ... The minimum size of the scrolling
+    /// region is two columns ... DECSLRM moves the cursor to column 1, line 1
+    /// of the page."
+    ///
+    /// **Rejected rather than clamped.** An invalid pair leaves the margins
+    /// alone, because clamping would confine the screen to a region the
+    /// application did not ask for and then behave correctly with respect to
+    /// it -- which is worse than doing nothing, since nothing is visible as a
+    /// bug and a plausible wrong region is not.
+    pub(crate) fn set_side_margins(&mut self, left: OneBased, right: OneBased) {
+        let last = self.cols.index() - 1;
+        let l = left.to_col(self.cols).index();
+        let r = right.to_col(self.cols).index();
+        if l >= r || r > last {
+            return;
         }
+        self.cold.left = Col::at_index(l);
+        self.cold.right = Col::at_index(r);
+        self.cx = Col::ZERO;
+        self.cy = Row::ZERO;
     }
 
+    /// Is the cursor inside the scrolling region, in **both** axes?
+    ///
+    /// `DECIC` and `DECDC` are defined only there, so the rectangle both
+    /// margin pairs describe is what bounds them -- not the full height, which
+    /// is what a vertical-only test would give.
+    pub(crate) fn within_margins(&self) -> bool {
+        let (x, y) = (self.cx.index(), self.cy.index());
+        x >= self.cold.left.index()
+            && x <= self.cold.right.index()
+            && y >= self.cold.top.index()
+            && y <= self.cold.bot.index()
+    }
+
+    /// `DECIC`, `CSI Pn ' }`.
+    ///
+    /// `[[source: vt510-decic]]`: "As columns are inserted, the columns
+    /// between the cursor and the right margin move to the right ... DECIC has
+    /// no effect outside the scrolling margins."
+    pub(crate) fn insert_columns(&mut self, n: Count) {
+        if !self.within_margins() {
+            return;
+        }
+        self.shift_columns(n, ColumnShift::Insert);
+    }
+
+    /// `DECDC`, `CSI Pn ' ~`. The inverse, filling at the right margin.
     pub(crate) fn delete_columns(&mut self, n: Count) {
-        let (b, to) = (self.blank(), Col::at_index(self.cols.index()));
+        if !self.within_margins() {
+            return;
+        }
+        self.shift_columns(n, ColumnShift::Delete);
+    }
+
+    /// Move every row's columns between the cursor and the **right margin**.
+    ///
+    /// The `to` bound was `cols` before the margins existed, so an insert
+    /// pushed text off the screen edge rather than off the margin -- correct
+    /// only while the margin *is* the edge, which is every stream that never
+    /// sends `DECSLRM`.
+    pub(crate) fn shift_columns(&mut self, n: Count, dir: ColumnShift) {
+        let (b, to) = (self.blank(), self.cold.right.after());
         for y in self.cold.top.index()..=self.cold.bot.index() {
-            self.view
-                .delete_cells(Row::from_index(y), self.cx, n, to, b);
-            self.cells = self.cells.plus(self.cols.index() - self.cx.index());
+            let r = Row::from_index(y);
+            match dir {
+                ColumnShift::Insert => self.view.insert_cells(r, self.cx, n, to, b),
+                ColumnShift::Delete => self.view.delete_cells(r, self.cx, n, to, b),
+            }
+            self.cells = self.cells.plus(to.index() - self.cx.index());
         }
     }
 
@@ -600,6 +659,16 @@ impl Paint<'_, '_> {
             // holding a frame is the renderer's; this core has neither, so
             // recording the request and answering `DECRQM` truthfully is the
             // whole of the terminal's part.
+            // **`DECLRMM` is what makes `DECSLRM` mean anything**, and
+            // clearing it puts the margins back rather than leaving a region
+            // no mode admits to. `[[source: ctlseqs]]` for `?69 l`: "disable
+            // left and right margin mode".
+            PrivateMode::LeftRightMargin => {
+                self.cold.modes.apply(ModeBit::SideMargins, on);
+                if !on {
+                    self.reset_side_margins();
+                }
+            }
             PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::SynchronizedOutput => {
                 self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
@@ -808,6 +877,7 @@ impl Paint<'_, '_> {
         // this file records under "DECSTR was leaving the alternate screen".
         // Found by `soft_reset_stays_on_the_alternate_screen`, ported.
         self.cold.modes = Modes::default();
+        self.reset_side_margins();
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
         self.cold.protect = CellFlags::NONE;
@@ -877,6 +947,7 @@ impl Paint<'_, '_> {
             PrivateMode::EightBitInput => bit_state(self.cold.modes, ModeBit::EightBitInput),
             PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
             PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),
+            PrivateMode::LeftRightMargin => bit_state(self.cold.modes, ModeBit::SideMargins),
             PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
             PrivateMode::SynchronizedOutput => {
                 bit_state(self.cold.modes, ModeBit::SynchronizedOutput)

@@ -9,25 +9,17 @@ mod support;
 
 mod side_margins;
 
-/// **Left/right margins, in one gap.** `Paint::set_side_margins` takes the
-/// sequence and records nothing -- `DECSLRM`, `DECLRMM` and the column
-/// operations that respect them are the one VT420 feature `baud-core` does not
-/// have. It is a feature rather than an accessor: wrapping, `DCH`, `DECIC` and
-/// `DECDC` all have to consult the margins, so recording them without acting
-/// would be the worse half.
+/// **No gaps, and the gate stays so that a new one has to say so.**
+///
+/// Left/right margins were the last, and they were a *feature* rather than an
+/// accessor: `DECSLRM` is meaningless without `DECLRMM`, and wrapping, `DCH`,
+/// `ICH`, `DECIC` and `DECDC` and the cursor report all have to consult the
+/// margins -- which is why recording them without acting would have been the
+/// worse half. Seven tests were pinned on it and all seven pass.
+///
+/// An empty list is the strongest form this gate takes: any `#[ignore]` added
+/// to this suite fails it, and there is nothing left to close.
 #[test]
 fn the_known_vt420_gaps() {
-    support::ignores_are(
-        "vt420",
-        &["side_margins.rs"],
-        &[
-            "csi_s_is_decslrm_with_declrmm",
-            "text_wraps_within_the_margins",
-            "decrqss_reports_the_side_margins",
-            "dch_does_not_pull_from_outside_the_margins",
-            "no_wrap_pins_to_the_right_margin",
-            "decdc_deletes_columns_and_fills_at_the_margin",
-            "the_column_operations_are_inert_outside_the_margins",
-        ],
-    );
+    support::ignores_are("vt420", &["side_margins.rs"], &[]);
 }

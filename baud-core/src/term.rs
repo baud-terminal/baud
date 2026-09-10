@@ -135,6 +135,14 @@ pub struct Cold {
     /// the protocol changes it -- there is no escape sequence for it -- so it
     /// arrives through the API and lives in `Cold` with the rest of the state
     /// a control sequence does not touch.
+    /// `DECSLRM`'s left and right margins.
+    ///
+    /// **Cold, because a control sequence moves them and the write path reads
+    /// a resolved answer.** The same split as `g`/`gl` and `style_raw`: the
+    /// hot loop asks `Paint::right` once a run rather than re-deriving the
+    /// margin per character.
+    pub(crate) left: Col,
+    pub(crate) right: Col,
     pub(crate) ambiguous: AmbiguousWidth,
     pub(crate) cursor_style: CursorStyle,
     pub(crate) keypad: KeypadMode,
@@ -149,7 +157,7 @@ pub struct Cold {
 }
 
 impl Cold {
-    pub(crate) fn new(rows: Rows) -> Cold {
+    pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
         Cold {
             #[cfg(feature = "sgr-table")]
             sgr: [SgrSlot::EMPTY; NSGR],
@@ -163,6 +171,8 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            left: Col::ZERO,
+            right: Col::at_index(cols.index() - 1),
             ambiguous: AmbiguousWidth::Narrow,
             cursor_style: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
@@ -550,7 +560,7 @@ impl<'b> Term<'b> {
             flags: CellFlags::NONE,
             charset: Charset::Ascii,
             cluster: ClusterBreak::new(),
-            cold: Cold::new(rows),
+            cold: Cold::new(rows, cols),
             utf8: Utf8Acc::lead(0),
             utf8_min: Utf8Min::Two,
             csi: crate::write::Csi::NEW,
@@ -803,7 +813,12 @@ impl<'b> Term<'b> {
     /// glyph gate reads content and the rendition gate reads the style word,
     /// and the cursor is in neither.
     pub fn cursor(&self) -> (Row, Col) {
-        let last = Col::at_index(self.cols.index() - 1);
+        // **The sentinel is one past the last *writable* column**, which is
+        // the right margin rather than the screen edge once `DECSLRM` has
+        // moved it. Clamping to `cols - 1` reported column 10 for a cursor
+        // pinned at a margin of 9 -- a position no write can reach, which an
+        // application counting columns then disagrees with.
+        let last = self.cold.right;
         (self.cy, Col::at_index(self.cx.index().min(last.index())))
     }
 }
