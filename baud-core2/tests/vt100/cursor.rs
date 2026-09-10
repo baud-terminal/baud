@@ -13,10 +13,18 @@ use baud_core2::*;
 fn narrow_row(bytes: &[u8]) -> Vec<PackedCell> {
     let mut s = Storage::boxed();
     let mut t = Term::new(&mut s, OpMode::Computed);
-    t.resize(&WinSize {
-        ws_row: 4,
-        ws_col: 8,
-    });
+    // **Asserted, not discarded.** `Resized::Truncated` means the geometry
+    // exceeded `MAX_COLS`/`MAX_ROWS`, and swallowing it is the silent-clamp
+    // bug the return value was added to catch -- a test that clamped without
+    // noticing would then measure the wrong grid.
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 4,
+            ws_col: 8,
+        }),
+        Resized::Ok,
+        "4x8 is well inside the fixed viewport"
+    );
     let mut i = 0;
     while i < bytes.len() {
         let n = READ_CHUNK.min(bytes.len() - i);

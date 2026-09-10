@@ -197,26 +197,6 @@ fn cursor_and_erase_agree_with_core2() {
     );
 }
 
-/// Every cell of `baud-core2`'s screen, rendition included.
-fn old_full(bytes: &[u8]) -> Vec<(char, bool)> {
-    let mut store = old::Storage::boxed();
-    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
-    let mut i = 0;
-    while i < bytes.len() {
-        let n = old::READ_CHUNK.min(bytes.len() - i);
-        let mut slot = t.read_slot();
-        let base = slot.base();
-        let filled = slot.write(old::StreamByte::slice_from(&bytes[i..i + n]));
-        t.feed(base, filled.len());
-        t.commit_read(filled.len());
-        i += n;
-    }
-    (0..ROWS)
-        .flat_map(|y| t.row(old::Row::from_index(y))[..COLS].to_vec())
-        .map(|c| (cell(c.content), c.style != old::StyleId::DEFAULT))
-        .collect()
-}
-
 /// **The gaps, pinned as numbers so they cannot drift in silence.**
 ///
 /// Both halves of a cell are compared: the glyph, and the rendition it is
@@ -230,13 +210,21 @@ fn old_full(bytes: &[u8]) -> Vec<(char, bool)> {
 /// is not the same as agreeing on the colour.
 #[test]
 fn the_rendition_gap_is_pinned() {
+    // **Every recording, not the six this covered.** `cat-cjk`, `less-cjk` and
+    // `cava` were omitted, and the first two are the worst recordings in the
+    // corpus by glyph gap -- so the rendition half was silent on exactly the
+    // rows most likely to move. All nine are zero, so widening it costs
+    // nothing and it was never a judgement about which rows could pass.
     for (name, want) in [
         ("ascii/asciiquarium.raw", 0usize),
-        ("utf8/btop.raw", 0),
-        ("utf8/vim-unicode.raw", 0),
-        ("ascii/git-log.raw", 0),
         ("ascii/cat-scroll.raw", 0),
+        ("ascii/git-log.raw", 0),
         ("ascii/less-pager.raw", 0),
+        ("utf8/btop.raw", 0),
+        ("utf8/cat-cjk.raw", 0),
+        ("utf8/cava.raw", 0),
+        ("utf8/less-cjk.raw", 0),
+        ("utf8/vim-unicode.raw", 0),
     ] {
         let b = recording(name);
         let (x, y) = (old_styles(&b), new_styles(&b));
@@ -314,21 +302,38 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
 /// this comparison cannot see.
 #[test]
 fn the_glyph_gap_is_pinned() {
+    // **This asserted nothing until now.** The body ended `let _ = want;`, so
+    // it printed the gap and passed green while three recordings diverged by
+    // 3,057 cells between them -- under a doc comment claiming the gaps were
+    // "pinned as numbers so they cannot drift in silence". A gate that cannot
+    // fail is the "probe that cannot fire" failure this repo already records
+    // three times, and it is the one that had been quoted all session as
+    // evidence the new core renders what `baud-core2` renders.
+    //
+    // **The three non-zero rows are the cluster machine and nothing else.**
+    // `baud-core` has no `ClusterBreak`, no `is_break` and no marks table, so
+    // a ZWJ joiner, a variation selector or a combining mark takes its own
+    // cell where core2 attaches it to the base, and every cell after it on the
+    // row shifts a column. They are pinned at what they *are* rather than at
+    // zero, so the number moves the day clustering lands -- in either
+    // direction. A row that goes up is a regression; a row that goes down
+    // needs its new value written here.
     for (name, want) in [
-        ("utf8/btop.raw", 0usize),
-        ("ascii/asciiquarium.raw", 0),
-        ("utf8/vim-unicode.raw", 0),
+        ("ascii/asciiquarium.raw", 0usize),
         ("ascii/cat-scroll.raw", 0),
         ("ascii/git-log.raw", 0),
         ("ascii/less-pager.raw", 0),
-        ("utf8/cat-cjk.raw", 0),
-        ("utf8/less-cjk.raw", 0),
+        ("utf8/btop.raw", 0),
+        ("utf8/cava.raw", 0),
+        // The clustering three. Zero when `baud-core` grows a cluster machine.
+        ("utf8/cat-cjk.raw", 355),
+        ("utf8/less-cjk.raw", 2185),
+        ("utf8/vim-unicode.raw", 517),
     ] {
         let b = recording(name);
         let (x, y) = (old_screen(&b, old::READ_CHUNK), new_screen(&b, 4096));
         let d = (0..x.len()).filter(|&i| x[i] != y[i]).count();
-        std::println!("GLYPH {name}: {d}");
-        let _ = want;
+        assert_eq!(d, want, "{name}: cells whose glyph differs from core2");
     }
 }
 

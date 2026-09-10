@@ -39,7 +39,7 @@ missing is everything between that grid and a window.
 | **VT protocol** | ✅ 147 operations at **done** and 2 at **partial**, [enumerated against primary sources](docs/vt-coverage.md) — DECSC/DECRC are the partial pair: they save five of the seven items `[[source: vt510-decsc]]` lists |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [ahead of ghostty on all eight recordings](#the-number) — 1.12–4.31× on committed capture |
+| **Throughput** | ✅ [ahead of ghostty on all nine recordings](#the-number) — 1.73–5.70× on committed capture |
 | Scrollback | ◐ **`baud-core2` only** — stored and measured, `SB = 10_000` lines, but no accessor reads above the viewport, so it is storage rather than a feature. The newer `baud-core` has none: retired rows are overwritten by `RowRot` |
 | Input path | ◐ sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done). `baud-core2` encodes the base layer in `Term::key`: cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, and the meta/alt modes. `baud-core` now records and exposes the state that encoder needs — DECCKM, DECKPAM/DECKPNM, `?1036`, `?1039`, `?1034` — but the encoder itself is not yet ported. The two *negotiated* enhancements, fixterms `CSI u` and kitty progressive enhancement, are unbuilt in both |
 | Reply channel | ◐ both cores have one, caller-provided. `baud-core` answers `DA` (under-claiming as a VT102) and `DSR` 5/6; `DECRQM`, `XTVERSION`, `DECSCUSR` and highlight tracking are recognised and counted but unanswered there, each for a named reason. `baud-core2` answers the full set |
@@ -123,20 +123,36 @@ Every core is driven with the same bytes and given 10,000 lines of scrollback.
 Full tables, other hosts, and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
 
-| recording | baud (cells) | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|
-| `ascii/less-pager.raw` | **1251.7** | 290.5 | 236.9 | **4.31x** |
-| `ascii/git-log.raw` | **1236.5** | 526.5 | 214.7 | **2.35x** |
-| `ascii/cat-scroll.raw` | **1077.5** | 429.9 | 205.8 | **2.51x** |
-| `utf8/btop.raw` | **790.4** | 513.1 | 330.7 | **1.54x** |
-| `utf8/vim-unicode.raw` | **491.9** | 361.4 | 285.9 | **1.36x** |
-| `utf8/less-cjk.raw` | **476.0** | 260.7 | 273.6 | **1.83x** |
-| `utf8/cat-cjk.raw` | **463.7** | 415.5 | 234.0 | **1.12x** |
-| `ascii/asciiquarium.raw` | **385.8** | 202.4 | 247.8 | **1.91x** |
+| recording | baud-core | baud-core2 | ghostty | alacritty | **vs ghostty** |
+|---|---|---|---|---|---|
+| `ascii/cat-scroll.raw` | **1896.9** | 1107.2 | 441.9 | 207.7 | **4.29x** |
+| `ascii/git-log.raw` | **1881.4** | 1275.9 | 544.9 | 218.2 | **3.45x** |
+| `ascii/less-pager.raw` | **1734.0** | 1219.5 | 304.3 | 246.2 | **5.70x** |
+| `utf8/btop.raw` | **925.6** | 792.6 | 518.1 | 341.7 | **1.79x** |
+| `utf8/vim-unicode.raw` | **773.8** | 508.8 | 367.1 | 295.0 | **2.11x** |
+| `utf8/less-cjk.raw` | **729.0** | 478.8 | 257.1 | 273.2 | **2.84x** |
+| `utf8/cat-cjk.raw` | **710.3** | 467.5 | 411.0 | 228.2 | **1.73x** |
+| `utf8/cava.raw` | **587.6** | 457.7 | 325.1 | 380.8 | **1.81x** |
+| `ascii/asciiquarium.raw` | **579.9** | 372.9 | 203.8 | 252.4 | **2.85x** |
 
-Ahead on all eight, and the closest row is no longer close: `cat-cjk` was
-1.03x and is 1.12x, from baud moving rather than ghostty. These are committed
-recordings of real programs, in `tests/recordings/`.
+Ahead on all nine, 1.73x to 5.70x, and the closest row is `cat-cjk` — the
+recording whose name oversells it, since a quarter of its bytes are emoji and
+those are cluster-breaking rather than CJK.
+
+**Two cores, and the columns are not the same program.** `baud-core` is the
+newer one and every headline figure is its; `baud-core2` is beside it because
+the two differ in what they *are*, not only in speed — core2 has scrollback, a
+full reply channel and a key encoder, and `baud-core` has none of the first and
+part of the second. The ingest comparison is like for like (both parse the same
+bytes into the same grid); the engineering contract is not, which is the rule
+this repo applies to ghostty and so applies to itself.
+
+**`alacritty` beats `ghostty` on `cava` and on nothing else here.** cava is the
+one recording that scrolls inside a scrolling region it sets, and that is where
+ghostty's row falls furthest — an outside signal for something baud's own
+counters say from within.
+
+These are committed recordings of real programs, in `tests/recordings/`.
 
 And on generated payloads, where every core is driven through the same
 harness. `payload::streaming` models `cat`, logs and build output;
@@ -144,12 +160,13 @@ harness. `payload::streaming` models `cat`, logs and build output;
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** | **2078.2** [2040.9-2096.5] | **1735.1** [1673.5-1777.4] |
-| ghostty (libghostty-vt) | 659.5 [616.8-686.9] | 1065.7 [1039.5-1072.6] |
-| termwiz (wezterm) parse only | 381.4 [380.3-383.6] | 367.1 [363.3-370.8] |
-| alacritty_terminal | 224.4 [215.4-229.7] | 273.9 [273.0-276.7] |
-| vt100 crate | 171.2 [167.5-172.8] | 211.3 [209.6-214.0] |
-| wezterm (full terminal) | 17.9 [17.8-18.2] | 32.7 [32.7-32.8] |
+| **baud-core** | **3206.7** [3172.1-3234.1] | **2340.4** [2269.8-2377.7] |
+| baud-core2 | 2040.1 [2022.2-2058.7] | 1697.7 [1674.0-1752.7] |
+| ghostty (libghostty-vt) | 640.5 [582.1-681.8] | 1061.8 [1043.0-1078.9] |
+| termwiz (wezterm) parse only | 380.5 [371.5-383.4] | 366.7 [360.8-370.2] |
+| alacritty_terminal | 218.3 [201.3-227.4] | 273.7 [268.0-276.5] |
+| vt100 crate | 168.4 [166.6-170.3] | 218.6 [214.0-219.2] |
+| wezterm (full terminal) | 17.5 [17.3-17.7] | 32.5 [32.1-32.7] |
 
 MB/s. **Generated payloads read higher than any real capture** and their escape
 density matches no real program, so the recordings above are the guide and

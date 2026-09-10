@@ -31,19 +31,21 @@ it only to the extent that they carry little non-ASCII -- `vim-unicode` and
 rotated. Every core is driven with the same bytes through the same 4096-byte
 reads, and every core is configured with **10,000 lines of scrollback**.
 
-| recording | baud | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|
-| `ascii/less-pager.raw` | **1209.9** | 295.1 | 242.9 | **4.10x** |
-| `ascii/cat-scroll.raw` | **1040.9** | 430.9 | 203.9 | **2.42x** |
-| `ascii/git-log.raw` | **1223.4** | 526.0 | 213.0 | **2.33x** |
-| `ascii/asciiquarium.raw` | **380.5** | 202.5 | 244.9 | **1.88x** |
-| `utf8/less-cjk.raw` | **425.4** | 255.8 | 271.6 | **1.66x** |
-| `utf8/btop.raw` | **760.9** | 507.8 | 324.3 | **1.50x** |
-| `utf8/vim-unicode.raw` | **451.2** | 354.0 | 290.3 | **1.27x** |
-| `utf8/cat-cjk.raw` | **410.9** | 394.8 | 222.6 | **1.04x** |
+| recording | baud-core | baud-core2 | ghostty | alacritty | **vs ghostty** |
+|---|---|---|---|---|---|
+| `ascii/cat-scroll.raw` | **1896.9** | 1107.2 | 441.9 | 207.7 | **4.29x** |
+| `ascii/git-log.raw` | **1881.4** | 1275.9 | 544.9 | 218.2 | **3.45x** |
+| `ascii/less-pager.raw` | **1734.0** | 1219.5 | 304.3 | 246.2 | **5.70x** |
+| `utf8/btop.raw` | **925.6** | 792.6 | 518.1 | 341.7 | **1.79x** |
+| `utf8/vim-unicode.raw` | **773.8** | 508.8 | 367.1 | 295.0 | **2.11x** |
+| `utf8/less-cjk.raw` | **729.0** | 478.8 | 257.1 | 273.2 | **2.84x** |
+| `utf8/cat-cjk.raw` | **710.3** | 467.5 | 411.0 | 228.2 | **1.73x** |
+| `utf8/cava.raw` | **587.6** | 457.7 | 325.1 | 380.8 | **1.81x** |
+| `ascii/asciiquarium.raw` | **579.9** | 372.9 | 203.8 | 252.4 | **2.85x** |
 
-MB/s. baud is `OpMode::Computed`; see [baud's representations](#bauds-representations)
-for why that is the row quoted.
+MB/s, one interleaved sweep across five pairings. `baud-core2` is
+`OpMode::Computed`; see [baud's representations](#bauds-representations) for
+why that is the row quoted for it.
 
 ## cava, and every implementation on it
 

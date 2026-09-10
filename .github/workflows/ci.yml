@@ -115,14 +115,14 @@ jobs:
       # the first assertion is that the test exists at all on this target.
       - name: Prove the AVX2 scanner is exercised
         run: |
-          devenv shell -- cargo test --release -p baud-core --test parser -- --list \
+          devenv shell -- cargo test --release -p baud-core2 --test parser -- --list \
             > /tmp/parser-tests.txt
           if ! grep -q 'generated_programs_match_on_avx2' /tmp/parser-tests.txt; then
             echo "::error::the AVX2 property is not compiled in on x86_64 -- the SIMD scanner is untested everywhere"
             exit 1
           fi
           grep -c ': test$' /tmp/parser-tests.txt | xargs echo "parser tests compiled on x86_64:"
-          devenv shell -- cargo test --release -p baud-core --test parser \
+          devenv shell -- cargo test --release -p baud-core2 --test parser \
             generated_programs_match_on_avx2 -- --nocapture
 
       # The property above compares `feed_avx2`'s output against `feed`'s, and
@@ -140,6 +140,19 @@ jobs:
       #
       # This is `CLAUDE.md`'s "grep for `_mm256` after any port", moved from a
       # habit into the gate.
+      #
+      # **Both steps name `baud-core2`, and said `baud-core` until now.** The
+      # crate was renamed by `c592dd1` and a new `baud-core` started beside it,
+      # which left these pointing at a package that has no `parser` target --
+      # cargo answers "no test target named `parser` in `baud-core`". The
+      # hand-written intrinsics scanner lives in `baud-core2`; the newer core
+      # takes its vectors from `baud-domain` through `core::simd` and has no
+      # ISA code at all, so it is not the crate this gate is about.
+      #
+      # It went unnoticed because no CI run exists for any commit after the
+      # rename: the last tested sha is an *ancestor* of it, with 24 commits
+      # since. A gate naming the wrong target is the same failure it was
+      # written to catch -- absent rather than red.
       - name: Prove the AVX2 scanner is not a portable fallback
         run: |
           set -euo pipefail
