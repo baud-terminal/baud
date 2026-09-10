@@ -1,7 +1,8 @@
 //! The terminal's state, and the one borrow the parser holds.
 
 use crate::graph::Node;
-use crate::storage::{MAX_COLS, MAX_ROWS, Storage};
+use crate::osc::StrKind;
+use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
 use baud_domain::*;
 
 /// A terminal: a cursor, a rendition, a grid, and where the parser stands.
@@ -105,6 +106,14 @@ pub struct Cold {
     /// requires knowing.
     pub(crate) highlight: HighlightTracking,
     pub(crate) highlight_region: HighlightRegion,
+    /// Which control string is being accumulated, and how much of it.
+    ///
+    /// In `Cold` because a control string is not the write path: `Cold` is
+    /// behind a pointer the per-byte loop never dereferences, so the ingest
+    /// path pays nothing for either. They are state that outlives a `feed`,
+    /// because a string spans reads.
+    pub(crate) str_kind: StrKind,
+    pub(crate) str_len: ByteLen,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -127,6 +136,8 @@ impl Cold {
             mouse_encoding: MouseEncoding::X10,
             highlight: HighlightTracking::Off,
             highlight_region: HighlightRegion::default(),
+            str_kind: StrKind::Other,
+            str_len: ByteLen::ZERO,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
@@ -242,6 +253,21 @@ pub struct Term<'b> {
     /// silently lost: a truncated reply is a wrong answer, and this file's
     /// rule is that a wrong answer is worse than silence.
     pub reply_overflows: usize,
+    /// How much of the title and icon buffers is live, and the open link.
+    pub(crate) title_len: ByteLen,
+    pub(crate) icon_len: ByteLen,
+    pub(crate) link: LinkId,
+    /// **Refused, and counted.** A control-string body clipped at `OSC_MAX`, a
+    /// string recognised and not acted on, and the two halves of `OSC 52`.
+    /// Silence is the right answer to a clipboard read -- any reply, empty
+    /// included, tells a remote program the feature works and it will keep
+    /// asking, and what it would read back is whatever the user last copied.
+    /// Being unable to tell that one arrived is a different thing, and is what
+    /// these turn from a bare `=> {}` into a number.
+    pub string_truncations: usize,
+    pub strings_ignored: usize,
+    pub clipboard_reads_refused: usize,
+    pub clipboard_writes_dropped: usize,
     /// Zero-width codepoints received and **not stored**: a continuation with
     /// no base on the line, a cluster past `ClusterSlot::CAPACITY`, or a
     /// [`ClusterStore`] with no free slot for it.
@@ -368,6 +394,13 @@ impl<'b> Term<'b> {
             scroll_copy: 0,
             reply_len: ByteLen::ZERO,
             reply_overflows: 0,
+            title_len: ByteLen::ZERO,
+            icon_len: ByteLen::ZERO,
+            link: LinkId::NONE,
+            string_truncations: 0,
+            strings_ignored: 0,
+            clipboard_reads_refused: 0,
+            clipboard_writes_dropped: 0,
             marks_dropped: 0,
             mouse_unencodable: 0,
             fast_try: 0,
@@ -572,6 +605,42 @@ impl<'b> Term<'b> {
             }
             false => self.reply_overflows += 1,
         }
+    }
+
+    /// The window title, as the application set it. Bounded by `OSC_MAX`.
+    pub fn title(&self) -> &[u8] {
+        &self.store.strs.title[..self.title_len.index()]
+    }
+
+    /// The icon name. `OSC 1` sets this, and `OSC 0` sets both.
+    pub fn icon_name(&self) -> &[u8] {
+        &self.store.strs.icon[..self.icon_len.index()]
+    }
+
+    /// A palette override from `OSC 4`, if the application set one.
+    ///
+    /// `None` means "use your own colour": this core deliberately holds no
+    /// default palette, because the mapping from index to pixels belongs to
+    /// the renderer and a second copy here would be one to keep in step. It is
+    /// also why a query for an entry nothing overrode gets no reply -- naming
+    /// a colour the renderer does not use is a wrong-shaped answer.
+    pub fn palette(&self, index: Chan) -> Option<(u8, u8, u8)> {
+        self.store.strs.palette[index.index()].as_rgb()
+    }
+
+    /// The URI a cell's link index resolves to, if any.
+    ///
+    /// The index comes off the cell -- `CellFlags::link` -- rather than from a
+    /// position, which is what makes it survive a scroll: the grid rotates and
+    /// the cell carries its link with it. The table evicts on collision, so a
+    /// live index can resolve to nothing; that renders as an ordinary cell,
+    /// the same tolerable degradation an evicted style has.
+    pub fn link_uri(&self, l: LinkId) -> Option<&[u8]> {
+        if l.is_none() {
+            return None;
+        }
+        let n = self.store.strs.link_len[l.index()].index();
+        (n > 0).then(|| &self.store.strs.links[l.index() * LINK_MAX..][..n])
     }
 
     /// Encode a key press into the reply buffer.

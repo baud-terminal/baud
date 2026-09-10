@@ -526,6 +526,23 @@ pub(crate) fn act(
             csi.set_inter(StreamByte::from_stream(p.arena[from.index()]));
             ReadLen::ONE
         }
+        // The three control-string arms. Each body is `#[cold]
+        // #[inline(never)]` in `osc.rs`, so what lands in the per-byte loop is
+        // a call and nothing else -- the rule this file learned when
+        // `for w in [WIDE, NARROW]` cost 3.5% of a payload that could not
+        // execute it.
+        Act::StrStart => {
+            p.str_start(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
+        Act::StrPut => {
+            p.str_put(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
+        Act::StrEnd => {
+            p.str_end(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
         Act::CsiFinal => {
             // The graph only names `CsiFinal` for `0x40..=0x7e`, and
             // `FinalByte` is the type that carries that proof.

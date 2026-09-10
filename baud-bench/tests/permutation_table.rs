@@ -82,6 +82,12 @@ fn the_cell_table_is_what_core2_writes() {
     let mut alt = vec![baud_core::PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![baud_core::RowExtent::ZERO; rows.index()];
     let mut clusters = vec![baud_core::ClusterSlot::EMPTY; baud_core::NCLUSTER];
+    let mut pending = vec![0u8; baud_core::OSC_MAX];
+    let mut title = vec![0u8; baud_core::OSC_MAX];
+    let mut icon = vec![0u8; baud_core::OSC_MAX];
+    let mut palette = vec![baud_core::ColorWord::DEFAULT; 256];
+    let mut links = vec![0u8; baud_core::NLINK * baud_core::LINK_MAX];
+    let mut link_len = vec![baud_core::ByteLen::ZERO; baud_core::NLINK];
     let store = baud_core::Storage::new(
         &mut arena,
         &mut vp,
@@ -93,6 +99,14 @@ fn the_cell_table_is_what_core2_writes() {
         &mut alt,
         &mut alt_used,
         &mut clusters,
+        baud_core::StrBuf::new(
+            &mut pending,
+            &mut title,
+            &mut icon,
+            &mut palette,
+            &mut links,
+            &mut link_len,
+        ),
     );
     let t = baud_core::Term::new(store, &ws);
     drop(t);

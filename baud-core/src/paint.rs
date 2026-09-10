@@ -83,6 +83,21 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) reply: &'a mut [u8],
     pub(crate) reply_len: ByteLen,
     pub(crate) reply_overflows: usize,
+    /// How much of `title` and `icon` is live. Lengths rather than a
+    /// terminator, because a title may legitimately contain any byte.
+    pub(crate) title_len: ByteLen,
+    pub(crate) icon_len: ByteLen,
+    /// The link every cell written from here carries. `LinkId::NONE` between
+    /// `OSC 8` runs, which is what an empty URI restores.
+    pub(crate) link: LinkId,
+    /// Bodies clipped at `OSC_MAX`, strings recognised and not acted on, and
+    /// the two halves of `OSC 52`. **Refused is not the same as unnoticed**:
+    /// silence is the right answer to a clipboard read, and being unable to
+    /// tell that one arrived is a different thing.
+    pub(crate) string_truncations: usize,
+    pub(crate) strings_ignored: usize,
+    pub(crate) clipboard_reads_refused: usize,
+    pub(crate) clipboard_writes_dropped: usize,
     /// The parked primary screen, reached **once per alt-screen transition**
     /// and never by the per-character loop.
     ///
@@ -105,6 +120,14 @@ pub(crate) struct Paint<'a, 'b> {
     /// and both recovered by a thin reference. `AltBuf` was grouped for the
     /// same reason one change earlier.
     pub(crate) clusters: &'a mut ClusterStore<'b>,
+    /// Everything a control string writes. **One word, not six slices.**
+    ///
+    /// `Paint` is inlined into the per-byte loop, and this file records the
+    /// class twice at 3.5-10%: carrying `Cold` by value cost 4% of less-pager
+    /// because 96 of its 120 bytes were two `Option<Saved>` no payload
+    /// touches. Six slices is twelve words of exactly that. A reference is one
+    /// word and costs one load on a path taken once per control string.
+    pub(crate) strs: &'a mut crate::storage::StrBuf<'b>,
     pub(crate) cold: &'a mut crate::term::Cold,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -197,6 +220,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         cluster: ClusterBreak,
         cold: &'a mut crate::term::Cold,
         reply_len: ByteLen,
+        title_len: ByteLen,
+        icon_len: ByteLen,
+        link: LinkId,
     ) -> Paint<'a, 'b> {
         let Storage {
             arena,
@@ -208,6 +234,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             reply,
             alt,
             clusters,
+            strs,
         } = store;
         // The three-byte cell table is read only by `put_run` under
         // `cell-table`; the default build must not carry a borrow of it.
@@ -222,8 +249,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             reply,
             reply_len,
             reply_overflows: 0,
+            title_len,
+            icon_len,
+            link,
+            string_truncations: 0,
+            strings_ignored: 0,
+            clipboard_reads_refused: 0,
+            clipboard_writes_dropped: 0,
             alt,
             clusters,
+            strs,
             cold,
             view: View::new(vp, used, stride, cols, rows, rot),
             cy,
@@ -647,8 +682,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
-    /// **DECAWM off means the cursor stays put and the character overwrites**,
-    /// which is what a status line drawn to the last column depends on.
     /// Queue a report for the host.
     ///
     /// **The only way bytes reach the reply buffer**, so the shape is chosen
@@ -677,6 +710,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// Move to the start of the next line, scrolling if there is no next line.
+    ///
+    /// **DECAWM off means the cursor stays put and the character overwrites**,
+    /// which is what a status line drawn to the last column depends on. This
+    /// comment was stranded on `want_reply` by an insertion -- the fifth time
+    /// in this repo that an edit landed between a doc and the function it was
+    /// written for, and the first found by reading rather than by a compiler
+    /// warning about a duplicated attribute.
     pub(crate) fn wrap(&mut self) {
         if !self.cold.modes.is_set(ModeBit::AutoWrap) {
             self.cx = Col::at_index(self.cols.index() - 1);

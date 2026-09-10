@@ -121,6 +121,8 @@ pub struct Storage<'b> {
     /// and the alternate screen without a parallel structure to keep in step,
     /// and is exactly what `baud-core2`'s position key does not.
     pub(crate) clusters: ClusterStore<'b>,
+    /// Everything a control string writes. See [`StrBuf`].
+    pub(crate) strs: StrBuf<'b>,
     pub(crate) alt: AltBuf<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
     /// `DECRQM` or an `XTVERSION`.
@@ -157,12 +159,81 @@ pub struct AltBuf<'b> {
     pub(crate) rot: RowRot,
 }
 
-/// The nine allocations a `Storage` borrows, owned in one place.
+/// Everything a control string writes, in one struct.
+///
+/// **Six slices rather than six arguments, for the reason `AltBuf` is one
+/// argument.** `Storage::new` already takes ten `&mut` slices in a fixed order,
+/// which is ten chances to swap two of the same type; six more would be
+/// sixteen, and four of these six are `&mut [u8]`. Grouping them means a caller
+/// names each one and the compiler checks the name.
+///
+/// They belong together for a second reason: they are the *result* of a control
+/// string, and `pending` is the string itself. A title that outlived its
+/// terminator, or a link table lent from one place while the payload it was
+/// parsed from was lent from another, is the borrow this shape makes
+/// unspellable.
+pub struct StrBuf<'b> {
+    /// The body being accumulated, reset at the **introducer**.
+    ///
+    /// Not at the terminator, which is the difference that matters: a string
+    /// spans reads, so this outlives a `feed`, and a cancelled string never
+    /// reaches a terminator at all. Resetting where the string *starts* is what
+    /// makes both cases right, and it is the same failure this repo records for
+    /// `pre: Option<Classified>` -- a value carried between two functions,
+    /// consumed by a later and different one because the path has more exits
+    /// than it looks like it has.
+    pub(crate) pending: &'b mut [u8],
+    /// `OSC 2`, and `OSC 0` sets this and `icon` together.
+    pub(crate) title: &'b mut [u8],
+    /// `OSC 1`.
+    pub(crate) icon: &'b mut [u8],
+    /// Palette overrides from `OSC 4`. `ColorWord::DEFAULT` means "not
+    /// overridden", so a zeroed buffer starts on the renderer's own palette
+    /// with no separate validity array to keep in step.
+    pub(crate) palette: &'b mut [ColorWord],
+    /// Hyperlink URIs, `NLINK` of them flat at a stride of `LINK_MAX`.
+    ///
+    /// Flat rather than `[[u8; LINK_MAX]; NLINK]` because the storage is
+    /// caller-provided and a slice cannot carry the inner dimension. The stride
+    /// is asserted in `Storage::new` rather than assumed -- a two-dimensional
+    /// array flattened into a slice is exactly where a silent stride bug lives.
+    pub(crate) links: &'b mut [u8],
+    pub(crate) link_len: &'b mut [ByteLen],
+}
+
+impl<'b> StrBuf<'b> {
+    /// Lend the six, in the one order that is correct.
+    ///
+    /// A constructor rather than public fields, because `Storage::new` is
+    /// public and takes a `StrBuf`: without this an embedder outside the crate
+    /// could name the type and not build one, which is an entry point whose
+    /// argument is unreachable -- the same shape as a mode recorded and never
+    /// read.
+    pub fn new(
+        pending: &'b mut [u8],
+        title: &'b mut [u8],
+        icon: &'b mut [u8],
+        palette: &'b mut [ColorWord],
+        links: &'b mut [u8],
+        link_len: &'b mut [ByteLen],
+    ) -> StrBuf<'b> {
+        StrBuf {
+            pending,
+            title,
+            icon,
+            palette,
+            links,
+            link_len,
+        }
+    }
+}
+
+/// The sixteen allocations a `Storage` borrows, owned in one place.
 ///
 /// **A convenience for tests and embedders with an allocator, and nothing the
 /// core itself uses.** Every test file that drives this crate otherwise
-/// repeats the same twenty-five lines of `vec!` and hands nine `&mut`s to
-/// `Storage::new` in the right order -- which is nine chances to swap two
+/// repeats the same twenty-five lines of `vec!` and hands ten `&mut`s to
+/// `Storage::new` in the right order -- which is ten chances to swap two
 /// arguments of the same type, and the reason the property suite could not be
 /// written cheaply before this existed.
 ///
@@ -180,6 +251,12 @@ pub struct Owned {
     alt: alloc::vec::Vec<PackedCell>,
     alt_used: alloc::vec::Vec<RowExtent>,
     clusters: alloc::vec::Vec<ClusterSlot>,
+    pending: alloc::vec::Vec<u8>,
+    title: alloc::vec::Vec<u8>,
+    icon: alloc::vec::Vec<u8>,
+    palette: alloc::vec::Vec<ColorWord>,
+    links: alloc::vec::Vec<u8>,
+    link_len: alloc::vec::Vec<ByteLen>,
 }
 
 #[cfg(feature = "alloc")]
@@ -205,10 +282,16 @@ impl Owned {
             alt: vec![PackedCell::EMPTY; span.len()],
             alt_used: vec![RowExtent::ZERO; rows.index()],
             clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
+            pending: vec![0u8; OSC_MAX],
+            title: vec![0u8; OSC_MAX],
+            icon: vec![0u8; OSC_MAX],
+            palette: vec![ColorWord::DEFAULT; 256],
+            links: vec![0u8; NLINK * LINK_MAX],
+            link_len: vec![ByteLen::ZERO; NLINK],
         }
     }
 
-    /// Lend all nine to a `Storage`, in the one order that is correct.
+    /// Lend them all to a `Storage`, in the one order that is correct.
     pub fn storage(&mut self) -> Storage<'_> {
         Storage::new(
             &mut self.arena,
@@ -221,6 +304,14 @@ impl Owned {
             &mut self.alt,
             &mut self.alt_used,
             &mut self.clusters,
+            StrBuf {
+                pending: &mut self.pending,
+                title: &mut self.title,
+                icon: &mut self.icon,
+                palette: &mut self.palette,
+                links: &mut self.links,
+                link_len: &mut self.link_len,
+            },
         )
     }
 }
@@ -242,6 +333,26 @@ pub const NSTYLE: usize = 1024;
 pub const CELLS3_PREFIXES: usize = 16 * 64;
 /// Entries in the three-byte cell table.
 pub const CELLS3: usize = CELLS3_PREFIXES * 256;
+
+/// The longest control-string body kept, and the longest title.
+///
+/// **A truncation is counted, not silent.** A title past this is clipped and
+/// `Term::string_truncations` says how often -- the same contract every
+/// bounded table here carries. `baud-core2` uses the same 512.
+pub const OSC_MAX: usize = 512;
+
+/// Distinct `OSC 8` hyperlinks live at once.
+///
+/// **128 because the cell says so.** The link index rides in `CellFlags`,
+/// which has seven bits for it, and seven bits is 128. The table evicts on
+/// collision like the style table: a URI is attacker-supplied content used as
+/// a key, and a growable table keyed on that is the content-addressing failure
+/// mode this repo already records. An evicted link renders as an ordinary
+/// cell.
+pub const NLINK: usize = 128;
+
+/// The longest URI kept, and the stride of the flat `links` slice.
+pub const LINK_MAX: usize = 256;
 
 /// How many bytes of reply the core will hold before it starts counting
 /// losses. `baud-core2` uses the same number and for the same reason: the
@@ -266,8 +377,30 @@ impl<'b> Storage<'b> {
         alt: &'b mut [PackedCell],
         alt_used: &'b mut [RowExtent],
         clusters: &'b mut [ClusterSlot],
+        strs: StrBuf<'b>,
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
+        // **The stride is checked, not assumed.** `links` is `NLINK` URIs flat
+        // at `LINK_MAX` each, because caller-provided storage cannot carry the
+        // inner dimension of a two-dimensional array. A slice one stride short
+        // does not fail: it returns a plausible URI belonging to the next slot.
+        assert!(
+            strs.links.len() >= NLINK * LINK_MAX,
+            "links is {} bytes, needs {} -- {NLINK} URIs at a stride of {LINK_MAX}",
+            strs.links.len(),
+            NLINK * LINK_MAX
+        );
+        assert!(
+            strs.link_len.len() >= NLINK,
+            "link_len is shorter than NLINK"
+        );
+        assert!(
+            strs.pending.len() >= OSC_MAX,
+            "pending is shorter than OSC_MAX"
+        );
+        assert!(strs.title.len() >= OSC_MAX, "title is shorter than OSC_MAX");
+        assert!(strs.icon.len() >= OSC_MAX, "icon is shorter than OSC_MAX");
+        assert!(strs.palette.len() >= 256, "palette is not 256 entries");
         // `RowBlock` computes the span so the two operands cannot be the
         // wrong way round -- a transposition here is a plausible number and a
         // silently wrong slice.
@@ -308,6 +441,7 @@ impl<'b> Storage<'b> {
                 used: alt_used,
                 rot: RowRot::NONE,
             },
+            strs,
         }
     }
 }

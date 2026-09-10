@@ -35,6 +35,7 @@ mod graph;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
 mod ops;
+mod osc;
 mod paint;
 mod storage;
 mod term;
@@ -48,6 +49,9 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+/// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
+/// an `OSC 8` hyperlink, and both are what the accessors return.
+pub use baud_domain::{Chan, ClipboardOp, ColorWord, LinkId, Osc, StringTerm, XColor};
 pub use baud_domain::{ClusterId, ClusterSlot};
 /// Mouse reporting's vocabulary: an embedder that cannot name a
 /// `MouseEvent` cannot call [`Term::mouse_report`].
@@ -58,13 +62,13 @@ pub use baud_domain::{
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, Modifiers};
 pub use graph::Node;
 
-/// The nine allocations a `Storage` borrows, for a caller that has an
+/// The sixteen allocations a `Storage` borrows, for a caller that has an
 /// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
 /// nothing for a `Box` to own.
 #[cfg(feature = "alloc")]
 pub use storage::Owned;
 pub use storage::{
-    ARENA, CELLS3, CELLS3_PREFIXES, GRID, MAX_COLS, MAX_ROWS, NCLUSTER, NSTYLE, READ_CHUNK, REPLY,
-    Storage,
+    ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
+    OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf,
 };
 pub use term::Term;

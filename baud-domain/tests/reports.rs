@@ -204,4 +204,71 @@ fn report_encodings_fit() {
         col: one(65535),
     });
     assert_eq!(cpr, b"\x1b[65535;65535R");
+
+    // **The widest is the palette reply, and this test could not see it.**
+    // `ReportBytes::push` drops silently past `MAX_LEN`, and for as long as
+    // this test named only two variants a new one could be added, be truncated
+    // by two bytes, and leave the assertion green -- which is exactly what
+    // happened when `Report::Color` landed at 22 against a `MAX_LEN` of 21.
+    // The tell is the terminator: a truncated reply loses its last byte, and a
+    // reader waiting for `ST` waits forever.
+    let color = enc(Report::Color {
+        index: Chan::from_u8(255),
+        r: 0xff,
+        g: 0xff,
+        b: 0xff,
+        term: StringTerm::St,
+    });
+    assert_eq!(color, b"\x1b]4;255;rgb:ff/ff/ff\x1b\\");
+    assert_eq!(
+        color.len(),
+        Report::MAX_LEN,
+        "the widest report is this one"
+    );
+
+    // Every variant, at its widest, ending in the byte that terminates it.
+    // A variant absent from this list is a variant nothing bounds.
+    for (name, r, last) in [
+        (
+            "cpr",
+            Report::CursorPosition {
+                row: one(65535),
+                col: one(65535),
+            },
+            b'R',
+        ),
+        ("dsr", Report::OperatingStatus, b'n'),
+        (
+            "da",
+            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102),
+            b'c',
+        ),
+        (
+            "sgr mouse",
+            Report::MouseSgr(mouse(MouseButton::WheelDown, MouseKind::Motion, 2047, 639)),
+            b'M',
+        ),
+        ("vt52 id", Report::Vt52Identity, b'Z'),
+        ("version", Report::Version, b'\\'),
+        (
+            "colour, BEL",
+            Report::Color {
+                index: Chan::from_u8(255),
+                r: 0xff,
+                g: 0xff,
+                b: 0xff,
+                term: StringTerm::Bel,
+            },
+            0x07,
+        ),
+    ] {
+        let b = enc(r);
+        assert!(
+            b.len() <= Report::MAX_LEN,
+            "{name}: {} bytes exceeds MAX_LEN {}",
+            b.len(),
+            Report::MAX_LEN
+        );
+        assert_eq!(*b.last().unwrap(), last, "{name}: the final byte survived");
+    }
 }

@@ -59,33 +59,8 @@ fn new_screen(bytes: &[u8], chunk: usize) -> Vec<char> {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
     };
-    let (_, rows) = ws.geometry();
-    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
-    let mut arena = vec![0u8; new::ARENA];
-    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
-    let mut used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut cells3 = vec![new::PackedCell::EMPTY; new::CELLS3];
-    let mut tmpl = vec![None; new::NSTYLE];
-    let mut tabs = vec![false; new::MAX_COLS];
-    let mut reply = vec![0u8; new::REPLY];
-    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
-    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
-    let mut t = new::Term::new(
-        new::Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
     let mut i = 0;
     while i < bytes.len() {
         let n = chunk.min(bytes.len() - i);
@@ -266,33 +241,8 @@ fn new_styles(bytes: &[u8]) -> Vec<old::StyleWord> {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
     };
-    let (_, rows) = ws.geometry();
-    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
-    let mut arena = vec![0u8; new::ARENA];
-    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
-    let mut used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut cells3 = vec![new::PackedCell::EMPTY; new::CELLS3];
-    let mut tmpl = vec![None; new::NSTYLE];
-    let mut tabs = vec![false; new::MAX_COLS];
-    let mut reply = vec![0u8; new::REPLY];
-    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
-    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
-    let mut t = new::Term::new(
-        new::Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
     let mut i = 0;
     while i < bytes.len() {
         let n = new::READ_CHUNK.min(bytes.len() - i);
@@ -807,33 +757,8 @@ fn new_marks(bytes: &[u8], r: usize, c: usize) -> (Vec<u32>, usize) {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
     };
-    let (_, rows) = ws.geometry();
-    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
-    let mut arena = vec![0u8; new::ARENA];
-    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
-    let mut used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut cells3: Vec<new::PackedCell> = Vec::new();
-    let mut tmpl = vec![None; new::NSTYLE];
-    let mut tabs = vec![false; new::MAX_COLS];
-    let mut reply = vec![0u8; new::REPLY];
-    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
-    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
-    let mut t = new::Term::new(
-        new::Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
     t.write_at(new::BytePos::ZERO, bytes);
     t.feed(new::BytePos::ZERO, new::ReadLen::from_index(bytes.len()));
     let m: Vec<u32> = t
@@ -877,6 +802,189 @@ fn every_fixture_renders_the_same_at_every_read_size() {
             assert_eq!(d, 0, "{name}: chunk {k} renders differently from 4096");
         }
     }
+}
+
+/// **What a control string did, which neither pinned gate can see either.**
+///
+/// A window title changes no cell, so `the_glyph_gap_is_pinned` cannot see it.
+/// A link index rides in `CellFlags`, which the glyph half does not read and
+/// the rendition half -- which resolves the `StyleWord` -- does not either. So
+/// a core that recognised every `OSC` and acted on none of them would pass
+/// both gates on every recording in the corpus, and `cava.raw` is the only one
+/// carrying `OSC` at all.
+///
+/// This compares the state itself: the title, the icon, every palette entry
+/// the row touches, the link index of a cell **and the URI it resolves to**,
+/// and the two refusal counters. The id agreeing while the table disagrees is
+/// the failure mode a link test that checks only the index cannot see -- the
+/// same shape as `a_zwj_family_keeps_all_of_its_codepoints`, which counted
+/// what an operation did and could not see it done to the wrong cell.
+#[test]
+fn both_cores_agree_about_what_a_control_string_did() {
+    let rows: &[(&str, &[u8])] = &[
+        // The two terminators. `BEL` is what applications actually send.
+        ("bel", b"\x1b]0;hello\x07"),
+        ("st", b"\x1b]2;hello\x1b\\"),
+        // `OSC 0` sets both, `OSC 1` sets only the icon, `OSC 2` only the title.
+        ("both", b"\x1b]0;name\x07"),
+        ("icon only", b"\x1b]1;icon\x07"),
+        ("title only", b"\x1b]2;title\x07"),
+        ("icon then title", b"\x1b]1;i\x07\x1b]2;t\x07"),
+        // A trailing NUL before the real terminator, which some emitters send.
+        ("trailing nul", b"\x1b]0;t\0\x07"),
+        // Empty payload: a title of no bytes is a title, not a no-op.
+        ("empty title", b"\x1b]2;first\x07\x1b]2;\x07"),
+        // The palette: set, query, reset one, reset all.
+        ("set colour", b"\x1b]4;1;rgb:12/34/56\x07"),
+        (
+            "set two",
+            b"\x1b]4;1;rgb:12/34/56\x07\x1b]4;255;rgb:ff/00/ff\x07",
+        ),
+        ("reset one", b"\x1b]4;1;rgb:12/34/56\x07\x1b]104;1\x07"),
+        ("reset all", b"\x1b]4;1;rgb:12/34/56\x07\x1b]104\x07"),
+        // A colour *name*, which neither core resolves -- there is no citable
+        // rgb.txt here, and setting something plausible would be guessing.
+        ("colour by name", b"\x1b]4;1;papayawhip\x07"),
+        // Hyperlinks: open, write a cell inside, close, write a cell outside.
+        (
+            "link",
+            b"\x1b]8;;http://example.com\x1b\\IN\x1b]8;;\x1b\\OUT",
+        ),
+        (
+            "link id",
+            b"\x1b]8;id=x;http://a.example\x1b\\IN\x1b]8;;\x1b\\OUT",
+        ),
+        (
+            "two links",
+            b"\x1b]8;;http://a\x1b\\A\x1b]8;;http://b\x1b\\B\x1b]8;;\x1b\\C",
+        ),
+        // `OSC 52`: the read is refused on purpose, the write dropped. Both
+        // are counted, because refused and unnoticed are different things.
+        ("clipboard read", b"\x1b]52;c;?\x07"),
+        ("clipboard write", b"\x1b]52;c;aGk=\x07"),
+        // Recognised and not acted on.
+        ("unsupported", b"\x1b]99;whatever\x07"),
+        // **Cancelled mid-body.** `CAN` inside the string must drop the
+        // payload, not flush it: no title is set, and the tail renders as
+        // text. This is the one case where a half-parsed payload could leak
+        // into the *next* string, and resetting at the introducer is what
+        // stops it.
+        ("cancel mid-body", b"\x1b]0;ti\x18tle\x07"),
+        ("cancel then a real one", b"\x1b]0;bad\x18\x1b]0;good\x07"),
+        ("sub mid-body", b"\x1b]0;ti\x1atle\x07"),
+        // A body past `OSC_MAX`, which both cores clip rather than grow.
+        ("overlong", &LONG_OSC),
+    ];
+    for (name, bytes) in rows {
+        assert_eq!(old_strings(bytes), new_strings(bytes), "{name}");
+        // **A control string spans reads**, so the accumulator outlives a
+        // `feed` and the read boundary is where it can go wrong. At a chunk of
+        // one every body byte arrives in its own read; at 400000 the whole
+        // string arrives at once. The two must agree, and this is the property
+        // that would catch an accumulator reset in the wrong place -- the
+        // `pre: Option<Classified>` failure, which broke chunk invariance and
+        // nothing else.
+        let want = new_strings_at(bytes, 400_000);
+        for k in [1usize, 2, 3, 5, 17, 512, 4096] {
+            assert_eq!(new_strings_at(bytes, k), want, "{name}: chunk {k}");
+        }
+    }
+}
+
+/// 600 bytes of title, past both cores' 512-byte bound.
+static LONG_OSC: [u8; 610] = {
+    let mut b = [b'x'; 610];
+    b[0] = 0x1b;
+    b[1] = b']';
+    b[2] = b'0';
+    b[3] = b';';
+    b[609] = 0x07;
+    b
+};
+
+/// Everything a control string can have changed, from either core.
+type Strings = (
+    Vec<u8>,
+    Vec<u8>,
+    Vec<Option<(u8, u8, u8)>>,
+    Vec<(u16, Option<Vec<u8>>)>,
+    u64,
+    u64,
+);
+
+fn old_strings(bytes: &[u8]) -> Strings {
+    let mut store = old::Storage::boxed();
+    let mut t = old::Term::new(&mut store, old::OpMode::Computed);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = old::READ_CHUNK.min(bytes.len() - i);
+        let mut slot = t.read_slot();
+        let base = slot.base();
+        let filled = slot.write(old::StreamByte::slice_from(&bytes[i..i + n]));
+        t.feed(base, filled.len());
+        t.commit_read(filled.len());
+        i += n;
+    }
+    let palette = (0..256)
+        .map(|c| t.palette(old::Chan::from_u8(c as u8)))
+        .collect();
+    // The first eight cells of row 0, each as its link index **and the URI it
+    // resolves to**. Both, because an index that matches while the table
+    // disagrees is a link pointing somewhere else.
+    let links = (0..8)
+        .map(|c| {
+            let l = t.row(old::Row::from_index(0))[c].flags.link();
+            (l.index() as u16, t.link_uri(l).map(|u| u.to_vec()))
+        })
+        .collect();
+    (
+        t.title().to_vec(),
+        t.icon_name().to_vec(),
+        palette,
+        links,
+        t.clipboard_reads_refused.count(),
+        t.clipboard_writes_dropped.count(),
+    )
+}
+
+fn new_strings(bytes: &[u8]) -> Strings {
+    new_strings_at(bytes, new::READ_CHUNK)
+}
+
+fn new_strings_at(bytes: &[u8], chunk: usize) -> Strings {
+    let ws = new::WinSize {
+        ws_row: ROWS as u16,
+        ws_col: COLS as u16,
+    };
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = chunk.min(bytes.len() - i);
+        t.write_at(new::BytePos::ZERO, &bytes[i..i + n]);
+        t.feed(new::BytePos::ZERO, new::ReadLen::from_index(n));
+        i += n;
+    }
+    let palette = (0..256)
+        .map(|c| t.palette(new::Chan::from_u8(c as u8)))
+        .collect();
+    let w = t.stride().index();
+    let ids: Vec<new::LinkId> = {
+        let vp = t.viewport();
+        (0..8).map(|c| vp[c % w].flags.link()).collect()
+    };
+    let links = ids
+        .iter()
+        .map(|l| (l.index() as u16, t.link_uri(*l).map(|u| u.to_vec())))
+        .collect();
+    (
+        t.title().to_vec(),
+        t.icon_name().to_vec(),
+        palette,
+        links,
+        t.clipboard_reads_refused as u64,
+        t.clipboard_writes_dropped as u64,
+    )
 }
 
 /// **Where the cursor is, which neither pinned gate can see.**
@@ -1103,33 +1211,8 @@ fn new_key(setup: &[u8], e: new::KeyEvent) -> Vec<u8> {
         ws_row: ROWS as u16,
         ws_col: COLS as u16,
     };
-    let (_, rows) = ws.geometry();
-    let span = new::RowBlock::leading(rows, new::Cols::from_stride(new::MAX_COLS));
-    let mut arena = vec![0u8; new::ARENA];
-    let mut vp = vec![new::PackedCell::EMPTY; span.len()];
-    let mut used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut cells3: Vec<new::PackedCell> = Vec::new();
-    let mut tmpl = vec![None; new::NSTYLE];
-    let mut tabs = vec![false; new::MAX_COLS];
-    let mut reply = vec![0u8; new::REPLY];
-    let mut alt = vec![new::PackedCell::EMPTY; span.len()];
-    let mut alt_used = vec![new::RowExtent::ZERO; rows.index()];
-    let mut clusters = vec![new::ClusterSlot::EMPTY; new::NCLUSTER];
-    let mut t = new::Term::new(
-        new::Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = new::Owned::new(&ws);
+    let mut t = new::Term::new(owned.storage(), &ws);
     let mut i = 0;
     while i < setup.len() {
         let n = new::READ_CHUNK.min(setup.len() - i);

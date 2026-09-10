@@ -49,6 +49,9 @@ impl Term<'_> {
             self.cluster,
             &mut self.cold,
             self.reply_len,
+            self.title_len,
+            self.icon_len,
+            self.link,
         );
         // The ASCII-only ladder never leaves `Ground`, so it advances none of
         // these; the graph loop below does.
@@ -215,6 +218,17 @@ impl Term<'_> {
         // Replies queued during the read, carried back like the cursor.
         self.reply_len = p.reply_len;
         self.reply_overflows += p.reply_overflows;
+        // Control-string results, carried back like the cursor. The three
+        // states are assignments and the four counters accumulate, which is
+        // the same split every counter here has: a length is where the string
+        // got to, a count is how many times something was refused.
+        self.title_len = p.title_len;
+        self.icon_len = p.icon_len;
+        self.link = p.link;
+        self.string_truncations += p.string_truncations;
+        self.strings_ignored += p.strings_ignored;
+        self.clipboard_reads_refused += p.clipboard_reads_refused;
+        self.clipboard_writes_dropped += p.clipboard_writes_dropped;
         self.marks_dropped = p.clusters.refused;
         self.cells_written += p.cells.index();
         #[cfg(feature = "diag")]

@@ -419,13 +419,22 @@ impl Paint<'_, '_> {
         self.refresh_flags();
     }
 
-    /// Recombine DECSCA protection with the active character set, so the write
-    /// path reads one value instead of two.
+    /// Recombine DECSCA protection, the active character set and the open
+    /// `OSC 8` link, so the write path reads one value instead of three.
+    ///
+    /// **The link rides in the cell rather than in a side table**, which is
+    /// what makes a link survive everything a cell survives: a scroll rotates
+    /// the grid and a link goes with it, an overwrite builds a fresh
+    /// `PackedCell` from the flags in force and un-links the cell without the
+    /// write path doing anything. That is the same argument `CellFlags::MARKED`
+    /// settled for combining marks, and the same reason a position-keyed side
+    /// table needed a generation counter and three bug fixes.
     pub(crate) fn refresh_flags(&mut self) {
-        self.flags = match self.charset {
+        let base = match self.charset {
             Charset::DecGraphics => self.cold.protect.with(CellFlags::GRAPHICS),
             _ => self.cold.protect,
         };
+        self.flags = base.with_link(self.link);
     }
 
     /// REP: repeat the last graphic character. Bounded by the row, so
@@ -557,12 +566,6 @@ impl Paint<'_, '_> {
             PrivateMode::EightBitInput => self.cold.modes.apply(ModeBit::EightBitInput, on),
             PrivateMode::CursorVisible => self.cold.modes.apply(ModeBit::CursorVisible, on),
             PrivateMode::ReverseVideo => self.cold.modes.apply(ModeBit::ReverseVideo, on),
-            // `[[source: ctlseqs]]` for `?1049 h`: save the cursor as DECSC,
-            // switch to the alternate buffer, clear it. For `?1049 l`: use the
-            // normal buffer and restore as DECRC.
-            //
-            // **Idempotent in both directions.** A second `?1049 h` must not
-            // re-save over the cursor it saved on the way in.
             // **Mouse tracking is a level, not three flags.** `[[source:
             // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
             // `?1003` is a superset of `?1002` which is a superset of `?1000`
@@ -585,15 +588,17 @@ impl Paint<'_, '_> {
                     false => HighlightTracking::Off,
                 }
             }
+            // `[[source: ctlseqs]]` for `?1049 h`: save the cursor as DECSC,
+            // switch to the alternate buffer, clear it. For `?1049 l`: use the
+            // normal buffer and restore as DECRC.
+            //
+            // **Idempotent in both directions.** A second `?1049 h` must not
+            // re-save over the cursor it saved on the way in.
             PrivateMode::AltScreen => self.set_alt_screen(change),
             _ => {}
         }
     }
 
-    /// **`ModeChange`, not a `bool`.** The two states already have a name in
-    /// the protocol, and this repo's audit exists to stop that name being
-    /// thrown away at a call site -- `set_alt_screen(true)` reads as nothing
-    /// in particular where `ModeChange::Set` reads as DECSET.
     /// Takes the [`ModeChange`] the caller already holds rather than a `bool`:
     /// degrading a domain type to a primitive and reconstructing it here is
     /// what the audit exists to stop.
@@ -604,6 +609,10 @@ impl Paint<'_, '_> {
         };
     }
 
+    /// **`ModeChange`, not a `bool`.** The two states already have a name in
+    /// the protocol, and this repo's audit exists to stop that name being
+    /// thrown away at a call site -- `set_alt_screen(true)` reads as nothing
+    /// in particular where `ModeChange::Set` reads as DECSET.
     fn set_alt_screen(&mut self, change: ModeChange) {
         use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {

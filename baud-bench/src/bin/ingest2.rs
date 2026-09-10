@@ -145,6 +145,12 @@ fn main() {
     let mut alt = vec![PackedCell::EMPTY; span.len()];
     let mut alt_used = vec![RowExtent::ZERO; rows.index()];
     let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
+    let mut pending = vec![0u8; OSC_MAX];
+    let mut title = vec![0u8; OSC_MAX];
+    let mut icon = vec![0u8; OSC_MAX];
+    let mut palette = vec![ColorWord::DEFAULT; 256];
+    let mut links = vec![0u8; NLINK * LINK_MAX];
+    let mut link_len = vec![ByteLen::ZERO; NLINK];
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -157,6 +163,14 @@ fn main() {
             &mut alt,
             &mut alt_used,
             &mut clusters,
+            StrBuf::new(
+                &mut pending,
+                &mut title,
+                &mut icon,
+                &mut palette,
+                &mut links,
+                &mut link_len,
+            ),
         ),
         &ws,
     );

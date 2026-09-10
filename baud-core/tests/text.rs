@@ -162,35 +162,12 @@ fn a_run_agrees_with_the_same_characters_written_singly() {
 /// Feed `bytes` and return whatever the terminal owes the host.
 fn reply_to(bytes: &[u8]) -> Vec<u8> {
     let rows = 4usize;
-    let mut arena = vec![0u8; READ_CHUNK];
-    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut used = vec![RowExtent::ZERO; rows];
-    let mut cells3 = vec![PackedCell::EMPTY; 0];
-    let mut tmpl = vec![None; NSTYLE];
-    let mut tabs = vec![false; MAX_COLS];
-    let mut reply = vec![0u8; REPLY];
-    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut alt_used = vec![RowExtent::ZERO; rows];
-    let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
     };
-    let mut t = Term::new(
-        Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
     t.write_at(BytePos::from_index(0), bytes);
     t.feed(BytePos::from_index(0), ReadLen::from_index(bytes.len()));
     t.reply().to_vec()
@@ -231,35 +208,12 @@ fn a_read_carrying_two_queries_answers_both() {
 #[test]
 fn a_reply_survives_until_it_is_cleared() {
     let rows = 4usize;
-    let mut arena = vec![0u8; READ_CHUNK];
-    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut used = vec![RowExtent::ZERO; rows];
-    let mut cells3 = vec![PackedCell::EMPTY; 0];
-    let mut tmpl = vec![None; NSTYLE];
-    let mut tabs = vec![false; MAX_COLS];
-    let mut reply = vec![0u8; REPLY];
-    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut alt_used = vec![RowExtent::ZERO; rows];
-    let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
     };
-    let mut t = Term::new(
-        Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
     let q = b"\x1b[c";
     t.write_at(BytePos::from_index(0), q);
     t.feed(BytePos::from_index(0), ReadLen::from_index(q.len()));
@@ -275,35 +229,12 @@ fn a_reply_survives_until_it_is_cleared() {
 /// Drive `bytes` and hand the terminal back, so input state can be read off it.
 fn after(bytes: &[u8]) -> (Vec<u8>, bool, bool, bool, bool, bool) {
     let rows = 4usize;
-    let mut arena = vec![0u8; READ_CHUNK];
-    let mut vp = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut used = vec![RowExtent::ZERO; rows];
-    let mut cells3 = vec![PackedCell::EMPTY; 0];
-    let mut tmpl = vec![None; NSTYLE];
-    let mut tabs = vec![false; MAX_COLS];
-    let mut reply = vec![0u8; REPLY];
-    let mut alt = vec![PackedCell::EMPTY; rows * MAX_COLS];
-    let mut alt_used = vec![RowExtent::ZERO; rows];
-    let mut clusters = vec![ClusterSlot::EMPTY; NCLUSTER];
     let ws = WinSize {
         ws_row: rows as u16,
         ws_col: 20,
     };
-    let mut t = Term::new(
-        Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = Owned::new(&ws);
+    let mut t = Term::new(owned.storage(), &ws);
     t.write_at(BytePos::from_index(0), bytes);
     t.feed(BytePos::from_index(0), ReadLen::from_index(bytes.len()));
     (

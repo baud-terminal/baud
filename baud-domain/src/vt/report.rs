@@ -65,6 +65,21 @@ pub enum Report {
     /// is IRM and `CSI ? 4` is DECSCLM. Answering a private request without the
     /// `?` would have the application read it as an answer about a different
     /// mode entirely.
+    /// `OSC 4 ; c ; rgb:RR/GG/BB ST` -- the answer to `OSC 4 ; c ; ?`.
+    ///
+    /// `[[source: ctlseqs]]`: xterm "replies with a control sequence of the
+    /// same form which can be used to set the corresponding color", and it
+    /// "uses the same terminator used in a query" -- which is why the
+    /// terminator is a field. A query sent with `BEL` answered with `ST` is a
+    /// differently-shaped answer to the one that was asked for, and some
+    /// readers stop at the terminator they expect.
+    Color {
+        index: Chan,
+        r: u8,
+        g: u8,
+        b: u8,
+        term: StringTerm,
+    },
     ModeStatus {
         marker: Marker,
         mode: Param,
@@ -199,7 +214,7 @@ impl Report {
     /// three five-digit fields, two separators and a final byte. Five digits
     /// covers `MAX_COLS` and `MAX_ROWS` with room to spare, and nothing larger
     /// can be a coordinate on this grid. `report_encodings_fit` pins it.
-    pub const MAX_LEN: usize = 21;
+    pub const MAX_LEN: usize = 22;
 
     /// Render the report to bytes.
     ///
@@ -274,6 +289,39 @@ impl Report {
                 e.push(0x1b);
                 e.push(b'\\');
             }
+            Report::Color {
+                index,
+                r,
+                g,
+                b,
+                term,
+            } => {
+                // Not a CSI: `OSC 4 ; c ; spec`. Rewinds over the `ESC [` the
+                // encoder starts with, the way `Version` and `Vt52Identity`
+                // do.
+                e.len = ByteLen::ZERO;
+                e.push(0x1b);
+                e.push(b']');
+                e.push(b'4');
+                e.push(b';');
+                e.push_num(index.get() as u16);
+                e.push(b';');
+                for &c in b"rgb:" {
+                    e.push(c);
+                }
+                e.push_hex(r);
+                e.push(b'/');
+                e.push_hex(g);
+                e.push(b'/');
+                e.push_hex(b);
+                match term {
+                    StringTerm::St => {
+                        e.push(0x1b);
+                        e.push(b'\\');
+                    }
+                    StringTerm::Bel => e.push(0x07),
+                }
+            }
             Report::ModeStatus {
                 marker,
                 mode,
@@ -294,6 +342,13 @@ impl Report {
 }
 
 impl ReportBytes {
+    /// Two lowercase hex digits, which is the width `rgb:` specifies.
+    fn push_hex(&mut self, b: u8) {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        self.push(HEX[(b >> 4) as usize]);
+        self.push(HEX[(b & 0x0f) as usize]);
+    }
+
     fn push(&mut self, b: u8) {
         // Cannot overflow: MAX_LEN is the longest variant, checked by
         // `report_encodings_fit` in baud-domain's tests.

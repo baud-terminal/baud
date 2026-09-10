@@ -65,7 +65,7 @@ pub(crate) const NNODE: usize = 11;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 29;
+pub(crate) const NACT: usize = 32;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -143,8 +143,24 @@ pub enum Act {
     /// A byte that cannot begin or continue a character: one replacement.
     Bad,
     /// Eat the byte and do nothing: a private marker, an intermediate, the
-    /// body of a control string, the `ESC` that opened one.
+    /// `ESC` that opened a control string.
     Consume,
+    /// The introducer of a control string: `OSC`, `DCS`, `SOS`, `PM`, `APC`.
+    ///
+    /// Reads the byte, so one action serves all five and the body node is
+    /// shared. **It resets the accumulator**, which is the whole reason it is
+    /// distinct from `Consume`: a string that a `CAN` cancels never reaches a
+    /// terminator, so resetting where the string starts is what makes the
+    /// cancelled case right without a second rule for it.
+    StrStart,
+    /// One byte of a control string's body.
+    StrPut,
+    /// `BEL`, or the `\` of an `ST`: the string is complete, act on it.
+    ///
+    /// Distinct from the `Consume` that the `anywhere` rule uses for `CAN` and
+    /// `SUB`, and that is the difference that stops a cancelled title being
+    /// set: both return to `Ground`, and only one dispatches.
+    StrEnd,
     /// `ESC [`: start a fresh parameter list.
     CsiStart,
     /// `ESC`: start a fresh sequence. **The parameter state has to be reset
@@ -253,6 +269,9 @@ const fn act_name(a: Act) -> &'static str {
         Act::Latin1 => "Latin1",
         Act::Bad => "Bad",
         Act::Consume => "Consume",
+        Act::StrStart => "StrStart",
+        Act::StrPut => "StrPut",
+        Act::StrEnd => "StrEnd",
         Act::CsiStart => "CsiStart",
         Act::EscStart => "EscStart",
         Act::Digit => "Digit",
@@ -288,6 +307,9 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Latin1,
     Act::Bad,
     Act::Consume,
+    Act::StrStart,
+    Act::StrPut,
+    Act::StrEnd,
     Act::CsiStart,
     Act::Digit,
     Act::Marker,
@@ -553,7 +575,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
         Node::StrEsc => {
             return match b.is(StreamByte::from_stream(0x5c)) {
-                true => edge(Act::Consume, Node::Ground),
+                true => edge(Act::StrEnd, Node::Ground),
                 false => edge(Act::Again, Node::Escape),
             };
         }
@@ -619,8 +641,13 @@ const fn escape(b: StreamByte) -> Edge {
     }
     match v {
         0x5b => edge(Act::CsiStart, Node::CsiEntry),
-        // `OSC`, `DCS`, `SOS`, `PM`, `APC` -- all bodies, all ended the same way.
-        0x5d | 0x50 | 0x58 | 0x5e | 0x5f => edge(Act::Consume, Node::Str),
+        // `OSC`, `DCS`, `SOS`, `PM`, `APC` -- all bodies, all ended the same
+        // way, and **which one it was has to be recorded here** because the
+        // body node is shared. `Act::StrStart` reads the introducer byte and
+        // resets the accumulator; a string that is cancelled never reaches a
+        // terminator, so resetting at the *start* is what makes both the
+        // completed and the cancelled case right.
+        0x5d | 0x50 | 0x58 | 0x5e | 0x5f => edge(Act::StrStart, Node::Str),
         // **Recorded, not consumed.** `ESC ( B` designates a character set
         // and `ESC B` does not exist; dropping the `(` made every charset
         // designation land on the same arm as its final byte alone.
@@ -690,9 +717,12 @@ const fn csi_ignore(b: StreamByte) -> Edge {
 /// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
 const fn string(b: StreamByte) -> Edge {
     match b.raw_byte() {
-        0x07 => edge(Act::Consume, Node::Ground),
+        // `BEL` ends an `OSC`. `[[source: ctlseqs]]` allows it beside `ST`
+        // and applications overwhelmingly send it, so a core that took only
+        // `ST` would drop nearly every title it was sent.
+        0x07 => edge(Act::StrEnd, Node::Ground),
         0x1b => edge(Act::Consume, Node::StrEsc),
-        _ => edge(Act::Consume, Node::Str),
+        _ => edge(Act::StrPut, Node::Str),
     }
 }
 
@@ -903,12 +933,22 @@ mod classes {
         // | `Act::Tab` -- HT routed | 23/444/7,619/123,202 | +27% |
         // | `CAN`/`SUB` -- the `anywhere` edge | 24/477/8,352/137,338 | +11.5% |
         // | `Act::ShiftOut`/`ShiftIn` -- SO and SI | 26/571/11,294/211,410 | **+54%** |
+        // | `StrStart`/`StrPut`/`StrEnd` -- OSC | 26/574/11,478/217,172 | +2.7% |
         //
         // **The cheapest move added no action at all.** `CAN`/`SUB` is
         // `Act::Consume` with a different next node, so it cost table content
         // and nothing in the dispatch. The dearest added two at once, and two
         // is not twice one: a stride-k table is `CLASSES^k`, so actions
         // compound -- 24 -> 26 is +8% at stride 1 and +54% at stride 4.
+        //
+        // **Three new actions and stride 1 did not move, which is the
+        // interesting row.** The ladder counts *behaviours*, not variants, and
+        // every byte these three renamed was already distinguished by the node
+        // it led to: a body byte stayed in `Str` where `BEL` went to `Ground`,
+        // and the five introducers went to `Str` where every other escape
+        // final went to `Ground`. So the split existed and only its name is
+        // new -- which is why 26 holds and the wider strides grow by 2.7%
+        // rather than by the 54% two genuinely new splits cost.
         //
         // Which is the argument for this representation stated as arithmetic.
         // Telling bytes apart in a *table* costs entries; telling them apart
@@ -921,9 +961,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 571, "stride 2");
-        assert_eq!(three.len(), 11_294, "stride 3");
-        assert_eq!(four.len(), 211_410, "stride 4");
+        assert_eq!(two.len(), 574, "stride 2");
+        assert_eq!(three.len(), 11_478, "stride 3");
+        assert_eq!(four.len(), 217_172, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
