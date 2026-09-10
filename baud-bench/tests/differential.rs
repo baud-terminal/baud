@@ -510,17 +510,19 @@ fn designating_a_charset_is_not_invoking_it() {
 /// for either.**
 ///
 /// `[[source: williams]]`: "CAN and SUB cancel any escape sequence".
-/// `baud-core`'s `string()` has three arms -- `0x07` to Ground, `0x1b` to
-/// StrEsc, everything else back to Str -- so a `CAN` inside an `OSC` is
-/// swallowed as body text and the string runs on, eating the characters that
-/// follow it until a real terminator arrives.
+/// `baud-core`'s `string()` had three arms -- `0x07` to Ground, `0x1b` to
+/// StrEsc, everything else back to Str -- so a `CAN` inside an `OSC` was
+/// swallowed as body text and the string ran on, eating the characters after
+/// it until a real terminator arrived. **Pinned at 12, now 0**: the `anywhere`
+/// rule in `graph.rs` closed rows 4 and 5 together with the fixture below.
 ///
-/// **Rows 0-3 are the part worth keeping even though they agree.** A window
-/// title changes no cell and an `OSC 8` link rides in `CellFlags`, which the
-/// glyph half does not read -- so well-formed OSC is *invisible* here by
-/// construction, and pinning that it consumes exactly its own bytes and no
-/// more is the only thing this comparison can say about it. Rows 4 and 5 are
-/// the defect, and they are visible because the swallow shifts real text.
+/// **Rows 0-3 are the part worth keeping even though they always agreed.** A
+/// window title changes no cell and an `OSC 8` link rides in `CellFlags`,
+/// which the glyph half does not read -- so well-formed OSC is *invisible*
+/// here by construction, and pinning that it consumes exactly its own bytes
+/// and no more is the only thing this comparison can say about it. Rows 4 and
+/// 5 were the defect, and they were visible because the swallow shifted real
+/// text.
 #[test]
 fn a_control_string_ends_where_the_specification_says_it_does() {
     let bytes = b"\x1b]0;title\x07AAA\r\n\x1b]0;title\x1b\\BBB\r\n\x1b]8;;http://example.com\x1b\\CCC\x1b]8;;\x1b\\DDD\r\n\x1b]0;a\nb\rc\x07EEE\r\n\x1b]0;t\x18FFF\x07GGG\r\n\x1b]0;t\x1aHHH\x07III";
@@ -528,27 +530,32 @@ fn a_control_string_ends_where_the_specification_says_it_does() {
     let (x, y) = row_pair(bytes, 4);
     assert_eq!(
         d.len(),
-        12,
+        0,
         "the control-string gap moved.\n  core2 row4: {x:?}\n  new   row4: {y:?}",
     );
 }
 
-/// **Outside a control string the same missing rule is worse than a swallow:
-/// `baud-core` performs an operation `baud-core2` cancelled.**
+/// **Outside a control string the same missing rule was worse than a swallow:
+/// `baud-core` performed an operation `baud-core2` cancelled.** Pinned at 9,
+/// now 0.
 ///
-/// `CAN` inside a `CSI` falls through the parameter arm, so the parser stays
-/// in `CsiParam` and consumes the *next* byte in `0x40..=0x7e` as a final. The
+/// `CAN` inside a `CSI` fell through the parameter arm, so the parser stayed
+/// in `CsiParam` and consumed the *next* byte in `0x40..=0x7e` as a final. The
 /// fixture uses `~` -- a final this core does not implement -- deliberately,
 /// so the pin does not drift when the operation table grows. With `I` instead
 /// the consequence is concrete and was measured: core2 renders `IJK` at
-/// columns 0-2 where `baud-core` dispatches `CSI 1 ; 5 I` as `CHT` and renders
-/// `JK` at columns 8-9. It moves the cursor because a cancel was ignored.
+/// columns 0-2 where `baud-core` dispatched `CSI 1 ; 5 I` as `CHT` and
+/// rendered `JK` at columns 8-9. It moved the cursor because a cancel was
+/// ignored, which no amount of swallowed text is equivalent to.
 ///
-/// `ESC CAN` is the same shape one node up: `escape()` routes a C0 through
-/// `c0()` and stays in `Escape`, so the next printable is eaten as a final.
+/// `ESC CAN` was the same shape one node up: `escape()` routed a C0 through
+/// `c0()` and stayed in `Escape`, so the next printable was eaten as a final.
 ///
 /// This is the third face of one missing edge, and the one no recording could
-/// ever show -- `0x18` and `0x1a` are absent from all nine.
+/// ever show -- `0x18` and `0x1a` are absent from all nine. It stays at zero
+/// because one arm in `one()` cannot be half-applied: the same test answers
+/// for every node, so a node added later inherits the rule rather than
+/// forgetting it, which is how all six forgot it in the first place.
 #[test]
 fn a_cancel_outside_a_string_cancels_the_sequence() {
     let bytes = b"\x1b[1;5\x18~ab\r\n\x1b[1;5\x1a~cd\r\n\x1b\x18~ef";
@@ -556,7 +563,7 @@ fn a_cancel_outside_a_string_cancels_the_sequence() {
     let (x, y) = row_pair(bytes, 0);
     assert_eq!(
         d.len(),
-        9,
+        0,
         "the cancel gap moved.\n  core2: {x:?}\n  new  : {y:?}",
     );
 }

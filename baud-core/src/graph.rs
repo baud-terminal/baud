@@ -468,6 +468,34 @@ const fn c0(b: StreamByte) -> Act {
 /// The whole protocol, as one function of three bounded values, run at build
 /// time and never at run time.
 const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
+    // `[[source: williams]]`'s **anywhere** block: "CAN and SUB cancel any
+    // escape sequence", from every state, with the same action. Here rather
+    // than in each node function because six of them would have to remember
+    // it and `escape`, `csi_*` and `string` all forgot -- `is_c0()` is
+    // `b < 0x20`, which *includes* both, so every arm spelling
+    // `if b.is_c0() { return edge(c0(b), <same node>) }` consumed the byte and
+    // stayed exactly where it was.
+    //
+    // **A cancelled sequence that still performs its operation is the worse
+    // half.** Inside a `CSI` the parser stayed in `CsiParam` and took the next
+    // byte in `40-7E` as a final, so `ESC [ 1 ; 5 CAN I` dispatched `CHT` and
+    // moved the cursor eight columns for a sequence that had been cancelled.
+    // Inside an `OSC` the byte was body text and the string ate what followed.
+    //
+    // The ground-like states fall through and handle both bytes themselves,
+    // which is core2's rule spelled the same way: in `Ground` there is nothing
+    // to cancel and `c0` already answers `Consume`, and mid-character
+    // `Act::Resync` makes the partial character a replacement and re-dispatches
+    // the byte from `Ground` -- `[[source: unicode-ch3]]` 3.9.5 requires the
+    // successor not be swallowed, and the outcome is the same `Consume`.
+    let ground_like = matches!(
+        node,
+        Node::Ground | Node::Utf8One | Node::Utf8Two | Node::Utf8Three
+    );
+    if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
+        return edge(Act::Consume, Node::Ground);
+    }
+
     // Mid-character: only a continuation can follow, and it moves one node
     // nearer the end.
     match node {
@@ -844,12 +872,20 @@ mod classes {
             three.len(),
             NNODE * three.len(),
         );
-        // **The ladder moved 22/402/6,441/96,812 -> 23/444/7,619/123,202 when
-        // `Act::Tab` landed**, and that is the measurement working rather than
-        // breaking: HT used to share a class with every other unrouted C0
-        // because they all fell to `Act::Consume`, and routing it to the tab
-        // machinery made it distinguishable. A stride-k table is `CLASSES^k`,
-        // so a new action is not free at any stride -- stride 4 grows 27%.
+        // **The ladder has moved twice, and neither move was a regression.**
+        // 22/402/6,441/96,812 -> 23/444/7,619/123,202 when `Act::Tab` landed,
+        // because HT had shared a class with every other unrouted C0 while
+        // they all fell to `Act::Consume`; then -> 24/477/8,352/137,338 when
+        // `CAN`/`SUB` gained the `anywhere` rule, for the same reason one step
+        // further out. Both times the pin caught it on the first run.
+        //
+        // **The second move cost less than the first and no new action.**
+        // `Act::Tab` grew stride 4 by 27%; the cancel edge grows it 11.5% and
+        // adds nothing to the dispatch, because "consume and return to Ground"
+        // is `Act::Consume` with a different next node. A stride-k table is
+        // `CLASSES^k`, so telling two bytes apart is never free -- but telling
+        // them apart in the *table* is much cheaper than doing it in the
+        // `match`, which is the whole argument for this representation.
         //
         // **Pinned, because these numbers size a table.** Each is the count
         // of distinct behaviours a k-byte word can have across every node and
@@ -857,9 +893,9 @@ mod classes {
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 444, "stride 2");
-        assert_eq!(three.len(), 7_619, "stride 3");
-        assert_eq!(four.len(), 123_202, "stride 4");
+        assert_eq!(two.len(), 477, "stride 2");
+        assert_eq!(three.len(), 8_352, "stride 3");
+        assert_eq!(four.len(), 137_338, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -948,16 +984,20 @@ mod classes {
 
     /// The measured count, pinned. `CLASSES^4` is what a four-byte window
     /// costs as a perfect index.
-    /// **Twenty-two**, comparing whole edges. A four-byte window is
-    /// `22^4 = 234,256` entries and a three-byte window `10,648` -- both
+    ///
+    /// **Twenty-four**, comparing whole edges. A four-byte window is
+    /// `24^4 = 331,776` entries and a three-byte window `13,824` -- both
     /// perfect indexes with no hash, where the same windows over raw bytes are
     /// 4.3 billion and 16.7 million. Comparing actions alone gives fewer,
     /// which is the wrong equivalence: two bytes are interchangeable only if
     /// they also leave the parser in the same node.
     ///
-    /// It was 21 before `:` was told apart from `;` and the private markers
-    /// and intermediates stopped being consumed -- a grammar that distinguishes
-    /// more bytes has more classes, and the number moving is the table growing
-    /// rather than a regression.
-    const CLASSES: usize = 23;
+    /// **It has only ever gone up, and each step is a byte the grammar started
+    /// telling apart**: 21 before `:` was distinguished from `;` and the
+    /// private markers and intermediates stopped being consumed, 22 after, 23
+    /// when HT was routed to the tab machinery, 24 when `CAN` and `SUB` gained
+    /// the `anywhere` cancel. A number that moves this way is the table
+    /// growing to fit the protocol, not a regression -- and the assertion is
+    /// here so that growth is a decision rather than a discovery.
+    const CLASSES: usize = 24;
 }
