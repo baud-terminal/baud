@@ -1394,7 +1394,12 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
                 });
             }
             Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
-            _ => {}
+            // **A `DSR` this core cannot answer gets silence, and silence is
+            // the right reply** -- an application parses whatever arrives as
+            // the report it asked for, so a wrong shape is worse than none.
+            // What was missing is the *count*: refusing is not the same as not
+            // knowing, and the conformance inventory asks exactly that.
+            _ => p.unsupported_param += 1,
         },
         // **Recorded, not acted on, and those are different things.** The
         // region is what an application asks the terminal to highlight; baud
@@ -1504,6 +1509,23 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // `ESC # 8` -- DECALN fills the screen with `E`, and it is how
             // vttest checks alignment.
             b'#' if b.raw_byte() == b'8' => p.screen_alignment(),
+            // **`S7C1T` and `S8C1T`, `ESC SP F` and `ESC SP G`.**
+            // `docs/vt-coverage.md` marked both **done** while this core
+            // implemented neither and answered every query seven-bit, and
+            // nothing caught it until an unsupported *count* made a dropped
+            // `ESC` observable -- before that, "implemented" and "recognised
+            // and silently discarded" produced the same snapshot.
+            //
+            // It changes only what baud *writes*. What it reads is settled by
+            // the encoding, because a `9B` can be a control only where it
+            // cannot be a UTF-8 continuation byte.
+            b' ' if b.raw_byte() == b'F' => p.cold.c1 = C1Transmit::SevenBit,
+            b' ' if b.raw_byte() == b'G' => p.cold.c1 = C1Transmit::EightBit,
+            // **`ESC SP L/M/N` and `ESC # 3/4/5`, counted rather than
+            // dropped.** The first three are ANSI conformance levels and the
+            // last three double-height and double-width lines -- none
+            // implemented, and all three previously indistinguishable from an
+            // implemented form because the wildcard below did nothing at all.
             // **`ESC % @` and `ESC % G`, and this arm was the whole gap.**
             // Both tables are built at compile time and `Edge::of` selects
             // between them, so the Latin-1 half of the graph has existed and
@@ -1519,12 +1541,15 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                 let want = match b.raw_byte() {
                     b'@' => InputEncoding::Latin1,
                     b'G' => InputEncoding::Utf8,
-                    _ => return,
+                    _ => {
+                        p.unsupported_total += 1;
+                        return;
+                    }
                 };
                 p.cold.encoding = want;
                 *enc = want;
             }
-            _ => {}
+            _ => p.unsupported_total += 1,
         }
         return;
     }
@@ -1557,7 +1582,20 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // way for an application to find out.
         Esc::KeypadApplication => p.cold.keypad = KeypadMode::Application,
         Esc::KeypadNumeric => p.cold.keypad = KeypadMode::Numeric,
-        Esc::Unsupported => {}
+        // **Counted, and it was a bare `{}`.** `spec_inventory` asks one
+        // question per form the specification lists -- "was this acted on, or
+        // *counted*" -- and it asks it by snapshotting the terminal either
+        // side. An `ESC` this core does not implement changed nothing
+        // observable, so it read as **recognised and dropped**, which
+        // `docs/vt-coverage.md` rates worse than not implementing it: the
+        // application gets no way to find out.
+        //
+        // `baud-core2` answers with one `unsupported` counter every dispatch
+        // arm bumps; this core had one for CSI *finals* only, which is why
+        // `every_spec_csi_final_is_handled_or_counted` passed while the ESC,
+        // OSC and DCS inventories did not. The mechanism was right and its
+        // coverage was three quarters short.
+        Esc::Unsupported => p.unsupported_total += 1,
     }
 }
 

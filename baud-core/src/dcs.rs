@@ -42,10 +42,13 @@ impl Paint<'_, '_> {
         // `both_cores_answer_a_decrqss_the_same_way` goes red to say so.
         let unanswerable = matches!(t, StatusTarget::Unknown);
         if unanswerable {
-            self.emit(b"\x1bP0$r\x1b\\");
+            self.dcs_open();
+            self.emit(b"0$r");
+            self.dcs_close();
             return;
         }
-        self.emit(b"\x1bP1$r");
+        self.dcs_open();
+        self.emit(b"1$r");
         match t {
             StatusTarget::Sgr => {
                 let raw = self.style_raw;
@@ -77,7 +80,30 @@ impl Paint<'_, '_> {
             // build here instead of silently joining them.
             StatusTarget::Unknown => {}
         }
-        self.emit(b"\x1b\\");
+        self.dcs_close();
+    }
+
+    /// The `DCS` introducer, seven-bit or eight, as `S7C1T`/`S8C1T` last said.
+    ///
+    /// **A `DCS` reply is a C1 control like any other and this path wrote the
+    /// bytes literally**, so `S8C1T` moved every `CSI` answer to the eight-bit
+    /// form and left `DECRQSS` announcing itself with `ESC P`. An application
+    /// that asked for eight-bit replies and parses them as such reads the
+    /// `ESC` as the start of something else.
+    ///
+    /// `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`.
+    fn dcs_open(&mut self) {
+        match self.cold.c1 {
+            C1Transmit::SevenBit => self.emit(b"\x1bP"),
+            C1Transmit::EightBit => self.emit(b"\x90"),
+        }
+    }
+
+    fn dcs_close(&mut self) {
+        match self.cold.c1 {
+            C1Transmit::SevenBit => self.emit(b"\x1b\\"),
+            C1Transmit::EightBit => self.emit(b"\x9c"),
+        }
     }
 
     /// Append to the pending reply, or count the loss.

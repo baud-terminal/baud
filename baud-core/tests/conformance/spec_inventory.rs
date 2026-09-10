@@ -379,7 +379,6 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
 
 /// **No CSI form the specification defines is silently consumed.**
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn every_spec_csi_form_is_handled_or_counted() {
     let forms = spec_forms();
     assert!(
@@ -458,7 +457,6 @@ fn plain_esc(seq: &str) -> Option<u8> {
 /// This is the same question asked of the other half of the escape surface,
 /// which had only baud's own table to check it.
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn every_spec_esc_form_is_handled_or_counted() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -568,7 +566,6 @@ fn spec_osc_codes() -> BTreeSet<u32> {
 /// `1` is used, which is a valid colour index for the palette operations and
 /// harmless text for the rest.
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn every_spec_osc_code_is_handled_or_counted() {
     let codes = spec_osc_codes();
     assert!(
@@ -611,7 +608,6 @@ fn every_spec_osc_code_is_handled_or_counted() {
 /// Each entry is fed with an empty payload and `ST`, which is the shortest
 /// well-formed string of that shape.
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn every_spec_dcs_form_is_handled_or_counted() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -756,7 +752,6 @@ fn charset_finals(src: &str) -> BTreeSet<u8> {
 
 /// **No `ESC` form with an intermediate is silently consumed.**
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn every_spec_esc_intermediate_form_is_handled_or_counted() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -836,7 +831,6 @@ fn every_spec_esc_intermediate_form_is_handled_or_counted() {
 /// not produce the same state: if it does, one of them is being read as the
 /// other.
 #[test]
-#[ignore = "baud-core counts unsupported CSI finals only -- see the_known_conformance_gaps"]
 fn a_final_with_two_arities_means_two_things() {
     // `[[source: ctlseqs]]`, extracted by arity:
     //   T -> 1 (SD) and 5 (XTHIMOUSE)

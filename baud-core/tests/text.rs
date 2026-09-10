@@ -4,6 +4,9 @@
 //! not a result, and this crate exists to be compared against `baud-core2`, so
 //! it has to be right first.
 
+#[path = "support/mod.rs"]
+mod support;
+
 use baud_core::*;
 
 /// Feed `bytes` in `chunk`-sized reads and return the first row as text.
@@ -432,4 +435,41 @@ fn a_resize_while_parked_restores_a_blank_primary() {
         vp[..12 * w].iter().all(|c| c.content == Content::EMPTY),
         "the parked primary came back with old-stride content in it"
     );
+}
+
+/// **`REP` after a read boundary repeated nothing**, and the same bytes in one
+/// read repeated correctly.
+///
+/// `last_cp` is a flat field on `Paint` -- deliberately, because putting it in
+/// `Cold` cost 16% of `cat-scroll` -- and `Paint` is built once per `feed`.
+/// It was initialised to `None` there and never written back, so "the
+/// preceding graphic character" meant *preceding within this `read(2)`*, which
+/// is a screen that depends on where the reads fell.
+#[test]
+fn rep_repeats_across_a_read_boundary() {
+    let one = support::with_corpus(|t| {
+        support::feed(t, b"ab\x1b[3b");
+        row(t, 0, 8)
+    });
+    let two = support::with_corpus(|t| {
+        support::feed(t, b"ab");
+        support::feed(t, b"\x1b[3b");
+        row(t, 0, 8)
+    });
+    assert_eq!(one, "abbbb   ", "one read");
+    assert_eq!(two, one, "REP must not care where the read boundary fell");
+}
+
+fn row(t: &mut Term<'_>, y: usize, n: usize) -> String {
+    let w = t.stride().index();
+    let vp = t.viewport();
+    (0..n)
+        .map(|x| {
+            vp[y * w + x]
+                .content
+                .as_codepoint()
+                .and_then(|c| char::from_u32(c.value()))
+                .unwrap_or(' ')
+        })
+        .collect()
 }

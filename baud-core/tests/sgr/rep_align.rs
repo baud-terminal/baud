@@ -136,7 +136,6 @@ fn rep_repeats_the_last_character() {
 /// goes through the per-codepoint path, so recording it only there would make
 /// REP repeat something stale.
 #[test]
-#[ignore = "baud-core REP does not see a bulk ASCII run -- see the_known_sgr_gaps"]
 fn rep_sees_bulk_ascii() {
     assert_eq!(grid(b"abc\x1b[2b"), grid(b"abccc"));
 }

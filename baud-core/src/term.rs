@@ -149,6 +149,12 @@ pub struct Cold {
     /// The loop carries a live copy so the table selection is a register
     /// rather than a field read per byte; this is where it persists between
     /// reads, and `esc_final` sets both.
+    /// `S7C1T` / `S8C1T`. How wide a `CSI` this core *writes*.
+    ///
+    /// Reading is a different question and is settled by `encoding`: an
+    /// 8-bit `9B` can only be a control under Latin-1. Transmitting is the
+    /// application's choice and it makes it with `ESC SP F` / `ESC SP G`.
+    pub(crate) c1: C1Transmit,
     pub(crate) encoding: InputEncoding,
     pub(crate) ambiguous: AmbiguousWidth,
     pub(crate) cursor_style: CursorStyle,
@@ -178,6 +184,7 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            c1: C1Transmit::SevenBit,
             encoding: InputEncoding::Utf8,
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
@@ -206,6 +213,13 @@ pub struct Term<'b> {
     pub(crate) store: Storage<'b>,
     /// Where the parser stands between reads.
     pub(crate) node: Node,
+    /// What `REP` repeats, carried across reads.
+    ///
+    /// On `Term` rather than in `Cold` because `Cold` cost **16% of
+    /// `cat-scroll`** when this lived there: `Paint` writes it once a run and
+    /// `feed` copies it back once a read, which is the same shape `cx` and
+    /// `style` already have.
+    pub(crate) last_cp: Option<(Codepoint, Width)>,
 
     pub(crate) cy: Row,
     pub(crate) cx: Col,
@@ -555,6 +569,7 @@ impl<'b> Term<'b> {
             seen: [SegHash::ZERO; crate::feed::SEGS],
             store,
             node: Node::Ground,
+            last_cp: None,
             cy: Row::ZERO,
             cx: Col::ZERO,
             rows,
@@ -665,11 +680,9 @@ impl<'b> Term<'b> {
         self.cold.encoding
     }
 
-    /// How wide a `CSI` this core writes. Always seven-bit: it implements
-    /// neither `S7C1T` nor `S8C1T`, so it has never been told to move to the
-    /// eight-bit C1 forms.
+    /// How wide a `CSI` this core writes, as `S7C1T` / `S8C1T` last set it.
     pub fn c1_transmit(&self) -> C1Transmit {
-        C1Transmit::SevenBit
+        self.cold.c1
     }
 
     /// What a G-slot holds, as distinct from which slot is invoked.
@@ -940,7 +953,7 @@ impl<'b> Term<'b> {
     /// The same rule `Paint::want_reply` follows: a truncated reply is a wrong
     /// answer, so it is dropped whole and counted rather than half-sent.
     fn queue(&mut self, r: Report) {
-        let bytes = r.encode(C1Transmit::SevenBit);
+        let bytes = r.encode(self.cold.c1);
         let b = bytes.as_bytes();
         let at = self.reply_len.index();
         match at + b.len() <= self.store.reply.len() {

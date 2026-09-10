@@ -76,7 +76,10 @@ impl Paint<'_, '_> {
             // has no prefix parser yet. **Consumed is the part that matters**:
             // a body that reached the screen as text would render an
             // application's private protocol as glyphs.
-            StrKind::Other => self.strings_ignored += 1,
+            StrKind::Other => {
+                self.strings_ignored += 1;
+                self.unsupported_total += 1;
+            }
         }
         self.cold.str_len = ByteLen::ZERO;
     }
@@ -140,7 +143,14 @@ impl Paint<'_, '_> {
             // that one asked is a different thing, and not a feature.
             Osc::Clipboard(ClipboardOp::Read) => self.clipboard_reads_refused += 1,
             Osc::Clipboard(_) => self.clipboard_writes_dropped += 1,
-            Osc::Unsupported => self.strings_ignored += 1,
+            // Both counters: `strings_ignored` is what an embedder reads to
+            // find OSC codes it might want to implement, and
+            // `unsupported_total` is the one the conformance inventory asks.
+            // They answer different questions and the second was missing.
+            Osc::Unsupported => {
+                self.strings_ignored += 1;
+                self.unsupported_total += 1;
+            }
         }
     }
 

@@ -47,6 +47,7 @@ impl Term<'_> {
             self.flags,
             self.charset,
             self.cluster,
+            self.last_cp,
             &mut self.cold,
             self.reply_len,
             self.title_len,
@@ -213,6 +214,17 @@ impl Term<'_> {
             ));
         }
 
+        // **`last_cp` survives the read, and it did not.** `Paint` is built
+        // once per `feed` with `last_cp: None`, and nothing wrote it back --
+        // so "the preceding graphic character" meant *preceding within this
+        // `read(2)`*, and `ab` then `CSI 3 b` in two reads repeated nothing
+        // where the same bytes in one read repeat correctly. A screen that
+        // depends on where the reads fell.
+        //
+        // Written back here rather than kept in `Cold`, which is where it used
+        // to live and cost **16% of `cat-scroll`**: this is once a read, and
+        // that was once a character.
+        self.last_cp = p.last_cp;
         self.cy = p.cy;
         self.cx = p.cx;
         self.rot = p.view.rot();

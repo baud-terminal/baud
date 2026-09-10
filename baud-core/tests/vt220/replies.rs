@@ -230,7 +230,6 @@ fn cpr_round_trips_from_a_full_line() {
 /// not read it back conflates the two directions, and ctlseqs describes
 /// S7C1T/S8C1T purely in terms of what the terminal sends.
 #[test]
-#[ignore = "baud-core has no S8C1T, so replies are always seven-bit -- see the_known_vt220_gaps"]
 fn s8c1t_switches_replies_to_eight_bit() {
     let r = replies(b"\x1b G\x1b[c");
     assert_eq!(
@@ -262,7 +261,6 @@ fn s7c1t_is_the_default_and_switches_back() {
 /// and close with `9C`. Threading the mode into CSI and forgetting DCS would
 /// send an application a reply half in each form.
 #[test]
-#[ignore = "baud-core has no S8C1T, so replies are always seven-bit -- see the_known_vt220_gaps"]
 fn s8c1t_applies_to_dcs_replies_including_the_terminator() {
     let r = replies(b"\x1b G\x1bP$qm\x1b\\");
     assert!(!r.is_empty(), "DECRQSS must still answer");

@@ -497,12 +497,24 @@ impl Paint<'_, '_> {
     pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
         match w {
             Some(TabClear::All) => self.tabs.fill(false),
-            _ => {
+            Some(TabClear::AtCursor) => {
                 let x = self.cx.index();
                 if x < self.tabs.len() {
                     self.tabs[x] = false;
                 }
             }
+            // **`None` was clearing the stop at the cursor, and that is a
+            // wrong action rather than a missing one.** `TabClear::from_param`
+            // answers `None` for everything but 0 and 3, and ECMA-48 § 8.3.154
+            // gives 1 and 4 to *line* tab stops and 2 to the character stops in
+            // the active line. baud has no vertical tabs, so `CSI 1 g` -- a
+            // request about a line stop -- silently removed a **character**
+            // stop and the next `HT` went somewhere else.
+            //
+            // Counted instead, which is also what the conformance inventory
+            // asks: the wildcard made an unimplemented parameter observationally
+            // identical to an implemented one.
+            None => self.unsupported_param += 1,
         }
     }
 

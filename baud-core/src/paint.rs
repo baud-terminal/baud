@@ -247,6 +247,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         flags: CellFlags,
         charset: Charset,
         cluster: ClusterBreak,
+        last_cp: Option<(Codepoint, Width)>,
         cold: &'a mut crate::term::Cold,
         reply_len: ByteLen,
         title_len: ByteLen,
@@ -305,7 +306,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             charset,
             cluster,
             style_raw,
-            last_cp: None,
+            last_cp,
             cells: Cells::ZERO,
             row_written: Col::ZERO,
             #[cfg(feature = "diag")]
@@ -435,6 +436,18 @@ impl<'a, 'b> Paint<'a, 'b> {
             }
             return;
         }
+        // **What `REP` repeats, recorded once a run rather than once a byte.**
+        // `blit` writes eight cells to a store and never touched `last_cp`, so
+        // `hello` then `CSI 3 b` repeated **nothing** -- the preceding graphic
+        // character existed on the screen and the terminal could not name it.
+        // Only `glyph` set it, which is the short-run path above, so whether
+        // `REP` worked depended on how long the run before it was.
+        //
+        // One store per run is the same placement the `ClusterBreak` reset
+        // above already has, and for the same reason: this is a router, and
+        // per-byte is what this file is careful about.
+        let last = StreamByte::from_stream(self.arena[from.index() + n.index() - 1]);
+        self.last_cp = Some((PackedCell::translate(last, self.charset), Width::NARROW));
         self.blit(from, n);
     }
 
@@ -787,7 +800,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn want_reply(&mut self, r: Report) {
-        let bytes = r.encode(C1Transmit::SevenBit);
+        let bytes = r.encode(self.cold.c1);
         let b = bytes.as_bytes();
         let at = self.reply_len.index();
         match at + b.len() <= self.reply.len() {

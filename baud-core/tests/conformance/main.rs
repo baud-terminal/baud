@@ -135,34 +135,24 @@ profile!(rxvt, "rxvt");
 profile!(dtterm, "dtterm");
 profile!(nsterm, "nsterm");
 
-/// **Six, and one cause: `baud-core` counts unsupported CSI *finals* only.**
+/// **None, and the gate stays so a new one has to say so.**
 ///
 /// `spec_inventory` reads `[[source: ctlseqs]]`'s own lists and requires every
-/// form to be acted on **or counted** -- the point being that a sequence the
-/// parser recognises and drops is worse than one it does not implement,
-/// because the application has no way to find out. `baud-core2` answers with a
-/// single `unsupported` `Stat` that every dispatch arm bumps; `baud-core` has
-/// `unsupported` for CSI finals, `strings_ignored` for control strings and
-/// `charset_unsupported` for designations, and **nothing at all** for an `ESC`
-/// form or an intermediate form it declines.
+/// form to be acted on **or counted** -- a sequence the parser recognises and
+/// drops is worse than one it does not implement, because the application has
+/// no way to find out. Six of the seven failed, all from one cause: this core
+/// had an `unsupported` counter for CSI *finals* and nothing for `ESC`, `OSC`
+/// or `DCS`. The mechanism was right and its coverage was three quarters
+/// short, which is what `every_spec_csi_final_is_handled_or_counted` passing
+/// throughout was saying.
 ///
-/// So this is one counter's worth of work rather than six features, and it is
-/// the last thing between these suites and the `done` rows in
-/// `docs/vt-coverage.md` that they gate. `every_spec_csi_final_is_handled_or_
-/// counted` passes today, which is what says the mechanism is right and only
-/// its coverage is short.
+/// **Widening it found four things the snapshot could not previously see**: a
+/// `TBC 1` -- a request about a *line* tab stop -- silently clearing a
+/// **character** stop, `S7C1T`/`S8C1T` marked `done` in the coverage table and
+/// implemented nowhere, `REP` after a bulk run repeating nothing, and `REP`
+/// not surviving a read boundary. Each had been observationally identical to
+/// an implemented form.
 #[test]
 fn the_known_conformance_gaps() {
-    support::ignores_are(
-        "conformance",
-        &["spec_inventory.rs"],
-        &[
-            "a_final_with_two_arities_means_two_things",
-            "every_spec_csi_form_is_handled_or_counted",
-            "every_spec_dcs_form_is_handled_or_counted",
-            "every_spec_esc_form_is_handled_or_counted",
-            "every_spec_esc_intermediate_form_is_handled_or_counted",
-            "every_spec_osc_code_is_handled_or_counted",
-        ],
-    );
+    support::ignores_are("conformance", &["spec_inventory.rs"], &[]);
 }

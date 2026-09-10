@@ -11,14 +11,17 @@ mod decrqm_cursor_style;
 mod replies;
 mod selective_erase;
 
-/// Four gaps, and only the last is a defect rather than a missing feature.
+/// Three gaps, and only the last is a defect rather than a missing feature.
+///
+/// **`S8C1T` closed and it was not found by these tests.** The conformance
+/// inventory found it: `docs/vt-coverage.md` marked `ESC SP F` and `ESC SP G`
+/// **done** while this core implemented neither, and nothing could tell,
+/// because a dropped `ESC` changed nothing a snapshot reads. Counting it is
+/// what made "implemented" and "silently discarded" different states.
 ///
 /// * **C0 and `DEL` inside a DCS prefix.** `Node::Dcs` and `Node::DcsDollar`
 ///   route `$` and `q` and send everything else to `Str`, so a `DEL` between
 ///   the introducer and the `$` discards a sequence that should survive it.
-/// * **S8C1T.** This core is hardwired to seven-bit introducers, which
-///   `Paint::want_reply` says in as many words. Two tests want the eight-bit
-///   forms.
 /// * **CPR at the pending-wrap column.** The report should name the last
 ///   column, not the sentinel one past it -- the same clamp `Term::cursor`
 ///   grew when the cursor differential found it, not yet applied to the reply.
@@ -32,8 +35,6 @@ fn the_known_vt220_gaps() {
         &[
             "a_del_in_the_dcs_prefix_does_not_discard_it",
             "a_c0_in_the_dcs_prefix_does_not_discard_it",
-            "s8c1t_applies_to_dcs_replies_including_the_terminator",
-            "s8c1t_switches_replies_to_eight_bit",
             "cpr_clamps_the_pending_wrap_sentinel",
             "decsc_and_decrc_carry_the_protection",
         ],
