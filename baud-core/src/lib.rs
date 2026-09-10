@@ -75,4 +75,4 @@ pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
     OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf,
 };
-pub use term::Term;
+pub use term::{Resized, Term};

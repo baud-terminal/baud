@@ -307,6 +307,29 @@ pub struct Term<'b> {
     pub sgr_hit: usize,
 }
 
+/// Outcome of a [`Term::resize`].
+///
+/// `#[must_use]` because the two answers are different facts about the
+/// terminal, and a caller that drops the value renders a grid that disagrees
+/// with the application about its own size.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[must_use]
+pub enum Resized {
+    Ok,
+    /// The window is larger than this core can hold. `cols`/`rows` are what it
+    /// was clamped to.
+    ///
+    /// **Two different ceilings, and the caller can tell them apart from the
+    /// numbers.** `MAX_COLS`/`MAX_ROWS` are the core's, and are fixed; the row
+    /// capacity is the *caller's*, because the grid is caller-provided storage
+    /// -- an embedder that wants to grow provisions
+    /// [`Storage::row_capacity`] rows up front.
+    Truncated {
+        cols: Cols,
+        rows: Rows,
+    },
+}
+
 impl<'b> Term<'b> {
     /// Geometry comes from a [`WinSize`], which is the one place `ws_col` and
     /// `ws_row` are destructured -- so they cannot be transposed here.
@@ -351,6 +374,97 @@ impl<'b> Term<'b> {
                         PackedCell::glyph(cp, StyleId::DEFAULT, CellFlags::of_entry(w));
                 }
             }
+        }
+    }
+
+    /// How many rows the caller provisioned. See [`Storage::row_capacity`].
+    ///
+    /// Exposed on `Term` because that is where an embedder asks: it holds the
+    /// `Storage` and cannot reach past it, and this is the number that decides
+    /// whether a [`Term::resize`] can grow.
+    pub fn row_capacity(&self) -> Rows {
+        self.store.row_capacity()
+    }
+
+    /// Take a new window size.
+    ///
+    /// **Geometry only: the allocation is the caller's and is untouched.** The
+    /// grid is caller-provided, so this can shrink freely and can only grow
+    /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
+    /// number, and asking for more returns `Truncated` rather than clamping in
+    /// silence. Columns are free to `MAX_COLS`, because `vp` is strided for the
+    /// maximum by construction.
+    ///
+    /// **The content does not survive.** Reflow is a renderer's problem and
+    /// this core has no renderer; a grid whose rows are a different width is a
+    /// different grid, and pretending otherwise means deciding where a wrapped
+    /// line breaks now -- a decision with no right answer at this layer.
+    ///
+    /// Four things have to happen in an order that is not free.
+    ///
+    /// * **Both rotations go to `NONE` before anything blanks.** `Term.rot`
+    ///   and the parked `AltBuf.rot` are indexes into a row count that is
+    ///   about to change, and `viewport` un-rotates with `rotate_left_by` --
+    ///   which **panics** when the rotation is larger than the slice. Scroll a
+    ///   50-row screen, shrink to 10, ask for the viewport: `mid <= len`.
+    /// * **DECSTBM is reset.** xterm does, and a stale bottom margin points
+    ///   off the grid.
+    /// * **The parked primary is blanked whole**, not to the new `live()`.
+    ///   It is laid out at the *old* stride, so any partial blank keyed on the
+    ///   new geometry leaves reachable garbage that `restore_from` would copy
+    ///   back on the next `?1049 l`. Every full-screen program enters the
+    ///   alternate screen, so "resized while parked" is the common case.
+    /// * The cursor goes home, because there is no content to be relative to.
+    ///
+    /// **Two things core2 does here and this does not, deliberately.** It
+    /// resets side margins, which this core does not record at all -- porting
+    /// the call would be a line that does nothing. And it rebuilds the tab
+    /// table, which is `MAX_COLS` long and stamped every eighth column at
+    /// construction, so no width change can invalidate it.
+    pub fn resize(&mut self, ws: &WinSize) -> Resized {
+        let (want_cols, want_rows) = ws.geometry();
+        let cap = self.store.row_capacity();
+        let cols = want_cols.clamp(MAX_COLS);
+        let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
+        let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
+
+        self.rows = rows;
+        self.cols = cols;
+        self.stride = Cols::from_stride(cols.index());
+        self.cy = Row::ZERO;
+        self.cx = Col::ZERO;
+        self.cold.top = Row::ZERO;
+        self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
+        // Before the blanks, and both of them.
+        self.rot = RowRot::NONE;
+        self.store.alt.rot = RowRot::NONE;
+
+        let mut v = View::new(
+            self.store.vp,
+            self.store.used,
+            self.stride,
+            cols,
+            rows,
+            self.rot,
+        );
+        for y in 0..rows.index() {
+            v.fill(
+                Row::from_index(y),
+                Col::ZERO,
+                Col::at_index(cols.index()),
+                PackedCell::EMPTY,
+            );
+        }
+        // Whole, at whatever stride it was written in.
+        for c in self.store.alt.cells.iter_mut() {
+            *c = PackedCell::EMPTY;
+        }
+        for u in self.store.alt.used.iter_mut() {
+            *u = RowExtent::ZERO;
+        }
+        match over {
+            true => Resized::Truncated { cols, rows },
+            false => Resized::Ok,
         }
     }
 

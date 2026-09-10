@@ -361,6 +361,20 @@ pub const LINK_MAX: usize = 256;
 pub const REPLY: usize = 256;
 
 impl<'b> Storage<'b> {
+    /// How many rows the caller provisioned, which is not the live row count.
+    ///
+    /// **The number is already in the struct**, so this is a read rather than
+    /// a field: `used` has one entry per physical row, and `Storage::new`
+    /// asserts `vp` holds that many rows' worth of cells. It matters because
+    /// the storage is caller-provided: a `Term` can be resized *down* freely
+    /// and can only grow into rows somebody allocated. `Owned::new` sizes to
+    /// the geometry it is given, so growing past it is `Resized::Truncated`
+    /// rather than a silent clamp -- an embedder that wants headroom
+    /// provisions for it, and this is the number it provisions.
+    pub fn row_capacity(&self) -> Rows {
+        Rows::of_index(self.used.len())
+    }
+
     /// # Panics
     /// If any slice is shorter than the geometry needs. Checked once, here,
     /// rather than on every access -- the parser addresses this memory
