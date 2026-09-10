@@ -312,6 +312,13 @@ pub(crate) fn act(
             }
             ReadLen::ONE
         }
+        // HT. One stop forward, through the same `tab_forward` that `CHT`
+        // reaches -- so the character and the control sequence cannot disagree
+        // about where the stops are.
+        Act::Tab => {
+            p.tab_forward(Count::ONE);
+            ReadLen::ONE
+        }
 
         // A character the read cut in half: park the lead's bits and wait for
         // the rest, which arrives at the front of the next `read(2)`.

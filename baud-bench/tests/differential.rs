@@ -376,3 +376,87 @@ fn a_scroll_region_with_a_status_line_agrees_with_core2() {
         );
     }
 }
+
+/// **The gap between what a recording contains and what the protocol has.**
+///
+/// Counted over all nine recordings in `tests/recordings/`: **zero** HT, zero
+/// SO, zero SI, zero `ESC ( 0` designations, one alternate-screen *exit*, and
+/// OSC in one file. So the pinned differentials above -- which are the only
+/// statement anywhere that `baud-core` renders what `baud-core2` renders --
+/// are silent on tabs, locking shifts, line drawing and alt-screen restore.
+///
+/// That is the same reasoning the wrap fixture above was written for: *a real
+/// recording only covers what it happens to contain.* These drive the cases no
+/// capture reaches, and they are deliberately allowed to fail: a fixture that
+/// reports agreement baud-core has not earned is worth nothing.
+fn diff_at(bytes: &[u8]) -> Vec<usize> {
+    let (a, b) = (old_screen(bytes, old::READ_CHUNK), new_screen(bytes, 4096));
+    (0..a.len()).filter(|&i| a[i] != b[i]).collect()
+}
+
+/// Render one row of each core, for a message that names what actually differs.
+fn row_pair(bytes: &[u8], y: usize) -> (String, String) {
+    let (a, b) = (old_screen(bytes, old::READ_CHUNK), new_screen(bytes, 4096));
+    let take = |v: &Vec<char>| v[y * COLS..y * COLS + 24].iter().collect::<String>();
+    (take(&a), take(&b))
+}
+
+/// **HT is dropped, and the tab machinery it should reach is already there.**
+///
+/// `baud-core`'s `c0()` names `0x0a`/`0x0b`/`0x0c`, `0x0d` and `0x08`, and
+/// sends every other C0 to `Act::Consume` -- so the tab character is consumed
+/// and the cursor does not move. The stops themselves are maintained:
+/// `tab_forward`, `tab_back` and `reset_tabs` all exist, `tabs[x]` is read in
+/// three places, and `HTS`/`TBC` write it. They are reachable only through
+/// `CSI` -- `CHT` and `CBT` -- so the operation works and the *character* does
+/// not.
+///
+/// `[[source: ctlseqs]]`: HT moves to the next tab stop, which defaults to
+/// every eighth column.
+#[test]
+fn a_tab_moves_the_cursor_the_way_core2_moves_it() {
+    // `a` at column 0, HT to column 8, `b` there; then a second tab from
+    // column 9 to 16. A core that drops HT puts `b` at column 1.
+    let bytes = b"a\tb\tc";
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert!(
+        d.is_empty(),
+        "{} cells differ -- HT is not moving the cursor.\n  core2: {:?}\n  new  : {:?}",
+        d.len(),
+        x,
+        y,
+    );
+}
+
+/// **Leaving the alternate screen must give the primary screen back.**
+///
+/// `baud-core`'s `Storage` is arena, viewport, extents, template, tabs and
+/// reply -- there is no second grid. `set_alt_screen(Set)` saves the cursor and
+/// calls `clear_screen()` on the one buffer, and the exit arm restores the
+/// cursor and nothing else, so everything written before entering is gone.
+/// `baud-core2` carries `alt: [PackedCell; GRID]` beside the primary.
+///
+/// One recording in the corpus contains an alt-screen exit, and it is
+/// `less-cjk`, which already diverges by 2,185 cells for an unrelated reason --
+/// so this case has never been isolated.
+/// **Pinned at the gap rather than at zero, because the gap is real.** Nine
+/// cells -- `ALTERNATE` sitting where `PRIMARY` was. Fixing it means a second
+/// `[PackedCell]` in `Storage`, which is a caller-provided slice and so an API
+/// change across seven call sites; that belongs in its own measured commit
+/// rather than tacked onto a fixture.
+///
+/// **This is a shipping blocker for `baud-core` alone.** Every full-screen
+/// program in the corpus enters the alternate screen, and leaving it has to
+/// give the shell its output back.
+#[test]
+fn leaving_the_alternate_screen_restores_the_primary() {
+    let bytes = b"PRIMARY\x1b[?1049hALTERNATE\x1b[?1049l";
+    let d = diff_at(bytes);
+    let (x, y) = row_pair(bytes, 0);
+    assert_eq!(
+        d.len(),
+        9,
+        "the alternate-screen gap moved.\n  core2: {x:?}\n  new  : {y:?}",
+    );
+}

@@ -65,7 +65,7 @@ pub(crate) const NNODE: usize = 11;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 26;
+pub(crate) const NACT: usize = 27;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -104,6 +104,13 @@ pub enum Act {
     Index,
     Return,
     Backspace,
+    /// HT. **The tab machinery was already here and only the character was
+    /// unrouted**: `tab_forward`, `tab_back` and `reset_tabs` exist, `tabs[x]`
+    /// is read in three places, and `HTS`/`TBC` write it -- all reachable only
+    /// through `CSI`'s `CHT` and `CBT`. `0x09` fell to `Act::Consume`, so the
+    /// stops were maintained and the tab was dropped. No recording in the
+    /// corpus contains one, which is why nothing caught it.
+    Tab,
     /// A complete multi-byte character whose bytes are all in this read.
     /// The action decodes and writes it, and eats its length.
     Char2,
@@ -219,6 +226,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Index => "Index",
         Act::Return => "Return",
         Act::Backspace => "Backspace",
+        Act::Tab => "Tab",
         Act::Char2 => "Char2",
         Act::Char3 => "Char3",
         Act::Char4 => "Char4",
@@ -251,6 +259,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Index,
     Act::Return,
     Act::Backspace,
+    Act::Tab,
     Act::Char2,
     Act::Char3,
     Act::Char4,
@@ -341,28 +350,29 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Index => 1,
         Act::Return => 2,
         Act::Backspace => 3,
-        Act::Char2 => 4,
-        Act::Char3 => 5,
-        Act::Char4 => 6,
-        Act::Begin2 => 7,
-        Act::Begin3 => 8,
-        Act::Begin4 => 9,
-        Act::Cont => 10,
-        Act::ContEnd => 11,
-        Act::Latin1 => 12,
-        Act::Bad => 13,
-        Act::Consume => 14,
-        Act::CsiStart => 15,
-        Act::EscStart => 25,
-        Act::Digit => 16,
-        Act::Marker => 17,
-        Act::Inter => 18,
-        Act::SubSep => 19,
-        Act::Sep => 20,
-        Act::CsiFinal => 21,
-        Act::EscFinal => 22,
-        Act::Again => 23,
-        Act::Resync => 24,
+        Act::Tab => 4,
+        Act::Char2 => 5,
+        Act::Char3 => 6,
+        Act::Char4 => 7,
+        Act::Begin2 => 8,
+        Act::Begin3 => 9,
+        Act::Begin4 => 10,
+        Act::Cont => 11,
+        Act::ContEnd => 12,
+        Act::Latin1 => 13,
+        Act::Bad => 14,
+        Act::Consume => 15,
+        Act::CsiStart => 16,
+        Act::EscStart => 26,
+        Act::Digit => 17,
+        Act::Marker => 18,
+        Act::Inter => 19,
+        Act::SubSep => 20,
+        Act::Sep => 21,
+        Act::CsiFinal => 22,
+        Act::EscFinal => 23,
+        Act::Again => 24,
+        Act::Resync => 25,
     }] += 1;
 }
 
@@ -450,6 +460,7 @@ const fn c0(b: StreamByte) -> Act {
         0x0a | 0x0b | 0x0c => Act::Index,
         0x0d => Act::Return,
         0x08 => Act::Backspace,
+        0x09 => Act::Tab,
         _ => Act::Consume,
     }
 }
@@ -833,15 +844,22 @@ mod classes {
             three.len(),
             NNODE * three.len(),
         );
+        // **The ladder moved 22/402/6,441/96,812 -> 23/444/7,619/123,202 when
+        // `Act::Tab` landed**, and that is the measurement working rather than
+        // breaking: HT used to share a class with every other unrouted C0
+        // because they all fell to `Act::Consume`, and routing it to the tab
+        // machinery made it distinguishable. A stride-k table is `CLASSES^k`,
+        // so a new action is not free at any stride -- stride 4 grows 27%.
+        //
         // **Pinned, because these numbers size a table.** Each is the count
         // of distinct behaviours a k-byte word can have across every node and
         // both encodings -- the alphabet a stride-k transition table is
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 402, "stride 2");
-        assert_eq!(three.len(), 6_441, "stride 3");
-        assert_eq!(four.len(), 96_812, "stride 4");
+        assert_eq!(two.len(), 444, "stride 2");
+        assert_eq!(three.len(), 7_619, "stride 3");
+        assert_eq!(four.len(), 123_202, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -941,5 +959,5 @@ mod classes {
     /// and intermediates stopped being consumed -- a grammar that distinguishes
     /// more bytes has more classes, and the number moving is the table growing
     /// rather than a regression.
-    const CLASSES: usize = 22;
+    const CLASSES: usize = 23;
 }
