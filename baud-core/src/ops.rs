@@ -595,6 +595,15 @@ impl Paint<'_, '_> {
             PrivateMode::CursorBlink => {
                 self.cold.cursor_style = self.cold.cursor_style.with_blink(on);
             }
+            // **`?2004` and `?2026` are the embedder's, and exposing them is
+            // acting on them.** Bracketing a paste is the input path's job and
+            // holding a frame is the renderer's; this core has neither, so
+            // recording the request and answering `DECRQM` truthfully is the
+            // whole of the terminal's part.
+            PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),
+            PrivateMode::SynchronizedOutput => {
+                self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
+            }
             PrivateMode::SmoothScroll => self.cold.modes.apply(ModeBit::SmoothScroll, on),
             PrivateMode::AutoRepeat => self.cold.modes.apply(ModeBit::AutoRepeat, on),
             // **The input-side modes.** Each decides what a *key* sends, so
@@ -754,6 +763,24 @@ impl Paint<'_, '_> {
     /// RIS. **Everything a soft reset does, and the screen as well.**
     pub(crate) fn hard_reset(&mut self) {
         self.soft_reset();
+        // **`RIS` returns to the normal screen and `DECSTR` does not**, which
+        // is why this is here rather than in `soft_reset`.
+        self.set_alt_screen(ModeChange::Reset);
+        // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
+        // mouse tracking and the keypad alone deliberately -- a full-screen
+        // application recovering with `CSI ! p` must not have them pulled out
+        // from under it -- and a power-on reset has no such caller to protect.
+        self.cold.mouse = MouseTracking::Off;
+        self.cold.mouse_encoding = MouseEncoding::X10;
+        self.cold.highlight = HighlightTracking::Off;
+        self.cold.keypad = KeypadMode::Numeric;
+        self.cold.terminal = TerminalMode::Ansi;
+        self.cold.vt52_row = Vt52Coord::ZERO;
+        // The open hyperlink is content rather than mode: a `RIS` clears the
+        // screen, so a link that outlived it would apply to cells that no
+        // longer exist.
+        self.link = LinkId::NONE;
+        self.refresh_flags();
         self.view.reset_rot();
         self.clear_screen();
         // **Here and not in `clear_screen`, and the difference is the
@@ -773,7 +800,13 @@ impl Paint<'_, '_> {
     /// DECSTR. **A soft reset leaves the alternate screen**, which the first
     /// implementation of it in this repo did not.
     pub(crate) fn soft_reset(&mut self) {
-        self.set_alt_screen(ModeChange::Reset);
+        // **`DECSTR` does not leave the alternate screen**, and this called
+        // `set_alt_screen(Reset)` as its first act. `[[source: ctlseqs]]`'s
+        // soft-reset list does not include the screen, and a full-screen
+        // application recovering with `CSI ! p` would be dropped onto the
+        // primary mid-draw -- which is the same bug `baud-core2` fixed and
+        // this file records under "DECSTR was leaving the alternate screen".
+        // Found by `soft_reset_stays_on_the_alternate_screen`, ported.
         self.cold.modes = Modes::default();
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
@@ -783,6 +816,13 @@ impl Paint<'_, '_> {
         self.style = StyleId::DEFAULT;
         self.cold.g = [Charset::Ascii; 4];
         self.cold.gl = GSlot::G0;
+        // **Both resets restore the cursor shape.** A first version put this in
+        // `hard_reset` only, on the argument that `DECSCUSR` is an xterm
+        // extension and xterm's soft path leaves it alone -- which is the
+        // reason mouse tracking *is* excluded here. `baud-core2` sets it in
+        // both, and it is the oracle; the argument was mine and the code was
+        // not checked against it.
+        self.cold.cursor_style = CursorStyle::BlinkingBlock;
         self.invoke();
         self.refresh_flags();
         self.goto(Row::ZERO, Col::ZERO);
@@ -837,6 +877,10 @@ impl Paint<'_, '_> {
             PrivateMode::EightBitInput => bit_state(self.cold.modes, ModeBit::EightBitInput),
             PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
             PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),
+            PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
+            PrivateMode::SynchronizedOutput => {
+                bit_state(self.cold.modes, ModeBit::SynchronizedOutput)
+            }
             // Not a `Modes` bit -- the cursor shape is a value, and whether it
             // blinks is a property of the shape rather than a mode of its own.
             PrivateMode::CursorBlink => match self.cold.cursor_style.blinks() {

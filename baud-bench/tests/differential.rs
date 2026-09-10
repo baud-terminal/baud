@@ -971,6 +971,14 @@ fn both_cores_answer_a_decrqss_the_same_way() {
         // DECSCA, both states.
         ("decsca off", b"\x1bP$q\"q\x1b\\"),
         ("decsca on", b"\x1b[1\"q\x1bP$q\"q\x1b\\"),
+        // **DECSCUSR was a pinned difference and is not one now.** It sat
+        // in the list below answering `0$r`, because `baud-core` counted
+        // the set as unsupported and kept no value. Porting the vt220
+        // suite closed it, and the pin is what said so -- this row moved
+        // up here because the gate went red when the gap shut, which is
+        // the direction a pin is supposed to fail in.
+        ("decscusr default", b"\x1bP$q q\x1b\\"),
+        ("decscusr set", b"\x1b[5 q\x1bP$q q\x1b\\"),
         // Recorded by neither core, so both must answer `0$r` rather than
         // inventing a value or saying nothing.
         ("nonsense", b"\x1bP$qZZZ\x1b\\"),
@@ -998,7 +1006,7 @@ fn both_cores_answer_a_decrqss_the_same_way() {
         }
     }
 
-    // **Two targets where the cores differ, pinned at what they are.**
+    // **One target where the cores differ, pinned at what it is.**
     //
     // These are capability gaps rather than defects, and pinning them is what
     // stops the gap being rediscovered as a bug and what makes it move the day
@@ -1007,10 +1015,9 @@ fn both_cores_answer_a_decrqss_the_same_way() {
     // fabricate a value it does not hold; deleting the rows would leave the
     // difference unrecorded.
     //
-    // `baud-core` answers `0$r` for both because it records neither setting,
-    // and `0$r` is DECRQSS's shape for "not recognised". That is the right
-    // answer for a core without them, and it is not the same answer as
-    // core2's.
+    // `baud-core` answers `0$r` because it records no left/right margins, and
+    // `0$r` is DECRQSS's shape for "not recognised". That is the right answer
+    // for a core without them, and it is not core2's answer.
     for (name, bytes, old_want, new_want) in [
         // DECSLRM: core2 keeps left/right margins, baud-core does not --
         // `Paint::set_margins` says so in as many words.
@@ -1018,14 +1025,6 @@ fn both_cores_answer_a_decrqss_the_same_way() {
             "decslrm",
             b"\x1bP$qs\x1b\\".as_slice(),
             b"\x1bP1$r1;200s\x1b\\".as_slice(),
-            b"\x1bP0$r\x1b\\".as_slice(),
-        ),
-        // DECSCUSR: core2 records a cursor style, baud-core counts the set as
-        // unsupported and keeps no value.
-        (
-            "decscusr",
-            b"\x1bP$q q\x1b\\".as_slice(),
-            b"\x1bP1$r1 q\x1b\\".as_slice(),
             b"\x1bP0$r\x1b\\".as_slice(),
         ),
     ] {

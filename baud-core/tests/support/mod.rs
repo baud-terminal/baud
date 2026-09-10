@@ -36,6 +36,24 @@ pub fn with_term<R>(ws: &WinSize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     f(&mut t)
 }
 
+/// Room to grow to `rows`, for a test that resizes upward.
+///
+/// **`Owned::new` provisions exactly the geometry it is given**, and
+/// `Term::resize` returns `Truncated` rather than growing past it -- the grid
+/// is caller-provided, so the library cannot allocate on the caller's behalf.
+/// `baud-core2` can always grow to `MAX_ROWS` because its `Storage` is a fixed
+/// `[PackedCell; GRID]`; here the caller says how much. A test that grows says
+/// so here.
+pub fn with_room<R>(rows: u16, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let big = WinSize {
+        ws_row: rows,
+        ws_col: CORPUS.ws_col,
+    };
+    let mut owned = Owned::new(&big);
+    let mut t = Term::new(owned.storage(), &CORPUS);
+    f(&mut t)
+}
+
 /// The same, at the corpus geometry.
 pub fn with_corpus<R>(f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     with_term(&CORPUS, f)
@@ -79,5 +97,41 @@ pub fn shrink(t: &mut Term<'_>, ws: &WinSize) {
         "{}x{} is a shrink from the corpus geometry",
         ws.ws_row,
         ws.ws_col
+    );
+}
+
+/// Assert a suite's `#[ignore]` list is exactly `want`.
+///
+/// **An `#[ignore]` nobody counts is a test nobody runs**, which is the
+/// probe-that-cannot-fire this repo records eight times. Every ported suite
+/// that still has gaps calls this, so the list is a pinned number in the same
+/// sense `the_glyph_gap_is_pinned` is: a new ignore fails it, and **closing a
+/// gap fails it too**, which is the direction that matters -- the pin has to
+/// move when the gap does.
+pub fn ignores_are(dir: &str, files: &[&str], want: &[&str]) {
+    let mut found = Vec::new();
+    for f in files {
+        let p = format!("{}/tests/{dir}/{f}", env!("CARGO_MANIFEST_DIR"));
+        let src = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{p}: {e}"));
+        let lines: Vec<&str> = src.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.trim_start().starts_with("#[ignore") {
+                continue;
+            }
+            let name = lines[i..]
+                .iter()
+                .find_map(|l| l.trim_start().strip_prefix("fn "))
+                .map(|n| n.split('(').next().unwrap_or(n).to_string())
+                .unwrap_or_else(|| "<no fn follows the attribute>".into());
+            found.push(name);
+        }
+    }
+    found.sort();
+    let mut want: Vec<String> = want.iter().map(|s| s.to_string()).collect();
+    want.sort();
+    assert_eq!(
+        found, want,
+        "{dir}: the ignore list moved -- a gap was added or closed, and this \
+         pin has to move with it"
     );
 }

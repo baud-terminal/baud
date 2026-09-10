@@ -895,7 +895,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
                 // 4096-byte reads and none at one-byte reads, the same bytes
                 // and two screens.
                 let c = Classified::of(*cp);
-                let cw = c.width(AmbiguousWidth::Narrow);
+                let cw = c.width(p.cold.ambiguous);
                 all_wide &= cw == Width::WIDE;
                 all_narrow &= cw == Width::NARROW;
                 all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -956,7 +956,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
             // every character gets the same answer. Rare by construction: a
             // run has to *contain* a zero-width character to take it.
             let c = Classified::of(cp);
-            let cw = c.width(AmbiguousWidth::Narrow);
+            let cw = c.width(p.cold.ambiguous);
             all_wide &= cw == Width::WIDE;
             all_narrow &= cw == Width::NARROW;
             all_ordinary &= c.class == GraphemeClass::Other && c.lookback.is_none();
@@ -1086,7 +1086,7 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
         // exactly the operands `is_break_classified` takes. So GB11 costs a
         // table index on a value already in a register, not a second lookup.
         let cl = Classified::of(cp);
-        let w = cl.width(AmbiguousWidth::Narrow);
+        let w = cl.width(p.cold.ambiguous);
         // **Does this codepoint continue the cluster before it?** If so it
         // belongs to the previous cell rather than to one of its own, which is
         // what makes `U+1F468 ZWJ U+1F469` one family instead of two people.
@@ -1356,9 +1356,15 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
                 state,
             });
         }
-        // Still not answered: `RequestVersion` would name a version this core
-        // does not have. Counted rather than silently swallowed.
-        DomCsi::RequestVersion | DomCsi::Unsupported { .. } => {
+        // **XTVERSION, and the refusal it replaces was scoped wrongly.** The
+        // reason on record was that answering "would name a version this core
+        // does not have" -- but `Report::Version` is `baud_domain`'s and
+        // already encodes `DCS > | baud ST`, which is the answer core2 sends.
+        // The name is the *program*'s rather than the core's, and both cores
+        // are baud. Read a refusal against its scope, which this file says to
+        // do and which has closed four others.
+        DomCsi::RequestVersion => p.want_reply(Report::Version),
+        DomCsi::Unsupported { .. } => {
             #[cfg(feature = "diag")]
             {
                 p.unsupported[f.slot()] += 1;

@@ -32,18 +32,14 @@ impl Paint<'_, '_> {
         // wrong shape, and "not recognised" is a shape DECRQSS has. Silence
         // would leave an application waiting for a terminator that never
         // arrives, which is worse than either answer.
-        // **A setting this core does not record is `0$r` too.** The first
-        // draft tested only `Unknown` here, so `DECSLRM` and `DECSCUSR` --
-        // which are real targets this core keeps no value for -- fell through
-        // to the `1$r` prefix and then matched no arm, emitting
-        // `DCS 1 $ r ST`: a "valid" flag over an **empty body**, which is the
-        // wrong-shaped answer `docs/vt-coverage.md` forbids outright. An
-        // application would read it as "the margins are unset" rather than as
-        // "I do not implement that".
-        let unanswerable = matches!(
-            t,
-            StatusTarget::Unknown | StatusTarget::SideMargins | StatusTarget::CursorStyle
-        );
+        // **A setting this core does not record is `0$r` too.** A target that
+        // fell through to the `1$r` prefix and then matched no arm would emit
+        // `DCS 1 $ r ST`: a "valid" flag over an **empty body**, which an
+        // application reads as "the margins are unset" rather than as "I do
+        // not implement that". `DECSCUSR` was here until the cursor style was
+        // recorded; `DECSLRM` still is, because this core keeps no left/right
+        // margins.
+        let unanswerable = matches!(t, StatusTarget::Unknown | StatusTarget::SideMargins);
         if unanswerable {
             self.emit(b"\x1bP0$r\x1b\\");
             return;
@@ -61,14 +57,18 @@ impl Paint<'_, '_> {
                 self.emit_num(self.cold.bot.one_based());
                 self.emit(b"r");
             }
+            StatusTarget::CursorStyle => {
+                self.emit_dec(WireByte::of(self.cold.cursor_style.wire()));
+                self.emit(b" q");
+            }
             StatusTarget::Protection => {
                 self.emit_dec(WireByte::of(u8::from(self.cold.protect.is_protected())));
                 self.emit(b"\"q");
             }
-            // Unreachable: the guard above answers all three with `0$r`.
-            // Spelled out rather than `_ =>` so that adding a `StatusTarget`
-            // stops the build here instead of silently joining them.
-            StatusTarget::SideMargins | StatusTarget::CursorStyle | StatusTarget::Unknown => {}
+            // Unreachable: the guard above answers both with `0$r`. Spelled
+            // out rather than `_ =>` so that adding a `StatusTarget` stops the
+            // build here instead of silently joining them.
+            StatusTarget::SideMargins | StatusTarget::Unknown => {}
         }
         self.emit(b"\x1b\\");
     }

@@ -126,6 +126,16 @@ pub struct Cold {
     /// blinks. Recorded and exposed for the reason every renderer-side mode
     /// here is: an embedder cannot honour it without being told, and a shape
     /// parsed and dropped is worse than one not implemented.
+    /// How East Asian Ambiguous characters are measured.
+    ///
+    /// **A policy the embedder owns, which is why the property table stores a
+    /// width *code* rather than a resolved `Width`.** Narrow is the default
+    /// and is xterm's `cjkWidth=false`; a terminal configured for CJK text
+    /// sets Wide, and the same codepoint then takes two columns. Nothing in
+    /// the protocol changes it -- there is no escape sequence for it -- so it
+    /// arrives through the API and lives in `Cold` with the rest of the state
+    /// a control sequence does not touch.
+    pub(crate) ambiguous: AmbiguousWidth,
     pub(crate) cursor_style: CursorStyle,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
@@ -153,6 +163,7 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            ambiguous: AmbiguousWidth::Narrow,
             cursor_style: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
@@ -568,6 +579,34 @@ impl<'b> Term<'b> {
         View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot).row_slice(y)
     }
 
+    /// One row, or `None` if `y` is not on the grid.
+    ///
+    /// The checked form, for a caller holding a row number from somewhere
+    /// other than its own loop bound.
+    pub fn get_row(&self, y: Row) -> Option<&[PackedCell]> {
+        (y.index() < self.rows.index()).then(|| self.row(y))
+    }
+
+    /// Which surface is live. `baud-core` parks the primary rather than
+    /// keeping two buffers, so this says which one the single grid holds.
+    pub fn screen(&self) -> Screen {
+        self.cold.screen
+    }
+
+    /// `?2026`. Whether the application asked for frames to be held.
+    ///
+    /// Recorded and exposed rather than acted on: holding a frame is a
+    /// renderer's job and this core has no renderer, so telling the embedder
+    /// is the whole of the terminal's part.
+    pub fn synchronized_output(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::SynchronizedOutput)
+    }
+
+    /// `?2004`. Whether pasted text should be bracketed.
+    pub fn bracketed_paste(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::BracketedPaste)
+    }
+
     /// The live geometry, which a resize can change.
     pub fn geometry(&self) -> (Cols, Rows) {
         (self.cols, self.rows)
@@ -580,6 +619,20 @@ impl<'b> Term<'b> {
     /// slot nor shift but their resolution.
     pub fn charset(&self) -> Charset {
         self.charset
+    }
+
+    /// Measure East Asian Ambiguous characters as one column or two.
+    ///
+    /// Takes effect on the **next** character: cells already written keep the
+    /// width they were measured at, because the grid stores cells rather than
+    /// codepoints and re-measuring would mean re-laying-out the screen.
+    pub fn set_ambiguous_width(&mut self, a: AmbiguousWidth) {
+        self.cold.ambiguous = a;
+    }
+
+    /// What [`Term::set_ambiguous_width`] last selected.
+    pub fn ambiguous_width(&self) -> AmbiguousWidth {
+        self.cold.ambiguous
     }
 
     /// `DECSCUSR`. The cursor shape an application asked for.
