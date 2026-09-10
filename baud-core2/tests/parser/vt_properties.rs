@@ -802,6 +802,20 @@ proptest! {
         }
     }
 
+    /// **Lost its `#[test]` in `c592dd1`** -- the commit that renamed the old
+    /// core to `baud-core2` -- and stopped running for twenty-four commits of
+    /// parser work. `CLAUDE.md` credits this property three times: with
+    /// `fast.rs` and `machine.rs` disagreeing past the sixteenth CSI
+    /// parameter, with the software-pipelining attempt that moved
+    /// `cells_written`, and with the byte-indexed classification that broke
+    /// chunk invariance through a field on `Term`. None of those would have
+    /// been caught while it was absent.
+    ///
+    /// The same commit also pointed CI at `-p baud-core --test parser`, a
+    /// package with no such target. **One rename, two silent gates**, and
+    /// neither went red -- they went *missing*, which is the failure this file
+    /// records for a cfg'd-out test and for `fast_hit`.
+    #[test]
     fn generated_programs_are_chunk_invariant(ops in program(), a in 1usize..=64) {
         let b = bytes_of(&ops);
         for m in [OpMode::Computed, OpMode::Templated] {
