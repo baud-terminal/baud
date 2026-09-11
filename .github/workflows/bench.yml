@@ -101,9 +101,88 @@ jobs:
 
       # The tty tax on this host, which only Linux can answer: n_tty caps
       # read(2) at N_TTY_BUF_SIZE-1 regardless of the buffer offered.
-      - name: baud alone, both transports
+      #
+      # **`-p baud-bench` used to be enough and is not any more.** That crate's
+      # default binary was the span-model PTY harness and it went with
+      # `baud-core2`; `cargo run -p baud-bench` now names no target. This step
+      # ran green on 2026-09-07 and has not run since, so nothing reported the
+      # break -- the same absent-rather-than-red failure the deletion commit
+      # records three times over.
+      - name: baud alone, transport ceiling
         run: |
-          echo "### baud-bench (payload.rs payloads, arbitrary column + ECH/IL/ED)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### transport ceiling: read and discard, no parser" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          devenv shell -- cargo run --release -q -p baud-bench | tee -a "$GITHUB_STEP_SUMMARY"
+          devenv shell -- cargo run --release -q -p baud-bench --bin transport -- utf8/btop.raw 48 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # **The AVX2 question this workflow's own header was written for**: "this
+      # workflow is real x86-64 silicon ... the only place where baud's AVX2
+      # path and the tty tax both exist". `avx2-scan` has been correct and
+      # CI-verified since it landed and has never been *timed*, because the
+      # development box is aarch64.
+      #
+      # **Both arms carry `-C target-feature=+avx2`.** Only the feature differs.
+      # Passing the flag to one arm and not the other would change codegen for
+      # the entire workspace and measure the compiler's autovectorisation rather
+      # than the hand-written scan -- the "mismatched optimisation flags" entry
+      # in MEASUREMENTS.md, one target-feature further along.
+      #
+      # The third arm is a byte-identical copy of the first. On a shared runner
+      # that control is the whole result: without it a 4% difference and a 4%
+      # scheduling artefact look the same.
+      - name: AVX2 scan A/B, with an A/A control
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2"
+        run: |
+          set -euo pipefail
+          devenv shell -- cargo build --release -q -p baud-bench --bin ingest2
+          cp target/release/ingest2 /tmp/ingest2-base
+          cp target/release/ingest2 /tmp/ingest2-aa
+          devenv shell -- cargo build --release -q -p baud-bench --bin ingest2 --features avx2-scan
+          cp target/release/ingest2 /tmp/ingest2-avx2
+
+          echo "### AVX2 scan A/B (both arms built with +avx2; only the feature differs)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          # The arm must be live before it is timed: no vpmovmskb means the
+          # feature did not reach the scan and every number below is one binary
+          # against itself. Same check that caught a cached-binary comparison on
+          # the aarch64 side.
+          echo -n "vpmovmskb in the AVX2 arm: " | tee -a "$GITHUB_STEP_SUMMARY"
+          objdump -d /tmp/ingest2-avx2 | grep -c vpmovmskb | tee -a "$GITHUB_STEP_SUMMARY"
+          echo -n "vpmovmskb in the base arm: " | tee -a "$GITHUB_STEP_SUMMARY"
+          objdump -d /tmp/ingest2-base | grep -c vpmovmskb | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+          # Cells must be byte-identical or the two arms are not doing the
+          # same work, whatever the timings say.
+          for n in cat git-log less cat-cjk btop; do
+            b=$(/tmp/ingest2-base "$n" 2 | grep -oE 'cells [0-9]+' | head -1)
+            v=$(/tmp/ingest2-avx2 "$n" 2 | grep -oE 'cells [0-9]+' | head -1)
+            if [ "$b" != "$v" ]; then
+              echo "CELLS DIFFER on $n: $b vs $v -- the arms are different programs" \
+                | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          done
+          echo "cells byte-identical on all five" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Six rounds, first discarded by the reader. `cat`/`git-log` carry a
+          # wide spread even on quiet hardware; the A/A column is what says
+          # whether any row is readable at all.
+          printf "%-12s %-6s %s\n" payload arm "rounds (MB/s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          for n in cat git-log less cat-cjk less-cjk btop; do
+            case "$n" in less) r=400 ;; less-cjk) r=300 ;; cat-cjk) r=200 ;; *) r=150 ;; esac
+            for arm in base avx2 aa; do
+              printf "%-12s %-6s" "$n" "$arm" | tee -a "$GITHUB_STEP_SUMMARY"
+              for i in 1 2 3 4 5 6; do
+                v=$(/tmp/ingest2-$arm "$n" "$r" | grep -oE '[0-9]+\.[0-9]+ MB/s' | head -1 | awk '{print $1}')
+                printf " %s" "${v:-NA}" | tee -a "$GITHUB_STEP_SUMMARY"
+              done
+              echo "" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Read a row only if its AVX2 range is disjoint from **both** base and A/A." \
+            >> "$GITHUB_STEP_SUMMARY"
