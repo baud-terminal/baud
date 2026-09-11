@@ -72,6 +72,43 @@ impl Scan for Neon {
         ByteLen::from_lane(i)
     }
 
+    /// **The scan this crate was missing, and the one the corpus pays for.**
+    ///
+    /// Same predicate as `Vectorized::stride_three_run` -- lanes 0, 3, 6, 9 and
+    /// 12 must be three-byte leads and every other lane a continuation -- and
+    /// one instruction different. The portable form builds two masks, combines
+    /// them with `&`/`|`/`!` and ends in `to_bitmask()`, which lowers to a
+    /// horizontal `addv.8h`; here the combine is a single `vbslq_u8` -- bit
+    /// select is exactly `(a & m) | (b & !m)` -- and the extraction is `shrn`,
+    /// which has no reduction and no serial dependency.
+    ///
+    /// # Safety
+    /// aarch64 only, where NEON is baseline.
+    #[inline(always)]
+    unsafe fn stride_three(buf: &[StreamByte]) -> Count {
+        use core::arch::aarch64::*;
+        let raw = StreamByte::slice_as_bytes(buf);
+        if raw.len() < LANES {
+            return Count::ZERO;
+        }
+        unsafe {
+            let v = vld1q_u8(raw.as_ptr());
+            let is_lead = vceqq_u8(vandq_u8(v, vdupq_n_u8(0xf0)), vdupq_n_u8(0xe0));
+            let is_cont = vceqq_u8(vandq_u8(v, vdupq_n_u8(0xc0)), vdupq_n_u8(0x80));
+            // `0xff` at every lane a lead belongs in. A constant array rather
+            // than arithmetic on the lane index: the pattern is the stride and
+            // spelling it out is what makes a wrong one visible.
+            const AT_LEAD: [u8; 16] = [
+                0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0xff, 0, 0, 0,
+            ];
+            let at_lead = vld1q_u8(AT_LEAD.as_ptr());
+            // `(is_lead & at_lead) | (is_cont & !at_lead)`, in one instruction.
+            let ok = vbslq_u8(at_lead, is_lead, is_cont);
+            // Three lanes to a character, and five is what the register holds.
+            Count::of((nibbles(ok).leading_run() / 3).min(5))
+        }
+    }
+
     /// # Safety
     /// aarch64 only, where NEON is baseline.
     #[inline(always)]

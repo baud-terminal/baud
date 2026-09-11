@@ -847,9 +847,28 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
             // and a continuation are each one compare on the raw bytes, and
             // selecting between them by lane position needs **one** mask
             // extraction rather than two.
-            #[cfg(not(feature = "route-stride"))]
+            // **The `neon-scan` arm changes the extraction here**, which is
+            // where this recording's scan cost actually is: `chars()` prices
+            // the run scan at 7% of cat-cjk and names `stride_three` as taking
+            // two mask extractions. `Neon::stride_three` combines the two
+            // compares with `vbslq_u8` and extracts with `shrn`, where the
+            // portable form ends in `to_bitmask()` and a horizontal `addv.8h`.
+            #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
+            #[allow(unsafe_code)]
+            // SAFETY: `Neon` requires NEON, baseline on aarch64, and this is
+            // `cfg`'d to that architecture.
+            let n =
+                unsafe { <baud_isa_aarch64::Neon as baud_isa::Scan>::stride_three(&s[3 * k..]) }
+                    .index();
+            #[cfg(all(
+                not(feature = "route-stride"),
+                not(all(feature = "neon-scan", target_arch = "aarch64"))
+            ))]
             let n = Vectorized::<Printable>::load(&s[3 * k..]).stride_three_run();
-            #[cfg(feature = "route-stride")]
+            #[cfg(all(
+                feature = "route-stride",
+                not(all(feature = "neon-scan", target_arch = "aarch64"))
+            ))]
             let n = Vectorized::<Printable>::load(&s[3 * k..])
                 .routes()
                 .stride_three();

@@ -56,6 +56,22 @@ pub trait Scan {
     /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
     /// caller's decision made once at startup rather than per call.
     unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen>;
+    /// How many complete three-byte characters lead `buf`, capped at five.
+    ///
+    /// **This is the scan the corpus spends its time in**, and the trait went
+    /// without it for as long as it existed. `baud-core`'s `chars()` prices the
+    /// run scan at **7% of cat-cjk** -- "the largest single item in the loop ...
+    /// `stride_three` takes two of them" -- while `run` above is the printable
+    /// scan, which the payloads that use it are store-bound on. Wiring `run` in
+    /// and measuring a null is what found that; see `CLAUDE.md`.
+    ///
+    /// Five because a sixteen-byte block holds five three-byte characters and
+    /// one byte over, so the cap is the register rather than a policy.
+    ///
+    /// # Safety
+    /// As [`Scan::run`]: the caller has established the target features the
+    /// chosen implementation requires.
+    unsafe fn stride_three(buf: &[StreamByte]) -> Count;
 }
 
 /// Lane width. 16 bytes is what every SIMD ISA this targets has natively;

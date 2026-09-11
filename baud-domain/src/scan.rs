@@ -306,6 +306,18 @@ impl NibbleMask {
         self.any()
             .then(|| Lane(self.0.trailing_zeros() as usize / 4))
     }
+    /// How many leading lanes match, which is what a *run* asks rather than
+    /// what a *search* does.
+    ///
+    /// The counterpart of [`NibbleMask::first`] and the reason it is here
+    /// rather than spelled at the call site: a matching lane is the nibble
+    /// `0xf`, so four trailing one-bits are one lane, and dividing by anything
+    /// but four reads a plausible wrong length. `LaneMask` answers the same
+    /// question with `trailing_ones()` undivided, and the two encodings
+    /// differing by exactly this factor is how the bug would look.
+    pub fn leading_run(self) -> usize {
+        self.0.trailing_ones() as usize / 4
+    }
 }
 
 /// How many `StreamByte`s one vector holds -- one register.
