@@ -132,15 +132,37 @@ jobs:
       # that control is the whole result: without it a 4% difference and a 4%
       # scheduling artefact look the same.
       - name: AVX2 scan A/B, with an A/A control
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2"
         run: |
           set -euo pipefail
-          devenv shell -- cargo build --release -q -p baud-bench --bin ingest2
+
+          # **`devenv shell` overwrites `RUSTFLAGS`, so the flag must be set
+          # INSIDE it.** A step-level `env:` block, or the `RUSTFLAGS=... devenv
+          # shell --` prefix form, is clobbered: devenv's generated shell script
+          # contains `RUSTFLAGS='-D warnings'; export RUSTFLAGS`, which runs
+          # after the parent environment is inherited. The first version of this
+          # step used the `env:` block, the `target_feature = "avx2"` cfg was
+          # therefore false, `run_of_text` fell through to the portable path, and
+          # the AVX2 arm was never built at all -- while the build succeeded and
+          # the binary ran.
+          #
+          # The liveness assertion below is what caught it, on its first run,
+          # reporting zero 32-byte movemasks in the arm it had just built.
+          RF="-C target-feature=+avx2"
+          devenv shell -- sh -c "RUSTFLAGS='$RF' cargo build --release -q -p baud-bench --bin ingest2"
           cp target/release/ingest2 /tmp/ingest2-base
           cp target/release/ingest2 /tmp/ingest2-aa
-          devenv shell -- cargo build --release -q -p baud-bench --bin ingest2 --features avx2-scan
+          devenv shell -- sh -c "RUSTFLAGS='$RF' cargo build --release -q -p baud-bench --bin ingest2 --features avx2-scan"
           cp target/release/ingest2 /tmp/ingest2-avx2
+
+          # **The positive control for exactly that failure.** If the flag is
+          # eaten again the builds still succeed, so the only thing that says so
+          # is asking what the compiler actually saw.
+          seen=$(devenv shell -- sh -c "RUSTFLAGS='$RF' sh -c 'echo \$RUSTFLAGS'")
+          echo "RUSTFLAGS inside devenv: $seen"
+          case "$seen" in
+            *avx2*) ;;
+            *) echo "RUSTFLAGS DID NOT SURVIVE devenv shell: [$seen]"; exit 1 ;;
+          esac
 
           echo "### AVX2 scan A/B (both arms built with +avx2; only the feature differs)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

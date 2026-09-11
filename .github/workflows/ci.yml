@@ -164,12 +164,19 @@ jobs:
       # agrees.rs` was written without ever being built -- which is exactly the
       # state that let the crate stop compiling in the first place. If this step
       # is red on its first run, that is the step working.
+      # **`RUSTFLAGS` must be set INSIDE `devenv shell`, not in front of it.**
+      # devenv's generated shell exports `RUSTFLAGS='-D warnings'` after
+      # inheriting the parent environment, so the prefix form this step used is
+      # silently discarded -- the `target_feature = "avx2"` cfg stayed false and
+      # these two steps tested the portable path while reading as AVX2 coverage.
+      # Found by the bench workflow's liveness assertion, which disassembled the
+      # arm it had just built and found no 32-byte movemask in it.
       - name: AVX2 scanner agrees with the portable one
         run: |
           set -euo pipefail
           devenv shell -- cargo build --release -p baud-isa-x86-64
-          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
-            cargo test --release -p baud-isa-x86-64 -- --nocapture
+          devenv shell -- sh -c \
+            "RUSTFLAGS='-C target-feature=+avx2' cargo test --release -p baud-isa-x86-64 -- --nocapture"
 
       # And the arm as `baud-core` would ship it, so the wiring is exercised
       # rather than only the crate.
@@ -189,10 +196,11 @@ jobs:
       - name: baud-core builds with the AVX2 scan wired in
         run: |
           set -euo pipefail
-          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
-            cargo build --release -p baud-core --features avx2-scan
-          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
-            cargo test --release --workspace --features baud-core/avx2-scan
+          RF="-C target-feature=+avx2"
+          devenv shell -- sh -c \
+            "RUSTFLAGS='$RF' cargo build --release -p baud-core --features avx2-scan"
+          devenv shell -- sh -c \
+            "RUSTFLAGS='$RF' cargo test --release --workspace --features baud-core/avx2-scan"
 
   release-plz-release:
     name: Release
