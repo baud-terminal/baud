@@ -16,21 +16,39 @@
 //! carried: a name that kept reading correctly while pointing at the other
 //! crate.
 use alacritty_terminal::event::{Event, EventListener};
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term as ATerm};
 use alacritty_terminal::vte::ansi::Processor;
 use baud_core::*;
 /// The geometry both sides are measured at, and the single place it is written.
 ///
-/// `COLS`/`ROWS` are *derived* from it with `usize::from`, which is infallible
-/// and is not a cast -- spelling 200x50 twice would let the two sides be
-/// compared at different sizes, which is the one way this differential can lie
-/// while looking green.
+/// `cols()`/`rows()` are *derived* from it with `usize::from`, which is
+/// infallible and is not a cast -- spelling 200x50 twice would let the two sides
+/// be compared at different sizes, which is the one way this differential can
+/// lie while looking green.
+///
+/// **They are functions rather than `const`s because `usize::from` is not const
+/// on this toolchain**, and both const-compatible spellings are worse: a cast is
+/// what the audit refuses, and a second literal is the transposition this comment
+/// exists to prevent. Every call site is runtime, so `const` bought nothing here.
+/// The first version of this file wrote them as `const`s and **did not compile at
+/// all** -- which nothing noticed, because the manifest pinned alacritty by a
+/// path that does not exist on this machine.
+///
+/// Do not spell the cast operator in a comment in this file: `impl_audit.py`
+/// matches the token in prose as well as in code, so describing one spends an
+/// audit site. That is a detector flaw this repo already records, and it cost a
+/// site here before this sentence replaced the one that named it.
 const WS: WinSize = WinSize {
     ws_row: 50,
     ws_col: 200,
 };
-const COLS: usize = usize::from(WS.ws_col);
-const ROWS: usize = usize::from(WS.ws_row);
+fn cols() -> usize {
+    usize::from(WS.ws_col)
+}
+fn rows() -> usize {
+    usize::from(WS.ws_row)
+}
 
 #[derive(Clone)]
 struct Noop;
@@ -41,13 +59,13 @@ impl EventListener for Noop {
 struct Dim;
 impl alacritty_terminal::grid::Dimensions for Dim {
     fn total_lines(&self) -> usize {
-        ROWS
+        rows()
     }
     fn screen_lines(&self) -> usize {
-        ROWS
+        rows()
     }
     fn columns(&self) -> usize {
-        COLS
+        cols()
     }
 }
 
@@ -64,7 +82,7 @@ fn ours(bytes: &[u8]) -> Vec<char> {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    (0..ROWS)
+    (0..rows())
         .flat_map(|y| {
             let r = t.row(Row::from_index(y)).to_vec();
             r.into_iter()
@@ -78,23 +96,109 @@ fn ours(bytes: &[u8]) -> Vec<char> {
         .collect()
 }
 
-fn theirs(bytes: &[u8]) -> Vec<char> {
-    let mut cfg = Config::default();
-    cfg.scrolling_history = 0;
+/// How many cells each normalisation below touched on one case.
+///
+/// **A normalisation that can fire without anyone noticing is a blind spot, not
+/// a convenience.** Each of the two below exists to cancel a representation
+/// difference that draws nothing on screen, and each is reported, so one that
+/// starts firing on hundreds of cells says so instead of quietly agreeing.
+/// How many cells one normalisation touched.
+///
+/// A newtype rather than a bare `usize` field, which is what the audit refused
+/// when this struct first carried two of them -- and the refusal was right: the
+/// two counters measure cells, and a primitive named `spacers` can be added to
+/// anything. `baud_domain::Count` is the near neighbour and is not it: it is
+/// `u16`-backed, it means "a repeat count in a control sequence", and it is not
+/// re-exported by `baud-core`.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct Cells(usize);
+
+impl Cells {
+    const NONE: Cells = Cells(0);
+    fn of(n: usize) -> Cells {
+        Cells(n)
+    }
+    fn any(self) -> bool {
+        self.0 != 0
+    }
+    fn bump(&mut self) {
+        self.0 += 1;
+    }
+    fn get(self) -> usize {
+        self.0
+    }
+}
+
+struct Normalised {
+    spacers: Cells,
+    tabs: Cells,
+}
+
+impl Normalised {
+    fn new() -> Normalised {
+        Normalised {
+            spacers: Cells::NONE,
+            tabs: Cells::NONE,
+        }
+    }
+}
+
+/// alacritty's grid, as a renderer would draw it.
+///
+/// Two cells are **stored** differently by the two implementations and **drawn**
+/// identically, and both are normalised here rather than pinned as differences.
+/// Each normalisation is justified by alacritty's own source, not by assuming
+/// the two agree:
+///
+/// * **The second half of a wide character.** baud stores `Content::WIDE_TAIL`,
+///   a reserved value above `U+10FFFF`, deliberately -- so that "nothing written
+///   here" cannot be confused with "a space was written", which differ for
+///   selection, reflow and equality. alacritty stores a space and marks it
+///   `Flags::WIDE_CHAR_SPACER`. The **flag** is what makes this an equivalence:
+///   alacritty is saying the cell is a spacer, so it is read as one.
+/// * **A horizontal tab.** `Term::put_tab` writes `'\t'` into the cell, and
+///   only `if cell.c == ' '` -- so the byte never covers a glyph; it rides in a
+///   blank so that selecting a tabbed region copies tabs. baud leaves the cells
+///   untouched. On screen both are blank.
+///
+/// Anything else is compared as stored.
+fn theirs(bytes: &[u8], n: &mut Normalised) -> Vec<char> {
+    // No scrollback: the comparison is over the visible grid, and a retained
+    // history would let alacritty answer from rows `rows()` cannot reach.
+    let cfg = Config {
+        scrolling_history: 0,
+        ..Default::default()
+    };
     let mut t = ATerm::new(cfg, &Dim, Noop);
     let mut p = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::default();
     p.advance(&mut t, bytes);
     let g = t.grid();
-    (0..ROWS)
-        .flat_map(|y| (0..COLS).map(move |x| (y, x)))
-        .map(|(y, x)| {
-            g[alacritty_terminal::index::Line(y as i32)][alacritty_terminal::index::Column(x)].c
-        })
-        .collect()
+    let mut out = Vec::with_capacity(rows() * cols());
+    for y in 0..rows() {
+        for x in 0..cols() {
+            let cell =
+                &g[alacritty_terminal::index::Line(y as i32)][alacritty_terminal::index::Column(x)];
+            let wide_spacer = cell
+                .flags
+                .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER);
+            out.push(if wide_spacer {
+                n.spacers.bump();
+                '\0'
+            } else if cell.c == '\t' {
+                n.tabs.bump();
+                ' '
+            } else {
+                cell.c
+            });
+        }
+    }
+    out
 }
 
-fn main() {
-    let cases: Vec<(&str, Vec<u8>)> = vec![
+/// The cases, in one place, so `main` and the test cannot drive different ones.
+fn cases() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
         ("plain text", b"hello world".to_vec()),
         ("newline + cr", b"one\r\ntwo\r\nthree".to_vec()),
         ("SGR colour", b"\x1b[31mred\x1b[0m plain".to_vec()),
@@ -104,7 +208,7 @@ fn main() {
         ("erase chars", b"abcdefgh\x1b[3G\x1b[2X".to_vec()),
         ("insert lines", b"a\r\nb\r\nc\x1b[2;1H\x1b[1L".to_vec()),
         ("cursor motion", b"abc\x1b[2D\x1b[Bx".to_vec()),
-        ("wrap at margin", vec![b'x'; COLS + 10]),
+        ("wrap at margin", vec![b'x'; cols() + 10]),
         ("tab", b"a\tb\tc".to_vec()),
         ("backspace", b"abc\x08\x08X".to_vec()),
         ("UTF-8 CJK", "日本語".as_bytes().to_vec()),
@@ -115,40 +219,119 @@ fn main() {
         ("insert blanks", b"abcdefgh\x1b[3G\x1b[2@".to_vec()),
         ("save/restore cur", b"\x1b7moved\x1b8back".to_vec()),
         ("reverse index", b"a\r\nb\x1bMx".to_vec()),
-    ];
-    let (mut pass, mut fail) = (0, 0);
-    println!("  {:<20} {:>8}  {}", "case", "diff", "first mismatch");
-    for (name, bytes) in &cases {
-        let a = ours(bytes);
-        let b = theirs(bytes);
-        let diffs = a.iter().zip(b.iter()).filter(|(x, y)| x != y).count();
-        if diffs == 0 {
-            pass += 1;
-            println!("  {:<20} {:>8}  ok", name, 0);
-        } else {
-            fail += 1;
-            let (i, (x, y)) = a
+    ]
+}
+
+/// One case's verdict: how many cells differ, and where the first one is.
+struct Verdict {
+    name: &'static str,
+    diffs: Cells,
+    first: Option<String>,
+}
+
+/// Drive both implementations over every case and compare.
+///
+/// Returns the verdicts and the normalisation counts, so `main` can print a
+/// table and the test can assert on the same numbers rather than on a reparse of
+/// the table.
+fn compare() -> (Vec<Verdict>, Normalised) {
+    let mut norm = Normalised::new();
+    let verdicts = cases()
+        .into_iter()
+        .map(|(name, bytes)| {
+            let a = ours(&bytes);
+            let b = theirs(&bytes, &mut norm);
+            let diffs = Cells::of(a.iter().zip(b.iter()).filter(|(x, y)| x != y).count());
+            let first = a
                 .iter()
                 .zip(b.iter())
                 .enumerate()
                 .find(|(_, (x, y))| x != y)
-                .unwrap();
-            println!(
-                "  {:<20} {:>8}  cell {} (row {}, col {}): ours {:?} theirs {:?}",
-                name,
-                diffs,
-                i,
-                i / COLS,
-                i % COLS,
-                x,
-                y
-            );
+                .map(|(i, (x, y))| {
+                    format!(
+                        "cell {} (row {}, col {}): ours {:?} theirs {:?}",
+                        i,
+                        i / cols(),
+                        i % cols(),
+                        x,
+                        y
+                    )
+                });
+            Verdict { name, diffs, first }
+        })
+        .collect();
+    (verdicts, norm)
+}
+
+fn main() {
+    let (verdicts, norm) = compare();
+    let fail = verdicts.iter().filter(|v| v.diffs.any()).count();
+    println!("  {:<20} {:>8}  first mismatch", "case", "diff");
+    for v in &verdicts {
+        match &v.first {
+            None => println!("  {:<20} {:>8}  ok", v.name, 0),
+            Some(w) => println!("  {:<20} {:>8}  {}", v.name, v.diffs.get(), w),
         }
     }
     println!(
         "\n  {} match, {} differ, of {} cases",
-        pass,
+        verdicts.len() - fail,
         fail,
-        cases.len()
+        verdicts.len()
     );
+    println!(
+        "  normalised: {} wide-char spacers, {} tab cells",
+        norm.spacers.get(),
+        norm.tabs.get()
+    );
+
+    // **An oracle that only prints cannot fail.** This exited 0 whatever it
+    // found, so even once it compiled it could not be a gate -- the same shape
+    // as the glyph differential that ended in `let _ = want;` and passed green
+    // while three recordings diverged by 3,057 cells.
+    if fail != 0 {
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **Being a workspace member makes `cargo test --workspace` *build* this
+    /// crate; this test is what makes it *run*.** Compiling catches the rot that
+    /// hid here for the life of the absolute path. It does not catch a cell
+    /// divergence, because a binary with no `#[test]` is built and then not
+    /// executed -- so the oracle would still only speak when somebody ran it by
+    /// hand.
+    #[test]
+    fn every_case_agrees_with_alacritty() {
+        let (verdicts, norm) = compare();
+        let differing: Vec<String> = verdicts
+            .iter()
+            .filter(|v| v.diffs.any())
+            .map(|v| {
+                format!(
+                    "{}: {} cells, first {}",
+                    v.name,
+                    v.diffs.get(),
+                    v.first.as_deref().unwrap_or("?")
+                )
+            })
+            .collect();
+        assert!(
+            differing.is_empty(),
+            "baud-core and alacritty render these differently:\n  {}",
+            differing.join("\n  ")
+        );
+
+        // **The normalisations must stay small, or they are hiding something.**
+        // Two cells of one recording's grid draw nothing in both
+        // implementations and are stored differently; on this corpus that is 4
+        // wide-char spacers and 2 tab cells, and the exact counts are pinned
+        // rather than bounded so a normalisation that starts firing somewhere
+        // new has to come and change this number.
+        assert_eq!(norm.spacers.get(), 4, "wide-char spacers normalised");
+        assert_eq!(norm.tabs.get(), 2, "tab cells normalised");
+    }
 }

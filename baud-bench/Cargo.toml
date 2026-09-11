@@ -55,6 +55,18 @@ cell-table = ["baud-core/cell-table"]
 # `default` here so `ingest2` measures what a default `baud-core` does, and
 # `--no-default-features` is the arm that turns it off.
 neon-scan = ["baud-core/neon-scan"]
+# **The x86-64 twin, and its absence is why the AVX2 path had never been
+# timed.** Every other `baud-core` arm in this list is forwarded; this one was
+# not, so `--features avx2-scan` named nothing here and the only harness that
+# measures throughput could not reach the code. CI proved the path *correct* on
+# x86-64 the whole time, which is the shape that makes an absence comfortable:
+# one gate was green and the other did not exist.
+#
+# Deliberately **not** in `default`, unlike `neon-scan`. NEON is baseline on
+# aarch64, so a default build there runs it; AVX2 is not baseline on x86-64, so
+# enabling it by default would build a binary that faults on a host without it.
+# It needs `-C target-feature=+avx2` alongside, which is the caller's to set.
+avx2-scan = ["baud-core/avx2-scan"]
 param3 = ["baud-core/param3"]
 probe-no-fast-csi = ["baud-core/probe-no-fast-csi"]
 probe-no-csi-op = ["baud-core/probe-no-csi-op"]

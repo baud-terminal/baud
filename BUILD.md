@@ -47,7 +47,23 @@ Every test is deterministic. `.proptest-regressions` is checked in so a property
 failure replays exactly, and a case worth finding once is also pinned by a
 deterministic test rather than left depending on a saved seed.
 
-`baud-difftest` needs an alacritty checkout; edit the path in its `Cargo.toml`.
+`baud-difftest` needs no checkout and no edit. It pins `alacritty_terminal` to
+the registry version `multibench` already uses, so the two external comparisons
+answer to one alacritty, and it is a **workspace member** -- `cargo test
+--workspace` builds it and runs its one test.
+
+That is new, and the reason it is worth a paragraph: it used to pin alacritty by
+the absolute path `/home/user/t/alacritty/alacritty_terminal`, which no
+checkout has, so **it had never compiled** while this table listed it as "the
+only oracle outside this repo" and its own doc comment described what it fed to
+`baud-core`. Being excluded from the workspace is what kept that quiet. Running
+it now: **20 of 20 cases agree**, with two representation differences normalised
+and counted rather than pinned -- baud stores `Content::WIDE_TAIL` where
+alacritty stores a space flagged `WIDE_CHAR_SPACER`, and alacritty keeps the
+`\t` byte in a blank cell for selection fidelity where baud leaves the cells
+untouched. Both draw nothing; the counts are asserted exactly, so a
+normalisation that starts firing somewhere new has to come and change them.
+
 The cross-implementation comparison (`multibench`) and the with/without-PTY
 split (`alacritty-bench`) ship separately, in `bench-others/`.
 

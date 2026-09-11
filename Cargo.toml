@@ -4,13 +4,21 @@ members = ["baud-domain", "baud-core", "baud-bench",
   "baud-isa",
   "baud-isa-x86-64",
   "baud-isa-aarch64",
+  # **A member, because the reason it was excluded expired.** That reason was
+  # "pins alacritty by absolute path, so it cannot resolve on a checkout that
+  # has not set that path" -- and the path was
+  # `/home/user/t/alacritty/alacritty_terminal`, which no checkout has,
+  # including the one it was written on. So the crate never compiled, while
+  # `BUILD.md` listed it as "the only oracle outside this repo". Pinned to the
+  # registry version `multibench` already uses, it resolves anywhere, and being
+  # a member is what makes `cargo test --workspace` build it -- which is the
+  # only thing that would have reported the break.
+  "baud-difftest",
 ]
 
-# baud-difftest pins alacritty by absolute path (see its manifest and BUILD.md),
-# so it cannot resolve on a checkout that has not set that path. bench-others/*
-# are standalone harnesses against sibling checkouts of other terminals — and
-# ghostty-bench is Zig. None of them belong in this lock file.
-exclude = ["baud-difftest", "bench-others"]
+# bench-others/* are standalone harnesses against sibling checkouts of other
+# terminals — and ghostty-bench is Zig. They do not belong in this lock file.
+exclude = ["bench-others"]
 
 [workspace.package]
 version = "0.1.0"
