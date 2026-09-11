@@ -12,7 +12,13 @@ pub struct Cap {
 }
 
 /// Capabilities whose name starts with `k` are *keys the terminal sends*, not
-/// sequences it receives. They are the input path, which baud does not have.
+/// sequences it receives.
+///
+/// **They are the input path, which baud now has.** This doc said "which baud
+/// does not have" and was one of fourteen copies of that sentence, all true when
+/// written and all false since `encode_key` landed. `input_caps.rs` measures how
+/// many of each profile's it can send rather than restating a claim -- 85 of
+/// `xterm`'s 88.
 pub fn is_input(name: &str) -> bool {
     name.starts_with('k')
 }

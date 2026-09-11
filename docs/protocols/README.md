@@ -43,7 +43,8 @@ draws on.
 
 Input capabilities — those whose terminfo name begins with `k`, the keys a
 terminal *sends* — are counted separately and not required. xterm declares 88
-of them and baud has no input path. That is a real gap and it is stated rather
+of them. **That sentence used to end "and baud has no input path", which has
+been false since `encode_key` landed** -- see each profile's measured count. It is stated rather
 than skipped.
 
 The entries themselves are in `../research/sources/terminfo/`, captured with

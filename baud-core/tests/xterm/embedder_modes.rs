@@ -2,7 +2,8 @@
 //!
 //! `CLAUDE.md`: "Never record a mode you do not act on. A bit that is set and
 //! never read is the same failure as a sequence parsed and dropped." The core
-//! has no input path and no renderer, so for these two "acting on it" means
+//! has no renderer, and its input path encodes keys rather than acting on these,
+//! so for these two "acting on it" means
 //! *exposing* it -- an embedder cannot implement either mode without being
 //! told, and there is no other channel that could tell it.
 //!

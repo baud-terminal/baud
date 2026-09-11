@@ -177,7 +177,8 @@ Three OSC decisions are refusals, and each is deliberate rather than a gap:
 
 **Two modes are recorded for an embedder rather than acted on internally.**
 Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that
-this core cannot itself use -- it has no input path and no renderer. They are
+this core cannot itself use -- it has no renderer, and its input path encodes
+keys rather than consuming these. They are
 recorded because `Term::bracketed_paste()` and `Term::synchronized_output()`
 give an embedder the only channel through which either mode can be honoured,
 which is what separates them from the "set and never read" failure. Bracketed

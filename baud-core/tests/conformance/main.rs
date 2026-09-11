@@ -20,6 +20,7 @@
 mod support;
 
 mod enumerated;
+mod input_caps;
 mod levels;
 mod spec_inventory;
 mod terminfo;
@@ -115,7 +116,7 @@ macro_rules! profile {
             assert!(
                 missing.is_empty(),
                 "{}: {} of {out} output capabilities are recognised and dropped \
-                 ({inp} input capabilities not counted -- baud has no input path):\n  {}",
+                 ({inp} input capabilities not counted here -- `input_caps.rs` measures them):\n  {}",
                 $term,
                 missing.len(),
                 missing.join("\n  ")

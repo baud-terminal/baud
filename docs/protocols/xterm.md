@@ -46,7 +46,8 @@ would round it to twelve.
 ## Modes recorded for an embedder
 
 Bracketed paste, synchronised output, DECCKM, DECSCNM, DECSCLM, DECARM,
-`?1034`, `?45`, `?3`. The core has no input path and no renderer, so exposing
+`?1034`, `?45`, `?3`. The core has no renderer, and its input path encodes keys
+rather than reading them, so exposing
 them by accessor *is* acting on them — an embedder has no other channel. That
 is what separates them from the "set and never read" failure.
 
