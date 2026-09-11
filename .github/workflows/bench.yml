@@ -145,20 +145,58 @@ jobs:
           echo "### AVX2 scan A/B (both arms built with +avx2; only the feature differs)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          # The arm must be live before it is timed: no vpmovmskb means the
-          # feature did not reach the scan and every number below is one binary
-          # against itself. Same check that caught a cached-binary comparison on
-          # the aarch64 side.
-          echo -n "vpmovmskb in the AVX2 arm: " | tee -a "$GITHUB_STEP_SUMMARY"
-          objdump -d /tmp/ingest2-avx2 | grep -c vpmovmskb | tee -a "$GITHUB_STEP_SUMMARY"
-          echo -n "vpmovmskb in the base arm: " | tee -a "$GITHUB_STEP_SUMMARY"
-          objdump -d /tmp/ingest2-base | grep -c vpmovmskb | tee -a "$GITHUB_STEP_SUMMARY" || true
+          # **The liveness probe asserts, and it asserts on width rather than on
+          # presence.** `grep -c vpmovmskb` was the first spelling and it cannot
+          # fire here: both arms carry `-C target-feature=+avx2`, so LLVM
+          # VEX-encodes the *portable* path's movemask too and the token appears
+          # in both binaries. CLAUDE.md's note that "`Portable` compiles to SSE2
+          # and yields `pmovmskb` without the `v`" was written for a build
+          # *without* `+avx2`; that premise does not hold in this step, and a
+          # probe resting on it is `fast_hit` again -- a counter that reports
+          # rather than claims.
+          #
+          # What discriminates is the register. `Avx2::run` is 32 bytes a step,
+          # so it movemasks a `%ymm`; the portable loop is `LANE_COUNT` = 16 and
+          # movemasks a `%xmm` however it is encoded.
+          ymm_v=$(objdump -d /tmp/ingest2-avx2 | grep -cE 'vpmovmskb[[:space:]]+%ymm' || true)
+          ymm_b=$(objdump -d /tmp/ingest2-base | grep -cE 'vpmovmskb[[:space:]]+%ymm' || true)
+          any_v=$(objdump -d /tmp/ingest2-avx2 | grep -c 'pmovmskb' || true)
+          any_b=$(objdump -d /tmp/ingest2-base | grep -c 'pmovmskb' || true)
+          {
+            echo "movemask, ymm (32-byte): avx2 arm $ymm_v, base arm $ymm_b"
+            echo "movemask, any width:     avx2 arm $any_v, base arm $any_b"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
-          # Cells must be byte-identical or the two arms are not doing the
-          # same work, whatever the timings say.
+          # Byte-identical binaries are the same program, whatever the features
+          # said. This is the check that would have caught the cached-binary
+          # comparison on the aarch64 side in one line instead of by noticing
+          # "Finished in 0.01s".
+          if cmp -s /tmp/ingest2-base /tmp/ingest2-avx2; then
+            echo "ARMS ARE THE SAME BINARY -- the feature changed nothing" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          if [ "$ymm_v" -eq 0 ]; then
+            echo "AVX2 ARM IS NOT LIVE: no 32-byte movemask, so the feature did not reach the scan" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "avx2 arm is live and the two binaries differ" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # Cells must be byte-identical or the two arms are not doing the same
+          # work, whatever the timings say. **The emptiness guard is the point**:
+          # if the grep stops matching, both sides are the empty string, `!=` is
+          # false, and this loop prints "byte-identical" having compared nothing
+          # -- which is the empty-equals-empty vacuity the first cell-identity
+          # check in this repo actually hit.
           for n in cat git-log less cat-cjk btop; do
             b=$(/tmp/ingest2-base "$n" 2 | grep -oE 'cells [0-9]+' | head -1)
             v=$(/tmp/ingest2-avx2 "$n" 2 | grep -oE 'cells [0-9]+' | head -1)
+            if [ -z "$b" ] || [ -z "$v" ]; then
+              echo "NO CELL COUNT PARSED on $n -- this check compared nothing" \
+                | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
             if [ "$b" != "$v" ]; then
               echo "CELLS DIFFER on $n: $b vs $v -- the arms are different programs" \
                 | tee -a "$GITHUB_STEP_SUMMARY"
@@ -168,19 +206,28 @@ jobs:
           echo "cells byte-identical on all five" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "" | tee -a "$GITHUB_STEP_SUMMARY"
 
-          # Six rounds, first discarded by the reader. `cat`/`git-log` carry a
-          # wide spread even on quiet hardware; the A/A column is what says
-          # whether any row is readable at all.
-          printf "%-12s %-6s %s\n" payload arm "rounds (MB/s)" | tee -a "$GITHUB_STEP_SUMMARY"
+          # **Interleaved by round, not blocked by arm.** The first spelling ran
+          # six base, then six avx2, then six A/A -- so the A/A column compared
+          # one block of the sweep against another block, and a drift between
+          # blocks is exactly what it was supposed to detect. CLAUDE.md's cava
+          # entry is a ~1% "win" that turned out to be sweep position, and the
+          # lesson recorded there is that interleaving A/A *into* the same sweep
+          # is what turns a disjoint pair into a null. Round 1 is warm-up and is
+          # discarded by the reader.
+          printf "%-12s %-6s %s\n" payload arm "rounds, interleaved (MB/s)" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
           for n in cat git-log less cat-cjk less-cjk btop; do
             case "$n" in less) r=400 ;; less-cjk) r=300 ;; cat-cjk) r=200 ;; *) r=150 ;; esac
-            for arm in base avx2 aa; do
-              printf "%-12s %-6s" "$n" "$arm" | tee -a "$GITHUB_STEP_SUMMARY"
-              for i in 1 2 3 4 5 6; do
+            rm -f /tmp/row-base /tmp/row-avx2 /tmp/row-aa
+            for i in 1 2 3 4 5 6; do
+              for arm in base avx2 aa; do
                 v=$(/tmp/ingest2-$arm "$n" "$r" | grep -oE '[0-9]+\.[0-9]+ MB/s' | head -1 | awk '{print $1}')
-                printf " %s" "${v:-NA}" | tee -a "$GITHUB_STEP_SUMMARY"
+                printf " %s" "${v:-NA}" >> /tmp/row-$arm
               done
-              echo "" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            for arm in base avx2 aa; do
+              printf "%-12s %-6s%s\n" "$n" "$arm" "$(cat /tmp/row-$arm)" \
+                | tee -a "$GITHUB_STEP_SUMMARY"
             done
           done
           echo '```' >> "$GITHUB_STEP_SUMMARY"
