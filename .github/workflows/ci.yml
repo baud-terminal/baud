@@ -172,9 +172,20 @@ jobs:
             cargo test --release -p baud-isa-x86-64 -- --nocapture
 
       # And the arm as `baud-core` would ship it, so the wiring is exercised
-      # rather than only the crate: `avx2-scan` is `cfg`'d on
-      # `target_feature = "avx2"`, so without the flag it compiles to the
-      # portable path and this proves the flag reaches it.
+      # rather than only the crate.
+      #
+      # **What this proves is that it compiles and the workspace still passes --
+      # not that the flag reaches the scan.** An earlier version of this comment
+      # claimed the latter, and it does not follow: `avx2-scan`'s arm is `cfg`'d
+      # on `target_feature = "avx2"`, so if that cfg never matched the build
+      # would fall through to the portable path and this step would pass
+      # unchanged. A step that passes whether or not the thing happened is the
+      # probe-that-cannot-fire shape, and claiming otherwise in a comment is how
+      # it survives review.
+      #
+      # Liveness is proved in `bench.yml`, which disassembles both arms and
+      # asserts a 32-byte `vpmovmskb %ymm` in the AVX2 one. It belongs there
+      # because that step has to build both arms anyway.
       - name: baud-core builds with the AVX2 scan wired in
         run: |
           set -euo pipefail
