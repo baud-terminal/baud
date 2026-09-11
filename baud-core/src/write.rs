@@ -684,7 +684,16 @@ fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
         let l = baud_isa_aarch64::Neon::run(&s[n..]);
         ByteLen::from_index(n + l.index())
     }
-    #[cfg(not(all(feature = "neon-scan", target_arch = "aarch64")))]
+    // The x86-64 twin: 32 bytes a step, and only where the build targets AVX2.
+    #[cfg(all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2"))]
+    {
+        let l = baud_isa_x86_64::Avx2::run(&s[n..]);
+        ByteLen::from_index(n + l.index())
+    }
+    #[cfg(not(any(
+        all(feature = "neon-scan", target_arch = "aarch64"),
+        all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2")
+    )))]
     {
         while n + LANE_COUNT <= left {
             if let Some(l) = Vectorized::<Printable>::load(&s[n..])

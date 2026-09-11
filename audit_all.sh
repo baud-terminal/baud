@@ -22,6 +22,39 @@ fi
 # in the same commit". It did not, for as long as one limit covered both.
 isa=0
 isasig=0
+# **The other architecture's crate must still compile, and nothing checked it.**
+#
+# `baud-isa-x86-64` is `#![cfg(target_arch = "x86_64")]` and `baud-isa-aarch64`
+# is the mirror, so on any one machine exactly one of them is an empty crate that
+# type-checks vacuously. Adding `stride_three` and `stride_four` to `Scan` left
+# the x86-64 impl missing two methods and **nothing went red**: not the 615
+# tests, not clippy, not this script -- the same absent-rather-than-red failure
+# this repo records for the renamed CI target and for `diag`.
+#
+# One cross-compile closes it. `x86_64-unknown-none` is already installed for the
+# `no_std` check, so this costs a build and no new toolchain.
+# **A positive control decides whether the target is usable**, because asking
+# `rustup` does not: this toolchain is nix-provided and `rustup target list
+# --installed` prints nothing while the cross-build works perfectly. The first
+# version of this gate believed it and reported "not installed" on a machine
+# that had just cross-compiled -- a probe that cannot fire, caught by perturbing
+# it and getting the same message either way.
+#
+# So: build a crate known to be fine for that target. If the control fails the
+# toolchain is the problem and this gate says so; if the control passes, a
+# failure on `baud-isa-x86-64` is the crate.
+if cargo build --quiet --release -p baud-isa --target x86_64-unknown-none 2>/dev/null; then
+  if cargo build --quiet --release -p baud-isa-x86-64 --target x86_64-unknown-none 2>/dev/null; then
+    echo "  ok   baud-isa-x86-64: cross-compiles"
+  else
+    echo "  FAIL baud-isa-x86-64: does not compile for x86_64 -- the trait moved and this impl did not"
+    fail=1
+  fi
+else
+  echo "  FAIL x86_64-unknown-none: the control crate does not build, so this gate checked nothing"
+  fail=1
+fi
+
 files=$(find baud-isa/src baud-isa-x86-64/src baud-isa-aarch64/src -name '*.rs' 2>/dev/null | sort)
 if [ -z "$files" ]; then
   echo "  FAIL baud-isa*/src: no sources found -- this gate audited nothing"

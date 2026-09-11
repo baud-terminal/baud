@@ -14,6 +14,43 @@ use baud_isa::{Decode, DecodedBlock, Portable, Scan};
 /// 32-byte lanes on x86-64. Requires AVX2.
 pub struct Avx2;
 
+/// **The safe surface, and why it is `cfg`'d where NEON's is not.**
+///
+/// `Neon` can expose these unconditionally: NEON is baseline on aarch64, so the
+/// obligation is discharged by the target and there is nothing a caller can get
+/// wrong. **AVX2 is not baseline on x86-64.** A caller really can invoke it on a
+/// machine that cannot execute it, `no_std` has no `is_x86_feature_detected!`,
+/// and the result is UB rather than a slow path -- so the `unsafe fn` on the
+/// trait is a real contract here and must not be wrapped away in general.
+///
+/// `#[cfg(target_feature = "avx2")]` is the one case where it *is* discharged
+/// the same way: the build itself targets AVX2, so it is baseline **for this
+/// binary** exactly as NEON is for an aarch64 one. Reached with
+/// `-C target-feature=+avx2` or a `target-cpu` that implies it; absent
+/// otherwise, so a default x86-64 build cannot call these at all.
+#[cfg(target_feature = "avx2")]
+impl Avx2 {
+    /// Length of the leading printable-ASCII run, 32 bytes a step.
+    #[inline(always)]
+    pub fn run(buf: &[StreamByte]) -> ByteLen {
+        // SAFETY: this block is `cfg`'d to a build that targets AVX2, so the
+        // feature the contract asks for is guaranteed by the compilation.
+        unsafe { <Avx2 as Scan>::run(buf) }
+    }
+    /// Offset of the first `CSI` final byte.
+    #[inline(always)]
+    pub fn final_byte(buf: &[StreamByte]) -> Option<ByteLen> {
+        // SAFETY: as `Avx2::run`.
+        unsafe { <Avx2 as Scan>::final_byte(buf) }
+    }
+    /// Offset of the first `BEL`, or the `ESC` of an `ESC \` terminator.
+    #[inline(always)]
+    pub fn st(buf: &[StreamByte]) -> Option<ByteLen> {
+        // SAFETY: as `Avx2::run`.
+        unsafe { <Avx2 as Scan>::st(buf) }
+    }
+}
+
 impl Scan for Avx2 {
     unsafe fn run(buf: &[StreamByte]) -> ByteLen {
         unsafe { scan_avx2(buf) }
@@ -23,6 +60,33 @@ impl Scan for Avx2 {
     }
     unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen> {
         unsafe { find_st(buf) }
+    }
+    /// **Delegated to `Portable`, and that is the answer rather than a stub.**
+    ///
+    /// The contract caps this at five characters, because `baud-core`'s caller
+    /// steps in `LANE_COUNT` = 16-byte blocks and fifteen bytes is five
+    /// three-byte characters. A 256-bit register has **nothing to contribute to
+    /// a fifteen-byte question** -- it would have to be given a wider block and
+    /// a wider cap by the caller before width could pay, and that is a change to
+    /// `run_of`'s arithmetic and `STRIDE_MAX`, not to this crate.
+    ///
+    /// So this is not "not done yet". Wiring `_mm256` in here would process
+    /// thirty-two bytes and then throw seventeen of them away.
+    ///
+    /// # Safety
+    /// `Portable` requires no target feature, so this arm requires none either.
+    unsafe fn stride_three(buf: &[StreamByte]) -> Count {
+        // SAFETY: `Portable` has no target-feature obligation.
+        unsafe { <Portable as Scan>::stride_three(buf) }
+    }
+    /// Delegated to `Portable`, for the reason [`Avx2::stride_three`] gives:
+    /// the cap is four characters in a sixteen-byte block.
+    ///
+    /// # Safety
+    /// As [`Avx2::stride_three`].
+    unsafe fn stride_four(buf: &[StreamByte]) -> Count {
+        // SAFETY: `Portable` has no target-feature obligation.
+        unsafe { <Portable as Scan>::stride_four(buf) }
     }
 }
 

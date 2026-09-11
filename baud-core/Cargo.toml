@@ -123,6 +123,29 @@ cell-table = []
 # satisfied by the target alone; that makes the `unsafe` a formality rather than
 # a risk, and a formality is still a policy change the owner owns.
 neon-scan = ["dep:baud-isa", "dep:baud-isa-aarch64"]
+# **The x86-64 twin, and it is off for two reasons rather than one.**
+#
+# `scan_avx2` reads 32 bytes a step where `core::simd` reads 16, so unlike the
+# NEON arm -- which is the same width and a cheaper extraction -- this one is a
+# genuine 2x on the printable run scan. Only that scan: `Avx2::stride_three` and
+# `stride_four` delegate to `Portable`, because the contract caps them at five
+# and four characters in a sixteen-byte block and a 256-bit register has nothing
+# to add to a fifteen-byte question.
+#
+# **It is unmeasured**, and this repo does not ship unmeasured throughput
+# changes. No x86-64 host is available here, and the closest prior is
+# discouraging: wiring `Scan::run` alone on aarch64 measured a flat null on all
+# nine, because the payloads with long printable runs are store-bound -- `cat`'s
+# write path sits at 74% of the machine's vectored-store ceiling, and that
+# argument does not depend on the architecture.
+#
+# **And it needs a build that targets AVX2.** `#[cfg(target_feature = "avx2")]`
+# guards it, so `-C target-feature=+avx2` or a `target-cpu` implying it is
+# required; without that the call site compiles to the portable path. That gate
+# is what lets `baud-core` keep `forbid(unsafe_code)`: AVX2 is not baseline, so
+# the trait's `unsafe fn` is a real contract, and the only thing that discharges
+# it without runtime detection is the build targeting the feature.
+avx2-scan = ["dep:baud-isa", "dep:baud-isa-x86-64"]
 # Three bytes an edge in the parameter table instead of two: 1.31 MB of rodata
 # against 128 KB, and it takes a three-digit parameter in one step.
 param3 = []
@@ -197,6 +220,9 @@ baud-domain = { path = "../baud-domain" }
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 baud-isa = { path = "../baud-isa", optional = true }
 baud-isa-aarch64 = { path = "../baud-isa-aarch64", optional = true }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa-x86-64 = { path = "../baud-isa-x86-64", optional = true }
 
 # **The property suite, and the first dev-dependency this crate has had.**
 # `baud-core2` carried 606 tests and all the proptest machinery; this crate had

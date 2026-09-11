@@ -153,6 +153,36 @@ jobs:
       # the width half; the aarch64 half is measurable on the dev box and neither
       # has been measured, because nothing calls either implementation.
 
+      # **The AVX2 coverage, restored -- pointing at a target that exists this
+      # time.** The two steps removed above named `baud-core2`'s `parser` test
+      # and its `feed_avx2`, both deleted. What replaced them is an equivalence
+      # property in the crate that owns the code: `Avx2` against `Portable` over
+      # 390,625 exhaustive blocks plus every length around a 32-byte step.
+      #
+      # **This runner is the only machine that can compile it.** The development
+      # box is aarch64 with no hosted x86-64 std, so `baud-isa-x86-64/tests/
+      # agrees.rs` was written without ever being built -- which is exactly the
+      # state that let the crate stop compiling in the first place. If this step
+      # is red on its first run, that is the step working.
+      - name: AVX2 scanner agrees with the portable one
+        run: |
+          set -euo pipefail
+          devenv shell -- cargo build --release -p baud-isa-x86-64
+          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
+            cargo test --release -p baud-isa-x86-64 -- --nocapture
+
+      # And the arm as `baud-core` would ship it, so the wiring is exercised
+      # rather than only the crate: `avx2-scan` is `cfg`'d on
+      # `target_feature = "avx2"`, so without the flag it compiles to the
+      # portable path and this proves the flag reaches it.
+      - name: baud-core builds with the AVX2 scan wired in
+        run: |
+          set -euo pipefail
+          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
+            cargo build --release -p baud-core --features avx2-scan
+          RUSTFLAGS="-C target-feature=+avx2" devenv shell -- \
+            cargo test --release --workspace --features baud-core/avx2-scan
+
   release-plz-release:
     name: Release
     runs-on: ubuntu-latest
