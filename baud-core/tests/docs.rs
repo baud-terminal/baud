@@ -442,3 +442,67 @@ fn nothing_disclaimed_is_also_marked_done() {
         contradictions.join("\n  ")
     );
 }
+
+/// **The ladder's store-traffic column is arithmetic, so it is checked.**
+///
+/// Each rung reports an input rate, a cells-per-byte ratio and the store traffic
+/// those imply, and the identity is exact: a cell is eight bytes, so
+/// `traffic = rate * 8 * cells_per_byte`. A column of numbers that *follow* from
+/// two others is the cheapest kind of claim to get wrong and the cheapest to
+/// gate, and this one was wrong in all four rows -- understated by 4.86%,
+/// because it multiplied `ingest2`'s mebibytes as though they were decimal
+/// megabytes.
+///
+/// **That is the same slip `ceiling.rs` made independently**, which is what a
+/// convention nobody wrote down produces: not one error but the same error
+/// twice, years apart, by different hands. The unit pair is now stated in the
+/// harness and enforced here.
+#[test]
+fn the_ladder_arithmetic_holds() {
+    const MIB: f64 = (1u64 << 20) as f64;
+    let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
+
+    // `| `wrap` | ... | **5,850** | 1.0 | 49.1 GB/s |`
+    let mut checked = 0usize;
+    for line in text.lines() {
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        if cells.len() < 6 {
+            continue;
+        }
+        let num = |c: &str| -> Option<f64> {
+            let t: String = c
+                .chars()
+                .filter(|ch| ch.is_ascii_digit() || *ch == '.')
+                .collect();
+            t.parse::<f64>().ok()
+        };
+        // The traffic cell is the one naming GB/s; the two before it are the
+        // rate and the ratio.
+        if !cells[5].contains("GB/s") {
+            continue;
+        }
+        let (Some(rate), Some(cpb), Some(traffic)) = (num(cells[3]), num(cells[4]), num(cells[5]))
+        else {
+            continue;
+        };
+        // Guard against matching some other five-column table: a rung's rate is
+        // thousands of MB/s and its ratio is between one and three.
+        if !(1000.0..20000.0).contains(&rate) || !(0.5..4.0).contains(&cpb) {
+            continue;
+        }
+        let want = rate * MIB * 8.0 * cpb / 1e9;
+        assert!(
+            (want - traffic).abs() / want < 0.02,
+            "ladder row `{}`: {rate} MB/s x 8 x {cpb} cells/byte is {want:.1} GB/s, \
+             the table says {traffic} -- a 4.86% gap here means the rate was \
+             multiplied as decimal when `ingest2` prints mebibytes",
+            cells[1]
+        );
+        checked += 1;
+    }
+    assert_eq!(
+        checked, 4,
+        "expected the ladder's four rungs and matched {checked} rows -- the \
+         table shape changed and this gate is reading something else"
+    );
+}
