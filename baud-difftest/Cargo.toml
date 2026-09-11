@@ -1,7 +1,14 @@
 [package]
 name = "baud-difftest"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+# **Not published, and that became load-bearing when this crate joined the
+# workspace.** `release-plz.toml` releases every publishable member, and this one
+# carries no `license` or `description` -- so a release PR would offer a test
+# harness to crates.io and be rejected for missing metadata. It is an oracle
+# against an external implementation, not a library anyone depends on, so the
+# answer is `publish = false` rather than inventing the metadata.
+publish = false
 
 [dependencies]
 baud-core = { path = "../baud-core", features = ["alloc"] }
