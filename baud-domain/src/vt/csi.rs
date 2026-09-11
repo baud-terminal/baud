@@ -543,6 +543,20 @@ pub enum Csi {
     CursorStyle(CursorStyle),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
+    /// XTMODKEYS, `CSI > 4 ; Pv m` -- `modifyOtherKeys`.
+    ///
+    /// **Only `Pp = 4` is represented, and only levels 0 to 2.**
+    /// `[[source: ctlseqs]]` line 1281 lists seven resources and line 2241 a
+    /// third level, and the ones this does not carry are `Unsupported` and
+    /// counted rather than approximated -- a level rounded down to one the type
+    /// can express is a mode recorded and not acted on, which this project
+    /// rates worse than not implementing it.
+    SetOtherKeys(OtherKeys),
+    /// XTFMTKEYS, `CSI > 4 ; Pv f` -- `formatOtherKeys`.
+    ///
+    /// Which of the two sequence formats [`Csi::SetOtherKeys`] sends. Same
+    /// restriction to `Pp = 4`, for the same reason.
+    SetOtherKeysFormat(OtherKeysFormat),
     /// DECSLRM, `CSI Pl ; Pr s`.
     ///
     /// `[[source: vt510-decslrm]]`: "sets the left and right margins to define
@@ -672,6 +686,43 @@ impl Csi {
                     marker,
                     final_byte: f,
                 },
+            };
+        }
+        // XTMODKEYS and XTFMTKEYS. `[[source: ctlseqs]]` lines 1271 and 795:
+        // both are `CSI > Pp ; Pv <final>`, `Pp` naming one of seven resources
+        // and `Pv` its value, and an omitted `Pv` resets the resource.
+        //
+        // **`Pp = 4` only.** The other six name resources that decide how the
+        // cursor, function and keypad keys carry modifiers, and baud sends
+        // those from `[[source: ctlseqs]]`'s own tables rather than from a
+        // resource -- so accepting them would be recording a mode with nothing
+        // reading it. They fall to `Unsupported` and are counted.
+        if marker == Marker::Gt && matches!(f.raw(), b'm' | b'f') {
+            let pp = p.at(ParamIdx::FIRST).map_or(0, |x| x.0);
+            let pv = p.at(ParamIdx::SECOND).map_or(0, |x| x.0);
+            if pp == 4 {
+                let got = match f.raw() {
+                    b'm' => match pv {
+                        // An omitted `Pv` resets the resource, and `0` is the
+                        // initial value, so both land here.
+                        0 => Some(Csi::SetOtherKeys(OtherKeys::Off)),
+                        1 => Some(Csi::SetOtherKeys(OtherKeys::Level1)),
+                        2 => Some(Csi::SetOtherKeys(OtherKeys::Level2)),
+                        _ => None,
+                    },
+                    _ => match pv {
+                        0 => Some(Csi::SetOtherKeysFormat(OtherKeysFormat::Xterm)),
+                        1 => Some(Csi::SetOtherKeysFormat(OtherKeysFormat::CsiU)),
+                        _ => None,
+                    },
+                };
+                if let Some(c) = got {
+                    return c;
+                }
+            }
+            return Csi::Unsupported {
+                marker,
+                final_byte: f,
             };
         }
         if marker == Marker::Gt {
@@ -926,6 +977,9 @@ impl Csi {
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
 
             RequestVersion | HighlightMouseTracking(_) => Level::Xterm,
+            // XTMODKEYS and XTFMTKEYS are xterm's, and input-side: they change
+            // what the keyboard sends rather than what the screen shows.
+            SetOtherKeys(_) | SetOtherKeysFormat(_) => Level::Xterm,
 
             Unsupported { .. } => return None,
         })

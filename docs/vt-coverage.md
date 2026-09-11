@@ -679,6 +679,9 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 1001 h/l` | highlight tracking | done — recorded in both cores; see the mode table. The "xterm will hang" warning describes an event loop, and neither core has one |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
+| `CSI > 4 ; 2 m` | XTMODKEYS `modifyOtherKeys` | done — `Pv` is the level, 0-2, read by `Term::key`. **Level 3 and the other six resources are refused and counted**, not rounded down: an application that asked for a level it did not get must be able to find out, which is the contract `DECRQM` keeps by answering `0` rather than `2`. See `the_worked_examples_are_what_baud_sends` and `an_unrepresentable_level_is_refused_and_counted` |
+| `CSI > 4 ; 1 f` | XTFMTKEYS `formatOtherKeys` | done — `Pv` picks `CSI 27 ; mod ; code ~` or `[[source: fixterms]]`'s `CSI code ; mod u`. **This is the only route to the `CSI u` form**, which defines no negotiation of its own |
+| `CSI ? Pp m` / `CSI ? Pp g` | XTQMODKEYS / XTQFMTKEYS | **counted and unanswered** — `[[source: ctlseqs]]` line 1310 shapes the reply as `CSI > Pp m` and line 830 as `CSI > Pp f`, both *without* the value, while saying the response "can be used to restore this state" — which it cannot without one. Answering either shape would be answering a query with a shape the application did not ask for, so baud stays silent and counts. The conflict is recorded rather than guessed |
 
 ---
 
@@ -690,8 +693,7 @@ Recorded so that "not implemented" is a decision rather than an omission.
 |---|---|---|
 | `DCS ... q` | Sixel graphics | An image protocol, not a terminal protocol. Large surface, and it does not interact with the ingest architecture baud exists to test. |
 | Kitty graphics `APC G` | image protocol | As above. The `APC` **string must still be consumed** — that is Tier 0, and it is a bug today. |
-| `DCS ... | DECUDK` | user-defined keys | Input-side; baud has no input path. |
-| `CSI > ... m` | XTMODKEYS | Input-side. |
+| `DCS ... | DECUDK` | user-defined keys | **The stated reason expired and the row survives on a new one.** It read "Input-side; baud has no input path", and baud has one -- `encode_key` and `Term::key`. What keeps DECUDK out is that it redefines what a *key* sends, which needs a table of user-programmable strings and a policy for who may set them; the resource above it needs neither. Out on scope, not on absence |
 | ReGIS, Tektronix | vector graphics | Historical; no modern application emits them. |
 | National replacement charsets | DECNRCM | Superseded by UTF-8. Recorded because `[[source: ctlseqs]]` documents them and a reader will ask. |
 

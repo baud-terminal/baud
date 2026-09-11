@@ -21,7 +21,7 @@ three layers, and a row is meaningless without saying which one it belongs to:
 | layer | source | what it is |
 |---|---|---|
 | base | `[[source: ctlseqs]]` | what every terminal sends. Cursor, editing, function and keypad keys, the `CSI 1 ; modifier <final>` form, and `modifyOtherKeys` |
-| CSI-u | `[[source: fixterms]]` | `CSI unicode-key ; modifiers u`, a *proposal* to remove the base's ambiguities |
+| CSI-u | `[[source: fixterms]]` | `CSI unicode-key ; modifiers u`, a *proposal* to remove the base's ambiguities. **It defines no negotiation**, which is why it is not independently implementable: a terminal that simply started sending it would break every application that had not asked. baud reaches it through the base layer's `formatOtherKeys`, and the rows below carry it |
 | kitty | `[[source: kitty-keyboard]]` | progressive enhancement over CSI-u: `CSI > flags u` to push, `CSI < u` to pop, with event types, alternate keys and associated text |
 
 An application asks for the layer it can parse, which is the same shape DECRQM
@@ -49,6 +49,9 @@ DEC line drawing, so it is generated and re-runnable rather than pasted.
 | 2703 | VT52 keys, which do not change with mode | 4 | **done** — `ESC A`-`ESC D`, and DECCKM is asserted *not* to move them: it is an ANSI mode and a VT52 cannot be in one. `the_vt52_cursor_keys_match_the_specification_and_ignore_deccm` |
 | — | text keys: printable characters, Control folding, Backspace, Tab, Shift-Tab, Escape, Return | — | **done** — not a ctlseqs table, because ctlseqs tabulates what has no obvious encoding. `control_folds_a_character_into_its_control_code`, `latin1_input_is_encoded_as_latin1` |
 | 2713 | VT52 keypad | 24 | **done** — `ESC ? <final>` in application mode, the literal character in numeric, `ESC P`-`ESC S` for PF1-PF4 in both. Its finals are the VT220 table's, not 2498's: keypad `2` is `ESC ? r` where the PC keypad sends `CSI B`, because a VT52 keypad has no cursor duties to borrow. `the_vt52_keypad_matches_the_specifications_table` |
+| 1271 | XTMODKEYS `modifyOtherKeys`, `CSI > 4 ; 2 m` | 3 | **done** — levels 0-2. This row did not exist until the resource was implemented, and that is the finding: `modifyOtherKeys` was named in the layer table above as part of the base layer and had **no status row**, so it was invisible to this table's own count while appearing nowhere in the code. A layer named in prose and not enumerated is a layer nothing checks. `the_worked_examples_are_what_baud_sends` |
+| 795 | XTFMTKEYS `formatOtherKeys`, `CSI > 4 ; 1 f` | 2 | **done** — picks which sequence the row above sends, and is therefore **the only route to the CSI-u layer**: `[[source: fixterms]]` defines no negotiation, so its form is unreachable without this resource or kitty's stack |
+| 2241 | `modifyOtherKeys` level 3 | 1 | **out** — unmodified keys sent as sequences. Refused and counted rather than rounded down to level 2, so an application can tell its request did not take. `an_unrepresentable_level_is_refused_and_counted` |
 
 ## Modifiers
 

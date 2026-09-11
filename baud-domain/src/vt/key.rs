@@ -26,10 +26,64 @@ const ESC: u8 = 0x1b;
 /// this struct needs no `bool` -- which `audit_all.sh` gates this crate at
 /// **zero** of, on the grounds that a `bool` field is always a missing
 /// two-state enum.
+/// `modifyOtherKeys`, the resource that decides whether an ordinary key with
+/// modifiers is sent as an escape sequence instead of as a character.
+///
+/// **This is the negotiation `[[source: fixterms]]` does not have.** That
+/// document is a proposal: it says terminals should send `CSI codepoint ;
+/// modifier u` and defines no handshake at all. A terminal that simply started
+/// doing so would break every application that has not asked, which is the same
+/// reasoning that makes `DA` under-claim. xterm's answer is this resource, set
+/// by XTMODKEYS -- so the `CSI u` form is reachable only through here or through
+/// `[[source: kitty-keyboard]]`'s stack, and it is not independently
+/// implementable.
+///
+/// `[[source: ctlseqs]]` line 2221 onward gives the levels. Level 3 -- where
+/// *unmodified* keys are also sent as sequences -- is **not** represented, and
+/// that is deliberate: a level this type cannot express must not be silently
+/// rounded down to one it can, so XTMODKEYS declines it and counts it. An
+/// application then sees that the mode did not take, which is the same contract
+/// `DECRQM` keeps by answering `0` rather than `2`.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum OtherKeys {
+    /// The base layer. Every ordinary key sends its character.
+    #[default]
+    Off,
+    /// Shift and Control behave as they always did; other modifiers -- Alt and
+    /// Meta -- make an ordinary key an escape sequence.
+    Level1,
+    /// Every modifier applies, so `shift-Tab` stops being `CSI Z`.
+    Level2,
+}
+
+/// `formatOtherKeys`, which picks *which* sequence [`OtherKeys`] sends.
+///
+/// Two formats carry the same information and applications disagree about which
+/// they want, so this is a format switch rather than a better answer:
+/// `[[source: ctlseqs]]` line 2247 names the fixterms form's drawback in its own
+/// words -- "applications may confuse it with `CSI u` (restore-cursor)" -- and
+/// that collision is real in this codebase, where `Csi::RestoreCursor` is
+/// exactly `CSI u`. It is not an ambiguity baud can suffer from, because these
+/// bytes are terminal-to-application and SCORC is application-to-terminal, but
+/// it is why the default stays xterm's.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum OtherKeysFormat {
+    /// `CSI 27 ; modifier ; codepoint ~`, xterm's own and the default.
+    #[default]
+    Xterm,
+    /// `CSI codepoint ; modifier u`, which is `[[source: fixterms]]`'s form.
+    CsiU,
+}
+
 #[derive(Clone, Copy)]
 pub struct KeyState {
     pub modes: Modes,
     pub keypad: KeypadMode,
+    /// Whether an ordinary key with modifiers becomes a sequence. Set by
+    /// XTMODKEYS, `CSI > 4 ; Pv m`.
+    pub other_keys: OtherKeys,
+    /// Which sequence it becomes. Set by XTFMTKEYS, `CSI > 4 ; Pv f`.
+    pub other_keys_format: OtherKeysFormat,
     /// Whether `CSI` and `SS3` go out as one byte or two. A key sequence is
     /// terminal-to-application, so `S8C1T` governs it exactly as it governs a
     /// report.
@@ -204,13 +258,42 @@ fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
         }
         KeyCode::Function(f) => function_key(o, f, mods, s),
         KeyCode::Keypad(k) => return keypad_key(o, k, mods, s),
-        KeyCode::Char(cp) => return text_key(o, cp, mods, s),
+        KeyCode::Char(cp) => {
+            // **`modifyOtherKeys` takes the key before the base layer does**,
+            // because the whole point of the resource is to disambiguate
+            // exactly the cases `text_key` cannot express: that function has no
+            // way to say "Control was held" other than by sending a different
+            // character.
+            //
+            // A codepoint past `u16` falls through instead. `Param` saturates
+            // at 65535, so an astral character cannot be named by either
+            // format, and a saturated parameter would name a *different*
+            // character -- the same reason X10 mouse reporting refuses a
+            // position it cannot encode rather than truncating it.
+            match (other_keys_takes(mods, s), u16::try_from(cp.value())) {
+                (true, Ok(v)) => other_key(o, v, mods, s),
+                _ => return text_key(o, cp, mods, s),
+            }
+        }
         // `[[source: ctlseqs]]` line 253: BS is Ctrl-H. Which byte the
         // *Backspace key* sends is a different question -- DECBKM (`?67`)
         // chooses, and baud does not implement it, so this is xterm's default
         // with `backarrowKey` false.
+        // The C0 keys. `[[source: fixterms]]`'s "Modified C0 controls" names the
+        // codepoint each is encoded with -- Enter 13, Escape 27, Backspace 127,
+        // Tab 9 -- which are their ASCII values rather than anything new.
+        KeyCode::Backspace if other_keys_takes(mods, s) => other_key(o, 0x7f, mods, s),
         KeyCode::Backspace => o.push(0x7f),
+        KeyCode::Escape if other_keys_takes(mods, s) => other_key(o, 0x1b, mods, s),
         KeyCode::Escape => o.push(0x1b),
+        // **Shift-Tab is the discriminating case for level 2**, and
+        // `[[source: ctlseqs]]` line 2237 says so in the example it chooses:
+        // "shift-Tab sends `CSI 2 7 ; 2 ; 9 ~` **rather than** `CSI Z`". So the
+        // resource does not merely add sequences, it replaces one the base
+        // layer already sends -- which is why the order of these two arms is
+        // load-bearing and why the tests assert `CSI Z` still comes out at
+        // levels 0 and 1.
+        KeyCode::Tab if other_keys_takes(mods, s) => other_key(o, 0x09, mods, s),
         KeyCode::Tab => match mods.has(Modifiers::SHIFT) {
             // CBT. Shift-Tab is the one text key that is a sequence, and it is
             // `CSI Z` rather than a modified HT.
@@ -220,6 +303,7 @@ fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
             }
             false => o.push(0x09),
         },
+        KeyCode::Enter if other_keys_takes(mods, s) => other_key(o, 0x0d, mods, s),
         KeyCode::Enter => o.ret(s),
     }
     true
@@ -491,6 +575,62 @@ fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState) {
         o.num(u16::from(mods.wire()));
     }
     o.all(b"~");
+}
+
+/// Does `modifyOtherKeys` take this key press, instead of the base layer?
+///
+/// `[[source: ctlseqs]]` line 2224 onward, quoted because the two levels differ
+/// in exactly one word:
+///
+/// * level 1 -- "the usual shift- and control-modifiers work as expected, but
+///   **other** modifiers (such as alt- and meta-modifiers) cause ordinary keys
+///   to be encoded as if they were function-keys";
+/// * level 2 -- "**all** of the modifiers apply".
+///
+/// So level 1 asks whether Alt or Meta is held and level 2 whether anything is,
+/// and an unmodified key is never taken at either -- that is level 3, which
+/// [`OtherKeys`] deliberately cannot express.
+fn other_keys_takes(mods: Modifiers, s: KeyState) -> bool {
+    match s.other_keys {
+        OtherKeys::Off => false,
+        OtherKeys::Level1 => mods.has(Modifiers::ALT) || mods.has(Modifiers::META),
+        OtherKeys::Level2 => !mods.is_none(),
+    }
+}
+
+/// An ordinary key, sent as a sequence because `modifyOtherKeys` is set.
+///
+/// Two formats carry the same three facts, and `[[source: ctlseqs]]` gives an
+/// example of each:
+///
+/// * `formatOtherKeys` 0 -- `CSI 27 ; modifier ; codepoint ~`, so alt-Tab is
+///   `CSI 27 ; 3 ; 9 ~` (line 2229);
+/// * `formatOtherKeys` 1 -- `CSI codepoint ; modifier u`, so the same key is
+///   `CSI 9 ; 3 u` (line 2249), which is `[[source: fixterms]]`'s form.
+///
+/// **The modifier is written even when it is 1.** Every other encoder here
+/// omits a default parameter, and this one must not: the xterm form's `27` is a
+/// literal first parameter rather than a key number, so `CSI 27 ; 1 ; 32 ~`
+/// and `CSI 27 ; 32 ~` are different sequences, and the second is a modified
+/// F-key. The fixterms form keeps the modifier for symmetry with it -- a bare
+/// `CSI 9 u` would be SCORC's shape with a parameter.
+fn other_key(o: &mut KeyBytes, cp: u16, mods: Modifiers, s: KeyState) {
+    o.introducer(Introducer::Csi, s.c1);
+    match s.other_keys_format {
+        OtherKeysFormat::Xterm => {
+            o.all(b"27;");
+            o.num(u16::from(mods.wire()));
+            o.all(b";");
+            o.num(cp);
+            o.all(b"~");
+        }
+        OtherKeysFormat::CsiU => {
+            o.num(cp);
+            o.all(b";");
+            o.num(u16::from(mods.wire()));
+            o.all(b"u");
+        }
+    }
 }
 
 /// `CSI A` / `SS3 A`, or `CSI 1 ; mod A` when modified.

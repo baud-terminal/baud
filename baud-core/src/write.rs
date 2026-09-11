@@ -1550,6 +1550,18 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // are baud. Read a refusal against its scope, which this file says to
         // do and which has closed four others.
         DomCsi::RequestVersion => p.want_reply(Report::Version),
+        // **XTMODKEYS and XTFMTKEYS: recorded here and read by `Term::key`.**
+        // They land in `Cold` rather than on `Paint` because no byte of the
+        // ingest loop reads them -- they are written once per control sequence
+        // and consulted once per key press, which is exactly the split `Cold`
+        // exists for.
+        //
+        // Parsing them without the encoder acting on them would be a mode
+        // recorded and never read, which `docs/vt-coverage.md` rates worse than
+        // not implementing the sequence at all -- so the two halves landed in
+        // one change.
+        DomCsi::SetOtherKeys(k) => p.cold.other_keys = k,
+        DomCsi::SetOtherKeysFormat(k) => p.cold.other_keys_format = k,
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]

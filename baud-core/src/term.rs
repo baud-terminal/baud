@@ -163,6 +163,13 @@ pub struct Cold {
     /// 8-bit `9B` can only be a control under Latin-1. Transmitting is the
     /// application's choice and it makes it with `ESC SP F` / `ESC SP G`.
     pub(crate) c1: C1Transmit,
+    /// XTMODKEYS `modifyOtherKeys`, and XTFMTKEYS `formatOtherKeys`.
+    ///
+    /// **In `Cold` because they are written once per control sequence and read
+    /// once per key press, which is the split this struct exists for.** Neither
+    /// is on the ingest path at all: no byte of `feed` reads them.
+    pub(crate) other_keys: OtherKeys,
+    pub(crate) other_keys_format: OtherKeysFormat,
     pub(crate) encoding: InputEncoding,
     pub(crate) ambiguous: AmbiguousWidth,
     pub(crate) cursor_style: CursorStyle,
@@ -193,6 +200,10 @@ impl Cold {
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
             c1: C1Transmit::SevenBit,
+            // The base layer, which is what an application that has not asked
+            // for an enhancement must receive.
+            other_keys: OtherKeys::Off,
+            other_keys_format: OtherKeysFormat::Xterm,
             encoding: InputEncoding::Utf8,
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
@@ -1091,6 +1102,8 @@ impl<'b> Term<'b> {
             c1: C1Transmit::SevenBit,
             terminal: self.cold.terminal,
             encoding: self.cold.encoding,
+            other_keys: self.cold.other_keys,
+            other_keys_format: self.cold.other_keys_format,
         };
         let Some(k) = encode_key(e, s) else {
             return false;
