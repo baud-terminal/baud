@@ -167,8 +167,9 @@ counters say from within.
 These are committed recordings of real programs, in `tests/recordings/`.
 
 And on generated payloads, where every core is driven through the same
-harness. `payload::streaming` models `cat`, logs and build output;
-`payload::tui` models a full-screen redraw.
+harness. The streaming payload models `cat`, logs and build output;
+the TUI payload models a full-screen redraw. `multibench` generates both, so
+every core is handed the same bytes.
 
 | core | streaming | TUI redraw |
 |---|---|---|
