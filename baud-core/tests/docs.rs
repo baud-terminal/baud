@@ -506,3 +506,74 @@ fn the_ladder_arithmetic_holds() {
          table shape changed and this gate is reading something else"
     );
 }
+
+/// **Every row of the cycles-per-byte table must imply the same clock.**
+///
+/// `cycles/byte = clock / (MB/s * 2^20)`, so each row carries a clock and the
+/// seven of them must agree -- they were taken on one box in one run. A
+/// throughput edited without its cycle figure, or the reverse, breaks that
+/// agreement and nothing else would notice: both columns stay individually
+/// plausible.
+///
+/// **The value is deliberately not pinned.** Asserting 4.20 GHz would make this
+/// gate wrong the day the table is honestly re-measured on another machine,
+/// which is the opposite of what it is for. What cannot change is that the rows
+/// agree with *each other*, whatever box they came from -- so that is the
+/// assertion, and the implied clock is reported rather than required.
+#[test]
+fn the_cycles_per_byte_table_agrees_with_itself() {
+    const MIB: f64 = (1u64 << 20) as f64;
+    let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
+
+    let mut clocks: Vec<(String, f64)> = Vec::new();
+    let mut in_table = false;
+    for line in text.lines() {
+        if line.starts_with("| payload | MB/s | cycles/byte |") {
+            in_table = true;
+            continue;
+        }
+        if in_table {
+            if !line.starts_with('|') {
+                break;
+            }
+            let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+            if cells.len() < 5 {
+                continue;
+            }
+            let num = |c: &str| -> Option<f64> {
+                let t: String = c
+                    .chars()
+                    .filter(|ch| ch.is_ascii_digit() || *ch == '.')
+                    .collect();
+                t.parse::<f64>().ok()
+            };
+            if let (Some(mbs), Some(cpb)) = (num(cells[2]), num(cells[3])) {
+                if mbs > 1.0 && cpb > 0.0 {
+                    clocks.push((cells[1].to_string(), mbs * MIB * cpb / 1e9));
+                }
+            }
+        }
+    }
+
+    // Positive control: the table has seven payload rows, and a reader that
+    // found fewer is reading something else.
+    assert_eq!(
+        clocks.len(),
+        7,
+        "expected seven rows in the cycles-per-byte table, found {} -- the \
+         table shape changed and this gate is no longer reading it",
+        clocks.len()
+    );
+
+    let lo = clocks.iter().map(|(_, c)| *c).fold(f64::MAX, f64::min);
+    let hi = clocks.iter().map(|(_, c)| *c).fold(0.0, f64::max);
+    assert!(
+        (hi - lo) / lo < 0.02,
+        "the rows imply clocks from {lo:.2} to {hi:.2} GHz, which cannot all be \
+         one machine in one run: {:?}",
+        clocks
+            .iter()
+            .map(|(n, c)| format!("{n} {c:.2}"))
+            .collect::<Vec<_>>()
+    );
+}
