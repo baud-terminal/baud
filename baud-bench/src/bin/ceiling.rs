@@ -84,9 +84,34 @@ fn main() {
     }
 
     // 1. Read every byte of a 64 MB buffer.
+    //
+    // **Two arms, because the obvious one does not measure a read.** Summing
+    // into a `u64` widens every byte eightfold, so sixteen bytes loaded become
+    // 128 bytes of vector lanes before a single add -- the loop is bound by the
+    // widening, not by memory, and it reported **slower than `memcpy`**. That
+    // is impossible on its face: `memcpy` moves the same bytes in and the same
+    // bytes out again, so it cannot beat a pure read. When the number is
+    // impossible the harness is wrong, and this file already says so.
+    //
+    // The wide arm reads the same bytes eight at a time and folds them with one
+    // `xor`, which is the least work a read can be asked to do while still
+    // being observed.
     let src: Vec<u8> = (0..BUF).map(|i| (i & 0xff) as u8).collect();
     best(
-        "read every byte of a 64 MB buffer",
+        "read a 64 MB buffer, 8 bytes at a time",
+        || {
+            let mut acc = 0u64;
+            for c in src.chunks_exact(8) {
+                let w: [u8; 8] = c.try_into().expect("chunks_exact(8)");
+                acc ^= u64::from_ne_bytes(w);
+            }
+            black_box(acc);
+            BUF
+        },
+        true,
+    );
+    best(
+        "the same, summed byte-at-a-time into a u64",
         || {
             let mut acc = 0u64;
             for &b in src.iter() {
