@@ -12,6 +12,8 @@ zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 
 [features]
 probe-double-fold = []
+probe-double-sgr-color = []
+probe-sgr-color-reborrow = []
 colour-in-match = []
 # The per-character row-extent read-modify-write, priced by doing it twice.
 # Identical work, so every counter and every extent is unchanged and the cost

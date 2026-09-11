@@ -249,6 +249,43 @@ impl SgrAttr {
     /// the colon/semicolon distinction below is the part that is easy to get
     /// wrong, and one copy of it cannot drift from another.
     fn parse_color(params: Params<'_>, v: u16) -> Option<(SgrAttr, ParamCount)> {
+        // **Prices the colour arm apart from the 46-arm dispatch above it.**
+        //
+        // `probe-double-sgr` prices `parse` whole and `probe-double-fold` the
+        // fold, so between them the parse is 15.3% of btop and 11.8% of
+        // asciiquarium -- and nothing said *which part*. The two payloads
+        // disagree about which arm they take: btop is 47% truecolour and
+        // asciiquarium's SGRs are almost all `ESC [ 4 0 m`, a single parameter
+        // that never reaches here. So doubling this arm alone separates the two
+        // hypotheses -- if asciiquarium is unmoved and btop is not, the cost is
+        // the colour parse; if neither moves, it is the dispatch.
+        //
+        // Pure: it reads `params` and returns, touching no counter, so the
+        // discarded call changes nothing an arm could be accused of moving.
+        // **The scratch, priced on its own.** `probe-double-sgr-color` calls
+        // `reborrow`, which the real path does not, and this project has been
+        // caught once already reporting an additive probe's scaffolding as the
+        // thing it was measuring -- `probe-csi-scratch` exists because a
+        // `Csi::NEW` zeroed 128 bytes per sequence that the real walk never
+        // paid. So this arm does the reborrow and nothing else, and the colour
+        // arm's cost is the difference.
+        #[cfg(feature = "probe-sgr-color-reborrow")]
+        {
+            let again = params.reborrow();
+            core::hint::black_box(&again);
+        }
+        #[cfg(feature = "probe-double-sgr-color")]
+        {
+            // `Params` is not `Copy`, and a clone would price the clone. It
+            // borrows, so rebuilding one from the same slice and mask is the
+            // same object by value at no cost the real path does not pay.
+            let again = Self::parse_color_once(params.reborrow(), v);
+            core::hint::black_box(&again);
+        }
+        Self::parse_color_once(params, v)
+    }
+
+    fn parse_color_once(params: Params<'_>, v: u16) -> Option<(SgrAttr, ParamCount)> {
         Some({
             let mk = |c| match v {
                 38 => SgrAttr::Fg(c),

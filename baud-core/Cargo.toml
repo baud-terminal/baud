@@ -194,6 +194,8 @@ probe-double-text-scan = []
 probe-double-sgr = []
 probe-sgr-copy = []
 probe-double-fold = ["baud-domain/probe-double-fold"]
+probe-double-sgr-color = ["baud-domain/probe-double-sgr-color"]
+probe-sgr-color-reborrow = ["baud-domain/probe-sgr-color-reborrow"]
 colour-in-match = ["baud-domain/colour-in-match"]
 # The rendition intern priced by doing it twice.
 probe-double-intern = []

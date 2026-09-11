@@ -309,6 +309,23 @@ impl<'a> Params<'a> {
             sub: self.sub.drop_first(k),
         }
     }
+    /// The same parameters again, by value.
+    ///
+    /// `Params` holds a borrow and a mask and is deliberately not `Copy` -- the
+    /// type exists so a positional read cannot be spelled twice by accident.
+    /// A probe that needs to run a parse twice needs the same object without
+    /// cloning the data, and that is exactly this: two words, no allocation,
+    /// nothing the real path does not already do when it constructs one.
+    #[cfg(any(
+        feature = "probe-double-sgr-color",
+        feature = "probe-sgr-color-reborrow"
+    ))]
+    pub(crate) fn reborrow(&self) -> Params<'a> {
+        Params {
+            v: self.v,
+            sub: self.sub,
+        }
+    }
     pub(crate) fn at(&self, i: ParamIdx) -> Option<Param> {
         self.v.get(i.0 as usize).copied().flatten()
     }
