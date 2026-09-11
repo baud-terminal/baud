@@ -1487,6 +1487,86 @@ mod classes {
         }
     }
 
+    /// **`split`'s wildcard means "Char4", and only `feed` makes that true.**
+    ///
+    /// `split` ends in `_ => edge(Act::Begin4, ...)`, so any act reaching it
+    /// that is not `Char2` or `Char3` is taken to owe four bytes. Nothing in
+    /// `split` establishes that. What does is one line in `feed`:
+    ///
+    /// ```text
+    /// if !left.holds(e.act.width()) { e = split(e.act, *node); }
+    /// ```
+    ///
+    /// `width` is `ONE` for every act but the three character ones, and the
+    /// loop runs only while a byte remains, so `left.holds(ONE)` cannot fail
+    /// and `split` is unreachable for them. The invariant is real and it lives
+    /// in a different file from the wildcard that depends on it.
+    ///
+    /// Give `width` a value above one for some other act -- a five-byte
+    /// encoding, a fused action -- and that act starts arriving at `split`,
+    /// which will quietly tell the parser to wait for four bytes. It would not
+    /// fail to compile and no existing test would notice: the graph still
+    /// terminates, chunk invariance still holds at every read size that does
+    /// not land inside such a character, and the cells only differ on input the
+    /// corpus does not contain.
+    ///
+    /// So the assumption is checked rather than commented. This is the cheap
+    /// half of the plan's "`split` as a table" step; the table itself is
+    /// dropped, and the reason is in `CLAUDE.md`.
+    #[test]
+    fn only_the_character_acts_are_wider_than_one_byte() {
+        let mut wide = Vec::new();
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in Node::FROM_INDEX {
+                for i in 0..256usize {
+                    let a = Edge::of(enc, node, StreamByte::ALL[i]).act;
+                    if a.width().index() > 1 {
+                        wide.push(a);
+                    }
+                }
+            }
+        }
+        // Positive control: the walk must find the three character acts, or it
+        // is asserting over an empty set and cannot fail.
+        assert!(
+            wide.iter().any(|a| matches!(a, Act::Char2))
+                && wide.iter().any(|a| matches!(a, Act::Char3))
+                && wide.iter().any(|a| matches!(a, Act::Char4)),
+            "the walk did not reach all three character acts -- it is checking \
+             nothing"
+        );
+        for a in wide {
+            assert!(
+                matches!(a, Act::Char2 | Act::Char3 | Act::Char4),
+                "{a:?} is wider than one byte, so it can reach `split`, whose \
+                 wildcard would treat it as Char4 and wait for four bytes"
+            );
+        }
+    }
+
+    /// And `split` maps each of the three to the length it actually owes.
+    ///
+    /// The wildcard is right for `Char4` only if `Char2` and `Char3` are taken
+    /// by the arms above it -- a transposition here would park the accumulator
+    /// waiting for the wrong number of continuations, which is a screen that
+    /// depends on where the reads fell.
+    #[test]
+    fn split_owes_the_bytes_the_character_actually_has() {
+        for ground in [Node::Ground, Node::Vt52Ground] {
+            for (act, want) in [
+                (Act::Char2, Act::Begin2),
+                (Act::Char3, Act::Begin3),
+                (Act::Char4, Act::Begin4),
+            ] {
+                assert_eq!(
+                    split(act, ground).act,
+                    want,
+                    "{act:?} from {ground:?} must owe its own continuations"
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_step_of_the_loop_advances() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
