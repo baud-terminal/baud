@@ -693,7 +693,7 @@ Recorded so that "not implemented" is a decision rather than an omission.
 | seq | name | why not |
 |---|---|---|
 | `DCS ... q` | Sixel graphics | An image protocol, not a terminal protocol. Large surface, and it does not interact with the ingest architecture baud exists to test. |
-| Kitty graphics `APC G` | image protocol | As above. The `APC` **string must still be consumed** — that is Tier 0, and it is a bug today. |
+| Kitty graphics `APC G` | image protocol | As above — and **not to be confused with `[[source: kitty-keyboard]]`**, which shares a vendor and nothing else: one is images over `APC`, the other key encoding over `CSI ... u`. The `APC` **string must still be consumed** — that is Tier 0. ~~and it is a bug today~~ **It is not: the claim outlived the defect.** Measured rather than assumed, an `APC G` command leaves the screen untouched and is counted, and `every_control_string_is_consumed_and_the_text_after_it_is_not` now pins it for all five string types together with `a_control_string_survives_a_read_boundary`, because an image payload is kilobytes and never arrives in one `read(2)` |
 | `DCS ... | DECUDK` | user-defined keys | **The stated reason expired and the row survives on a new one.** It read "Input-side; baud has no input path", and baud has one -- `encode_key` and `Term::key`. What keeps DECUDK out is that it redefines what a *key* sends, which needs a table of user-programmable strings and a policy for who may set them; the resource above it needs neither. Out on scope, not on absence |
 | ReGIS, Tektronix | vector graphics | Historical; no modern application emits them. |
 | National replacement charsets | DECNRCM | Superseded by UTF-8. Recorded because `[[source: ctlseqs]]` documents them and a reader will ask. |
