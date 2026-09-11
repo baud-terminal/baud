@@ -13,7 +13,7 @@ name = "baud-bench"
 version = "0.1.0"
 dependencies = [
  "baud-core",
- "baud-core2",
+ "baud-domain",
  "libc",
  "zerocopy",
 ]
@@ -24,21 +24,6 @@ version = "0.1.0"
 dependencies = [
  "baud-core",
  "baud-domain",
- "baud-isa",
- "baud-isa-aarch64",
- "baud-isa-x86-64",
- "proptest",
-]
-
-[[package]]
-name = "baud-core2"
-version = "0.1.0"
-dependencies = [
- "baud-core2",
- "baud-domain",
- "baud-isa",
- "baud-isa-aarch64",
- "baud-isa-x86-64",
  "proptest",
  "zerocopy",
 ]

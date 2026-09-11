@@ -40,9 +40,9 @@ missing is everything between that grid and a window.
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [ahead of ghostty on all nine recordings](#the-number) — 1.73–5.70× on committed capture |
-| Scrollback | ◐ **`baud-core2` only** — stored and measured, `SB = 10_000` lines, but no accessor reads above the viewport, so it is storage rather than a feature. The newer `baud-core` has none: retired rows are overwritten by `RowRot` |
-| Input path | ◐ sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done). `baud-core2` encodes the base layer in `Term::key`: cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, and the meta/alt modes. `baud-core` now records and exposes the state that encoder needs — DECCKM, DECKPAM/DECKPNM, `?1036`, `?1039`, `?1034` — but the encoder itself is not yet ported. The two *negotiated* enhancements, fixterms `CSI u` and kitty progressive enhancement, are unbuilt in both |
-| Reply channel | ◐ both cores have one, caller-provided. `baud-core` answers `DA` (under-claiming as a VT102) and `DSR` 5/6; `DECRQM`, `XTVERSION`, `DECSCUSR` and highlight tracking are recognised and counted but unanswered there, each for a named reason. `baud-core2` answers the full set |
+| Scrollback | ⬜ not implemented. `baud-core2` stored `SB = 10_000` lines and **no accessor read above the viewport**, so it was never a feature; `baud-core` does not store them at all — retired rows are overwritten by `RowRot`. Building it needs a ring the viewport is a window into, so a retired line stays put and the window moves |
+| Input path | ◐ sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done). The base layer is `baud_domain::encode_key` — cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, the meta/alt modes — and `baud-core::Term::key` reads the five modes off the terminal and calls it. It lives in the domain rather than in a core because nothing in it touches the grid. The two *negotiated* enhancements, fixterms `CSI u` and kitty progressive enhancement, are unbuilt |
+| Reply channel | ◐ caller-provided. `baud-core` answers `DA` (under-claiming as a VT102), `DSR` 5/6 and `DECRQSS`; `DECRQM`, `XTVERSION` and highlight tracking are recognised and counted but unanswered, each for a named reason — a wrong-shaped answer is worse than silence |
 | Renderer | ⬜ not started |
 | Font shaping | ⬜ not started — and the largest unknown in the project |
 
@@ -129,29 +129,35 @@ Every core is driven with the same bytes and given 10,000 lines of scrollback.
 Full tables, other hosts, and every caveat in
 [MEASUREMENTS.md](MEASUREMENTS.md).*
 
-| recording | baud-core | baud-core2 | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|---|
-| `ascii/cat-scroll.raw` | **1896.9** | 1107.2 | 441.9 | 207.7 | **4.29x** |
-| `ascii/git-log.raw` | **1881.4** | 1275.9 | 544.9 | 218.2 | **3.45x** |
-| `ascii/less-pager.raw` | **1734.0** | 1219.5 | 304.3 | 246.2 | **5.70x** |
-| `utf8/btop.raw` | **925.6** | 792.6 | 518.1 | 341.7 | **1.79x** |
-| `utf8/vim-unicode.raw` | **773.8** | 508.8 | 367.1 | 295.0 | **2.11x** |
-| `utf8/less-cjk.raw` | **729.0** | 478.8 | 257.1 | 273.2 | **2.84x** |
-| `utf8/cat-cjk.raw` | **710.3** | 467.5 | 411.0 | 228.2 | **1.73x** |
-| `utf8/cava.raw` | **587.6** | 457.7 | 325.1 | 380.8 | **1.81x** |
-| `ascii/asciiquarium.raw` | **579.9** | 372.9 | 203.8 | 252.4 | **2.85x** |
+| recording | baud-core | ghostty | alacritty | **vs ghostty** |
+|---|---|---|---|---|
+| `ascii/cat-scroll.raw` | **1896.9** | 441.9 | 207.7 | **4.29x** |
+| `ascii/git-log.raw` | **1881.4** | 544.9 | 218.2 | **3.45x** |
+| `ascii/less-pager.raw` | **1734.0** | 304.3 | 246.2 | **5.70x** |
+| `utf8/btop.raw` | **925.6** | 518.1 | 341.7 | **1.79x** |
+| `utf8/vim-unicode.raw` | **773.8** | 367.1 | 295.0 | **2.11x** |
+| `utf8/less-cjk.raw` | **729.0** | 257.1 | 273.2 | **2.84x** |
+| `utf8/cat-cjk.raw` | **710.3** | 411.0 | 228.2 | **1.73x** |
+| `utf8/cava.raw` | **587.6** | 325.1 | 380.8 | **1.81x** |
+| `ascii/asciiquarium.raw` | **579.9** | 203.8 | 252.4 | **2.85x** |
 
 Ahead on all nine, 1.73x to 5.70x, and the closest row is `cat-cjk` — the
 recording whose name oversells it, since a quarter of its bytes are emoji and
 those are cluster-breaking rather than CJK.
 
-**Two cores, and the columns are not the same program.** `baud-core` is the
-newer one and every headline figure is its; `baud-core2` is beside it because
-the two differ in what they *are*, not only in speed — core2 has scrollback, a
-full reply channel and a key encoder, and `baud-core` has none of the first and
-part of the second. The ingest comparison is like for like (both parse the same
-bytes into the same grid); the engineering contract is not, which is the rule
-this repo applies to ghostty and so applies to itself.
+**There is one core.** `baud-core2` was the previous implementation and the
+reference this one was checked against; it has been deleted, and every row above
+is `baud-core`. For the record of what it read on the same bytes and the same
+box — cat-scroll 1107.2, git-log 1275.9, less-pager 1219.5, btop 792.6, vim
+508.8, less-cjk 478.8, cat-cjk 467.5, cava 457.7, asciiquarium 372.9 — the newer
+core is 1.16x to 1.71x ahead of it while rendering all nine cell for cell.
+
+What it carried that went with it was an oracle, not a feature: the only thing
+lost is the ability to drive two implementations over the same bytes and compare
+10,000 cells. Its rendering is frozen as data in `baud-core/tests/golden.rs`
+instead, which is strictly weaker — a golden capture finds regressions only on
+bytes somebody wrote down — and `baud-difftest` is now the one instrument that
+can disagree from outside.
 
 **`alacritty` beats `ghostty` on `cava` and on nothing else here.** cava is the
 one recording that scrolls inside a scrolling region it sets, and that is where
@@ -167,7 +173,6 @@ harness. `payload::streaming` models `cat`, logs and build output;
 | core | streaming | TUI redraw |
 |---|---|---|
 | **baud-core** | **3206.7** [3172.1-3234.1] | **2340.4** [2269.8-2377.7] |
-| baud-core2 | 2040.1 [2022.2-2058.7] | 1697.7 [1674.0-1752.7] |
 | ghostty (libghostty-vt) | 640.5 [582.1-681.8] | 1061.8 [1043.0-1078.9] |
 | termwiz (wezterm) parse only | 380.5 [371.5-383.4] | 366.7 [360.8-370.2] |
 | alacritty_terminal | 218.3 [201.3-227.4] | 273.7 [268.0-276.5] |
@@ -192,8 +197,8 @@ Two things belong with the number rather than under it:
 
 ```
 baud-domain/   the type system: quantities, VT operations, reports. no_std, no unsafe.
-baud-core/     the ingest core: parser, grid, scrollback. no_std, one unsafe block.
-baud-bench/    PTY harness — the numbers above come from here.
+baud-core/     the ingest core: parser and grid. no_std, no unsafe, one dependency.
+baud-bench/    ingest2, the single-payload instrument, and transport, the PTY ceiling.
 baud-difftest/ differential test against alacritty_terminal.
 bench-others/  the cross-implementation comparison.
 ```
@@ -244,15 +249,13 @@ confident guesses more than once, and the commit log says where.
   220,000× cliff.
 - **Reflow, selection, search.** All need random access by `(line, column)`
   into variable-length spans.
-- **Scrollback as a feature.** In `baud-core2` lines above the viewport are
-  stored, but nothing reads them — there is no accessor, so it is storage
-  rather than scrollback. In `baud-core` they are not stored at all.
-- **The two cores are not the same program.** Every throughput row below is
-  `baud-core`, which is the faster one and has neither scrollback, a reply
-  channel, nor an input path; `baud-core2` has all three. The ingest comparison
-  is like for like — both parse the same bytes into the same grid — but the
-  engineering contract is not, and this repo already applies that rule to
-  ghostty, so it applies it to itself.
+- **Scrollback.** Not stored. `baud-core2` stored it and nothing read it —
+  there was no accessor above the viewport, so it was never scrollback — and
+  `baud-core` does not store it at all. Either way there is nothing to scroll
+  back to until a renderer exists.
+- **A second implementation to check against.** `baud-core2` was that, and it
+  is gone; what it rendered is frozen as golden data, which catches regressions
+  on recorded bytes and cannot find an operation nobody wrote a test for.
 - **Concurrency and GPU.** Unevaluable on the hardware to hand.
 
 ## Releases

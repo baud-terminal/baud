@@ -12,7 +12,7 @@
 //! recover a confused terminal was dropped onto the primary screen mid-draw,
 //! and the primary's saved contents went with it (`alt_saved = None`).
 //!
-//! Found by `the_alt_screen_never_leaks_into_the_primary` once the generator
+//! Found by core2's alternate-screen isolation property once the generator
 //! could emit `CSI ! p` at all — it shrank to `[Decstr, Sgr(1), El(0), ...]`.
 //! DECSTR is a `done` row and had been for a long time; what was missing was
 //! an input shape, not an implementation.
@@ -179,7 +179,7 @@ fn a_grow_after_scrolling_does_not_panic() {
 /// no column 201"); writes and erases index with `cy`, and `View::phys` is a
 /// single conditional subtract that assumes it is in range.
 ///
-/// Found by `resize_between_reads_is_sound`, which shrank to
+/// Found by core2's resize-between-reads property, which shrank to
 /// `[CupHuge, Decslrm]` / `[Restore]` at one row by one column.
 #[test]
 fn a_cursor_saved_before_a_resize_is_clamped_on_restore() {

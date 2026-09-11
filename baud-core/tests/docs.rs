@@ -152,7 +152,6 @@ fn every_relative_link_resolves() {
 fn every_repository_path_named_in_the_docs_exists() {
     const ROOTS: &[&str] = &[
         "baud-core/",
-        "baud-core2/",
         "baud-domain/",
         "baud-bench/",
         "bench-others/",
@@ -218,7 +217,7 @@ fn expand_braces(tok: &str) -> Vec<String> {
 /// **Every test named in a document exists.**
 ///
 /// Documents point at tests by name as evidence — "`no_row_is_unfinished` fails
-/// if one does", "`a_private_marker_after_a_parameter_is_ignored` pins both".
+/// if one does", "`a_marker_after_a_dcs_parameter_is_ignored` pins both".
 /// A named test that has been renamed or deleted is a citation to nothing, and
 /// it reads exactly like a citation to something.
 #[test]

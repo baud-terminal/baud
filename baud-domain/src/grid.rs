@@ -940,7 +940,7 @@ impl<'a> View<'a> {
     ///
     /// `Term::selective_wipe` needs it: DECSEL walks the span cell by cell
     /// testing each for protection, so it never reaches `fill` and would not
-    /// otherwise widen. `without_decsca_selective_equals_plain` found that at
+    /// otherwise widen. core2's no-DECSCA property found that at
     /// 20,000 cases the moment plain erase started snapping and selective did
     /// not -- the two must agree when nothing is protected, and a property that
     /// compares two implementations catches exactly the divergence a
@@ -1017,7 +1017,8 @@ impl<'a> View<'a> {
         // the bit without raising the mark left the row non-uniform beyond its
         // own extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a
         // mark that `CSI 1 J` left alone, which
-        // `decsed_matches_ed_when_nothing_was_protected` reports.
+        // `selective_erase_matches_plain_erase_when_nothing_is_protected`
+        // reports.
         //
         // This is the same defect `ECH` at the last column already had, and
         // that this file records: an operation that makes a cell differ from
@@ -1077,7 +1078,7 @@ impl<'a> View<'a> {
         //
         // **The mark is not "where glyphs are". It is "where the row stops
         // being uniform".** Those coincide most of the time and the difference
-        // is a real bug that `a_cleared_screen_is_fully_erasable` caught: `ECH`
+        // is a real bug that core2's cleared-screen property caught: `ECH`
         // at the last column writes a *styled* blank there, which holds no
         // glyph but does not match the default blanks in front of it. Lowering
         // the mark to zero on that basis left the row non-uniform behind its

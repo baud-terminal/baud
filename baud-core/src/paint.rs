@@ -234,6 +234,14 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **One destructure, one view.** `arena` and `vp` are different fields of
     /// the same `Storage`, so splitting the single `&mut` is what lets a run be
     /// blitted straight out of the arena with no copy in between.
+    ///
+    /// One borrow per field it needs, and a config struct would defeat the
+    /// purpose: this file measures `Cold` carried by value against `Cold`
+    /// carried by reference at 1.5-4%, because `Paint` is inlined into the
+    /// per-character loop and what that loop carries is the cost. A grouping
+    /// type would put a pointer where a borrow is. The audit gates the *types*
+    /// of these, which is the check with teeth.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         store: &'a mut Storage<'b>,
         cy: Row,

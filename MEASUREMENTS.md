@@ -131,7 +131,7 @@ the same throughput. asciiquarium is three times denser and slower to match.
 
 ## baud's representations
 
-`OpMode` is fixed when a `Term` is constructed. `baud-bench/src/bin/ingest.rs`,
+`OpMode` is fixed when a `Term` is constructed. `baud-bench/src/bin/ingest2.rs`,
 one payload in memory with no fork and no PTY, medians over 200 reps, MB/s.
 
 | payload | `Runs` | `Computed` | `Templated` |
@@ -158,7 +158,7 @@ leads on exactly the payloads where deferral is worth most.
 
 `Storage::boxed()` is ~24 MB *virtual*. Measured RSS after allocating it,
 initialising a 50x200 grid and feeding data is **+0.3 MB**: untouched pages are
-never faulted in. `baud-core2/tests/perf_floor.rs` asserts the bound.
+never faulted in. `baud-core/tests/fixed.rs` asserts the bound.
 
 ## Write amplification
 

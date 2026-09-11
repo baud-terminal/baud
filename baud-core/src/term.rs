@@ -431,7 +431,7 @@ impl<'b> Term<'b> {
                 let row = ((b0 - 0xE0) * 64 + (b1 - 0x80)) * 256;
                 // Table 3-7: `E0` needs `A0..BF` and `ED` needs `80..9F`, or the
                 // sequence is overlong or a surrogate.
-                let ok = !(b0 == 0xE0 && b1 < 0xA0) && !(b0 == 0xED && b1 > 0x9F);
+                let ok = !(b0 == 0xE0 && b1 < 0xA0 || b0 == 0xED && b1 > 0x9F);
                 for b2 in 0x80usize..=0xBF {
                     let raw = Codepoint::from_three_bytes(b0, b1, b2);
                     let cp = match ok {
@@ -845,7 +845,7 @@ impl<'b> Term<'b> {
     ///
     /// So the accessor answers the question a renderer is asking. `baud-core2`
     /// takes `min(cols - 1)` here for the same reason, and
-    /// `both_cores_put_the_cursor_in_the_same_place` is what found that this
+    /// The cursor differential against `baud-core2` is what found that this
     /// core did not: on a 200-column screen it returned **column 200** after
     /// `HT` ran to the right margin. Both cores' *internal* `cx` was 200 and
     /// they rendered identically, so neither pinned gate could see it -- the

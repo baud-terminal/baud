@@ -8,8 +8,8 @@ repository.workspace = true
 description = "PTY benchmark harness for baud-core. Linux-only."
 
 [dependencies]
-baud-core2 = { path = "../baud-core2", features = ["alloc"] }
 baud-core = { path = "../baud-core", features = ["alloc"] }
+baud-domain = { path = "../baud-domain" }
 libc = "0.2"
 zerocopy = "0.8"
 
@@ -17,22 +17,11 @@ zerocopy = "0.8"
 [features]
 # Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
-diag = ["baud-core2/diag", "baud-core/diag"]
+diag = ["baud-core/diag"]
 # Byte-level attribution: which path consumed which bytes. Never on for a
 # throughput figure, same as `diag`.
-instrument = ["baud-core2/instrument"]
 # Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
 scan-neon = []
-block-decode = ["baud-core2/block-decode"]
-mixed-decode = ["baud-core2/mixed-decode"]
-dep-probe-serial = ["baud-core2/dep-probe-serial"]
-dep-probe-free = ["baud-core2/dep-probe-free"]
-miss-probe = ["baud-core2/miss-probe"]
-width-probe = ["baud-core2/width-probe"]
-attach-probe = ["baud-core2/attach-probe"]
-pipeline-decode = ["baud-core2/pipeline-decode"]
-short-wide = ["baud-core2/short-wide"]
-ceiling-no-write = ["baud-core2/ceiling-no-write"]
 # The new core's arms, named apart from core2's so one `--features` cannot
 # silently arm the wrong crate.
 new-no-write = ["baud-core/ceiling-no-write"]
@@ -81,6 +70,3 @@ probe-double-parse = ["baud-core/probe-double-parse"]
 # arm that runs at thousands of MB/s is measuring it as much as the loop.
 harness-only = []
 new-double-put = ["baud-core/probe-double-put"]
-fast3 = ["baud-core2/fast3"]
-ceiling-no-attach = ["baud-core2/ceiling-no-attach"]
-ceiling-cheap-emoji = ["baud-core2/ceiling-cheap-emoji"]

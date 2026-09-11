@@ -4,26 +4,6 @@ use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term as ATerm};
 use alacritty_terminal::vte::ansi::Processor;
 
-/// baud's SIMD entry point only exists on x86-64, so naming it elsewhere does
-/// not compile. Same shape as baud-bench's dispatch.
-#[cfg(target_arch = "x86_64")]
-pub(crate) unsafe fn baud_feed(
-    t: &mut baud_core2::Term,
-    base: baud_core2::BytePos,
-    n: baud_core2::ByteLen,
-) {
-    unsafe { t.feed_avx2(base, n) }
-}
-
-#[cfg(not(target_arch = "x86_64"))]
-pub(crate) unsafe fn baud_feed(
-    t: &mut baud_core2::Term,
-    base: baud_core2::BytePos,
-    n: baud_core2::ByteLen,
-) {
-    t.feed(base, n)
-}
-
 #[derive(Clone)]
 pub(crate) struct Noop;
 
@@ -66,65 +46,32 @@ impl std::io::Write for WzSink {
     }
 }
 
-/// One rep of baud in a given representation.
-///
-/// The mode is chosen once at startup, so each is a configuration a user could
-/// actually run -- the same status ghostty's -Dsimd flag has. Reporting only
-/// `Runs` under-reports baud on payloads where a materialised viewport wins, and
-/// MEASUREMENTS.md's own baud-alone table shows the modes trade places by
-/// payload: spans lead on streaming, and on TUI all three land within noise.
-pub(crate) fn baud_rep(p: &[u8], total: usize, mode: baud_core2::OpMode) -> f64 {
-    let mut st = baud_core2::Storage::boxed();
-    let mut t = baud_core2::Term::new(&mut st, mode);
-    drive(p, total, |chunk| {
-        let mut slot = t.read_slot();
-        let base = slot.base();
-        let fl = slot.write(baud_core2::StreamByte::slice_from(chunk));
-        unsafe { baud_feed(&mut t, base, fl.len()) };
-        t.commit_read(fl.len());
-    })
-}
-
-/// The new core: caller-provided storage, no allocator of its own.
+/// `baud-core`: caller-provided storage, no allocator of its own.
 ///
 /// **Every buffer is the harness's**, which is the contract the crate is built
-/// to -- it is `no_std`, `alloc`-free and borrows all of it. Built fresh per
-/// rep like every other core here.
-pub(crate) fn baud_new_rep(p: &[u8], total: usize) -> f64 {
+/// to -- it is `no_std`, `alloc`-free and borrows all of it. Built fresh per rep
+/// like every other core here.
+///
+/// **This arm had not compiled since `StrBuf` was added to `Storage::new`.** It
+/// spelled all eleven borrows out by hand, so every field the struct gained was
+/// a build error here -- and `multibench` is outside the workspace, so
+/// `cargo test --workspace` never compiled it and nothing went red. That is the
+/// same rot as `docs.rs`'s `ROOTS` list and the CI step pointing at a package
+/// with no such target: not a gate failing, a gate absent. It matters more than
+/// most, because `multibench` is the harness that can resolve a change where
+/// `baud-bench` could not.
+///
+/// `Owned` is the fix rather than an eleventh argument: it is the same
+/// convenience the tests use, it declines the three-byte cell table the way a
+/// default caller should, and a twelfth field cannot break it.
+pub(crate) fn baud_rep(p: &[u8], total: usize) -> f64 {
     use baud_core as nb;
     let ws = nb::WinSize {
         ws_row: crate::ROWS as u16,
         ws_col: crate::COLS as u16,
     };
-    let (_, rows) = ws.geometry();
-    let span = nb::RowBlock::leading(rows, nb::Cols::from_stride(nb::MAX_COLS));
-    let mut arena = vec![0u8; nb::ARENA];
-    let mut vp = vec![nb::PackedCell::EMPTY; span.len()];
-    let mut used = vec![nb::RowExtent::ZERO; rows.index()];
-    // Empty declines the three-byte cell table, whose only read is behind
-    // `cell-table`; filling it costs 2 MiB of stores per core construction.
-    let mut cells3: Vec<nb::PackedCell> = Vec::new();
-    let mut tmpl = vec![None; nb::NSTYLE];
-    let mut tabs = vec![false; nb::MAX_COLS];
-    let mut reply = vec![0u8; nb::REPLY];
-    let mut alt = vec![nb::PackedCell::EMPTY; span.len()];
-    let mut alt_used = vec![nb::RowExtent::ZERO; rows.index()];
-    let mut clusters = vec![nb::ClusterSlot::EMPTY; nb::NCLUSTER];
-    let mut t = nb::Term::new(
-        nb::Storage::new(
-            &mut arena,
-            &mut vp,
-            &mut used,
-            &mut cells3,
-            &mut tmpl,
-            &mut tabs,
-            &mut reply,
-            &mut alt,
-            &mut alt_used,
-            &mut clusters,
-        ),
-        &ws,
-    );
+    let mut owned = nb::Owned::new(&ws);
+    let mut t = nb::Term::new(owned.storage(), &ws);
     drive(p, total, |chunk| {
         t.write_at(nb::BytePos::ZERO, chunk);
         t.feed(nb::BytePos::ZERO, nb::ReadLen::from_index(chunk.len()));
@@ -145,8 +92,7 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         0 => drive(p, total, |c| {
             std::hint::black_box(c);
         }),
-        1 => baud_rep(p, total, baud_core2::OpMode::Runs),
-        9 => baud_new_rep(p, total),
+        1 => baud_rep(p, total),
         2 => {
             let mut cfg = Config::default();
             cfg.scrolling_history = 10_000;
@@ -234,8 +180,6 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                 });
             })
         }
-        7 => baud_rep(p, total, baud_core2::OpMode::Computed),
-        8 => baud_rep(p, total, baud_core2::OpMode::Templated),
         _ => unreachable!(),
     }
 }

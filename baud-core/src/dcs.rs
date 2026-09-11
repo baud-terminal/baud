@@ -39,7 +39,8 @@ impl Paint<'_, '_> {
         // not implement that". `DECSCUSR` was here until the cursor style was
         // recorded and `DECSLRM` until the margins were, and both left the
         // same way: the list shrinks when a feature lands, and the pin in
-        // `both_cores_answer_a_decrqss_the_same_way` goes red to say so.
+        // `every_fixture_owes_the_same_reply` goes red to say so: the DECRQSS
+        // fixtures are in the golden capture with the replies core2 gave.
         let unanswerable = matches!(t, StatusTarget::Unknown);
         if unanswerable {
             self.dcs_open();

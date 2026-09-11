@@ -245,6 +245,15 @@ impl Csi {
 ///
 /// Zero only for [`Act::Resync`], which leaves the node at `Ground` where the
 /// same byte cannot produce it again.
+///
+/// Nine parameters because nine things vary per step and every one of them is
+/// either read or written by the dispatch. `act` is `#[inline(always)]` into
+/// `feed`'s loop, so a struct holding them would be a struct the loop carries --
+/// the trade this file prices at 5-10% for the span field and the row map, and
+/// at 1.5-4% for `Cold` by value. The audit caps how many may be raw integers,
+/// which is the constraint that is actually about safety here: they are
+/// `BytePos`, `ReadLen`, `ByteLen` and `Count`, not nine `usize`.
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub(crate) fn act(
     p: &mut Paint<'_, '_>,
@@ -864,7 +873,7 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     // call site, so this test folds; the three-byte plane is 81% of
     // `cat-cjk.raw`. The table is built once at construction and verified
     // against what `baud-core2` writes for all 65,536 sequences by
-    // `the_cell_table_is_what_core2_writes`.
+    // `the_cell_table_is_what_the_write_path_writes`.
     #[cfg(feature = "cell-table")]
     if len == 3 && !p.cells3.is_empty() {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);

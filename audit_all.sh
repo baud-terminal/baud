@@ -13,101 +13,6 @@ if ! python3 scripts/scan-audit.py 5; then
   fail=1
 fi
 
-# **This audits `baud-core2`, the previous core.** The new `baud-core` gets its
-# own budget as it grows, and it starts at zero rather than inheriting a
-# fourteen-site allowance -- a budget is a floor to drive down, and the one
-# thing that must not happen is a fresh crate being born with the old one's
-# slack. When the new core replaces core2 this block moves to it and core2's
-# goes away with the crate.
-#
-# baud-core is an aggregate, not a file. After the SRP split it is ~20 modules,
-# so naming lib.rs would measure a 60-line file of `mod`/`pub use` and report
-# green for ever -- the "instrumentation outlived what fed it" failure
-# CLAUDE.md records.
-#
-# 14 permitted, and every one is forced by the language or by an intrinsic
-# rather than chosen:
-#   1  array dimension -- `const GRID: usize = MAX_ROWS * MAX_COLS`. Rust
-#      requires an array length to be a `usize` const expression; there is no
-#      newtype that can go there.
-#   3  `as u32` feeding `LaneMask::from_movemask`. `_mm256_movemask_epi8`
-#      returns `i32` and `Mask::to_bitmask` returns `u64`; this cast is the
-#      single point at which an intrinsic's return value enters the type
-#      system, which is exactly where a cast belongs.
-#   1  a raw byte range test in `parse/fast.rs`.
-#   9  `parse/graph.rs`, and they are the price of the architecture rather
-#      than of untyped code. A branch-driven parser asks `is_c0(b)`; a
-#      table-driven one *indexes* by the byte and the node, and an index is a
-#      `usize` no newtype can be. The nine are: `Nodes::at` and `Classes::at`,
-#      the single point at which a node and a class enter index space -- the
-#      same role the movemask casts play, and the reason they are inherent
-#      `const fn` rather than `core::ops::Index`, which a const fn cannot
-#      call; four in the compile-time derivation of the byte-class map, which
-#      is derived from the graph precisely so the two cannot drift apart; and
-#      two each in `Act::same` and `Node::same`, because `PartialEq` is
-#      derived and used everywhere else and a `const fn` cannot call it.
-#
-# **This was 5 while the true count was 5, then 6, and it is 14 because the
-# parser became a table.** The rule has not changed: the limit equals the
-# count, every site is enumerated, and it comes down by typing things rather
-# than by re-scoping. It has come down from 15 once already that way.
-core=0
-sig=0
-# **Every ISA crate is audited on `baud-core`'s budget, in the same total.** Moving the scanners into their own crate moved five raw-integer
-# sites with them -- the movemask casts -- and an audit that walked only
-# `baud-core/src` would have reported the count dropping from 8 to 2 and called
-# it progress. That is the "instrumentation outlived what fed it" failure this
-# repo already records: the gate must follow the code in the same commit.
-# **Split, because one budget over two crates hides which one spends it.**
-# This gate read `baud-core+isa ... limit 14` while walking `baud-core2/src`
-# and the three ISA crates together. Measured apart: core2 is **11 raw and all
-# 10 signature slots**, the ISA crates are **3 and zero**. So on the commit
-# that deletes core2 the find would still match -- the empty guard below would
-# not fire -- and the gate would check 3 against 14 and 0 against 10, going
-# green with eleven sites of slack that nothing occupies. "A budget that is not
-# equal to the count is not measuring anything", and a budget that outlives the
-# code it was calibrated against is the same failure with a delay on it.
-#
-# Now each crate carries its own, so deleting core2 deletes its budget in the
-# same commit and the ISA limit is already tight.
-files=$(find baud-core2/src -name '*.rs' 2>/dev/null | sort)
-if [ -z "$files" ]; then
-  echo "  FAIL baud-core2/src: no sources found -- this gate audited nothing"
-  fail=1
-fi
-for f in $(find baud-core2/src -name '*.rs' | sort); do
-  out=$(python3 impl_audit.py "$f")
-  n=$(echo "$out" | grep '^  total' | awk '{print $2}')
-  m=$(echo "$out" | grep '^  signature' | awk '{print $2}')
-  core=$((core + n))
-  sig=$((sig + m))
-  [ $((n + m)) -gt 0 ] && echo "  ..   $f: $n + ${m} sig"
-done
-if [ "$core" -gt 11 ]; then
-  echo "  FAIL baud-core2/src: $core raw-integer sites (limit 11)"
-  fail=1
-else
-  echo "  ok   baud-core2/src: $core (limit 11)"
-fi
-
-# **A second gate, because the first could not see these.** The rule above
-# matched `usize` only, and only on `&mut self` methods, so it reported 0 for a
-# file carrying `final_byte: u8`, `param: u8`, `-> Option<u8>` and an
-# `app: bool`. Widening it found 13 more across baud-core that had never been
-# counted.
-#
-# 10 is a FLOOR TO DRIVE DOWN, not slack, and it is deliberately not folded
-# into the 8: that limit was calibrated against the narrower detector, and
-# raising it to fit a wider one is the move this repo's notes forbid. Every one
-# of the 10 is a `u8`/`usize`/`bool` in a signature that has a newtype waiting
-# for it. `key.rs` went from 8 to 0 by using them; the rest can too.
-if [ "$sig" -gt 10 ]; then
-  echo "  FAIL baud-core2/src signatures: $sig raw-primitive params/returns (limit 10)"
-  fail=1
-else
-  echo "  ok   baud-core2/src signatures: $sig (limit 10, and core2 is being deleted)"
-fi
-
 # **The ISA crates, on their own budget.** Three raw-integer sites and zero
 # signature primitives, and all three are the same site: the cast feeding
 # `LaneMask::from_movemask`, which is the one point where an intrinsic's return
@@ -141,7 +46,7 @@ fi
 #
 #   1  `GRID = MAX_ROWS * MAX_COLS`, an array dimension. Rust requires an
 #      array length to be a `usize` const expression and no newtype can be one
-#      -- the same forced site core2's budget opens with.
+#      -- forced by the language, not chosen.
 #   1  `n as usize` in `Nodes::at`, where a graph node becomes an array index.
 #      A `repr(u8)` enum indexing its own table is the one cast the language
 #      forces, and it is the single point a node enters index space.
@@ -210,22 +115,21 @@ else
   echo "  ok   baud-bench/src: $bench (limit 14)"
 fi
 
-# **The glob is flat, and three quarters of each core's tests are behind it.**
-# `baud-core2/tests/*.rs` matches the **15** loose files and none of the **47**
-# in `conformance/`, `vt100/`, `xterm/`, `parser/` and the rest -- which carry
-# **49** raw-integer sites between them and have been audited by nothing for as
-# long as those directories have existed. The limit-0 discipline below is real
-# and it covers a quarter of the tree.
+# **The glob is flat, and most of the test tree is behind it.**
+# `baud-core/tests/*.rs` matches the loose files and **none** of the suites in
+# `conformance/`, `vt100/`, `xterm/` and the rest, which were audited by nothing
+# for as long as those directories existed. The limit-0 discipline below is real
+# and it covers only the files the glob reaches, so the trees need their own
+# gate.
 #
 # That is the same shape as `docs.rs`'s `ROOTS` list, which named every crate
 # but the newer core: a gate scoped to less than it appears to cover, which
-# looks exactly like passing. It is not something the port introduced -- both
-# cores measure the same, because they are the same tests.
+# looks exactly like passing.
 #
-# The trees are gated below at their counts rather than at zero, because a
-# limit set to a number nobody has driven to is a limit that fails on the next
-# commit for a reason unrelated to it. **They are floors**: the loose files
-# reached 0 and these should.
+# The tree is gated below at its count rather than at zero, because a limit set
+# to a number nobody has driven to is a limit that fails on the next commit for
+# a reason unrelated to it. **It is a floor**: the loose files reached 0 and
+# this should.
 tree_audit() {
   ta_name="$1"
   ta_limit="$2"
@@ -248,16 +152,15 @@ tree_audit() {
   fi
 }
 tree_audit "baud-core/tests suites" 34 baud-core/tests
-tree_audit "baud-core2/tests suites" 49 baud-core2/tests
 
-for f in baud-core/tests/*.rs baud-core2/tests/*.rs baud-difftest/src/main.rs; do
+for f in baud-core/tests/*.rs baud-difftest/src/main.rs; do
   # **A gate that cannot find its input must fail, not pass.** An unmatched
-  # glob passes through literally in bash, so with `baud-core2` deleted this
-  # loop would run `impl_audit.py` on the pattern itself, `n` would come back
-  # empty, `[ "$n" -gt 0 ]` would error, and the `else` branch would print
-  # `ok` -- a gate reporting success having audited nothing. Same family as
-  # `inf x amplification`, the stale `scan path: AVX2` and `fast_hit`, and the
-  # one that was going to bite on the commit that finally removes core2.
+  # glob passes through literally in bash, so a renamed or removed directory
+  # would have this loop run `impl_audit.py` on the pattern itself, `n` would
+  # come back empty, `[ "$n" -gt 0 ]` would error, and the `else` branch would
+  # print `ok` -- a gate reporting success having audited nothing. Same family
+  # as `inf x amplification`, the stale `scan path: AVX2` and `fast_hit`, and
+  # it is what caught the commit that removed `baud-core2`.
   if [ ! -f "$f" ]; then
     echo "  FAIL $f: no such file -- this gate audited nothing"
     fail=1

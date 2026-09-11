@@ -8,7 +8,7 @@ session that program may be hostile. Everything below follows from that.
 
 **Untrusted input is the entire input.** There is no trusted mode. The parser
 must terminate, stay in bounds, and never execute a payload, for any byte
-sequence at all — which is why `never_panics_on_arbitrary_input` and the
+sequence at all — which is why `the_screen_does_not_depend_on_where_the_reads_fell` and the
 chunk-invariance properties exist.
 
 **`unsafe` appears in exactly one place**: `scan_avx2` in

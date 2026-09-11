@@ -18,7 +18,16 @@ above proves it.
 ## Benchmarks
 
 ```sh
-./target/release/baud-bench      # baud alone, real PTY, median of 9
+# One payload, in memory, no fork and no pty: the instrument every number in
+# CLAUDE.md is measured with. A recording name, or a ladder rung
+# (flat/wrap/lines/sgr), or a synthetic payload (cjk/streaming), or `mix`.
+cargo run --release -p baud-bench --bin ingest2 -- cat-cjk 250
+
+# The transport with no parser behind it -- the ceiling a PTY row is measured
+# against, and the reason a PTY row is a claim about the tty rather than the
+# parser.
+cargo run --release -p baud-bench --bin transport -- utf8/btop.raw 48
+
 cargo run --release -p baud-difftest   # cell-by-cell diff against alacritty
 ```
 
@@ -26,11 +35,13 @@ The test suite is layered, and each layer catches a different class:
 
 | suite | catches |
 |---|---|
-| `vt_*.rs` | per-operation semantics: defaults, clamping, and the cases where two operations are easily conflated |
+| `vt100/`, `vt220/`, `vt420/`, `vt52/`, `xterm/` | per-operation semantics: defaults, clamping, and the cases where two operations are easily conflated |
+| `conformance/` | the specification checking baud rather than the reverse — ctlseqs' own lists of finals, forms and `OSC Ps` must each be acted on or counted |
 | `properties.rs` | chunk invariance — the kernel hands you arbitrary slices, and a sequence split across two reads must parse identically |
-| `known_bugs.rs` | specific defects that have happened here, so they cannot happen twice |
-| `perf_floor.rs` | throughput floors, as a regression alarm rather than a benchmark |
-| `baud-difftest` | cell-by-cell agreement with alacritty |
+| `golden.rs` | what `baud-core2` rendered for 54 fixtures and 9 recordings, frozen as data before that crate was deleted. It finds regressions on recorded bytes and nothing else |
+| `cell_table.rs` | the three-byte cell table against the write path, on all 65,536 sequences — so turning `cell-table` on cannot change the screen |
+| `docs.rs`, `coverage.rs`, `readme.rs`, `api_coverage.rs` | the documents checking the code: every cited path and test name resolves, every `done` row has a test, the README's example compiles, every `pub fn` has a caller |
+| `baud-difftest` | cell-by-cell agreement with alacritty, and the only oracle outside this repo |
 
 Every test is deterministic. `.proptest-regressions` is checked in so a property
 failure replays exactly, and a case worth finding once is also pinned by a

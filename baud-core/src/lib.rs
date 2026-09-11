@@ -17,10 +17,17 @@
 //! `CLAUDE.md` carries the measurements; `docs/research/notes/b-parser-as-a-graph.md`
 //! carries the literature on storing the automaton.
 //!
-//! **What is reused and what is not.** Nothing comes from `baud-core2`. The
-//! foundation is `baud-domain` -- the grid, the cell, the generated Unicode
-//! tables and the VT vocabulary, all of which are already compile-time
-//! lookups and were worth +17% -- and `baud-isa` for the vector primitives.
+//! **What is reused and what is not.** The foundation is `baud-domain` and
+//! nothing else: the grid, the cell, the generated Unicode tables and the VT
+//! vocabulary, all of which are already compile-time lookups and were worth
+//! +17%. The vector primitives come from there too, through `core::simd`.
+//!
+//! This crate declared `baud-isa`, `baud-isa-x86-64` and `baud-isa-aarch64` and
+//! referenced none of them in a single line of source, while this paragraph
+//! said it used them for the vectors. Both the dependencies and the claim are
+//! gone. The one *real* dependency is the whole list: `baud-domain`, which is
+//! what "zero dependencies" in `CLAUDE.md` means -- no crates.io, no `alloc`
+//! outside the `alloc` feature, no `std`.
 
 #![no_std]
 #![forbid(unsafe_code)]

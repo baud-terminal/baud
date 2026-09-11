@@ -102,75 +102,38 @@ jobs:
       - name: Run format & lint checks
         run: devenv test
 
-      # `generated_programs_match_on_avx2` is `#[cfg(target_arch = "x86_64")]`,
-      # so it does not exist on an arm64 development machine -- this runner is
-      # the only place it ever executes. `devenv test` prints devenv's own
-      # summary and swallows cargo's, so without this step "the SIMD scanner is
-      # tested" rests on inference about the runner's architecture.
+      # **The two AVX2 gates that stood here are gone, and what they covered is
+      # now uncovered. Read this before assuming the SIMD scanner is tested.**
       #
-      # That inference is exactly what failed before: a port dropped
-      # `feed_avx2` entirely and nothing noticed, because the benchmark kept
-      # printing `scan path: AVX2` from a stale flag. A cfg'd-out test is
-      # silent in the same way -- it does not fail, it is simply absent -- so
-      # the first assertion is that the test exists at all on this target.
-      - name: Prove the AVX2 scanner is exercised
-        run: |
-          devenv shell -- cargo test --release -p baud-core2 --test parser -- --list \
-            > /tmp/parser-tests.txt
-          if ! grep -q 'generated_programs_match_on_avx2' /tmp/parser-tests.txt; then
-            echo "::error::the AVX2 property is not compiled in on x86_64 -- the SIMD scanner is untested everywhere"
-            exit 1
-          fi
-          grep -c ': test$' /tmp/parser-tests.txt | xargs echo "parser tests compiled on x86_64:"
-          devenv shell -- cargo test --release -p baud-core2 --test parser \
-            generated_programs_match_on_avx2 -- --nocapture
-
-      # The property above compares `feed_avx2`'s output against `feed`'s, and
-      # would pass unchanged if `feed_avx2` quietly delegated to the portable
-      # scanner -- identical output is what it asserts. So it proves agreement,
-      # not that any AVX2 instruction executed.
+      # They ran `cargo test -p baud-core2 --test parser
+      # generated_programs_match_on_avx2` and then grepped the test binary for
+      # `vpmovmskb`, because that property compares `feed_avx2`'s output against
+      # `feed`'s and would pass unchanged if `feed_avx2` delegated to the
+      # portable scanner. Both halves were about `baud-core2`'s hand-written
+      # intrinsics scanner, and that crate has been deleted.
       #
-      # `feed_avx2` calls `feed_with::<Avx2>`, which monomorphises, so the
-      # question is answerable from the binary without touching the hot path:
-      # the specialisation must exist, and its body must contain instructions
-      # only the AVX2 scanner emits. `vpmovmskb` is `_mm256_movemask_epi8`,
-      # which is the single point where an intrinsic's result enters the type
-      # system via `LaneMask::from_movemask`; `Portable` compiles to SSE2 here
-      # and yields `pmovmskb` without the `v`.
+      # What is left, stated plainly rather than implied:
       #
-      # This is `CLAUDE.md`'s "grep for `_mm256` after any port", moved from a
-      # habit into the gate.
+      #   * `baud-core` has no ISA code. Its vectors come from `baud-domain`
+      #     through `core::simd`, which the compiler lowers per target, so there
+      #     is no second implementation for a property to disagree with.
+      #   * `baud-isa-x86-64` and `baud-isa-aarch64` still carry hand-written
+      #     AVX2 and NEON implementations of `baud-isa`'s `Scan` and `Decode`.
+      #     **Nothing depends on either crate and nothing tests either
+      #     implementation**: `baud-isa/tests/decode_agrees.rs` exercises
+      #     `Portable` only, and the property that compared the arch impls
+      #     against it was core2's.
       #
-      # **Both steps name `baud-core2`, and said `baud-core` until now.** The
-      # crate was renamed by `c592dd1` and a new `baud-core` started beside it,
-      # which left these pointing at a package that has no `parser` target --
-      # cargo answers "no test target named `parser` in `baud-core`". The
-      # hand-written intrinsics scanner lives in `baud-core2`; the newer core
-      # takes its vectors from `baud-domain` through `core::simd` and has no
-      # ISA code at all, so it is not the crate this gate is about.
+      # So this is an absence with a note on it, which is the only acceptable
+      # form. A gate naming a target that does not exist is the failure this
+      # file already records twice -- absent rather than red -- and replacing
+      # these with a step written against a target nobody can run here would be
+      # the same mistake with fresh paint.
       #
-      # It went unnoticed because no CI run exists for any commit after the
-      # rename: the last tested sha is an *ancestor* of it, with 24 commits
-      # since. A gate naming the wrong target is the same failure it was
-      # written to catch -- absent rather than red.
-      - name: Prove the AVX2 scanner is not a portable fallback
-        run: |
-          set -euo pipefail
-          BIN=$(devenv shell -- bash -c "ls -t target/release/deps/parser-* | grep -v '\.d$' | head -1")
-          echo "binary: $BIN"
-          devenv shell -- nm "$BIN" > /tmp/syms.txt
-          if ! grep -qE 'feed_with.*Avx2|feed_avx2' /tmp/syms.txt; then
-            echo "::error::no AVX2 specialisation of feed_with in the test binary"
-            exit 1
-          fi
-          devenv shell -- objdump -d "$BIN" > /tmp/dis.txt
-          if ! grep -qE '\bvpmovmskb\b' /tmp/dis.txt; then
-            echo "::error::no vpmovmskb in the binary -- feed_avx2 is not running the AVX2 scanner"
-            grep -cE '\bpmovmskb\b' /tmp/dis.txt | xargs echo "(SSE pmovmskb occurrences:)"
-            exit 1
-          fi
-          grep -cE '\bvpmovmskb\b' /tmp/dis.txt | xargs echo "vpmovmskb occurrences:"
-          grep -cE '\bvpcmpeqb\b' /tmp/dis.txt | xargs echo "vpcmpeqb occurrences:"
+      # Restoring the coverage means one of two decisions, and both are the
+      # owner's: delete the two arch crates, or give `baud-isa` a property that
+      # drives every implementation of `Scan` over the same bytes and requires
+      # them to agree -- at which point this step comes back pointing at it.
 
   release-plz-release:
     name: Release

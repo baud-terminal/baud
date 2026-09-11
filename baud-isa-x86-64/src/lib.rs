@@ -2,7 +2,7 @@
 //!
 //! Split from `baud-isa` so a consumer on another architecture never builds
 //! it. The only `unsafe` in baud's scan path lives here, and
-//! `generated_programs_match_on_avx2` requires this to agree with the portable
+//! An AVX2 property required this to agree with the portable
 //! form for every generated input.
 
 #![no_std]

@@ -126,7 +126,7 @@ and the state machine, so it confirms the architecture rather than changing it.
   ordering a terminal requires. Only § 3.3's fine-grained (SIMD) half applies.
 - **Speculation with rollback.** The enumerative method is speculation-free —
   it computes all starts rather than guessing one. baud must not adopt a variant
-  that re-runs input on misprediction: `ingest_is_chunk_invariant` is the
+  that re-runs input on misprediction: `the_screen_does_not_depend_on_where_the_reads_fell` is the
   property the whole parser rests on, and a rollback path is a second code path
   that can disagree with the first. That failure has already happened here once,
   when `ESC 7`/`8`/`M` existed only in the AVX2 loop.

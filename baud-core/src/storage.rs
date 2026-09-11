@@ -291,6 +291,29 @@ impl Owned {
         }
     }
 
+    /// Sized to `ws`, with the three-byte cell table **present**.
+    ///
+    /// The one caller that wants it is the table's own equivalence test, which
+    /// builds it *without* `cell-table` and reads the slice directly -- so the
+    /// write path is the computing one and the table is the thing under test.
+    /// `Owned::new` declines it because nothing else reads it: the only read is
+    /// in `put_run` behind the feature, and passing 2 MiB otherwise buys
+    /// 262,144 property-table lookups and 2 MiB of stores at construction for
+    /// a table no read will consult.
+    pub fn with_cell_table(ws: &WinSize) -> Owned {
+        let mut owned = Owned::new(ws);
+        owned.cells3 = alloc::vec![PackedCell::EMPTY; CELLS3];
+        owned
+    }
+
+    /// The table as `Term::new` built it.
+    ///
+    /// Borrowed after the `Term` is dropped, which is what lets a test compare
+    /// the table against the cells the write path produced from the same bytes.
+    pub fn cell_table(&self) -> &[PackedCell] {
+        &self.cells3
+    }
+
     /// Lend them all to a `Storage`, in the one order that is correct.
     pub fn storage(&mut self) -> Storage<'_> {
         Storage::new(

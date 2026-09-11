@@ -12,17 +12,19 @@ const COLS: usize = 200;
 
 const ROWS: usize = 50;
 
+// **Position is the arm**: `cores::run_one` matches on this index, so the order
+// here and the order there are one fact spelled twice. `baud-core2`'s three
+// entries -- spans, cells-computed, cells-templated -- went with the crate, and
+// what was "baud-core (new)" at index 9 is index 1 now. There is one baud, so it
+// no longer needs a qualifier.
 const CORES: &[&str] = &[
     "ceiling (discard, no parse)",
-    "baud (spans)",
+    "baud-core",
     "alacritty_terminal",
     "ghostty (libghostty-vt)",
     "vt100 crate",
     "wezterm (full terminal)",
     "termwiz (wezterm) parse only",
-    "baud (cells, computed)",
-    "baud (cells, templated)",
-    "baud-core (new)",
 ];
 
 fn main() {

@@ -155,18 +155,17 @@ ceiling-implicit-tail = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
-baud-isa = { path = "../baud-isa" }
 
 # **The property suite, and the first dev-dependency this crate has had.**
-# `baud-core2` carries 606 tests and all the proptest machinery; this crate had
+# `baud-core2` carried 606 tests and all the proptest machinery; this crate had
 # 20 tests and no generator at all, and every clustering defect in this repo's
-# history was found by something it did not have.
+# history was found by something it did not have. Both are this crate's now.
 [dev-dependencies]
 proptest = "1"
 baud-core = { path = ".", features = ["alloc"] }
+# Only to key a `HashSet` on a whole `PackedCell`: it is `Eq` but not `Hash`,
+# and hashing its eight bytes is exact where a key built from the public
+# accessors would silently drop whatever `CellFlags` carries.
+zerocopy = "0.8"
 
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-baud-isa-x86-64 = { path = "../baud-isa-x86-64" }
 
-[target.'cfg(target_arch = "aarch64")'.dependencies]
-baud-isa-aarch64 = { path = "../baud-isa-aarch64" }

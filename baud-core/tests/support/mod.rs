@@ -105,7 +105,7 @@ pub fn shrink(t: &mut Term<'_>, ws: &WinSize) {
 /// **An `#[ignore]` nobody counts is a test nobody runs**, which is the
 /// probe-that-cannot-fire this repo records eight times. Every ported suite
 /// that still has gaps calls this, so the list is a pinned number in the same
-/// sense `the_glyph_gap_is_pinned` is: a new ignore fails it, and **closing a
+/// sense a pinned gap is: a new ignore fails it, and **closing a
 /// gap fails it too**, which is the direction that matters -- the pin has to
 /// move when the gap does.
 pub fn ignores_are(dir: &str, files: &[&str], want: &[&str]) {

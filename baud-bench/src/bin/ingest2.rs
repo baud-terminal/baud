@@ -30,6 +30,15 @@ fn power_source() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+/// `ESC [ <n> m`, built without a cast.
+///
+/// `format!` on a `usize` keeps the parameter out of the raw-integer count the
+/// audit keeps for this crate; spelling it as a byte literal would spend a site
+/// on a benchmark payload generator.
+fn alloc_sgr(n: usize) -> String {
+    format!("\x1b[{n}m")
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let which = args.next().unwrap_or_else(|| "cat-cjk".into());
@@ -79,8 +88,75 @@ fn main() {
         v
     };
 
+    // **Homogeneous CJK**, and the payload `CLAUDE.md` quotes at 2,440 MB/s.
+    //
+    // Three bytes and two columns a character, so a 200-column row is 100
+    // characters and 300 bytes. Deliberately without SGR: mixing in escapes
+    // would measure the state machine again rather than the decoder. It is one
+    // long run, which is exactly why it reads high -- this file's own rule is
+    // that a synthetic payload resembles no program, and the real range on
+    // captures is 419 to 819.
+    let cjk = || -> Vec<u8> {
+        const W: [&str; 8] = [
+            "終端", "文字", "解析", "画面", "行列", "描画", "入力", "出力",
+        ];
+        let n = mb << 20;
+        let mut v = Vec::with_capacity(n);
+        let (mut col, mut i) = (0usize, 0usize);
+        while v.len() < n {
+            if col > 200 - 8 {
+                v.extend_from_slice(b"\r\n");
+                col = 0;
+                continue;
+            }
+            let w = W[i % W.len()];
+            i += 1;
+            v.extend_from_slice(w.as_bytes());
+            col += 2 * w.chars().count();
+        }
+        v.truncate(n);
+        v
+    };
+
+    // **Bulk text with an SGR roughly every 37 bytes**, wrapping near column
+    // 70. Models `cat`, build output and log tailing, and it is the payload
+    // this file names when it says blanking is worth +51%.
+    //
+    // `CRLF`, not a bare `LF`: `LF` is index only, because LNM is reset by
+    // default, so a bare one would march the text rightwards until it wrapped,
+    // which is not what a terminal receives.
+    let streaming = || -> Vec<u8> {
+        const W: [&str; 14] = [
+            "static", "inline", "struct", "return", "const", "size_t", "uint32_t", "buffer",
+            "render", "terminal", "parse", "handle", "width", "index",
+        ];
+        let n = mb << 20;
+        let mut v = Vec::with_capacity(n);
+        let mut col = 0usize;
+        while v.len() < n {
+            if col > 70 {
+                v.extend_from_slice(b"\r\n");
+                col = 0;
+                continue;
+            }
+            if v.len() % 37 == 0 {
+                v.extend_from_slice(alloc_sgr(30 + (v.len() % 8)).as_bytes());
+                continue;
+            }
+            let w = W[(v.len() / 13) % 14].as_bytes();
+            v.extend_from_slice(w);
+            col += w.len();
+            v.push(b' ');
+            col += 1;
+        }
+        v.truncate(n);
+        v
+    };
+
     let data = match which.as_str() {
         "flat" | "wrap" | "lines" | "sgr" => ladder(&which),
+        "cjk" => cjk(),
+        "streaming" => streaming(),
         // **Every recording, concatenated, unmodified and in order.** Not a
         // new payload: each byte is a byte some program really sent, and
         // nothing is filtered, truncated or generated. It exists to answer

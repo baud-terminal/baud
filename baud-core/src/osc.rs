@@ -8,10 +8,10 @@
 //! of the parser could see it.
 //!
 //! **The two pinned differentials are structurally blind to all of this.**
-//! `the_glyph_gap_is_pinned` reads content and `the_rendition_gap_is_pinned`
+//! The glyph differential read content and the rendition one
 //! reads the resolved `StyleWord`; a window title changes no cell and a link
 //! index rides in `CellFlags`, which neither reads. So the gate for this file
-//! is `both_cores_agree_about_what_a_control_string_did`, which compares the
+//! was the control-string differential against `baud-core2`, which compared the
 //! title, the icon, the palette, the link index of a written cell, the URI it
 //! resolves to, and the two refusal counters -- and it was perturbed both ways
 //! before it was believed.

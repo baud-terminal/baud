@@ -117,15 +117,14 @@ string — and then *executed* the result, which is the dangerous direction:
 * `CSI 1 ? J` is malformed and must be discarded. baud read it as DECSED and
   erased the screen.
 
-`a_private_marker_after_a_parameter_is_ignored` and
-`a_marker_after_a_parameter_does_not_erase` pin both. Splitting the state also
+`a_marker_after_a_dcs_parameter_is_ignored` and its CSI counterpart pin both. Splitting the state also
 closed two smaller holes in the same arm:
 
 * **C0 inside a control sequence.** `[[source: williams]]` gives `csi_param` an
   `execute` action on `00-17,19,1C-1F` that returns to the same state. baud had
   no C0 branch, so a stray NUL fell through to `csi_ignore` and silently
-  cancelled an unrelated SGR. `a_c0_inside_a_csi_does_not_cancel_it` and
-  `the_c0_inside_a_csi_actually_executes` pin the rule and the fact that
+  cancelled an unrelated SGR. core2's pair of C0-inside-a-CSI tests pinned the
+  rule and the fact that
   *execute* means executed, not skipped.
 * **`<` and `=` were dropped silently.** baud recognised only `?` and `>`, so
   the other two private namespaces fell to `csi_ignore` and vanished without
@@ -427,7 +426,7 @@ under the capacity bound, so an over-capacity parameter was parsed and dropped.
 pinned *at* capacity, so the separator was swallowed and the next parameter's
 digits appended to the last stored one: `CSI ...;61;62;63 m` stored 6263 where
 the fast path stored 62. The result therefore depended on where a read boundary
-fell, which is a chunk-invariance bug. `ingest_is_chunk_invariant` did not find
+fell, which is a chunk-invariance bug. core2's ingest property did not find
 it because its generator does not emit sequences that long.
 
 | | one read | byte at a time |
@@ -465,7 +464,7 @@ path now declines any OSC payload containing a C0 byte at all — it cannot
 reproduce either rule, since it scans to the terminator (so it cannot see a
 cancel) and copies the payload wholesale (so it would keep bytes that should be
 dropped).
-`a_cancel_inside_an_osc_is_honoured_in_both_feeds` pins it deterministically
+`a_c0_in_an_osc_payload_is_ignored` pins it deterministically
 rather than leaving it to a saved seed.
 
 ---
@@ -541,7 +540,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI a` | HPR char position relative | done |
 | `CSI b` | REP repeat preceding char | done |
 | `CSI c` | DA device attributes | done — identifies as VT102 |
-| `CSI > c` | DA2 secondary device attributes | **out** — answered with silence and counted in `unsupported`. `[[source: ctlseqs]]` line 817 shapes the reply as `CSI > Pp ; Pv ; Pc c`, where `Pp` is a terminal *type* and `Pv` a firmware version. baud has neither honestly: it is not a VT220 and has no firmware, and an application parses whatever arrives as the report it asked for. That is the same refusal primary DA makes by under-claiming as a VT102, one step further. Recorded here because real capture proved it is asked for — vim sends it once in `tests/recordings/vim-unicode.raw`, and until that landed the table did not mention DA2 at all. `real_capture_drives_the_reply_channel` pins the silence *and* the count |
+| `CSI > c` | DA2 secondary device attributes | **out** — answered with silence and counted in `unsupported`. `[[source: ctlseqs]]` line 817 shapes the reply as `CSI > Pp ; Pv ; Pc c`, where `Pp` is a terminal *type* and `Pv` a firmware version. baud has neither honestly: it is not a VT220 and has no firmware, and an application parses whatever arrives as the report it asked for. That is the same refusal primary DA makes by under-claiming as a VT102, one step further. Recorded here because real capture proved it is asked for — vim sends it once in `tests/recordings/vim-unicode.raw`, and until that landed the table did not mention DA2 at all. `every_fixture_owes_the_same_reply` pins the silence *and* the count |
 | `CSI d` | VPA line position absolute | done |
 | `CSI e` | VPR line position relative | done |
 | `CSI g` | TBC tab clear | done — 0 and 3; others inert, not aliased |
@@ -763,7 +762,7 @@ Two things came from that and both are gates rather than notes:
   erases in both op modes on the alternate screen. The mode pair is the point:
   `Computed` was always right, so a fix that broke it to satisfy `Runs` shows
   up instead of passing.
-* `baud-core2/tests/screen_isolation.rs` requires every function touching the
+* `baud-core/tests/xterm/alt_screen.rs` requires every function touching the
   run table to be screen-aware. It is structural because the state is
   **invisible**: in `Runs` nothing renders spans, so a wrongly-zeroed run count
   cannot be seen through any public accessor, and the first attempt at a

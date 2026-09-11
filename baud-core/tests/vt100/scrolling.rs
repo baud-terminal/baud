@@ -702,7 +702,7 @@ fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
 /// zeroed a screenful of the primary's run counts.
 ///
 /// Asserted through rendered content in `Computed`, which is what this harness
-/// can see; see `the_alt_screen_never_writes_the_primarys_run_table` for the
+/// can see; see `scrolling_the_alt_screen_does_not_disturb_the_primary` for the
 /// check that covers the state directly.
 #[test]
 fn index_on_the_alternate_screen_leaves_the_primary_intact() {

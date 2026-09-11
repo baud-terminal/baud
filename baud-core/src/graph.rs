@@ -589,7 +589,7 @@ const fn build(enc: InputEncoding) -> Nodes<Bytes<Edge>> {
 /// other byte this parser eats and ignores.
 const fn c0(b: StreamByte) -> Act {
     match b.raw_byte() {
-        0x0a | 0x0b | 0x0c => Act::Index,
+        0x0a..=0x0c => Act::Index,
         0x0d => Act::Return,
         0x08 => Act::Backspace,
         0x09 => Act::Tab,
@@ -972,7 +972,7 @@ const fn string(b: StreamByte, enc: InputEncoding) -> Edge {
         // An OSC payload is **attacker-supplied**, so a raw control byte
         // landing in a window title is in the threat model rather than only in
         // the conformance table. This core stored them until
-        // `both_cores_agree_about_what_a_control_string_did` grew a row for it:
+        // core2's control-string differential grew a row for it:
         // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
         // `baud-core2` set it to `title`.
         0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, Node::Str),

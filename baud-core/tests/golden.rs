@@ -30,8 +30,16 @@ struct Fixture {
     cursor: (usize, usize),
     reply: Vec<u8>,
     cells: BTreeMap<(usize, usize), u32>,
-    nonblank: usize,
+    nonblank: NonBlank,
 }
+
+/// How many cells core2 left non-blank.
+///
+/// A newtype because it sits in the same struct as a `(row, col)` pair and a
+/// reply, and a bare count there can be compared against a length that means
+/// something else -- which is exactly the assertion this file makes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct NonBlank(usize);
 
 fn hex(s: &str) -> Vec<u8> {
     (0..s.len() / 2)
@@ -55,7 +63,7 @@ fn fixtures() -> Vec<Fixture> {
                     cursor: (0, 0),
                     reply: Vec::new(),
                     cells: BTreeMap::new(),
-                    nonblank: 0,
+                    nonblank: NonBlank(0),
                 });
             }
             Some("bytes") => cur.as_mut().unwrap().bytes = hex(w.next().unwrap_or("")),
@@ -71,7 +79,7 @@ fn fixtures() -> Vec<Fixture> {
                 let f = cur.as_mut().unwrap();
                 let _ = w.next();
                 let _ = w.next();
-                f.nonblank = w.next().unwrap().parse().unwrap();
+                f.nonblank = NonBlank(w.next().unwrap().parse().unwrap());
             }
             Some("cell") => {
                 let f = cur.as_mut().unwrap();
@@ -122,7 +130,12 @@ fn every_fixture_renders_what_core2_rendered() {
                 "{}: the cells differ from what core2 rendered",
                 f.name
             );
-            assert_eq!(got.len(), f.nonblank, "{}: non-blank count", f.name);
+            assert_eq!(
+                NonBlank(got.len()),
+                f.nonblank,
+                "{}: non-blank count",
+                f.name
+            );
             checked += 1;
         });
     }
@@ -180,7 +193,7 @@ fn every_recording_renders_to_core2s_digest() {
             continue;
         }
         let w: Vec<&str> = line.split(' ').collect();
-        let (rec, want, nonblank) = (w[0], w[2], w[4].parse::<usize>().unwrap());
+        let (rec, want, nonblank) = (w[0], w[2], NonBlank(w[4].parse().unwrap()));
         let rp = format!(
             "{}/../tests/recordings/{rec}.raw",
             env!("CARGO_MANIFEST_DIR")
@@ -209,7 +222,7 @@ fn every_recording_renders_to_core2s_digest() {
                     }
                 }
             }
-            assert_eq!(got, nonblank, "{rec}: non-blank cells");
+            assert_eq!(NonBlank(got), nonblank, "{rec}: non-blank cells");
             assert_eq!(
                 format!("{digest:016x}"),
                 want,

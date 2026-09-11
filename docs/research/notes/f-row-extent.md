@@ -180,7 +180,7 @@ the two differ. `ECH` at the last column writes a *styled* blank: no glyph, but
 it does not match the default blanks in front of it. Treating the mark as a
 glyph position let it fall to zero there, leaving the row non-uniform behind
 its own mark, so the next full clear skipped the row.
-`a_cleared_screen_is_fully_erasable` caught it at 20,000 cases. The rule that
+core2's cleared-screen property caught it at 20,000 cases. The rule that
 holds is that a fill running to the end of a row sets the mark to exactly where
 that fill started — which *raises* it when the fill starts late, and no
 description of the mark as "how far the text goes" would ever suggest that.
@@ -204,7 +204,7 @@ The reason the change was refused:
 What remains genuinely open is whether it pays *here*. baud's `fill_row` is a
 `slice::fill` that lowers to vector stores over 1600 contiguous bytes; the
 saving is the shortened store minus a load of `occ` and a compare, and 60 of
-200 columns used is the headroom `how_much_of_a_row_is_actually_used` measured.
+200 columns used is the headroom core2's row-extent census measured.
 That is a measurement to make, and the ceiling for it is already known: the
 `ceiling-no-blank` arm says the whole of blanking is worth 51-61%, so a mark
 that eliminates 70% of it is worth up to about 40%.

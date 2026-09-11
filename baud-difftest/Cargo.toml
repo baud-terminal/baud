@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-baud-core2 = { path = "../baud-core2", features = ["alloc"] }
+baud-core = { path = "../baud-core", features = ["alloc"] }
 alacritty_terminal = { path = "/home/user/t/alacritty/alacritty_terminal" }

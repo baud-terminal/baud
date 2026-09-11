@@ -243,7 +243,7 @@ Notes on that table, because it hides real conflicts:
   C1 CSI (then dropped by `CASE_IGNORE`); split across two reads it yields
   U+FFFD then a printed `A`. Source is the stronger evidence; the man page is at
   best incomplete. Unresolved without a running xterm and a screen-scrape.
-* This is `ingest_is_chunk_invariant` failing in the reference implementation.
+* This is chunk invariance failing in the reference implementation.
   baud's unconditional single U+FFFD per stray continuation byte is
   chunk-invariant and matches Table 3-10. **Do not copy xterm here.** It is also
   a good argument for a property test that feeds deliberately-malformed UTF-8

@@ -148,7 +148,7 @@ impl CellFlags {
     /// column or two -- never zero, since without a cluster machine a
     /// zero-width character still takes a cell. The width is 0, 1 or 2 and is
     /// what a cluster machine will read. Dropping the width and keeping only
-    /// the advance made `the_cell_table_is_what_core2_writes` fail on `E0 A0 96`
+    /// the advance made `the_cell_table_is_what_the_write_path_writes` fail on `E0 A0 96`
     /// (U+0816 SAMARITAN MARK IN), which is the test saying the entry no longer
     /// carried enough.
     ///

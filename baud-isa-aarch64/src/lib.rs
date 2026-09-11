@@ -11,7 +11,7 @@
 //!
 //! So this is the same three scans with one instruction changed, and it is a
 //! measurement rather than a claim: `Neon` and `Portable` are both compiled,
-//! and `generated_programs_match_on_neon` requires them to return the same
+//! and a NEON property required them to return the same
 //! answer for every generated program, at 20,000 cases.
 
 #![no_std]

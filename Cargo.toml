@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["baud-domain", "baud-core2", "baud-core", "baud-bench",
+members = ["baud-domain", "baud-core", "baud-bench",
   "baud-isa",
   "baud-isa-x86-64",
   "baud-isa-aarch64",

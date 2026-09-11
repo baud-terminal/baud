@@ -6,7 +6,7 @@
 
 ## What it is
 
-`baud-core2/src/parse/graph.rs` holds the VT protocol as a **directed graph**:
+`baud-core/src/graph.rs` holds the VT protocol as a **directed graph**:
 23 nodes, one per parser state, each with 256 out-edges, one per input byte.
 An edge carries what to do and where to go. Feeding a byte is `edge =
 graph[node][byte]`, and feeding a stream is walking the graph — `graph[n0][b0]`
@@ -22,7 +22,7 @@ content-addressed, so it is not a Merkle structure either — it is a
 on storing one.
 
 Two of its dimensions are measured rather than assumed, and pinned by
-`the_graph_is_the_size_the_representation_assumes`:
+`every_row_of_the_graph_is_the_row_its_node_names`:
 
 | | |
 |---|---|

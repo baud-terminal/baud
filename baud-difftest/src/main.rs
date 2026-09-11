@@ -1,15 +1,36 @@
 //! Differential test against a shipping terminal.
 //!
-//! Feeds identical bytes to baud-core and to alacritty's `Term`, then compares the
-//! visible grid cell by cell. This is the only test that can find the ~56 VT
-//! operations baud-core doesn't implement — each shows up as a diff rather than as
-//! something nobody thought to write a test for.
+//! Feeds identical bytes to `baud-core` and to alacritty's `Term`, then compares
+//! the visible grid cell by cell.
+//!
+//! **It is the only external oracle left, and that is new.** Until `baud-core2`
+//! was deleted the differential that mattered was between the two cores, and
+//! this one was a second opinion; now it is the only thing in the repository
+//! that can disagree with `baud-core` from outside it. `baud-core/tests/golden.
+//! rs` froze what core2 rendered, but a golden capture only finds regressions on
+//! bytes somebody wrote down -- this can find an operation nobody thought to
+//! write a test for.
+//!
+//! **This file said `baud-core` and used `baud-core2` from the rename until the
+//! deletion**, which is the same drift `docs.rs`'s `ROOTS` list and the CI step
+//! carried: a name that kept reading correctly while pointing at the other
+//! crate.
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term as ATerm};
 use alacritty_terminal::vte::ansi::Processor;
-use baud_core2::*;
-const COLS: usize = 200;
-const ROWS: usize = 50;
+use baud_core::*;
+/// The geometry both sides are measured at, and the single place it is written.
+///
+/// `COLS`/`ROWS` are *derived* from it with `usize::from`, which is infallible
+/// and is not a cast -- spelling 200x50 twice would let the two sides be
+/// compared at different sizes, which is the one way this differential can lie
+/// while looking green.
+const WS: WinSize = WinSize {
+    ws_row: 50,
+    ws_col: 200,
+};
+const COLS: usize = usize::from(WS.ws_col);
+const ROWS: usize = usize::from(WS.ws_row);
 
 #[derive(Clone)]
 struct Noop;
@@ -30,17 +51,17 @@ impl alacritty_terminal::grid::Dimensions for Dim {
     }
 }
 
+// **`Owned::new` provisions exactly the geometry it is given**, because the
+// grid is caller-provided here -- `baud-core2`'s `Storage` was a fixed
+// `[PackedCell; GRID]` that could always grow, and this one cannot.
 fn ours(bytes: &[u8]) -> Vec<char> {
-    let mut store = Storage::boxed();
-    let mut t = Term::new(&mut store, OpMode::Computed);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
     let mut i = 0;
     while i < bytes.len() {
         let n = READ_CHUNK.min(bytes.len() - i);
-        let mut slot = t.read_slot();
-        let base = slot.base();
-        let filled = slot.write(StreamByte::slice_from(&bytes[i..i + n]));
-        t.feed(base, filled.len());
-        t.commit_read(filled.len());
+        t.write_at(BytePos::ZERO, &bytes[i..i + n]);
+        t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
     (0..ROWS)
