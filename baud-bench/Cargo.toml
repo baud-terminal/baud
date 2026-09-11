@@ -8,13 +8,20 @@ repository.workspace = true
 description = "PTY benchmark harness for baud-core. Linux-only."
 
 [dependencies]
-baud-core = { path = "../baud-core", features = ["alloc"] }
+# **`default-features = false` so the scan arm is reachable from here.**
+# `baud-core`'s `neon-scan` is on by default, and `cargo build -p baud-bench
+# --no-default-features` does *not* turn it off -- that flag disables this
+# crate's defaults, not a dependency's. Without this line the A/B could not be
+# run at all, and the first attempt at it silently compared a cached binary
+# against itself.
+baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 libc = "0.2"
 zerocopy = "0.8"
 
 
 [features]
+default = ["neon-scan"]
 # Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
@@ -44,7 +51,9 @@ new-const-stride = ["baud-core/probe-const-stride"]
 new-double-scan = ["baud-core/probe-double-scan"]
 ascii-only = ["baud-core/ascii-only"]
 cell-table = ["baud-core/cell-table"]
-# The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core.
+# The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core. It is in
+# `default` here so `ingest2` measures what a default `baud-core` does, and
+# `--no-default-features` is the arm that turns it off.
 neon-scan = ["baud-core/neon-scan"]
 param3 = ["baud-core/param3"]
 probe-no-fast-csi = ["baud-core/probe-no-fast-csi"]

@@ -19,14 +19,12 @@ const ALPHABET: [u8; 4] = [0xe3, 0x81, 0x41, 0xf0];
 
 fn both(bytes: &[u8]) -> (usize, usize) {
     let s = StreamByte::slice_from(bytes);
-    // SAFETY: NEON is baseline on aarch64 and this file is `cfg`'d to it;
-    // `Portable` requires nothing.
-    unsafe {
-        (
-            Portable::stride_three(s).index(),
-            Neon::stride_three(s).index(),
-        )
-    }
+    // `Neon`'s inherent methods are safe; `Portable`'s trait method still needs
+    // the block, because `Scan` is `unsafe fn` for `Avx2`'s sake.
+    //
+    // SAFETY: `Portable` requires no target feature at all.
+    let portable = unsafe { Portable::stride_three(s) };
+    (portable.index(), Neon::stride_three(s).index())
 }
 
 /// **Exhaustive over the first eight lanes**, which is 65,536 blocks.

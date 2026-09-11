@@ -131,17 +131,34 @@ Full tables, other hosts, and every caveat in
 
 | recording | baud-core | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/less-pager.raw` | **1699.3** | 291.4 | 235.7 | **5.83x** |
-| `ascii/git-log.raw` | **1646.3** | 464.7 | 183.8 | **3.54x** |
-| `ascii/cat-scroll.raw` | **1587.9** | 380.7 | 160.6 | **4.17x** |
-| `ascii/asciiquarium.raw` | **544.4** | 195.2 | 238.8 | **2.79x** |
-| `utf8/less-cjk.raw` | **472.5** | 245.8 | 269.3 | **1.92x** |
-| `utf8/cava.raw` | **561.6** | 312.9 | 357.9 | **1.79x** |
-| `utf8/vim-unicode.raw` | **649.0** | 348.4 | 289.2 | **1.86x** |
-| `utf8/btop.raw` | **864.4** | 493.8 | 317.6 | **1.75x** |
-| `utf8/cat-cjk.raw` | **472.8** | 376.9 | 203.3 | **1.25x** |
+| `ascii/git-log.raw` | **1837.1** | 497.0 | 192.0 | **3.70x** |
+| `ascii/cat-scroll.raw` | **1766.9** | 394.7 | 173.2 | **4.48x** |
+| `ascii/less-pager.raw` | **1734.1** | 291.3 | 239.0 | **5.95x** |
+| `utf8/btop.raw` | **893.1** | 502.8 | 328.8 | **1.78x** |
+| `utf8/vim-unicode.raw` | **655.6** | 353.3 | 279.1 | **1.86x** |
+| `utf8/cava.raw` | **573.0** | 319.4 | 355.3 | **1.79x** |
+| `ascii/asciiquarium.raw` | **555.7** | 199.0 | 240.1 | **2.79x** |
+| `utf8/less-cjk.raw` | **500.8** | 250.5 | 275.6 | **2.00x** |
+| `utf8/cat-cjk.raw` | **493.4** | 383.7 | 197.3 | **1.29x** |
 
-Ahead on all nine, 1.25x to 5.83x.
+Ahead on all nine, **1.29x to 5.95x**.
+
+**The two CJK rows moved +4% and +3% since the last table, and that is the NEON
+run scan now on by default.** `baud-isa-aarch64::Neon` extracts a lane mask with
+`shrn` where `core::simd`'s `to_bitmask` lowers to a horizontal reduction; on
+aarch64 that is a real instruction difference rather than a wider one, since
+both process sixteen bytes. Measured in isolation, six rounds with an A/A
+control interleaved: **cat-cjk +4.3%, less-cjk +3.7%**, disjoint from base and
+from the control, stable under reversing the arm order, every other recording
+overlapping -- which is the prediction holding, because the stride-three scan
+only fires on runs of three-byte characters.
+
+It costs no `unsafe` in `baud-core`, which still carries
+`#![forbid(unsafe_code)]` unconditionally: `Scan`'s methods are `unsafe fn` for
+`Avx2`'s sake, where AVX2 is not baseline, and `Neon` wraps them in a safe
+inherent surface because on aarch64 NEON *is* baseline and the obligation is
+satisfied by the target. `cargo build -p baud-bench --no-default-features` is
+the arm that turns it off.
 
 **Three rows moved since the previous table and the reason is a feature, not a
 regression.** That table was measured before grapheme clustering landed. Holding

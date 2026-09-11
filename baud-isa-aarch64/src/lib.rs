@@ -42,6 +42,58 @@ unsafe fn nibbles(v: core::arch::aarch64::uint8x16_t) -> NibbleMask {
     }
 }
 
+/// **The safe surface, and the reason it exists.**
+///
+/// `Scan`'s methods are `unsafe fn` because of `Avx2`: AVX2 is not baseline on
+/// x86-64, so a caller really can invoke it on a machine that cannot execute it,
+/// and `no_std` has no `is_x86_feature_detected!` to check. That contract is
+/// real there and **vacuous here** -- this crate is `#![cfg(target_arch =
+/// "aarch64")]` and NEON is baseline on aarch64, so there is no feature to
+/// establish, no fallback to choose, and nothing a caller can get wrong.
+///
+/// An `unsafe fn` whose contract the target already satisfies is not a warning,
+/// it is noise: it pushes an `unsafe` block into every caller for a guarantee
+/// the compiler has already made. The real unsafety is the raw load --
+/// `vld1q_u8` on a pointer, after the length check -- and it belongs **inside**
+/// here, written once, rather than restated at each call site.
+///
+/// So these wrap the trait methods and are safe to call, and `baud-core` keeps
+/// `#![forbid(unsafe_code)]` **unconditionally** while using them.
+impl Neon {
+    /// Length of the leading printable-ASCII run.
+    #[inline(always)]
+    pub fn run(buf: &[StreamByte]) -> ByteLen {
+        // SAFETY: `Scan`'s contract is that the caller established the target
+        // features the implementation needs. `Neon` needs NEON, baseline on
+        // aarch64, and this crate does not compile on any other target.
+        unsafe { <Neon as Scan>::run(buf) }
+    }
+    /// Complete three-byte characters leading `buf`, at most five.
+    #[inline(always)]
+    pub fn stride_three(buf: &[StreamByte]) -> Count {
+        // SAFETY: as `Neon::run`.
+        unsafe { <Neon as Scan>::stride_three(buf) }
+    }
+    /// Complete four-byte characters leading `buf`, at most four.
+    #[inline(always)]
+    pub fn stride_four(buf: &[StreamByte]) -> Count {
+        // SAFETY: as `Neon::run`.
+        unsafe { <Neon as Scan>::stride_four(buf) }
+    }
+    /// Offset of the first `CSI` final byte.
+    #[inline(always)]
+    pub fn final_byte(buf: &[StreamByte]) -> Option<ByteLen> {
+        // SAFETY: as `Neon::run`.
+        unsafe { <Neon as Scan>::final_byte(buf) }
+    }
+    /// Offset of the first `BEL`, or the `ESC` of an `ESC \` terminator.
+    #[inline(always)]
+    pub fn st(buf: &[StreamByte]) -> Option<ByteLen> {
+        // SAFETY: as `Neon::run`.
+        unsafe { <Neon as Scan>::st(buf) }
+    }
+}
+
 impl Scan for Neon {
     /// # Safety
     /// aarch64 only, where NEON is baseline.

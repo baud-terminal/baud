@@ -16,7 +16,27 @@ description = "A terminal emulator core: PTY bytes through VT parse into a grid.
 # reads. Off, it is flat on btop and asciiquarium and **better** on cat-scroll,
 # git-log and less-pager, which is the rodata-layout class this file records
 # three times.
-default = []
+# **`neon-scan` is on**, and it is the only default feature. It swaps the
+# printable and stride-three run scans to `baud-isa-aarch64::Neon`, which
+# extracts a lane mask with `shrn` where `core::simd`'s `to_bitmask` lowers to a
+# horizontal reduction. Measured **+4.2% on cat-cjk and +4.0% on less-cjk**,
+# disjoint from base and from an A/A control in the same sweep and stable under
+# reversing the arm order; every other recording overlaps.
+#
+# **It is inert off aarch64.** The dependencies are target-gated and
+# `baud-isa-aarch64` is `#![cfg(target_arch = "aarch64")]`, so on any other
+# target the feature pulls nothing and the call sites compile to the portable
+# path -- which is why `x86_64-unknown-none` still builds and still forbids
+# `unsafe`.
+#
+# **To A/B it, `--no-default-features` must be passed to the crate that depends
+# on this one, and `baud-bench` sets `default-features = false` for exactly
+# that.** `cargo build -p baud-bench --no-default-features` disables *that*
+# crate's defaults, not a dependency's, and the first attempt at this comparison
+# silently rebuilt nothing and measured a cached binary against itself. The
+# check that catches it is one `objdump`: no `shrn` in `main` means the arm is
+# off.
+default = ["neon-scan"]
 # `Storage::boxed`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
 # 24 MB of static storage.

@@ -30,12 +30,17 @@
 //! outside the `alloc` feature, no `std`.
 
 #![no_std]
-// **Forbidden in every build but one.** `forbid` cannot be relaxed by an
-// `allow`, which is the point of it, so the `neon-scan` arm -- which calls
-// `baud-isa`'s `unsafe fn Scan::run` -- has to drop the attribute rather than
-// override it. The default build, the `x86_64-unknown-none` build and every
-// test binary keep it.
-#![cfg_attr(not(feature = "neon-scan"), forbid(unsafe_code))]
+// **Unconditional, including with `neon-scan` on**, and that took an API fix
+// rather than an exemption. The first version of the NEON arm dropped this
+// attribute under the feature, because `Scan`'s methods are `unsafe fn` and
+// `forbid` cannot be relaxed by an `allow`. But that contract is about `Avx2`,
+// where AVX2 is not baseline and a caller can genuinely invoke what the machine
+// cannot execute; on aarch64 NEON *is* baseline, so the obligation is satisfied
+// by the target and there is nothing for a caller to uphold. Propagating an
+// `unsafe` block outward for a guarantee the compiler already made is noise, so
+// `baud-isa-aarch64` grew a safe inherent surface over its own trait impl and
+// this crate calls that. The raw load lives where it is checked.
+#![forbid(unsafe_code)]
 
 // **Only for [`Owned`], and only behind the feature.** The default build and
 // the `x86_64-unknown-none` target still see nothing but `core`.

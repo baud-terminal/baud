@@ -677,12 +677,11 @@ fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
     // an answer, only which instructions produce it.
     #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
     {
-        #[allow(unsafe_code)]
-        // SAFETY: `Scan`'s contract is "the caller established every target
-        // feature the implementation requires". `Neon` requires NEON, which is
-        // baseline on aarch64, and this block is `cfg`'d to that architecture --
-        // so there is no feature to detect and no way to reach it elsewhere.
-        let l = unsafe { <baud_isa_aarch64::Neon as baud_isa::Scan>::run(&s[n..]) };
+        // No `unsafe` here. `Neon`'s inherent methods are the safe surface over
+        // a trait whose `unsafe fn` exists for `Avx2`, where the target feature
+        // is real; on aarch64 NEON is baseline and the contract is vacuous, so
+        // the raw load stays inside `baud-isa-aarch64`.
+        let l = baud_isa_aarch64::Neon::run(&s[n..]);
         ByteLen::from_index(n + l.index())
     }
     #[cfg(not(all(feature = "neon-scan", target_arch = "aarch64")))]
@@ -881,12 +880,7 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
             // compares with `vbslq_u8` and extracts with `shrn`, where the
             // portable form ends in `to_bitmask()` and a horizontal `addv.8h`.
             #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
-            #[allow(unsafe_code)]
-            // SAFETY: `Neon` requires NEON, baseline on aarch64, and this is
-            // `cfg`'d to that architecture.
-            let n =
-                unsafe { <baud_isa_aarch64::Neon as baud_isa::Scan>::stride_three(&s[3 * k..]) }
-                    .index();
+            let n = baud_isa_aarch64::Neon::stride_three(&s[3 * k..]).index();
             #[cfg(all(
                 not(feature = "route-stride"),
                 not(all(feature = "neon-scan", target_arch = "aarch64"))
