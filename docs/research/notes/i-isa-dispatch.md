@@ -231,13 +231,24 @@ built for exactly that. The vectorised UTF-8 decoder the cost map points at
 would land the same way, as trait methods with a portable form and per-ISA
 overrides.
 
-Two things this note does **not** establish:
+Two things this note did **not** establish. **Both have since been answered, and
+one of them answered against this note's own suggested instrument.**
 
-* **Whether cross-crate LTO would in fact preserve the inlining.** The claim
-  above is that it becomes unverified, not that it fails. It is testable with
-  the `vpmovmskb` grep already in CI, and if the split is ever wanted for
-  ownership reasons rather than performance ones, that test is what to build
-  first.
-* **Whether an explicit NEON `Scan` beats `core::simd` on this box.** `Portable`
-  lowers to NEON already; whether a hand-written form beats it is unmeasured,
-  and is the first per-ISA question worth asking.
+* **~~Whether cross-crate LTO would preserve the inlining.~~ Still open, but not
+  by the means named here.** This said it is "testable with the `vpmovmskb` grep
+  already in CI". It is not: a fair A/B puts `-C target-feature=+avx2` on both
+  arms, and with the flag on, LLVM VEX-encodes the *portable* path's movemask
+  too. Measured on the x86-64 runner, the two arms carry **44 `vpmovmskb` each**
+  -- the grep distinguishes nothing. What discriminates is the register width,
+  `vpmovmskb %ymm` for the 32-byte form, and that is what the bench workflow
+  asserts now.
+* **~~Whether an explicit NEON `Scan` beats `core::simd` on this box.~~
+  Measured, and the answer is: only where the extraction is the cost.** Wiring
+  `Scan::run` -- the printable-ASCII scan -- was a **null on all nine
+  recordings**, because the payloads with long printable runs are store-bound.
+  Wiring `stride_three`, where `core::simd`'s `to_bitmask` lowers to `addv.8h`
+  and `vshrn_n_u16` does not, is **+4.2% on cat-cjk and +4.0% on less-cjk**.
+  So the per-ISA question is not "does a hand-written form beat `core::simd`"
+  but "which scan, and is its extraction on the critical path" -- and the
+  x86-64 counterpart does not exist, because `pmovmskb` is already the cheap
+  form there. `CLAUDE.md` carries both results.

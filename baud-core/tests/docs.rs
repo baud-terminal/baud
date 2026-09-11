@@ -255,8 +255,34 @@ fn every_test_named_in_the_docs_exists() {
     // collector that walked only core2 would report every one of them as a
     // citation to nothing, which is the "instrumentation outlived what fed it"
     // failure this repo already records twice.
-    for d in ["baud-core", "baud-core2", "baud-domain", "baud-bench"] {
-        collect(&root().join(d), &mut have);
+    //
+    // **And it must follow the code as it is, not as it was.** This list named
+    // `baud-core2` until today -- a crate deleted some time ago -- and
+    // `collect` returns silently on a directory that is not there, so the gate
+    // walked nothing for it and said nothing. It also omitted `baud-difftest`
+    // and the three ISA crates, which do carry tests this file cites. A gate
+    // scoped to the wrong set of crates is the failure this repository has now
+    // recorded three times: `docs.rs`'s own `ROOTS`, `audit_all.sh`'s budgets,
+    // and the CI step that named a package with no such target.
+    //
+    // The directories are checked rather than assumed, so a rename here fails
+    // loudly instead of quietly reducing what is collected.
+    for d in [
+        "baud-core",
+        "baud-domain",
+        "baud-bench",
+        "baud-difftest",
+        "baud-isa",
+        "baud-isa-aarch64",
+        "baud-isa-x86-64",
+    ] {
+        let dir = root().join(d);
+        assert!(
+            dir.is_dir(),
+            "{d} is in the collector's list and does not exist -- the gate \
+             would walk nothing for it and report no error"
+        );
+        collect(&dir, &mut have);
     }
 
     // snake_case identifiers in these docs that are deliberately *not* baud
