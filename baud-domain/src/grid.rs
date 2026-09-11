@@ -859,6 +859,8 @@ impl<'a> View<'a> {
         }
         let p = self.phys(r);
         let base = p * self.stride.index();
+        #[cfg(feature = "ceiling-no-store")]
+        let _ = (lead, base);
         // **Two stores, and combining them lost.** A lead and its `WIDE_TAIL`
         // are sixteen contiguous bytes, so one wide store should serve --
         // `copy_from_slice(&[lead, t])` measured **662-690 against 690-709**,

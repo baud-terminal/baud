@@ -273,6 +273,7 @@ pub(crate) fn act(
     // reachable without changing the loop", which no component probe can.
     #[cfg(feature = "ceiling-no-act")]
     {
+        let _ = (&node, &enc, &utf8, &min, &csi);
         return match a {
             Act::Text => ReadLen::of_bytes(run_of_text(p, from, left)),
             Act::Char2 => ReadLen::from_index(2 * run_of(p, from, left, ByteLen::TWO).index()),
@@ -1031,7 +1032,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     let (len, k, left) = (len.index(), count.index(), left.index());
     #[cfg(feature = "ceiling-no-decode")]
     {
-        let _ = (len, k, left);
+        let _ = (&p, from, len, k, left);
         return;
     }
     #[allow(unreachable_code)]
@@ -1152,7 +1153,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
 
     #[cfg(feature = "ceiling-no-write")]
     {
-        let _ = &cps;
+        let _ = (&cps, all_wide, all_narrow, all_ordinary);
         p.cells = p.cells.plus(k);
         return;
     }
@@ -1396,7 +1397,7 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
     #[cfg(feature = "probe-no-csi-op")]
     {
-        let _ = (&p, &csi, f);
+        let _ = (&p, &csi, f, &node);
         return;
     }
     #[allow(unreachable_code)]
@@ -1792,7 +1793,7 @@ fn fast_csi(
 ) -> Option<ReadLen> {
     #[cfg(feature = "probe-no-fast-csi")]
     {
-        let _ = (&p, &csi, from, left);
+        let _ = (&p, &csi, from, left, &node);
         return None;
     }
     #[cfg(feature = "diag")]
@@ -1977,7 +1978,7 @@ fn fast_csi(
         let mut scratch = Csi::NEW;
         let mut si = false;
         let mut sc: Option<Param> = None;
-        for (k, b) in params.iter().enumerate() {
+        for (k, b) in s.iter().enumerate() {
             match b.as_ascii_digit() {
                 Some(d) if !si => {
                     sc = Some(match sc {

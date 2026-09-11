@@ -85,6 +85,7 @@ impl Term<'_> {
         // non-ASCII bytes in 448,460 and `ascii/git-log.raw` 444 in 501,185.
         #[cfg(feature = "ascii-only")]
         {
+            let _ = &csi;
             let mut i = 0usize;
             while i < n.index() {
                 let b = StreamByte::from_stream(p.arena[base.index() + i]);
@@ -181,7 +182,7 @@ impl Term<'_> {
                         while d < seg {
                             d = d.plus(step(
                                 &mut p,
-                                enc,
+                                &mut enc,
                                 &mut node,
                                 &mut utf8,
                                 &mut min,

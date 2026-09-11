@@ -448,6 +448,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // which is what the doubled shift looks like from the screen.
         #[cfg(feature = "ceiling-no-text")]
         {
+            let _ = from;
             self.cells = self.cells.plus(k);
             self.cx = Col::at_index(self.cx.index() + k);
             self.row_written = self.row_written.max(self.cx);

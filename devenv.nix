@@ -270,8 +270,15 @@ in
       exec = "sh ./audit_all.sh";
       after = [ "test:bare" ];
     };
+    # Every feature arm must build on its own. `--all-features` (dev-test) builds
+    # them all at once, which masks per-arm rot; this checks each individually,
+    # the way the arms are actually used for measurement.
+    "test:features" = {
+      exec = "bash ./scripts/check-features.sh";
+      after = [ "test:audit" ];
+    };
   };
 
   # https://devenv.sh/tests/
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:audit";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:audit test:features";
 }

@@ -174,7 +174,9 @@ probe-csi-scratch = []
 # regressing, so the fused form is the default and this restores the old one.
 two-pass-csi = []
 route-stride = []
-probe-double-final-scan = []
+# Prices the two-pass terminator scan, so it needs the scan: `final_byte_at`
+# is gated behind `two-pass-csi`, which the CSI scan/walk fusion moved it to.
+probe-double-final-scan = ["two-pass-csi"]
 ceiling-free-sgr = []
 ceiling-no-region-copy = []
 ceiling-segment-cache = []
