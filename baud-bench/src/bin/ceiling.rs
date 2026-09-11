@@ -33,11 +33,22 @@ const COLS: usize = 200;
 const ROWS: usize = 50;
 const CELLS: usize = COLS * ROWS;
 
+/// **The units are this project's, which are mixed, and that is deliberate
+/// here.** `ingest2` divides by `1 << 20`, so every "MB/s" in this repository is
+/// a *mebibyte*; the ladder's "GB/s" is decimal. Nothing says so anywhere, and
+/// the pair is recoverable only from the arithmetic: the ladder derives 17,156
+/// MB/s of input from 143.9 GB/s, and that identity holds for `GB = 1e9` with
+/// `MB = 2^20` and for no other combination of the two.
+///
+/// The first version of this file used `1e6` for both and reported the read and
+/// `memcpy` rows **4.86% high** against figures in the other unit -- a
+/// like-for-like comparison that was not one, which is the "mismatched
+/// optimisation flags" entry in a new costume.
 fn gb_s(bytes: usize, secs: f64) -> f64 {
     bytes as f64 / secs / 1e9
 }
 fn mb_s(bytes: usize, secs: f64) -> f64 {
-    bytes as f64 / secs / 1e6
+    bytes as f64 / secs / (1 << 20) as f64
 }
 
 /// Run a closure until it has taken at least `floor` seconds, and report the
