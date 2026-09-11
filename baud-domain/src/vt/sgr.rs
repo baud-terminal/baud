@@ -139,13 +139,27 @@ impl SgrAttr {
         // compile to a chain of unsigned range compares (`b.hs`/`b.hi`/`b.lo`
         // dominate the disassembly, not a jump table), and 38/48/58 sat near
         // its end behind thirty-odd tests it can never match.
+        // **`v` is discriminated once, not twice.** This test used to be
+        // `matches!(v, 38 | 48 | 58)` and `parse_color` then re-derived which
+        // of the three it was from the same `u16` -- two compare chains over
+        // one value, on the arm that is 47% of `btop.raw`'s `SGR`s and, by
+        // `probe-double-sgr-color`, about three fifths of its parse.
+        //
+        // `ColorSlot` is that decision made once and carried. What reaches the
+        // colour arm is a three-variant enum rather than a number, so choosing
+        // the constructor is a discriminant test instead of a `u16` compare
+        // chain, and the arm can no longer be reached with a `v` that names no
+        // colour.
         #[cfg(not(feature = "colour-in-match"))]
-        if matches!(v, 38 | 48 | 58) {
-            return SgrAttr::parse_color(params, v);
+        if let Some(slot) = ColorSlot::of(v) {
+            return SgrAttr::parse_color(params, slot);
         }
         Some(match v {
             #[cfg(feature = "colour-in-match")]
-            38 | 48 | 58 => return SgrAttr::parse_color(params, v),
+            38 | 48 | 58 => {
+                let slot = ColorSlot::of(v).expect("38, 48 and 58 each name a colour");
+                return SgrAttr::parse_color(params, slot);
+            }
             0 => (SgrAttr::Reset, ParamCount(1)),
             // `SGR 10-19`. Recorded rather than dropped: a font is a rendition,
             // and it lives in the rendition word's spare bits -- the row that
@@ -248,7 +262,7 @@ impl SgrAttr {
     /// **58 shares this with 38 and 48 rather than getting a parallel copy**:
     /// the colon/semicolon distinction below is the part that is easy to get
     /// wrong, and one copy of it cannot drift from another.
-    fn parse_color(params: Params<'_>, v: u16) -> Option<(SgrAttr, ParamCount)> {
+    fn parse_color(params: Params<'_>, slot: ColorSlot) -> Option<(SgrAttr, ParamCount)> {
         // **Prices the colour arm apart from the 46-arm dispatch above it.**
         //
         // `probe-double-sgr` prices `parse` whole and `probe-double-fold` the
@@ -279,19 +293,15 @@ impl SgrAttr {
             // `Params` is not `Copy`, and a clone would price the clone. It
             // borrows, so rebuilding one from the same slice and mask is the
             // same object by value at no cost the real path does not pay.
-            let again = Self::parse_color_once(params.reborrow(), v);
+            let again = Self::parse_color_once(params.reborrow(), slot);
             core::hint::black_box(&again);
         }
-        Self::parse_color_once(params, v)
+        Self::parse_color_once(params, slot)
     }
 
-    fn parse_color_once(params: Params<'_>, v: u16) -> Option<(SgrAttr, ParamCount)> {
+    fn parse_color_once(params: Params<'_>, slot: ColorSlot) -> Option<(SgrAttr, ParamCount)> {
         Some({
-            let mk = |c| match v {
-                38 => SgrAttr::Fg(c),
-                48 => SgrAttr::Bg(c),
-                _ => SgrAttr::Underline(c),
-            };
+            let mk = |c| slot.attr(c);
             // Two spellings, and the difference is not cosmetic.
             //
             // `[[source: ctlseqs]]` gives the ISO 8613-6 form as
@@ -330,6 +340,43 @@ impl SgrAttr {
                 _ => return None,
             }
         })
+    }
+}
+
+/// Which colour `38`, `48` and `58` name.
+///
+/// **The point is that it is decided once.** `38`/`48`/`58` were tested to
+/// enter the colour arm and then tested again inside it to pick a constructor,
+/// which is two compare chains over one `u16` on the arm
+/// `probe-double-sgr-color` prices at about three fifths of btop's parse. A
+/// three-variant enum makes the second one a discriminant test, and makes the
+/// arm unreachable with a value that names no colour -- the same reason
+/// `Digit::of_ascii` is infallible, which is the one change that has ever paid
+/// on this path.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ColorSlot {
+    Fg,
+    Bg,
+    Underline,
+}
+
+impl ColorSlot {
+    #[inline(always)]
+    fn of(v: u16) -> Option<ColorSlot> {
+        match v {
+            38 => Some(ColorSlot::Fg),
+            48 => Some(ColorSlot::Bg),
+            58 => Some(ColorSlot::Underline),
+            _ => None,
+        }
+    }
+    #[inline(always)]
+    fn attr(self, c: Color) -> SgrAttr {
+        match self {
+            ColorSlot::Fg => SgrAttr::Fg(c),
+            ColorSlot::Bg => SgrAttr::Bg(c),
+            ColorSlot::Underline => SgrAttr::Underline(c),
+        }
     }
 }
 
