@@ -624,3 +624,73 @@ fn rep_repeats_the_designated_glyph_not_the_raw_byte() {
     assert_eq!(v[0].content, v[1].content, "first repeat");
     assert_eq!(v[0].content, v[2].content, "second repeat");
 }
+
+/// **Every national replacement actually reaches the screen.**
+///
+/// `nrcs_tables_match_the_pinned_source` checks the *tables* against
+/// `[[source: xterm-charsets]]`, and `every_listed_single_byte_final_is_named`
+/// checks the *designators*. Nothing checked the composition: the write path
+/// could ignore the tables entirely and both of those would stay green, because
+/// one reads a generated file and the other reads `Term::charset()` -- neither
+/// looks at a cell.
+///
+/// That is the distinction this project keeps paying for. A test that counts
+/// what an operation did cannot see it being done to the wrong object, and a
+/// test that validates a table cannot see the table going unread. So this one
+/// drives bytes through `Term` and asserts the **rendered codepoint**, for every
+/// pair of every set that a designator can reach.
+///
+/// The expectations come from `nrcs_table` rather than from a list here, so the
+/// day the pinned source changes, this test changes with it instead of
+/// disagreeing with it.
+#[test]
+fn every_national_replacement_renders_as_its_table_says() {
+    // Designators, discovered rather than transcribed: every single-byte final
+    // and the two-byte forms, kept when the parser names a national set.
+    let mut designators: Vec<(Vec<u8>, Nrcs)> = Vec::new();
+    for b in 0x20u8..=0x7e {
+        let seq = vec![0x1b, b'(', b];
+        if let Charset::National(n) = charset(&seq) {
+            designators.push((seq, n));
+        }
+    }
+    for i in [b'"', b'%', b'&'] {
+        for f in 0x20u8..=0x7e {
+            let seq = vec![0x1b, b'(', i, f];
+            if let Charset::National(n) = charset(&seq) {
+                designators.push((seq, n));
+            }
+        }
+    }
+
+    // Positive control: the discovery must find the sets, or every assertion
+    // below is unreached and the test passes having checked nothing.
+    let found: std::collections::BTreeSet<u8> =
+        designators.iter().map(|(_, n)| n.to_u8()).collect();
+    assert!(
+        found.len() >= 12,
+        "only {} national sets are reachable by a designator -- the discovery \
+         stopped matching",
+        found.len()
+    );
+
+    let mut checked = 0usize;
+    for (seq, set) in &designators {
+        for (byte, want) in baud_domain::nrcs_table(*set) {
+            let mut bytes = seq.clone();
+            bytes.push(*byte);
+            let cells = run(&bytes).0;
+            let got = cells[0]
+                .content
+                .as_codepoint()
+                .map(|c| c.value())
+                .unwrap_or(0);
+            assert_eq!(
+                got, *want,
+                "{set:?}: byte {byte:#04x} must render U+{want:04X}, not U+{got:04X}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked >= 150, "only {checked} replacements checked");
+}

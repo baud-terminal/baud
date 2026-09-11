@@ -473,8 +473,22 @@ impl PackedCell {
     /// generated and its pair arrays are private, so spreading them into
     /// direct-indexed rows needs a generator change rather than a hand edit --
     /// `nrcs_tables_match_the_pinned_source` correctly rejected the hand edit.
-    /// Left as it is because a charset is not on the ingest path: the new core
-    /// never leaves `Charset::Ascii`.
+    ///
+    /// **The reason it was left alone has expired, and the new one is a
+    /// prediction rather than an excuse.** That reason read "a charset is not on
+    /// the ingest path: the new core never leaves `Charset::Ascii`", and it
+    /// does now -- the G0-G3 slots and the locking shifts landed, so
+    /// `ESC ( % 6` puts this search on the per-character path for as long as the
+    /// set is designated. `every_national_replacement_renders_as_its_table_says`
+    /// drives all 163 replacements through `Term` and proves it.
+    ///
+    /// What replaces it: the tables are **8 to 10 pairs** over a `const` array,
+    /// and this project has measured a table against a short predictable chain
+    /// twice and lost both times -- `SgrAttr::one` at flat to -3%, the
+    /// single-parameter fold table at -7.5%. So the index is predicted to be
+    /// flat at best, and **no recording designates a national set**, so there is
+    /// nothing in the corpus to measure it on. Building it means writing a
+    /// payload first and quoting the number against that payload only.
     pub fn with_nrcs(self, b: StreamByte, table: &[(u8, u32)]) -> PackedCell {
         let v = b.raw_byte();
         let cp = match table.iter().find(|(k, _)| *k == v) {
