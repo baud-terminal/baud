@@ -28,6 +28,7 @@ cargo run --release -p baud-bench --bin ingest2 -- cat-cjk 250
 # parser.
 cargo run --release -p baud-bench --bin transport -- utf8/btop.raw 48
 cargo run --release -p baud-bench --bin ceiling    # the reference ceilings, on mains
+cargo run --release -p baud-bench --bin opcost     # what one character shape costs
 
 cargo run --release -p baud-difftest   # cell-by-cell diff against alacritty
 ```
