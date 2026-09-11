@@ -283,6 +283,10 @@ fn every_test_named_in_the_docs_exists() {
             "_mm256_movemask_epi8",
             "an x86 intrinsic, named where CI checks the binary for its              instruction rather than trusting the AVX2 property's output match",
         ),
+        (
+            "_mm256_loadu_si256",
+            "an x86 intrinsic, named where this file records that              `baud-isa-x86-64` scans 32 bytes where `core::simd` lowers to 16",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

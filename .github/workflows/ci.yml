@@ -130,10 +130,28 @@ jobs:
       # these with a step written against a target nobody can run here would be
       # the same mistake with fresh paint.
       #
-      # Restoring the coverage means one of two decisions, and both are the
-      # owner's: delete the two arch crates, or give `baud-isa` a property that
-      # drives every implementation of `Scan` over the same bytes and requires
-      # them to agree -- at which point this step comes back pointing at it.
+      # **And the gap is not only "untested", on either architecture.**
+      #
+      #   * x86-64: nothing sets `target-feature=+avx2`, so `core::simd` lowers
+      #     to SSE2 at `LANE_COUNT = 16` where `baud-isa-x86-64` does 32 with
+      #     `_mm256_loadu_si256`. A width gap.
+      #   * aarch64: NEON is baseline and 16 bytes *is* native width, so this
+      #     looked like a non-issue and is not. `baud-isa-aarch64` exists to
+      #     change the *extraction*: `core::simd`'s `to_bitmask` lowers to
+      #     `addv.8h`, a horizontal reduction, where `shrn` has no serial
+      #     dependency. Disassembling `ingest2` at HEAD puts **11 `addv.8h` in
+      #     `main`** where `feed` inlines and **zero `shrn` in baud's own code**
+      #     -- so the expensive form is what ships on the dev platform, inside a
+      #     run scan `CLAUDE.md` prices at 7% of cat-cjk.
+      #
+      # Both are blocked by the same thing: `Scan`'s methods are `unsafe fn` and
+      # `baud-core` is `#![forbid(unsafe_code)]` with one entry point, where core2
+      # had `feed` and `feed_avx2` chosen once at startup.
+      #
+      # So restoring this step is downstream of a decision the owner owns, and it
+      # is not "delete or test". This runner is the x86-64 host that could measure
+      # the width half; the aarch64 half is measurable on the dev box and neither
+      # has been measured, because nothing calls either implementation.
 
   release-plz-release:
     name: Release
