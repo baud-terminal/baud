@@ -52,8 +52,12 @@ about.
 
 ## The road to a terminal
 
-Two questions decide whether the measurements above survive contact with a real
-terminal, and they are the next work:
+The next work is the **input path**, then the renderer — the owner's order. The
+base key encoder is already shared in `baud_domain`; what is unbuilt is the two
+negotiated layers, fixterms `CSI u` and kitty progressive enhancement.
+
+Then two questions decide whether the measurements above survive contact with a
+real terminal:
 
 1. **Shaping.** Wire HarfBuzz and a glyph atlas into viewport materialisation,
    then re-measure on mixed CJK/emoji/ligature content. If throughput holds
@@ -64,7 +68,7 @@ terminal, and they are the next work:
    synthetic payloads, and find out whether the margin survives real escape
    traffic.
 
-After those: renderer, then an input path, then it is a terminal.
+After the renderer and shaping, it is a terminal.
 
 ## Running it today
 
