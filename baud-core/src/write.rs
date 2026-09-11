@@ -669,19 +669,38 @@ fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
     // inside the first sixty-four bytes pays for machinery it cannot use, and
     // real text breaks every eighty characters. `Vectorized::printable_run`
     // keeps the wide form for whoever finds a payload with long enough runs.
-    while n + LANE_COUNT <= left {
-        if let Some(l) = Vectorized::<Printable>::load(&s[n..])
-            .not_printable()
-            .first()
-        {
-            return ByteLen::from_index(n + l.index());
+    // **The `neon-scan` arm replaces both loops with one call**, because
+    // `Scan::run` is specified as "length of the leading printable-ASCII run"
+    // and its own scalar tail closes the same gap this function's does. The two
+    // predicates are the identical range -- `StreamByte::is_printable` and
+    // `is_printable_ascii` are both `(0x20..0x7f)` -- so the swap cannot change
+    // an answer, only which instructions produce it.
+    #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
+    {
+        #[allow(unsafe_code)]
+        // SAFETY: `Scan`'s contract is "the caller established every target
+        // feature the implementation requires". `Neon` requires NEON, which is
+        // baseline on aarch64, and this block is `cfg`'d to that architecture --
+        // so there is no feature to detect and no way to reach it elsewhere.
+        let l = unsafe { <baud_isa_aarch64::Neon as baud_isa::Scan>::run(&s[n..]) };
+        ByteLen::from_index(n + l.index())
+    }
+    #[cfg(not(all(feature = "neon-scan", target_arch = "aarch64")))]
+    {
+        while n + LANE_COUNT <= left {
+            if let Some(l) = Vectorized::<Printable>::load(&s[n..])
+                .not_printable()
+                .first()
+            {
+                return ByteLen::from_index(n + l.index());
+            }
+            n += LANE_COUNT;
         }
-        n += LANE_COUNT;
+        while n < left && s[n].is_printable_ascii() {
+            n += 1;
+        }
+        ByteLen::from_index(n)
     }
-    while n < left && s[n].is_printable_ascii() {
-        n += 1;
-    }
-    ByteLen::from_index(n)
 }
 
 /// A run of characters of one encoded length: find it, then write it.

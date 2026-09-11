@@ -24,6 +24,8 @@ version = "0.1.0"
 dependencies = [
  "baud-core",
  "baud-domain",
+ "baud-isa",
+ "baud-isa-aarch64",
  "proptest",
  "zerocopy",
 ]

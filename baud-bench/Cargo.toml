@@ -44,6 +44,8 @@ new-const-stride = ["baud-core/probe-const-stride"]
 new-double-scan = ["baud-core/probe-double-scan"]
 ascii-only = ["baud-core/ascii-only"]
 cell-table = ["baud-core/cell-table"]
+# The aarch64 run scan through `baud-isa-aarch64::Neon`; see baud-core.
+neon-scan = ["baud-core/neon-scan"]
 param3 = ["baud-core/param3"]
 probe-no-fast-csi = ["baud-core/probe-no-fast-csi"]
 probe-no-csi-op = ["baud-core/probe-no-csi-op"]

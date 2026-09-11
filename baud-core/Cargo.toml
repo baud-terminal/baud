@@ -89,6 +89,20 @@ probe-double-scan = []
 ascii-only = []
 # The write is a lookup: the cell comes from table[b0][b1][b2], not a decode.
 cell-table = []
+# **The aarch64 run scan through `baud-isa-aarch64::Neon` instead of
+# `core::simd`.** Not a width change -- NEON is 128-bit and `LANE_COUNT` is
+# already 16. It changes the *extraction*: `to_bitmask` lowers to `addv.8h`, a
+# horizontal reduction, where `shrn` carries no serial dependency, and
+# disassembling `ingest2` puts 11 `addv.8h` in `main` where `feed` inlines and
+# zero `shrn` in baud's own code.
+#
+# **It is off because it costs `unsafe`.** `Scan`'s methods are `unsafe fn`, and
+# this crate is `forbid(unsafe_code)` -- which `lib.rs` drops only under this
+# feature, so the default build is unchanged. On aarch64 NEON is baseline, so
+# there is nothing to detect and no fallback to pick and the contract is
+# satisfied by the target alone; that makes the `unsafe` a formality rather than
+# a risk, and a formality is still a policy change the owner owns.
+neon-scan = ["dep:baud-isa", "dep:baud-isa-aarch64"]
 # Three bytes an edge in the parameter table instead of two: 1.31 MB of rodata
 # against 128 KB, and it takes a three-digit parameter in one step.
 param3 = []
@@ -155,6 +169,14 @@ ceiling-implicit-tail = []
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
+
+# **Optional, target-gated, and off.** `baud-isa-aarch64` is `#![cfg(target_arch
+# = "aarch64")]`, so the dependency cannot exist elsewhere and neither can the
+# feature that wants it. See `neon-scan` in `[features]` for what it is for and
+# what it costs.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa = { path = "../baud-isa", optional = true }
+baud-isa-aarch64 = { path = "../baud-isa-aarch64", optional = true }
 
 # **The property suite, and the first dev-dependency this crate has had.**
 # `baud-core2` carried 606 tests and all the proptest machinery; this crate had

@@ -30,7 +30,12 @@
 //! outside the `alloc` feature, no `std`.
 
 #![no_std]
-#![forbid(unsafe_code)]
+// **Forbidden in every build but one.** `forbid` cannot be relaxed by an
+// `allow`, which is the point of it, so the `neon-scan` arm -- which calls
+// `baud-isa`'s `unsafe fn Scan::run` -- has to drop the attribute rather than
+// override it. The default build, the `x86_64-unknown-none` build and every
+// test binary keep it.
+#![cfg_attr(not(feature = "neon-scan"), forbid(unsafe_code))]
 
 // **Only for [`Owned`], and only behind the feature.** The default build and
 // the `x86_64-unknown-none` target still see nothing but `core`.
