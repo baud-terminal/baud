@@ -66,6 +66,13 @@ impl Scan for Portable {
         Portable::stride_three_portable(buf)
     }
 
+    /// # Safety
+    /// None required; `Portable` is portable.
+    #[inline(always)]
+    unsafe fn stride_four(buf: &[StreamByte]) -> Count {
+        Portable::stride_four_portable(buf)
+    }
+
     #[inline(always)]
     unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen> {
         let n = buf.len();
@@ -97,6 +104,14 @@ impl Portable {
     /// spelling of "lanes 0, 3, 6, 9, 12 must lead and the rest must continue"
     /// is the shape this repo has paid for twice -- `csi_whole` beside the
     /// table, and a hand-written `SGR` grammar beside `SgrAttr::parse`.
+    /// The stride-four run, as `baud-domain` defines it.
+    fn stride_four_portable(buf: &[StreamByte]) -> Count {
+        match buf.len() >= LANES {
+            true => Count::of(Vectorized::<Printable>::load(&buf[..LANES]).stride_four_run()),
+            false => Count::ZERO,
+        }
+    }
+
     fn stride_three_portable(buf: &[StreamByte]) -> Count {
         match buf.len() >= LANES {
             true => Count::of(Vectorized::<Printable>::load(&buf[..LANES]).stride_three_run()),

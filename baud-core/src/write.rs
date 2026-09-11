@@ -834,6 +834,29 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
         return Count::of(1);
     }
     let mut k = 0usize;
+    // **There is deliberately no stride-four scan, and two things say so.**
+    //
+    // `Act::Char4` is 37.8% of `cat-cjk.raw`'s iterations and 50% of its runs
+    // by encoded length, so this looked like the obvious gap -- and
+    // `baud-core/tests/bulk_paths.rs` proves it was one: the vector scan was
+    // stride-three-only while `CLAUDE.md` recorded the fix as "generalising
+    // `run_of_three` to `run_of` over any stride". Only the *scalar* loop below
+    // was generalised.
+    //
+    // It was built, and it is entered **zero times on every recording**. A
+    // vector step needs four consecutive four-byte characters, and the corpus
+    // has **none**: 13,722 four-byte runs in `cat-cjk.raw`, 3,267 in
+    // `less-cjk.raw`, 1,122 in `vim-unicode.raw`, and not one of length four.
+    // Four-byte characters in real text are emoji, and emoji arrive as ZWJ
+    // families -- a pictograph is followed by a three-byte joiner, never by
+    // another pictograph -- which is the same reason this file already gives
+    // for the wide collector refusing 92% of its gate tests.
+    //
+    // So the scan measured flat on all nine, and `audit_all.sh` refused it as a
+    // sixth scan loop against a floor of five. Measurement and gate agreed, and
+    // the budget does not move to fit a change. `Vectorized::stride_four_run`
+    // and `Scan::stride_four` are kept and tested for whoever finds a payload
+    // that reaches them -- CJK Extension B is four bytes a character.
     // **Five characters a step where the stride is three**, which is 81% of
     // `cat-cjk.raw` and the only length a sixteen-byte block can hold five of.
     // Dropping this for a purely scalar scan is **-8% on vim** and -5% on
@@ -841,6 +864,10 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
     // lets the vectored writer engage.
     if len == 3 {
         while 3 * k + LANE_COUNT <= left && k + 5 <= STRIDE_MAX {
+            #[cfg(feature = "diag")]
+            {
+                p.stride_scan[3].set(p.stride_scan[3].get() + 1);
+            }
             // **Direct, not through the route map.** `routes()` costs a `tbl`
             // and the `7F` correction, and reading two lane masks off it costs
             // two shift-narrow-and-move pairs on aarch64. A three-byte lead
@@ -1524,7 +1551,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
             {
-                p.unsupported[f.slot()] += 1;
+                p.unsupported_by_final[f.slot()] += 1;
             }
         }
     }

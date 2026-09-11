@@ -293,6 +293,20 @@ pub struct Term<'b> {
     /// records as "instrumentation outlived what fed it".
     #[cfg(feature = "diag")]
     pub runs: [usize; 8],
+    /// **How often each stride's *vector* scan is entered**, indexed by encoded
+    /// length.
+    ///
+    /// Separate from `run_len`, which counts runs the scan *produced*. This
+    /// counts entries into the bulk path, because those are different numbers
+    /// and the gap between them is where a missing bulk path hides: a run of
+    /// four-byte characters is found either way, by the vector scan or by the
+    /// scalar loop under it, and only an entry counter can tell which.
+    ///
+    /// This repo already states the rule -- "do not read a bulk path as
+    /// covering a character class, count how often it is entered" -- and then
+    /// had no counter for this one.
+    #[cfg(feature = "diag")]
+    pub stride_scan: [usize; 5],
     #[cfg(feature = "diag")]
     pub run_len: [usize; 5],
     /// **Iterations of the ingest loop.** The unit this core is designed
@@ -307,8 +321,17 @@ pub struct Term<'b> {
     pub table_hits: usize,
     #[cfg(feature = "diag")]
     pub hist: crate::graph::Hist,
+    /// Which finals arrived unimplemented, rather than how many did.
+    ///
+    /// **Renamed because it collided.** `Term::unsupported` is the shipped
+    /// counter -- "control sequences recognised and not acted on" -- and this
+    /// is its per-final breakdown, so the two want the same word and only one
+    /// can have it. They were both `unsupported` and `diag` had not been built
+    /// since; a feature nothing compiles is the same absent-rather-than-red
+    /// failure this repo keeps recording, and it was found by reaching for the
+    /// instrument rather than by anything reporting it.
     #[cfg(feature = "diag")]
-    pub unsupported: [usize; FinalByte::COUNT],
+    pub unsupported_by_final: [usize; FinalByte::COUNT],
     #[cfg(feature = "diag")]
     pub scroll_rot: usize,
     #[cfg(feature = "diag")]
@@ -610,6 +633,9 @@ impl<'b> Term<'b> {
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
+            #[cfg(feature = "diag")]
+            stride_scan: [0; 5],
+            #[cfg(feature = "diag")]
             run_len: [0; 5],
             #[cfg(feature = "diag")]
             iters: 0,
@@ -618,7 +644,7 @@ impl<'b> Term<'b> {
             #[cfg(feature = "diag")]
             hist: crate::graph::Hist::ZERO,
             #[cfg(feature = "diag")]
-            unsupported: [0; FinalByte::COUNT],
+            unsupported_by_final: [0; FinalByte::COUNT],
             #[cfg(feature = "diag")]
             scroll_rot: 0,
             #[cfg(feature = "diag")]

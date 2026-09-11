@@ -421,6 +421,35 @@ impl<K: Kind> Vectorized<K> {
         (ok.to_bitmask().trailing_ones() as usize / 3).min(5)
     }
 
+    /// How many complete **four-byte** characters lead this block, at most four.
+    ///
+    /// **Sixteen bytes is exactly four four-byte characters**, where the
+    /// stride-three form gets five and a spare lane -- so this one has no
+    /// ragged edge and its cap is the register rather than a choice.
+    ///
+    /// It exists because `Act::Char4` is **37.8% of `cat-cjk.raw`'s
+    /// iterations** and 50% of its runs by encoded length, and until this
+    /// landed `run_of` vector-scanned **only** stride three: every four-byte
+    /// run went through the scalar loop at four table lookups a character. The
+    /// comment there still said three-byte was "81% of cat-cjk", which was
+    /// true of characters before clustering and is not true of runs now.
+    pub fn stride_four_run(self) -> usize {
+        use core::simd::Mask;
+        let v = self.lanes();
+        // A four-byte lead is `11110xxx`; a continuation is `10xxxxxx`.
+        let is_lead = (v & Simd::splat(0xf8)).simd_eq(Simd::splat(0xf0));
+        let is_cont = (v & Simd::splat(0xc0)).simd_eq(Simd::splat(0x80));
+        // Lanes 0, 4, 8, 12 must lead; every other lane must continue.
+        const AT_LEAD: [bool; LANE_COUNT] = [
+            true, false, false, false, true, false, false, false, true, false, false, false, true,
+            false, false, false,
+        ];
+        let at_lead: Mask<i8, LANE_COUNT> = Mask::from_array(AT_LEAD);
+        let ok = (at_lead & is_lead) | (!at_lead & is_cont);
+        // Leading run of correct lanes; four lanes to a character.
+        (ok.to_bitmask().trailing_ones() as usize / 4).min(4)
+    }
+
     /// Load one block. The caller has checked there are `LANE_COUNT` bytes.
     #[inline(always)]
     pub fn load(buf: &[StreamByte]) -> Vectorized<K> {

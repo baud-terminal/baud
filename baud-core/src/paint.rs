@@ -192,6 +192,20 @@ pub(crate) struct Paint<'a, 'b> {
     /// records against a collector that took 0.0 characters an entry.
     #[cfg(feature = "diag")]
     pub(crate) runs: [usize; 8],
+    /// **How often each stride's *vector* scan is entered**, indexed by encoded
+    /// length.
+    ///
+    /// Separate from `run_len`, which counts runs the scan *produced*. This
+    /// counts entries into the bulk path, because those are different numbers
+    /// and the gap between them is where a missing bulk path hides: a run of
+    /// four-byte characters is found either way, by the vector scan or by the
+    /// scalar loop under it, and only an entry counter can tell which.
+    ///
+    /// This repo already states the rule -- "do not read a bulk path as
+    /// covering a character class, count how often it is entered" -- and then
+    /// had no counter for this one.
+    #[cfg(feature = "diag")]
+    pub(crate) stride_scan: [core::cell::Cell<usize>; 5],
     #[cfg(feature = "diag")]
     pub(crate) run_len: [usize; 5],
     /// Characters whose cell came from the permutation table rather than from
@@ -211,7 +225,7 @@ pub(crate) struct Paint<'a, 'b> {
     /// **The work list, counted rather than read off the enum** -- 54 of the
     /// 63 finals are unimplemented and the corpus sends a handful of them.
     #[cfg(feature = "diag")]
-    pub(crate) unsupported: [usize; FinalByte::COUNT],
+    pub(crate) unsupported_by_final: [usize; FinalByte::COUNT],
     /// Accelerated `CSI` attempts, and the ones that committed. **A bulk path
     /// that declines still pays its scan**, which is a rule this repo already
     /// records; the only way to know which is happening is to count entries.
@@ -320,13 +334,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
+            #[cfg(feature = "diag")]
+            stride_scan: [const { core::cell::Cell::new(0) }; 5],
+            #[cfg(feature = "diag")]
             run_len: [0; 5],
             #[cfg(feature = "diag")]
             table_hits: 0,
             #[cfg(feature = "diag")]
             hist: crate::graph::Hist::ZERO,
             #[cfg(feature = "diag")]
-            unsupported: [0; FinalByte::COUNT],
+            unsupported_by_final: [0; FinalByte::COUNT],
             #[cfg(feature = "diag")]
             scroll_rot: 0,
             #[cfg(feature = "diag")]

@@ -72,6 +72,15 @@ pub trait Scan {
     /// As [`Scan::run`]: the caller has established the target features the
     /// chosen implementation requires.
     unsafe fn stride_three(buf: &[StreamByte]) -> Count;
+    /// How many complete four-byte characters lead `buf`, capped at four.
+    ///
+    /// Sixteen bytes is exactly four of them. `Act::Char4` is the largest
+    /// single action on `cat-cjk.raw` at 37.8% of iterations, and it had no
+    /// vector scan at all until this existed.
+    ///
+    /// # Safety
+    /// As [`Scan::run`].
+    unsafe fn stride_four(buf: &[StreamByte]) -> Count;
 }
 
 /// Lane width. 16 bytes is what every SIMD ISA this targets has natively;

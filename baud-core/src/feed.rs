@@ -260,7 +260,11 @@ impl Term<'_> {
             self.iters += iters;
             self.table_hits += p.table_hits;
             self.hist.add(&p.hist);
-            for (a, b) in self.unsupported.iter_mut().zip(p.unsupported.iter()) {
+            for (a, b) in self
+                .unsupported_by_final
+                .iter_mut()
+                .zip(p.unsupported_by_final.iter())
+            {
                 *a += *b;
             }
             self.scroll_rot += p.scroll_rot;
@@ -273,6 +277,9 @@ impl Term<'_> {
             }
             for (a, b) in self.runs.iter_mut().zip(p.runs.iter()) {
                 *a += *b;
+            }
+            for (a, b) in self.stride_scan.iter_mut().zip(p.stride_scan.iter()) {
+                *a += b.get();
             }
             for (a, b) in self.run_len.iter_mut().zip(p.run_len.iter()) {
                 *a += *b;

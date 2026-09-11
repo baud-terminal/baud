@@ -331,19 +331,12 @@ fn main() {
             t.runs[1],
             t.runs.iter().sum::<usize>(),
         );
-        const NODES: [&str; 10] = [
-            "Ground",
-            "Utf8One",
-            "Utf8Two",
-            "Utf8Three",
-            "Escape",
-            "CsiParam",
-            "CsiInter",
-            "CsiIgnore",
-            "Str",
-            "StrEsc",
-        ];
-        // **Names come from the core, not from a list kept here.** Two
+        // **Names come from the core, not from a list kept here.**
+        //
+        // A `const NODES: [&str; 10]` stood here until `diag` was built again:
+        // dead since `named_nodes()` landed, and wrong anyway, because the graph
+        // has **twenty** nodes now. Exactly the drift the note below describes,
+        // left behind by the change that fixed it. Two
         // parallel arrays in this file drifted from the enums in one session
         // and reported nodes and actions that cannot occur.
         print!("  iterations by node:");
@@ -364,6 +357,14 @@ fn main() {
         print!("  runs by character count:");
         for (k, n) in t.runs.iter().enumerate() {
             print!(" {k}:{:.0}%", 100.0 * *n as f64 / tot as f64);
+        }
+        println!();
+        // **Entries into each stride's vector scan**, which is a different
+        // number from the runs it produced and the only one that can say
+        // whether a bulk path is reached at all.
+        print!("  vector scan entered:");
+        for (k, n) in t.stride_scan.iter().enumerate().skip(2) {
+            print!(" {k}B:{n}");
         }
         println!();
         print!("  runs by encoded length:");

@@ -505,6 +505,19 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Again => 26,
         Act::Resync => 27,
         Act::EscStart => 28,
+        // **Eight arms the protocol work added while `diag` did not compile.**
+        // The match is exhaustive on purpose, so a new `Act` cannot be added
+        // without landing here -- and that gate is only a gate while something
+        // builds the feature. It did not, so the drift accumulated silently and
+        // was found by reaching for the instrument rather than by a red test.
+        Act::StrStart => 29,
+        Act::StrPut => 30,
+        Act::StrEnd => 31,
+        Act::Bell => 32,
+        Act::Vt52Dispatch => 33,
+        Act::Vt52SetRow => 34,
+        Act::Vt52Address => 35,
+        Act::DcsQuery => 36,
     }] += 1;
 }
 

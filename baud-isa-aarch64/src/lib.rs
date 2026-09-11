@@ -109,6 +109,28 @@ impl Scan for Neon {
         }
     }
 
+    /// Four four-byte characters in one block, with `shrn` for the extraction.
+    ///
+    /// # Safety
+    /// aarch64 only, where NEON is baseline.
+    #[inline(always)]
+    unsafe fn stride_four(buf: &[StreamByte]) -> Count {
+        use core::arch::aarch64::*;
+        let raw = StreamByte::slice_as_bytes(buf);
+        if raw.len() < LANES {
+            return Count::ZERO;
+        }
+        unsafe {
+            let v = vld1q_u8(raw.as_ptr());
+            let is_lead = vceqq_u8(vandq_u8(v, vdupq_n_u8(0xf8)), vdupq_n_u8(0xf0));
+            let is_cont = vceqq_u8(vandq_u8(v, vdupq_n_u8(0xc0)), vdupq_n_u8(0x80));
+            const AT_LEAD: [u8; 16] = [0xff, 0, 0, 0, 0xff, 0, 0, 0, 0xff, 0, 0, 0, 0xff, 0, 0, 0];
+            let at_lead = vld1q_u8(AT_LEAD.as_ptr());
+            let ok = vbslq_u8(at_lead, is_lead, is_cont);
+            Count::of((nibbles(ok).leading_run() / 4).min(4))
+        }
+    }
+
     /// # Safety
     /// aarch64 only, where NEON is baseline.
     #[inline(always)]
