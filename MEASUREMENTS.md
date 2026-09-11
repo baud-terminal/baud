@@ -31,25 +31,51 @@ it only to the extent that they carry little non-ASCII -- `vim-unicode` and
 rotated. Every core is driven with the same bytes through the same 4096-byte
 reads, and every core is configured with **10,000 lines of scrollback**.
 
-| recording | baud-core | baud-core2 | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|---|
-| `ascii/cat-scroll.raw` | **1896.9** | 1107.2 | 441.9 | 207.7 | **4.29x** |
-| `ascii/git-log.raw` | **1881.4** | 1275.9 | 544.9 | 218.2 | **3.45x** |
-| `ascii/less-pager.raw` | **1734.0** | 1219.5 | 304.3 | 246.2 | **5.70x** |
-| `utf8/btop.raw` | **925.6** | 792.6 | 518.1 | 341.7 | **1.79x** |
-| `utf8/vim-unicode.raw` | **773.8** | 508.8 | 367.1 | 295.0 | **2.11x** |
-| `utf8/less-cjk.raw` | **729.0** | 478.8 | 257.1 | 273.2 | **2.84x** |
-| `utf8/cat-cjk.raw` | **710.3** | 467.5 | 411.0 | 228.2 | **1.73x** |
-| `utf8/cava.raw` | **587.6** | 457.7 | 325.1 | 380.8 | **1.81x** |
-| `ascii/asciiquarium.raw` | **579.9** | 372.9 | 203.8 | 252.4 | **2.85x** |
+| recording | baud-core | ghostty | alacritty | vt100 | termwiz | wezterm | **vs ghostty** |
+|---|---|---|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1699.3** | 291.4 | 235.7 | 147.0 | 349.8 | 39.9 | **5.83x** |
+| `ascii/git-log.raw` | **1646.3** | 464.7 | 183.8 | 141.0 | 361.9 | 61.7 | **3.54x** |
+| `ascii/cat-scroll.raw` | **1587.9** | 380.7 | 160.6 | 105.0 | 356.9 | 60.8 | **4.17x** |
+| `utf8/btop.raw` | **864.4** | 493.8 | 317.6 | 354.3 | 296.0 | 83.7 | **1.75x** |
+| `utf8/vim-unicode.raw` | **649.0** | 348.4 | 289.2 | 267.3 | 284.3 | 41.5 | **1.86x** |
+| `utf8/cava.raw` | **561.6** | 312.9 | 357.9 | 389.6 | 273.7 | 130.2 | **1.79x** |
+| `ascii/asciiquarium.raw` | **544.4** | 195.2 | 238.8 | 315.0 | 190.9 | 97.1 | **2.79x** |
+| `utf8/cat-cjk.raw` | **472.8** | 376.9 | 203.3 | 173.1 | 344.7 | 91.3 | **1.25x** |
+| `utf8/less-cjk.raw` | **472.5** | 245.8 | 269.3 | 206.7 | 330.6 | 52.5 | **1.92x** |
 
-MB/s, one interleaved sweep across five pairings.
+MB/s, one interleaved sweep across five pairings, on mains. The discard ceiling
+reads 1.7-2.0 million MB/s in the same runs, which is the reminder that nothing
+here is bandwidth-bound.
 
-**The `baud-core2` column is a record, not an arm.** That crate has been deleted;
-the figures are what it read on this box in the same sweeps, in its materialising
-mode, and they are kept because a 1.16x-to-1.71x margin against the
-implementation this one replaced is worth being able to check. Nothing can
-re-measure them.
+**Three rows fell against the previous table and it is a feature landing, not a
+regression.** That table predates grapheme clustering. Ratios, which are the only
+thing comparable across two sessions:
+
+| | then | now | |
+|---|---|---|---|
+| cat-scroll, git-log, less-pager, btop, cava, asciiquarium | | | within **±3%** |
+| `utf8/vim-unicode.raw` | 2.11x | 1.86x | **-12%** |
+| `utf8/cat-cjk.raw` | 1.73x | 1.25x | **-27%** |
+| `utf8/less-cjk.raw` | 2.84x | 1.92x | **-32%** |
+
+The three are exactly the recordings carrying wide characters and emoji, and what
+changed is that baud **segments** them: a ZWJ family was three separate people on
+the screen and is one glyph now. `CLAUDE.md` measured the cost when it landed --
+**-33% on cat-cjk**, of which +18.6% returned when the run gate was fixed -- and
+the old figures were for a core that was not doing the work. libghostty-vt still
+does no grapheme segmentation unless an application asks for it, so that column
+is not paying what baud's is.
+
+**Absolutes are not comparable across the two tables; ratios are.** ghostty moved
+4-15% and alacritty 23% in this run on code that has not changed, so the box is
+not where it was.
+
+**And `baud-core2` is gone from the table because the crate is gone.** For the
+record, on the same box in the same sweeps in its materialising mode it read
+cat-scroll 1107.2, git-log 1275.9, less-pager 1219.5, btop 792.6, vim 508.8,
+less-cjk 478.8, cat-cjk 467.5, cava 457.7, asciiquarium 372.9 -- a 1.16x-to-1.71x
+margin against the implementation this one replaced, and nothing can re-measure
+it.
 
 ## cava, and every implementation on it
 

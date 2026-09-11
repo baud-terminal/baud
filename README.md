@@ -131,19 +131,44 @@ Full tables, other hosts, and every caveat in
 
 | recording | baud-core | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/cat-scroll.raw` | **1896.9** | 441.9 | 207.7 | **4.29x** |
-| `ascii/git-log.raw` | **1881.4** | 544.9 | 218.2 | **3.45x** |
-| `ascii/less-pager.raw` | **1734.0** | 304.3 | 246.2 | **5.70x** |
-| `utf8/btop.raw` | **925.6** | 518.1 | 341.7 | **1.79x** |
-| `utf8/vim-unicode.raw` | **773.8** | 367.1 | 295.0 | **2.11x** |
-| `utf8/less-cjk.raw` | **729.0** | 257.1 | 273.2 | **2.84x** |
-| `utf8/cat-cjk.raw` | **710.3** | 411.0 | 228.2 | **1.73x** |
-| `utf8/cava.raw` | **587.6** | 325.1 | 380.8 | **1.81x** |
-| `ascii/asciiquarium.raw` | **579.9** | 203.8 | 252.4 | **2.85x** |
+| `ascii/less-pager.raw` | **1699.3** | 291.4 | 235.7 | **5.83x** |
+| `ascii/git-log.raw` | **1646.3** | 464.7 | 183.8 | **3.54x** |
+| `ascii/cat-scroll.raw` | **1587.9** | 380.7 | 160.6 | **4.17x** |
+| `ascii/asciiquarium.raw` | **544.4** | 195.2 | 238.8 | **2.79x** |
+| `utf8/less-cjk.raw` | **472.5** | 245.8 | 269.3 | **1.92x** |
+| `utf8/cava.raw` | **561.6** | 312.9 | 357.9 | **1.79x** |
+| `utf8/vim-unicode.raw` | **649.0** | 348.4 | 289.2 | **1.86x** |
+| `utf8/btop.raw` | **864.4** | 493.8 | 317.6 | **1.75x** |
+| `utf8/cat-cjk.raw` | **472.8** | 376.9 | 203.3 | **1.25x** |
 
-Ahead on all nine, 1.73x to 5.70x, and the closest row is `cat-cjk` — the
-recording whose name oversells it, since a quarter of its bytes are emoji and
-those are cluster-breaking rather than CJK.
+Ahead on all nine, 1.25x to 5.83x.
+
+**Three rows moved since the previous table and the reason is a feature, not a
+regression.** That table was measured before grapheme clustering landed. Holding
+the ghostty ratio, which is the only thing comparable across two sessions:
+
+| | ratio then | now | |
+|---|---|---|---|
+| six rows -- cat-scroll, git-log, less-pager, btop, cava, asciiquarium | | | within **±3%** |
+| `vim-unicode` | 2.11x | 1.86x | **-12%** |
+| `cat-cjk` | 1.73x | 1.25x | **-27%** |
+| `less-cjk` | 2.84x | 1.92x | **-32%** |
+
+The three that fell are exactly the recordings carrying wide characters and
+emoji, and what changed is that baud now **segments them**. `U+1F468 ZWJ U+1F469
+ZWJ U+1F467` was three separate people on the screen and is one glyph now; the
+old numbers were for a core that did not do that work. Measured at the time:
+**-33% on cat-cjk**, of which +18.6% came back when the run gate was fixed.
+
+This is the second time a headline here has been withdrawn for the same reason.
+The first was the escape-dense rows, measured while the core parsed no escapes
+and blitted the parameter bytes to the screen as text -- *"that is cheap per byte
+and it is not parsing."* Same shape, different feature.
+
+**Absolutes are not comparable across the two tables and ratios are.** ghostty
+is down 4-15% and alacritty 23% in this run, on code that has not changed, so the
+box is not where it was. That is why the table above is one interleaved sweep and
+why the comparison is stated as a ratio.
 
 **There is one core.** `baud-core2` was the previous implementation and the
 reference this one was checked against; it has been deleted, and every row above
