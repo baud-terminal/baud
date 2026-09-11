@@ -861,9 +861,11 @@ title  = "ugrapheme 8ba5a96, README -- sparse bitmaps in 11 KB and a DFA that mi
 author = "Z4JC"
 year   = 2024
 venue  = "ugrapheme, UAX #29 segmentation in Python/Cython"
-url    = "https://github.com/Z4JC/ugrapheme/blob/8ba5a9648852791a75ac4259a4d82a39d119f74a/README.md"
+url    = "https://raw.githubusercontent.com/Z4JC/ugrapheme/8ba5a9648852791a75ac4259a4d82a39d119f74a/README.md"
 file   = "ugrapheme-readme.md"
 sha256 = "b35832881f1c2225b53d4667d39c7e1b6f0c7b843d67b32b914eea1e0ff9acdd"
+status = "retrieved"
+group  = "G"
 
 [sources.lemire-transcoding]
 key    = "lemire-transcoding"
@@ -874,6 +876,8 @@ venue  = "Software: Practice and Experience; arXiv:2109.10433"
 url    = "https://arxiv.org/pdf/2109.10433"
 file   = "lemire-transcoding.pdf"
 sha256 = "7da1d9b93e0b2b812113284733ccf43cb4d76a0d37ced5b1cc4511ac834cd2f9"
+status = "retrieved"
+group  = "A"
 
 [sources.linux-vt-console]
 key    = "linux-vt-console"
@@ -881,9 +885,11 @@ title  = "Linux cf72cbb, drivers/tty/vt/vt.c -- the kernel console, one byte per
 author = "Linux kernel contributors"
 year   = 2026
 venue  = "The Linux kernel"
-url    = "https://github.com/torvalds/linux/blob/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
 file   = "linux-vt-console.c"
 sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
+status = "retrieved"
+group  = "A"
 
 [sources.vt100-avr]
 key    = "vt100-avr"
@@ -891,9 +897,11 @@ title  = "mikee47/VT100 2334dfa, src/Terminal.cpp -- an ATMega terminal in under
 author = "mikee47"
 year   = 2024
 venue  = "VT100, an AVR terminal emulator"
-url    = "https://github.com/mikee47/VT100/blob/2334dfa06e2ec677acd288b1504057efd924e353/src/Terminal.cpp"
+url    = "https://raw.githubusercontent.com/mikee47/VT100/2334dfa06e2ec677acd288b1504057efd924e353/src/Terminal.cpp"
 file   = "vt100-avr-terminal.cpp"
 sha256 = "317ea6a56fb0e68614ed2ab52deaac7c9018f286db738581783c8e96b1f48f24"
+status = "retrieved"
+group  = "A"
 
 [sources.kitty-text-cache]
 key    = "kitty-text-cache"
@@ -901,9 +909,11 @@ title  = "kitty 6d5d0c4, text-cache.c -- interned multi-codepoint cell text, has
 author = "Kovid Goyal"
 year   = 2026
 venue  = "kitty terminal emulator"
-url    = "https://github.com/kovidgoyal/kitty/blob/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/text-cache.c"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/text-cache.c"
 file   = "kitty-text-cache.c"
 sha256 = "2a40225571f5ce4c874c56388579556052cb08b91da79d98af3867966d981c2a"
+status = "retrieved"
+group  = "F"
 
 [sources.kitty-line]
 key    = "kitty-line"
