@@ -36,8 +36,8 @@ pub(crate) struct Paint<'a, 'b> {
     /// the boundary of the placement rule this file records five wins from. A
     /// field nothing *reads* costs nothing -- LLVM has already removed it. What
     /// costs is a field the hot path *writes* (`last_cp` at 16%, `style_raw` at
-    /// 3.5%) or a large struct *copied* through the loop (`Cold` at 120 bytes,
-    /// 4%). Two dead words are free: btop -1%, less-pager -2%, the rest flat.
+    /// 3.5%) or a large struct *copied* through the loop (`Cold` was 120 bytes and
+    /// 4% when measured; it is 192 now and a reference, see below). Two dead words are free: btop -1%, less-pager -2%, the rest flat.
     #[cfg(feature = "cell-table")]
     pub(crate) cells3: &'a [PackedCell],
     /// The rendition table, written by SGR and read by a renderer.
@@ -68,8 +68,9 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) last_cp: Option<(Codepoint, Width)>,
     /// The state a control sequence changes and the write loop never reads.
     ///
-    /// **A reference, and it used to be by value.** `Cold` is **120 bytes** --
-    /// two `Option<Saved>` at 48 each, for `DECSC` and the alternate screen's
+    /// **A reference, and it used to be by value.** `Cold` is **192 bytes** (120 when
+    /// this was measured, grown since via charset slots and input modes) --
+    /// half of it two `Option<Saved>` at 48 each, for `DECSC` and the alternate screen's
     /// save, which no payload touches more than a handful of times -- and
     /// `Paint` is inlined into the per-character loop. Carrying it meant
     /// carrying all of that; an indirection costs one load on a path taken
@@ -153,7 +154,7 @@ pub(crate) struct Paint<'a, 'b> {
     ///
     /// `Paint` is inlined into the per-byte loop, and this file records the
     /// class twice at 3.5-10%: carrying `Cold` by value cost 4% of less-pager
-    /// because 96 of its 120 bytes were two `Option<Saved>` no payload
+    /// because 96 of its then-120 bytes were two `Option<Saved>` no payload
     /// touches. Six slices is twelve words of exactly that. A reference is one
     /// word and costs one load on a path taken once per control string.
     pub(crate) strs: &'a mut crate::storage::StrBuf<'b>,

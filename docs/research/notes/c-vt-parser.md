@@ -66,7 +66,9 @@ compiled.
   The domain-type port that introduced it measured +5.0%, −0.4%, −3.4%, −0.9%
   across four PTY runs, ranges overlapping throughout — so: no measured cost,
   which is a weaker claim than "free".
-- Not that grapheme clusters are handled. They are not: `Width` is computed per
+- **~~Not that grapheme clusters are handled.~~ They are now** (this note is
+  stale on that point; CLAUDE.md records the cluster machine landing). As
+  written: they were not, and `Width` was computed per
   codepoint and should be per cluster. A variation selector changes the width of
   the *preceding* codepoint, and a ZWJ family sequence is five codepoints
   rendering as one double-width glyph. That is an open gap, recorded in the

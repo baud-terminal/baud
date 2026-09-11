@@ -116,9 +116,11 @@ pub struct Cold {
     pub(crate) highlight_region: HighlightRegion,
     /// Which control string is being accumulated, and how much of it.
     ///
-    /// In `Cold` because a control string is not the write path: `Cold` is
-    /// behind a pointer the per-byte loop never dereferences, so the ingest
-    /// path pays nothing for either. They are state that outlives a `feed`,
+    /// In `Cold` because a control string is not the write path: `str_kind` is
+    /// never read while text is being written. The write path does dereference
+    /// `Cold` per glyph -- for the margins, `modes` and `ambiguous` -- so the
+    /// accurate claim is narrower than it once read: a control string adds
+    /// nothing to the loads the loop already makes. They are state that outlives a `feed`,
     /// because a string spans reads.
     pub(crate) str_kind: StrKind,
     pub(crate) str_len: ByteLen,
@@ -183,6 +185,13 @@ pub struct Cold {
     pub(crate) alt_saved: Option<Saved>,
     pub(crate) modes: Modes,
 }
+
+// **The size is gated because the prose drifted.** A doc comment called `Cold`
+// 120 bytes after it had grown to 192 (charset slots, input modes); nothing
+// forced the number to be acknowledged. This does. Guarded off `sgr-table`,
+// which adds `sgr: [SgrSlot; NSGR]` and legitimately grows it.
+#[cfg(not(feature = "sgr-table"))]
+const _: () = assert!(core::mem::size_of::<Cold>() == 192);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {

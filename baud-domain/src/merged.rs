@@ -3,7 +3,7 @@
 //! **Two questions, one answer.** `Width::of` and
 //! `GraphemeClass::of_with_lookback` are two two-stage tries over the *same*
 //! `cp >> 8` stage-1 shape, so every non-ASCII character paid four loads and
-//! 44,032 bytes of table to learn three small facts about one codepoint.
+//! 44,480 bytes of table to learn three small facts about one codepoint.
 //!
 //! Packing them into a single leaf byte does not work: the grapheme leaf
 //! already spends all eight bits on four of class and four of lookback, and

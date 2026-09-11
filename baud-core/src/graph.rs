@@ -564,7 +564,8 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 4 x 256 x 2 bytes = **2 KB of rodata**, no initialiser and nothing to load.
+/// 20 x 256 x 2 bytes = **10 KB of rodata per encoding, 20 KB for both**, no
+/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 
@@ -1458,6 +1459,8 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
+    // 34, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
+    // 8-bit C1 routing each split more bytes apart after that prose was written.
     const CLASSES: usize = 34;
     /// **The loop always advances**, and it is a table property rather than a
     /// hope.
