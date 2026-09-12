@@ -9,6 +9,21 @@ both times because the ratio agreed with what was already believed.
 These are the controls that identify them, and each is a program whose
 behaviour is known by construction rather than inferred.
 
+**Invoke the real `xctrace`, not the `/usr/bin` shim.** `/usr/bin/xctrace` is a
+`xcode-select` stub that forwards to the active developer directory, and a
+nix-provided toolchain sets `DEVELOPER_DIR` to an `apple-sdk-*` that carries no
+Instruments -- so the shim answers "tool 'xctrace' not found" and the whole
+procedure looks blocked when it is not. Use the real tool:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+XC="$DEVELOPER_DIR/usr/bin/xctrace"   # Xcode 16.0; records fine
+```
+
+and run `$XC record ...` in place of `xcrun xctrace record` below. Three
+"not found" errors that all inherit one bad `DEVELOPER_DIR` are one probe that
+cannot fire, not three that agree.
+
 ```sh
 rustc -O -o chase chase.rs && rustc -O -o branch branch.rs
 
