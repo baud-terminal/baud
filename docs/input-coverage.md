@@ -36,6 +36,17 @@ found at. A key table written from memory is exactly the "guessed table that
 would be unrecoverable and would look like it worked" this project refused for
 DEC line drawing, so it is generated and re-runnable rather than pasted.
 
+`scripts/extract-kitty-keys.py` does the same for
+`[[source: kitty-keyboard]]`'s "Functional key definitions" table -- **111
+rows** mapping a key name to the number and final byte its `CSI` form uses,
+from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u`. It carries its own
+positive control (`ESCAPE`, `CAPS_LOCK` and `ISO_LEVEL5_SHIFT` at known values,
+and a floor on the row count) so a broken extraction fails loudly rather than
+reporting a plausible subset. It is the source of truth the kitty encoder's
+functional-key table will be gated against, the way the base rows above are
+gated against `extract-keys.py`. The encoder that consumes it is not built yet
+-- see the kitty row below.
+
 | ctlseqs line | table | rows | status |
 |---|---|---|---|
 | 2473 | cursor keys, normal vs application (DECCKM) | 4 | **done** — `Term::key`, both modes, modifiers force `CSI`. `cursor_keys_match_the_specifications_table` |
