@@ -25,6 +25,7 @@
 #   G  text encoding, width and grapheme clustering
 #   H  terminal input: key encoding and the extensions to it
 #   I  instruction-set dispatch and how per-ISA code is organised
+#   J  rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation
 
 [sources.simdjson]
 key    = "simdjson"
@@ -1211,3 +1212,3141 @@ group  = "B"
 # classes**, which shrink a row from 256 entries to one per class of bytes the
 # automaton cannot tell apart. Both are directly available to baud: its states
 # are pre-multipliable, and its 256 bytes fall into far fewer classes than 256.
+
+# --- J: rendering -- font formats, shaping, rasterisation, compositing, memory placement, presentation ---
+
+[sources.ms-opentype-otff]
+key    = "ms-opentype-otff"
+title  = "The OpenType Font File"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otff"
+file   = ""
+sha256 = "22113f57c286d9b2a4f8e6a905354402857c6a2624ccd8480dc5f7effa5c3b16"
+bytes  = 87394
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cmap]
+key    = "ms-opentype-cmap"
+title  = "cmap -- Character to Glyph Index Mapping Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cmap"
+file   = ""
+sha256 = "4c780024ef1ac3b4b28e768b2b1ebc342be3274ffcd643a2552239d895fff799"
+bytes  = 98039
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-head]
+key    = "ms-opentype-head"
+title  = "head -- Font Header Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/head"
+file   = ""
+sha256 = "0395668578913c3ab4c7b671ed8cf1340b671f7fa3fa08f95efb5f9ff6a0f3e1"
+bytes  = 57977
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-maxp]
+key    = "ms-opentype-maxp"
+title  = "maxp -- Maximum Profile"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/maxp"
+file   = ""
+sha256 = "3f0e07c7186733d10c0c4a9299798ac3f41cc7a971a2ba5e93c5de7974d1e369"
+bytes  = 51298
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-hhea]
+key    = "ms-opentype-hhea"
+title  = "hhea -- Horizontal Header Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hhea"
+file   = ""
+sha256 = "20892c53e980a6dfb2e05ccb0786405c641ae874f9501a11388f6e04248423e0"
+bytes  = 53202
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-hmtx]
+key    = "ms-opentype-hmtx"
+title  = "hmtx -- Horizontal Metrics Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx"
+file   = ""
+sha256 = "eba7e6402be733f03b289408d41d2d886355d6c0be3f64017b97337ae16c8a2c"
+bytes  = 54213
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-loca]
+key    = "ms-opentype-loca"
+title  = "loca -- Index to Location"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/loca"
+file   = ""
+sha256 = "ed8b0f262510379cd0711e8d3723e7dc7cec00164278f4061680eab157e66339"
+bytes  = 50402
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-glyf]
+key    = "ms-opentype-glyf"
+title  = "glyf -- Glyph Data"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/glyf"
+file   = ""
+sha256 = "8c0afec56bb82f67f37d0fa5a8b13929ed23ad029116a1c3d89c4fe8bde25e1a"
+bytes  = 77932
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cff]
+key    = "ms-opentype-cff"
+title  = "CFF -- Compact Font Format table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cff"
+file   = ""
+sha256 = "06a170dcb2db7ca678a9b829097c55b3e61857e6cc3db357bacbbfa2a5baa185"
+bytes  = 50993
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cff2]
+key    = "ms-opentype-cff2"
+title  = "CFF2 -- Compact Font Format (CFF) Version 2"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cff2"
+file   = ""
+sha256 = "77fe2bb877c6e6df354c1f00d14a014f77d115a8816f46c693e506627bd11c14"
+bytes  = 228448
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-os2]
+key    = "ms-opentype-os2"
+title  = "OS/2 -- OS/2 and Windows Metrics Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/os2"
+file   = ""
+sha256 = "1c7497d3b106eced5ed1a9e16ebd74bf19e73c6f130ba7cf289719a6daeaed2f"
+bytes  = 160948
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-post]
+key    = "ms-opentype-post"
+title  = "post -- PostScript Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/post"
+file   = ""
+sha256 = "925d6c6d0697a47c549680e1748c7cf5cb9f3f9212f94e26efc689d64e224e13"
+bytes  = 59772
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-gsub]
+key    = "ms-opentype-gsub"
+title  = "GSUB -- Glyph Substitution Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gsub"
+file   = ""
+sha256 = "358ebe0b4c4d3faa98003f9a4240208d7e0cf23ade776d1ea3f3429d932a0f09"
+bytes  = 138327
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-gpos]
+key    = "ms-opentype-gpos"
+title  = "GPOS -- Glyph Positioning Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gpos"
+file   = ""
+sha256 = "e2c316cd42e38b45529ca4f24d07deb2d66ee7d71d9dd58946589b3ec0df644d"
+bytes  = 199170
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-gdef]
+key    = "ms-opentype-gdef"
+title  = "GDEF -- Glyph Definition Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gdef"
+file   = ""
+sha256 = "ef785dba265caff514f87209e9d604250954c11c578912937a444d6ebe466cc3"
+bytes  = 88126
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-chapter2]
+key    = "ms-opentype-chapter2"
+title  = "OpenType Layout Common Table Formats"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2"
+file   = ""
+sha256 = "94066f794b42facf7ee1e51c326d316457886436e0bde3797c9203d1b155475e"
+bytes  = 178177
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-fvar]
+key    = "ms-opentype-fvar"
+title  = "fvar -- Font Variations Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/fvar"
+file   = ""
+sha256 = "ca701abf6b5c12d4b015e88a3b260185febf421d90635f5c76c9e69483d58d7d"
+bytes  = 70464
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-gvar]
+key    = "ms-opentype-gvar"
+title  = "gvar -- Glyph Variations Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gvar"
+file   = ""
+sha256 = "ffe478897ca306ae1c8d8a6f4244a6dea41380411c0f8fb5495971bfae82c4a8"
+bytes  = 83755
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-avar]
+key    = "ms-opentype-avar"
+title  = "avar -- Axis Variations Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/avar"
+file   = ""
+sha256 = "511e0c7cc60a4da3c4a8b286d057957ab7a15103d8a3ce0445977d0f4382864f"
+bytes  = 57323
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-hvar]
+key    = "ms-opentype-hvar"
+title  = "HVAR -- Horizontal Metrics Variations Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hvar"
+file   = ""
+sha256 = "8ead14e7627fdf90f109e8cb344ff5ec3dfc904d202c7f8984a12664c99a373a"
+bytes  = 58462
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-colr]
+key    = "ms-opentype-colr"
+title  = "COLR -- Color Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/colr"
+file   = ""
+sha256 = "371703dc5b7aad3efadb427c8246e7a6d716ba32b751d14867324e0e1cbae9a2"
+bytes  = 227399
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cpal]
+key    = "ms-opentype-cpal"
+title  = "CPAL -- Color Palette Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cpal"
+file   = ""
+sha256 = "77021ccd5b4e169ed9e7a911a36fe8695d5b7e714eeffeca72b9e778225af1ea"
+bytes  = 66143
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cbdt]
+key    = "ms-opentype-cbdt"
+title  = "CBDT -- Color Bitmap Data Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cbdt"
+file   = ""
+sha256 = "3dad3e17417f35fc6e4c9bc7053a2dfc39efaea3eeac32682a0f52cce0f2f081"
+bytes  = 56518
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-cblc]
+key    = "ms-opentype-cblc"
+title  = "CBLC -- Color Bitmap Location Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cblc"
+file   = ""
+sha256 = "c0b1f403ab920446ac6bed82da69eed27c959f0229cf670f9adba75c4bde4280"
+bytes  = 52217
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-sbix]
+key    = "ms-opentype-sbix"
+title  = "sbix -- Standard Bitmap Graphics Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/sbix"
+file   = ""
+sha256 = "6717dc4cdf5c663d09ee7f017c93cf803a49c92eea465bddd9eca21ecb19de6d"
+bytes  = 56855
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.adobe-5176-cff]
+key    = "adobe-5176-cff"
+title  = "The Compact Font Format Specification, Technical Note #5176, version 1.0"
+author = "Adobe Systems"
+year   = 2003
+venue  = "Adobe Font Technical Notes"
+url    = "https://adobe-type-tools.github.io/font-tech-notes/pdfs/5176.CFF.pdf"
+file   = "adobe-5176-cff.pdf"
+sha256 = "60e0696c4fac326de597722af37bcdbbd688e0337a548709a287405ff3b3996a"
+bytes  = 1062494
+status = "retrieved"
+group  = "J"
+# RC4-encrypted with an empty user password: a plain inflater sees zero streams.
+# `scripts/extract-adobe-cff.py` decrypts it and carries the positive control.
+
+[sources.adobe-5177-type2]
+key    = "adobe-5177-type2"
+title  = "The Type 2 Charstring Format, Technical Note #5177"
+author = "Adobe Systems"
+year   = 2000
+venue  = "Adobe Font Technical Notes"
+url    = "https://adobe-type-tools.github.io/font-tech-notes/pdfs/5177.Type2.pdf"
+file   = "adobe-5177-type2.pdf"
+sha256 = "74e77442e63e38f03f2be5a41d2dafb3076260d2b6cd9b9d14f3990d6e17102b"
+bytes  = 199112
+status = "retrieved"
+group  = "J"
+# Same encryption as 5176; same extractor and control.
+
+[sources.apple-ttrm-glyf]
+key    = "apple-ttrm-glyf"
+title  = "TrueType Reference Manual, chapter 6: the 'glyf' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html"
+file   = ""
+sha256 = "e16e3eca942cc254badcae7cc5e1fa38a6c36828b2d4d5c81878b3aec52edaf2"
+bytes  = 121206
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-cmap]
+key    = "apple-ttrm-cmap"
+title  = "TrueType Reference Manual, chapter 6: the 'cmap' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6cmap.html"
+file   = ""
+sha256 = "c49705a3f1b07d43687cacd5865a7a34f22abd88c933ec7f73e0cc0a8cc6b34f"
+bytes  = 151048
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-loca]
+key    = "apple-ttrm-loca"
+title  = "TrueType Reference Manual, chapter 6: the 'loca' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6loca.html"
+file   = ""
+sha256 = "3fa0303c94e06b790c88db101103ad7b69b9f639345532b1088f0478c2c0ca29"
+bytes  = 111244
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-sbix]
+key    = "apple-ttrm-sbix"
+title  = "TrueType Reference Manual, chapter 6: the 'sbix' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6sbix.html"
+file   = ""
+sha256 = "78224a48cbea3e5231bc7f9b401dea991fbed3ef07c96d0e4c172c682f22aff2"
+bytes  = 116749
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-morx]
+key    = "apple-ttrm-morx"
+title  = "TrueType Reference Manual, chapter 6: the 'morx' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6morx.html"
+file   = ""
+sha256 = "7f15a9cf51fa94c86322f28fb7388e924f4cfebc93e555b13f7d7e90a5331cd3"
+bytes  = 166243
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-feat]
+key    = "apple-ttrm-feat"
+title  = "TrueType Reference Manual, chapter 6: the 'feat' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6feat.html"
+file   = ""
+sha256 = "38aa8ae76e3812896510d4321d3a39b8d20ef79a901a597d6d020e0fde3fd21e"
+bytes  = 124207
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-chap6]
+key    = "apple-ttrm-chap6"
+title  = "TrueType Reference Manual, chapter 6: font tables (sfnt scaler types)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6.html"
+file   = ""
+sha256 = "36b0eec407b7750aacfc0289daad47b45e578e61b32f3ba2012839b122654f0f"
+bytes  = 120681
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ots-designdoc]
+key    = "ots-designdoc"
+title  = "OTS (OpenType Sanitizer) design document"
+author = "OTS contributors"
+year   = 2026
+venue  = "github.com/khaledhosny/ots @ 6263433"
+url    = "https://raw.githubusercontent.com/khaledhosny/ots/6263433/docs/DesignDoc.md"
+file   = "ots-designdoc.md"
+sha256 = "b80cc8de256cd9ebe8611445ab91b68d687abb8d415ef2b0d620bface8c2c86e"
+bytes  = 6883
+status = "retrieved"
+group  = "J"
+
+[sources.stb-truetype]
+key    = "stb-truetype"
+title  = "stb_truetype.h v1.26 -- a single-file TrueType/CFF parser and rasteriser"
+author = "Sean Barrett"
+year   = 2026
+venue  = "github.com/nothings/stb, master"
+url    = "https://raw.githubusercontent.com/nothings/stb/master/stb_truetype.h"
+file   = "stb_truetype.h"
+sha256 = "ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab"
+bytes  = 199192
+status = "retrieved"
+group  = "J"
+
+[sources.vulkan-memory]
+key    = "vulkan-memory"
+title  = "Vulkan Specification, chapter: Memory Allocation"
+author = "The Khronos Group"
+year   = 2026
+venue  = "docs.vulkan.org (CC-BY 4.0)"
+url    = "https://docs.vulkan.org/spec/latest/chapters/memory.html"
+file   = ""
+sha256 = "9d8010709875bd98776bdbcfeaa393d1225c5c375cef2e7f2e05a1ee9c932e09"
+bytes  = 626844
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.vma-usage-patterns]
+key    = "vma-usage-patterns"
+title  = "Vulkan Memory Allocator: Recommended usage patterns"
+author = "AMD / Adam Sawicki"
+year   = 2026
+venue  = "gpuopen-librariesandsdks.github.io (MIT)"
+url    = "https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/usage_patterns.html"
+file   = "vma-usage-patterns.html"
+sha256 = "45519f8822d0ffe30766a45e1d1984f8852af1e6d6a7ef24322ad15cebec7ce6"
+bytes  = 38114
+status = "retrieved"
+group  = "J"
+
+[sources.vma-memory-mapping]
+key    = "vma-memory-mapping"
+title  = "Vulkan Memory Allocator: Memory mapping"
+author = "AMD / Adam Sawicki"
+year   = 2026
+venue  = "gpuopen-librariesandsdks.github.io (MIT)"
+url    = "https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/memory_mapping.html"
+file   = "vma-memory-mapping.html"
+sha256 = "c6878b326e80d6fa74c8839d41e84c0250fd9fe3471f14b51c903dcde231b40d"
+bytes  = 25082
+status = "retrieved"
+group  = "J"
+
+[sources.apple-metal-resource-options]
+key    = "apple-metal-resource-options"
+title  = "Metal Best Practices Guide: Resource Options"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com archive"
+url    = "https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/ResourceOptions.html"
+file   = "apple-metal-resource-options.html"
+sha256 = "e0250c837124fe3552272e72bdaeb91b9704e97f0409bc57a88e9ebc81cdb760"
+bytes  = 32814
+status = "retrieved"
+group  = "J"
+
+[sources.apple-storage-mode-apple-gpus]
+key    = "apple-storage-mode-apple-gpus"
+title  = "Choosing a resource storage mode for Apple GPUs (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/choosing-a-resource-storage-mode-for-apple-gpus.json"
+file   = "apple-storage-mode-apple-gpus.json"
+sha256 = "34398fff0ea273afdc7dfd85fcfc03f7450b701176c8f304ea32cfc098e7c995"
+bytes  = 24229
+status = "retrieved"
+group  = "J"
+
+[sources.sawicki-vulkan-memory-types]
+key    = "sawicki-vulkan-memory-types"
+title  = "Vulkan Memory Types on PC and How to Use Them"
+author = "Adam Sawicki"
+year   = 2021
+venue  = "asawicki.info"
+url    = "https://asawicki.info/news_1740_vulkan_memory_types_on_pc_and_how_to_use_them"
+file   = "sawicki-vulkan-memory-types.html"
+sha256 = "6481f76467cfeab7c41bfd5927081146b4f8843a233bcbf8654180f42869948d"
+bytes  = 30188
+status = "retrieved"
+group  = "J"
+
+[sources.ms-d3d12-gpu-upload-heaps]
+key    = "ms-d3d12-gpu-upload-heaps"
+title  = "D3D12 GPU Upload Heaps"
+author = "Microsoft"
+year   = 2026
+venue  = "DirectX-Specs (CC-BY 4.0)"
+url    = "https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html"
+file   = "ms-d3d12-gpu-upload-heaps.html"
+sha256 = "105a254d61a469e4531feb8b540f26070da00841d3585056fc0295a99f4b06ac"
+bytes  = 25215
+status = "retrieved"
+group  = "J"
+
+[sources.ms-d3d12-heap-type]
+key    = "ms-d3d12-heap-type"
+title  = "D3D12_HEAP_TYPE enumeration"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_heap_type"
+file   = ""
+sha256 = "c62bdf777b07bd22648d7dc9553637b45c8c3cc640fd80efeaead89247281ad3"
+bytes  = 54617
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-d3d12-architecture]
+key    = "ms-d3d12-architecture"
+title  = "D3D12_FEATURE_DATA_ARCHITECTURE structure"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_feature_data_architecture"
+file   = ""
+sha256 = "28d85bc685e2b05fcaaf512072d6a25cc83a890dd180a9c5328e77688b29eff3"
+bytes  = 56389
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+
+[sources.arb-buffer-storage]
+key    = "arb-buffer-storage"
+title  = "ARB_buffer_storage extension specification"
+author = "The Khronos Group"
+year   = 2013
+venue  = "OpenGL-Registry, main"
+url    = "https://raw.githubusercontent.com/KhronosGroup/OpenGL-Registry/main/extensions/ARB/ARB_buffer_storage.txt"
+file   = "arb-buffer-storage.txt"
+sha256 = "959da5571fe1f73e98957ee6427ca89816facd96c0b9c1154930e2e7330021fd"
+bytes  = 33088
+status = "retrieved"
+group  = "J"
+
+[sources.foot-benchmark]
+key    = "foot-benchmark"
+title  = "foot doc/benchmark.md -- vtebench results"
+author = "Daniel Eklof"
+year   = 2022
+venue  = "codeberg.org/dnkl/foot @ 2705e36"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36/doc/benchmark.md"
+file   = "foot-benchmark.md"
+sha256 = "63f470795935329e078b40f0671ede2ac04e467a8268491570f20f6643db2e5d"
+bytes  = 3378
+status = "retrieved"
+group  = "J"
+
+[sources.amd-vulkan-device-memory]
+key    = "amd-vulkan-device-memory"
+title  = "Using Vulkan Device Memory"
+author = "AMD GPUOpen"
+year   = 2026
+venue  = "gpuopen.com"
+url    = "https://gpuopen.com/learn/vulkan-device-memory/"
+file   = ""
+sha256 = "a81bb92cec00a6b325bcc3e08995f1d4ad89abfc284a3a528417f903dabc1687"
+bytes  = 215304
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.nvidia-vulkan-dos-donts]
+key    = "nvidia-vulkan-dos-donts"
+title  = "Vulkan Dos and Don'ts"
+author = "NVIDIA"
+year   = 2026
+venue  = "developer.nvidia.com/blog"
+url    = "https://developer.nvidia.com/blog/vulkan-dos-donts/"
+file   = ""
+sha256 = "9c083ce49c084d4c1e724f0c8b4d49dd794b6d325334623f31358deb25a0ce6b"
+bytes  = 240629
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.nvidia-cuda-best-practices]
+key    = "nvidia-cuda-best-practices"
+title  = "CUDA C++ Best Practices Guide"
+author = "NVIDIA"
+year   = 2026
+venue  = "docs.nvidia.com"
+url    = "https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/"
+file   = ""
+sha256 = "8cb206cda370e4fb44be1428490e91be278099bb3ddb8895319b46639a95570c"
+bytes  = 433095
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.nvidia-cuda-unified-memory]
+key    = "nvidia-cuda-unified-memory"
+title  = "CUDA Programming Guide: Unified Memory"
+author = "NVIDIA"
+year   = 2026
+venue  = "docs.nvidia.com"
+url    = "https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/unified-memory.html"
+file   = ""
+sha256 = "dd2ce24cb1e0b41a8a648a0217d8d7e2705027e8a1983b4421331c3bb7eec784"
+bytes  = 242720
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.nvidia-cuda-tegra]
+key    = "nvidia-cuda-tegra"
+title  = "CUDA for Tegra application note"
+author = "NVIDIA"
+year   = 2026
+venue  = "docs.nvidia.com"
+url    = "https://docs.nvidia.com/cuda/cuda-for-tegra-appnote/"
+file   = ""
+sha256 = "f2d77fa3f6e077b2ea6860a52a957324cce62b7868f67da9d2587082cefdb122"
+bytes  = 295436
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.nvidia-grace-hopper]
+key    = "nvidia-grace-hopper"
+title  = "NVIDIA Grace Hopper Superchip Architecture In Depth"
+author = "NVIDIA"
+year   = 2026
+venue  = "developer.nvidia.com/blog"
+url    = "https://developer.nvidia.com/blog/nvidia-grace-hopper-superchip-architecture-in-depth/"
+file   = ""
+sha256 = "84e272dbf7f1784a97b4fc3936e8cd55597fe64bae26fd14583e6c599aae13dd"
+bytes  = 319777
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.amd-d3d12-gpu-upload]
+key    = "amd-d3d12-gpu-upload"
+title  = "Effective Use of the New D3D12_HEAP_TYPE_GPU_UPLOAD"
+author = "AMD GPUOpen"
+year   = 2026
+venue  = "gpuopen.com"
+url    = "https://gpuopen.com/learn/using-d3d12-heap-type-gpu-upload/"
+file   = ""
+sha256 = "39afeac61d17388544b52072d7d65cff6d68c133f21899d1f4500e4bad6a0541"
+bytes  = 222262
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed (a 200-430 KB page shell around a few paragraphs).
+
+[sources.alacritty-display-content]
+key    = "alacritty-display-content"
+title  = "alacritty: display_content.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/display/content.rs"
+file   = ""
+sha256 = "24645737fbb15459a1cd855d8bf39ac95d3b70a0aeffa736e36ad1b9f468f5cb"
+bytes  = 19164
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-display-damage]
+key    = "alacritty-display-damage"
+title  = "alacritty: display_damage.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/display/damage.rs"
+file   = ""
+sha256 = "b603ee604c0608d3933bbbd2f6b9d6f67f95d3b3a872070e332f507f32f956d0"
+bytes  = 12873
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-display-mod]
+key    = "alacritty-display-mod"
+title  = "alacritty: display_mod.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/display/mod.rs"
+file   = ""
+sha256 = "46d30c2a2dbf8cb41c8cc30fa5f835bfc96dfc5a0ea88729f943aa45e4359f75"
+bytes  = 57272
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-renderer-text-atlas]
+key    = "alacritty-renderer-text-atlas"
+title  = "alacritty: renderer_text_atlas.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/renderer/text/atlas.rs"
+file   = ""
+sha256 = "71c92eab66215f21bc5f015f2f578d0efef8d9469ea7df21b8fd966ca68b51a6"
+bytes  = 9878
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-renderer-text-gles2]
+key    = "alacritty-renderer-text-gles2"
+title  = "alacritty: renderer_text_gles2.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/renderer/text/gles2.rs"
+file   = ""
+sha256 = "c449e9657d69843b235fdd32ae0967af4198273a942197a9565fb21f172b2e68"
+bytes  = 14533
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-renderer-text-glsl3]
+key    = "alacritty-renderer-text-glsl3"
+title  = "alacritty: renderer_text_glsl3.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/renderer/text/glsl3.rs"
+file   = ""
+sha256 = "978192571569377e11338aae5a5db55e3060b4bca1029249328a90012bed35b2"
+bytes  = 12116
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-renderer-text-glyph-cache]
+key    = "alacritty-renderer-text-glyph-cache"
+title  = "alacritty: renderer_text_glyph_cache.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/src/renderer/text/glyph_cache.rs"
+file   = ""
+sha256 = "16ed3af099ed00b18771f3419c6be434becce8b63eb39e8f48c68a9093f87f70"
+bytes  = 10548
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.alacritty-term-term-mod]
+key    = "alacritty-term-term-mod"
+title  = "alacritty: term_term_mod.rs"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty_terminal/src/term/mod.rs"
+file   = ""
+sha256 = "94be91817bec509ddb229fc83093fcbc044bd0929fb8758b236c939cb21df647"
+bytes  = 112720
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.contour-rhirenderer]
+key    = "contour-rhirenderer"
+title  = "contour: RhiRenderer.cpp"
+author = "Christian Parpart (Apache-2.0)"
+year   = 2026
+venue  = "github.com/contour-terminal/contour @ 6777ff05"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/6777ff05014f8ff163b071e8b0e942830119db80/src/contour/display/RhiRenderer.cpp"
+file   = ""
+sha256 = "889760c93ed6e759c8a30fba920eeff8d3a5f7a6618703345dcd0a66585e75fa"
+bytes  = 72798
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.contour-textrenderer]
+key    = "contour-textrenderer"
+title  = "contour: TextRenderer.hpp"
+author = "Christian Parpart (Apache-2.0)"
+year   = 2026
+venue  = "github.com/contour-terminal/contour @ 6777ff05"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/6777ff05014f8ff163b071e8b0e942830119db80/src/vtrasterizer/TextRenderer.hpp"
+file   = ""
+sha256 = "5bb3ad5b51656ce047936163d27f04e38ddb63317858dbf699f6305ed2446d2b"
+bytes  = 11916
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.contour-textureatlas]
+key    = "contour-textureatlas"
+title  = "contour: TextureAtlas.hpp"
+author = "Christian Parpart (Apache-2.0)"
+year   = 2026
+venue  = "github.com/contour-terminal/contour @ 6777ff05"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/6777ff05014f8ff163b071e8b0e942830119db80/src/vtrasterizer/TextureAtlas.hpp"
+file   = ""
+sha256 = "e3c47b612a1fd522fc754acc0a1260db052c86800e324ab7832b3085b2a1fb93"
+bytes  = 30996
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.foot-config]
+key    = "foot-config"
+title  = "foot: config.c"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/config.c"
+file   = ""
+sha256 = "bc8c134edc51e1225a583603888e3989d4f4a6acc794738bd03cd86418c3a0e1"
+bytes  = 136321
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.foot-render]
+key    = "foot-render"
+title  = "foot: render.c"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/render.c"
+file   = ""
+sha256 = "97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb"
+bytes  = 187364
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.foot-shm]
+key    = "foot-shm"
+title  = "foot: shm.c"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/shm.c"
+file   = ""
+sha256 = "5bf9f02a6a5a1d7205b3e719e003c5427c0fa98f5210977f685b62b1cb77aee8"
+bytes  = 30394
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.foot-terminal]
+key    = "foot-terminal"
+title  = "foot: terminal.h"
+author = "Daniel Eklof (MIT)"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 2705e36f"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/terminal.h"
+file   = ""
+sha256 = "0cfa100adab2adae8f39da87913aa33c7cc2c03be6d168cb0ce83a6518e2b25d"
+bytes  = 28221
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-font-atlas]
+key    = "ghostty-font-atlas"
+title  = "ghostty: font_Atlas.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/Atlas.zig"
+file   = ""
+sha256 = "af51b844da19c6318261df99bd99ed580ee26dbd9f88bc6e060ac02cb591e61b"
+bytes  = 31424
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-font-sharedgrid]
+key    = "ghostty-font-sharedgrid"
+title  = "ghostty: font_SharedGrid.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/SharedGrid.zig"
+file   = ""
+sha256 = "b103abc91e99a0c67d52c6ca3ecc4e24d25ba74fc34b0a9f305bc24493397abd"
+bytes  = 21073
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-metal]
+key    = "ghostty-renderer-metal"
+title  = "ghostty: renderer_Metal.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/Metal.zig"
+file   = ""
+sha256 = "596686cd2e7666ed5f19108b18ee79ad8a7280305712b1a70dfe45f77457e1c9"
+bytes  = 16813
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-opengl]
+key    = "ghostty-renderer-opengl"
+title  = "ghostty: renderer_OpenGL.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/OpenGL.zig"
+file   = ""
+sha256 = "efebb0b2b49878dcb65ef24064807f611415ce96789d8805253d08b6580c2e5f"
+bytes  = 14708
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-cell]
+key    = "ghostty-renderer-cell"
+title  = "ghostty: renderer_cell.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/cell.zig"
+file   = ""
+sha256 = "86835a9aebebf969547c4efac3fdb4cbde7c9a6e527c2384b20944685344b3ff"
+bytes  = 22530
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-generic]
+key    = "ghostty-renderer-generic"
+title  = "ghostty: renderer_generic.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/generic.zig"
+file   = ""
+sha256 = "8df4d96915ed9105f1fa0e392896ae0f677b78fe9a44d0d201d340d8d076444b"
+bytes  = 154117
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-metal-buffer]
+key    = "ghostty-renderer-metal-buffer"
+title  = "ghostty: renderer_metal_buffer.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/metal/buffer.zig"
+file   = ""
+sha256 = "7a56fa1c09f833bb362226a6da5fcd65836ee4e951b9e68e9579397e1c07c3e1"
+bytes  = 7105
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-metal-shaders]
+key    = "ghostty-renderer-metal-shaders"
+title  = "ghostty: renderer_metal_shaders.zig"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/metal/shaders.zig"
+file   = ""
+sha256 = "0f4a443cf6641b0f7c7d56cce5e893d479154a29313d93ef205a6e2a704744d3"
+bytes  = 13929
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.ghostty-renderer-shaders-shaders]
+key    = "ghostty-renderer-shaders-shaders"
+title  = "ghostty: renderer_shaders_shaders.metal"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b24"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/shaders/shaders.metal"
+file   = ""
+sha256 = "8c261d95c1d951cc47aa18bb39343a1cfd9057cc19dce987b4b1c3367f5d8d85"
+bytes  = 25257
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.kitty-cell]
+key    = "kitty-cell"
+title  = "kitty: cell.slang"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 9710eb44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/shaders/cell.slang"
+file   = ""
+sha256 = "04c12f8ed846707147be816c8ffb2cd63da4087b0646ffc639facacf8eac4ac6"
+bytes  = 14061
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.kitty-fonts]
+key    = "kitty-fonts"
+title  = "kitty: fonts.c"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 9710eb44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/fonts.c"
+file   = ""
+sha256 = "9eda539810b52655a811f3c4e17e504affc9ae16b4654604d7581c4a08c2d13e"
+bytes  = 123814
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.kitty-gl]
+key    = "kitty-gl"
+title  = "kitty: gl.c"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 9710eb44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/gl.c"
+file   = ""
+sha256 = "3953dae31edaf7a3cace15b4919577248072787372d7c5c3495108050c6fa302"
+bytes  = 24275
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.kitty-screen]
+key    = "kitty-screen"
+title  = "kitty: screen.c"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 9710eb44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/screen.c"
+file   = ""
+sha256 = "b498df00cc7b539491e631dd2568f80acadf8921580684575d29f47cd0ff3b95"
+bytes  = 296113
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.kitty-shaders]
+key    = "kitty-shaders"
+title  = "kitty: shaders.c"
+author = "Kovid Goyal (GPL-3.0 -- design reference only, never copy)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 9710eb44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/shaders.c"
+file   = ""
+sha256 = "7f41c832ee3698e6c8a5bd43064d5535ecdb8b4f98ebdc9ede90161f5bddeef6"
+bytes  = 155955
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.rio-grid-atlas]
+key    = "rio-grid-atlas"
+title  = "rio / sugarloaf: grid-atlas.rs"
+author = "Raphael Amorim (MIT)"
+year   = 2026
+venue  = "github.com/raphamorim/rio @ 7ae08750"
+url    = "https://raw.githubusercontent.com/raphamorim/rio/7ae087500bcde5c0c9f09cb9c50382e9220b3360/sugarloaf/src/grid/atlas.rs"
+file   = ""
+sha256 = "7575b13adb3f51fa162fbe18f3995cd5ff3af56e25e3aac575a776cfe25b1e2e"
+bytes  = 2214
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.rio-grid-cell]
+key    = "rio-grid-cell"
+title  = "rio / sugarloaf: grid-cell.rs"
+author = "Raphael Amorim (MIT)"
+year   = 2026
+venue  = "github.com/raphamorim/rio @ 7ae08750"
+url    = "https://raw.githubusercontent.com/raphamorim/rio/7ae087500bcde5c0c9f09cb9c50382e9220b3360/sugarloaf/src/grid/cell.rs"
+file   = ""
+sha256 = "191c2ad90c9d2e40f2f00a96595c9fd1b58d9bf78e9eeae123a33dd53c1035c2"
+bytes  = 7792
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.rio-grid-mod]
+key    = "rio-grid-mod"
+title  = "rio / sugarloaf: grid-mod.rs"
+author = "Raphael Amorim (MIT)"
+year   = 2026
+venue  = "github.com/raphamorim/rio @ 7ae08750"
+url    = "https://raw.githubusercontent.com/raphamorim/rio/7ae087500bcde5c0c9f09cb9c50382e9220b3360/sugarloaf/src/grid/mod.rs"
+file   = ""
+sha256 = "67225767b58cf908c6eb20296c322879a875d209aa16881ec2605e2afd84eab6"
+bytes  = 15311
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wezterm-bitmaps-atlas]
+key    = "wezterm-bitmaps-atlas"
+title  = "wezterm: bitmaps_atlas.rs"
+author = "Wez Furlong (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ 2afb8364"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/window/src/bitmaps/atlas.rs"
+file   = ""
+sha256 = "a04661fc610f4fcc7c7eeda09a2a3ef452fa98ade0da94a570ab68e4b25612c1"
+bytes  = 5523
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wezterm-src-glyphcache]
+key    = "wezterm-src-glyphcache"
+title  = "wezterm: src_glyphcache.rs"
+author = "Wez Furlong (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ 2afb8364"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/wezterm-gui/src/glyphcache.rs"
+file   = ""
+sha256 = "6a23bd164cc85826827d1aff217f4632b7646da8c1b6155d35cea7d4f36aac2d"
+bytes  = 50688
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wezterm-src-quad]
+key    = "wezterm-src-quad"
+title  = "wezterm: src_quad.rs"
+author = "Wez Furlong (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ 2afb8364"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/wezterm-gui/src/quad.rs"
+file   = ""
+sha256 = "b4830d6ea9ec0b42a6d7f5747f4375361ce00a49270449a70f5a27977743fee3"
+bytes  = 12684
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wezterm-src-renderstate]
+key    = "wezterm-src-renderstate"
+title  = "wezterm: src_renderstate.rs"
+author = "Wez Furlong (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ 2afb8364"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/wezterm-gui/src/renderstate.rs"
+file   = ""
+sha256 = "5fa36f445922072c472803f8ee285433c6fef65dbf87be4b09aa721633800975"
+bytes  = 25679
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wezterm-termwindow-mod]
+key    = "wezterm-termwindow-mod"
+title  = "wezterm: termwindow_mod.rs"
+author = "Wez Furlong (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ 2afb8364"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/wezterm-gui/src/termwindow/mod.rs"
+file   = ""
+sha256 = "1aaaa96b497ae385950046449cd13db194c80b87905cd69965784e37364230bd"
+bytes  = 135632
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-atlasengine]
+key    = "wt-atlas-atlasengine"
+title  = "Windows Terminal, src/renderer/atlas: atlas-AtlasEngine.cpp"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/AtlasEngine.cpp"
+file   = ""
+sha256 = "d70bdcbad92aa22c782806343159b3b2d2b6adfa9be21d6e6913a4ae1ac60840"
+bytes  = 52381
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-atlasengine-r]
+key    = "wt-atlas-atlasengine-r"
+title  = "Windows Terminal, src/renderer/atlas: atlas-AtlasEngine.r.cpp"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/AtlasEngine.r.cpp"
+file   = ""
+sha256 = "fac52d86d9a40633343d8c091158981d27b2d94c7adbb088f742ab7e1a583367"
+bytes  = 20336
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-backendd3d]
+key    = "wt-atlas-backendd3d"
+title  = "Windows Terminal, src/renderer/atlas: atlas-BackendD3D.cpp"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/BackendD3D.cpp"
+file   = ""
+sha256 = "49d36b9346a7aa2ec84c9298a5fd3e82ecbcd43420bb45d1df488994496c3256"
+bytes  = 101780
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-backendd3d-h]
+key    = "wt-atlas-backendd3d-h"
+title  = "Windows Terminal, src/renderer/atlas: atlas-BackendD3D.h"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/BackendD3D.h"
+file   = ""
+sha256 = "bb4ecd6f118e09e19e03f1f0eff44d32982f93114b01e60cb27a36832229f4a1"
+bytes  = 15636
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-readme]
+key    = "wt-atlas-readme"
+title  = "Windows Terminal, src/renderer/atlas: atlas-README.md"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/README.md"
+file   = ""
+sha256 = "cdfd58f1d22e83f5572d5b53fd0a81819da7314bc6748ae8fc4a981df175a294"
+bytes  = 5190
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-common]
+key    = "wt-atlas-common"
+title  = "Windows Terminal, src/renderer/atlas: atlas-common.h"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/common.h"
+file   = ""
+sha256 = "37fb769409d978d8e1814b01cfed97596648813067b56478e36dfcce7a71712a"
+bytes  = 22288
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-shader-common]
+key    = "wt-atlas-shader-common"
+title  = "Windows Terminal, src/renderer/atlas: atlas-shader_common.hlsl"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/shader_common.hlsl"
+file   = ""
+sha256 = "3ee485c518983a4c584f877efc43241e818ab1cfcbb3d29af0f59cbc2e6f69a4"
+bytes  = 1470
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-shader-ps]
+key    = "wt-atlas-shader-ps"
+title  = "Windows Terminal, src/renderer/atlas: atlas-shader_ps.hlsl"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/shader_ps.hlsl"
+file   = ""
+sha256 = "075933fca9cde40e888bd6ea081a0a0a7dbdf11a0a03bee7c55ec3e45a9a4d2f"
+bytes  = 9306
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.wt-atlas-shader-vs]
+key    = "wt-atlas-shader-vs"
+title  = "Windows Terminal, src/renderer/atlas: atlas-shader_vs.hlsl"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ dcfbcdd8"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dcfbcdd8639813994734ced60abec37474cb3ec7/src/renderer/atlas/shader_vs.hlsl"
+file   = ""
+sha256 = "8a36b3f258e03944f527754b2afcdff71f687d3ac43b185ef49cdd36919acb6c"
+bytes  = 866
+status = "external"
+group  = "J"
+# Terminal renderer source at a pinned commit; hash-verified, not committed (size, and kitty is GPL).
+
+[sources.harfbuzz-hb-ot-shape]
+key    = "harfbuzz-hb-ot-shape"
+title  = "hb-ot-shape.cc -- the OpenType shaping pipeline (normalize, substitute, position, cluster merge)"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape.cc"
+file   = ""
+sha256 = "c50cabe89c03daf95c3b9e9b0994d92e44aa0dc3b1b57d30413c90a0a8429ef2"
+bytes  = 39900
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-shaper]
+key    = "harfbuzz-hb-ot-shaper"
+title  = "hb-ot-shaper.hh -- shaper selection by script; which scripts get the complex shapers"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shaper.hh"
+file   = ""
+sha256 = "4cb9b6fa5d84b47a9cd343cd78d99b5f2e24c783ea3a60c6cb6fa3afa386db68"
+bytes  = 11979
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-layout-gsubgpos]
+key    = "harfbuzz-hb-ot-layout-gsubgpos"
+title  = "hb-ot-layout-gsubgpos.hh -- GSUB/GPOS lookup machinery, may_skip and default-ignorable handling"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-layout-gsubgpos.hh"
+file   = ""
+sha256 = "1b93c6524c3faad4ae8af9a9dc54e687f94a8a0c852501f6fbe08ec7b7ecd36c"
+bytes  = 217393
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-shape-normalize]
+key    = "harfbuzz-hb-ot-shape-normalize"
+title  = "hb-ot-shape-normalize.cc -- canonical (de)composition before cmap lookup"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape-normalize.cc"
+file   = ""
+sha256 = "5cf41f87b8717f36d0561bbf46f4a7412d971ada0dc365d9e17be7131221a6f6"
+bytes  = 15660
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-shape-fallback]
+key    = "harfbuzz-hb-ot-shape-fallback"
+title  = "hb-ot-shape-fallback.cc -- mark positioning fallback when the font has no GPOS"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shape-fallback.cc"
+file   = ""
+sha256 = "ba8af8e70c35b1dc64cb710d7b527af3464873a5ff0b04937efdcba678792550"
+bytes  = 20947
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-aat-layout-morx-table]
+key    = "harfbuzz-hb-aat-layout-morx-table"
+title  = "hb-aat-layout-morx-table.hh -- morx subtable types 0/1/2/4/5 as HarfBuzz implements them"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-layout-morx-table.hh"
+file   = ""
+sha256 = "18cb9589603676a49b54867d4a44fd610804331b2d493b9a255effba4350e496"
+bytes  = 46308
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-aat-layout-common]
+key    = "harfbuzz-hb-aat-layout-common"
+title  = "hb-aat-layout-common.hh -- AAT extended state tables (STX) and lookup formats"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-layout-common.hh"
+file   = ""
+sha256 = "1ebb7f0ab9910b2f42c4eacecd1b8e64e04888f511a1c140586218f49b005128"
+bytes  = 42414
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-aat-map]
+key    = "harfbuzz-hb-aat-map"
+title  = "hb-aat-map.cc -- feature selector to morx chain flag mapping"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-map.cc"
+file   = ""
+sha256 = "3abb6e4f0ce0411cad22bf8866e2bce81346657ed61bd40541dd7f1a2cd24da8"
+bytes  = 5994
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-aat-layout]
+key    = "harfbuzz-hb-aat-layout"
+title  = "hb-aat-layout.cc -- when HarfBuzz chooses AAT over OpenType for a face"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-aat-layout.cc"
+file   = ""
+sha256 = "05a96327dec4cf218bdbc26decee6b6c5311f8b42f39bff89e0d6252249fa1a7"
+bytes  = 27160
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-usermanual-clusters]
+key    = "harfbuzz-usermanual-clusters"
+title  = "HarfBuzz user manual: Clusters -- cluster levels 0/1/2 and what a cluster value means"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz docs/usermanual-clusters.xml (MIT)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/docs/usermanual-clusters.xml"
+file   = "harfbuzz-usermanual-clusters.xml"
+sha256 = "555c2f534616be8f000493106c617a762a2f7529f636e157c494f1dc8dcd12f9"
+bytes  = 25759
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.harfbuzz-what-it-doesnt-do]
+key    = "harfbuzz-what-it-doesnt-do"
+title  = "What HarfBuzz doesn't do -- the boundary between a shaper and a text layout engine"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz.github.io"
+url    = "https://harfbuzz.github.io/what-harfbuzz-doesnt-do.html"
+file   = ""
+sha256 = "9da460224639d704a58c7e50a62418e99577fffc8890b9514cfbe95384e5b0b6"
+bytes  = 5543
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.noto-emoji-add-glyphs]
+key    = "noto-emoji-add-glyphs"
+title  = "add_glyphs.py -- how the Noto emoji build names sequence glyphs"
+author = "Google"
+year   = 2026
+venue  = "googlefonts/noto-emoji (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/add_glyphs.py"
+file   = "noto-emoji-add_glyphs.py"
+sha256 = "948696f26c23e4f9aba1957b86f8cb5528f5d6411787bba03899945cbdd51d4b"
+bytes  = 15121
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.noto-emoji-add-emoji-gsub]
+key    = "noto-emoji-add-emoji-gsub"
+title  = "add_emoji_gsub.py -- Noto emoji sequences as GSUB type-4 ligatures under ccmp with FE0F stripped"
+author = "Google"
+year   = 2026
+venue  = "googlefonts/noto-emoji (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/add_emoji_gsub.py"
+file   = "noto-emoji-add_emoji_gsub.py"
+sha256 = "bfa27d882db528b2e0e70c1eb8fcfc9b77a94a8e720e4d2ad15677696afabdd7"
+bytes  = 6023
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.uts51-emoji]
+key    = "uts51-emoji"
+title  = "UTS #51: Unicode Emoji -- sequence classes (modifier, ZWJ, flag, keycap, tag) and RGI"
+author = "Unicode Consortium"
+year   = 2025
+venue  = "unicode.org/reports/tr51"
+url    = "https://www.unicode.org/reports/tr51/tr51-29.html"
+file   = ""
+sha256 = "3b648142de7a17bd66e4263c2ad584c826a893cd39083a41d9549c4c659279e1"
+bytes  = 207556
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.uax9-bidi]
+key    = "uax9-bidi"
+title  = "UAX #9: Unicode Bidirectional Algorithm"
+author = "Unicode Consortium"
+year   = 2025
+venue  = "unicode.org/reports/tr9"
+url    = "https://www.unicode.org/reports/tr9/"
+file   = ""
+sha256 = "25ebbc5bc05ec302677ace0e3118e454e12da5e1e7ebec386aabd6e585c8cebe"
+bytes  = 187487
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-opentype-featurelist]
+key    = "ms-opentype-featurelist"
+title  = "OpenType Layout feature registry -- calt, liga, ccmp, kern, mark, mkmk and their intended use"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/featurelist"
+file   = ""
+sha256 = "fbc6acce039e3dace6cd451977caecfaa07ba051143eb888e1dec49b8b47b774"
+bytes  = 63814
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-tables]
+key    = "apple-ttrm-tables"
+title  = "TrueType Reference Manual: font tables -- STX state tables and lookup formats (AAT)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/fonts/TrueType-Reference-Manual"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6Tables.html"
+file   = ""
+sha256 = "9108ed020f2a1d74fe7567a9d55ff4d45c4c5adf860953289b0057c8843b4645"
+bytes  = 135109
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-kerx]
+key    = "apple-ttrm-kerx"
+title  = "TrueType Reference Manual: kerx table"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/fonts/TrueType-Reference-Manual"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6kerx.html"
+file   = ""
+sha256 = "aa150b96092008a2311de099be2c4f78d66175d273334038f5b5cd5116439022"
+bytes  = 136842
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-ttrm-appendixf]
+key    = "apple-ttrm-appendixf"
+title  = "TrueType Reference Manual: Appendix F -- feature and selector registry (Ligatures etc.)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/fonts/TrueType-Reference-Manual"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM09/AppendixF.html"
+file   = ""
+sha256 = "e5d457b53ea32efdb8c1d41c928d655cdc17f7cc74d856ea445d140b3bf5badc"
+bytes  = 196637
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.terminal-wg-bidi]
+key    = "terminal-wg-bidi"
+title  = "Bidirectional text in terminal emulators (BiDi in terminals) -- the terminal-wg specification"
+author = "Egmont Koblinger"
+year   = 2025
+venue  = "terminal-wg / GitLab, freedesktop.org"
+url    = "https://terminal-wg.pages.freedesktop.org/bidi/"
+file   = ""
+sha256 = "5d5f728aed10949c72ee2c4e19155c45fe91e46e2ed3273eb8d4a3db96c8cc5c"
+bytes  = 22225
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-shaper-run]
+key    = "ghostty-font-shaper-run"
+title  = "font/shaper/run.zig -- how ghostty splits a row into same-font runs"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/run.zig"
+file   = ""
+sha256 = "db733c86a1c4454ee17bb838f6af889d3bffa0d693b6e09f22ab3765695462b7"
+bytes  = 15967
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-shaper-harfbuzz]
+key    = "ghostty-font-shaper-harfbuzz"
+title  = "font/shaper/harfbuzz.zig -- cluster to cell mapping after HarfBuzz"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/harfbuzz.zig"
+file   = ""
+sha256 = "cce3a6e6ac8492f4c402401aafe2c1ea2b078c0faf7b900bc7d54659cb6480fc"
+bytes  = 75420
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-shaper-coretext]
+key    = "ghostty-font-shaper-coretext"
+title  = "font/shaper/coretext.zig -- the CoreText shaper and its glyph-to-cell path"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/coretext.zig"
+file   = ""
+sha256 = "f5e541e4da646d9c972ee5e385da3aaa048c9003901e4dbda6969a68684652de"
+bytes  = 92525
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-shaper-cache]
+key    = "ghostty-font-shaper-cache"
+title  = "font/shaper/Cache.zig -- the shaped-run cache and why it exists (96% of frame time before it)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/Cache.zig"
+file   = ""
+sha256 = "97125de15dc42dd9083c2c284ee6d4fc0d1c886db364570e84402ff3f9d2b5a0"
+bytes  = 2925
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-shaper-feature]
+key    = "ghostty-font-shaper-feature"
+title  = "font/shaper/feature.zig -- default features (calt, liga, dlig off)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/shaper/feature.zig"
+file   = ""
+sha256 = "7f6e37248ad870ca5c212d11ad2bd7d35ce704ea2c0cc0c3b50287e87931a8a9"
+bytes  = 14031
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-backend]
+key    = "ghostty-font-backend"
+title  = "font/backend.zig -- per-platform font backend selection (CoreText, FreeType, HarfBuzz)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/backend.zig"
+file   = ""
+sha256 = "7b41cce3cd4e422abf13b2480fd062f3f9aa1accb5cb075d69de6af4af32aa21"
+bytes  = 3867
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-renderer-metal-iosurfacelayer]
+key    = "ghostty-renderer-metal-iosurfacelayer"
+title  = "renderer/metal/IOSurfaceLayer.zig -- an IOSurface set as CALayer.contents instead of a CAMetalLayer"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/metal/IOSurfaceLayer.zig"
+file   = ""
+sha256 = "3dcd30d3088091b40cc24f22caef29ae40333b6bf43e6c6901eda1f031f1fcdb"
+bytes  = 6556
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-surfaceview-appkit]
+key    = "ghostty-surfaceview-appkit"
+title  = "SurfaceView_AppKit.swift -- backing scale, display link and the AppKit view around the renderer"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/macos/Sources/Ghostty/Surface%20View/SurfaceView_AppKit.swift"
+file   = ""
+sha256 = "2b3bd9cb967b2b197e5ea7247d07abb7559f47d5732c709595412316f9c96748"
+bytes  = 107167
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.kitty-shaped-run-cache]
+key    = "kitty-shaped-run-cache"
+title  = "shaped-run-cache.c -- kitty's shaped-run cache"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 9710eb4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/shaped-run-cache.c"
+file   = ""
+sha256 = "d6d91d1e89c7cfdf50f7c2b1ef13e5fab6170e6e79779acc4c0c50af664462f5"
+bytes  = 9021
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.wezterm-shaper-harfbuzz]
+key    = "wezterm-shaper-harfbuzz"
+title  = "wezterm-font shaper/harfbuzz.rs -- cluster fragmentation and fallback across fonts"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at 2afb836 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/2afb836403838c3ed7e09e5d570190adb054b607/wezterm-font/src/shaper/harfbuzz.rs"
+file   = ""
+sha256 = "62456019495034ad29bec16eae68b1eda20b643f82d2b0e4896c17495b38da30"
+bytes  = 41456
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.font-rs-raster]
+key    = "font-rs-raster"
+title  = "font-rs raster.rs -- signed-area accumulation rasteriser, draw_line and accumulate"
+author = "Raph Levien"
+year   = 2026
+venue  = "raphlinus/font-rs (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/raphlinus/font-rs/master/src/raster.rs"
+file   = "font-rs-raster.rs"
+sha256 = "59113f28d38ecf70eeb437822d5bf8367e182ad05e4b44f7e20e5ff363d1adf1"
+bytes  = 5045
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.font-rs-accumulate]
+key    = "font-rs-accumulate"
+title  = "font-rs accumulate.rs -- the SSE prefix-sum/quantise pass"
+author = "Raph Levien"
+year   = 2026
+venue  = "raphlinus/font-rs (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/raphlinus/font-rs/master/src/accumulate.rs"
+file   = "font-rs-accumulate.rs"
+sha256 = "106a0e01ee0862c3e6bb637e3810bb01a54319c511a011dcb5851953122f450b"
+bytes  = 5036
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.font-rs-geom]
+key    = "font-rs-geom"
+title  = "font-rs geom.rs -- point and affine helpers for the rasteriser"
+author = "Raph Levien"
+year   = 2026
+venue  = "raphlinus/font-rs (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/raphlinus/font-rs/master/src/geom.rs"
+file   = "font-rs-geom.rs"
+sha256 = "38c7d2e24f64f286bfa92ffbd035462084a9fb3d046f46964175de643548102c"
+bytes  = 2006
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.freetype-ftgrays]
+key    = "freetype-ftgrays"
+title  = "ftgrays.c -- FreeType's exact-area 'smooth' rasteriser (gray_render_line, cells)"
+author = "David Turner and FreeType contributors"
+year   = 2026
+venue  = "freetype/freetype src/smooth/ftgrays.c (FTL)"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/master/src/smooth/ftgrays.c"
+file   = "freetype-ftgrays.c"
+sha256 = "404be11bb3d3eb0086bb38bda04388639d991b538e2b452b56ee51e29b2b5845"
+bytes  = 60670
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.skia-skscan-aaapath]
+key    = "skia-skscan-aaapath"
+title  = "SkScan_AAAPath.cpp -- Skia's analytic anti-aliasing scan converter"
+author = "Google"
+year   = 2026
+venue  = "google/skia (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/google/skia/main/src/core/SkScan_AAAPath.cpp"
+file   = ""
+sha256 = "c7a2e2f869ce0d13f882e713e477a59b0af547cb72dd134caf04b1889d22a35e"
+bytes  = 70758
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.zeno-raster]
+key    = "zeno-raster"
+title  = "zeno raster.rs -- signed-area rasteriser used by swash"
+author = "Chad Brokaw"
+year   = 2026
+venue  = "dfrg/zeno (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/dfrg/zeno/master/src/raster.rs"
+file   = "zeno-raster.rs"
+sha256 = "547959267567e6f1f52a2126904df75c1acd79884d02a8fa09035bee643c3e28"
+bytes  = 24208
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.fontdue-raster]
+key    = "fontdue-raster"
+title  = "fontdue raster.rs -- accumulation rasteriser with SIMD accumulate"
+author = "Joe Cumbo"
+year   = 2026
+venue  = "mooman219/fontdue (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/mooman219/fontdue/master/src/raster.rs"
+file   = "fontdue-raster.rs"
+sha256 = "bf7faf0a104e8f28a898dfe7273ad9aeba3398b8c7c35f97f77439690019014f"
+bytes  = 4512
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.ab-glyph-raster]
+key    = "ab-glyph-raster"
+title  = "ab_glyph_rasterizer raster.rs -- accumulation rasteriser; the 'avx2' body is the scalar body under a feature"
+author = "Alex Butler"
+year   = 2026
+venue  = "alexheretic/ab-glyph (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alexheretic/ab-glyph/main/rasterizer/src/raster.rs"
+file   = "ab-glyph-raster.rs"
+sha256 = "17506f174ea9aceee016892e9603c59165fc0fc5de64e4395018e9aa4dd97012"
+bytes  = 12378
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.agg-rasterizer-cells-aa]
+key    = "agg-rasterizer-cells-aa"
+title  = "agg_rasterizer_cells_aa.h -- the cell-based exact-area rasteriser FreeType's smooth is derived from"
+author = "Maxim Shemanarev"
+year   = 2026
+venue  = "Anti-Grain Geometry 2.4 (BSD)"
+url    = "https://raw.githubusercontent.com/ghaerr/agg-2.6/master/agg-src/include/agg_rasterizer_cells_aa.h"
+file   = "agg-rasterizer_cells_aa.h"
+sha256 = "e030a8403299691fe0cff689412f5fbfcc050c2d354859785c0be46ec66b2506"
+bytes  = 21540
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vello-strip]
+key    = "vello-strip"
+title  = "vello_common strip.rs -- accumulation into strips, the CPU/GPU twin of signed-area"
+author = "Linebender"
+year   = 2026
+venue  = "linebender/vello (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/linebender/vello/main/vello_common/src/strip.rs"
+file   = "vello-strip.rs"
+sha256 = "a9230a912cd39b30b7eafa8c4c41dd9d5d72184f8fa8f1ef80b7c8b15c41e0c2"
+bytes  = 29325
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vello-flatten]
+key    = "vello-flatten"
+title  = "vello_common flatten.rs -- curve flattening with fixed error tolerance"
+author = "Linebender"
+year   = 2026
+venue  = "linebender/vello (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/linebender/vello/main/vello_common/src/flatten.rs"
+file   = "vello-flatten.rs"
+sha256 = "2c82b35e5e8f4a19966378d0d35f84c151eeb22317dd53f63dcc3375d2b6369d"
+bytes  = 7803
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vello-fine]
+key    = "vello-fine"
+title  = "vello fine.wgsl -- the fine rasterisation stage on the GPU"
+author = "Linebender"
+year   = 2026
+venue  = "linebender/vello (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/linebender/vello/main/research/vello_shaders/shader/fine.wgsl"
+file   = "vello-fine.wgsl"
+sha256 = "efd4a38f4a6a32518b33b497789723b8f163ada361f683c2dfa3700fe8b2d68d"
+bytes  = 64272
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.pathfinder-fill-area-inc]
+key    = "pathfinder-fill-area-inc"
+title  = "pathfinder fill_area.inc.glsl -- computing per-pixel coverage on the GPU"
+author = "Patrick Walton"
+year   = 2026
+venue  = "servo/pathfinder (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/servo/pathfinder/master/shaders/fill_area.inc.glsl"
+file   = "pathfinder-fill_area.inc.glsl"
+sha256 = "cf84a993e86c6e9285dfa46da5ce49dc9bedd75f39b075515d96737473636e0b"
+bytes  = 1199
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.slug-jcgt-2017]
+key    = "slug-jcgt-2017"
+title  = "GPU-Centered Font Rendering Directly from Glyph Outlines"
+author = "Eric Lengyel"
+year   = 2017
+venue  = "Journal of Computer Graphics Techniques 6(2) -- 6.5 MB, so hash-verified rather than committed"
+url    = "https://jcgt.org/published/0006/02/02/paper.pdf"
+file   = ""
+sha256 = "6f6d693e6ed8ec3c788d475cbe961a89f41c990f4635f2af018a65fcf40a57b2"
+bytes  = 6507389
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.slug-readme]
+key    = "slug-readme"
+title  = "Slug library README -- band structure, the 2026 public-domain dedication and shader licence"
+author = "Eric Lengyel"
+year   = 2026
+venue  = "EricLengyel/Slug"
+url    = "https://raw.githubusercontent.com/EricLengyel/Slug/main/README.md"
+file   = "slug-README.md"
+sha256 = "e320f015a6b9d306feb74dd89296d2ecb1388544a1916588976dc23976604171"
+bytes  = 3291
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.slug-license]
+key    = "slug-license"
+title  = "Slug shader licence (MIT/Apache-2.0)"
+author = "Eric Lengyel"
+year   = 2026
+venue  = "EricLengyel/Slug"
+url    = "https://raw.githubusercontent.com/EricLengyel/Slug/main/LICENSE"
+file   = "slug-LICENSE"
+sha256 = "fa59b27dbd7045884b473e17874cb9d31426fb3c519d2278473dcabd606a4dfb"
+bytes  = 274
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.loop-blinn-2005]
+key    = "loop-blinn-2005"
+title  = "Resolution Independent Curve Rendering using Programmable Graphics Hardware"
+author = "Charles Loop and Jim Blinn"
+year   = 2005
+venue  = "ACM SIGGRAPH 2005"
+url    = "https://www.microsoft.com/en-us/research/wp-content/uploads/2005/01/p1000-loop.pdf"
+file   = ""
+sha256 = "c3372860ffb9b51afce270be69349af84716711e94ea70ce18b49d7d91b77454"
+bytes  = 440871
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.green-2007-sdf]
+key    = "green-2007-sdf"
+title  = "Improved Alpha-Tested Magnification for Vector Textures and Special Effects"
+author = "Chris Green"
+year   = 2007
+venue  = "SIGGRAPH 2007 course, Valve"
+url    = "https://cdn.akamai.steamstatic.com/apps/valve/2007/SIGGRAPH2007_AlphaTestedMagnification.pdf"
+file   = ""
+sha256 = "1b6253164f146c8a2fd2d21b77b0540e5160e53157596b8591e5bfb1cb50d4b6"
+bytes  = 5274465
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.msdfgen-readme]
+key    = "msdfgen-readme"
+title  = "msdfgen README -- the pxRange / screenPxRange rule that bounds MSDF at small sizes"
+author = "Viktor Chlumsky"
+year   = 2026
+venue  = "Chlumsky/msdfgen (MIT)"
+url    = "https://raw.githubusercontent.com/Chlumsky/msdfgen/master/README.md"
+file   = "msdfgen-README.md"
+sha256 = "483c15e4d1963619c9a552ee7b564a3744a211e9a3beaee3808928e2423544a6"
+bytes  = 12333
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.levien-flatten-quadbez]
+key    = "levien-flatten-quadbez"
+title  = "Flattening quadratic Beziers -- the closed-form subdivision count"
+author = "Raph Levien"
+year   = 2019
+venue  = "raphlinus.github.io"
+url    = "https://raphlinus.github.io/graphics/curves/2019/12/23/flatten-quadbez.html"
+file   = ""
+sha256 = "c6f4d1b80cef4b23022ca1deff782fc61b0bc24a9086c3b4d43d5485bd60cb56"
+bytes  = 32681
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.dobbie-vector-textures]
+key    = "dobbie-vector-textures"
+title  = "Easy scalable text rendering on the GPU -- analytic coverage from outlines"
+author = "Will Dobbie"
+year   = 2016
+venue  = "wdobbie.com"
+url    = "https://wdobbie.com/post/gpu-text-rendering-with-vector-textures/"
+file   = ""
+sha256 = "d541c3a38b9fddd676e654c94cbf5df6c3f9a1d10d12a923775293b183f51dbc"
+bytes  = 16259
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.freetype-glyph-retrieval]
+key    = "freetype-glyph-retrieval"
+title  = "FreeType tutorial: glyph retrieval -- FT_LOAD_TARGET_LIGHT and the hinting targets"
+author = "FreeType project"
+year   = 2026
+venue  = "freetype.org/freetype2/docs/tutorial"
+url    = "https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html"
+file   = ""
+sha256 = "0c0b2065fb2ca65d1b6262179da2d9fd9e6614ae67b743bd13798bffdbe8bfab"
+bytes  = 100137
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.freetype-text-rendering-general]
+key    = "freetype-text-rendering-general"
+title  = "Text rendering: general topics -- stem darkening and gamma"
+author = "FreeType project"
+year   = 2026
+venue  = "freetype.org/freetype2/docs"
+url    = "https://freetype.org/freetype2/docs/hinting/text-rendering-general.html"
+file   = ""
+sha256 = "ef42c819889f2fa1b4c2e08a0038e80a83d3a9ce0e434401f7b25d47da010ec0"
+bytes  = 23887
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dwrite-rendering-mode]
+key    = "ms-dwrite-rendering-mode"
+title  = "DWRITE_RENDERING_MODE -- NATURAL, NATURAL_SYMMETRIC and the DirectWrite AA modes"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/dwrite/ne-dwrite-dwrite_rendering_mode"
+file   = ""
+sha256 = "ffb68e4d1b6f6240cea9b49d5179df137666268b7c85358834d59712db1251e4"
+bytes  = 53669
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-face-coretext]
+key    = "ghostty-font-face-coretext"
+title  = "font/face/coretext.zig -- CoreText rasterisation, no hinting, dilation"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/face/coretext.zig"
+file   = ""
+sha256 = "367be97710c61c81a07eb08e7106a7fdaa2c53714f188756fec750ff001eff05"
+bytes  = 43954
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-font-face-freetype]
+key    = "ghostty-font-face-freetype"
+title  = "font/face/freetype.zig -- FreeType load flags ghostty uses"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/font/face/freetype.zig"
+file   = ""
+sha256 = "cc2833dd121efd61c4148b6e8ff1d1e738f4c6f5e38abf2e20aeea03939893ae"
+bytes  = 53141
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-config]
+key    = "ghostty-config"
+title  = "Config.zig -- font-thicken, alpha-blending native/linear/linear-corrected and their rationale"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/config/Config.zig"
+file   = ""
+sha256 = "68dc87467f7f0cc66cccdbef0b5b24eca3380b178b46a6f0497b7f26c9efc1a2"
+bytes  = 427828
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-shaders-common]
+key    = "ghostty-shaders-common"
+title  = "shaders/common.glsl -- the gamma-corrected blend used by the GL and Metal renderers"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/shaders/glsl/common.glsl"
+file   = ""
+sha256 = "1950572690a2ddc73fbbdc7082c487082bce2a07f75a45a4bfc248922e3fa92f"
+bytes  = 5169
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.kitty-freetype]
+key    = "kitty-freetype"
+title  = "freetype.c -- kitty's FreeType rasterisation and hinting choices"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 9710eb4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/freetype.c"
+file   = ""
+sha256 = "dd1c8ff88190479250e4d780df6a203e9910ace75030962df412f84aca9ca12f"
+bytes  = 66022
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.kitty-core-text]
+key    = "kitty-core-text"
+title  = "core_text.m -- kitty's CoreText rasterisation and the sRGB/linear blend note"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at 9710eb4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/core_text.m"
+file   = ""
+sha256 = "60a71ad4237b258f4aa82ebdeee3a588d98a8a09bd30ab43e5304f274bad7ff2"
+bytes  = 62715
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.alacritty-text-f]
+key    = "alacritty-text-f"
+title  = "text.f.glsl -- alacritty's subpixel (LCD) fragment shader path"
+author = "Alacritty contributors"
+year   = 2026
+venue  = "alacritty/alacritty at d692748 (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty/res/glsl3/text.f.glsl"
+file   = ""
+sha256 = "a2c86a88b3f8668434028deb48f07fb74a7fbf78aa680526ee04b66ce834129d"
+bytes  = 1775
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.wayland]
+key    = "wayland"
+title  = "wayland.xml -- the core Wayland protocol (wl_shm, wl_surface, wl_buffer, wl_callback)"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland/wayland protocol/wayland.xml (MIT)"
+url    = "https://gitlab.freedesktop.org/wayland/wayland/-/raw/main/protocol/wayland.xml"
+file   = "wayland.xml"
+sha256 = "cc860987e54f8d85c940e97fa1270c69b6e4ad31fbcf5a7f00107ce1157f5e07"
+bytes  = 168656
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wayland-copying]
+key    = "wayland-copying"
+title  = "Wayland licence (MIT)"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland/wayland"
+url    = "https://gitlab.freedesktop.org/wayland/wayland/-/raw/main/COPYING"
+file   = "wayland-COPYING"
+sha256 = "6eefcb023622a463168a5c20add95fd24a38c7482622a9254a23b99b7c153061"
+bytes  = 1340
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-xdg-shell]
+key    = "wp-xdg-shell"
+title  = "xdg-shell -- toplevel windows, configure/ack, decorations"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/xdg-shell/xdg-shell.xml"
+file   = "wp-xdg-shell.xml"
+sha256 = "7ba7f9c8473deee674cb1f154a18abd0bb0cc072604fc055b0c15e459fc4c7df"
+bytes  = 63846
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-linux-dmabuf-v1]
+key    = "wp-linux-dmabuf-v1"
+title  = "linux-dmabuf-v1 -- dmabuf buffers, format/modifier tranches (v5)"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/linux-dmabuf/linux-dmabuf-v1.xml"
+file   = "wp-linux-dmabuf-v1.xml"
+sha256 = "29ce3ece4fb86e00c6e7f07332274bcb9ceb0eb8b1380d3635c1a67bbde830ab"
+bytes  = 30999
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-presentation-time]
+key    = "wp-presentation-time"
+title  = "presentation-time -- presentation feedback and the zero_copy flag"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/presentation-time/presentation-time.xml"
+file   = "wp-presentation-time.xml"
+sha256 = "dffac93bcb2bb1d8c385e72b8a8c2c0d4d79a336866322f3ba886dce2b27b1e2"
+bytes  = 12890
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-viewporter]
+key    = "wp-viewporter"
+title  = "viewporter -- surface cropping and scaling"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/viewporter/viewporter.xml"
+file   = "wp-viewporter.xml"
+sha256 = "dcb12279a03746301fe490aaed4b38a403485a925abfce2ccfceb644e104fe71"
+bytes  = 8133
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-fractional-scale-v1]
+key    = "wp-fractional-scale-v1"
+title  = "fractional-scale-v1 -- preferred fractional scale"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/fractional-scale/fractional-scale-v1.xml"
+file   = "wp-fractional-scale-v1.xml"
+sha256 = "5941de5d28f427ecdadddc8623a6f6af0a30b0ab4726847236ba7a7652b81316"
+bytes  = 4636
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-xdg-decoration-unstable-v1]
+key    = "wp-xdg-decoration-unstable-v1"
+title  = "xdg-decoration-unstable-v1 -- server-side decorations"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml"
+file   = "wp-xdg-decoration-unstable-v1.xml"
+sha256 = "68753c4a85a28659e3aa1fe0f138329a8bf3dff0b4789f4663a2c7fedbfecf2f"
+bytes  = 8240
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-fifo-v1]
+key    = "wp-fifo-v1"
+title  = "fifo-v1 -- FIFO commit constraints"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/fifo/fifo-v1.xml"
+file   = "wp-fifo-v1.xml"
+sha256 = "0b6c31dfe6bca19b712745c9de7a4a398558cfa1087b1938e96fd3b10ffc1069"
+bytes  = 6268
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-commit-timing-v1]
+key    = "wp-commit-timing-v1"
+title  = "commit-timing-v1 -- timestamped commits"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/commit-timing/commit-timing-v1.xml"
+file   = "wp-commit-timing-v1.xml"
+sha256 = "ff3fcf31d13d44bad756a50fda663a43008bacbbd2bf8cba3a1bf5ffe7f54172"
+bytes  = 5528
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-linux-drm-syncobj-v1]
+key    = "wp-linux-drm-syncobj-v1"
+title  = "linux-drm-syncobj-v1 -- explicit synchronisation"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml"
+file   = "wp-linux-drm-syncobj-v1.xml"
+sha256 = "5ede41a56eced6aa635caa7ab2996066bff9fd211620dbf9f73aafab740bec71"
+bytes  = 12655
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-tearing-control-v1]
+key    = "wp-tearing-control-v1"
+title  = "tearing-control-v1 -- opting into tearing presentation"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/tearing-control/tearing-control-v1.xml"
+file   = "wp-tearing-control-v1.xml"
+sha256 = "846895b4a90ba1ddd75673cefc596480beef318f1694ec7dbca0fec54bb27043"
+bytes  = 5655
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-cursor-shape-v1]
+key    = "wp-cursor-shape-v1"
+title  = "cursor-shape-v1 -- named cursor shapes"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/cursor-shape/cursor-shape-v1.xml"
+file   = "wp-cursor-shape-v1.xml"
+sha256 = "bb57d91e53a79dadab7c612dab87c233393cee73673feefa7442cfbfdd9aed2f"
+bytes  = 9142
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wp-text-input-unstable-v3]
+key    = "wp-text-input-unstable-v3"
+title  = "text-input-unstable-v3 -- input method text input"
+author = "Wayland contributors"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/text-input/text-input-unstable-v3.xml"
+file   = "wp-text-input-unstable-v3.xml"
+sha256 = "160815cda13c285a30df1971d8f0a5b3aac07071537df59916d2f748b18e4f59"
+bytes  = 28120
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wayland-protocol-book]
+key    = "wayland-protocol-book"
+title  = "The Wayland Protocol -- wire format chapter"
+author = "Drew DeVault"
+year   = 2026
+venue  = "wayland-book.com"
+url    = "https://wayland.freedesktop.org/docs/html/ch04.html"
+file   = ""
+sha256 = "86bbc22d235a1357253a8e51e91f55f8b1d69cbb3fe428ecfd0c1894ebe4c61b"
+bytes  = 45317
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.wayland-backend-wire]
+key    = "wayland-backend-wire"
+title  = "wayland-backend rs/wire.rs -- a pure-Rust Wayland wire encoder/decoder"
+author = "Smithay contributors"
+year   = 2026
+venue  = "Smithay/wayland-rs (MIT)"
+url    = "https://raw.githubusercontent.com/Smithay/wayland-rs/master/wayland-backend/src/rs/wire.rs"
+file   = "wayland-backend-wire.rs"
+sha256 = "ffc8aea6210c9c51b92fcb9177c562cf58b60ed408a3e67f5a23c9aafa354882"
+bytes  = 10409
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.wayland-backend-socket]
+key    = "wayland-backend-socket"
+title  = "wayland-backend rs/socket.rs -- the socket and SCM_RIGHTS fd passing"
+author = "Smithay contributors"
+year   = 2026
+venue  = "Smithay/wayland-rs (MIT)"
+url    = "https://raw.githubusercontent.com/Smithay/wayland-rs/master/wayland-backend/src/rs/socket.rs"
+file   = "wayland-backend-socket.rs"
+sha256 = "5887ed23d3e5c6491438c9d10444421613158dac1411475633501a60da12618b"
+bytes  = 20784
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.foot-wayland]
+key    = "foot-wayland"
+title  = "wayland.c -- foot's registry, output and presentation handling"
+author = "Daniel Eklof"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot at 2705e36 (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/wayland.c"
+file   = ""
+sha256 = "5dc49b28a7fc602a1014370f4807fe47c8e80167ecbe3c5fb8d0ecfeb9129c29"
+bytes  = 92739
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.hyprland-protocolmanager]
+key    = "hyprland-protocolmanager"
+title  = "ProtocolManager.cpp -- the protocols and versions Hyprland advertises"
+author = "Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/main/src/managers/ProtocolManager.cpp"
+file   = ""
+sha256 = "48a373e2c6575aedb3849c56b88727cd6f370fc92b2899c01aabcca8f7d7f040"
+bytes  = 21153
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.wlroots-gles2-texture]
+key    = "wlroots-gles2-texture"
+title  = "render/gles2/texture.c -- how a wlroots compositor uploads a wl_shm buffer"
+author = "wlroots contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/wlroots/wlroots (MIT)"
+url    = "https://gitlab.freedesktop.org/wlroots/wlroots/-/raw/master/render/gles2/texture.c"
+file   = ""
+sha256 = "baebb0d9a1cbb9b0c303972757e81be0f421ea262bc3aa08bef7ea8fefce914e"
+bytes  = 14053
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.kwin-making-wl-shm-fast]
+key    = "kwin-making-wl-shm-fast"
+title  = "Making wl_shm buffers fast -- KWin importing shm via udmabuf"
+author = "Xaver Hugl"
+year   = 2025
+venue  = "blog.kde.org / zamundaaa.github.io"
+url    = "https://zamundaaa.github.io/wayland/2026/05/06/making-wl-shm-fast.html"
+file   = ""
+sha256 = "6ed5b471459b416ca57e1091c2400c64c40949f15306f1cda15e127429509d86"
+bytes  = 13270
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.mesa-wsi-common-wayland]
+key    = "mesa-wsi-common-wayland"
+title  = "wsi_common_wayland.c -- Mesa's Vulkan Wayland WSI: dmabuf swapchain over libwayland-client"
+author = "Mesa contributors"
+year   = 2026
+venue  = "gitlab.freedesktop.org/mesa/mesa (MIT)"
+url    = "https://gitlab.freedesktop.org/mesa/mesa/-/raw/main/src/vulkan/wsi/wsi_common_wayland.c"
+file   = ""
+sha256 = "76ac5b0c15e79a507c84ac1b4d08a604283f9dcf3b31ea7128f3f834b76313ee"
+bytes  = 159248
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.vulkan-vk-khr-wayland-surface]
+key    = "vulkan-vk-khr-wayland-surface"
+title  = "VK_KHR_wayland_surface"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_KHR_wayland_surface.adoc"
+file   = "vulkan-VK_KHR_wayland_surface.adoc"
+sha256 = "3d0e1086692fe2c14a290cc4542c56fc65a52320a17205dcd2580a088299e8b4"
+bytes  = 3301
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vulkan-vk-khr-xcb-surface]
+key    = "vulkan-vk-khr-xcb-surface"
+title  = "VK_KHR_xcb_surface"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_KHR_xcb_surface.adoc"
+file   = "vulkan-VK_KHR_xcb_surface.adoc"
+sha256 = "93b4f13b466b109735604d98b81f8ad239c4a28541f92f2d5a11ec73bd4ba118"
+bytes  = 2583
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vulkan-vk-ext-external-memory-dma-buf]
+key    = "vulkan-vk-ext-external-memory-dma-buf"
+title  = "VK_EXT_external_memory_dma_buf"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_EXT_external_memory_dma_buf.adoc"
+file   = "vulkan-VK_EXT_external_memory_dma_buf.adoc"
+sha256 = "103cce855d8bb49ad0119398f557689f527b1614896407f9a24d72ed06246ddc"
+bytes  = 2261
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vulkan-vk-ext-image-drm-format-modifier]
+key    = "vulkan-vk-ext-image-drm-format-modifier"
+title  = "VK_EXT_image_drm_format_modifier"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_EXT_image_drm_format_modifier.adoc"
+file   = "vulkan-VK_EXT_image_drm_format_modifier.adoc"
+sha256 = "ed36c6fcad6257c31cec8482fc7e91c54d2478e5a0d8c8c5082ae6177946958d"
+bytes  = 19501
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vulkan-vk-khr-present-wait]
+key    = "vulkan-vk-khr-present-wait"
+title  = "VK_KHR_present_wait"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_KHR_present_wait.adoc"
+file   = "vulkan-VK_KHR_present_wait.adoc"
+sha256 = "af1b63538588b84f0108d893e621cb2bd50e988598f1fe0637389611d5418c6b"
+bytes  = 2684
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.vulkan-vk-ext-swapchain-maintenance1]
+key    = "vulkan-vk-ext-swapchain-maintenance1"
+title  = "VK_EXT_swapchain_maintenance1"
+author = "Khronos Group"
+year   = 2026
+venue  = "KhronosGroup/Vulkan-Docs, appendices/"
+url    = "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_EXT_swapchain_maintenance1.adoc"
+file   = "vulkan-VK_EXT_swapchain_maintenance1.adoc"
+sha256 = "f71cf3b7d60d6b009419542891ca47f42ed4a7e72fc2add620c1ad8986a43794"
+bytes  = 2249
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xorg-presentproto]
+key    = "xorg-presentproto"
+title  = "The Present Extension protocol"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/master/presentproto.txt"
+file   = "xorg-presentproto.txt"
+sha256 = "fe0f731420b5458efc4339dbea782046f1ace6ea4bece8a6e4dde363c0bddf65"
+bytes  = 27931
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xorg-dri3proto]
+key    = "xorg-dri3proto"
+title  = "The DRI3 Extension protocol"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/master/dri3proto.txt"
+file   = "xorg-dri3proto.txt"
+sha256 = "be877b06ceb8a9255260920718767da07037e3a2705e08d6f29d1e2245190893"
+bytes  = 21113
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xcb-proto-shm]
+key    = "xcb-proto-shm"
+title  = "xcb-proto shm.xml -- MIT-SHM including AttachFd"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xcbproto/-/raw/master/src/shm.xml"
+file   = "xcb-proto-shm.xml"
+sha256 = "bded31a571e5f98212cce0c4f3c5229854d5b85d3f17906b4efcd66f540f1de1"
+bytes  = 14661
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xcb-proto-present]
+key    = "xcb-proto-present"
+title  = "xcb-proto present.xml"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xcbproto/-/raw/master/src/present.xml"
+file   = "xcb-proto-present.xml"
+sha256 = "668018a2f325c4c0fe6f98374f61a5890a67ca2653d725d4b79f9a78ed0b9fad"
+bytes  = 8483
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xcb-proto-dri3]
+key    = "xcb-proto-dri3"
+title  = "xcb-proto dri3.xml"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xcbproto/-/raw/master/src/dri3.xml"
+file   = "xcb-proto-dri3.xml"
+sha256 = "4e4a43ad3e1fef7f1c199877656002d171f4242bc588ff5b6460aa3810bd25d4"
+bytes  = 6170
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xcb-proto-xkb]
+key    = "xcb-proto-xkb"
+title  = "xcb-proto xkb.xml"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "xorgproto / xcb-proto, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xcbproto/-/raw/master/src/xkb.xml"
+file   = "xcb-proto-xkb.xml"
+sha256 = "f2665d4e9760444254962dbe9fbcf6832cb8403fdc78fa52bf6be521fa911f78"
+bytes  = 91918
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.xorg-mit-shm]
+key    = "xorg-mit-shm"
+title  = "MIT-SHM -- The MIT Shared Memory Extension"
+author = "X.Org Foundation"
+year   = 2026
+venue  = "x.org/releases/current/doc/xextproto/shm.html"
+url    = "https://www.x.org/releases/current/doc/xextproto/shm.html"
+file   = ""
+sha256 = "3fd7c76c8dbbf28d33464d47933f0c10c3afb5dc74ecfbd2f23708dca82b9749"
+bytes  = 27081
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.x11rb-rust-connection-mod]
+key    = "x11rb-rust-connection-mod"
+title  = "x11rb rust_connection/mod.rs -- a pure-Rust X11 connection"
+author = "x11rb contributors"
+year   = 2026
+venue  = "psychon/x11rb (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/psychon/x11rb/master/x11rb/src/rust_connection/mod.rs"
+file   = "x11rb-rust_connection-mod.rs"
+sha256 = "b17b9452b2e5f7498268fba5c60ffd9c9d5cb91046a9365f5c5762a03cb1aaf8"
+bytes  = 33466
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit.
+
+[sources.apple-cametallayer]
+key    = "apple-cametallayer"
+title  = "CAMetalLayer -- drawable pool, nextDrawable, maximumDrawableCount"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cametallayer.json"
+file   = ""
+sha256 = "c90004fa473083bb6e640a23a03f95f208ec5e3f0f7b77fda6792e8b14f8b4fb"
+bytes  = 57590
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-mtldrawable-present-at]
+key    = "apple-mtldrawable-present-at"
+title  = "MTLDrawable present(at:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldrawable/present(at:).json"
+file   = ""
+sha256 = "a3d6f6ab4ee969c85387de87cd4471bc8b06750580c6b83217a70af896a9cb86"
+bytes  = 15056
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-iosurface]
+key    = "apple-iosurface"
+title  = "IOSurface"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/iosurface.json"
+file   = ""
+sha256 = "ec35903fa480f2276fda0fe1ccd5dbc5b3c453339639b17319c1fd0f10710843"
+bytes  = 29161
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-mtldevice-maketexture-iosurface]
+key    = "apple-mtldevice-maketexture-iosurface"
+title  = "MTLDevice makeTexture(descriptor:iosurface:plane:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/maketexture(descriptor:iosurface:plane:).json"
+file   = ""
+sha256 = "b562cb9d86450cc75047a02686fb98d95dce35f13e67048227f719c2a656020e"
+bytes  = 25179
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-calayer-contents]
+key    = "apple-calayer-contents"
+title  = "CALayer.contents"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/calayer/contents.json"
+file   = ""
+sha256 = "f26a7b3532ccf658b140ca4e8be290609d998c3d12f68a9a0cb8319ccdd478c1"
+bytes  = 15192
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-storagemodeshared]
+key    = "apple-storagemodeshared"
+title  = "MTLStorageMode.shared"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlresourceoptions/storagemodeshared.json"
+file   = ""
+sha256 = "5abe88582b2d7f9295cc9fd9eaf9deaf1b59ef4e8258a8ca35dcdc5247a283a2"
+bytes  = 15958
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsview-displaylink]
+key    = "apple-nsview-displaylink"
+title  = "NSView displayLink(target:selector:)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/displaylink(target:selector:).json"
+file   = ""
+sha256 = "137eb3056e289ccd0c0fe695d7c4e9dba5bbe085a0fe9724ab87471bd5bd4f3c"
+bytes  = 9957
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-flip-model]
+key    = "ms-dxgi-flip-model"
+title  = "DXGI flip model"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/for-best-performance--use-dxgi-flip-model"
+file   = ""
+sha256 = "4203517f01d3d7cd5501d4b20cd8805183dc3389c790412d0dcae835426ec918"
+bytes  = 59321
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-swap-chain-flag]
+key    = "ms-dxgi-swap-chain-flag"
+title  = "DXGI_SWAP_CHAIN_FLAG -- ALLOW_TEARING, FRAME_LATENCY_WAITABLE_OBJECT"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi/ne-dxgi-dxgi_swap_chain_flag"
+file   = ""
+sha256 = "67abd5517b2e663619312efc477510c5c1f71a9ca2b93867815e838ae6e28506"
+bytes  = 61180
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-frame-latency-waitable]
+key    = "ms-dxgi-frame-latency-waitable"
+title  = "IDXGISwapChain2::GetFrameLatencyWaitableObject"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_3/nf-dxgi1_3-idxgiswapchain2-getframelatencywaitableobject"
+file   = ""
+sha256 = "667e303ecb5ac74a3780e9f1f4575e64f459f1cef13856cca4afa5f2c90dae64"
+bytes  = 52727
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-present1]
+key    = "ms-dxgi-present1"
+title  = "IDXGISwapChain1::Present1 -- dirty and scroll rects"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgiswapchain1-present1"
+file   = ""
+sha256 = "7b1cb26ccffd17b02680dcc3414e50620369fc438618110c70f744cf672f3de8"
+bytes  = 56263
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-vrr]
+key    = "ms-dxgi-vrr"
+title  = "Variable refresh rate displays -- ALLOW_TEARING and the Present flags"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/variable-refresh-rate-displays"
+file   = ""
+sha256 = "485c0d3017dd3057383fd0f3d4c311053fb872d8f6dba29a005242ca65312098"
+bytes  = 52459
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-dxgi-composition-swapchain]
+key    = "ms-dxgi-composition-swapchain"
+title  = "Composition swapchain"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/api/dxgi1_2/nf-dxgi1_2-idxgifactory2-createswapchainforcomposition"
+file   = ""
+sha256 = "905dd787c30de86db3f736b79a31e5c6299efcdd8dffa2d4f97029189a16018a"
+bytes  = 60041
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ms-high-dpi]
+key    = "ms-high-dpi"
+title  = "High DPI desktop application development on Windows -- per-monitor awareness"
+author = "Microsoft"
+year   = 2026
+venue  = "learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows"
+file   = ""
+sha256 = "d2eecbac3082ae6132da55e40783debf72022239cb4cdd74fffbf3a257f9c6c8"
+bytes  = 74860
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.lkhrs-terminal-latency]
+key    = "lkhrs-terminal-latency"
+title  = "Measuring terminal latency -- Typometer figures for xterm, alacritty, kitty and others"
+author = "lkhrs"
+year   = 2024
+venue  = "lkhrs.com"
+url    = "https://www.lkhrs.com/blog/terminal-latency/"
+file   = ""
+sha256 = "0c01879c8fd390f17829a5298105a4fec898294a91f08629f7993f1d2a7065bd"
+bytes  = 22263
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.danluu-term-latency]
+key    = "danluu-term-latency"
+title  = "Terminal latency"
+author = "Dan Luu"
+year   = 2017
+venue  = "danluu.com"
+url    = "https://danluu.com/term-latency/"
+file   = ""
+sha256 = "f5a183672bad713a079ffe3ea61e67f361c8707711921a90f5b3f8ab5a2915ce"
+bytes  = 22232
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-renderer-metal-target]
+key    = "ghostty-renderer-metal-target"
+title  = "renderer/metal/Target.zig -- the IOSurface-backed MTLTexture ghostty renders into"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/renderer/metal/Target.zig"
+file   = ""
+sha256 = "42f91c369484252d2e3ba8417a0d91aefa5ccfcab2c3ac52aa3d93febda65c04"
+bytes  = 3123
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
+# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.

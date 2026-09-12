@@ -147,6 +147,13 @@ in
       settings.global.excludes = [
         ".devenv.flake.nix"
         ".devenv/"
+        # Pinned copies of other projects' sources, hash-locked by
+        # `docs/research/sources/MANIFEST.toml`. rustfmt rewrote six of the
+        # group J files on its first pass and every one stopped matching its
+        # sha256 -- a formatted pin is no longer the document it claims to be.
+        # A glob, not a directory: treefmt matches excludes against file
+        # paths, and the directory form left all 544 files traversed.
+        "docs/research/sources/*"
       ];
 
       programs = {

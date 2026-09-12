@@ -50,6 +50,16 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
             if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
                 continue;
             }
+            // Pinned copies of other projects' files, hash-locked by
+            // `MANIFEST.toml`. Their links point into repositories that are not
+            // this one and their identifiers are theirs; a gate over them would
+            // demand edits that break the hash. Group J is what made this bite:
+            // msdfgen's README links its own `CMakeLists.txt`, and vello's
+            // `strip.rs` names its own multi-underscore identifiers, which this
+            // file's test-name rule would read as baud tests.
+            if p.ends_with("docs/research/sources") {
+                continue;
+            }
             walk(&p, out, want_rust);
         } else if name.ends_with(".md") || (want_rust && name.ends_with(".rs")) {
             out.push(p);
@@ -316,6 +326,18 @@ fn every_test_named_in_the_docs_exists() {
         (
             "_mm256_loadu_si256",
             "an x86 intrinsic, named where this file records that              `baud-isa-x86-64` scans 32 bytes where `core::simd` lowers to 16",
+        ),
+        (
+            "swap_buffers_with_damage",
+            "alacritty's EGL call, cited in note J where damage is forwarded to              the presentation layer",
+        ),
+        (
+            "zwp_linux_dmabuf_v1",
+            "a Wayland interface name, cited in note J for the version Hyprland              advertises",
+        ),
+        (
+            "zwp_linux_buffer_params",
+            "a Wayland interface name, cited in note J for the dmabuf swapchain              a pure-protocol client has to build itself",
         ),
     ];
 
