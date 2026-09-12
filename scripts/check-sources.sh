@@ -24,7 +24,7 @@ DOCS="docs"
 # them -- `vt510-decscpp` was cited from a doc comment and had no manifest entry
 # at all. A citation an engineer reads while changing the code is the one most
 # likely to be acted on, so it is the last one that should go unverified.
-CODE="baud-core baud-domain"
+CODE="baud-core baud-domain baud-font baud-render baud-present-macos baud-app"
 fail=0
 
 [ -f "$MANIFEST" ] || {

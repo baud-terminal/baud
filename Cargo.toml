@@ -14,6 +14,14 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # a member is what makes `cargo test --workspace` build it -- which is the
   # only thing that would have reported the break.
   "baud-difftest",
+  # The renderer, as the crates `docs/research/notes/j-rendering.md` D1 names:
+  # the pure font stack, the compositor, one presentation crate per platform,
+  # and the binary that joins a pty to a window. None of them touches
+  # `baud-core`, which stays `no_std`, allocation-free and dependency-free.
+  "baud-font",
+  "baud-render",
+  "baud-present-macos",
+  "baud-app",
 ]
 
 # bench-others/* are standalone harnesses against sibling checkouts of other

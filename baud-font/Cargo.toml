@@ -1,0 +1,11 @@
+[package]
+name = "baud-font"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Font parsing, shaping and rasterisation owned by baud: sfnt/CFF/GSUB/GPOS/morx readers over borrowed bytes, no engine dependencies. no_std."
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }

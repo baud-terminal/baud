@@ -117,6 +117,45 @@ else
   echo "  ok   baud-core: $new and $newsig (limit 2 and 0, every site enumerated)"
 fi
 
+# **The renderer crates, each on its own budget from the day it is created.**
+# A crate the audit does not name is audited by nothing, which looks exactly
+# like passing -- the shape this file records for the flat test glob and
+# `docs.rs`'s `ROOTS`. So the four crates the rendering plan adds are gated
+# here in the same commit that creates them, at zero, and each phase that adds
+# code sets the limit to the count it ends at, never above it.
+crate_audit() {
+  ca_name="$1"
+  ca_limit="$2"
+  ca_siglimit="$3"
+  ca_root="$4"
+  ca_total=0
+  ca_sig=0
+  ca_files=$(find "$ca_root" -name '*.rs' 2>/dev/null | sort)
+  if [ -z "$ca_files" ]; then
+    echo "  FAIL $ca_name: no sources found -- this gate audited nothing"
+    fail=1
+    return
+  fi
+  for ca_f in $ca_files; do
+    ca_out=$(python3 impl_audit.py "$ca_f")
+    ca_n=$(echo "$ca_out" | grep '^  total' | awk '{print $2}')
+    ca_m=$(echo "$ca_out" | grep '^  signature' | awk '{print $2}')
+    ca_total=$((ca_total + ca_n))
+    ca_sig=$((ca_sig + ca_m))
+    [ $((ca_n + ca_m)) -gt 0 ] && echo "  ..   $ca_f: $ca_n + $ca_m sig"
+  done
+  if [ "$ca_total" -gt "$ca_limit" ] || [ "$ca_sig" -gt "$ca_siglimit" ]; then
+    echo "  FAIL $ca_name: $ca_total raw-integer sites, $ca_sig signature (limit $ca_limit and $ca_siglimit)"
+    fail=1
+  else
+    echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
+  fi
+}
+crate_audit "baud-font" 0 0 baud-font/src
+crate_audit "baud-render" 0 0 baud-render/src
+crate_audit "baud-present-macos" 0 0 baud-present-macos/src
+crate_audit "baud-app" 0 0 baud-app/src
+
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and
 # per-file limits would have to be re-guessed every time a function moves.

@@ -1,0 +1,13 @@
+[package]
+name = "baud-render"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "baud's compositor: cells to instance records to pixels, on the CPU and on the GPU, with the glyph atlas and row-granular damage."
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }
+baud-core = { path = "../baud-core" }
+baud-font = { path = "../baud-font" }

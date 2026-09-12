@@ -853,17 +853,6 @@ impl<'b> Term<'b> {
         (self.bytes_in, self.cells_written)
     }
 
-    /// The materialised viewport, un-rotated so a renderer gets a contiguous
-    /// slice in screen order.
-    ///
-    /// **`&mut` is not a wart.** The rotation is undone here, once a *frame*,
-    /// rather than on every scroll -- which is where the laziness that makes a
-    /// scroll O(1) is paid for.
-    /// The rendition a cell's [`StyleId`] stands for.
-    ///
-    /// **Read the slot back rather than trusting the id.** The table evicts on
-    /// collision, so an id can outlive the rendition it was minted for; a
-    /// renderer that trusted it would paint a stale colour.
     /// The distance between rows in the slice [`Term::viewport`] returns.
     ///
     /// **A renderer indexes by this, not by `MAX_COLS`.** The grid is
@@ -882,6 +871,19 @@ impl<'b> Term<'b> {
         self.store.tmpl[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
     }
 
+    /// The materialised viewport, un-rotated so a renderer gets a contiguous
+    /// slice in screen order, `rows` rows of [`Term::stride`] cells each.
+    ///
+    /// **`&mut` is not a wart.** The rotation is undone here, once a *frame*,
+    /// rather than on every scroll -- which is where the laziness that makes a
+    /// scroll O(1) is paid for.
+    ///
+    /// This is the renderer's entry point, and for a long time it carried no
+    /// doc at all: three doc blocks -- this one, [`Term::style_of`]'s and
+    /// [`Term::stride`]'s -- had been concatenated onto `stride` by an
+    /// insertion that landed between a comment and its function, the
+    /// stranded-attribute shape `CLAUDE.md` records seven times for
+    /// `#[inline]`, here on a `///`.
     pub fn viewport(&mut self) -> &[PackedCell] {
         let stride = self.stride;
         let live = RowBlock::leading(self.rows, stride);

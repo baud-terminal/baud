@@ -258,8 +258,10 @@ in
     # The no_std proof. A host build links std through the harness crates and
     # so cannot fail on an accidental std dependency in baud-core; a target
     # with no OS and no allocator can and does.
+    # `baud-font` makes the same `no_std` claim and gets the same gate; a claim
+    # in a crate header that nothing builds for a bare target is prose.
     "test:bare" = {
-      exec = "cargo build --release --quiet -p baud-core --target ${bareTarget}";
+      exec = "cargo build --release --quiet -p baud-core --target ${bareTarget} && cargo build --release --quiet -p baud-font --target ${bareTarget}";
       after = [ "test:unit" ];
     };
 

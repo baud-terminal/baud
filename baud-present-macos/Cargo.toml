@@ -1,0 +1,12 @@
+[package]
+name = "baud-present-macos"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "baud's macOS presentation layer: an IOSurface-backed content view inside the owner's macos-liquid-glass window, display-link pacing, AppKit input."
+# Not published: a platform crate for the app, with no crates.io audience.
+publish = false
+
+[dependencies]

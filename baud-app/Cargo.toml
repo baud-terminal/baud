@@ -1,0 +1,12 @@
+[package]
+name = "baud-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The terminal: a pty, baud-core, baud-render and a platform presentation crate joined into one process."
+# Not published: the binary, not a library anyone depends on.
+publish = false
+
+[dependencies]
