@@ -1,6 +1,6 @@
 # Data-parallel finite-state machines — vectorising the parser itself
 
-> **Group:** B · **Sources:** `[[source: dpfsm]]`, `[[source: simdjson]]`, `[[source: hyperscan]]` · **Status:** partial
+> **Group:** B · **Sources:** `[[source: dpfsm]]`, `[[source: simdjson]]`, `[[source: hyperscan]]`, `[[source: parabix]]` · **Status:** partial
 
 ## What it is
 
@@ -232,6 +232,34 @@ and the state machine, so it confirms the architecture rather than changing it.
   collected rather than acted on. That is a better-structured scanner rather
   than a parallel state machine, it is a *different* proposal from the one
   above, and it has no measurement yet.
+
+- **The third data-parallel formulation, now readable: bitstreams.**
+  `[[source: parabix]]` -- the authors' working draft; the PACT '14 copy is
+  behind IEEE and the manifest says so -- attacks the same problem from the
+  other side. Instead of enumerating states, it **transposes** the input: eight
+  parallel bit streams, one per bit position of every byte, so a character
+  class becomes one bitstream computed by boolean operations over the eight,
+  and a match becomes a *marker* bitstream with "a 1 bit at the next character
+  position to be matched". Repetition is `MatchStar(marker, class)`, "all
+  positions that can be reached by advancing the marker bitstream zero or more
+  times through the character class bitstream", and it is implemented as an
+  **addition with carry** -- which is why the paper spends a section on long
+  stream addition across 128- and 256-bit blocks, and why it reports SSE2, AVX2
+  and GPU implementations of the same algorithm. Nondeterminism is added on
+  top so the full generality of regular expressions is reached.
+
+  **It lands where `[[source: dpfsm]]` lands, for the same reason.** The output
+  is a marker stream over a whole block -- *where* matches are, all at once --
+  and not a sequence of actions in order. The VT grammar's actions are the part
+  that cannot be reordered, so as a parser this is the § 2.1 assumption wearing
+  bit-planes. As a *scanner* it is a stronger fit than enumeration: sequence
+  starts, terminators and parameter spans are exactly marker streams, and
+  `Scan` already computes the character-class half with compare masks. What
+  bitstreams would add is the transposition, which costs the same per block
+  whether the block holds one escape or none -- the "a path that decides by
+  scanning either commits or wastes the scan" class, on a corpus where 84% of
+  multi-byte runs are one character long. Unmeasured, and the transposition
+  cost is the measurement to take first.
 
 - ~~williams' transitions carry *actions*, and composition loses them.~~ `[[source: dpfsm]]`'s method
   composes transition *functions*, which yields the state you end in. baud's

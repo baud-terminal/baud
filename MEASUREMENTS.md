@@ -10,7 +10,8 @@ A number without provenance is not a measurement. Every table below states:
 
 * the **host**, because cross-machine comparison is meaningless;
 * the **transport**, because a PTY on Darwin returns 1024 bytes per `read(2)`
-  and a pipe returns 4096, which bounds throughput independently of the parser;
+  -- the capacity of the tty's output clist, `[[source: xnu-tty-h]]` -- and a
+  pipe returns 4096, which bounds throughput independently of the parser;
 * the **statistic** and **rep count**;
 * the **payload**, and whether it is a committed recording or generated.
 

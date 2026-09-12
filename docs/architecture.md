@@ -91,7 +91,7 @@ argument — and `CLAUDE.md` carries the fuller list plus what was tried and los
 | thing | why |
 |---|---|
 | `ARENA = 1 MiB` | A sweep peaked at 1 MiB against a 2 MiB L2 and went **negative** by 64 MiB. Bigger is worse. |
-| `READ_CHUNK = 4096` | `N_TTY_BUF_SIZE` caps `read(2)` at 4095 bytes regardless of buffer size. Offering 1 MiB gets you 4095. |
+| `READ_CHUNK = 4096` | `N_TTY_BUF_SIZE` caps `read(2)` at 4095 bytes regardless of buffer size (`[[source: linux-n-tty]]`); Darwin's clist caps it at 1024 (`[[source: xnu-tty-h]]`). Offering 1 MiB gets you 4095. |
 | `PackedCell` is 8 bytes | 4 could not hold a codepoint: `U+1F680 & 0xffff` is `U+F680`. The extra 4 B cost 2 points of ceiling — 48% against 50%. |
 | All state behind `&mut self` | A C prototype with file-scope globals ran **16–34% slower**; `__restrict` recovered only 2.5%. Presumed LLVM `noalias`. |
 | `Content::EMPTY` is a reserved value, not `U+0020` | "Nothing written" and "a space was written" differ for selection, reflow and equality. Storing 32 for blank breaks copy/paste of trailing whitespace. |

@@ -19,8 +19,11 @@ impl WinSize {
 /// One read's worth of arena. Fixed, not a slice with a runtime length.
 ///
 /// `read(2)` on a PTY returns **at most 4095 bytes** no matter what buffer you
-/// offer, because `N_TTY_BUF_SIZE` is 4096 and it is a fixed array embedded in
-/// `struct n_tty_data`. Measured: offering 4 KiB, 16 KiB, 64 KiB and 256 KiB
+/// offer, because `N_TTY_BUF_SIZE` is 4096 and the read ring keeps one byte
+/// free -- `room--` in `n_tty_receive_buf_common`, `[[source: linux-n-tty]]`.
+/// On Darwin it is **1024**, the capacity of the replica's output clist
+/// (`TTYCLSIZE`, `[[source: xnu-tty-h]]`; allocated in `ttymalloc`,
+/// `[[source: xnu-tty]]`). Measured: offering 4 KiB, 16 KiB, 64 KiB and 256 KiB
 /// through a PTY gave 245.7 / 246.9 / 240.6 / 248.8 MB/s — flat. The length was
 /// never variable; it was only ever untyped.
 pub const SLOT_BYTES: usize = 4096;

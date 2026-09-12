@@ -16,8 +16,10 @@ use baud_domain::*;
 
 /// The read buffer, sized to what one `read(2)` returns.
 ///
-/// `N_TTY_BUF_SIZE` caps a tty read at 4095 bytes on Linux and Darwin hands
-/// back 1024, so a larger buffer receives nothing extra. Smaller is not safe
+/// `N_TTY_BUF_SIZE` caps a tty read at 4095 bytes on Linux
+/// (`[[source: linux-n-tty]]`) and Darwin hands back 1024, the capacity of the
+/// replica's output clist (`TTYCLSIZE`, `[[source: xnu-tty-h]]`) -- so a larger
+/// buffer receives nothing extra. Smaller is not safe
 /// either: a control sequence that straddles a read has to be re-parsed from
 /// its first byte, and the parser carries no unbounded pushback.
 pub const READ_CHUNK: usize = 4096;
