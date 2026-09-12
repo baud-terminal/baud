@@ -151,17 +151,24 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: zero raw-integer sites and nine signature primitives, every
-# one enumerated.** The nine are the newtype surface of a parser over a byte
-# format, which is the same exemption `baud-domain` has for the same reason --
-# a newtype's job is to wrap the primitive: `Len::of(u32)`, `FaceIndex::of(u32)`,
-# the `value()` accessors of `UnitsPerEm`, `Advance`, `GlyphCount` and
-# `FaceCount`, `Offset::index -> usize` (the one bridge into slice indexing),
-# `is_sfnt(version: u32)` on the directory's own magic, and `glyph(n: u16)`
-# where a `cmap` value becomes a `GlyphId`. Every field read is generic over
-# `FromBe`, so no reader names a width in its signature. The limit follows the
-# count and moves only downward.
-crate_audit "baud-font" 0 9 baud-font/src
+# **baud-font: nine raw-integer sites and thirty-one signature primitives,
+# every one enumerated, and the limit follows the count downward.** The
+# signature sites are the newtype surface of a parser over a byte format --
+# the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
+# `FaceIndex::of(u32)`, the `value()` accessors, `Offset::index -> usize` (the
+# one bridge into slice indexing), `is_sfnt(u32)` on the directory's magic,
+# `glyph(u16)` where a `cmap` value becomes a `GlyphId`, and in the two
+# outline readers the arithmetic a charstring interpreter is made of: a
+# 48-slot argument stack indexed by `usize` (`rmoveto(from)` and its kin name
+# the width slot), `bias(Count) -> i32`, `f2dot14(i16) -> f32`, the composite
+# depth as `u8` against a cap of 32, and `Delta::of(bool, bool)` built from
+# two flag bits. The nine raw sites are those interpreters' state: the stack
+# length, the stem count that sizes `hintmask`, the recursion depth, the
+# contour count, and the `as` conversions between a charstring's `f32`
+# operand and the integer it encodes, which `From` cannot express. Every
+# `bool` field became a two-state enum before this count was taken
+# (`Path`, `Moveto`, `Width`, `End`, `Axis`, `Delta`, `Sign`).
+crate_audit "baud-font" 9 31 baud-font/src
 crate_audit "baud-render" 0 0 baud-render/src
 crate_audit "baud-present-macos" 0 0 baud-present-macos/src
 crate_audit "baud-app" 0 0 baud-app/src

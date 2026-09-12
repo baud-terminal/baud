@@ -16,7 +16,10 @@
 //! this crate to.
 
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
+use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
+use crate::glyf::{Glyf, Loca, LocaFormat};
+use crate::outline::{Drawn, Sink};
 use crate::{Error, Tag};
 use baud_domain::{Codepoint, GlyphId};
 
@@ -145,6 +148,37 @@ pub struct Face<'a> {
     os2: Option<Bytes<'a>>,
     post: Option<Bytes<'a>>,
     cmap: Option<Cmap<'a>>,
+    glyf: Option<Glyf<'a>>,
+    cff: Option<Cff<'a>>,
+}
+
+/// Counts what passes through to the real sink, so [`Face::outline`] can
+/// say whether anything was drawn without the caller counting.
+struct Counting<'s, S: Sink> {
+    inner: &'s mut S,
+    drawn: Drawn,
+}
+
+impl<S: Sink> Sink for Counting<'_, S> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.drawn = Drawn::Outline;
+        self.inner.move_to(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.drawn = Drawn::Outline;
+        self.inner.line_to(x, y);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.drawn = Drawn::Outline;
+        self.inner.quad_to(x1, y1, x, y);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.drawn = Drawn::Outline;
+        self.inner.curve_to(x1, y1, x2, y2, x, y);
+    }
+    fn close(&mut self) {
+        self.inner.close();
+    }
 }
 
 /// How many faces `data` holds, without parsing any of them.
@@ -231,6 +265,8 @@ impl<'a> Face<'a> {
             os2: None,
             post: None,
             cmap: None,
+            glyf: None,
+            cff: None,
         };
 
         // head: unitsPerEm at 18. The specification bounds it to 16..=16384;
@@ -283,6 +319,23 @@ impl<'a> Face<'a> {
         face.os2 = face.table(Tag::OS2);
         face.post = face.table(Tag::POST);
         face.cmap = face.table(Tag::CMAP).and_then(Cmap::parse);
+
+        // Outlines: `loca` + `glyf` for TrueType, `CFF ` otherwise. The loca
+        // format is `head.indexToLocFormat` at 50; any value but 0 or 1
+        // means the pair cannot be read and the face has no outlines.
+        let loca_format: Option<i16> = head.read(Offset::of(50u32));
+        let format = match loca_format {
+            Some(0) => Some(LocaFormat::Short),
+            Some(1) => Some(LocaFormat::Long),
+            _ => None,
+        };
+        if let (Some(format), Some(loca), Some(glyf)) =
+            (format, face.table(Tag::LOCA), face.table(Tag::GLYF))
+        {
+            let loca = Loca::parse(loca, format, Count::of(glyphs));
+            face.glyf = Some(Glyf::new(loca, glyf));
+        }
+        face.cff = face.table(Tag::CFF).and_then(Cff::parse);
         Ok(face)
     }
 
@@ -426,6 +479,28 @@ impl<'a> Face<'a> {
         match &self.cmap {
             Some(cmap) => cmap.variation(c, vs),
             None => Variation::Absent,
+        }
+    }
+
+    /// The outline of `g` into `sink`, in font units, unflattened: quadratic
+    /// curves from `glyf`, cubics from CFF. `glyf` is tried first, CFF
+    /// second, which is the order the reference readers use. `Drawn::Nothing`
+    /// for a glyph with no contours, no data, or a malformed description.
+    pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Drawn {
+        let mut counting = Counting {
+            inner: sink,
+            drawn: Drawn::Nothing,
+        };
+        let parsed = if let Some(glyf) = &self.glyf {
+            glyf.outline(g, &mut counting)
+        } else if let Some(cff) = &self.cff {
+            cff.outline(g, &mut counting)
+        } else {
+            None
+        };
+        match parsed {
+            Some(()) => counting.drawn,
+            None => Drawn::Nothing,
         }
     }
 }

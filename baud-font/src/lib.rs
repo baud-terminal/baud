@@ -30,14 +30,19 @@
 #![forbid(unsafe_code)]
 
 pub mod bytes;
+mod cff;
 mod cmap;
 mod face;
+mod glyf;
+pub mod outline;
+mod standard_encoding;
 
 pub use cmap::Variation;
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
+pub use outline::{Drawn, Sink, Transform};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -51,6 +56,9 @@ impl Tag {
     pub const CMAP: Tag = Tag(*b"cmap");
     pub const OS2: Tag = Tag(*b"OS/2");
     pub const POST: Tag = Tag(*b"post");
+    pub const LOCA: Tag = Tag(*b"loca");
+    pub const GLYF: Tag = Tag(*b"glyf");
+    pub const CFF: Tag = Tag(*b"CFF ");
     pub const TTCF: Tag = Tag(*b"ttcf");
 
     pub const fn from_bytes(b: [u8; 4]) -> Tag {

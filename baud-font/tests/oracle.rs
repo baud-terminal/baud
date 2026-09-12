@@ -15,7 +15,7 @@
 //! agreement counts.
 
 use baud_domain::{Codepoint, GlyphId};
-use baud_font::{Face, FaceIndex, Variation, faces};
+use baud_font::{Drawn, Face, FaceIndex, Variation, faces};
 use std::path::{Path, PathBuf};
 
 fn committed() -> Vec<PathBuf> {
@@ -129,6 +129,76 @@ struct Tally {
     variation_hits: usize,
     notdef_normalised: usize,
     oracle_defects_hit: [usize; ORACLE_DEFECTS.len()],
+    outlines_agreed: usize,
+    outline_hits: usize,
+    outline_presence_normalised: usize,
+    gvar_refusals: usize,
+    cff2_unimplemented: usize,
+}
+
+/// One outline operation with its coordinates as `f32` bits, so equality is
+/// bit equality and `-0.0` is not `0.0`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Seg {
+    M(u32, u32),
+    L(u32, u32),
+    Q(u32, u32, u32, u32),
+    C(u32, u32, u32, u32, u32, u32),
+    Z,
+}
+
+struct Segs(Vec<Seg>);
+
+impl ttf_parser::OutlineBuilder for Segs {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.push(Seg::M(x.to_bits(), y.to_bits()));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.push(Seg::L(x.to_bits(), y.to_bits()));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.0
+            .push(Seg::Q(x1.to_bits(), y1.to_bits(), x.to_bits(), y.to_bits()));
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.0.push(Seg::C(
+            x1.to_bits(),
+            y1.to_bits(),
+            x2.to_bits(),
+            y2.to_bits(),
+            x.to_bits(),
+            y.to_bits(),
+        ));
+    }
+    fn close(&mut self) {
+        self.0.push(Seg::Z);
+    }
+}
+
+impl baud_font::Sink for Segs {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.push(Seg::M(x.to_bits(), y.to_bits()));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.push(Seg::L(x.to_bits(), y.to_bits()));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.0
+            .push(Seg::Q(x1.to_bits(), y1.to_bits(), x.to_bits(), y.to_bits()));
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.0.push(Seg::C(
+            x1.to_bits(),
+            y1.to_bits(),
+            x2.to_bits(),
+            y2.to_bits(),
+            x.to_bits(),
+            y.to_bits(),
+        ));
+    }
+    fn close(&mut self) {
+        self.0.push(Seg::Z);
+    }
 }
 
 fn compare_face(
@@ -210,6 +280,79 @@ fn compare_face(
             break;
         }
         t.glyphs_agreed += 1;
+    }
+
+    // Every glyph's outline, segment for segment, bit for bit. The two
+    // readers emit the same operations in the same order from the same
+    // specification, so equality is exact rather than within a tolerance;
+    // a tolerance would hide a wrong control point behind a right endpoint.
+    //
+    // **One normalisation, counted.** The oracle reports "nothing drawn" for
+    // a glyph whose points are all at the origin (its bounding box never
+    // grows), while this crate reports what it emitted; when the segments
+    // are identical and only that verdict differs, it is counted here.
+    let mut first_bad = true;
+    for id in 0..n {
+        let g = GlyphId::from_shaper(id);
+        let tg = ttf_parser::GlyphId(id);
+        let mut a = Segs(Vec::new());
+        let mut b = Segs(Vec::new());
+        let drawn = ours.outline(g, &mut a);
+        let theirs_drew = theirs.outline_glyph(tg, &mut b).is_some();
+        // **Two more normalisations, each tied to a table, each verified
+        // against a second reading rather than assumed, and counted.**
+        //
+        // A variable face: the oracle routes every outline through `gvar`
+        // even at the default instance, and where it cannot apply the
+        // variation data it stops -- emitting nothing, or a prefix. baud
+        // reads the default instance from `glyf` directly (register D11),
+        // which is what the specification says `glyf` holds. The check is
+        // not "the face is variable, so excuse it": baud's answer must equal
+        // what the oracle's *own* `glyf` reader emits when asked without
+        // `gvar`, bit for bit. Only then is the difference the oracle's
+        // variation path and not the outline.
+        if a.0 != b.0 && theirs.tables().gvar.is_some() {
+            let mut c = Segs(Vec::new());
+            let _ = theirs.tables().glyf.map(|glyf| glyf.outline(tg, &mut c));
+            if a.0 == c.0 {
+                t.gvar_refusals += 1;
+                continue;
+            }
+        }
+        // CFF2 is not read yet (register D11 defers it with variations):
+        // a face whose only outlines are CFF2 draws for the oracle and not
+        // for baud, and that gap is counted rather than hidden.
+        if a.0.is_empty() && !b.0.is_empty() && theirs.tables().cff2.is_some() {
+            t.cff2_unimplemented += 1;
+            continue;
+        }
+        if a.0 != b.0 {
+            if first_bad {
+                let at =
+                    a.0.iter()
+                        .zip(&b.0)
+                        .position(|(x, y)| x != y)
+                        .unwrap_or(a.0.len().min(b.0.len()));
+                bad(
+                    &format!(
+                        "outline of glyph {id} (segment {at} of {}/{})",
+                        a.0.len(),
+                        b.0.len()
+                    ),
+                    format!("{:?}", a.0.get(at)),
+                    format!("{:?}", b.0.get(at)),
+                );
+                first_bad = false;
+            }
+            continue;
+        }
+        if (drawn == Drawn::Outline) != theirs_drew {
+            t.outline_presence_normalised += 1;
+        }
+        t.outlines_agreed += 1;
+        if drawn == Drawn::Outline {
+            t.outline_hits += 1;
+        }
     }
 
     // cmap over the corpus of codepoints.
@@ -351,6 +494,28 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
         "glyph-0 normalisations: {}",
         t.notdef_normalised
     );
+    assert!(
+        t.outline_hits > 100_000,
+        "outlines drawn: {}",
+        t.outline_hits
+    );
+    eprintln!(
+        "oracle: {} outlines compared ({} drawn, {} presence verdicts normalised, {} outlines the oracle's gvar path changed while its glyf reader agrees with baud, {} CFF2 glyphs baud does not read)",
+        t.outlines_agreed,
+        t.outline_hits,
+        t.outline_presence_normalised,
+        t.gvar_refusals,
+        t.cff2_unimplemented
+    );
+    // Both normalisations must fire on this Mac -- ADTNumeric and SFNS carry
+    // gvar, SFIndia is CFF2-only -- or the notes above describe nothing.
+    if cfg!(target_os = "macos") {
+        assert!(t.gvar_refusals > 0, "the gvar normalisation never fired");
+        assert!(
+            t.cff2_unimplemented > 0,
+            "the CFF2 normalisation never fired"
+        );
+    }
     // Each recorded oracle defect fired -- on macOS, where the face lives;
     // elsewhere the corpus cannot reach it and the list is documentation.
     if cfg!(target_os = "macos") {

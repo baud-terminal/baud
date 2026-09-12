@@ -16,6 +16,18 @@ use proptest::prelude::*;
 
 const JETBRAINS: &[u8] = include_bytes!("fonts/JetBrainsMono-Regular.ttf");
 
+/// A sink that discards everything: the property is that emitting does not
+/// panic, not what is emitted.
+struct Null;
+
+impl baud_font::Sink for Null {
+    fn move_to(&mut self, _: f32, _: f32) {}
+    fn line_to(&mut self, _: f32, _: f32) {}
+    fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+    fn curve_to(&mut self, _: f32, _: f32, _: f32, _: f32, _: f32, _: f32) {}
+    fn close(&mut self) {}
+}
+
 /// Everything a caller can ask a face, on a fixed set of inputs.
 fn exercise(data: &[u8]) {
     let n = faces(data).map(|n| n.value()).unwrap_or(1).min(8);
@@ -34,6 +46,7 @@ fn exercise(data: &[u8]) {
             let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());
             let _ = face.advance(g);
             let _ = face.side_bearing(g);
+            let _ = face.outline(g, &mut Null);
         }
         for c in [
             0x20u32, 0x41, 0x7E, 0xE9, 0x4E2D, 0x1F600, 0x1F468, 0xFFFF, 0x10FFFF,

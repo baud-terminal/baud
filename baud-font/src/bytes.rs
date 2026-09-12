@@ -45,6 +45,16 @@ impl Offset {
             .map(Offset)
     }
 
+    /// The bytes from `base` to `self`, when `self` is at or past it.
+    pub fn since(self, base: Offset) -> Option<Len> {
+        self.0.checked_sub(base.0).map(Len)
+    }
+
+    /// The bytes from the start of the view to `self`.
+    pub fn since_start(self) -> Len {
+        Len(self.0)
+    }
+
     fn index(self) -> usize {
         usize::try_from(self.0).unwrap_or(usize::MAX)
     }
@@ -62,6 +72,16 @@ impl Len {
     /// `count` records of `self` bytes each.
     pub fn times(self, count: Count) -> Option<Len> {
         self.0.checked_mul(count.0).map(Len)
+    }
+
+    pub fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The count, for arithmetic the newtypes do not express -- how many
+    /// entries a table of a known record size holds.
+    pub const fn value(self) -> u32 {
+        self.0
     }
 }
 
@@ -93,6 +113,12 @@ impl Count {
     /// is where a trailing array begins.
     pub fn as_index(self) -> Index {
         Index(self.0)
+    }
+
+    /// The count as a number, for the arithmetic the newtypes do not express
+    /// -- a subroutine bias threshold, a glyph count into a `u16`.
+    pub const fn value(self) -> u32 {
+        self.0
     }
 }
 
@@ -128,6 +154,17 @@ impl Index {
     /// The previous position, or `None` at zero.
     pub fn prev(self) -> Option<Index> {
         self.0.checked_sub(1).map(Index)
+    }
+
+    /// The position as a number, for the one place a position becomes a
+    /// count: how many entries a table actually holds.
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+
+    /// The position as a slice index.
+    pub(crate) fn slot(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
     }
 }
 
@@ -170,7 +207,7 @@ impl FromBe for U24 {
 pub struct Bytes<'a>(&'a [u8]);
 
 impl<'a> Bytes<'a> {
-    pub fn new(data: &'a [u8]) -> Bytes<'a> {
+    pub const fn new(data: &'a [u8]) -> Bytes<'a> {
         Bytes(data)
     }
 
