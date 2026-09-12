@@ -11,7 +11,26 @@
 //! both are built from this tree and interleaved -- the portable accumulate
 //! against an ISA one, when one exists.
 //!
-//!     cargo run --release -p baud-bench --bin glyphs -- [rounds] [px]
+//!     cargo run --release -p baud-bench --bin glyphs -- [rounds] [px] [probe]
+//!
+//! `probe` prices one component additively by doing it twice: `bounds` (the
+//! outline walk that sizes the mask), `raster` (the outline walk that
+//! flattens and splats), or `coverage` (the prefix sum and quantise). It is
+//! a runtime branch once per glyph -- coarse, and fine for deciding whether
+//! a pass is worth an ISA arm before one is built.
+//!
+//! **Priced, on mains, three interleaved rounds with the first discarded,
+//! Fira Code at 14 px, base 0.70 us a glyph:** the sizing walk is **+28%**,
+//! the flatten-and-splat **+50%**, the prefix sum and quantise **+12%**
+//! (85 ns for ~135 pixels -- a dependent `f32` add chain at the core's add
+//! latency, which is what a vector scan would reassociate away, at the price
+//! of the byte-exact agreement with ab_glyph that the scalar order keeps).
+//! JetBrains Mono and Bungee Tint split the same way. So the accumulate
+//! pass the register (D6) names as the SIMD surface is a tenth of a cost
+//! that is paid once per glyph per size, and no arm is built for it until a
+//! frame measurement says the miss path matters at all -- every shipping
+//! GPU terminal is bound by the cell-to-instance conversion, not by
+//! rasterisation.
 
 use baud_domain::GlyphId;
 use baud_font::{Bounds, Canvas, Face, Fit, Rasterizer, Scale, faces};
@@ -29,9 +48,12 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let rounds: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(7);
     let px: f32 = args.next().and_then(|a| a.parse().ok()).unwrap_or(14.0);
+    let probe = args.next().unwrap_or_default();
+    let (twice_bounds, twice_raster, twice_coverage) =
+        (probe == "bounds", probe == "raster", probe == "coverage");
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../baud-font/tests/fonts/");
     println!(
-        "glyph masks at {px} px, {rounds} rounds, best settled round; on mains or it is noise"
+        "glyph masks at {px} px, {rounds} rounds, best settled round, probe {probe:?}; on mains or it is noise"
     );
     println!(
         "{:<28} {:>7} {:>7} {:>10} {:>9}",
@@ -57,6 +79,11 @@ fn main() {
                     let gid = GlyphId::from_shaper(u16::try_from(g).unwrap());
                     let mut b = Bounds::new();
                     face.outline(gid, &mut b);
+                    if twice_bounds {
+                        let mut b2 = Bounds::new();
+                        face.outline(gid, &mut b2);
+                        black_box(&b2);
+                    }
                     let Some(fit) = Fit::of(&b, scale) else {
                         continue;
                     };
@@ -68,9 +95,16 @@ fn main() {
                     let canvas = Canvas::new(fit.extent, &mut scratch).unwrap();
                     let mut r = Rasterizer::new(canvas, fit.transform);
                     face.outline(gid, &mut r);
+                    if twice_raster {
+                        face.outline(gid, &mut r);
+                    }
                     let canvas = r.finish();
                     let cells = fit.extent.cells().unwrap();
                     canvas.coverage(&mut out[..cells]).unwrap();
+                    if twice_coverage {
+                        canvas.coverage(&mut out[..cells]).unwrap();
+                        black_box(&out[..cells]);
+                    }
                     black_box(&out[..cells]);
                     masks += 1;
                     pixels += cells;
