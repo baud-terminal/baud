@@ -16,6 +16,7 @@ baud-domain = { path = "../baud-domain" }
 # same specification over the same bytes, so every face on this machine is a
 # differential test -- the `baud-difftest` discipline, one crate over.
 ttf-parser = "0.25.1"
+png = "0.17.16"
 # The hostile-input property: a font from disk is the same class of input as
 # bytes from a pty, and the contract is that no byte string panics.
 proptest = "1"

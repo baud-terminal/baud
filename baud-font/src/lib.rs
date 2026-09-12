@@ -20,8 +20,17 @@
 //! `OS/2` and `post` (`[[source: ms-opentype-head]]`, `[[source: ms-opentype-maxp]]`,
 //! `[[source: ms-opentype-hhea]]`, `[[source: ms-opentype-hmtx]]`,
 //! `[[source: ms-opentype-os2]]`, `[[source: ms-opentype-post]]`), and `cmap`
-//! formats 0, 4, 6, 12, 13 and 14 (`[[source: ms-opentype-cmap]]`). Outlines,
-//! bitmap strikes, shaping and rasterisation follow in their own phases.
+//! formats 0, 4, 6, 12, 13 and 14 (`[[source: ms-opentype-cmap]]`).
+//!
+//! **Phase 1b: outlines.** `loca`/`glyf` with composites, and CFF Type 2
+//! charstrings, through one [`Sink`] in font units.
+//!
+//! **Phase 1c: bitmap strikes and layered colour.** `sbix`, `CBLC`/`CBDT`
+//! and `COLR` v0 with `CPAL`, plus the PNG decoder those strikes need --
+//! the one piece of general-purpose code in the crate, written here rather
+//! than pulled in because a decoder is a dependency in every sense the
+//! owner's constraint names. Shaping and rasterisation follow in their own
+//! phases.
 //!
 //! **The oracle is `ttf-parser` as a dev-dependency**, and `tests/oracle.rs`
 //! compares every face on this machine field by field. Where the two
@@ -29,20 +38,26 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
+mod bitmap;
 pub mod bytes;
 mod cff;
 mod cmap;
+mod colr;
 mod face;
 mod glyf;
 pub mod outline;
+mod png;
 mod standard_encoding;
 
+pub use bitmap::{Bitmap, Placement, Ppem, Strike};
 pub use cmap::Variation;
+pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
 pub use outline::{Drawn, Sink, Transform};
+pub use png::{Color, Png, PngError, Size};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,6 +75,11 @@ impl Tag {
     pub const GLYF: Tag = Tag(*b"glyf");
     pub const CFF: Tag = Tag(*b"CFF ");
     pub const TTCF: Tag = Tag(*b"ttcf");
+    pub const SBIX: Tag = Tag(*b"sbix");
+    pub const CBLC: Tag = Tag(*b"CBLC");
+    pub const CBDT: Tag = Tag(*b"CBDT");
+    pub const COLR: Tag = Tag(*b"COLR");
+    pub const CPAL: Tag = Tag(*b"CPAL");
 
     pub const fn from_bytes(b: [u8; 4]) -> Tag {
         Tag(b)

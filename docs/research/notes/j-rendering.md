@@ -1,6 +1,6 @@
 # Rendering — the decisions register
 
-> **Group:** J · **Status:** draft for the owner · **Sources:** the 226 entries
+> **Group:** J · **Status:** draft for the owner · **Sources:** the 232 entries
 > under group J in `MANIFEST.toml`, each cited from
 > `j-rendering-evidence.md`, which carries the evidence behind every line here.
 

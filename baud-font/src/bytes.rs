@@ -219,6 +219,13 @@ impl<'a> Bytes<'a> {
         self.0.is_empty()
     }
 
+    /// The bytes themselves, for the one consumer that walks them a byte at
+    /// a time -- a decompressor -- and for handing a strike's PNG to the
+    /// decoder.
+    pub fn as_slice(self) -> &'a [u8] {
+        self.0
+    }
+
     /// One value at `at`, or `None` if any byte of it lies past the end.
     pub fn read<T: FromBe>(self, at: Offset) -> Option<T> {
         T::parse_be(self.0.get(at.index()..)?)

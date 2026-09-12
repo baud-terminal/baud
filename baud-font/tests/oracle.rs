@@ -8,7 +8,7 @@
 //! every disagreement is an assertion, and every normalisation the
 //! comparison makes is counted and pinned rather than absorbed.
 //!
-//! **Corpus.** The two OFL faces committed under `tests/fonts/` always; on
+//! **Corpus.** The four OFL faces committed under `tests/fonts/` always; on
 //! macOS, every `.ttf`, `.otf` and `.ttc` under `/System/Library/Fonts`,
 //! which is 369 files and several hundred faces including the collections.
 //! A positive control requires the corpus to be non-trivial before any
@@ -623,7 +623,7 @@ fn sha256_hex(data: &[u8]) -> String {
 
 #[test]
 fn the_committed_faces_are_the_ones_the_manifest_pins() {
-    // Two OFL faces, each with its licence beside it and each hash-pinned in
+    // Four OFL faces, each with its licence beside it and each hash-pinned in
     // the research manifest; a test font that is not pinned is a byte string
     // nobody can re-fetch, and one whose bytes drift from the pin is a
     // different font wearing the name.
@@ -631,7 +631,15 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
         .iter()
         .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
         .collect();
-    assert_eq!(names, ["FiraCode-Regular.ttf", "JetBrainsMono-Regular.ttf"]);
+    assert_eq!(
+        names,
+        [
+            "BungeeTint-Regular.ttf",
+            "FiraCode-Regular.ttf",
+            "JetBrainsMono-Regular.ttf",
+            "NotoColorEmoji-subset.ttf",
+        ]
+    );
     let manifest = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../docs/research/sources/MANIFEST.toml"
@@ -648,10 +656,12 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
             .map(|s| s.trim_end_matches('"').to_string())
             .unwrap()
     };
-    for (p, key) in committed()
-        .iter()
-        .zip(["font-fira-code-regular", "font-jetbrains-mono-regular"])
-    {
+    for (p, key) in committed().iter().zip([
+        "font-bungee-tint-regular",
+        "font-fira-code-regular",
+        "font-jetbrains-mono-regular",
+        "font-noto-color-emoji-subset",
+    ]) {
         let lic = p.with_file_name(format!(
             "{}-LICENSE.txt",
             p.file_stem()

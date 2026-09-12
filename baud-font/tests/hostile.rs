@@ -6,15 +6,20 @@
 //! that it does not. Two generators: arbitrary bytes, which exercise the
 //! directory and the version checks, and a real face with a handful of bytes
 //! flipped, which reaches the table parsers with offsets and counts that lie.
+//! The PNG decoder gets the same pair: arbitrary bytes, and a real strike
+//! PNG mutated and truncated, because an inflater is the deepest state
+//! machine in the crate and the one a hostile file can steer furthest.
 //!
 //! `PROPTEST_CASES=20000` before trusting a change here; the default is what
 //! CI can afford.
 
 use baud_domain::Codepoint;
-use baud_font::{Face, FaceIndex, faces};
+use baud_font::bytes::Index;
+use baud_font::{Face, FaceIndex, Palette, Png, faces};
 use proptest::prelude::*;
 
 const JETBRAINS: &[u8] = include_bytes!("fonts/JetBrainsMono-Regular.ttf");
+const NOTO_SUBSET: &[u8] = include_bytes!("fonts/NotoColorEmoji-subset.ttf");
 
 /// A sink that discards everything: the property is that emitting does not
 /// panic, not what is emitted.
@@ -48,6 +53,26 @@ fn exercise(data: &[u8]) {
             let _ = face.side_bearing(g);
             let _ = face.outline(g, &mut Null);
         }
+        let strikes = face.strikes().value().min(16);
+        for st in 0..strikes {
+            let st = Index::of(st);
+            let _ = face.strike_ppem(st);
+            for g in 0..count.min(256) {
+                let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());
+                if let Some(b) = face.bitmap(st, g) {
+                    decode(b.png.as_slice());
+                }
+            }
+        }
+        for g in 0..count {
+            let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());
+            if let Some(layers) = face.layers(g) {
+                for l in layers.take(64) {
+                    let _ = face.color(Palette::FIRST, l.color);
+                }
+            }
+        }
+        let _ = face.palettes();
         for c in [
             0x20u32, 0x41, 0x7E, 0xE9, 0x4E2D, 0x1F600, 0x1F468, 0xFFFF, 0x10FFFF,
         ] {
@@ -63,7 +88,53 @@ fn exercise(data: &[u8]) {
     }
 }
 
+/// Decode a PNG the way a renderer would, with the size-bomb check the
+/// register's hazard 7 asks for: an `IHDR` may claim any size, so the
+/// buffers are refused above a bound rather than allocated on trust.
+fn decode(bytes: &[u8]) {
+    const BOUND: usize = 1 << 22;
+    let Ok(png) = Png::parse(bytes) else { return };
+    let _ = png.size();
+    let (Some(raw), Some(rgba)) = (png.raw_len(), png.rgba_len()) else {
+        return;
+    };
+    if raw > BOUND || rgba > BOUND {
+        return;
+    }
+    let mut raw = vec![0u8; raw];
+    let mut rgba = vec![0u8; rgba];
+    let _ = png.decode(&mut raw, &mut rgba);
+}
+
+/// One real PNG to mutate: the first bitmap of the committed CBDT subset.
+fn a_real_png() -> Vec<u8> {
+    let face = Face::parse(NOTO_SUBSET).unwrap();
+    face.bitmap(Index::ZERO, baud_domain::GlyphId::from_shaper(4))
+        .expect("glyph 4 of the subset carries a bitmap")
+        .png
+        .as_slice()
+        .to_vec()
+}
+
 proptest! {
+    #[test]
+    fn arbitrary_bytes_never_decode_into_a_panic(bytes in proptest::collection::vec(any::<u8>(), 0..2048)) {
+        decode(&bytes);
+    }
+
+    #[test]
+    fn a_mutated_png_never_panics(
+        at in 0usize..4096,
+        byte in any::<u8>(),
+        cut in 0usize..4096,
+    ) {
+        let mut png = a_real_png();
+        let n = png.len();
+        png[at % n] = byte;
+        decode(&png);
+        decode(&png[..cut % n]);
+    }
+
     #[test]
     fn arbitrary_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
         exercise(&bytes);

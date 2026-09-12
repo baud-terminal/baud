@@ -151,24 +151,37 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: nine raw-integer sites and thirty-one signature primitives,
+# **baud-font: fifteen raw-integer sites and fifty-seven signature primitives,
 # every one enumerated, and the limit follows the count downward.** The
 # signature sites are the newtype surface of a parser over a byte format --
 # the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
-# `FaceIndex::of(u32)`, the `value()` accessors, `Offset::index -> usize` (the
-# one bridge into slice indexing), `is_sfnt(u32)` on the directory's magic,
-# `glyph(u16)` where a `cmap` value becomes a `GlyphId`, and in the two
-# outline readers the arithmetic a charstring interpreter is made of: a
-# 48-slot argument stack indexed by `usize` (`rmoveto(from)` and its kin name
-# the width slot), `bias(Count) -> i32`, `f2dot14(i16) -> f32`, the composite
-# depth as `u8` against a cap of 32, and `Delta::of(bool, bool)` built from
-# two flag bits. The nine raw sites are those interpreters' state: the stack
-# length, the stem count that sizes `hintmask`, the recursion depth, the
-# contour count, and the `as` conversions between a charstring's `f32`
-# operand and the integer it encodes, which `From` cannot express. Every
-# `bool` field became a two-state enum before this count was taken
-# (`Path`, `Moveto`, `Width`, `End`, `Axis`, `Delta`, `Sign`).
-crate_audit "baud-font" 9 31 baud-font/src
+# `FaceIndex::of(u32)`, `Palette::of(u16)`, `PaletteEntry::of(u16)`, the
+# `value()` accessors (`Ppem`, `PaletteEntry` among them), `Offset::index ->
+# usize` (the one bridge into slice indexing), `is_sfnt(u32)` on the
+# directory's magic, `glyph(u16)` where a `cmap` value becomes a `GlyphId`,
+# the `parse(u16)` constructors that turn a `CBLC` index or image format
+# number into its enum, and in the two outline readers the arithmetic a
+# charstring interpreter is made of: a 48-slot argument stack indexed by
+# `usize` (`rmoveto(from)` and its kin name the width slot), `bias(Count) ->
+# i32`, `f2dot14(i16) -> f32`, the composite depth as `u8` against a cap of
+# 32, and `Delta::of(bool, bool)` built from two flag bits. The PNG decoder
+# is the third interpreter and carries twenty of the fifty-seven: `crc32`
+# and `adler32` over bytes to a `u32`, `paeth(u8, u8, u8) -> u8` on bytes,
+# `sample`/`scale` taking a bit depth and a sample, `BitReader::take(u32) ->
+# u32` on a bit count, `Out::push(u8)`, `Color::parse(u8)` on the IHDR byte,
+# `raw_len`/`rgba_len -> usize` sizing a caller's buffers, and `small(u32)
+# -> usize` on a Huffman field. What the decoder does not carry is a swappable
+# pair: the back-reference's `Run` and `Back` are two types because they are
+# the same width. The fifteen raw sites are the interpreters' state: the
+# charstring stack length, the stem count that sizes `hintmask`, the
+# recursion depth, the contour count, the `as` conversions between a
+# charstring's `f32` operand and the integer it encodes, and in the decoder
+# the bit depth, the IDAT read position, the bit accumulator and its count,
+# the output length, and the one `as usize` that indexes the CRC table inside
+# a `const fn`, where `try_from` cannot be called. Every `bool` field became a
+# two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
+# `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`).
+crate_audit "baud-font" 15 57 baud-font/src
 crate_audit "baud-render" 0 0 baud-render/src
 crate_audit "baud-present-macos" 0 0 baud-present-macos/src
 crate_audit "baud-app" 0 0 baud-app/src

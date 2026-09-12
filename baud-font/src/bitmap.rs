@@ -1,0 +1,378 @@
+//! Bitmap strikes: `sbix` (`[[source: ms-opentype-sbix]]`,
+//! `[[source: apple-ttrm-sbix]]`) and `CBLC`/`CBDT`
+//! (`[[source: ms-opentype-cblc]]`, `[[source: ms-opentype-cbdt]]`).
+//!
+//! **What a strike is.** A set of pre-rendered glyph images at one pixel
+//! size. `sbix` is Apple's form: per strike, a `ppem`, a `ppi` and one
+//! offset per glyph into a run of `(originOffsetX, originOffsetY,
+//! graphicType, data)` records. `CBLC` is the locator for `CBDT`: per
+//! `BitmapSize`, line metrics, a glyph range, a `ppem` and an array of index
+//! subtables that map a glyph range to an image location and format.
+//!
+//! **What is read and what is refused.** `sbix`: `'png '` records and
+//! `'dupe'` redirections (bounded at ten deep, because a dupe can point at
+//! itself); `'jpg '`, `'tiff'` and Apple's undocumented `'flip'` answer
+//! `None`. `CBLC`: index formats 1 through 5 and image formats 17, 18 and 19
+//! -- the PNG ones; the byte- and bit-aligned mono formats belong to `EBDT`
+//! and are not colour emoji. Every offset is bounded by its table.
+//!
+//! **Strikes are enumerated, not chosen.** Which strike a renderer wants for
+//! a cell size is a policy the compositor owns; this module answers what the
+//! face has, so the oracle differential can walk every strike rather than
+//! agree with a heuristic.
+
+use crate::bytes::{Array, Bytes, Count, FromBe, Index, Len, Offset};
+use baud_domain::GlyphId;
+
+/// Pixels per em a strike was rendered at.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct Ppem(u16);
+
+impl Ppem {
+    pub const fn value(self) -> u16 {
+        self.0
+    }
+}
+
+/// Where a bitmap sits relative to the glyph origin, in pixels, as the
+/// table states it: `sbix` gives the offset of the image's bottom-left
+/// corner; `CBDT` gives the bearing of the image's top-left corner.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Placement {
+    pub x: i16,
+    pub y: i16,
+}
+
+/// Which table the bitmap came from, which decides how [`Placement`] reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Strike {
+    Sbix,
+    Cbdt,
+}
+
+/// One glyph's image: PNG bytes, still encoded, with where to put them.
+#[derive(Clone, Copy)]
+pub struct Bitmap<'a> {
+    pub png: Bytes<'a>,
+    pub placement: Placement,
+    pub ppem: Ppem,
+    pub strike: Strike,
+}
+
+const DUPE_DEPTH: u8 = 10;
+
+/// `sbix`: a version, flags, and `numStrikes` offsets to strikes.
+#[derive(Clone, Copy)]
+pub struct Sbix<'a> {
+    data: Bytes<'a>,
+    strikes: Count,
+    glyphs: Count,
+}
+
+impl<'a> Sbix<'a> {
+    pub fn parse(data: Bytes<'a>, glyphs: Count) -> Option<Sbix<'a>> {
+        let version: u16 = data.read(Offset::ZERO)?;
+        if version != 1 {
+            return None;
+        }
+        let n: u32 = data.read(Offset::of(4u32))?;
+        Some(Sbix {
+            data,
+            strikes: Count::of(n),
+            glyphs,
+        })
+    }
+
+    pub fn strikes(&self) -> Count {
+        self.strikes
+    }
+
+    fn strike_at(&self, i: Index) -> Option<Offset> {
+        let offsets: Array<'a, u32> = self.data.array(Offset::of(8u32), self.strikes)?;
+        Some(Offset::of(offsets.get(i)?))
+    }
+
+    /// The `ppem` of strike `i`.
+    pub fn ppem(&self, i: Index) -> Option<Ppem> {
+        let at = self.strike_at(i)?;
+        self.data.read(at).map(Ppem)
+    }
+
+    /// Glyph `g`'s PNG in strike `i`, following `dupe` redirections.
+    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+        let strike = self.strike_at(i)?;
+        let ppem = Ppem(self.data.read(strike)?);
+        let mut g = g;
+        let mut depth = 0u8;
+        loop {
+            if depth == DUPE_DEPTH {
+                return None;
+            }
+            depth += 1;
+            // glyphDataOffsets[numGlyphs + 1] follows ppem and ppi.
+            let entries = Count::of(self.glyphs.value().checked_add(1)?);
+            let offsets: Array<'a, u32> = self.data.array(strike.plus(Len::of(4))?, entries)?;
+            let gi = Index::of(u32::try_from(g.index()).ok()?);
+            let start = offsets.get(gi)?;
+            let end = offsets.get(gi.next())?;
+            if start == end {
+                return None;
+            }
+            let len = end.checked_sub(start)?.checked_sub(8)?;
+            let rec = strike.plus(Len::of(start))?;
+            let x: i16 = self.data.read(rec)?;
+            let y: i16 = self.data.read(rec.plus(Len::of(2))?)?;
+            let kind: u32 = self.data.read(rec.plus(Len::of(4))?)?;
+            let payload = self.data.slice(rec.plus(Len::of(8))?, Len::of(len))?;
+            match &kind.to_be_bytes() {
+                b"png " => {
+                    return Some(Bitmap {
+                        png: payload,
+                        placement: Placement { x, y },
+                        ppem,
+                        strike: Strike::Sbix,
+                    });
+                }
+                b"dupe" => {
+                    let target: u16 = payload.read(Offset::ZERO)?;
+                    g = GlyphId::from_shaper(target);
+                }
+                _ => return None,
+            }
+        }
+    }
+}
+
+/// How a `CBLC` index subtable locates its images: `indexFormat` 1 to 5.
+#[derive(Clone, Copy)]
+enum IndexFormat {
+    /// 1: one `u32` offset per glyph, plus a sentinel.
+    Offsets32,
+    /// 2: every glyph the same size, metrics shared, dense.
+    Constant,
+    /// 3: as 1 with `u16` offsets.
+    Offsets16,
+    /// 4: `(glyph, offset)` pairs for the glyphs present, plus a sentinel.
+    Sparse,
+    /// 5: as 2, over a sorted list of the glyphs present.
+    SparseConstant,
+}
+
+impl IndexFormat {
+    fn parse(v: u16) -> Option<IndexFormat> {
+        match v {
+            1 => Some(IndexFormat::Offsets32),
+            2 => Some(IndexFormat::Constant),
+            3 => Some(IndexFormat::Offsets16),
+            4 => Some(IndexFormat::Sparse),
+            5 => Some(IndexFormat::SparseConstant),
+            _ => None,
+        }
+    }
+}
+
+/// How a `CBDT` image is laid out: the three PNG formats. The mono formats
+/// 1 to 9 are `EBDT`'s and answer `None` here.
+#[derive(Clone, Copy)]
+enum ImageFormat {
+    /// 17: `smallGlyphMetrics`, a length, the PNG.
+    Small,
+    /// 18: `bigGlyphMetrics`, a length, the PNG.
+    Big,
+    /// 19: a length and the PNG; the metrics live in the index subtable.
+    Shared,
+}
+
+impl ImageFormat {
+    fn parse(v: u16) -> Option<ImageFormat> {
+        match v {
+            17 => Some(ImageFormat::Small),
+            18 => Some(ImageFormat::Big),
+            19 => Some(ImageFormat::Shared),
+            _ => None,
+        }
+    }
+}
+
+/// A `CBLC` index subtable header: how glyphs are indexed and how the
+/// images are laid out.
+#[derive(Clone, Copy)]
+struct IndexHeader {
+    index_format: IndexFormat,
+    image_format: ImageFormat,
+    image_data: Offset,
+}
+
+/// `BigGlyphMetrics` (8 bytes): height, width, then the horizontal bearings
+/// this reader keeps -- the PNG carries its own size, so height and width
+/// are the image's and a renderer reads them from the IHDR.
+#[derive(Clone, Copy)]
+struct BigMetrics {
+    bearing_x: i8,
+    bearing_y: i8,
+}
+
+impl FromBe for BigMetrics {
+    const SIZE: Len = Len::of(8);
+    fn parse_be(b: &[u8]) -> Option<Self> {
+        Some(BigMetrics {
+            bearing_x: i8::from_ne_bytes([u8::parse_be(b.get(2..)?)?]),
+            bearing_y: i8::from_ne_bytes([u8::parse_be(b.get(3..)?)?]),
+        })
+    }
+}
+
+/// `CBLC` and `CBDT` together.
+#[derive(Clone, Copy)]
+pub struct Cbdt<'a> {
+    cblc: Bytes<'a>,
+    cbdt: Bytes<'a>,
+    sizes: Count,
+}
+
+const SIZE_RECORD: Len = Len::of(48);
+
+impl<'a> Cbdt<'a> {
+    pub fn parse(cblc: Bytes<'a>, cbdt: Bytes<'a>) -> Option<Cbdt<'a>> {
+        // The version is not checked: the reference readers skip it because
+        // Noto Color Emoji shipped with 2.0 before the specification settled
+        // on 3.0, and the layout is the same.
+        let n: u32 = cblc.read(Offset::of(4u32))?;
+        Some(Cbdt {
+            cblc,
+            cbdt,
+            sizes: Count::of(n),
+        })
+    }
+
+    pub fn strikes(&self) -> Count {
+        self.sizes
+    }
+
+    fn size_at(&self, i: Index) -> Option<Offset> {
+        if !self.sizes.holds(i) {
+            return None;
+        }
+        Offset::of(8u32).at(i, SIZE_RECORD)
+    }
+
+    /// The horizontal `ppem` of strike `i`.
+    pub fn ppem(&self, i: Index) -> Option<Ppem> {
+        let at = self.size_at(i)?;
+        let ppem: u8 = self.cblc.read(at.plus(Len::of(44))?)?;
+        Some(Ppem(u16::from(ppem)))
+    }
+
+    /// Glyph `g`'s PNG in strike `i`, with its metrics from wherever the
+    /// image format keeps them.
+    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+        let size = self.size_at(i)?;
+        let ppem = self.ppem(i)?;
+        let array_at: u32 = self.cblc.read(size)?;
+        let subtables: u32 = self.cblc.read(size.plus(Len::of(8))?)?;
+        let first: u16 = self.cblc.read(size.plus(Len::of(40))?)?;
+        let last: u16 = self.cblc.read(size.plus(Len::of(42))?)?;
+        let gid = u16::try_from(g.index()).ok()?;
+        if !(first..=last).contains(&gid) {
+            return None;
+        }
+        // The IndexSubTableArray: (first, last, offset) triples, the offset
+        // relative to the array's own start.
+        let array = Offset::of(array_at);
+        let mut j = Index::ZERO;
+        let count = Count::of(subtables);
+        let (sub_first, header_at) = loop {
+            if !count.holds(j) {
+                return None;
+            }
+            let rec = array.at(j, Len::of(8))?;
+            let f: u16 = self.cblc.read(rec)?;
+            let l: u16 = self.cblc.read(rec.plus(Len::of(2))?)?;
+            let off: u32 = self.cblc.read(rec.plus(Len::of(4))?)?;
+            if (f..=l).contains(&gid) {
+                break (f, array.plus(Len::of(off))?);
+            }
+            j = j.next();
+        };
+        let header = IndexHeader {
+            index_format: IndexFormat::parse(self.cblc.read(header_at)?)?,
+            image_format: ImageFormat::parse(self.cblc.read(header_at.plus(Len::of(2))?)?)?,
+            image_data: Offset::of(self.cblc.read::<u32>(header_at.plus(Len::of(4))?)?),
+        };
+        let body = header_at.plus(Len::of(8))?;
+        let diff = Index::of(gid.checked_sub(sub_first)?);
+        let mut shared: Option<BigMetrics> = None;
+        let image = match header.index_format {
+            IndexFormat::Offsets32 => {
+                let off: u32 = self.cblc.read(body.at(diff, Len::of(4))?)?;
+                header.image_data.plus(Len::of(off))?
+            }
+            IndexFormat::Constant => {
+                let image_size: u32 = self.cblc.read(body)?;
+                shared = Some(self.cblc.read(body.plus(Len::of(4))?)?);
+                header
+                    .image_data
+                    .plus(Len::of(image_size.checked_mul(diff.value())?))?
+            }
+            IndexFormat::Offsets16 => {
+                let off: u16 = self.cblc.read(body.at(diff, Len::of(2))?)?;
+                header.image_data.plus(Len::of(u32::from(off)))?
+            }
+            IndexFormat::Sparse => {
+                let n: u32 = self.cblc.read(body)?;
+                let pairs = Count::of(n.checked_add(1)?);
+                let pairs_at = body.plus(Len::of(4))?;
+                let mut k = Index::ZERO;
+                loop {
+                    if !pairs.holds(k) {
+                        return None;
+                    }
+                    let at = pairs_at.at(k, Len::of(4))?;
+                    let id: u16 = self.cblc.read(at)?;
+                    if id == gid {
+                        let off: u16 = self.cblc.read(at.plus(Len::of(2))?)?;
+                        break header.image_data.plus(Len::of(u32::from(off)))?;
+                    }
+                    k = k.next();
+                }
+            }
+            IndexFormat::SparseConstant => {
+                let image_size: u32 = self.cblc.read(body)?;
+                shared = Some(self.cblc.read(body.plus(Len::of(4))?)?);
+                let n: u32 = self.cblc.read(body.plus(Len::of(12))?)?;
+                let ids: Array<'a, u16> = self.cblc.array(body.plus(Len::of(16))?, Count::of(n))?;
+                let k = ids.partition_point(|id| id.cmp(&gid))?;
+                if ids.get(k)? != gid {
+                    return None;
+                }
+                header
+                    .image_data
+                    .plus(Len::of(image_size.checked_mul(k.value())?))?
+            }
+        };
+        let (metrics_len, metrics): (u32, BigMetrics) = match header.image_format {
+            ImageFormat::Small => {
+                // smallGlyphMetrics: height, width, bearingX, bearingY, advance.
+                let m = BigMetrics {
+                    bearing_x: i8::from_ne_bytes([self.cbdt.read(image.plus(Len::of(2))?)?]),
+                    bearing_y: i8::from_ne_bytes([self.cbdt.read(image.plus(Len::of(3))?)?]),
+                };
+                (5, m)
+            }
+            ImageFormat::Big => (8, self.cbdt.read(image)?),
+            ImageFormat::Shared => (0, shared?),
+        };
+        let len_at = image.plus(Len::of(metrics_len))?;
+        let len: u32 = self.cbdt.read(len_at)?;
+        let png = self.cbdt.slice(len_at.plus(Len::of(4))?, Len::of(len))?;
+        Some(Bitmap {
+            png,
+            placement: Placement {
+                x: i16::from(metrics.bearing_x),
+                y: i16::from(metrics.bearing_y),
+            },
+            ppem,
+            strike: Strike::Cbdt,
+        })
+    }
+}

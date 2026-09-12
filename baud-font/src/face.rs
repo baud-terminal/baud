@@ -15,9 +15,11 @@
 //! rule `ttf-parser` applies and the differential in `tests/oracle.rs` holds
 //! this crate to.
 
+use crate::bitmap::{Bitmap, Cbdt, Ppem, Sbix};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
+use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
 use crate::glyf::{Glyf, Loca, LocaFormat};
 use crate::outline::{Drawn, Sink};
 use crate::{Error, Tag};
@@ -150,6 +152,10 @@ pub struct Face<'a> {
     cmap: Option<Cmap<'a>>,
     glyf: Option<Glyf<'a>>,
     cff: Option<Cff<'a>>,
+    sbix: Option<Sbix<'a>>,
+    cbdt: Option<Cbdt<'a>>,
+    colr: Option<Colr<'a>>,
+    cpal: Option<Cpal<'a>>,
 }
 
 /// Counts what passes through to the real sink, so [`Face::outline`] can
@@ -267,6 +273,10 @@ impl<'a> Face<'a> {
             cmap: None,
             glyf: None,
             cff: None,
+            sbix: None,
+            cbdt: None,
+            colr: None,
+            cpal: None,
         };
 
         // head: unitsPerEm at 18. The specification bounds it to 16..=16384;
@@ -336,6 +346,17 @@ impl<'a> Face<'a> {
             face.glyf = Some(Glyf::new(loca, glyf));
         }
         face.cff = face.table(Tag::CFF).and_then(Cff::parse);
+        // Bitmap strikes and layered colour are optional in every sense: a
+        // face without them answers `None` and draws its outlines.
+        face.sbix = face
+            .table(Tag::SBIX)
+            .and_then(|t| Sbix::parse(t, Count::of(u32::from(face.glyphs.0))));
+        face.cbdt = match (face.table(Tag::CBLC), face.table(Tag::CBDT)) {
+            (Some(cblc), Some(cbdt)) => Cbdt::parse(cblc, cbdt),
+            _ => None,
+        };
+        face.colr = face.table(Tag::COLR).and_then(Colr::parse);
+        face.cpal = face.table(Tag::CPAL).and_then(Cpal::parse);
         Ok(face)
     }
 
@@ -480,6 +501,55 @@ impl<'a> Face<'a> {
             Some(cmap) => cmap.variation(c, vs),
             None => Variation::Absent,
         }
+    }
+
+    /// How many bitmap strikes the face carries, from `sbix` first and
+    /// `CBLC` otherwise -- a face carries one or the other in practice, and
+    /// a strike index below this count names one of them.
+    pub fn strikes(&self) -> Count {
+        if let Some(s) = &self.sbix {
+            s.strikes()
+        } else if let Some(c) = &self.cbdt {
+            c.strikes()
+        } else {
+            Count::ZERO
+        }
+    }
+
+    /// The pixel size strike `i` was rendered at.
+    pub fn strike_ppem(&self, i: Index) -> Option<Ppem> {
+        if let Some(s) = &self.sbix {
+            s.ppem(i)
+        } else {
+            self.cbdt.as_ref()?.ppem(i)
+        }
+    }
+
+    /// Glyph `g`'s PNG in strike `i`, still encoded, with its placement.
+    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+        if let Some(s) = &self.sbix {
+            s.bitmap(i, g)
+        } else {
+            self.cbdt.as_ref()?.bitmap(i, g)
+        }
+    }
+
+    /// The `COLR` v0 layers of `g`, bottom first, or `None` for a glyph the
+    /// table does not describe.
+    pub fn layers(&self, g: GlyphId) -> Option<Layers<'a>> {
+        self.colr.as_ref()?.layers(g)
+    }
+
+    /// How many palettes `CPAL` carries; zero without the table.
+    pub fn palettes(&self) -> Count {
+        self.cpal.as_ref().map_or(Count::ZERO, Cpal::palettes)
+    }
+
+    /// Entry `e` of palette `p`, or `None` for an entry the table lacks --
+    /// including [`PaletteEntry::FOREGROUND`], which is the caller's colour
+    /// rather than the font's.
+    pub fn color(&self, p: Palette, e: PaletteEntry) -> Option<Rgba> {
+        self.cpal.as_ref()?.color(p, e)
     }
 
     /// The outline of `g` into `sink`, in font units, unflattened: quadratic
