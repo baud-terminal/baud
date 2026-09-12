@@ -422,3 +422,33 @@ impl Decimal {
         &self.buf[self.at..]
     }
 }
+
+/// A `u32` rendered to decimal, for `[[source: kitty-keyboard]]`'s key numbers:
+/// a `Char`'s number is its codepoint, up to `U+10FFFF` -- seven digits, which
+/// [`Decimal`]'s five cannot hold. The functional-key numbers fit `u16`, but
+/// the codepoint does not, so the CSI-u encoder renders through this.
+pub(crate) struct Decimal32 {
+    buf: [u8; 10],
+    at: usize,
+}
+
+impl Decimal32 {
+    pub(crate) fn of(v: u32) -> Decimal32 {
+        const DIGITS: &[u8; 10] = b"0123456789";
+        let mut buf = [0u8; 10];
+        let mut i = buf.len();
+        let mut n = v;
+        loop {
+            i -= 1;
+            buf[i] = DIGITS[(n % 10) as usize];
+            n /= 10;
+            if n == 0 || i == 0 {
+                break;
+            }
+        }
+        Decimal32 { buf, at: i }
+    }
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.buf[self.at..]
+    }
+}

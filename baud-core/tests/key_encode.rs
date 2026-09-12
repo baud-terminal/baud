@@ -189,6 +189,7 @@ fn only_presses_are_encoded() {
             code: KeyCode::Up,
             mods: Modifiers::NONE,
             kind,
+            text: None,
         };
         assert!(!t.key(e), "{kind:?} must not be encoded");
         assert!(t.reply().is_empty(), "and must write nothing");
@@ -1011,7 +1012,7 @@ proptest! {
         }
         t.clear_reply();
         let kind = if release { KeyEventKind::Release } else { KeyEventKind::Repeat };
-        let sent = t.key(KeyEvent { code, mods, kind });
+        let sent = t.key(KeyEvent { code, mods, kind, text: None });
         prop_assert!(!sent);
         prop_assert!(t.reply().is_empty());
     }

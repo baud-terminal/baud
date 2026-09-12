@@ -156,11 +156,13 @@ fn event_types_are_reported_only_when_enabled() {
         code: up,
         mods: Modifiers::NONE,
         kind: KeyEventKind::Release,
+        text: None,
     };
     let repeat = KeyEvent {
         code: up,
         mods: Modifiers::NONE,
         kind: KeyEventKind::Repeat,
+        text: None,
     };
 
     // Disambiguate only: a release is silent, a repeat looks like a press.
@@ -201,17 +203,33 @@ fn the_three_exceptions_stay_legacy_until_all_keys() {
     );
 }
 
-/// **The deferred gap, pinned.** A `Char` under kitty needs its unshifted
-/// codepoint, which the `KeyEvent` does not yet carry, so the encoder sends
-/// nothing rather than a wrong number. When the `KeyEvent` extension lands this
-/// test flips, which is the reminder to update it.
+/// **A `Char`'s number is its unshifted codepoint, which is the whole point of
+/// modelling `KeyCode::Char` as the identity.** `[[source: kitty-keyboard]]`:
+/// "the codepoint used is always the un-shifted version"; `ctrl+shift+a` "must
+/// not be `CSI 65`". So shift is carried in the modifier field while the number
+/// stays 97.
 #[test]
-fn a_char_under_kitty_sends_nothing_yet() {
+fn a_char_encodes_its_unshifted_codepoint() {
     let a = KeyCode::Char(Codepoint::from_ascii(StreamByte::from_stream(b'a')));
-    // Under all-keys, a plain char would be `CSI 97 u` -- once the codepoint is
-    // carried. For now it is dropped.
-    assert!(
-        pressed(b"\x1b[=8u", KeyEvent::press(a, Modifiers::NONE)).is_empty(),
-        "Char encoding is deferred to the KeyEvent extension"
+
+    // All-keys: a plain char is `CSI 97 u` -- text is not sent.
+    assert_eq!(
+        pressed(b"\x1b[=8u", KeyEvent::press(a, Modifiers::NONE)),
+        b"\x1b[97u"
+    );
+
+    // ctrl+a under disambiguate: `CSI 97 ; 5 u`, the unshifted 97 with ctrl.
+    assert_eq!(
+        pressed(b"\x1b[=1u", KeyEvent::press(a, Modifiers::CTRL)),
+        b"\x1b[97;5u"
+    );
+
+    // shift+a: the number is still 97 (unshifted), shift in the modifier field
+    // -- `CSI 97 ; 2 u`, never `CSI 65`. `KeyEvent::press` gives Char the
+    // identity `a`; a real embedder would also set `text = 'A'`, unused here
+    // because the associated-text flag is off.
+    assert_eq!(
+        pressed(b"\x1b[=8u", KeyEvent::press(a, Modifiers::SHIFT)),
+        b"\x1b[97;2u"
     );
 }

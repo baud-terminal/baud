@@ -424,8 +424,13 @@ pub enum Prefix {
 /// source. What arrives here is already resolved to a key.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum KeyCode {
-    /// A key that produces text. The codepoint is what the layout resolved,
-    /// not a scancode.
+    /// A text key, named by its **unshifted** codepoint -- the key's identity,
+    /// not the character it produced. `shift+a`, `ctrl+a` and a plain `a` are
+    /// all `Char('a')`; what each *produces* is [`KeyEvent::text`]. This is the
+    /// identity `[[source: kitty-keyboard]]` reports as the key number ("the
+    /// codepoint used is always the un-shifted version"), and it is what the
+    /// base layer folds against for control codes -- `ctrl+a` folds `a` to
+    /// `0x01`.
     Char(Codepoint),
     Up,
     Down,
@@ -502,15 +507,33 @@ pub struct KeyEvent {
     pub code: KeyCode,
     pub mods: Modifiers,
     pub kind: KeyEventKind,
+    /// The character this key produced, distinct from its identity in
+    /// [`KeyCode::Char`]. For an unmodified letter the two are the same; under
+    /// shift, AltGr, a dead key or an IME they differ -- `shift+a` is identity
+    /// `a` and produced `A`. The base layer sends this, and it is
+    /// `[[source: kitty-keyboard]]`'s associated text (flag 16). `None` for a
+    /// key that produces none: a functional key, a bare modifier, or a control
+    /// combination. A single codepoint; a multi-codepoint IME commit is a later
+    /// widening.
+    pub text: Option<Codepoint>,
 }
 
 impl KeyEvent {
     /// A plain press, which is every event on the base layer.
+    ///
+    /// The produced text defaults to the key's own identity -- the unmodified
+    /// case, where `Char('a')` produces `a`. An embedder with a shifted or IME
+    /// character sets [`KeyEvent::text`] instead, and a functional key produces
+    /// none.
     pub fn press(code: KeyCode, mods: Modifiers) -> KeyEvent {
         KeyEvent {
             code,
             mods,
             kind: KeyEventKind::Press,
+            text: match code {
+                KeyCode::Char(cp) => Some(cp),
+                _ => None,
+            },
         }
     }
 }

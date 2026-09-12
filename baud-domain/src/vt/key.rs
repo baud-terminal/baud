@@ -316,6 +316,13 @@ impl KeyBytes {
             self.push(*b);
         }
     }
+    /// A `u32` parameter, for a kitty key number that is a codepoint above the
+    /// `u16` ceiling.
+    fn num32(&mut self, v: u32) {
+        for b in Decimal32::of(v).as_bytes() {
+            self.push(*b);
+        }
+    }
     fn introducer(&mut self, i: Introducer, c1: C1Transmit) {
         self.all(match i {
             Introducer::Csi => c1.csi(),
@@ -386,8 +393,8 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // separate table rather than a prefix substitution, and the keys a VT52
     // does not have send nothing.
     let ok = match s.terminal {
-        TerminalMode::Vt52 => vt52(&mut o, e.code, e.mods, s),
-        TerminalMode::Ansi => ansi(&mut o, e.code, e.mods, s),
+        TerminalMode::Vt52 => vt52(&mut o, e.code, e.mods, e.text, s),
+        TerminalMode::Ansi => ansi(&mut o, e.code, e.mods, e.text, s),
     };
     match ok && o.fit == Fit::Whole {
         true => Some(o),
@@ -423,7 +430,17 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     if !route {
         return encode_base(e, s);
     }
-    let (number, final_byte) = kitty_functional(e.code)?;
+    // A text key's number is its unshifted codepoint, `KeyCode::Char` itself;
+    // a functional key's is from the table. The keypad's kitty PUA numbers
+    // arrive with the alternate-key work, so it still sends nothing.
+    let (number, final_byte) = match e.code {
+        KeyCode::Char(cp) => (cp.value(), b'u'),
+        KeyCode::Keypad(_) => return None,
+        _ => {
+            let (n, f) = kitty_functional(e.code)?;
+            (u32::from(n), f)
+        }
+    };
     let mut o = KeyBytes::new();
     kitty_csi_u(&mut o, number, final_byte, e.mods, event, s.c1);
     match o.fit == Fit::Whole {
@@ -514,7 +531,7 @@ fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
 /// carry it when no modifier is held.
 fn kitty_csi_u(
     o: &mut KeyBytes,
-    number: u16,
+    number: u32,
     final_byte: u8,
     mods: Modifiers,
     event: u16,
@@ -528,7 +545,7 @@ fn kitty_csi_u(
             o.num(1);
         }
     } else {
-        o.num(number);
+        o.num32(number);
     }
     if params {
         o.push(b';');
@@ -541,7 +558,13 @@ fn kitty_csi_u(
     o.push(final_byte);
 }
 
-fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
+fn ansi(
+    o: &mut KeyBytes,
+    code: KeyCode,
+    mods: Modifiers,
+    text: Option<Codepoint>,
+    s: KeyState,
+) -> bool {
     match code {
         // The arrows plus Home and End: `[[source: ctlseqs]]` line 2485 puts
         // the latter in the arrows' table and calls them cursor keys, so
@@ -585,7 +608,7 @@ fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
             // position it cannot encode rather than truncating it.
             match (other_keys_takes(mods, s), u16::try_from(cp.value())) {
                 (true, Ok(v)) => other_key(o, v, mods, s),
-                _ => return text_key(o, cp, mods, s),
+                _ => return text_key(o, cp, text, mods, s),
             }
         }
         // `[[source: ctlseqs]]` line 253: BS is Ctrl-H. Which byte the
@@ -635,7 +658,13 @@ fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
 /// parameters. Control still reaches the application through [`text_key`],
 /// because folding a character into its control code is what the keyboard does
 /// rather than what the protocol encodes.
-fn vt52(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
+fn vt52(
+    o: &mut KeyBytes,
+    code: KeyCode,
+    mods: Modifiers,
+    text: Option<Codepoint>,
+    s: KeyState,
+) -> bool {
     match code {
         KeyCode::Up | KeyCode::Down | KeyCode::Right | KeyCode::Left => match code.cursor_final() {
             Some(f) => vt52_esc(o, f),
@@ -643,7 +672,7 @@ fn vt52(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
         },
         KeyCode::Keypad(k) => return vt52_keypad(o, k, s),
         // The text keys are the keyboard, not the emulation.
-        KeyCode::Char(cp) => return text_key(o, cp, mods, s),
+        KeyCode::Char(cp) => return text_key(o, cp, text, mods, s),
         KeyCode::Backspace => o.push(0x7f),
         KeyCode::Escape => o.push(0x1b),
         // No CBT on a VT52: `CSI Z` is an ANSI sequence, so Tab is HT whatever
@@ -773,13 +802,21 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
 /// different character -- which is exactly the ambiguity
 /// `[[source: fixterms]]` exists to remove, and why `CSI u` is the next layer
 /// rather than a nicety.
-fn text_key(o: &mut KeyBytes, cp: Codepoint, mods: Modifiers, s: KeyState) -> bool {
+fn text_key(
+    o: &mut KeyBytes,
+    id: Codepoint,
+    text: Option<Codepoint>,
+    mods: Modifiers,
+    s: KeyState,
+) -> bool {
     // Control folds the character into `0x00..0x1f`: `@` through `_` and the
     // lowercase letters differ from their control code by bit 6 alone.
     // Anything else has no control form and Control is simply dropped, which
     // is what a terminal does and what an application cannot detect.
+    // The fold is on the key's *identity* -- `ctrl+a` is `0x01` whatever `a`
+    // produced -- which is why `KeyCode::Char` is the unshifted codepoint.
     let base = match mods.has(Modifiers::CTRL) {
-        true => match cp.value() {
+        true => match id.value() {
             v @ (0x40..=0x5f | 0x61..=0x7a) => u8::try_from(v & 0x1f).ok(),
             0x20 => Some(0x00),
             0x3f => Some(0x7f),
@@ -827,7 +864,13 @@ fn text_key(o: &mut KeyBytes, cp: Codepoint, mods: Modifiers, s: KeyState) -> bo
         return true;
     }
 
-    let v = cp.value();
+    // Not a control code: send the produced character. A key that produced
+    // none -- a bare modifier, or a combination with no text -- sends nothing,
+    // which is the same real answer `None` is elsewhere.
+    let Some(produced) = text else {
+        return false;
+    };
+    let v = produced.value();
     // **Under ISO 8859-1 the keyboard sends ISO 8859-1.** `ESC % @` switches
     // how baud *decodes*, and an encoder that kept emitting UTF-8 would break
     // the round trip that makes the mode useful: the application set the
