@@ -151,7 +151,7 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: sixteen raw-integer sites and sixty-five signature primitives,
+# **baud-font: sixteen raw-integer sites and sixty-eight signature primitives,
 # every one enumerated, and the limit follows the count downward.** The
 # signature sites are the newtype surface of a parser over a byte format --
 # the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
@@ -179,7 +179,14 @@ crate_audit() {
 # the one place a pixel coordinate becomes a row index, spelled once -- and
 # `splat`'s row start as `usize`, which is also the sixteenth raw site: the
 # reference's own index arithmetic, kept in its shape so the byte-exact
-# differential has one algorithm to compare rather than two. The other
+# differential has one algorithm to compare rather than two. The shaper adds
+# three signature sites and no raw ones: `same(GlyphId, u16)` comparing a
+# glyph to the value a layout table stores, `LookupFlags::has(u16)` testing
+# one flag bit, and `Count::slot -> usize`, the second bridge into slice
+# indexing beside `Offset::index`. Buffer positions are `Index`, lengths
+# are `Count`, table glyph ids are `GlyphId`, classes are `Class`, lookup
+# types are `Kind` and flags are `LookupFlags`, so a position and a count
+# cannot be added and a class and a glyph cannot be confused. The other
 # fifteen raw sites are the interpreters' state: the
 # charstring stack length, the stem count that sizes `hintmask`, the
 # recursion depth, the contour count, the `as` conversions between a
@@ -189,7 +196,7 @@ crate_audit() {
 # a `const fn`, where `try_from` cannot be called. Every `bool` field became a
 # two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
 # `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`).
-crate_audit "baud-font" 16 65 baud-font/src
+crate_audit "baud-font" 16 68 baud-font/src
 crate_audit "baud-render" 0 0 baud-render/src
 crate_audit "baud-present-macos" 0 0 baud-present-macos/src
 crate_audit "baud-app" 0 0 baud-app/src

@@ -4642,3 +4642,36 @@ status = "external"
 group  = "J"
 # The sha256 is of the archive member `Bungee-fonts/Bungee_Color/BungeeTint-Regular.ttf`,
 # committed as baud-font/tests/fonts/BungeeTint-Regular.ttf with the OFL beside it.
+
+[sources.unicode-data]
+key    = "unicode-data"
+title  = "UnicodeData.txt, Unicode Character Database 17.0.0 -- canonical decomposition mappings and combining classes"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt"
+file   = "unicode-unicodedata.txt"
+sha256 = "2e1efc1dcb59c575eedf5ccae60f95229f706ee6d031835247d843c11d96470c"
+bytes  = 2198209
+status = "retrieved"
+group  = "J"
+# Field 5 (canonical decompositions, the untagged ones) is what
+# scripts/gen-compose.py turns into baud-font/src/compose.rs: the shaper
+# composes a base and its marks the way HarfBuzz's normaliser does before
+# it looks glyphs up.
+
+[sources.unicode-dnp]
+key    = "unicode-dnp"
+title  = "DerivedNormalizationProps.txt, Unicode Character Database 17.0.0 -- Full_Composition_Exclusion"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/DerivedNormalizationProps.txt"
+file   = "unicode-derivednormalizationprops.txt"
+sha256 = "71fd6a206a2c0cdd41feb6b7f656aa31091db45e9cedc926985d718397f9e488"
+bytes  = 1377582
+status = "retrieved"
+group  = "J"
+# The exclusions: a precomposed character that decomposes but is never the
+# result of composition (Full_Composition_Exclusion), so gen-compose.py
+# leaves its pair out of the compose table and keeps it in the decompose one.

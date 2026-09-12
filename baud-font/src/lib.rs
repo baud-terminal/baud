@@ -47,27 +47,37 @@
 #![feature(core_float_math)]
 
 mod bitmap;
+mod buffer;
 pub mod bytes;
 mod cff;
 mod cmap;
 mod colr;
+mod compose;
 mod face;
 mod glyf;
+mod gsub;
+mod ignorable;
+mod layout;
 pub mod outline;
 mod png;
 mod raster;
+mod shape;
 mod standard_encoding;
 
 pub use bitmap::{Bitmap, Placement, Ppem, Strike};
+pub use buffer::{Buffer, Cluster, Glyph, Ignorable};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
+pub use gsub::Gsub;
+pub use layout::{Enabled, FeatureTag, Features, Gdef, GlyphClass};
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, Point, Px, Rasterizer, Scale};
+pub use shape::{Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -90,6 +100,10 @@ impl Tag {
     pub const CBDT: Tag = Tag(*b"CBDT");
     pub const COLR: Tag = Tag(*b"COLR");
     pub const CPAL: Tag = Tag(*b"CPAL");
+    pub const GDEF: Tag = Tag(*b"GDEF");
+    pub const GSUB: Tag = Tag(*b"GSUB");
+    pub const GPOS: Tag = Tag(*b"GPOS");
+    pub const MORX: Tag = Tag(*b"morx");
 
     pub const fn from_bytes(b: [u8; 4]) -> Tag {
         Tag(b)

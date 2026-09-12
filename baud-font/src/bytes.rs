@@ -120,6 +120,11 @@ impl Count {
     pub const fn value(self) -> u32 {
         self.0
     }
+
+    /// As a slice length; saturating on a platform narrower than `u32`.
+    pub(crate) fn slot(self) -> usize {
+        usize::try_from(self.0).unwrap_or(usize::MAX)
+    }
 }
 
 /// A position in an array.

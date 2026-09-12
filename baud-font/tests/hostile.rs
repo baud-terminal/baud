@@ -14,8 +14,11 @@
 //! CI can afford.
 
 use baud_domain::Codepoint;
+use baud_domain::GlyphId;
 use baud_font::bytes::Index;
-use baud_font::{Face, FaceIndex, Palette, Png, faces};
+use baud_font::{
+    Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Palette, Png, Shaper, faces,
+};
 use proptest::prelude::*;
 
 const JETBRAINS: &[u8] = include_bytes!("fonts/JetBrainsMono-Regular.ttf");
@@ -73,6 +76,7 @@ fn exercise(data: &[u8]) {
             }
         }
         let _ = face.palettes();
+        shape_some(&face);
         for c in [
             0x20u32, 0x41, 0x7E, 0xE9, 0x4E2D, 0x1F600, 0x1F468, 0xFFFF, 0x10FFFF,
         ] {
@@ -86,6 +90,30 @@ fn exercise(data: &[u8]) {
             }
         }
     }
+}
+
+/// Shape a handful of clusters that reach every substitution path: a
+/// ligature trigger, a composed pair, a ZWJ sequence, a variation
+/// selector, and an unmapped character. The property is that no table
+/// contents can make the shaper panic, not what it emits.
+fn shape_some(face: &Face<'_>) {
+    const CLUSTERS: &[&[u32]] = &[
+        &[0x61],
+        &[0x2D],
+        &[0x3E],
+        &[0x65, 0x0301],
+        &[0x1F468, 0x200D, 0x1F469],
+        &[0x263A, 0xFE0F],
+        &[0x10FFFF],
+        &[0xAC00],
+    ];
+    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
+    let mut shaper = Shaper::new(face, &mut storage);
+    for (i, cps) in CLUSTERS.iter().enumerate() {
+        let cps: Vec<Codepoint> = cps.iter().filter_map(|&v| Codepoint::new(v)).collect();
+        let _ = shaper.push_cluster(&cps, Cluster(u16::try_from(i).unwrap()));
+    }
+    let _ = shaper.finish(Features::GRID);
 }
 
 /// Decode a PNG the way a renderer would, with the size-bomb check the

@@ -21,6 +21,8 @@ use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
 use crate::glyf::{Glyf, Loca, LocaFormat};
+use crate::gsub::Gsub;
+use crate::layout::Gdef;
 use crate::outline::{Drawn, Sink};
 use crate::{Error, Tag};
 use baud_domain::{Codepoint, GlyphId};
@@ -156,6 +158,8 @@ pub struct Face<'a> {
     cbdt: Option<Cbdt<'a>>,
     colr: Option<Colr<'a>>,
     cpal: Option<Cpal<'a>>,
+    gdef: Gdef<'a>,
+    gsub: Option<Gsub<'a>>,
 }
 
 /// Counts what passes through to the real sink, so [`Face::outline`] can
@@ -277,6 +281,8 @@ impl<'a> Face<'a> {
             cbdt: None,
             colr: None,
             cpal: None,
+            gdef: Gdef::default(),
+            gsub: None,
         };
 
         // head: unitsPerEm at 18. The specification bounds it to 16..=16384;
@@ -357,6 +363,15 @@ impl<'a> Face<'a> {
         };
         face.colr = face.table(Tag::COLR).and_then(Colr::parse);
         face.cpal = face.table(Tag::CPAL).and_then(Cpal::parse);
+        // Layout: `GDEF` is optional and every lookup consults it; `GSUB`
+        // is what a ligature or emoji font shapes with.
+        face.gdef = face
+            .table(Tag::GDEF)
+            .and_then(Gdef::parse)
+            .unwrap_or_default();
+        face.gsub = face
+            .table(Tag::GSUB)
+            .and_then(|t| Gsub::parse(t, face.gdef));
         Ok(face)
     }
 
@@ -532,6 +547,17 @@ impl<'a> Face<'a> {
         } else {
             self.cbdt.as_ref()?.bitmap(i, g)
         }
+    }
+
+    /// The `GDEF` table's view of the face: glyph classes and mark sets, or
+    /// the empty view when the face has none.
+    pub fn gdef(&self) -> Gdef<'a> {
+        self.gdef
+    }
+
+    /// The substitution table, when the face has one.
+    pub fn gsub(&self) -> Option<&Gsub<'a>> {
+        self.gsub.as_ref()
     }
 
     /// The `COLR` v0 layers of `g`, bottom first, or `None` for a glyph the
