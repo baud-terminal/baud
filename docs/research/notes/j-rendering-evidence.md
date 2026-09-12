@@ -598,6 +598,73 @@ renderer drawing into the same texture share one zero-copy present, and it
 composes with `macos-liquid-glass` through `set_content_view`. The floor is
 `libobjc`, AppKit, QuartzCore, IOSurface and Metal -- the OS, not middleware.
 
+**Inside the owner's crate, read from source.** `macos-liquid-glass`
+1.0.0-beta.4 depends on `objc2` 0.6, `objc2-app-kit` 0.3.2,
+`objc2-foundation` 0.3 and `objc2-core-foundation` 0.3 and nothing else
+(`[[source: mlg-cargo]]`). `GlassWindow::new` is an `NSWindow` with
+`FullSizeContentView`, a transparent titlebar, `setOpaque(false)` and a clear
+background; `::borderless` adds a `canBecomeKeyWindow` override; the public
+surface is `set_content_view`, `content_view`, size and origin, appearance,
+title, `follow_icon_style` and `ns_window()` as the escape hatch for what is
+not wrapped (`[[source: mlg-window]]`). `GlassSurface` wraps
+`NSGlassEffectView` with style, corner radius and tint, and its
+`set_content_view` is the view's `contentView` (`[[source: mlg-glass]]`).
+Apple guarantees placement only for that child: "arbitrary subviews aren't
+guaranteed specific behavior with regard to z-order in relation to the content
+view or glass effect" (`[[source: apple-nsglasseffectview-contentview]]`), and
+several glass shapes belong in one `NSGlassEffectContainerView` to reduce
+render passes (`[[source: apple-nsglasseffectcontainerview]]`). The crate has
+no DPI, display-link, event or drawable-layer helper today; its example
+content view is `NSTextField` labels.
+
+**The compositing constraint is measured, by the owner.** The glass samples
+what is behind the effect view and the content view is composited on top of
+the material, so an opaque layer filling the content view hides the glass
+entirely. The crate's own measurements record that darkening "entirely by an
+opaque paper paints the glass out", that a `textBackgroundColor` fill
+"rendered the light terminal as a flat white slab with no glass left in it",
+and that the material lightens when the window resigns key with no public
+knob (`[[source: mlg-measurements]]`). So baud's layer is non-opaque
+(`[[source: apple-calayer-isopaque]]`; `isOpaque = true` lets Core Animation
+drop the alpha channel), clears to the terminal background at a configured
+alpha rather than to an opaque colour, and the darkening goes on the material
+through `tintColor` with a translucent dim in the content -- the recipe the
+owner shipped. Whether Core Animation's legibility treatment for a
+`contentView` alters the colours of a Metal or IOSurface layer is
+undocumented; measure luma with the crate's harness before trusting a colour.
+
+**DPI, pacing, input -- the three helpers the crate lacks.**
+`NSWindow.backingScaleFactor` is 2.0 on high-resolution modes
+(`[[source: apple-nswindow-backingscalefactor]]`), and the view learns of a
+change in `viewDidChangeBackingProperties`
+(`[[source: apple-nsview-viewdidchangebackingproperties]]`), where ghostty sets
+`layer.contentsScale` inside a transaction with actions disabled and resizes
+the surface to bounds × scale. Pacing on the crate's macOS 26 floor is
+`NSView.displayLink(target:selector:)` (`[[source: apple-nsview-displaylink]]`);
+`CAMetalLayer.presentsWithTransaction` is the knob for a present that rides
+the Core Animation transaction, tear-free on resize
+(`[[source: apple-cametallayer-presentswithtransaction]]`), and the IOSurface
+path has no vsync property at all because the `contents` commit is the
+present. Input: `keyDown` forwarded through `interpretKeyEvents`, which routes
+to the input manager and returns `insertText` and `doCommand(by:)`
+(`[[source: apple-nsresponder-interpretkeyevents]]`), with the view
+implementing `NSTextInputClient` so the candidate window lands at the cursor
+cell via `firstRect(forCharacterRange:)` (`[[source: apple-nstextinputclient]]`).
+ghostty's view is the worked reference for all three.
+
+**What to add to the crate, all within its dependency family.** A drawable
+content view (`wantsLayer`, `makeBackingLayer` returning either a
+`CAMetalLayer` or an IOSurface-content `CALayer` with `contentsGravity`
+top-left, `acceptsFirstResponder`, a resize callback that does the
+contentsScale transaction); a `backing_scale_factor()` accessor and a delegate
+hook for backing-property changes; a display-link wrapper over
+`NSView.displayLink`; a responder trait for key, mouse and scroll plus the
+`NSTextInputClient` forwarding and an `NSTrackingArea` for mouse-moved; small
+window additions (`make_first_responder`, `set_min_size` for cell-multiple
+sizing, `acceptsMouseMovedEvents`); optionally an
+`NSGlassEffectContainerView` wrapper for splits. Each needs only
+`objc2-quartz-core`, `objc2-metal`, `objc2-io-surface` from the same family.
+
 **Windows.** Flip model: `FLIP_DISCARD`/`FLIP_SEQUENTIAL`, `BufferCount` ≥ 2,
 DirectFlip and MPO bypass DWM, the frame-latency waitable object gives one
 frame of latency in Independent Flip, `ALLOW_TEARING` lower
@@ -681,4 +748,7 @@ tags (Twemoji, Segoe); Fira Code's spacer metrics; the maturity of the
 pure-Rust XKB ports; the udmabuf-to-DRI3 CPU path on X11; MicrosoftDocs'
 licence on the OpenType HTML; any shaping cost in ns per cell beyond ghostty's
 96% anecdote; Windows Terminal's 20-byte record, which is field arithmetic
-with no `static_assert`; ghostty's frame rate; contour's dirty tracking.
+with no `static_assert`; ghostty's frame rate; contour's dirty tracking;
+whether Core Animation's legibility treatment for a glass `contentView`
+recolours Metal or IOSurface content (Apple's WWDC 2025 session 310 describes
+the treatment for ordinary views and is video, not pinned).

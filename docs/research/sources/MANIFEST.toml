@@ -4350,3 +4350,171 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsglasseffectview-contentview]
+key    = "apple-nsglasseffectview-contentview"
+title  = "NSGlassEffectView.contentView -- the only child with a z-order guarantee inside the glass"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview/contentview.json"
+file   = ""
+sha256 = "a250cc64dfa46757e44bb15a3dc875175d9df853bf33ac04f99ae0a2a48b8196"
+bytes  = 7966
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsglasseffectcontainerview]
+key    = "apple-nsglasseffectcontainerview"
+title  = "NSGlassEffectContainerView -- grouping glass views to reduce render passes"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectcontainerview.json"
+file   = ""
+sha256 = "34e461a898ec0e09c87227af352a075f010b76323eb3e373902447f577319336"
+bytes  = 30728
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-calayer-isopaque]
+key    = "apple-calayer-isopaque"
+title  = "CALayer.isOpaque"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/calayer/isopaque.json"
+file   = ""
+sha256 = "3bf4725547a43cf265417edc682c72e3dde32bcde9fd2856ad426dadc585e19a"
+bytes  = 22109
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-cametallayer-presentswithtransaction]
+key    = "apple-cametallayer-presentswithtransaction"
+title  = "CAMetalLayer.presentsWithTransaction"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cametallayer/presentswithtransaction.json"
+file   = ""
+sha256 = "4dec8e28c1ccbc6a433cefdb8ca47a9802e39deafb9dc81f14049d08bbe62f59"
+bytes  = 19723
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsview-viewdidchangebackingproperties]
+key    = "apple-nsview-viewdidchangebackingproperties"
+title  = "NSView.viewDidChangeBackingProperties()"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/viewdidchangebackingproperties().json"
+file   = ""
+sha256 = "054f7e482a911d648b900f75ac6c3b0b7cc128c3b4bb0683826fbbaa4bca18c9"
+bytes  = 8021
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsresponder-interpretkeyevents]
+key    = "apple-nsresponder-interpretkeyevents"
+title  = "NSResponder.interpretKeyEvents(_:) -- routing key events through the input manager"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsresponder/interpretkeyevents(_:).json"
+file   = ""
+sha256 = "9a7a9eb28820c30ef8224f3de5344b2f76f897556e9f0a9a1e1548506ff13b9a"
+bytes  = 19453
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nstextinputclient]
+key    = "apple-nstextinputclient"
+title  = "NSTextInputClient -- the protocol an IME-capable view implements"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nstextinputclient.json"
+file   = ""
+sha256 = "5e1a152a57647c8f9c4d76816b9213b28f0ce0a6d2df4d0245a1ff50e26159cd"
+bytes  = 53622
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nswindow-backingscalefactor]
+key    = "apple-nswindow-backingscalefactor"
+title  = "NSWindow.backingScaleFactor"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/backingscalefactor.json"
+file   = ""
+sha256 = "ae6ba56670635217dbf6810ff20e739ba2222905673e894658bbd4b233a9b097"
+bytes  = 22829
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.mlg-window]
+key    = "mlg-window"
+title  = "macos-liquid-glass src/window.rs -- GlassWindow: the NSWindow the owner's crate hands baud"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/src/window.rs"
+file   = "mlg-window.rs"
+sha256 = "2ff68b7626e05ca888b40d931810726ecfc3f455b62517518efe805135bf745e"
+bytes  = 25879
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+
+[sources.mlg-glass]
+key    = "mlg-glass"
+title  = "macos-liquid-glass src/glass.rs -- GlassSurface over NSGlassEffectView"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/src/glass.rs"
+file   = "mlg-glass.rs"
+sha256 = "1e0dbf4c40f718037998f6884f8aa792f9ead58944bee387185ef617ad055080"
+bytes  = 13752
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+
+[sources.mlg-measurements]
+key    = "mlg-measurements"
+title  = "macos-liquid-glass MEASUREMENTS.md -- the owner's luma measurements of glass under opaque and translucent content"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/MEASUREMENTS.md"
+file   = "mlg-MEASUREMENTS.md"
+sha256 = "dfdab3cb751a52b0620260d6f152b00988bcbaf93d173a5ea8c2806a0fef7d53"
+bytes  = 21856
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+
+[sources.mlg-cargo]
+key    = "mlg-cargo"
+title  = "macos-liquid-glass Cargo.toml -- version and the objc2 dependency set"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass at master, 1.0.0-beta.4 (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/master/Cargo.toml"
+file   = "mlg-Cargo.toml"
+sha256 = "a3d240eb6bb814ab81d9fc3b7da014d0a7afdaef80bb3bfaa174badf0e6f29fd"
+bytes  = 5925
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.

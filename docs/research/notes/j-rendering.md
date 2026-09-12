@@ -1,6 +1,6 @@
 # Rendering — the decisions register
 
-> **Group:** J · **Status:** draft for the owner · **Sources:** the ~190 entries
+> **Group:** J · **Status:** draft for the owner · **Sources:** the 226 entries
 > under group J in `MANIFEST.toml`, each cited from
 > `j-rendering-evidence.md`, which carries the evidence behind every line here.
 
@@ -210,7 +210,13 @@ Apple silicon) that the GPU draws into or the CPU writes under `IOSurfaceLock`,
 presented by setting a plain `CALayer.contents` -- the only design where the
 CPU and GPU renderers share a zero-copy present, and it avoids
 `CAMetalLayer`'s drawable pool and timeout. Pace with `NSView.displayLink`
-(14+). **Windows:** `user32` + a DXGI flip-model swapchain copied from Windows
+(14+). **One constraint from the owner's own measurements:** the glass
+samples what is behind it and the content view is composited on top, so an
+opaque layer paints the glass out -- baud's layer is non-opaque, clears to
+the background at a configured alpha, and the darkening goes on the material
+through `tintColor`. The crate lacks a drawable view, DPI, display-link and
+input helpers; the evidence note lists the additions, all within its objc2
+dependency family. **Windows:** `user32` + a DXGI flip-model swapchain copied from Windows
 Terminal (3 buffers, `FLIP_SEQUENTIAL`, `Present1` dirty/scroll rects,
 waitable object at latency 1); there is **no zero-copy CPU present on
 Windows** -- one GPU copy from an upload heap is the floor. **X11:** x11rb's
@@ -255,5 +261,9 @@ cost, so re-opening one is a costed change rather than a rediscovery.
 5. **The IOSurface + `CALayer.contents` design for macOS** (D13) versus a
    `CAMetalLayer` in `macos-liquid-glass`'s content view -- both compose with
    the crate; only the first is zero-copy for the CPU renderer.
+6. **What may punch through the glass.** The backdrop is visible only where
+   the terminal leaves alpha below one. Is that the default background only,
+   or may per-cell SGR backgrounds and images be translucent too? It decides
+   whether alpha is a rendition property or a window property.
 
 Everything else above is decided by evidence and reverses on a measurement.
