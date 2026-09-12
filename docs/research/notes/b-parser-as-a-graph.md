@@ -1,4 +1,4 @@
-# The parser as a graph — how to store 23 nodes and 5,888 edges
+# The parser as a graph — how to store 20 nodes and 5,120 edges
 
 > **Group:** B · **Sources:** `[[source: shift-dfa]]`, `[[source: sheng]]`,
 > `[[source: regex-automata-dense]]`, `[[source: hyperscan]]`,
@@ -7,7 +7,7 @@
 ## What it is
 
 `baud-core/src/graph.rs` holds the VT protocol as a **directed graph**:
-23 nodes, one per parser state, each with 256 out-edges, one per input byte.
+20 nodes, one per parser state, each with 256 out-edges, one per input byte.
 An edge carries what to do and where to go. Feeding a byte is `edge =
 graph[node][byte]`, and feeding a stream is walking the graph — `graph[n0][b0]`
 gives `n1`, `graph[n1][b1]` gives `n2`, and so on.
@@ -26,11 +26,11 @@ Two of its dimensions are measured rather than assumed, and pinned by
 
 | | |
 |---|---|
-| nodes | **23** |
+| nodes | **20** |
 | byte classes, UTF-8 alone | **20** |
 | the same, ISO 8859-1 alone | **19** |
 | **byte classes, one map serving both** | **22** |
-| distinct actions, all reachable | **31** |
+| distinct actions, all reachable | **37** |
 
 **Twenty-two of 256 columns are distinguishable**, so 91% of the table today
 says the same thing twice.
@@ -45,13 +45,21 @@ asserted equal to the derived count rather than merely not less than it.
 
 ## What baud takes
 
-### The representations, and what each costs on a latency-bound loop
+### The representations, and what each costs on the loop
 
-This project's measurements say the ingest loop is **latency-bound at IPC ≈ 1
-on an eight-wide core**, and that the only changes which have ever helped are
-the ones that *shorten the critical path* — not the ones that remove
-instructions, bytes, or loads. So the representations are ranked by what they do
-to the loop-carried dependency, not by size.
+**This section was written on a premise that has since been withdrawn.** It
+read: "the ingest loop is latency-bound at IPC ≈ 1 on an eight-wide core, and
+the only changes which have ever helped are the ones that *shorten the critical
+path*." The counter work in `CLAUDE.md` retracted that -- purpose-built
+controls put `cat-cjk` at **8.8% back-end bound**, not waiting, and the IPC ≈ 1
+figure was claimed and retracted twice because it agreed with the prior. So the
+loop is **not** latency-bound, and the shift-DFA result below is the direct
+consequence: removing a load from the critical path buys nothing when the loop
+was not waiting on it, and the measured recurrence is ~13% *slower*. The
+representations are still ranked by their effect on the loop-carried
+dependency, because that is the axis the sources reason on -- but "shortens the
+chain" is no longer a proxy for "faster here," and the ranking is a map of the
+design space rather than a prediction of throughput.
 
 | representation | table | loop-carried chain |
 |---|---|---|
@@ -77,7 +85,7 @@ premultiplied identifier is i * k where k is the alphabet size … it saves a
 multiplication instruction per byte when searching with the DFA, which has been
 observed to lead to a 20% performance benefit in micro-benchmarks", against the
 cost that identifiers need a wider integer. baud's edge already spends a whole
-byte on the node id and uses 23 of 256 values, so premultiplying by 20 classes
+byte on the node id and uses 20 of 256 values, so premultiplying by 20 classes
 (460 values) needs 16 bits and doubles the edge to four bytes — or premultiplying
 by 20 *within* a 256-wide field does not fit at all. **Flipping the table gets
 the same instruction removed without widening anything**, which is why it is
@@ -113,17 +121,53 @@ four-to-five cycle L1 load off the loop and replaces it with a shift and a mask.
 Its constraint is capacity, and baud exceeds it. `[[source: shift-dfa]]` fits
 "up to 10 states" in a 64-bit word at 6 bits per state, and reports that a
 two-word extension "reduce[s] to 1/3rd" of single-word throughput because of the
-added TEST/CMOV. baud has 23 nodes: 5 bits each is 115 bits, which needs a
+added TEST/CMOV. baud has 20 nodes: 5 bits each is 100 bits, which needs a
 128-bit word. Indexed by class rather than by byte that is 22 words, **352
-bytes** -- the whole parser in six cache lines. Whether an arm64 `u128` shift keeps enough of the advantage is
-**unmeasured**, and it is the single most interesting unmeasured thing in this
-note.
+bytes** -- the whole parser in six cache lines. Whether an arm64 `u128` shift keeps enough of the advantage was
+the single most interesting unmeasured thing in this note.
+
+**Measured now, and it does not: the shift-DFA recurrence is ~13% slower on
+this arm64 core.** `scripts/shift-dfa-microbench.rs` isolates the recurrence
+over baud's 20-state shape -- load-based `flat[state*256+b]` against shift-DFA
+`(SHIFT[b] >> state*5) & mask`, both walking the same transition table so the
+state sequences are identical (asserted) -- and the load reads **~1.45 ns a
+step** against the shift's **~1.65**, stable across ten interleaved rounds and
+two runs on AC power. Two reasons, and both were foreseeable from the source:
+
+* **The loop is not latency-bound.** At ~1.45 ns a step, ~6.5 cycles, the L1
+  load pipelines across iterations rather than stalling the recurrence -- so
+  the four-to-five cycle load latency the shift-DFA removes was never on the
+  critical path to begin with. This is the same reading the counter work gives
+  for the whole parser: `cat-cjk` is 8.8% back-end bound, not waiting.
+* **A `u128` shift is not one instruction on arm64**, and baud's 20 states do
+  not fit the *pre-multiplied* form that would avoid the `* 5` per step -- 20
+  fields wide enough to hold a pre-multiplied id (`19 * width < 2^width`) needs
+  width 8, and `20 * 8 = 160 > 128`. So the raw-id form pays a multiply, a
+  variable 128-bit shift synthesised from 64-bit halves, and a mask, against a
+  single pipelined load. Vognsen's own note that a two-word extension "reduce[s]
+  to 1/3rd" is the same effect seen small.
+
+**So the lead is closed with a measurement, not built into the parser.** The
+mechanism loses in isolation, and in `baud-core` it would additionally be
+diluted to the 0.2-9.7% of bytes that reach `control` (the rest take
+`fast_esc`/`fast_csi`/the run scans) *and* fight `step`'s `act()`, which takes
+`&mut Node` and can override the transition -- so the state cannot stay a naked
+integer across iterations, which is the one thing the shift-DFA needs.
+Building the in-parser arm would confirm a worse-than-null the microbench
+already establishes cleanly. The microbench is kept runnable, the way the
+counter controls are.
+
+**The first run of the microbench read `shift 0.000 ns/step`** -- dead-code
+elimination folded the pure-arithmetic loop away while the memory-load loop
+survived, a probe that could not fire. `black_box` on both accumulators is what
+turned it into a measurement, and it is the same failure this project records
+for the counter controls and the search probes.
 
 **The vector form has a hard bound baud is on the wrong side of.**
 `[[source: sheng]]` does the transition with one `PSHUFB` per byte, where the
 shuffle mask *is* the row — the technique `[[source: dpfsm]]` describes
 academically and `[[source: hyperscan]]` ships. Its limit is **16 states**, one
-per lane of a 128-bit register, and baud's graph has 23. Splitting the graph so
+per lane of a 128-bit register, and baud's graph has 20. Splitting the graph so
 the hot sub-graph fits is discussed below.
 
 ### The two-tier reading, which the payload mix argues for
@@ -164,7 +208,7 @@ and the alternative has a search in it. A sparse representation puts the search
 back.
 
 **Row displacement / comb vectors**, the classic LR-table compression. baud's
-rows are not sparse in the sense that method exploits — every one of the 5,888
+rows are not sparse in the sense that method exploits — every one of the 5,120
 edges is defined, because a VT parser has a defined answer for every byte in
 every state. There is nothing to overlap.
 
@@ -205,15 +249,18 @@ different.
   92% smaller table* — worth taking for rule #2 alone, and worth stating as a
   prediction so a throughput win would be a surprise to explain rather than a
   result to claim.
-* **The 128-bit shift-DFA is unmeasured**, and it is the only candidate that
-  shortens the critical path.
+* **~~The 128-bit shift-DFA is unmeasured~~ -- measured, ~13% slower on this
+  arm64 core** (`scripts/shift-dfa-microbench.rs`). It was the only candidate
+  that *shortens the critical path*, but the critical path was not the load:
+  the loop pipelines it at ~6.5 cycles a step, so replacing a pipelined load
+  with a multi-instruction `u128` shift loses. Closed, above.
 * **Whether the action can be derived from the edge's destination** rather than
   stored beside it. If it can, the edge is one byte instead of two and every
-  representation above halves. 31 actions and 23 nodes say it cannot in general;
+  representation above halves. 37 actions and 20 nodes say it cannot in general;
   whether it can *per node* is not known.
 * **The action dispatch is not a graph problem and is not addressed here.** The
   table names an action; performing it is a call into the grid. A `match` over
-  31 variants lowers to a jump table, which is a dependent load feeding an
+  37 variants lowers to a jump table, which is a dependent load feeding an
   indirect branch — the mechanism that sank the palette trie and the block
   decoder. If the switch to the table measures negative, that is where to look
   first, and it is a separate question from how the edges are stored.
