@@ -1,22 +1,6 @@
 use crate::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// A materialised cell. Carries both brands: it is only valid for one geometry
-/// and one font epoch.
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Cell<'font> {
-    pub slot: AtlasSlot<'font>,
-    pub style: StyleId,
-}
-
-/// The brand-free form, for the one place a viewport actually crosses a byte
-/// boundary: upload to the GPU.
-///
-/// `Cell<'font>` carries a lifetime so a stale atlas slot cannot outlive a font
-/// change; a lifetime cannot be `FromBytes`. So the branded form is what the
-/// domain uses, and this is what gets uploaded — the conversion is a
-/// `repr(transparent)` reinterpretation, not a copy.
 /// What a cell holds. **Content, not appearance.**
 ///
 /// Values above `U+10FFFF` cannot be codepoints, so the reserved states are
@@ -310,32 +294,6 @@ impl CellFlags {
     }
     pub fn from_bits(b: u8) -> CellFlags {
         CellFlags(b as u16)
-    }
-}
-
-/// Materialised rows currently on screen — a projection, never storage.
-///
-/// Over-provisioned and never reallocated: resize changes `cols`/`rows`, not
-/// the allocation. Measured flat from a tight fit up to a 400 MB matrix,
-/// because untouched pages are never faulted in.
-///
-/// Carrying `'layout` and `'font` means a resize or font change forces
-/// re-materialisation — the compiler will not let a stale viewport be read.
-pub struct Viewport<'layout, 'font, 'buf> {
-    cells: &'buf mut [Cell<'font>],
-    stride: Cols,
-    _l: Brand<'layout>,
-}
-
-impl<'layout, 'font, 'buf> Viewport<'layout, 'font, 'buf> {
-    pub fn stride(&self) -> Cols {
-        self.stride
-    }
-    /// Indexing requires a [`RowIdx`] from the matching [`Layout`], so a row
-    /// number computed at a different width cannot be used here.
-    pub fn row(&self, l: &Layout<'layout>, r: RowIdx<'layout>) -> &[Cell<'font>] {
-        let start = l.row_value(r).index() * self.stride.index();
-        &self.cells[start..start + l.cols().index()]
     }
 }
 
