@@ -9,5 +9,5 @@ description = "baud's compositor: cells to instance records to pixels, on the CP
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
-baud-core = { path = "../baud-core" }
+baud-core = { path = "../baud-core", features = ["alloc"] }
 baud-font = { path = "../baud-font" }

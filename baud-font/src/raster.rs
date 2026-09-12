@@ -295,6 +295,11 @@ impl Scale {
         Scale(px / f32::from(upem.value()))
     }
 
+    /// `units` font units in pixels at this scale.
+    pub fn px(self, units: f32) -> f32 {
+        units * self.0
+    }
+
     /// The transform that scales font units to pixels, flips `y` to run
     /// downward, and moves the result by `(dx, dy)` pixels.
     pub fn placing(self, dx: f32, dy: f32) -> Transform {

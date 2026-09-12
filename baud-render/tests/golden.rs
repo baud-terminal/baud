@@ -1,0 +1,88 @@
+//! The final frame of every recording, pinned as a digest.
+//!
+//! Each recording is replayed through the core in `read(2)`-sized chunks
+//! and the last frame painted at 14 px with JetBrains Mono; the FNV-1a of
+//! the pixels is pinned here. A change to shaping, rasterising, colour
+//! resolution or compositing moves a digest and has to say so. The digests
+//! were taken on the first run and are not an oracle; the oracle for each
+//! stage is its own crate's differential.
+
+mod support;
+
+use baud_font::Face;
+use baud_render::Damage;
+use support::*;
+
+/// Recordings whose last act is leaving the alternate screen.
+const BLANK_AT_EXIT: [&str; 1] = ["utf8/less-cjk.raw"];
+
+/// Writes the frame as a binary PPM, for looking at rather than testing.
+fn dump_ppm(c: &Canvas, path: &str) {
+    let mut out = format!("P6\n{} {}\n255\n", c.width, c.height).into_bytes();
+    for &p in &c.pixels {
+        out.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8]);
+    }
+    std::fs::write(path, out).unwrap();
+}
+
+/// `(recording, digest)`, regenerate with `GOLDEN_PRINT=1`.
+const GOLDEN: [(&str, u64); 9] = [
+    ("ascii/asciiquarium.raw", 0x456c152d8222558e),
+    ("utf8/btop.raw", 0xf64790824bddfe88),
+    ("ascii/cat-scroll.raw", 0xe999d6de53f9bd22),
+    ("ascii/git-log.raw", 0xdd0654c533b33046),
+    ("ascii/less-pager.raw", 0xfefd4d0139c73789),
+    ("utf8/cat-cjk.raw", 0x9ea1d82356198690),
+    ("utf8/cava.raw", 0x3c30d39e2e80bf73),
+    ("utf8/less-cjk.raw", 0x08602238a4813a25),
+    ("utf8/vim-unicode.raw", 0xddf30bb4376a32a8),
+];
+
+#[test]
+fn every_recording_paints_to_its_pinned_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let print = std::env::var("GOLDEN_PRINT").is_ok();
+    let mut seen = 0;
+    for &(name, want) in &GOLDEN {
+        let bytes = recording(name);
+        let mut r = renderer(&faces);
+        let mut canvas = Canvas::for_renderer(&r);
+        // One full paint of the final screen; the per-read frames are the
+        // incremental test's business.
+        let mut frame = None;
+        replay_final(&bytes, |t| {
+            frame = Some(paint(&mut r, t, &mut canvas, Damage::Full))
+        });
+        let frame = frame.unwrap();
+        let got = canvas.digest();
+        // Positive controls: something was drawn, and not everywhere the
+        // same colour -- except the one recording that leaves the
+        // alternate screen last, whose restored primary is blank, as
+        // CLAUDE.md records of it.
+        if BLANK_AT_EXIT.contains(&name) {
+            assert_eq!(frame.instances.value(), 0, "{name}");
+        } else {
+            assert!(
+                frame.instances.value() > 100,
+                "{name}: {:?} instances",
+                frame.instances
+            );
+            let first = canvas.pixels[0];
+            assert!(
+                canvas.pixels.iter().any(|&p| p != first),
+                "{name}: one colour"
+            );
+        }
+        if let Ok(dir) = std::env::var("GOLDEN_DUMP") {
+            dump_ppm(&canvas, &format!("{dir}/{}.ppm", name.replace('/', "-")));
+        }
+        if print {
+            println!("    (\"{name}\", 0x{got:016x}),");
+        } else {
+            assert_eq!(got, want, "{name}: frame digest 0x{got:016x}");
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, RECORDINGS.len());
+}
