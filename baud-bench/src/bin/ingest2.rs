@@ -88,7 +88,12 @@ fn main() {
         v
     };
 
-    // **Homogeneous CJK**, and the payload `CLAUDE.md` quotes at 2,440 MB/s.
+    // **Homogeneous CJK.** `CLAUDE.md`'s 2,440 MB/s for this name is a
+    // `baud-core2` figure (2026-08-28), and this generated payload did not
+    // enter `ingest2` until core2 was deleted -- on `baud-core` it reads
+    // 1,137-1,159 over three launches at `44b4996`, and always has. Not a
+    // regression; a different core. `CLAUDE.md`'s `opcost` entry has the
+    // attribution.
     //
     // Three bytes and two columns a character, so a 200-column row is 100
     // characters and 300 bytes. Deliberately without SGR: mixing in escapes
