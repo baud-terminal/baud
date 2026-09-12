@@ -75,6 +75,82 @@ pub enum OtherKeysFormat {
     CsiU,
 }
 
+/// The five progressive enhancements of `[[source: kitty-keyboard]]`, as the
+/// bitfield `CSI = flags ; mode u` carries them.
+///
+/// **Masked to the five defined bits on the way in.** The specification says a
+/// terminal ignores bits it does not define, so a stored `KittyFlags` is always
+/// valid by construction and the encoder never has to guard against a sixth
+/// bit. The protocol is all-or-nothing -- its support detection is whether the
+/// terminal answers `CSI ? u` at all -- so these are recorded and, until every
+/// enhancement is honoured, the query stays unanswered (see the kitty section
+/// of `CLAUDE.md`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct KittyFlags(u8);
+
+impl KittyFlags {
+    pub const NONE: KittyFlags = KittyFlags(0);
+    pub const DISAMBIGUATE: KittyFlags = KittyFlags(0b1);
+    pub const EVENT_TYPES: KittyFlags = KittyFlags(0b10);
+    pub const ALTERNATE_KEYS: KittyFlags = KittyFlags(0b100);
+    pub const ALL_AS_ESCAPES: KittyFlags = KittyFlags(0b1000);
+    pub const ASSOCIATED_TEXT: KittyFlags = KittyFlags(0b1_0000);
+    /// Every defined bit set. `CSI ? u`'s reply is masked against this.
+    pub const ALL: KittyFlags = KittyFlags(0b1_1111);
+
+    /// The `flags` parameter of a set or push, with undefined bits dropped.
+    pub fn from_param(p: Option<Param>) -> KittyFlags {
+        KittyFlags((p.map_or(0, |x| x.0) as u8) & Self::ALL.0)
+    }
+    pub fn bits(self) -> u8 {
+        self.0
+    }
+    pub fn has(self, f: KittyFlags) -> bool {
+        self.0 & f.0 == f.0
+    }
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+    /// Apply a `CSI = flags ; mode u` request to the current flags.
+    pub fn apply(self, req: KittyFlags, mode: KittySetMode) -> KittyFlags {
+        KittyFlags(match mode {
+            KittySetMode::All => req.0,
+            KittySetMode::Or => self.0 | req.0,
+            KittySetMode::AndNot => self.0 & !req.0,
+        })
+    }
+}
+
+/// How `CSI = flags ; mode u` combines its flags with the current set.
+///
+/// `[[source: kitty-keyboard]]`: mode `1` sets the given bits and resets the
+/// rest, `2` sets them and leaves the rest, `3` resets them and leaves the
+/// rest. Mode is optional and defaults to `1`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum KittySetMode {
+    /// `1`, the default: replace the whole set with the given bits.
+    #[default]
+    All,
+    /// `2`: set the given bits, leave the rest.
+    Or,
+    /// `3`: reset the given bits, leave the rest.
+    AndNot,
+}
+
+impl KittySetMode {
+    /// An unrecognised mode falls to the default `All`, the same way an omitted
+    /// one does -- the specification defines only 1, 2 and 3, and answering a
+    /// fourth as its own thing would be acting on a value the protocol has no
+    /// meaning for.
+    pub fn from_param(p: Option<Param>) -> KittySetMode {
+        match p.map_or(1, |x| x.0) {
+            2 => KittySetMode::Or,
+            3 => KittySetMode::AndNot,
+            _ => KittySetMode::All,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct KeyState {
     pub modes: Modes,

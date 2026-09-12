@@ -574,6 +574,25 @@ pub enum Csi {
     /// Which of the two sequence formats [`Csi::SetOtherKeys`] sends. Same
     /// restriction to `Pp = 4`, for the same reason.
     SetOtherKeysFormat(OtherKeysFormat),
+    /// `[[source: kitty-keyboard]]` set, `CSI = flags ; mode u`.
+    KittySet {
+        flags: KittyFlags,
+        mode: KittySetMode,
+    },
+    /// `[[source: kitty-keyboard]]` query, `CSI ? u` -- reply with the current
+    /// flags. Answering is the protocol's support claim, so it stays refused
+    /// until every enhancement is honoured.
+    KittyQuery,
+    /// `[[source: kitty-keyboard]]` push, `CSI > flags u` -- save the current
+    /// flags on the stack and set them to `flags` (default zero).
+    KittyPush {
+        flags: KittyFlags,
+    },
+    /// `[[source: kitty-keyboard]]` pop, `CSI < number u` -- pop `number`
+    /// entries (default one); emptying the stack resets all flags.
+    KittyPop {
+        count: Count,
+    },
     /// DECSLRM, `CSI Pl ; Pr s`.
     ///
     /// `[[source: vt510-decslrm]]`: "sets the left and right margins to define
@@ -662,6 +681,20 @@ impl Csi {
         // would answer a primary DA -- a reply in the wrong shape, which is
         // worse than silence and is the one thing this parser must never do.
         if marker == Marker::Lt || marker == Marker::Equals {
+            // `[[source: kitty-keyboard]]`: `CSI = flags ; mode u` sets the
+            // enhancement flags and `CSI < number u` pops the stack. Every
+            // other `<`/`=` final is a namespace baud implements nothing in.
+            if f.raw() == b'u' {
+                return match marker {
+                    Marker::Equals => Csi::KittySet {
+                        flags: KittyFlags::from_param(p.at(ParamIdx::FIRST)),
+                        mode: KittySetMode::from_param(p.at(ParamIdx::SECOND)),
+                    },
+                    _ => Csi::KittyPop {
+                        count: Count::from_param(p.at(ParamIdx::FIRST)),
+                    },
+                };
+            }
             return Csi::Unsupported {
                 marker,
                 final_byte: f,
@@ -742,6 +775,12 @@ impl Csi {
                 final_byte: f,
             };
         }
+        // `[[source: kitty-keyboard]]` push, `CSI > flags u`.
+        if marker == Marker::Gt && f.raw() == b'u' {
+            return Csi::KittyPush {
+                flags: KittyFlags::from_param(p.at(ParamIdx::FIRST)),
+            };
+        }
         if marker == Marker::Gt {
             // Every other `>` final. **Not a fallthrough to the standard
             // table**, which is what it was: `CSI > 1 n` was read as `CSI 1 n`
@@ -764,6 +803,8 @@ impl Csi {
                     change: ModeChange::Reset,
                     mode: p.mode(ParamIdx::FIRST),
                 },
+                // `[[source: kitty-keyboard]]` query, `CSI ? u`.
+                b'u' => Csi::KittyQuery,
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
                     None => Csi::Unsupported {
@@ -995,8 +1036,15 @@ impl Csi {
 
             RequestVersion | HighlightMouseTracking(_) => Level::Xterm,
             // XTMODKEYS and XTFMTKEYS are xterm's, and input-side: they change
-            // what the keyboard sends rather than what the screen shows.
-            SetOtherKeys(_) | SetOtherKeysFormat(_) => Level::Xterm,
+            // what the keyboard sends rather than what the screen shows. The
+            // kitty negotiation is the same shape -- input-side, and an
+            // extension rather than a VT level.
+            SetOtherKeys(_)
+            | SetOtherKeysFormat(_)
+            | KittySet { .. }
+            | KittyQuery
+            | KittyPush { .. }
+            | KittyPop { .. } => Level::Xterm,
 
             Unsupported { .. } => return None,
         })

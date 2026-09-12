@@ -1563,7 +1563,18 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // one change.
         DomCsi::SetOtherKeys(k) => p.cold.other_keys = k,
         DomCsi::SetOtherKeysFormat(k) => p.cold.other_keys_format = k,
-        DomCsi::Unsupported { .. } => {
+        // **`[[source: kitty-keyboard]]`: parsed, and still refused.** The
+        // grammar is named here so the negotiation and encoder can be built on
+        // it, but the protocol's support detection is whether `CSI ? u` is
+        // answered at all -- so until every enhancement is honoured, answering
+        // would claim support baud does not have, which is the one thing worse
+        // than silence. All four forms are consumed and counted, exactly as
+        // before they had names. See the kitty section of `CLAUDE.md`.
+        DomCsi::KittySet { .. }
+        | DomCsi::KittyQuery
+        | DomCsi::KittyPush { .. }
+        | DomCsi::KittyPop { .. }
+        | DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
             {
