@@ -157,12 +157,16 @@ fn event_types_are_reported_only_when_enabled() {
         mods: Modifiers::NONE,
         kind: KeyEventKind::Release,
         text: None,
+        shifted: None,
+        base_layout: None,
     };
     let repeat = KeyEvent {
         code: up,
         mods: Modifiers::NONE,
         kind: KeyEventKind::Repeat,
         text: None,
+        shifted: None,
+        base_layout: None,
     };
 
     // Disambiguate only: a release is silent, a repeat looks like a press.
@@ -231,5 +235,112 @@ fn a_char_encodes_its_unshifted_codepoint() {
     assert_eq!(
         pressed(b"\x1b[=8u", KeyEvent::press(a, Modifiers::SHIFT)),
         b"\x1b[97;2u"
+    );
+}
+
+fn text_key(
+    ch: char,
+    mods: Modifiers,
+    text: Option<char>,
+    shifted: Option<char>,
+    base: Option<char>,
+) -> KeyEvent {
+    KeyEvent {
+        code: KeyCode::Char(Codepoint::from_char(ch)),
+        mods,
+        kind: KeyEventKind::Press,
+        text: text.map(Codepoint::from_char),
+        shifted: shifted.map(Codepoint::from_char),
+        base_layout: base.map(Codepoint::from_char),
+    }
+}
+
+/// **Associated text (flag 16): the spec's worked example.** `shift+a` with the
+/// produced text `A` reports `CSI 97 ; 2 ; 65 u` -- unshifted 97, shift in the
+/// modifier field, text 65. And the modifier field is an explicit `1`, never
+/// empty, when text is carried with no modifier held.
+#[test]
+fn associated_text_matches_the_worked_example() {
+    // flags = all-keys | associated-text = 8 | 16 = 24.
+    assert_eq!(
+        pressed(
+            b"\x1b[=24u",
+            text_key('a', Modifiers::SHIFT, Some('A'), None, None)
+        ),
+        b"\x1b[97;2;65u"
+    );
+    // Plain 'a' with text: the modifier field is `1`, not empty.
+    assert_eq!(
+        pressed(
+            b"\x1b[=24u",
+            text_key('a', Modifiers::NONE, Some('a'), None, None)
+        ),
+        b"\x1b[97;1;97u"
+    );
+    // Without the text flag, all-keys reports the key event only -- no text.
+    assert_eq!(
+        pressed(
+            b"\x1b[=8u",
+            text_key('a', Modifiers::SHIFT, Some('A'), None, None)
+        ),
+        b"\x1b[97;2u"
+    );
+}
+
+/// **Alternate keys (flag 4): shifted only under shift, base as an empty-slot
+/// third sub-field.** `[[source: kitty-keyboard]]`: the shifted key "must be
+/// present only if shift is also present", and a base-only report uses an
+/// empty shifted slot, `CSI code::base`.
+#[test]
+fn alternate_keys_attach_to_the_number() {
+    // shift+a is a text key -- not routed under disambiguate alone -- so the
+    // alternate-key case needs all-keys to route it: flags = all | alt = 12.
+    // shift+a with shifted 'A': CSI 97:65 ; 2 u.
+    assert_eq!(
+        pressed(
+            b"\x1b[=12u",
+            text_key('a', Modifiers::SHIFT, Some('A'), Some('A'), None)
+        ),
+        b"\x1b[97:65;2u"
+    );
+    // flags = disambiguate | alternate-keys = 1 | 4 = 5 for the ctrl cases,
+    // which route on ctrl.
+    // ctrl+a, base-layout 'c', no shift: empty shifted slot -> CSI 97::99 ; 5 u.
+    assert_eq!(
+        pressed(
+            b"\x1b[=5u",
+            text_key('a', Modifiers::CTRL, None, Some('A'), Some('c'))
+        ),
+        b"\x1b[97::99;5u"
+    );
+    // ctrl+shift+a with both: CSI 97:65:99 ; 6 u.
+    assert_eq!(
+        pressed(
+            b"\x1b[=5u",
+            text_key(
+                'a',
+                Modifiers::CTRL.with(Modifiers::SHIFT),
+                Some('A'),
+                Some('A'),
+                Some('c')
+            )
+        ),
+        b"\x1b[97:65:99;6u"
+    );
+    // The shifted key is dropped when shift is not held, even if supplied.
+    assert_eq!(
+        pressed(
+            b"\x1b[=5u",
+            text_key('a', Modifiers::CTRL, None, Some('A'), None)
+        ),
+        b"\x1b[97;5u"
+    );
+    // Alternate keys are off without the flag: ctrl+a is just CSI 97 ; 5 u.
+    assert_eq!(
+        pressed(
+            b"\x1b[=1u",
+            text_key('a', Modifiers::CTRL, None, Some('A'), Some('c'))
+        ),
+        b"\x1b[97;5u"
     );
 }

@@ -516,6 +516,15 @@ pub struct KeyEvent {
     /// combination. A single codepoint; a multi-codepoint IME commit is a later
     /// widening.
     pub text: Option<Codepoint>,
+    /// `[[source: kitty-keyboard]]`'s alternate keys (flag 4), for shortcut
+    /// matching: the *shifted* codepoint (the layout's shifted version of the
+    /// key, `a` -> `A`) and the *base-layout* codepoint (the same physical key
+    /// in the standard PC-101 layout, so a Cyrillic `С` reports `c`). Both are
+    /// what the platform supplies; `None` when it does not, or for a key with
+    /// no such variant. Read only by the kitty encoder, and the shifted key is
+    /// emitted only when shift is also in the modifiers.
+    pub shifted: Option<Codepoint>,
+    pub base_layout: Option<Codepoint>,
 }
 
 impl KeyEvent {
@@ -534,6 +543,8 @@ impl KeyEvent {
                 KeyCode::Char(cp) => Some(cp),
                 _ => None,
             },
+            shifted: None,
+            base_layout: None,
         }
     }
 }

@@ -441,8 +441,26 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
             (u32::from(n), f)
         }
     };
+    // Alternate keys (flag 4): the shifted codepoint only when shift is held,
+    // and the base-layout codepoint whenever the platform supplied it. Both are
+    // absent for functional keys, which carry no such variant.
+    let alt = flags.has(KittyFlags::ALTERNATE_KEYS);
+    let shifted = (alt && e.mods.has(Modifiers::SHIFT))
+        .then_some(e.shifted)
+        .flatten()
+        .map(|c| c.value());
+    let base = alt.then_some(e.base_layout).flatten().map(|c| c.value());
+    // Associated text (flag 16): the produced codepoint, embedded in the escape
+    // code. Without the flag, an all-keys report carries the key event only.
+    let text = flags
+        .has(KittyFlags::ASSOCIATED_TEXT)
+        .then_some(e.text)
+        .flatten()
+        .map(|c| c.value());
     let mut o = KeyBytes::new();
-    kitty_csi_u(&mut o, number, final_byte, e.mods, event, s.c1);
+    kitty_csi_u(
+        &mut o, number, final_byte, e.mods, event, shifted, base, text, s.c1,
+    );
     match o.fit == Fit::Whole {
         true => Some(o),
         false => None,
@@ -529,30 +547,61 @@ fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
 /// disambiguation leaves an unmodified cursor key alone. The event sub-field is
 /// present only for a non-press, and a modifier field of `1` is written to
 /// carry it when no modifier is held.
+#[allow(clippy::too_many_arguments)]
 fn kitty_csi_u(
     o: &mut KeyBytes,
     number: u32,
     final_byte: u8,
     mods: Modifiers,
     event: u16,
+    shifted: Option<u32>,
+    base: Option<u32>,
+    text: Option<u32>,
     c1: C1Transmit,
 ) {
     o.introducer(Introducer::Csi, c1);
     let letter = final_byte != b'u' && final_byte != b'~';
-    let params = !mods.is_none() || event != 1;
-    if letter {
-        if params {
-            o.num(1);
-        }
+    let has_alt = shifted.is_some() || base.is_some();
+    // The modifier field is present, as an explicit `1` when nothing is held,
+    // whenever a modifier, an event sub-field or associated text has to be
+    // carried -- `[[source: kitty-keyboard]]` line 938: "the modifiers field
+    // must have the value 1".
+    let params = !mods.is_none() || event != 1 || text.is_some();
+
+    // The key-number field, with the alternate-key sub-fields. A letter final
+    // omits the number entirely when there is nothing else to carry; otherwise
+    // it is `1`. Alternate keys attach to the number, so a letter form never
+    // has them (functional keys carry no shifted/base variant).
+    if letter && !params {
+        // `CSI A` -- number omitted.
+    } else if letter {
+        o.num(1);
     } else {
         o.num32(number);
+        if has_alt {
+            o.push(b':');
+            // `code::base` when only the base-layout key is present: the
+            // shifted slot is left empty.
+            if let Some(sh) = shifted {
+                o.num32(sh);
+            }
+            if let Some(b) = base {
+                o.push(b':');
+                o.num32(b);
+            }
+        }
     }
+
     if params {
         o.push(b';');
         o.num(mods.kitty_wire());
         if event != 1 {
             o.push(b':');
             o.num(event);
+        }
+        if let Some(t) = text {
+            o.push(b';');
+            o.num32(t);
         }
     }
     o.push(final_byte);
