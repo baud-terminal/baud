@@ -3,13 +3,15 @@
 What baud must **send**, enumerated against primary sources, in the same shape
 as `vt-coverage.md` does for what it receives.
 
-The base layer has started: `Term::key` encodes the cursor keys, Home/End, the
+The base layer is done: `Term::key` encodes the cursor keys, Home/End, the
 editing keys, F1-F20, the text keys, the keypad and the VT52 tables, in both
 DECCKM and both DECKPAM modes, with modifiers and in both input encodings.
-**Every row of the base layer is now `done` or `out` with a reason.** What
-remains is the two negotiated layers -- `[[source: fixterms]]`'s `CSI u` and
-`[[source: kitty-keyboard]]`'s progressive enhancement -- which an application
-must ask for, and which no application receives by default: `vt-coverage.md`'s rule is that a row marked **done**
+**Both negotiated layers are done too.** `[[source: fixterms]]`'s `CSI u` is
+reachable through `modifyOtherKeys`/`formatOtherKeys` (the base layer's
+resources), and `[[source: kitty-keyboard]]`'s progressive enhancement is
+implemented in full: all five flags, the per-screen stack, and the `CSI ? u`
+query answered -- which is the protocol's support claim, made only once every
+enhancement is honoured. `vt-coverage.md`'s rule is that a row marked **done**
 carries a test, and a row marked `partial` is an operation whose gap is named.
 A `todo` row here has neither because it has no code.
 
@@ -62,7 +64,7 @@ gated against `extract-keys.py`. The encoder that consumes it is not built yet
 | 2713 | VT52 keypad | 24 | **done** — `ESC ? <final>` in application mode, the literal character in numeric, `ESC P`-`ESC S` for PF1-PF4 in both. Its finals are the VT220 table's, not 2498's: keypad `2` is `ESC ? r` where the PC keypad sends `CSI B`, because a VT52 keypad has no cursor duties to borrow. `the_vt52_keypad_matches_the_specifications_table` |
 | 1271 | XTMODKEYS `modifyOtherKeys`, `CSI > 4 ; 2 m` | 3 | **done** — levels 0-2. This row did not exist until the resource was implemented, and that is the finding: `modifyOtherKeys` was named in the layer table above as part of the base layer and had **no status row**, so it was invisible to this table's own count while appearing nowhere in the code. A layer named in prose and not enumerated is a layer nothing checks. `the_worked_examples_are_what_baud_sends` |
 | 795 | XTFMTKEYS `formatOtherKeys`, `CSI > 4 ; 1 f` | 2 | **done** — picks which sequence the row above sends, and is therefore **the only route to the CSI-u layer**: `[[source: fixterms]]` defines no negotiation, so its form is unreachable without this resource or kitty's stack |
-| — | kitty progressive enhancement, all five flags | 5 | **out — all-or-nothing by the protocol's own detection.** `[[source: kitty-keyboard]]` treats the presence of a reply to `CSI ? u` as the support claim, so a terminal cannot implement a subset and stay honest: answering while the enhancements are missing makes applications stop sending legacy-compatible input. `CSI ? u` is therefore consumed and counted, unanswered. `CSI = / > / <` now maintain the per-screen flag stack (`KittyStack`), tracked but read by nothing until the encoder honours every enhancement and the reply is turned on in the same change. Its own words: "It does not make sense to implement only a subset." `the_query_is_refused_and_counted` |
+| — | kitty progressive enhancement, all five flags | 5 | **done — all five, and the query is answered.** `[[source: kitty-keyboard]]` treats a reply to `CSI ? u` as the support claim, so it is made only now that all five enhancements are honoured: disambiguate, event types, alternate keys, all-keys and associated text, encoded for text keys, the functional keys, the keypad and the Private Use Area keys (locks, F21–F35, media, and the individual modifier keys flag 8 reports). `CSI = / > / <` maintain the per-screen `KittyStack`. **One stated boundary:** the keypad *navigation* keys (`KP_LEFT`…`KP_BEGIN`) are not modelled, because baud's keypad is digit-based — an embedder that needs them adds them, and no flag's behaviour depends on them. `the_query_is_answered_with_the_current_flags`, `functional_keys_match_the_source`, `pua_keys_match_the_source` |
 | 2241 | `modifyOtherKeys` level 3 | 1 | **out** — unmodified keys sent as sequences. Refused and counted rather than rounded down to level 2, so an application can tell its request did not take. `an_unrepresentable_level_is_refused_and_counted` |
 
 ## Modifiers

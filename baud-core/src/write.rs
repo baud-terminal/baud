@@ -1563,19 +1563,17 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // one change.
         DomCsi::SetOtherKeys(k) => p.cold.other_keys = k,
         DomCsi::SetOtherKeysFormat(k) => p.cold.other_keys_format = k,
-        // **`[[source: kitty-keyboard]]`: the flags are tracked, the query is
-        // still refused.** Set, push and pop maintain the active screen's
-        // stack; nothing reads it yet but the tests, because the protocol's
-        // support detection is whether `CSI ? u` is *answered*, and answering
-        // before every enhancement is honoured would claim support baud does
-        // not have -- the one thing worse than silence. So the query stays
-        // consumed-and-counted until the encoder honours the flags and the
-        // reply can be turned on in one change. See the kitty section of
-        // `CLAUDE.md`.
+        // **`[[source: kitty-keyboard]]`: the negotiation is live and the query
+        // is answered.** Set, push and pop maintain the active screen's stack,
+        // and `CSI ? u` replies with the current flags -- which is the
+        // protocol's support claim, made only now that `Term::key` honours all
+        // five enhancements for every key it can represent. See the kitty
+        // section of `CLAUDE.md`.
         DomCsi::KittySet { flags, mode } => p.cold.kitty.set(flags, mode),
         DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
         DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
-        DomCsi::KittyQuery | DomCsi::Unsupported { .. } => {
+        DomCsi::KittyQuery => p.want_reply(Report::KittyFlags(p.cold.kitty.current())),
+        DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
             {

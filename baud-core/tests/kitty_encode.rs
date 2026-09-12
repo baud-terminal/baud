@@ -402,3 +402,73 @@ fn keypad_keys_match_the_source() {
         );
     }
 }
+
+/// **Every PUA-only key encodes to its dedicated number from the source.**
+/// These have no legacy form, so all-keys mode is where they appear:
+/// `CSI <number> u`. This is the vocabulary flag 8's "report all keys,
+/// including modifier keys" requires before the query may be answered.
+#[test]
+fn pua_keys_match_the_source() {
+    let table = functional_table();
+    let cases: [(PuaKey, &str); 48] = [
+        (PuaKey::CapsLock, "CAPS_LOCK"),
+        (PuaKey::ScrollLock, "SCROLL_LOCK"),
+        (PuaKey::NumLock, "NUM_LOCK"),
+        (PuaKey::PrintScreen, "PRINT_SCREEN"),
+        (PuaKey::Pause, "PAUSE"),
+        (PuaKey::Menu, "MENU"),
+        (PuaKey::F21, "F21"),
+        (PuaKey::F22, "F22"),
+        (PuaKey::F23, "F23"),
+        (PuaKey::F24, "F24"),
+        (PuaKey::F25, "F25"),
+        (PuaKey::F26, "F26"),
+        (PuaKey::F27, "F27"),
+        (PuaKey::F28, "F28"),
+        (PuaKey::F29, "F29"),
+        (PuaKey::F30, "F30"),
+        (PuaKey::F31, "F31"),
+        (PuaKey::F32, "F32"),
+        (PuaKey::F33, "F33"),
+        (PuaKey::F34, "F34"),
+        (PuaKey::F35, "F35"),
+        (PuaKey::MediaPlay, "MEDIA_PLAY"),
+        (PuaKey::MediaPause, "MEDIA_PAUSE"),
+        (PuaKey::MediaPlayPause, "MEDIA_PLAY_PAUSE"),
+        (PuaKey::MediaReverse, "MEDIA_REVERSE"),
+        (PuaKey::MediaStop, "MEDIA_STOP"),
+        (PuaKey::MediaFastForward, "MEDIA_FAST_FORWARD"),
+        (PuaKey::MediaRewind, "MEDIA_REWIND"),
+        (PuaKey::MediaTrackNext, "MEDIA_TRACK_NEXT"),
+        (PuaKey::MediaTrackPrevious, "MEDIA_TRACK_PREVIOUS"),
+        (PuaKey::MediaRecord, "MEDIA_RECORD"),
+        (PuaKey::LowerVolume, "LOWER_VOLUME"),
+        (PuaKey::RaiseVolume, "RAISE_VOLUME"),
+        (PuaKey::MuteVolume, "MUTE_VOLUME"),
+        (PuaKey::LeftShift, "LEFT_SHIFT"),
+        (PuaKey::LeftControl, "LEFT_CONTROL"),
+        (PuaKey::LeftAlt, "LEFT_ALT"),
+        (PuaKey::LeftSuper, "LEFT_SUPER"),
+        (PuaKey::LeftHyper, "LEFT_HYPER"),
+        (PuaKey::LeftMeta, "LEFT_META"),
+        (PuaKey::RightShift, "RIGHT_SHIFT"),
+        (PuaKey::RightControl, "RIGHT_CONTROL"),
+        (PuaKey::RightAlt, "RIGHT_ALT"),
+        (PuaKey::RightSuper, "RIGHT_SUPER"),
+        (PuaKey::RightHyper, "RIGHT_HYPER"),
+        (PuaKey::RightMeta, "RIGHT_META"),
+        (PuaKey::IsoLevel3Shift, "ISO_LEVEL3_SHIFT"),
+        (PuaKey::IsoLevel5Shift, "ISO_LEVEL5_SHIFT"),
+    ];
+    for (k, name) in cases {
+        let (number, _) = table[name];
+        let got = pressed(
+            b"\x1b[=8u",
+            KeyEvent::press(KeyCode::Pua(k), Modifiers::NONE),
+        );
+        let mut want = vec![0x1b, b'['];
+        want.extend_from_slice(number.to_string().as_bytes());
+        want.push(b'u');
+        assert_eq!(got, want, "{name}");
+    }
+}

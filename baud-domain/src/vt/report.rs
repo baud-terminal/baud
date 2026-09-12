@@ -48,6 +48,14 @@ pub enum Report {
     /// DCS either -- a third shape, which is why replies are a typed `Report`
     /// rather than byte literals at each call site.
     Vt52Identity,
+    /// `[[source: kitty-keyboard]]`'s answer to the flags query `CSI ? u`:
+    /// `CSI ? flags u`, the currently enabled progressive-enhancement bits.
+    ///
+    /// **Answering is the support claim.** The protocol detects support by
+    /// whether this reply arrives at all, so it is emitted only now that every
+    /// enhancement is honoured -- before that the query was consumed and
+    /// counted, unanswered.
+    KittyFlags(KittyFlags),
     /// XTVERSION, the answer to `CSI > 0 q`.
     ///
     /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
@@ -238,6 +246,11 @@ impl Report {
             Report::OperatingStatus => {
                 e.push_num(0);
                 e.push(b'n');
+            }
+            Report::KittyFlags(f) => {
+                e.push(b'?');
+                e.push_num(u16::from(f.bits()));
+                e.push(b'u');
             }
             Report::PrimaryDeviceAttributes(d) => {
                 e.push(b'?');

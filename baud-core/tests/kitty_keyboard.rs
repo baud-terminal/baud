@@ -1,28 +1,24 @@
 #![deny(dead_code)]
-//! `[[source: kitty-keyboard]]`'s progressive enhancement: the negotiation flags
-//! are **tracked**, and the query is still **refused**.
+//! `[[source: kitty-keyboard]]`'s progressive enhancement: the negotiation is
+//! live and the query is **answered**.
 //!
-//! The protocol's own support detection makes it all-or-nothing. From the
+//! The protocol's support detection makes it all-or-nothing. From the
 //! specification: an application queries the enhancement status and then asks
 //! for primary device attributes, and "if an answer for the device attributes is
-//! received **without getting back an answer for the progressive enhancement the
-//! terminal does not support this protocol**".
+//! received without getting back an answer for the progressive enhancement the
+//! terminal does not support this protocol". **So a reply is the claim** -- and
+//! it is made only now that `Term::key` honours all five enhancements
+//! (disambiguate, event types, alternate keys, all-keys, associated text) for
+//! every key it can represent: text keys, the functional keys, the keypad, and
+//! the Private Use Area keys the individual modifiers live in. The
+//! specification's own words are "It does not make sense to implement only a
+//! subset", and none is skipped.
 //!
-//! **So a reply is the claim.** Answering `CSI ? u` with `CSI ? 0 u` would be
-//! truthful about the flags and a lie about the protocol: the application would
-//! conclude the enhancements are available and stop sending input the legacy way.
-//! That is the failure `docs/vt-coverage.md` rates worst -- answering a query
-//! with a shape the application did not ask for -- and it is why `DA`
-//! under-claims as a VT102 and why `DECRQM` answers `0` rather than `2`.
-//!
-//! The specification says the same thing from its own side: implementations are
-//! "strongly encouraged to implement all progressive enhancements. It does not
-//! make sense to implement only a subset."
-//!
-//! So the query stays silent until all five enhancements exist. What has changed
-//! since it was refused wholesale is that **set, push and pop now maintain the
-//! flag stack** -- nothing reads it but these tests, so no support is claimed,
-//! but the state is there for the encoder to honour in one change with the reply.
+//! `CSI ? u` now answers `CSI ? flags u` with the active screen's flags. The
+//! query stayed silent through every earlier increment -- answering while the
+//! encoding was incomplete would have been the "wrong-shaped reply" this
+//! project refuses -- which is why turning it on is one deliberate change here
+//! rather than a side effect of building the encoder.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -43,24 +39,25 @@ fn drawn(t: &Term) -> bool {
     })
 }
 
-/// **The query is consumed, counted, and left unanswered.**
-///
-/// The third assertion is the one that keeps the refusal safe: answering would
-/// claim support for enhancements baud does not implement.
+/// **The query is answered with the current flags, `CSI ? flags u`.** This is
+/// the support claim; the reply reflects whatever the active screen's stack
+/// holds, so an application reads back exactly what it set.
 #[test]
-fn the_query_is_refused_and_counted() {
+fn the_query_is_answered_with_the_current_flags() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    feed(&mut t, b"\x1b[?u");
 
-    assert!(!drawn(&t), "the query must be consumed, not drawn");
-    assert_eq!(t.unsupported, 1, "counted, so an embedder sees it arrive");
-    assert!(
-        t.reply().is_empty(),
-        "answering claims support for the whole protocol -- the specification's \
-         detection mechanism is the presence of a reply"
-    );
+    // No enhancements set yet: the honest answer is zero, but it is answered.
+    feed(&mut t, b"\x1b[?u");
+    assert!(!drawn(&t), "the query is consumed, not drawn");
+    assert_eq!(t.reply(), b"\x1b[?0u", "answered, with no flags set");
+    assert_eq!(t.unsupported, 0, "answered, not refused");
+
+    // After setting disambiguate + alternate keys (5), the query reflects them.
+    t.clear_reply();
+    feed(&mut t, b"\x1b[=5u\x1b[?u");
+    assert_eq!(t.reply(), b"\x1b[?5u");
 }
 
 /// Set, push and pop are consumed and **not** counted as unsupported: they do

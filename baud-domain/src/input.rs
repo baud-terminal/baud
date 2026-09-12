@@ -449,6 +449,129 @@ pub enum KeyCode {
     Tab,
     Backspace,
     Escape,
+    /// A key with no legacy form: `[[source: kitty-keyboard]]`'s Private Use
+    /// Area keys -- the locks, F21-F35, media keys and the individual modifier
+    /// keys. The base layer sends nothing for these (`[[source: ctlseqs]]` has
+    /// no encoding); only the kitty encoder gives them a form, their dedicated
+    /// PUA number.
+    Pua(PuaKey),
+}
+
+/// A `[[source: kitty-keyboard]]` Private Use Area key -- one with a dedicated
+/// number in the functional table and no `[[source: ctlseqs]]` legacy form.
+///
+/// **The individual modifier keys are why this exists.** Flag 8, "report all
+/// keys as escape codes", reports a lone `Left Shift` press, which needs a key
+/// identity the base layer never had. The locks, F21-F35 and media keys come
+/// with them. The keypad *navigation* keys (`KP_LEFT` and friends) are not here
+/// -- baud's keypad is digit-based -- which is a stated boundary rather than a
+/// slip. `pua_keys_match_the_source` gates every number against the extractor.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PuaKey {
+    CapsLock,
+    ScrollLock,
+    NumLock,
+    PrintScreen,
+    Pause,
+    Menu,
+    F21,
+    F22,
+    F23,
+    F24,
+    F25,
+    F26,
+    F27,
+    F28,
+    F29,
+    F30,
+    F31,
+    F32,
+    F33,
+    F34,
+    F35,
+    MediaPlay,
+    MediaPause,
+    MediaPlayPause,
+    MediaReverse,
+    MediaStop,
+    MediaFastForward,
+    MediaRewind,
+    MediaTrackNext,
+    MediaTrackPrevious,
+    MediaRecord,
+    LowerVolume,
+    RaiseVolume,
+    MuteVolume,
+    LeftShift,
+    LeftControl,
+    LeftAlt,
+    LeftSuper,
+    LeftHyper,
+    LeftMeta,
+    RightShift,
+    RightControl,
+    RightAlt,
+    RightSuper,
+    RightHyper,
+    RightMeta,
+    IsoLevel3Shift,
+    IsoLevel5Shift,
+}
+
+impl PuaKey {
+    /// The key's number in `[[source: kitty-keyboard]]`'s functional table.
+    pub fn kitty_number(self) -> u32 {
+        match self {
+            PuaKey::CapsLock => 57358,
+            PuaKey::ScrollLock => 57359,
+            PuaKey::NumLock => 57360,
+            PuaKey::PrintScreen => 57361,
+            PuaKey::Pause => 57362,
+            PuaKey::Menu => 57363,
+            PuaKey::F21 => 57384,
+            PuaKey::F22 => 57385,
+            PuaKey::F23 => 57386,
+            PuaKey::F24 => 57387,
+            PuaKey::F25 => 57388,
+            PuaKey::F26 => 57389,
+            PuaKey::F27 => 57390,
+            PuaKey::F28 => 57391,
+            PuaKey::F29 => 57392,
+            PuaKey::F30 => 57393,
+            PuaKey::F31 => 57394,
+            PuaKey::F32 => 57395,
+            PuaKey::F33 => 57396,
+            PuaKey::F34 => 57397,
+            PuaKey::F35 => 57398,
+            PuaKey::MediaPlay => 57428,
+            PuaKey::MediaPause => 57429,
+            PuaKey::MediaPlayPause => 57430,
+            PuaKey::MediaReverse => 57431,
+            PuaKey::MediaStop => 57432,
+            PuaKey::MediaFastForward => 57433,
+            PuaKey::MediaRewind => 57434,
+            PuaKey::MediaTrackNext => 57435,
+            PuaKey::MediaTrackPrevious => 57436,
+            PuaKey::MediaRecord => 57437,
+            PuaKey::LowerVolume => 57438,
+            PuaKey::RaiseVolume => 57439,
+            PuaKey::MuteVolume => 57440,
+            PuaKey::LeftShift => 57441,
+            PuaKey::LeftControl => 57442,
+            PuaKey::LeftAlt => 57443,
+            PuaKey::LeftSuper => 57444,
+            PuaKey::LeftHyper => 57445,
+            PuaKey::LeftMeta => 57446,
+            PuaKey::RightShift => 57447,
+            PuaKey::RightControl => 57448,
+            PuaKey::RightAlt => 57449,
+            PuaKey::RightSuper => 57450,
+            PuaKey::RightHyper => 57451,
+            PuaKey::RightMeta => 57452,
+            PuaKey::IsoLevel3Shift => 57453,
+            PuaKey::IsoLevel5Shift => 57454,
+        }
+    }
 }
 
 impl KeyCode {

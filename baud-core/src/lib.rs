@@ -91,7 +91,7 @@ pub use baud_domain::{
     HighlightRegion, HighlightTracking, MouseButton, MouseEncoding, MouseEvent, MouseKind,
     MouseMods, MouseTracking,
 };
-pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers};
+pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 pub use graph::Node;
 
 /// The sixteen allocations a `Storage` borrows, for a caller that has an

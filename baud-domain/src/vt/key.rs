@@ -435,6 +435,9 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // arrive with the alternate-key work, so it still sends nothing.
     let (number, final_byte) = match e.code {
         KeyCode::Char(cp) => (cp.value(), b'u'),
+        // The PUA keys -- locks, F21-F35, media, individual modifiers -- carry
+        // their dedicated number and always the `u` final.
+        KeyCode::Pua(p) => (p.kitty_number(), b'u'),
         // The keypad's `PF` keys share F1-F4's forms; the rest carry kitty's
         // dedicated keypad numbers, so a keypad digit is distinct from the
         // main-row one -- which is the disambiguation the enhancement is for.
@@ -497,7 +500,7 @@ fn kitty_disambiguated(code: KeyCode, mods: Modifiers) -> bool {
 }
 
 /// A functional key's CSI-u number and final byte, from the "Functional key
-/// definitions" table. `kitty_functional_keys_match_the_source` gates every row
+/// definitions" table. `functional_keys_match_the_source` gates every row
 /// against `scripts/extract-kitty-keys.py`, so a transcription slip fails the
 /// build rather than sending a wrong key.
 fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
@@ -541,8 +544,8 @@ fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
             20 => (57383, b'u'),
             _ => return None,
         },
-        // A Char's number is its codepoint, handled by the caller.
-        KeyCode::Char(_) | KeyCode::Keypad(_) => return None,
+        // Char, keypad and PUA keys are resolved by the caller, not here.
+        KeyCode::Char(_) | KeyCode::Keypad(_) | KeyCode::Pua(_) => return None,
     })
 }
 
@@ -682,6 +685,8 @@ fn ansi(
         }
         KeyCode::Function(f) => function_key(o, f, mods, s),
         KeyCode::Keypad(k) => return keypad_key(o, k, mods, s),
+        // The PUA keys have no legacy form; the base layer sends nothing.
+        KeyCode::Pua(_) => return false,
         KeyCode::Char(cp) => {
             // **`modifyOtherKeys` takes the key before the base layer does**,
             // because the whole point of the resource is to disambiguate
