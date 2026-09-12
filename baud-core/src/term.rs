@@ -1140,6 +1140,7 @@ impl<'b> Term<'b> {
             encoding: self.cold.encoding,
             other_keys: self.cold.other_keys,
             other_keys_format: self.cold.other_keys_format,
+            kitty: self.cold.kitty.current(),
         };
         let Some(k) = encode_key(e, s) else {
             return false;

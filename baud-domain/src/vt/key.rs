@@ -241,6 +241,10 @@ pub struct KeyState {
     /// ISO 8859-1, and an encoder that kept emitting UTF-8 would break the
     /// round trip that makes the mode useful.
     pub encoding: InputEncoding,
+    /// `[[source: kitty-keyboard]]`'s active enhancement flags. `NONE` is the
+    /// base layer -- every key its legacy form -- and any bit set routes the
+    /// key through the kitty encoding instead.
+    pub kitty: KittyFlags,
 }
 
 /// The bytes one key press produces.
@@ -269,11 +273,16 @@ pub enum Fit {
 
 impl KeyBytes {
     /// The longest key this can produce, with the arithmetic rather than a
-    /// guess: an 8-bit `CSI` is 1 byte and a 7-bit one 2, the parameter is at
-    /// most 5 digits, the modifier is `;` plus 2, and the final is 1 -- so
-    /// `CSI 65535 ; 16 ~` is 11. The other long form is `ESC` plus a four-byte
-    /// UTF-8 character, which is 5.
-    pub const MAX_LEN: usize = 12;
+    /// guess. The base layer's worst is `CSI 65535 ; 16 ~` at 11, or `ESC` plus
+    /// a four-byte UTF-8 character at 5. `[[source: kitty-keyboard]]`'s CSI-u
+    /// form is longer: `CSI` (2) + a 5-digit key number + `;` + a 3-digit
+    /// modifier + `:` + a 1-digit event + the final -- `CSI 57383 ; 128 : 3 u`
+    /// is 15. The alternate-key and associated-text sub-fields will grow it
+    /// again and this bound is re-derived when they land; 48 covers the CSI-u
+    /// forms this encoder produces today with room to spare. A key that would
+    /// overflow is dropped whole rather than half-sent, which is the
+    /// [`Fit::Overflowed`] contract.
+    pub const MAX_LEN: usize = 48;
 
     fn new() -> KeyBytes {
         KeyBytes {
@@ -338,7 +347,7 @@ impl KeyBytes {
     }
 }
 
-/// Encode a key press.
+/// Encode a key press into the bytes an application reads.
 ///
 /// `None` is "this key sends nothing", which is a real answer rather than a
 /// failure: a VT52 has no Insert key, ctlseqs gives no modified form for
@@ -346,13 +355,24 @@ impl KeyBytes {
 /// sequence for any of them would be answering with a shape no application
 /// asked for, which this project refuses on the output side too.
 ///
-/// **The base layer only.** `docs/input-coverage.md` names three, and this is
-/// the one every terminal implements: an application that has not asked for an
-/// enhancement must receive what it would get from any other terminal, or it
-/// breaks. The same reasoning that makes `DA` under-claim.
-/// `[[source: fixterms]]`'s `CSI u` form and `[[source: kitty-keyboard]]`'s
-/// progressive enhancement are negotiated, and neither is implemented yet.
+/// **Which layer encodes the key is [`KeyState::kitty`].** With no enhancement
+/// flags set it is the base layer -- what every terminal sends, and what an
+/// application that has not negotiated an enhancement must receive.
+/// `[[source: kitty-keyboard]]`'s progressive enhancement routes here when a
+/// flag is set. The core still refuses `CSI ? u`, so no support is claimed
+/// while the encoding is incomplete; a conforming application therefore never
+/// enables the flags, and one that sets them blindly gets the kitty form it
+/// asked for.
 pub fn encode_key(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
+    if s.kitty.is_none() {
+        encode_base(e, s)
+    } else {
+        kitty_encode(e, s)
+    }
+}
+
+/// The base layer, `[[source: ctlseqs]]`'s legacy encoding.
+fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // Only presses exist on this layer. `[[source: kitty-keyboard]]` is what
     // reports releases and repeats, and an application that has not enabled it
     // must not start seeing them.
@@ -373,6 +393,152 @@ pub fn encode_key(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
         true => Some(o),
         false => None,
     }
+}
+
+/// `[[source: kitty-keyboard]]`'s progressive-enhancement encoding.
+///
+/// **This increment covers the functional keys under the disambiguate, event-
+/// type and all-keys enhancements.** `Char` and the keypad need the key's
+/// *unshifted* codepoint as the primary number -- the spec is explicit that
+/// `ctrl+shift+a` is `97`, not `65` -- which the current `KeyEvent` does not
+/// carry, so they arrive with the `KeyEvent` extension alongside the alternate-
+/// key and associated-text sub-fields. Until then this returns `None` for them
+/// rather than the wrong number, and the query stays refused so no conforming
+/// application is in this mode.
+fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
+    let flags = s.kitty;
+    // Event type: without `Report event types` only presses are reported, a
+    // repeat is a press and a release is not reported at all; with it, press is
+    // 1, repeat 2, release 3.
+    let event = match (e.kind, flags.has(KittyFlags::EVENT_TYPES)) {
+        (KeyEventKind::Release, false) => return None,
+        (KeyEventKind::Release, true) => 3u16,
+        (KeyEventKind::Repeat, true) => 2,
+        _ => 1,
+    };
+    // `Report all keys as escape codes` routes every key through CSI-u;
+    // otherwise only the ambiguous and functional keys do and the rest keep
+    // their legacy bytes.
+    let route = flags.has(KittyFlags::ALL_AS_ESCAPES) || kitty_disambiguated(e.code, e.mods);
+    if !route {
+        return encode_base(e, s);
+    }
+    let (number, final_byte) = kitty_functional(e.code)?;
+    let mut o = KeyBytes::new();
+    kitty_csi_u(&mut o, number, final_byte, e.mods, event, s.c1);
+    match o.fit == Fit::Whole {
+        true => Some(o),
+        false => None,
+    }
+}
+
+/// Whether a key is reported as a CSI-u escape code under `Disambiguate escape
+/// codes` alone (without `Report all keys`).
+///
+/// `[[source: kitty-keyboard]]`: "the Esc, alt+key, ctrl+key, ctrl+alt+key,
+/// shift+alt+key keys", plus every non-text keypad and functional key. The
+/// Enter, Tab and Backspace keys are the exceptions -- they keep their legacy
+/// bytes so a shell stays usable after a crashed program leaves the mode set.
+fn kitty_disambiguated(code: KeyCode, mods: Modifiers) -> bool {
+    match code {
+        KeyCode::Enter | KeyCode::Tab | KeyCode::Backspace => false,
+        // A text key disambiguates only when a modifier makes it collide with a
+        // control code; plain and shift-only text keys still send text.
+        KeyCode::Char(_) => {
+            mods.has(Modifiers::CTRL) || mods.has(Modifiers::ALT) || mods.has(Modifiers::META)
+        }
+        // Escape and every functional key.
+        _ => true,
+    }
+}
+
+/// A functional key's CSI-u number and final byte, from the "Functional key
+/// definitions" table. `kitty_functional_keys_match_the_source` gates every row
+/// against `scripts/extract-kitty-keys.py`, so a transcription slip fails the
+/// build rather than sending a wrong key.
+fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
+    Some(match code {
+        KeyCode::Escape => (27, b'u'),
+        KeyCode::Enter => (13, b'u'),
+        KeyCode::Tab => (9, b'u'),
+        KeyCode::Backspace => (127, b'u'),
+        KeyCode::Up => (1, b'A'),
+        KeyCode::Down => (1, b'B'),
+        KeyCode::Right => (1, b'C'),
+        KeyCode::Left => (1, b'D'),
+        KeyCode::End => (1, b'F'),
+        KeyCode::Home => (1, b'H'),
+        KeyCode::Insert => (2, b'~'),
+        KeyCode::Delete => (3, b'~'),
+        KeyCode::PageUp => (5, b'~'),
+        KeyCode::PageDown => (6, b'~'),
+        // F3 is `13 ~` rather than `1 R`: the original spec allowed `CSI R`,
+        // which collides with the Cursor Position Report, so it was removed.
+        KeyCode::Function(f) => match f.number() {
+            1 => (1, b'P'),
+            2 => (1, b'Q'),
+            3 => (13, b'~'),
+            4 => (1, b'S'),
+            5 => (15, b'~'),
+            6 => (17, b'~'),
+            7 => (18, b'~'),
+            8 => (19, b'~'),
+            9 => (20, b'~'),
+            10 => (21, b'~'),
+            11 => (23, b'~'),
+            12 => (24, b'~'),
+            13 => (57376, b'u'),
+            14 => (57377, b'u'),
+            15 => (57378, b'u'),
+            16 => (57379, b'u'),
+            17 => (57380, b'u'),
+            18 => (57381, b'u'),
+            19 => (57382, b'u'),
+            20 => (57383, b'u'),
+            _ => return None,
+        },
+        // A Char's number is its codepoint and the keypad's are PUA numbers;
+        // both need the unshifted codepoint the KeyEvent does not yet carry.
+        KeyCode::Char(_) | KeyCode::Keypad(_) => return None,
+    })
+}
+
+/// Emit `CSI number [; mods[:event]] final`, in the two shapes
+/// `[[source: kitty-keyboard]]` defines.
+///
+/// The `u`/`~` finals carry the key number; a letter final uses number `1` and
+/// omits it entirely when there are no parameters, giving `CSI A` for an
+/// unmodified arrow -- the same bytes the legacy form sends, which is why
+/// disambiguation leaves an unmodified cursor key alone. The event sub-field is
+/// present only for a non-press, and a modifier field of `1` is written to
+/// carry it when no modifier is held.
+fn kitty_csi_u(
+    o: &mut KeyBytes,
+    number: u16,
+    final_byte: u8,
+    mods: Modifiers,
+    event: u16,
+    c1: C1Transmit,
+) {
+    o.introducer(Introducer::Csi, c1);
+    let letter = final_byte != b'u' && final_byte != b'~';
+    let params = !mods.is_none() || event != 1;
+    if letter {
+        if params {
+            o.num(1);
+        }
+    } else {
+        o.num(number);
+    }
+    if params {
+        o.push(b';');
+        o.num(mods.kitty_wire());
+        if event != 1 {
+            o.push(b':');
+            o.num(event);
+        }
+    }
+    o.push(final_byte);
 }
 
 fn ansi(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
