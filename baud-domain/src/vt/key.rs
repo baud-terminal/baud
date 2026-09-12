@@ -435,7 +435,16 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // arrive with the alternate-key work, so it still sends nothing.
     let (number, final_byte) = match e.code {
         KeyCode::Char(cp) => (cp.value(), b'u'),
-        KeyCode::Keypad(_) => return None,
+        // The keypad's `PF` keys share F1-F4's forms; the rest carry kitty's
+        // dedicated keypad numbers, so a keypad digit is distinct from the
+        // main-row one -- which is the disambiguation the enhancement is for.
+        KeyCode::Keypad(k) => match k.pf() {
+            Some(f) => {
+                let (n, fin) = kitty_functional(KeyCode::Function(f))?;
+                (u32::from(n), fin)
+            }
+            None => kitty_keypad(k)?,
+        },
         _ => {
             let (n, f) = kitty_functional(e.code)?;
             (u32::from(n), f)
@@ -532,10 +541,40 @@ fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
             20 => (57383, b'u'),
             _ => return None,
         },
-        // A Char's number is its codepoint and the keypad's are PUA numbers;
-        // both need the unshifted codepoint the KeyEvent does not yet carry.
+        // A Char's number is its codepoint, handled by the caller.
         KeyCode::Char(_) | KeyCode::Keypad(_) => return None,
     })
+}
+
+/// A keypad key's `[[source: kitty-keyboard]]` number, from the functional-key
+/// table's `KP_*` rows. `PF1`-`PF4` are not here -- they share F1-F4's forms
+/// and the caller routes them there -- and `Space`/`Tab` have no keypad form in
+/// the table, so they send nothing under the enhancement. Gated against the
+/// source by `keypad_keys_match_the_source`.
+fn kitty_keypad(k: KeypadKey) -> Option<(u32, u8)> {
+    use KeypadKey::*;
+    let n: u32 = match k {
+        Digit0 => 57399,
+        Digit1 => 57400,
+        Digit2 => 57401,
+        Digit3 => 57402,
+        Digit4 => 57403,
+        Digit5 => 57404,
+        Digit6 => 57405,
+        Digit7 => 57406,
+        Digit8 => 57407,
+        Digit9 => 57408,
+        Period => 57409,   // KP_DECIMAL
+        Divide => 57410,   // KP_DIVIDE
+        Multiply => 57411, // KP_MULTIPLY
+        Minus => 57412,    // KP_SUBTRACT
+        Add => 57413,      // KP_ADD
+        Enter => 57414,    // KP_ENTER
+        Equal => 57415,    // KP_EQUAL
+        Comma => 57416,    // KP_SEPARATOR
+        Space | Tab | Pf1 | Pf2 | Pf3 | Pf4 => return None,
+    };
+    Some((n, b'u'))
 }
 
 /// Emit `CSI number [; mods[:event]] final`, in the two shapes

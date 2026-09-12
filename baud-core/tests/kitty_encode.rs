@@ -9,9 +9,9 @@
 //! transcription slip in the encoder then fails against the source, the same
 //! discipline the base layer keeps against `extract-keys.py`.
 //!
-//! `Char` and the keypad are not here: their kitty number is the *unshifted*
-//! codepoint, which the `KeyEvent` does not yet carry, so the encoder sends
-//! nothing for them and one test pins that so the gap is visible.
+//! `Char` reports its unshifted codepoint and the keypad its dedicated kitty
+//! numbers; the remaining gap is the media and individual-modifier keys, which
+//! `KeyCode` does not model yet.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -343,4 +343,62 @@ fn alternate_keys_attach_to_the_number() {
         ),
         b"\x1b[97;5u"
     );
+}
+
+/// **Every keypad key encodes to its dedicated kitty number from the source.**
+/// Under all-keys, with no modifier, that is `CSI <number> u`.
+#[test]
+fn keypad_keys_match_the_source() {
+    let table = functional_table();
+    let cases: [(KeypadKey, &str); 18] = [
+        (KeypadKey::Digit0, "KP_0"),
+        (KeypadKey::Digit1, "KP_1"),
+        (KeypadKey::Digit2, "KP_2"),
+        (KeypadKey::Digit3, "KP_3"),
+        (KeypadKey::Digit4, "KP_4"),
+        (KeypadKey::Digit5, "KP_5"),
+        (KeypadKey::Digit6, "KP_6"),
+        (KeypadKey::Digit7, "KP_7"),
+        (KeypadKey::Digit8, "KP_8"),
+        (KeypadKey::Digit9, "KP_9"),
+        (KeypadKey::Period, "KP_DECIMAL"),
+        (KeypadKey::Divide, "KP_DIVIDE"),
+        (KeypadKey::Multiply, "KP_MULTIPLY"),
+        (KeypadKey::Minus, "KP_SUBTRACT"),
+        (KeypadKey::Add, "KP_ADD"),
+        (KeypadKey::Enter, "KP_ENTER"),
+        (KeypadKey::Equal, "KP_EQUAL"),
+        (KeypadKey::Comma, "KP_SEPARATOR"),
+    ];
+    for (k, name) in cases {
+        let (number, _) = table[name];
+        let got = pressed(
+            b"\x1b[=8u",
+            KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE),
+        );
+        let mut want = vec![0x1b, b'['];
+        want.extend_from_slice(number.to_string().as_bytes());
+        want.push(b'u');
+        assert_eq!(got, want, "{name}");
+    }
+
+    // PF1 shares F1's form -- `CSI P`, number omitted with no modifiers.
+    assert_eq!(
+        pressed(
+            b"\x1b[=8u",
+            KeyEvent::press(KeyCode::Keypad(KeypadKey::Pf1), Modifiers::NONE)
+        ),
+        b"\x1b[P"
+    );
+    // The keypad Space and Tab have no form in the table, so they send nothing.
+    for k in [KeypadKey::Space, KeypadKey::Tab] {
+        assert!(
+            pressed(
+                b"\x1b[=8u",
+                KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE)
+            )
+            .is_empty(),
+            "keypad {k:?} has no kitty form"
+        );
+    }
 }
