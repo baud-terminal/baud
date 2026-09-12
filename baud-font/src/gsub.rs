@@ -22,7 +22,9 @@
 
 use crate::buffer::{Buffer, Cluster, Glyph, Ignorable};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
-use crate::layout::{ClassDef, Coverage, Features, Filter, Gdef, Kind, Layout, Lookup, Skip};
+use crate::layout::{
+    ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, MAX_LOOKUPS, Skip,
+};
 use baud_domain::GlyphId;
 
 /// How deep nested lookups may recurse; a contextual lookup naming
@@ -77,6 +79,14 @@ impl Matched {
     }
 }
 
+/// Whether a lookup substituted anything, which is when the buffer's
+/// digest has to be taken again.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Changed {
+    No,
+    Yes,
+}
+
 /// What applying a subtable at a position did.
 #[derive(Clone, Copy)]
 struct Applied {
@@ -124,16 +134,106 @@ impl<'a> Gsub<'a> {
     /// whole buffer. Answers how many named lookups lay past what the set
     /// can hold and so did not run -- zero for any font this crate has met.
     pub fn apply(&self, buf: &mut Buffer<'_>, features: Features) -> Count {
+        self.apply_with(buf, features, &[])
+    }
+
+    /// [`Gsub::apply`] with a digest per lookup, as [`Gsub::digests`]
+    /// fills them: a lookup whose digest cannot meet the buffer's is not
+    /// opened. An empty slice accelerates nothing, and a shorter one
+    /// accelerates the lookups it covers.
+    pub fn apply_with(
+        &self,
+        buf: &mut Buffer<'_>,
+        features: Features,
+        digests: &[Digest],
+    ) -> Count {
         let set = self.layout.lookups_for(features);
+        let mut have = Gsub::buffer_digest(buf);
         for i in set.iter() {
+            if let Some(d) = digests.get(i.slot()) {
+                if !d.may_have(have) {
+                    continue;
+                }
+            }
             if let Some(lookup) = self.layout.lookup(i) {
-                self.apply_lookup(&lookup, buf, Depth::TOP);
+                if self.apply_lookup(&lookup, buf, Depth::TOP) == Changed::Yes {
+                    have = Gsub::buffer_digest(buf);
+                }
             }
         }
         set.declined()
     }
 
-    fn apply_lookup(&self, lookup: &Lookup<'a>, buf: &mut Buffer<'_>, depth: Depth) {
+    fn buffer_digest(buf: &Buffer<'_>) -> Digest {
+        let mut d = Digest::EMPTY;
+        for g in buf.as_slice() {
+            d.add(g.id);
+        }
+        d
+    }
+
+    /// Fills `out[i]` with the digest of the glyphs lookup `i` can start
+    /// on, for every lookup `features` name, so [`Gsub::apply_with`] can
+    /// skip the rest. `out` is indexed by lookup and holds at most
+    /// [`MAX_LOOKUPS`]; a lookup past its end is simply not accelerated.
+    pub fn digests(&self, features: Features, out: &mut [Digest]) {
+        let set = self.layout.lookups_for(features);
+        for i in set.iter().take(MAX_LOOKUPS) {
+            if let Some(slot) = out.get_mut(i.slot()) {
+                *slot = self.lookup_digest(i);
+            }
+        }
+    }
+
+    /// The glyphs lookup `i` can act at: the union of its subtables'
+    /// first-position coverages. Anything unreadable widens to everything,
+    /// so an odd table is slow rather than skipped.
+    fn lookup_digest(&self, i: Index) -> Digest {
+        let Some(lookup) = self.layout.lookup(i) else {
+            return Digest::ALL;
+        };
+        let mut d = Digest::EMPTY;
+        let mut k = Index::ZERO;
+        while lookup.subtable_count().holds(k) {
+            let Some((kind, sub)) = lookup.subtable(k, Kind::GSUB_EXTENSION) else {
+                return Digest::ALL;
+            };
+            let cov = match kind {
+                Kind::SINGLE | Kind::LIGATURE => Gsub::coverage_at(sub, Offset::of(2u32)),
+                Kind::CHAINED => Gsub::chained_first_coverage(sub),
+                _ => None,
+            };
+            match cov {
+                Some(c) => d = d.union(c.digest()),
+                None => return Digest::ALL,
+            }
+            k = k.next();
+        }
+        d
+    }
+
+    /// The coverage a chained subtable's current glyph must be in: the
+    /// subtable's own for formats 1 and 2, the first input coverage for
+    /// format 3.
+    fn chained_first_coverage(sub: Bytes<'a>) -> Option<Coverage<'a>> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        match format {
+            1 | 2 => Gsub::coverage_at(sub, Offset::of(2u32)),
+            3 => {
+                let back_n: u16 = sub.read(Offset::of(2u32))?;
+                let at = Offset::of(4u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                let input_n: u16 = sub.read(at)?;
+                if input_n == 0 {
+                    return None;
+                }
+                Gsub::coverage_at(sub, at.plus(Len::of(2))?)
+            }
+            _ => None,
+        }
+    }
+
+    fn apply_lookup(&self, lookup: &Lookup<'a>, buf: &mut Buffer<'_>, depth: Depth) -> Changed {
+        let mut changed = Changed::No;
         let mut pos = Index::ZERO;
         while let Some(g) = buf.get(pos) {
             if seen(&lookup.filter, g) == Skip::Yes {
@@ -141,10 +241,14 @@ impl<'a> Gsub<'a> {
                 continue;
             }
             pos = match self.apply_at(lookup, buf, pos, depth) {
-                Some(a) => a.next,
+                Some(a) => {
+                    changed = Changed::Yes;
+                    a.next
+                }
                 None => pos.next(),
             };
         }
+        changed
     }
 
     /// Tries each subtable at `pos`; the first that applies wins.

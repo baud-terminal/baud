@@ -50,16 +50,24 @@ fn main() {
         ws_row: 50,
         ws_col: 200,
     };
-    let stack = Stack::new(&faces).unwrap();
-    let mut r = Renderer::new(
-        stack,
-        PxSize::of(14.0).unwrap(),
-        Theme::dark(),
-        Blend::Native,
-        Cols::from_stride(usize::from(ws.ws_col)),
-        Rows::of_index(usize::from(ws.ws_row)),
-    )
-    .unwrap();
+    // **A fresh renderer per rep.** The run cache and the atlas persist for
+    // a session, so a renderer reused across reps reports the second rep
+    // with every run already shaped and every glyph already rasterised --
+    // the first version of this harness did, and its "best of three" was
+    // a warm-cache number three times lower than a real first pass. Each
+    // rep starts cold, which is what a recording's first replay costs.
+    let fresh = || {
+        Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            Theme::dark(),
+            Blend::Native,
+            Cols::from_stride(usize::from(ws.ws_col)),
+            Rows::of_index(usize::from(ws.ws_row)),
+        )
+        .unwrap()
+    };
+    let mut r = fresh();
     let (w, h) = r.pixel_size();
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!(
@@ -85,7 +93,10 @@ fn main() {
         inst: u64,
     }
     let mut best: Option<Rep> = None;
-    for _ in 0..reps {
+    for rep in 0..reps {
+        if rep > 0 {
+            r = fresh();
+        }
         let mut owned = Owned::new(&ws);
         let mut t = Term::new(owned.storage(), &ws);
         let mut rep = Rep {

@@ -10,7 +10,9 @@ use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, GlyphId, PackedCell, Row, Rows};
-use baud_font::{Cluster, Features, Glyph, Ignorable, Px, Scale, Shaper};
+use baud_font::{
+    Cluster, Digest as LookupDigest, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale, Shaper,
+};
 use std::time::{Duration, Instant};
 
 /// Whether to trust the previous frame or repaint everything.
@@ -65,6 +67,9 @@ enum Prev {
 pub struct Renderer<'f, 'a> {
     stack: Stack<'f, 'a>,
     scales: Vec<Scale>,
+    /// Per face, a digest per `GSUB` lookup the grid features name, so a
+    /// cache miss opens only the lookups that can touch the run.
+    digests: Vec<Vec<LookupDigest>>,
     metrics: Metrics,
     theme: Theme,
     blend: Blend,
@@ -108,9 +113,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .iter()
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
+        let digests = stack
+            .faces()
+            .iter()
+            .map(|f| {
+                let mut d = Vec::new();
+                if let Some(gsub) = f.gsub() {
+                    d.resize(MAX_LOOKUPS, LookupDigest::EMPTY);
+                    gsub.digests(Features::GRID, &mut d);
+                }
+                d
+            })
+            .collect();
         let mut r = Renderer {
             stack,
             scales,
+            digests,
             metrics,
             theme,
             blend,
@@ -347,6 +365,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn shape(&mut self, face: FaceIx, clusters: &[ClusterIn]) -> Shaped {
         let f = self.stack.face(face);
         let mut shaper = Shaper::new(f, &mut self.storage);
+        shaper.accelerate(&self.digests[face.index()]);
         for cl in clusters {
             if shaper
                 .push_cluster(&cl.cps, Cluster(u16::from(cl.at.0)))

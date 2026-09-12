@@ -29,7 +29,7 @@ use crate::bytes::Count;
 use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
 use crate::face::Face;
-use crate::layout::Features;
+use crate::layout::{Digest, Features};
 use crate::raster::{Bounds, InkBox};
 use baud_domain::{Codepoint, GlyphId};
 
@@ -277,6 +277,8 @@ pub struct Shaper<'f, 'a, 'b> {
     face: &'f Face<'a>,
     buf: Buffer<'b>,
     missing: Count,
+    /// Per-lookup digests for `GSUB`, when the caller keeps them.
+    digests: &'f [Digest],
 }
 
 impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
@@ -285,7 +287,16 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             face,
             buf: Buffer::new(storage),
             missing: Count::ZERO,
+            digests: &[],
         }
+    }
+
+    /// Hands the shaper the digests [`crate::Gsub::digests`] filled for
+    /// this face, so `finish` opens only the lookups that can match. A
+    /// renderer keeps one slice per face; the result is the same either
+    /// way, and `tests/shape.rs` says so on every fixture.
+    pub fn accelerate(&mut self, digests: &'f [Digest]) {
+        self.digests = digests;
     }
 
     fn glyph_of(&mut self, c: Codepoint) -> GlyphId {
@@ -509,7 +520,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // rule, and the one CoreText's own faces are built for; a face
         // carrying both shapes through `GSUB`.
         let mut declined = match (self.face.gsub(), self.face.morx()) {
-            (Some(gsub), _) => gsub.apply(&mut self.buf, features),
+            (Some(gsub), _) => gsub.apply_with(&mut self.buf, features, self.digests),
             (None, Some(morx)) => morx.apply(&mut self.buf),
             (None, None) => Count::ZERO,
         };

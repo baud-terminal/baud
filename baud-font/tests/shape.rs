@@ -12,7 +12,9 @@
 //! is without translation.
 
 use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};
-use baud_font::{Buffer, Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Shaper};
+use baud_font::{
+    Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Shaper,
+};
 
 struct Fixture {
     face: String,
@@ -57,8 +59,19 @@ fn shape<'b>(
     text: &[u32],
     storage: &'b mut [Glyph],
 ) -> (Buffer<'b>, baud_font::Shaped) {
+    shape_with(face, text, storage, &[])
+}
+
+/// [`shape`] with the lookup digests handed to the shaper.
+fn shape_with<'b>(
+    face: &Face<'_>,
+    text: &[u32],
+    storage: &'b mut [Glyph],
+    digests: &[Digest],
+) -> (Buffer<'b>, baud_font::Shaped) {
     let cps: Vec<Codepoint> = text.iter().map(|&v| Codepoint::new(v).unwrap()).collect();
     let mut shaper = Shaper::new(face, storage);
+    shaper.accelerate(digests);
     let mut start = 0usize;
     let is_ri = |c: Codepoint| (0x1F1E6..=0x1F1FF).contains(&c.value());
     for i in 1..=cps.len() {
@@ -455,4 +468,58 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     assert!(faces.len() >= 7, "{}", faces.len());
     assert!(fixtures >= 150, "{fixtures}");
     assert!(ligated >= 30, "{ligated}");
+}
+
+#[test]
+fn the_lookup_digests_change_nothing_on_any_gsub_fixture() {
+    // The accelerator may only skip lookups that cannot match, so every
+    // GSUB fixture must shape identically with and without it -- and the
+    // digests must actually narrow something, or they accelerate nothing.
+    let fixtures = fixtures();
+    let mut faces = std::collections::HashMap::new();
+    let mut checked = 0usize;
+    for fx in &fixtures {
+        let data = faces.entry(fx.face.clone()).or_insert_with(|| {
+            std::fs::read(format!(
+                "{}/tests/fonts/{}",
+                env!("CARGO_MANIFEST_DIR"),
+                fx.face
+            ))
+            .unwrap()
+        });
+        let face = Face::parse(data).unwrap();
+        let Some(gsub) = face.gsub() else {
+            continue;
+        };
+        let mut digests = vec![Digest::EMPTY; MAX_LOOKUPS];
+        gsub.digests(Features::GRID, &mut digests);
+        let mut a = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let mut b = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let (plain, _) = shape(&face, &fx.text, &mut a);
+        let (fast, _) = shape_with(&face, &fx.text, &mut b, &digests);
+        assert_eq!(
+            plain.as_slice(),
+            fast.as_slice(),
+            "{} {:04X?}",
+            fx.face,
+            fx.text
+        );
+        checked += 1;
+    }
+    assert!(checked >= 150, "{checked}");
+    // Positive control: most named lookups have a digest narrower than
+    // everything, or nothing is ever skipped.
+    let data = faces.get("FiraCode-Regular.ttf").unwrap();
+    let face = Face::parse(data).unwrap();
+    let mut digests = vec![Digest::EMPTY; MAX_LOOKUPS];
+    face.gsub().unwrap().digests(Features::GRID, &mut digests);
+    let named = digests.iter().filter(|d| **d != Digest::EMPTY).count();
+    let narrow = digests
+        .iter()
+        .filter(|d| **d != Digest::EMPTY && **d != Digest::ALL)
+        .count();
+    assert!(
+        named > 50 && narrow * 2 > named,
+        "{named} named, {narrow} narrow"
+    );
 }

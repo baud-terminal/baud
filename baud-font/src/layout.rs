@@ -102,7 +102,91 @@ impl FromBe for Range {
     }
 }
 
+/// A summary of which glyphs a set may contain, in HarfBuzz's shape:
+/// three 64-bit masks indexed by the glyph id shifted by 0, 4 and 9 bits.
+/// `may_have` answers `false` only when the two sets are surely disjoint,
+/// which is what lets a lookup be skipped without being opened.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Digest {
+    words: [u64; 3],
+}
+
+impl Digest {
+    const SHIFTS: [u32; 3] = [0, 4, 9];
+    pub const EMPTY: Digest = Digest { words: [0; 3] };
+    /// Everything: what a lookup whose coverage cannot be read gets, so it
+    /// is never skipped.
+    pub const ALL: Digest = Digest {
+        words: [u64::MAX; 3],
+    };
+
+    pub fn add(&mut self, g: GlyphId) {
+        let id = u32::try_from(g.index()).unwrap_or(u32::MAX);
+        for (w, shift) in self.words.iter_mut().zip(Digest::SHIFTS) {
+            *w |= 1u64 << ((id >> shift) & 63);
+        }
+    }
+
+    /// Every glyph from `a` to `b` inclusive; a range too wide for a word
+    /// fills it.
+    pub fn add_range(&mut self, a: GlyphId, b: GlyphId) {
+        let (lo, hi) = (
+            u32::try_from(a.index()).unwrap_or(u32::MAX),
+            u32::try_from(b.index()).unwrap_or(u32::MAX),
+        );
+        for (w, shift) in self.words.iter_mut().zip(Digest::SHIFTS) {
+            let (lo, hi) = (lo >> shift, hi >> shift);
+            if hi.saturating_sub(lo) >= 63 {
+                *w = u64::MAX;
+                continue;
+            }
+            let mut i = lo;
+            while i <= hi {
+                *w |= 1u64 << (i & 63);
+                i += 1;
+            }
+        }
+    }
+
+    pub fn union(self, o: Digest) -> Digest {
+        Digest {
+            words: [
+                self.words[0] | o.words[0],
+                self.words[1] | o.words[1],
+                self.words[2] | o.words[2],
+            ],
+        }
+    }
+
+    /// Whether the two sets may share a glyph.
+    pub fn may_have(self, o: Digest) -> bool {
+        self.words.iter().zip(o.words).all(|(a, b)| a & b != 0)
+    }
+}
+
 impl<'a> Coverage<'a> {
+    /// The digest of every glyph this coverage names.
+    pub fn digest(&self) -> Digest {
+        let mut d = Digest::EMPTY;
+        match self {
+            Coverage::List(list) => {
+                let mut i = Index::ZERO;
+                while let Some(g) = list.get(i) {
+                    d.add(GlyphId::from_shaper(g));
+                    i = i.next();
+                }
+            }
+            Coverage::Ranges(ranges) => {
+                let mut i = Index::ZERO;
+                while let Some(r) = ranges.get(i) {
+                    d.add_range(r.start, r.end);
+                    i = i.next();
+                }
+            }
+        }
+        d
+    }
+
     pub fn parse(data: Bytes<'a>) -> Option<Coverage<'a>> {
         let format: u16 = data.read(Offset::ZERO)?;
         let count: u16 = data.read(Offset::of(2u32))?;
