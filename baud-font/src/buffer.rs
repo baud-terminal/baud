@@ -16,6 +16,7 @@
 
 use crate::bytes::{Count, Index};
 use crate::ignorable::DEFAULT_IGNORABLE;
+use crate::shape::CombiningClass;
 use baud_domain::{Codepoint, GlyphId};
 
 /// A cell index within the run: the input cluster a glyph came from.
@@ -44,6 +45,30 @@ impl Ignorable {
     }
 }
 
+/// Whether a glyph is an attachment -- came after its cluster's base --
+/// and so draws in the base's cell rather than advancing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Attached {
+    No,
+    Yes,
+}
+
+/// Whether a positioning lookup placed this glyph, or the fallback still
+/// owes it a position.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Positioned {
+    No,
+    Yes,
+}
+
+/// Whether a glyph is a mark for advance zeroing: its `GDEF` class when
+/// the face has one, else Unicode's word.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mark {
+    No,
+    Yes,
+}
+
 /// One glyph in the buffer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Glyph {
@@ -54,8 +79,15 @@ pub struct Glyph {
     /// ligature.
     pub last: Cluster,
     pub ignorable: Ignorable,
-    /// Positioning offsets from the glyph's cell origin, in font units;
-    /// zero for anything a mark lookup has not moved.
+    pub attached: Attached,
+    pub positioned: Positioned,
+    pub mark: Mark,
+    /// The canonical combining class of the codepoint this glyph came
+    /// from, which the fallback placer reads.
+    pub ccc: CombiningClass,
+    /// Positioning offsets from the glyph's cell origin, in font units:
+    /// the pen position within the cluster, plus whatever a lookup or
+    /// the fallback moved the glyph by.
     pub dx: i16,
     pub dy: i16,
 }
@@ -67,9 +99,18 @@ impl Glyph {
             cluster,
             last: cluster,
             ignorable,
+            attached: Attached::No,
+            positioned: Positioned::No,
+            mark: Mark::No,
+            ccc: CombiningClass::STARTER,
             dx: 0,
             dy: 0,
         }
+    }
+
+    pub const fn attached(mut self) -> Glyph {
+        self.attached = Attached::Yes;
+        self
     }
 }
 

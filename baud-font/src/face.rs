@@ -21,6 +21,7 @@ use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
 use crate::glyf::{Glyf, Loca, LocaFormat};
+use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
 use crate::outline::{Drawn, Sink};
@@ -160,6 +161,7 @@ pub struct Face<'a> {
     cpal: Option<Cpal<'a>>,
     gdef: Gdef<'a>,
     gsub: Option<Gsub<'a>>,
+    gpos: Option<Gpos<'a>>,
 }
 
 /// Counts what passes through to the real sink, so [`Face::outline`] can
@@ -283,6 +285,7 @@ impl<'a> Face<'a> {
             cpal: None,
             gdef: Gdef::default(),
             gsub: None,
+            gpos: None,
         };
 
         // head: unitsPerEm at 18. The specification bounds it to 16..=16384;
@@ -372,6 +375,9 @@ impl<'a> Face<'a> {
         face.gsub = face
             .table(Tag::GSUB)
             .and_then(|t| Gsub::parse(t, face.gdef));
+        face.gpos = face
+            .table(Tag::GPOS)
+            .and_then(|t| Gpos::parse(t, face.gdef));
         Ok(face)
     }
 
@@ -558,6 +564,11 @@ impl<'a> Face<'a> {
     /// The substitution table, when the face has one.
     pub fn gsub(&self) -> Option<&Gsub<'a>> {
         self.gsub.as_ref()
+    }
+
+    /// The positioning table, when the face has one.
+    pub fn gpos(&self) -> Option<&Gpos<'a>> {
+        self.gpos.as_ref()
     }
 
     /// The `COLR` v0 layers of `g`, bottom first, or `None` for a glyph the

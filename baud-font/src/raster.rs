@@ -316,6 +316,20 @@ enum Seen {
     Points,
 }
 
+/// An outline's control-point box in whole font units.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct InkBox {
+    pub left: i32,
+    pub right: i32,
+    pub bottom: i32,
+    pub top: i32,
+}
+
+/// A finite font-unit coordinate as an integer, truncated toward zero.
+fn units(v: f32) -> i32 {
+    v as i32
+}
+
 /// A [`Sink`] that records the outline's control-point box in font units.
 /// Control points bound the curve, so the box bounds the outline.
 pub struct Bounds {
@@ -341,6 +355,26 @@ impl Bounds {
             max_x: 0.0,
             max_y: 0.0,
         }
+    }
+
+    /// The box in whole font units, or `None` for an empty outline. Every
+    /// `glyf` coordinate is an integer, so the truncation is exact there;
+    /// a CFF path can carry fractions and loses them, as HarfBuzz's own
+    /// extents do.
+    pub fn ink(&self) -> Option<InkBox> {
+        if self.seen == Seen::Nothing {
+            return None;
+        }
+        let all = [self.min_x, self.max_x, self.min_y, self.max_y];
+        if !all.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        Some(InkBox {
+            left: units(self.min_x),
+            right: units(self.max_x),
+            bottom: units(self.min_y),
+            top: units(self.max_y),
+        })
     }
 
     fn see(&mut self, x: f32, y: f32) {

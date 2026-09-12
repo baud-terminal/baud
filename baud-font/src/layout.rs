@@ -297,6 +297,13 @@ impl<'a> Gdef<'a> {
         self.class(g) == GlyphClass::Mark
     }
 
+    /// Whether the table carries a glyph class definition at all. A face
+    /// without one has its marks told apart by Unicode instead, which is
+    /// what HarfBuzz synthesises in its place.
+    pub fn has_classes(&self) -> bool {
+        self.classes.is_some()
+    }
+
     fn mark_attach_class(&self, g: GlyphId) -> Class {
         self.mark_attach.map_or(Class::ZERO, |c| c.class(g))
     }
@@ -388,6 +395,9 @@ impl Kind {
     pub const LIGATURE: Kind = Kind(4);
     pub const CHAINED: Kind = Kind(6);
     pub const GSUB_EXTENSION: Kind = Kind(7);
+    pub const MARK_TO_BASE: Kind = Kind(4);
+    pub const MARK_TO_MARK: Kind = Kind(6);
+    pub const GPOS_EXTENSION: Kind = Kind(9);
 }
 
 /// One lookup: its type, its filter, and its subtables.
@@ -518,6 +528,10 @@ impl<'a> Layout<'a> {
             lookups: data.tail(Offset::of(u32::from(lookups)))?,
             gdef,
         })
+    }
+
+    pub fn gdef(&self) -> Gdef<'a> {
+        self.gdef
     }
 
     fn records(table: Bytes<'a>) -> Option<Array<'a, TagRecord>> {

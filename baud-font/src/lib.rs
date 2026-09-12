@@ -55,6 +55,7 @@ mod colr;
 mod compose;
 mod face;
 mod glyf;
+mod gpos;
 mod gsub;
 mod ignorable;
 mod layout;
@@ -65,19 +66,20 @@ mod shape;
 mod standard_encoding;
 
 pub use bitmap::{Bitmap, Placement, Ppem, Strike};
-pub use buffer::{Buffer, Cluster, Glyph, Ignorable};
+pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};
 pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
+pub use gpos::Gpos;
 pub use gsub::Gsub;
 pub use layout::{Enabled, FeatureTag, Features, Gdef, GlyphClass};
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
-pub use raster::{Bounds, Canvas, Extent, Fit, Point, Px, Rasterizer, Scale};
-pub use shape::{Shaped, Shaper};
+pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Point, Px, Rasterizer, Scale};
+pub use shape::{CombiningClass, Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
