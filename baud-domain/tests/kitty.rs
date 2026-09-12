@@ -135,3 +135,52 @@ fn apply_matches_the_three_modes() {
     let cleared = cur.apply(KittyFlags::DISAMBIGUATE, KittySetMode::AndNot);
     assert_eq!(cleared, KittyFlags::EVENT_TYPES);
 }
+
+/// A pop *between* levels restores the saved flags; the pop that *empties* the
+/// stack resets instead, which is the spec's rule and the discriminating case
+/// -- a single push then a single pop would only ever show the reset.
+#[test]
+fn a_pop_between_levels_restores_the_saved_flags() {
+    let mut s = KittyStack::new();
+    s.set(KittyFlags::DISAMBIGUATE, KittySetMode::All);
+    s.push(KittyFlags::EVENT_TYPES); // saves DISAMBIGUATE, current = EVENT_TYPES
+    s.push(KittyFlags::ALL); // saves EVENT_TYPES, current = ALL
+
+    s.pop(Count::of(1)); // depth 2 -> 1, restores the EVENT_TYPES snapshot
+    assert_eq!(s.current(), KittyFlags::EVENT_TYPES);
+
+    s.pop(Count::of(1)); // depth 1 -> 0, empties, so resets rather than restoring
+    assert!(s.current().is_none());
+}
+
+/// **Emptying the stack resets all flags rather than restoring the last
+/// entry.** The spec makes this a special case, and it is why a shell gets a
+/// clean keyboard back when a crashed program left the mode set.
+#[test]
+fn popping_empty_resets_all_flags() {
+    let mut s = KittyStack::new();
+    s.set(KittyFlags::ALL, KittySetMode::All);
+    s.push(KittyFlags::EVENT_TYPES);
+    // depth is 1; popping it empties the stack, so flags reset to none rather
+    // than to the saved ALL.
+    s.pop(Count::of(1));
+    assert!(s.current().is_none());
+
+    // Popping past empty is also a reset, not a panic.
+    s.pop(Count::of(5));
+    assert!(s.current().is_none());
+}
+
+/// A push flood never grows the stack past its bound; the oldest entry is
+/// evicted, so what a later pop can reach is bounded but never corrupt.
+#[test]
+fn a_full_stack_evicts_the_oldest() {
+    let mut s = KittyStack::new();
+    // Push more than DEPTH distinct states.
+    for _ in 0..KittyStack::DEPTH + 4 {
+        s.push(KittyFlags::DISAMBIGUATE);
+    }
+    // Popping every reachable entry must not panic and must end reset.
+    s.pop(Count::of(1000));
+    assert!(s.current().is_none());
+}

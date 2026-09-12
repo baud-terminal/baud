@@ -772,6 +772,12 @@ impl Paint<'_, '_> {
             (true, Screen::Normal) => {
                 self.cold.alt_saved = Some(self.save());
                 self.cold.screen = Screen::Alternate;
+                // **The kitty keyboard stacks are per-screen.** The active one
+                // parks and the alternate's takes over, so an editor's flags do
+                // not leak back to the shell -- the specification's separate
+                // main/alternate stacks. A swap is balanced because this arm and
+                // the exit arm each fire once per transition.
+                core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
                 // **Park the primary before anything clears it.** This is the
                 // whole of the second buffer: the grid is handed to the
                 // alternate screen and the primary waits in `AltBuf` until the
@@ -797,6 +803,8 @@ impl Paint<'_, '_> {
             }
             (false, Screen::Alternate) => {
                 self.cold.screen = Screen::Normal;
+                // Restore the primary screen's kitty stack; see the enter arm.
+                core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
                 // Cells first, then the cursor: `restore` clamps against the
                 // geometry and moves the cursor, and it should be moving over
                 // the screen the application is about to see.

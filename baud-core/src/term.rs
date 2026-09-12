@@ -184,14 +184,26 @@ pub struct Cold {
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<Saved>,
     pub(crate) modes: Modes,
+    /// **The kitty keyboard flag stacks, one per screen.** `kitty` is the
+    /// active screen's and `kitty_alt` the parked one; the `?1049` transition
+    /// swaps them, which is the specification's separate main/alternate stacks
+    /// -- an editor changes the mode in the alternate screen without touching
+    /// the shell's. Written by the negotiation forms and, until the encoder
+    /// honours them, read by nothing but the tests: the protocol's support
+    /// detection is whether `CSI ? u` is answered, so it stays refused and no
+    /// support is claimed while the flags are merely tracked.
+    pub(crate) kitty: KittyStack,
+    pub(crate) kitty_alt: KittyStack,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
 // 120 bytes after it had grown to 192 (charset slots, input modes); nothing
-// forced the number to be acknowledged. This does. Guarded off `sgr-table`,
-// which adds `sgr: [SgrSlot; NSGR]` and legitimately grows it.
+// forced the number to be acknowledged. This does, and it grew to 256 when the
+// two per-screen kitty stacks landed -- which is free on the write path,
+// because `Cold` is carried by reference and the loop never reads them.
+// Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 192);
+const _: () = assert!(core::mem::size_of::<Cold>() == 256);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -225,6 +237,8 @@ impl Cold {
             bot: Row::from_index(rows.index() - 1),
             saved: None,
             alt_saved: None,
+            kitty: KittyStack::new(),
+            kitty_alt: KittyStack::new(),
             // **DECAWM defaults on**, which is xterm's behaviour rather than
             // the VT510 manual's; `docs/vt-coverage.md` records the choice and
             // `baud-core2` makes the same one, so the differential compares
@@ -786,6 +800,19 @@ impl<'b> Term<'b> {
     /// `DECSCUSR`. The cursor shape an application asked for.
     pub fn cursor_style(&self) -> CursorStyle {
         self.cold.cursor_style
+    }
+
+    /// The `[[source: kitty-keyboard]]` enhancement flags in force on the
+    /// active screen.
+    ///
+    /// **Tracked, not yet honoured.** The negotiation forms maintain this, but
+    /// the encoder does not read it and `CSI ? u` is refused, so baud claims no
+    /// support: the protocol detects support by whether the query is answered,
+    /// and answering before every enhancement is honoured would be a false
+    /// claim. Exposed so the negotiation state machine can be tested before the
+    /// encoder lands.
+    pub fn kitty_flags(&self) -> KittyFlags {
+        self.cold.kitty.current()
     }
 
     /// `?25` DECTCEM. Whether the cursor should be drawn.

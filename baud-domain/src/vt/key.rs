@@ -151,6 +151,77 @@ impl KittySetMode {
     }
 }
 
+/// One screen's `[[source: kitty-keyboard]]` flag stack.
+///
+/// **The main and alternate screens keep independent stacks**, which the
+/// specification requires so an editor can change the mode in the alternate
+/// screen without knowing or disturbing the shell's: the terminal holds one of
+/// these per screen and swaps which is live on the `?1049` transition.
+///
+/// The stack is bounded, which the specification also requires -- "to prevent
+/// Denial-of-Service attacks" -- so a push flood costs a bounded shift rather
+/// than unbounded growth, and a push into a full stack evicts the oldest entry.
+#[derive(Clone, Copy)]
+pub struct KittyStack {
+    current: KittyFlags,
+    saved: [KittyFlags; KittyStack::DEPTH],
+    depth: usize,
+}
+
+impl Default for KittyStack {
+    fn default() -> KittyStack {
+        KittyStack::new()
+    }
+}
+
+impl KittyStack {
+    pub const DEPTH: usize = 16;
+
+    pub const fn new() -> KittyStack {
+        KittyStack {
+            current: KittyFlags::NONE,
+            saved: [KittyFlags::NONE; Self::DEPTH],
+            depth: 0,
+        }
+    }
+
+    /// The flags in force, which is what the encoder reads.
+    pub fn current(&self) -> KittyFlags {
+        self.current
+    }
+
+    /// `CSI = flags ; mode u`.
+    pub fn set(&mut self, req: KittyFlags, mode: KittySetMode) {
+        self.current = self.current.apply(req, mode);
+    }
+
+    /// `CSI > flags u` -- save the current flags and set them to `flags`.
+    /// A push into a full stack drops the oldest entry, as the spec directs.
+    pub fn push(&mut self, flags: KittyFlags) {
+        if self.depth == Self::DEPTH {
+            self.saved.copy_within(1.., 0);
+            self.depth -= 1;
+        }
+        self.saved[self.depth] = self.current;
+        self.depth += 1;
+        self.current = flags;
+    }
+
+    /// `CSI < number u` -- pop `count` entries. Emptying the stack resets all
+    /// flags, which is the spec's rule and why popping the last entry does not
+    /// restore its value.
+    pub fn pop(&mut self, count: Count) {
+        let n = count.at_least_one();
+        if n >= self.depth {
+            self.depth = 0;
+            self.current = KittyFlags::NONE;
+        } else {
+            self.depth -= n;
+            self.current = self.saved[self.depth];
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct KeyState {
     pub modes: Modes,

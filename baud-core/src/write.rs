@@ -1563,18 +1563,19 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // one change.
         DomCsi::SetOtherKeys(k) => p.cold.other_keys = k,
         DomCsi::SetOtherKeysFormat(k) => p.cold.other_keys_format = k,
-        // **`[[source: kitty-keyboard]]`: parsed, and still refused.** The
-        // grammar is named here so the negotiation and encoder can be built on
-        // it, but the protocol's support detection is whether `CSI ? u` is
-        // answered at all -- so until every enhancement is honoured, answering
-        // would claim support baud does not have, which is the one thing worse
-        // than silence. All four forms are consumed and counted, exactly as
-        // before they had names. See the kitty section of `CLAUDE.md`.
-        DomCsi::KittySet { .. }
-        | DomCsi::KittyQuery
-        | DomCsi::KittyPush { .. }
-        | DomCsi::KittyPop { .. }
-        | DomCsi::Unsupported { .. } => {
+        // **`[[source: kitty-keyboard]]`: the flags are tracked, the query is
+        // still refused.** Set, push and pop maintain the active screen's
+        // stack; nothing reads it yet but the tests, because the protocol's
+        // support detection is whether `CSI ? u` is *answered*, and answering
+        // before every enhancement is honoured would claim support baud does
+        // not have -- the one thing worse than silence. So the query stays
+        // consumed-and-counted until the encoder honours the flags and the
+        // reply can be turned on in one change. See the kitty section of
+        // `CLAUDE.md`.
+        DomCsi::KittySet { flags, mode } => p.cold.kitty.set(flags, mode),
+        DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
+        DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
+        DomCsi::KittyQuery | DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
             {
