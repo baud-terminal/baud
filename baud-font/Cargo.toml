@@ -20,3 +20,4 @@ png = "0.17.16"
 # The hostile-input property: a font from disk is the same class of input as
 # bytes from a pty, and the contract is that no byte string panics.
 proptest = "1"
+ab_glyph_rasterizer = "0.1.10"

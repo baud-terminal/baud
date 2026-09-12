@@ -16,6 +16,7 @@ description = "PTY benchmark harness for baud-core. Linux-only."
 # against itself.
 baud-core = { path = "../baud-core", default-features = false, features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
+baud-font = { path = "../baud-font" }
 libc = "0.2"
 zerocopy = "0.8"
 

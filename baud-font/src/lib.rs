@@ -29,14 +29,22 @@
 //! and `COLR` v0 with `CPAL`, plus the PNG decoder those strikes need --
 //! the one piece of general-purpose code in the crate, written here rather
 //! than pulled in because a decoder is a dependency in every sense the
-//! owner's constraint names. Shaping and rasterisation follow in their own
-//! phases.
+//! owner's constraint names.
+//!
+//! **Phase 2: the rasteriser.** Signed-area accumulation into a caller's
+//! `f32` scratch, then a prefix sum into an 8-bit coverage mask -- the
+//! font-rs form the register (D6) chose, held bit-exact to
+//! `ab_glyph_rasterizer` in `tests/raster.rs` and within a tolerance of
+//! FreeType's unhinted smooth rasteriser. Shaping follows in its own phase.
 //!
 //! **The oracle is `ttf-parser` as a dev-dependency**, and `tests/oracle.rs`
 //! compares every face on this machine field by field. Where the two
 //! disagree the test says which, and the specification decides.
 #![no_std]
 #![forbid(unsafe_code)]
+// `core::f32::math::{floor, ceil, sqrt}`: the rasteriser's three float
+// operations that `core` keeps behind a feature and `std` does not.
+#![feature(core_float_math)]
 
 mod bitmap;
 pub mod bytes;
@@ -47,6 +55,7 @@ mod face;
 mod glyf;
 pub mod outline;
 mod png;
+mod raster;
 mod standard_encoding;
 
 pub use bitmap::{Bitmap, Placement, Ppem, Strike};
@@ -58,6 +67,7 @@ pub use face::{
 };
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
+pub use raster::{Bounds, Canvas, Extent, Fit, Point, Px, Rasterizer, Scale};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

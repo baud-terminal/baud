@@ -151,7 +151,7 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: fifteen raw-integer sites and fifty-seven signature primitives,
+# **baud-font: sixteen raw-integer sites and sixty-five signature primitives,
 # every one enumerated, and the limit follows the count downward.** The
 # signature sites are the newtype surface of a parser over a byte format --
 # the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
@@ -172,7 +172,15 @@ crate_audit() {
 # `raw_len`/`rgba_len -> usize` sizing a caller's buffers, and `small(u32)
 # -> usize` on a Huffman field. What the decoder does not carry is a swappable
 # pair: the back-reference's `Run` and `Back` are two types because they are
-# the same width. The fifteen raw sites are the interpreters' state: the
+# the same width. The rasteriser carries eight more, all pixel arithmetic:
+# `Px::of(u32)` and `Px::value`, `Scale::of` taking pixels per em as `f32`,
+# `Scale::placing`'s two pixel offsets, `Point::new`'s two coordinates,
+# `Point::lerp`'s parameter, `distance_to`'s length, `row(f32) -> usize` --
+# the one place a pixel coordinate becomes a row index, spelled once -- and
+# `splat`'s row start as `usize`, which is also the sixteenth raw site: the
+# reference's own index arithmetic, kept in its shape so the byte-exact
+# differential has one algorithm to compare rather than two. The other
+# fifteen raw sites are the interpreters' state: the
 # charstring stack length, the stem count that sizes `hintmask`, the
 # recursion depth, the contour count, the `as` conversions between a
 # charstring's `f32` operand and the integer it encodes, and in the decoder
@@ -181,7 +189,7 @@ crate_audit() {
 # a `const fn`, where `try_from` cannot be called. Every `bool` field became a
 # two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
 # `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`).
-crate_audit "baud-font" 15 57 baud-font/src
+crate_audit "baud-font" 16 65 baud-font/src
 crate_audit "baud-render" 0 0 baud-render/src
 crate_audit "baud-present-macos" 0 0 baud-present-macos/src
 crate_audit "baud-app" 0 0 baud-app/src
