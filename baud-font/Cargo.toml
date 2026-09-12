@@ -9,3 +9,13 @@ description = "Font parsing, shaping and rasterisation owned by baud: sfnt/CFF/G
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
+
+[dev-dependencies]
+# **The oracle, not a dependency.** `ttf-parser` never appears in a build of
+# the crate; it is what `tests/oracle.rs` disagrees with. The two implement the
+# same specification over the same bytes, so every face on this machine is a
+# differential test -- the `baud-difftest` discipline, one crate over.
+ttf-parser = "0.25.1"
+# The hostile-input property: a font from disk is the same class of input as
+# bytes from a pty, and the contract is that no byte string panics.
+proptest = "1"

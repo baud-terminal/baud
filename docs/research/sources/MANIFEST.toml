@@ -4518,3 +4518,37 @@ bytes  = 5925
 status = "retrieved"
 group  = "J"
 # Committed under docs/research/sources/ -- the owner's own crate, MIT, re-hashed on commit.
+
+[sources.font-fira-code-regular]
+key    = "font-fira-code-regular"
+title  = "Fira Code 6.2, Regular -- the programming-ligature face whose calt chains fix baud's GSUB subset"
+author = "The Fira Code Project Authors"
+year   = 2022
+venue  = "github.com/tonsky/FiraCode release 6.2 (OFL-1.1)"
+url    = "https://github.com/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip"
+file   = ""
+sha256 = "5992ab9640e2df491b2f609467b1de60e8bc39b2c28db184342a0592d98f6117"
+bytes  = 289624
+status = "external"
+group  = "J"
+# The sha256 is of the archive member `ttf/FiraCode-Regular.ttf`, which is the
+# file committed at `baud-font/tests/fonts/FiraCode-Regular.ttf` beside its
+# licence (sha256 1d41e10031ab125302780a05ec4c91d218e47db0c7e37cf315cce5e608cdc25c); the archive itself is
+# 0949915ba8eb24d89fd93d10a7ff623f42830d7c5ffc3ecbf960e4ecad3e3e79. The
+# committed copy is what the oracle differential reads, and
+# `the_committed_faces_are_the_ones_the_manifest_pins` holds it to this hash.
+
+[sources.font-jetbrains-mono-regular]
+key    = "font-jetbrains-mono-regular"
+title  = "JetBrains Mono v2.304, Regular -- a variable monospace face, read at its default instance per D11"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono at cd5227b (v2.304), fonts/ttf (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/ttf/JetBrainsMono-Regular.ttf"
+file   = ""
+sha256 = "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f"
+bytes  = 273900
+status = "external"
+group  = "J"
+# Committed at `baud-font/tests/fonts/JetBrainsMono-Regular.ttf` beside its
+# licence (sha256 30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad), held to this hash by the same test.
