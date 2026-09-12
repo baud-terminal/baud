@@ -158,6 +158,11 @@ impl<'b> Buffer<'b> {
         self.glyphs.get(..self.len.slot()).unwrap_or(&[])
     }
 
+    pub fn as_mut_slice(&mut self) -> &mut [Glyph] {
+        let n = self.len.slot();
+        self.glyphs.get_mut(..n).unwrap_or(&mut [])
+    }
+
     /// Removes glyph `i`, closing the gap.
     pub fn remove(&mut self, i: Index) -> Option<Glyph> {
         if !self.len.holds(i) {

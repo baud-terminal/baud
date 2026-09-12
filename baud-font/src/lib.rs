@@ -59,6 +59,7 @@ mod gpos;
 mod gsub;
 mod ignorable;
 mod layout;
+mod morx;
 pub mod outline;
 mod png;
 mod raster;
@@ -76,6 +77,7 @@ pub use face::{
 pub use gpos::Gpos;
 pub use gsub::Gsub;
 pub use layout::{Enabled, FeatureTag, Features, Gdef, GlyphClass};
+pub use morx::Morx;
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Point, Px, Rasterizer, Scale};

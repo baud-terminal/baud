@@ -16,7 +16,7 @@
 //! HarfBuzz reports the same geometry relative to the mark's own pen
 //! position, one base advance further along; `tests/shape.rs` translates.
 
-use crate::buffer::{Buffer, Glyph, Positioned};
+use crate::buffer::{Buffer, Glyph, Ignorable, Positioned};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::layout::{Coverage, Features, Filter, Gdef, Kind, Layout, Lookup, Skip};
 
@@ -92,7 +92,9 @@ impl<'a> Gpos<'a> {
 
     /// The glyph a mark attaches to: the nearest earlier glyph the filter
     /// does not skip and that is covered, with marks stepped over on the
-    /// way to a base and kept on the way to a mark.
+    /// way to a base and kept on the way to a mark. A default-ignorable is
+    /// stepped over either way, as HarfBuzz's matcher skips one no lookup
+    /// names outright.
     fn attach_target(
         &self,
         filter: &Filter<'_>,
@@ -106,7 +108,7 @@ impl<'a> Gpos<'a> {
         while let Some(p) = j.prev() {
             j = p;
             let g = buf.get(j)?;
-            if filter.skip(g.id) == Skip::Yes {
+            if filter.skip(g.id) == Skip::Yes || g.ignorable == Ignorable::Yes {
                 continue;
             }
             if target == Target::Base && gdef.is_mark(g.id) {

@@ -11,8 +11,8 @@
 //! its base's cell, so the fixture and the shaper agree on what a cluster
 //! is without translation.
 
-use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, Width};
-use baud_font::{Buffer, Cluster, Face, Features, Glyph, Ignorable, Shaper};
+use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};
+use baud_font::{Buffer, Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Shaper};
 
 struct Fixture {
     face: String,
@@ -60,11 +60,30 @@ fn shape<'b>(
     let cps: Vec<Codepoint> = text.iter().map(|&v| Codepoint::new(v).unwrap()).collect();
     let mut shaper = Shaper::new(face, storage);
     let mut start = 0usize;
+    let is_ri = |c: Codepoint| (0x1F1E6..=0x1F1FF).contains(&c.value());
     for i in 1..=cps.len() {
         let boundary = i == cps.len() || {
             let c = cps[i];
-            let zero = Classified::of(c).width(AmbiguousWidth::Narrow) == Width::ZERO;
-            !(zero || Ignorable::of(c) == Ignorable::Yes)
+            let cl = Classified::of(c);
+            let zero = cl.width(AmbiguousWidth::Narrow) == Width::ZERO;
+            // GB9: extenders, joiners and spacing marks continue the
+            // cluster; GB11: a pictograph after a joiner does too; GB12:
+            // regional indicators pair up. That is the cell the core's
+            // cluster machine hands the shaper, and HarfBuzz's level 0.
+            let extends = matches!(
+                cl.class,
+                GraphemeClass::Extend | GraphemeClass::Zwj | GraphemeClass::SpacingMark
+            );
+            let joined = cps[i - 1].value() == 0x200D && cl.lookback.pictographic();
+            let paired = is_ri(c) && {
+                let run = cps[start..i]
+                    .iter()
+                    .rev()
+                    .take_while(|&&p| is_ri(p))
+                    .count();
+                run % 2 == 1
+            };
+            !(zero || extends || Ignorable::of(c) == Ignorable::Yes || joined || paired)
         };
         if boundary {
             shaper
@@ -338,4 +357,102 @@ fn every_fallback_fixture_places_marks_as_harfbuzz_does() {
     // the vertical half of the placer must have moved something.
     assert!(a.positioned >= 20, "{}", a.positioned);
     assert!(a.raised >= 10, "{}", a.raised);
+}
+
+/// FNV-1a over a file, the digest `scripts/gen-shape-fixtures.sh` records
+/// beside each system face so a replaced font is refused, not compared.
+fn fnv64(data: &[u8]) -> u64 {
+    data.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+#[test]
+fn every_morx_fixture_shapes_as_harfbuzz_does() {
+    // The AAT faces are the ones macOS ships, so this runs there and is
+    // absent elsewhere -- said here so the absence is not mistaken for a
+    // pass. A face the OS has replaced since the fixture was written fails
+    // loudly with the regeneration step, rather than comparing two fonts.
+    if !cfg!(target_os = "macos") {
+        eprintln!("skipped: the morx fixtures name macOS system faces");
+        return;
+    }
+    let text =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/shape/morx.txt"))
+            .unwrap();
+    let mut files = std::collections::HashMap::new();
+    let mut fixtures = 0usize;
+    let mut ligated = 0usize;
+    let mut faces = std::collections::HashSet::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, index, digest, cps, shaped) = (f[0], f[1], f[2], f[4], f[5]);
+        let data = files.entry(path.to_string()).or_insert_with(|| {
+            let d = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            assert_eq!(
+                format!("{:016x}", fnv64(&d)),
+                digest,
+                "{path} is not the file the fixtures were shaped with; rerun \
+                 scripts/gen-shape-fixtures.sh under nix-shell -p harfbuzz"
+            );
+            d
+        });
+        let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
+        assert!(face.morx().is_some() && face.gsub().is_none(), "{path}");
+        faces.insert((path.to_string(), index.to_string()));
+        let cps: Vec<u32> = cps
+            .split_whitespace()
+            .map(|h| u32::from_str_radix(h, 16).unwrap())
+            .collect();
+        let expected = parse_positioned(shaped);
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let (buf, shaped) = shape(&face, &cps, &mut storage);
+        assert!(
+            shaped.declined.is_zero(),
+            "{path} {cps:04X?}: subtables declined"
+        );
+        let got: Vec<(u16, u16, i32, i32)> = buf
+            .as_slice()
+            .iter()
+            .map(|g| {
+                (
+                    u16::try_from(g.id.index()).unwrap(),
+                    g.cluster.0,
+                    i32::from(g.dx),
+                    i32::from(g.dy),
+                )
+            })
+            .collect();
+        let mut want = Vec::new();
+        let mut pen = 0i32;
+        let mut cluster: Option<u16> = None;
+        for e in &expected {
+            if cluster != Some(e.cluster) {
+                cluster = Some(e.cluster);
+                pen = 0;
+            }
+            want.push((e.id, e.cluster, e.dx + pen, e.dy));
+            pen += e.ax;
+        }
+        assert_eq!(
+            got, want,
+            "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
+        );
+        if got.len() < cps.len() {
+            ligated += 1;
+        }
+        fixtures += 1;
+    }
+    eprintln!(
+        "{fixtures} morx fixtures over {} faces, {ligated} formed a ligature",
+        faces.len()
+    );
+    // Positive controls: every face the generator names was present and
+    // matched, and Apple Color Emoji's families and flags ligated.
+    assert!(faces.len() >= 7, "{}", faces.len());
+    assert!(fixtures >= 150, "{fixtures}");
+    assert!(ligated >= 30, "{ligated}");
 }

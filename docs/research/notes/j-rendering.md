@@ -245,8 +245,16 @@ syllable to cells sanely), no bidi (a grid-level concern per the terminal-wg
 spec, owned by the VT core's mode bits if ever), no COLRv1, no `gvar`, no
 hinting, no LCD AA, no `kerx`/`trak`, no WOFF, no SVG-in-OpenType, no OpenGL,
 no CUDA compositing, no text-font `liga` (prose ligatures are unwanted in a
-grid; `calt` is the carrier). Each is a line in the evidence note with its
-cost, so re-opening one is a costed change rather than a rediscovery.
+grid; `calt` is the carrier). On `morx`: no insertion (type 5) or
+rearrangement (type 0) subtables -- Apple Color Emoji ships both behind
+feature flags its default selects nothing of -- no feature requests at all
+(each chain's `defaultFlags` and nothing else, so Menlo's off-by-default
+`fi` stays off and Helvetica's on-by-default one stays on), `GSUB` over
+`morx` when a face carries both (HarfBuzz's rule, and the two mono faces
+that matter have no `GSUB`), and a mark on a ligature attaches to the
+whole ligature where HarfBuzz attaches it to the last component. Each is a
+line in the evidence note with its cost, so re-opening one is a costed
+change rather than a rediscovery.
 
 ## The owner's calls, minimal
 

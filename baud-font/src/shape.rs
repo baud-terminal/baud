@@ -505,9 +505,13 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
 
     /// Substitutes, positions, hides, and hands the buffer back.
     pub fn finish(mut self, features: Features) -> (Buffer<'b>, Shaped) {
-        let mut declined = match self.face.gsub() {
-            Some(gsub) => gsub.apply(&mut self.buf, features),
-            None => Count::ZERO,
+        // `morx` stands in for `GSUB` on a face that has none -- HarfBuzz's
+        // rule, and the one CoreText's own faces are built for; a face
+        // carrying both shapes through `GSUB`.
+        let mut declined = match (self.face.gsub(), self.face.morx()) {
+            (Some(gsub), _) => gsub.apply(&mut self.buf, features),
+            (None, Some(morx)) => morx.apply(&mut self.buf),
+            (None, None) => Count::ZERO,
         };
         self.pen_pass();
         // HarfBuzz falls back to geometric mark placement only when the

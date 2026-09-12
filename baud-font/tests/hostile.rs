@@ -103,6 +103,9 @@ fn shape_some(face: &Face<'_>) {
         &[0x3E],
         &[0x65, 0x0301],
         &[0x1F468, 0x200D, 0x1F469],
+        &[0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467],
+        &[0x1F1EC, 0x1F1E7],
+        &[0x31, 0xFE0F, 0x20E3],
         &[0x263A, 0xFE0F],
         &[0x10FFFF],
         &[0xAC00],
@@ -183,4 +186,36 @@ proptest! {
     fn a_truncated_face_never_panics(len in 0usize..JETBRAINS.len()) {
         exercise(&JETBRAINS[..len]);
     }
+
+    #[test]
+    fn a_mutated_aat_face_never_panics(
+        which in 0usize..2,
+        flips in proptest::collection::vec((any::<u32>(), any::<u8>()), 1..16)
+    ) {
+        // No committed face carries `morx`, so the state-table driver is
+        // mutated through the two macOS faces that do -- Menlo for the
+        // ligature type, Geneva for the contextual and swash types -- and
+        // this is absent elsewhere rather than red.
+        let Some(original) = aat_face(which) else {
+            return Ok(());
+        };
+        let mut data = original.to_vec();
+        for (at, byte) in flips {
+            let i = usize::try_from(at).unwrap_or(0) % data.len();
+            data[i] = byte;
+        }
+        exercise(&data);
+    }
+}
+
+/// The macOS `morx` faces, read once; `None` where they are not installed.
+fn aat_face(which: usize) -> Option<&'static [u8]> {
+    static FACES: std::sync::OnceLock<[Option<Vec<u8>>; 2]> = std::sync::OnceLock::new();
+    let faces = FACES.get_or_init(|| {
+        [
+            std::fs::read("/System/Library/Fonts/Menlo.ttc").ok(),
+            std::fs::read("/System/Library/Fonts/Geneva.ttf").ok(),
+        ]
+    });
+    faces.get(which)?.as_deref()
 }
