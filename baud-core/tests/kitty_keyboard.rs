@@ -179,3 +179,37 @@ fn the_stack_operations_do_not_disturb_restore_cursor() {
         "SCORC must restore the saved position with the kitty forms in between"
     );
 }
+
+/// **The negotiation parses the same however the reads fall.** A `CSI = flags u`
+/// set and the `CSI ? u` query that reads it back are split at every byte
+/// boundary; the answer must not depend on where the split lands, which is the
+/// chunk-invariance every protocol feature here carries. The control is that
+/// the set took effect -- otherwise every arm would agree on `CSI ? 0 u`.
+#[test]
+fn the_negotiation_is_chunk_invariant() {
+    let stream = b"\x1b[=5u\x1b[?u";
+
+    let reply = |chunk: usize| -> Vec<u8> {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for part in stream.chunks(chunk) {
+            t.write_at(BytePos::ZERO, part);
+            t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
+        }
+        t.reply().to_vec()
+    };
+
+    let whole = reply(stream.len());
+    assert_eq!(
+        whole, b"\x1b[?5u",
+        "the set must take effect before the query"
+    );
+    for chunk in [1usize, 2, 3, 5, 7] {
+        assert_eq!(
+            reply(chunk),
+            whole,
+            "the reply differs at {chunk}-byte reads"
+        );
+    }
+}

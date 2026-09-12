@@ -41,7 +41,7 @@ missing is everything between that grid and a window.
 | **Grid** | ✅ two storage representations, both measured |
 | **Throughput** | ✅ [ahead of ghostty on all nine recordings](#the-number) — 1.73–5.70× on committed capture |
 | Scrollback | ⬜ not implemented. `baud-core2` stored `SB = 10_000` lines and **no accessor read above the viewport**, so it was never a feature; `baud-core` does not store them at all — retired rows are overwritten by `RowRot`. Building it needs a ring the viewport is a window into, so a retired line stays put and the window moves |
-| Input path | ◐ sources pinned, [key rows enumerated](docs/input-coverage.md) (15 done). The base layer is `baud_domain::encode_key` — cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, the meta/alt modes — and `baud-core::Term::key` reads the five modes off the terminal and calls it. It lives in the domain rather than in a core because nothing in it touches the grid. The two *negotiated* enhancements, fixterms `CSI u` and kitty progressive enhancement, are unbuilt |
+| Input path | ✅ [enumerated against sources](docs/input-coverage.md). The base layer is `baud_domain::encode_key` — cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, the meta/alt modes — and `baud-core::Term::key` reads the modes off the terminal and calls it. Both negotiated layers are done: fixterms `CSI u` through `modifyOtherKeys`, and kitty progressive enhancement in full — all five flags, the per-screen stack, and the `CSI ? u` query answered once every enhancement is honoured |
 | Reply channel | ◐ caller-provided. `baud-core` answers `DA` (under-claiming as a VT102), `DSR` 5/6 and `DECRQSS`; `DECRQM`, `XTVERSION` and highlight tracking are recognised and counted but unanswered, each for a named reason — a wrong-shaped answer is worse than silence |
 | Renderer | ⬜ not started |
 | Font shaping | ⬜ not started — and the largest unknown in the project |
@@ -52,9 +52,9 @@ about.
 
 ## The road to a terminal
 
-The next work is the **input path**, then the renderer — the owner's order. The
-base key encoder is already shared in `baud_domain`; what is unbuilt is the two
-negotiated layers, fixterms `CSI u` and kitty progressive enhancement.
+The input path is done — the base key encoder plus both negotiated layers
+(fixterms `CSI u` and kitty progressive enhancement). The **renderer** is next,
+the owner's order.
 
 Then two questions decide whether the measurements above survive contact with a
 real terminal:
