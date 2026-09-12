@@ -31,8 +31,19 @@ impl Modifiers {
     /// `[[source: ctlseqs]]` reaches codes 9-16 only when `alwaysUseMods` is
     /// set, so a terminal that never sends Meta is not thereby wrong.
     pub const META: Modifiers = Modifiers(8);
+    /// The four `[[source: kitty-keyboard]]` adds over the base layer. These
+    /// have **no `[[source: ctlseqs]]` wire form** -- xterm cannot express
+    /// super, hyper, caps-lock or num-lock -- so [`Modifiers::wire`] drops them
+    /// and only [`Modifiers::kitty_wire`] carries them. The internal bit is
+    /// chosen for a compact `wire` mask, not to match either protocol's
+    /// numbering; the two wire methods each remap.
+    pub const SUPER: Modifiers = Modifiers(16);
+    pub const HYPER: Modifiers = Modifiers(32);
+    pub const CAPS_LOCK: Modifiers = Modifiers(64);
+    pub const NUM_LOCK: Modifiers = Modifiers(128);
 
-    /// Every modifier the wire form can carry, which bounds `wire`.
+    /// Every modifier the **ctlseqs** wire form can carry, which bounds
+    /// [`Modifiers::wire`]. The kitty extras are outside it by construction.
     pub const ALL: Modifiers = Modifiers(15);
 
     pub fn with(self, o: Modifiers) -> Modifiers {
@@ -57,7 +68,48 @@ impl Modifiers {
     /// than left to the caller, because "1 + mask" written at two call sites
     /// is where one of them becomes "mask".
     pub fn wire(self) -> u8 {
-        1 + self.0
+        // Mask to the four ctlseqs modifiers: super/hyper/caps/num have no
+        // xterm wire form, so a base-layer key with one held encodes as though
+        // it were not -- degrading to what xterm sends rather than inventing a
+        // code past 16. On the existing four this is `1 + self.0` unchanged.
+        1 + (self.0 & Self::ALL.0)
+    }
+
+    /// The `[[source: kitty-keyboard]]` modifier value: `1 + bitmask` over its
+    /// eight modifiers, `shift 1, alt 2, ctrl 4, super 8, hyper 16, meta 32,
+    /// caps_lock 64, num_lock 128`.
+    ///
+    /// **Not [`Modifiers::wire`] with a wider mask.** kitty's bit 8 is super
+    /// where ctlseqs' is meta, so the two disagree on the meaning of a bit and
+    /// each is a distinct remap of the internal set. `u16` because `1 + 255`
+    /// does not fit a byte.
+    pub fn kitty_wire(self) -> u16 {
+        let mut k = 0u16;
+        if self.has(Modifiers::SHIFT) {
+            k |= 1;
+        }
+        if self.has(Modifiers::ALT) {
+            k |= 2;
+        }
+        if self.has(Modifiers::CTRL) {
+            k |= 4;
+        }
+        if self.has(Modifiers::SUPER) {
+            k |= 8;
+        }
+        if self.has(Modifiers::HYPER) {
+            k |= 16;
+        }
+        if self.has(Modifiers::META) {
+            k |= 32;
+        }
+        if self.has(Modifiers::CAPS_LOCK) {
+            k |= 64;
+        }
+        if self.has(Modifiers::NUM_LOCK) {
+            k |= 128;
+        }
+        1 + k
     }
 
     /// The inverse, for reading a sequence back.

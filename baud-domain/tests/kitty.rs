@@ -184,3 +184,48 @@ fn a_full_stack_evicts_the_oldest() {
     s.pop(Count::of(1000));
     assert!(s.current().is_none());
 }
+
+/// The kitty modifier value is `1 + bitmask` over eight modifiers, and its bit
+/// layout is *not* ctlseqs': bit 8 is super where ctlseqs' is meta.
+/// `[[source: kitty-keyboard]]` gives the bits (shift 1, alt 2, ctrl 4, super
+/// 8, hyper 16, meta 32, caps_lock 64, num_lock 128) and the worked example
+/// `ctrl+shift = 1 + 0b101 = 6`.
+#[test]
+fn kitty_modifier_values_match_the_specification() {
+    use Modifiers as M;
+    assert_eq!(M::NONE.kitty_wire(), 1);
+    assert_eq!(M::SHIFT.kitty_wire(), 1 + 1);
+    assert_eq!(M::ALT.kitty_wire(), 1 + 2);
+    assert_eq!(M::CTRL.kitty_wire(), 1 + 4);
+    assert_eq!(M::SUPER.kitty_wire(), 1 + 8);
+    assert_eq!(M::HYPER.kitty_wire(), 1 + 16);
+    assert_eq!(M::META.kitty_wire(), 1 + 32);
+    assert_eq!(M::CAPS_LOCK.kitty_wire(), 1 + 64);
+    assert_eq!(M::NUM_LOCK.kitty_wire(), 1 + 128);
+
+    // The spec's own worked example.
+    assert_eq!(M::CTRL.with(M::SHIFT).kitty_wire(), 6);
+    // Every modifier at once.
+    let all = M::SHIFT
+        .with(M::ALT)
+        .with(M::CTRL)
+        .with(M::SUPER)
+        .with(M::HYPER)
+        .with(M::META)
+        .with(M::CAPS_LOCK)
+        .with(M::NUM_LOCK);
+    assert_eq!(all.kitty_wire(), 1 + 255);
+}
+
+/// The base three modifiers agree between the two wire forms, which is what
+/// makes the disagreement isolated to bit 8 and above rather than pervasive.
+#[test]
+fn the_shared_modifiers_agree_between_wire_forms() {
+    use Modifiers as M;
+    for m in [M::SHIFT, M::ALT, M::CTRL, M::CTRL.with(M::SHIFT)] {
+        assert_eq!(u16::from(m.wire()), m.kitty_wire());
+    }
+    // super has no ctlseqs form, so the base wire drops it while kitty keeps it.
+    assert_eq!(M::SUPER.wire(), 1);
+    assert_eq!(M::SUPER.kitty_wire(), 1 + 8);
+}
