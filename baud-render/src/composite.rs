@@ -8,7 +8,7 @@
 //! and back, which two of three references found too thin for dark text
 //! on light and is here for the side-by-side.
 
-use crate::atlas::Atlas;
+use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
 use crate::instance::Instance;
 use crate::units::{Band, Coverage, slots};
@@ -78,16 +78,17 @@ impl<'p> Target<'p> {
         }
     }
 
-    /// Paints `inst`'s mask over the pixels, clipped to the buffer and to
-    /// the rows of `band`.
+    /// Paints `inst` over the pixels, clipped to the buffer and to the
+    /// rows of `band`: a mask in the instance's colour, a colour image as
+    /// it is, or a solid rectangle.
     pub fn over(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, band: Band) {
-        let side = slots(Px::of(atlas.side().value()));
-        let mask = atlas.pixels();
         let (w, h) = (usize::from(inst.w.0), usize::from(inst.h.0));
         let (u, v) = (usize::from(inst.u.0), usize::from(inst.v.0));
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
         let color = inst.color;
+        let mask_side = slots(Px::of(atlas.side().value()));
+        let color_side = slots(Px::of(atlas.color_side().value()));
         for my in 0..h {
             let Ok(y) = usize::try_from(i32::from(inst.y.0) + i32::try_from(my).unwrap_or(0))
             else {
@@ -97,11 +98,7 @@ impl<'p> Target<'p> {
                 continue;
             }
             let row = &mut self.pixels[y * stride..y * stride + width];
-            let src = &mask[(v + my) * side + u..(v + my) * side + u + w];
-            for (mx, &cov) in src.iter().enumerate() {
-                if cov == 0 {
-                    continue;
-                }
+            for mx in 0..w {
                 let Ok(x) = usize::try_from(i32::from(inst.x.0) + i32::try_from(mx).unwrap_or(0))
                 else {
                     continue;
@@ -110,7 +107,24 @@ impl<'p> Target<'p> {
                     continue;
                 }
                 let dst = Argb(row[x]);
-                row[x] = blend.over(color, dst, Coverage(cov)).0;
+                let out = match inst.kind {
+                    Kind::Mask => {
+                        let cov = atlas.pixels()[(v + my) * mask_side + u + mx];
+                        if cov == 0 {
+                            continue;
+                        }
+                        blend.over(color, dst, Coverage(cov))
+                    }
+                    Kind::Solid => blend.over(color, dst, Coverage(255)),
+                    Kind::Color => {
+                        let src = Argb(atlas.argb()[(v + my) * color_side + u + mx]);
+                        if src.a().get() == 0 {
+                            continue;
+                        }
+                        blend.over(src, dst, Coverage(255))
+                    }
+                };
+                row[x] = out.0;
             }
         }
     }

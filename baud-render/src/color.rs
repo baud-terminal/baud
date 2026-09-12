@@ -109,6 +109,29 @@ impl Theme {
     }
 }
 
+impl Theme {
+    /// The colour an underline draws in: `SGR 58`'s when set, else the
+    /// resolved foreground.
+    pub fn underline(
+        &self,
+        style: StyleWord,
+        fg: Argb,
+        palette: impl Fn(Chan) -> Option<(u8, u8, u8)>,
+    ) -> Argb {
+        let w = style.underline();
+        if let Some((r, g, b)) = w.as_rgb() {
+            return triple(r, g, b);
+        }
+        if let Some(i) = w.as_index() {
+            return match palette(Chan::from_u8(i)) {
+                Some((r, g, b)) => triple(r, g, b),
+                None => self.palette[usize::from(i)],
+            };
+        }
+        fg
+    }
+}
+
 fn triple(r: u8, g: u8, b: u8) -> Argb {
     Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
 }

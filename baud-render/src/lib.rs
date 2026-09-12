@@ -35,7 +35,7 @@ mod renderer;
 mod stack;
 mod units;
 
-pub use atlas::{Atlas, AtlasStats, Slot};
+pub use atlas::{Atlas, AtlasStats, Kind, Slot, Tex};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use color::{Argb, Theme};
 pub use composite::{Blend, Target};

@@ -40,12 +40,29 @@ fn main() {
         env!("CARGO_MANIFEST_DIR")
     ))
     .expect("recording");
-    let font = std::fs::read(format!(
-        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .expect("committed fixture");
-    let faces = [Face::parse(&font).unwrap()];
+    // `FRAME_FACES=path[#index],...` stacks other faces -- on macOS,
+    // `/System/Library/Fonts/Menlo.ttc,/System/Library/Fonts/Apple Color
+    // Emoji.ttc` is the terminal's real stack and prices the colour path.
+    let stack_spec = std::env::var("FRAME_FACES").unwrap_or_else(|_| {
+        format!(
+            "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
+    let files: Vec<(Vec<u8>, u32)> = stack_spec
+        .split(',')
+        .map(|spec| {
+            let (path, index) = spec.split_once('#').unwrap_or((spec, "0"));
+            (
+                std::fs::read(path).expect("face file"),
+                index.parse().unwrap_or(0),
+            )
+        })
+        .collect();
+    let faces: Vec<Face<'_>> = files
+        .iter()
+        .map(|(data, i)| Face::parse_index(data, baud_font::FaceIndex::of(*i)).unwrap())
+        .collect();
     let ws = WinSize {
         ws_row: 50,
         ws_col: 200,
@@ -136,11 +153,11 @@ fn main() {
         inst,
     } = best.unwrap();
     let a = r.atlas_stats();
-    let (raster, grown) = (a.rasterised.value(), a.grown.value());
+    let (raster, coloured, grown) = (a.rasterised.value(), a.coloured.value(), a.grown.value());
     let c = r.cache_stats();
     let hit = 100.0 * c.hits.value() as f64 / (c.hits.value() + c.misses.value()).max(1) as f64;
     println!(
-        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8}",
+        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8}",
         which,
         frames,
         total.as_secs_f64() * 1e6 / frames as f64,
@@ -150,6 +167,7 @@ fn main() {
         inst as f64 / frames as f64,
         hit,
         raster,
+        coloured,
         grown
     );
 }

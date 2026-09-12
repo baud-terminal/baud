@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats};
+use crate::atlas::{Atlas, AtlasStats, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, Placed, RUN_CELLS, RunCache, Shaped};
 use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
@@ -9,7 +9,7 @@ use crate::metrics::{Metrics, PxSize};
 use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
-use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, GlyphId, PackedCell, Row, Rows};
+use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, CursorStyle, GlyphId, PackedCell, Row, Rows};
 use baud_font::{
     Cluster, Digest as LookupDigest, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale, Shaper,
 };
@@ -30,6 +30,9 @@ pub struct Frame {
     pub rows_dirty: Tally,
     pub rows: Tally,
     pub instances: Tally,
+    /// Of the instances, those on the colour texture and those solid.
+    pub colored: Tally,
+    pub solids: Tally,
     pub cache: CacheStats,
     pub atlas: AtlasStats,
     pub convert: Duration,
@@ -46,6 +49,29 @@ fn palette_digest(term: &Term<'_>) -> Digest {
     d
 }
 
+fn px_i32(p: Px) -> i32 {
+    i32::try_from(p.value()).unwrap_or(i32::MAX)
+}
+
+/// A screen position from pixel arithmetic, pinned to the record's range.
+fn screen(v: i32) -> Screen {
+    Screen(i16::try_from(v).unwrap_or(i16::MAX))
+}
+
+/// A filled rectangle `w` by `h` at `(x, y)` in `color`.
+fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
+    Instance {
+        x,
+        y,
+        w: Tex(u16::try_from(w.value()).unwrap_or(u16::MAX)),
+        h: Tex(u16::try_from(h.value()).unwrap_or(u16::MAX)),
+        u: Tex(0),
+        v: Tex(0),
+        color,
+        kind: Kind::Solid,
+    }
+}
+
 /// One cell's input to the shaper: its base and attached codepoints.
 struct ClusterIn {
     cps: Vec<Codepoint>,
@@ -53,8 +79,8 @@ struct ClusterIn {
     at: CellIx,
 }
 
-/// Where the cursor is, when it is shown.
-type Cursor = Option<(Row, Col)>;
+/// Where the cursor is, when it is shown, and its shape.
+type Cursor = Option<(Row, Col, CursorStyle)>;
 
 /// Whether the previous frame's copy describes what is on screen.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -238,7 +264,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             self.cur_styles[r] = d;
         }
-        let cursor: Cursor = term.cursor_visible().then(|| term.cursor());
+        let cursor: Cursor = term.cursor_visible().then(|| {
+            let (r, c) = term.cursor();
+            (r, c, term.cursor_style())
+        });
         let palette = palette_digest(term);
         let full =
             damage == Damage::Full || self.known == Prev::Unknown || palette != self.last_palette;
@@ -247,7 +276,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             rows: Tally::of(rows.index()),
             ..Frame::default()
         };
-        let cursor_row = |c: Cursor| c.map(|(r, _)| r.index());
+        let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut dirty = vec![false; rows.index()];
         for (r, d) in dirty.iter_mut().enumerate() {
             let range = self.row_cells(Row::from_index(r));
@@ -270,6 +299,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for (r, &d) in dirty.iter().enumerate() {
             let row = Row::from_index(r);
             frame.instances.add(Tally::of(self.per_row[r].len()));
+            for inst in &self.per_row[r] {
+                match inst.kind {
+                    Kind::Color => frame.colored.bump(),
+                    Kind::Solid => frame.solids.bump(),
+                    Kind::Mask => {}
+                }
+            }
             if !d {
                 continue;
             }
@@ -294,7 +330,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let range = self.row_cells(r);
         // A copy of the row, so shaping may borrow the renderer mutably.
         let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
-        // Colours first, cell by cell.
+        let mut instances = core::mem::take(&mut self.per_row[r.index()]);
+        instances.clear();
+        // Colours first, cell by cell, with the shapes a rendition asks
+        // for: an underline, a strike, an underline or bar cursor. A block
+        // cursor is the cell's colours swapped. Shapes go on after the
+        // glyphs, so a strike crosses its letter rather than hiding under
+        // an opaque colour glyph.
+        let mut shapes: Vec<Instance> = Vec::new();
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
+        let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
             let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
@@ -302,16 +347,51 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
                 bg = bg.with_alpha(self.theme.bg_alpha);
             }
-            if cursor == Some((r, Col::at_index(c))) {
+            let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == Col::at_index(c));
+            if matches!(
+                here,
+                Some((_, _, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock))
+            ) {
                 core::mem::swap(&mut fg, &mut bg);
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
             }
             self.fg[range.start + c] = fg;
             self.bg[range.start + c] = bg;
+            let x = i32::try_from(c).unwrap_or(0) * cell_w;
+            let attrs = style.attrs();
+            if attrs.has(Attrs::UNDERLINE) {
+                let color = self.theme.underline(style, fg, |ch| term.palette(ch));
+                shapes.push(solid(
+                    screen(x),
+                    screen(top + px_i32(self.metrics.underline)),
+                    self.metrics.cell_w,
+                    self.metrics.thickness,
+                    color,
+                ));
+            }
+            if attrs.has(Attrs::STRIKE) {
+                shapes.push(solid(
+                    screen(x),
+                    screen(top + px_i32(self.metrics.strike)),
+                    self.metrics.cell_w,
+                    self.metrics.thickness,
+                    fg,
+                ));
+            }
+            match here {
+                Some((_, _, CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline)) => {
+                    let h = Px::of(self.metrics.thickness.value().max(2));
+                    let y = top + px_i32(self.metrics.cell_h) - px_i32(h);
+                    shapes.push(solid(screen(x), screen(y), self.metrics.cell_w, h, fg));
+                }
+                Some((_, _, CursorStyle::BlinkingBar | CursorStyle::SteadyBar)) => {
+                    let w = Px::of(self.metrics.thickness.value().max(2));
+                    shapes.push(solid(screen(x), screen(top), w, self.metrics.cell_h, fg));
+                }
+                _ => {}
+            }
         }
         // Then runs of cells shaped by one face.
-        let mut instances = core::mem::take(&mut self.per_row[r.index()]);
-        instances.clear();
         let mut c = 0usize;
         while c < row.len() {
             let Some(base) = row[c].content.as_codepoint() else {
@@ -359,6 +439,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             self.emit(face, r, Col::at_index(start), &shaped, &mut instances);
         }
+        instances.extend(shapes);
         self.per_row[r.index()] = instances;
     }
 
@@ -424,6 +505,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 u: slot.x,
                 v: slot.y,
                 color,
+                kind: slot.kind,
             });
         }
     }

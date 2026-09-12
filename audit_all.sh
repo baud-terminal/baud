@@ -197,13 +197,14 @@ crate_audit() {
 # two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
 # `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`).
 crate_audit "baud-font" 16 68 baud-font/src
-# baud-render: 0 raw sites and 10 signature primitives, every one a unit
+# baud-render: 0 raw sites and 11 signature primitives, every one a unit
 # type's own edge -- `Tally::of(usize)` and `Tally::value -> u64`,
 # `Digest::fold(u64)` and `Digest::value -> u64`, `slots -> usize` (the one
-# place a pixel count becomes a slice index), `Side::value -> u32`,
+# place a pixel count becomes a slice index), `screen(i32)` (the one place
+# pixel arithmetic becomes an instance coordinate), `Side::value -> u32`,
 # `Key::fold(u32)`, `FaceIx::index -> usize`, and the two colour helpers
 # `triple(u8, u8, u8)` and `grey(u8)` that build an `Argb` from wire bytes.
-crate_audit "baud-render" 0 10 baud-render/src
+crate_audit "baud-render" 0 11 baud-render/src
 crate_audit "baud-present-macos" 0 0 baud-present-macos/src
 crate_audit "baud-app" 0 0 baud-app/src
 
