@@ -24,7 +24,7 @@ fn run(bytes: &[u8]) -> Snap {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    let cells = support::screen(&t).to_vec();
+    let cells = support::screen(&t);
     let uris = cells[..40]
         .iter()
         .map(|c| t.link_uri(c.flags.link()).map(|u| u.to_vec()))
@@ -121,7 +121,7 @@ fn a_link_survives_a_wrap() {
     t.write_at(BytePos::ZERO, &v);
     t.feed(BytePos::ZERO, ReadLen::from_index(v.len()));
     let w = t.stride().index();
-    let wrapped = support::screen(&t)[w];
+    let wrapped = t.viewport()[w];
     assert!(
         t.link_uri(wrapped.flags.link()).is_some(),
         "the wrapped cells are still in the link"
@@ -182,11 +182,7 @@ fn hyperlinks_are_chunk_invariant() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             i += n;
         }
-        assert_eq!(
-            support::screen(&t).to_vec(),
-            whole,
-            "differed at chunk {chunk}"
-        );
+        assert_eq!(support::screen(&t), whole, "differed at chunk {chunk}");
     }
 }
 

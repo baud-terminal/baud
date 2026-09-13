@@ -20,7 +20,7 @@ fn run(bytes: &[u8]) -> (Vec<u32>, Vec<u8>) {
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
     let cols = t.cursor().1.index();
-    let cells = support::screen(&t)[..cols]
+    let cells = t.viewport()[..cols]
         .iter()
         .filter(|c| !c.content.is_wide_tail())
         .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
@@ -206,7 +206,7 @@ fn detection_does_not_switch_the_terminal() {
         "no reply, and nothing switched behind the caller's back"
     );
     let cols = t.cursor().1.index();
-    let last = support::screen(&t)[..cols]
+    let last = t.viewport()[..cols]
         .last()
         .and_then(|c| c.content.as_codepoint())
         .map(|c| c.value());

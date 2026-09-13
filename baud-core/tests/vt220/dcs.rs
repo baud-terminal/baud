@@ -26,7 +26,7 @@ fn run(bytes: &[u8]) -> (Vec<PackedCell>, Vec<u8>) {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    (support::screen(&t).to_vec(), t.reply().to_vec())
+    (support::screen(&t), t.reply().to_vec())
 }
 
 fn replies(b: &[u8]) -> Vec<u8> {

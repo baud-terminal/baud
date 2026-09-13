@@ -10,11 +10,10 @@
 //! `t.row(Row::from_index(1))` do not mean the same thing in the two crates.
 //! Fifty-two `viewport()` call sites would have passed vacuously.
 //!
-//! **`screen` is the test's copy of the window, and the core makes none.**
-//! `Term::viewport` used to hand a test one contiguous slice at the pitch and
-//! copied to do it when the window wrapped the ring; the readers that matter
-//! walk rows, so the copy is gone from the core and lives here, where an
-//! allocation is free.
+//! **`screen` is the test's owned copy of the viewport, and the core makes
+//! none.** `Term::viewport` is a view -- the ring's own cells, indexed at the
+//! pitch through the rotation -- and a test that wants to compare two
+//! screens whole takes this copy, where an allocation is free.
 //!
 //! So this is `baud-core`'s own loop factored once, and the ported tests were
 //! read rather than rewritten by pattern.
@@ -143,17 +142,9 @@ pub fn ignores_are(dir: &str, files: &[&str], want: &[&str]) {
     );
 }
 
-/// The screen as one slice at the pitch, `rows * stride` cells in screen
-/// order -- what `Term::viewport` used to answer, copied here from
-/// `Term::row` so a test can index `y * stride + x` the way the suites were
-/// written. The core itself never makes this copy.
+/// The viewport copied out, `rows * stride` cells in screen order, so a test
+/// can hold two screens and compare them. The core itself never makes this
+/// copy: `Term::viewport` reads in place.
 pub fn screen(t: &Term<'_>) -> Vec<PackedCell> {
-    let (_, rows) = t.geometry();
-    let stride = t.stride().index();
-    let mut out = vec![PackedCell::EMPTY; rows.index() * stride];
-    for y in 0..rows.index() {
-        let row = t.row(Row::from_index(y));
-        out[y * stride..y * stride + row.len()].copy_from_slice(row);
-    }
-    out
+    t.viewport().iter().collect()
 }

@@ -206,7 +206,7 @@ fn reading_the_viewport_between_scrolls_keeps_the_marks_aligned() {
             let text = format!("r{round}l{line} text on this line\r\n");
             feed(&mut t, text.as_bytes(), READ_CHUNK);
         }
-        let vp = support::screen(&t);
+        let vp = t.viewport();
         assert!(!vp.is_empty(), "the renderer read a frame");
     }
     let (_, rows) = t.geometry();

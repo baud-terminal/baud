@@ -37,7 +37,7 @@ fn row_n(bytes: &[u8], chunk: usize, cols: usize, y: usize) -> String {
         i += n;
     }
     let w = t.stride().index();
-    let vp = support::screen(&t);
+    let vp = t.viewport();
     let row = &vp[y * w..];
     (0..cols)
         .map(|c| match row[c].content.as_codepoint() {
@@ -367,7 +367,7 @@ fn shrinking_after_a_scroll_does_not_panic() {
     };
     assert_eq!(t.resize(&small), Resized::Ok);
     let w = t.stride().index();
-    let vp = support::screen(&t);
+    let vp = t.viewport();
     assert_eq!(vp.len(), 10 * w, "the viewport is the new size");
     for (y, row) in before.iter().enumerate() {
         assert_eq!(
@@ -449,7 +449,7 @@ fn a_resize_while_parked_restores_the_primary_whole() {
     t.write_at(BytePos::ZERO, back);
     t.feed(BytePos::ZERO, ReadLen::from_index(back.len()));
     let w = t.stride().index();
-    let vp = support::screen(&t);
+    let vp = t.viewport();
     let text: String = vp[..20]
         .iter()
         .filter_map(|c| c.content.as_codepoint())
@@ -460,11 +460,14 @@ fn a_resize_while_parked_restores_the_primary_whole() {
         "the first twenty columns are live"
     );
     assert!(
-        vp[w..12 * w].iter().all(|c| c.content == Content::EMPTY),
+        vp.iter()
+            .skip(w)
+            .take(11 * w)
+            .all(|c| c.content == Content::EMPTY),
         "and nothing else was on the primary"
     );
     assert_eq!(t.resize(&ws), Resized::Ok);
-    let whole: String = support::screen(&t)[..36]
+    let whole: String = t.viewport()[..36]
         .iter()
         .filter_map(|c| c.content.as_codepoint())
         .map(|cp| char::from_u32(cp.value()).unwrap_or('?'))
@@ -500,7 +503,7 @@ fn rep_repeats_across_a_read_boundary() {
 
 fn row(t: &mut Term<'_>, y: usize, n: usize) -> String {
     let w = t.stride().index();
-    let vp = support::screen(&t);
+    let vp = t.viewport();
     (0..n)
         .map(|x| {
             vp[y * w + x]

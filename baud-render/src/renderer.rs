@@ -327,8 +327,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // Each row read where the core holds it, through the rotation and
         // the ring; the copy into `cur` is this path's own frame-to-frame
         // damage record, not the core's.
+        let vp = term.viewport();
         for r in 0..rows.index() {
-            self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(term.row(Row::from_index(r)));
+            self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
         }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));

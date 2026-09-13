@@ -28,7 +28,7 @@ fn narrow_row(bytes: &[u8]) -> Vec<PackedCell> {
         "4x8 is well inside the fixed viewport"
     );
     support::feed(&mut t, bytes);
-    support::screen(&t)[..8].to_vec()
+    t.viewport()[..8].to_vec()
 }
 
 fn cursor(bytes: &[u8]) -> (usize, usize) {

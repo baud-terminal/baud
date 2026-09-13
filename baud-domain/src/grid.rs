@@ -227,6 +227,162 @@ pub struct View<'a> {
     rot: RowRot,
 }
 
+/// The screen, read where it is.
+///
+/// **The same pointers as the ring, in the shape its readers use.** A row is
+/// a slice of the ring at physical row `(y + rot) % ring`, and an index
+/// `y * stride + x` -- the way a screen laid out at the pitch is addressed
+/// -- resolves to the same cell, so a reader that walks rows and a reader
+/// that indexes both read the grid in place and nothing is turned or
+/// copied. The one thing the ring cannot offer is a single slice across a
+/// row boundary where the window wraps its end; [`Viewport::contiguous`]
+/// says when it can, and [`Viewport::parts`] is the two slices otherwise.
+#[derive(Clone, Copy)]
+pub struct Viewport<'a> {
+    cells: &'a [PackedCell],
+    stride: Stride,
+    cols: Cols,
+    rows: Rows,
+    ring: Rows,
+    rot: RowRot,
+}
+
+impl<'a> Viewport<'a> {
+    pub fn new(
+        cells: &'a [PackedCell],
+        stride: Stride,
+        cols: Cols,
+        rows: Rows,
+        ring: Rows,
+        rot: RowRot,
+    ) -> Viewport<'a> {
+        Viewport {
+            cells,
+            stride,
+            cols,
+            rows,
+            ring,
+            rot,
+        }
+    }
+
+    fn phys(&self, y: usize) -> usize {
+        let ring = self.ring.index();
+        let p = y + self.rot.index();
+        if p >= ring { p - ring } else { p }
+    }
+
+    /// Screen row `y`'s `cols` live cells.
+    pub fn row(&self, y: Row) -> &'a [PackedCell] {
+        let a = self.phys(y.index()) * self.stride.index();
+        &self.cells[a..a + self.cols.index()]
+    }
+
+    /// Screen row `y` at the full pitch, which is what an index at the pitch
+    /// addresses.
+    fn pitch_row(&self, y: usize) -> &'a [PackedCell] {
+        assert!(y < self.rows.index(), "row {y} of {}", self.rows.index());
+        let a = self.phys(y) * self.stride.index();
+        &self.cells[a..a + self.stride.index()]
+    }
+
+    pub fn rows(&self) -> Rows {
+        self.rows
+    }
+    pub fn cols(&self) -> Cols {
+        self.cols
+    }
+    pub fn stride(&self) -> Stride {
+        self.stride
+    }
+    /// Cells at the pitch, `rows * stride`: the extent an index can address.
+    pub fn len(&self) -> usize {
+        self.rows.index() * self.stride.index()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The screen as one slice at the pitch, when the window does not wrap
+    /// around the ring's end -- which it does not for all but `rows` of
+    /// every `ring` positions.
+    pub fn contiguous(&self) -> Option<&'a [PackedCell]> {
+        let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride.index());
+        match a + n <= self.ring.index() {
+            true => Some(&self.cells[a * s..(a + n) * s]),
+            false => None,
+        }
+    }
+
+    /// The screen as two slices at the pitch, the rows before the ring's end
+    /// and the rows after it, the second empty when the window does not
+    /// wrap. Together they are the screen in order, and neither is a copy.
+    pub fn parts(&self) -> (&'a [PackedCell], &'a [PackedCell]) {
+        let (a, n, s, ring) = (
+            self.rot.index(),
+            self.rows.index(),
+            self.stride.index(),
+            self.ring.index(),
+        );
+        let head = n.min(ring - a);
+        (
+            &self.cells[a * s..(a + head) * s],
+            &self.cells[..(n - head) * s],
+        )
+    }
+
+    /// Every cell in screen order at the pitch, the rows chained.
+    pub fn iter(&self) -> impl Iterator<Item = PackedCell> + 'a {
+        let v = *self;
+        (0..self.rows.index()).flat_map(move |y| v.pitch_row(y).iter().copied())
+    }
+}
+
+/// `vp[y * stride + x]`: the cell at screen row `y`, column `x`, read in
+/// place. Any column of the pitch, not only the live ones, so a reader can
+/// see what lies past the edge.
+impl core::ops::Index<usize> for Viewport<'_> {
+    type Output = PackedCell;
+    fn index(&self, i: usize) -> &PackedCell {
+        let s = self.stride.index();
+        &self.pitch_row(i / s)[i % s]
+    }
+}
+
+/// A range at the pitch, which must lie within one row: a row is one slice
+/// of the ring and the next row is elsewhere in it. A range that crosses a
+/// row asks for the copy this type exists not to make, and panics.
+impl core::ops::Index<core::ops::Range<usize>> for Viewport<'_> {
+    type Output = [PackedCell];
+    fn index(&self, r: core::ops::Range<usize>) -> &[PackedCell] {
+        let s = self.stride.index();
+        let (y, a) = (r.start / s, r.start % s);
+        assert!(
+            r.end <= (y + 1) * s,
+            "{}..{} crosses row {y} of the pitch {s}",
+            r.start,
+            r.end
+        );
+        &self.pitch_row(y)[a..r.end - y * s]
+    }
+}
+
+impl core::ops::Index<core::ops::RangeTo<usize>> for Viewport<'_> {
+    type Output = [PackedCell];
+    fn index(&self, r: core::ops::RangeTo<usize>) -> &[PackedCell] {
+        &self[0..r.end]
+    }
+}
+
+/// From a cell to the end of its row at the pitch.
+impl core::ops::Index<core::ops::RangeFrom<usize>> for Viewport<'_> {
+    type Output = [PackedCell];
+    fn index(&self, r: core::ops::RangeFrom<usize>) -> &[PackedCell] {
+        let s = self.stride.index();
+        &self[r.start..(r.start / s + 1) * s]
+    }
+}
+
 /// The surface a [`View`] is not addressing: the other screen's cells, marks,
 /// depth and rotation, held so the two can be swapped without a copy when
 /// `?1049` switches screens.

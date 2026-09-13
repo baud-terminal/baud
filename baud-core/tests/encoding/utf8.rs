@@ -27,7 +27,7 @@ fn decode(bytes: &[u8]) -> Vec<u32> {
     support::feed(&mut t, bytes);
     // The first row, up to the cursor: what the stream actually produced.
     let cols = t.cursor().1.index();
-    support::screen(&t)[..cols]
+    t.viewport()[..cols]
         .iter()
         // A wide character occupies two cells; the second is the tail marker,
         // not a second codepoint.
@@ -232,7 +232,7 @@ fn a_lead_whose_continuation_is_malformed_does_not_hang() {
     support::with_corpus(|t| {
         support::feed(t, b"\xe2A");
         let w = t.stride().index();
-        let vp = support::screen(&t);
+        let vp = t.viewport();
         assert_eq!(
             vp[0].content.as_codepoint().map(|c| c.value()),
             Some(0xfffd),

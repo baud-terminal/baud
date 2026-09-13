@@ -21,7 +21,7 @@ fn grid(bytes: &[u8]) -> Vec<PackedCell> {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    support::screen(&t).to_vec()
+    support::screen(&t)
 }
 
 /// Text written while protected survives DECSEL.

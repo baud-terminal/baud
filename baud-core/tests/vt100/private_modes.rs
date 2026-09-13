@@ -122,7 +122,7 @@ fn deccolm_clears_and_records_but_does_not_resize() {
             s: Owned::new(&support::CORPUS),
         };
         let t2 = Term::new(u.s.storage(), &support::CORPUS);
-        support::screen(&t2).to_vec()
+        support::screen(&t2)
     };
     assert_eq!(support::screen(&term), blank, "the screen is cleared");
 }

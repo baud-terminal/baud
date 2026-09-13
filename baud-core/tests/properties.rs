@@ -216,7 +216,7 @@ fn drive(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    support::screen(&t).to_vec()
+    support::screen(&t)
 }
 
 /// The same program, but each **atom** delivered in its own `feed`.
@@ -235,7 +235,7 @@ fn drive_atomwise(prog: &[usize]) -> Vec<PackedCell> {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
     }
-    support::screen(&t).to_vec()
+    support::screen(&t)
 }
 
 /// **The control, and nothing below it is believable until it passes.**
@@ -328,7 +328,7 @@ proptest! {
         // long as the pitch was wider than `ROWS * COLS`, and a narrower
         // pitch is what made the probe fire.
         let stride = t.stride().index();
-        let cells = support::screen(&t).to_vec();
+        let cells = support::screen(&t);
         for y in 0..ROWS {
             for x in 0..COLS {
                 let c = cells[y * stride + x];

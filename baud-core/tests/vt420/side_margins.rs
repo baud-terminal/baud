@@ -26,7 +26,7 @@ fn run(bytes: &[u8]) -> (Vec<PackedCell>, (usize, usize), Vec<u8>) {
     support::feed(&mut t, bytes);
     let (r, c) = t.cursor();
     (
-        support::screen(&t).to_vec(),
+        support::screen(&t),
         (r.index(), c.index()),
         t.reply().to_vec(),
     )
@@ -264,10 +264,6 @@ fn side_margins_are_chunk_invariant() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             i += n;
         }
-        assert_eq!(
-            support::screen(&t).to_vec(),
-            whole,
-            "differed at chunk {chunk}"
-        );
+        assert_eq!(support::screen(&t), whole, "differed at chunk {chunk}");
     }
 }

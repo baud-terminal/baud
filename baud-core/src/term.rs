@@ -827,18 +827,21 @@ impl<'b> Term<'b> {
 
     /// One row of the grid, resolved through the rotation.
     ///
-    /// One screen row, `cols` cells, read where it is: through the rotation
-    /// and the ring, with no copy. **The only way to read the screen**, on
-    /// purpose. `viewport()` promised one contiguous slice of the screen and
-    /// kept the promise, when the window wrapped around the ring's end, by
-    /// copying its rows into a scratch -- fifty frames in every ring's worth,
-    /// for the two readers that held it to the promise. Both walk rows, so
-    /// the promise, the scratch and the copy are gone; a reader that wants
-    /// the whole screen at once takes `Term::cells` under `Term::rotation`
-    /// and `Term::ring`, which is what the GPU does.
-    pub fn row(&self, y: Row) -> &[PackedCell] {
+    /// The screen, read where it is: a [`Viewport`] over the live surface's
+    /// ring, the same pointers the core writes through, with a row a slice
+    /// of the ring and an index `y * stride + x` resolving to the cell in
+    /// place. No copy and no turn, whichever screen is up. A reader that
+    /// wants one slice of the whole screen asks [`Viewport::contiguous`],
+    /// which the window is for all but `rows` of every `ring` positions,
+    /// and takes [`Viewport::parts`] otherwise.
+    pub fn viewport(&self) -> Viewport<'_> {
         let (cells, _, ring, rot) = self.surface();
-        View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot).row_slice(y)
+        Viewport::new(cells, self.stride, self.cols, self.rows, ring, rot)
+    }
+
+    /// One screen row, `cols` cells: [`Viewport::row`].
+    pub fn row(&self, y: Row) -> &[PackedCell] {
+        self.viewport().row(y)
     }
 
     /// One row, or `None` if `y` is not on the grid.

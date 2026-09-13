@@ -72,7 +72,7 @@ fn the_pitch_is_the_cache_geometrys_and_survives_every_resize() {
         );
         let (cols, rows) = t.geometry();
         assert!(cols.index() <= pitch.index(), "every width fits the pitch");
-        assert_eq!(support::screen(&t).len(), rows.index() * pitch.index());
+        assert_eq!(t.viewport().len(), rows.index() * pitch.index());
     }
     // With nothing detected the fallback is still an odd multiple of the
     // smallest line any cache uses, so it aliases no way on any machine.

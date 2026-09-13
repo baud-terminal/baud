@@ -223,10 +223,10 @@ fn main() {
                     });
                     r.resolve_styles_into(&t, styles_mem);
                     if arm == Arm::Copied {
-                        let (cols, rows) = t.geometry();
+                        let vp = t.viewport();
                         for y in 0..rows.index() {
-                            RowBlock::nth(y, t.stride()).of_mut(copy_mem)[..cols.index()]
-                                .copy_from_slice(t.row(Row::from_index(y)));
+                            RowBlock::nth(y, t.stride()).of_mut(copy_mem)[..vp.cols().index()]
+                                .copy_from_slice(vp.row(Row::from_index(y)));
                         }
                     }
                     s.convert += tc.elapsed();

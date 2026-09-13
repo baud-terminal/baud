@@ -34,7 +34,7 @@ fn run(t: &mut T, bytes: &[u8]) -> (Vec<PackedCell>, (usize, usize), Screen) {
     support::feed(&mut term, bytes);
     let (r, c) = term.cursor();
     (
-        support::screen(&term).to_vec(),
+        support::screen(&term),
         (r.index(), c.index()),
         term.screen(),
     )

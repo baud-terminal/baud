@@ -26,7 +26,7 @@ fn attrs_at(bytes: &[u8]) -> Attrs {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    let cell = support::screen(&t)[0];
+    let cell = t.viewport()[0];
     t.style_of(cell).attrs()
 }
 
