@@ -128,16 +128,19 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
     pub(crate) clipboard_writes_dropped: usize,
-    /// The parked primary screen, reached **once per alt-screen transition**
-    /// and never by the per-character loop.
+    /// The screen that is not live: the other surface's cells, marks, ring
+    /// and rotation, reached **once per alt-screen transition** and never by
+    /// the per-character loop, when `?1049` swaps it with the view's.
     ///
-    /// One word, deliberately. This file records two slices carried through
-    /// the inlined loop costing 5-10% -- the span attempt and the row map,
-    /// both of which a thin reference recovered most of. [`AltBuf`] groups the
-    /// cells, the extents and the rotation so they cannot be parked
-    /// separately, and carrying it by reference is what that grouping buys on
-    /// the other side.
-    pub(crate) alt: &'a mut crate::storage::AltBuf<'b>,
+    /// Four words, carried by value, and measured rather than assumed: the
+    /// span attempt and the row map each cost 5-10% for two more words
+    /// through this struct, which is inlined into the per-byte loop. The
+    /// swap is what buys it back -- two live surfaces mean no park and no
+    /// restore, so entering the alternate screen copies nothing.
+    pub(crate) other: Surface<'a>,
+    /// The primary ring's bookkeeping: how many rows behind the window are
+    /// lines, how many after it were cut by a shorter window. One word.
+    pub(crate) book: &'a mut crate::storage::Book,
     /// Where a cluster's continuations go. Reached once per zero-width
     /// codepoint, which ASCII never is.
     ///
@@ -279,6 +282,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         let Storage {
             arena,
             stride,
+            depth,
             vp,
             used,
             cells3,
@@ -286,9 +290,41 @@ impl<'a, 'b> Paint<'a, 'b> {
             tabs,
             reply,
             alt,
+            book,
             clusters,
             strs,
+            ..
         } = store;
+        // **The live surface by which screen is up.** The primary is the
+        // ring -- the screen's capacity plus the scrollback -- and the
+        // alternate is a ring of the capacity alone, so a scroll there
+        // rotates blanks into blanks as it always did. Whichever is not live
+        // rides as `other`, ready to be swapped in.
+        let ring = Rows::of_index(used.len());
+        let cap = Rows::of_index(used.len() - depth.lines());
+        let (vp, used): (&'a mut [PackedCell], &'a mut [RowExtent]) = (vp, used);
+        let (acells, aused, arot): (&'a mut [PackedCell], &'a mut [RowExtent], RowRot) =
+            (alt.cells, alt.used, alt.rot);
+        let (view, other) = match cold.screen {
+            crate::term::Screen::Normal => (
+                View::new(vp, used, *stride, cols, rows, ring, rot),
+                Surface {
+                    cells: acells,
+                    used: aused,
+                    ring: cap,
+                    rot: arot,
+                },
+            ),
+            crate::term::Screen::Alternate => (
+                View::new(acells, aused, *stride, cols, rows, cap, arot),
+                Surface {
+                    cells: vp,
+                    used,
+                    ring,
+                    rot,
+                },
+            ),
+        };
         // The three-byte cell table is read only by `put_run` under
         // `cell-table`; the default build must not carry a borrow of it.
         #[cfg(not(feature = "cell-table"))]
@@ -315,11 +351,12 @@ impl<'a, 'b> Paint<'a, 'b> {
             strings_ignored: 0,
             clipboard_reads_refused: 0,
             clipboard_writes_dropped: 0,
-            alt,
+            other,
+            book,
             clusters,
             strs,
             cold,
-            view: View::new(vp, used, *stride, cols, rows, rot),
+            view,
             cy,
             cx,
             rows,
@@ -973,7 +1010,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cy = Row::from_index(self.cy.index() + 1);
             return self.view.rot();
         }
+        self.retire();
         let rot = self.view.advance_rot(1);
+        #[cfg(feature = "probe-warm-scroll")]
+        self.warm_incoming();
         // **Ceiling arm: the blank behind a scroll.** The ring still advances
         // and the row is still counted, so both arms attribute the same cells
         // and only the stores differ -- which is what the previous core's

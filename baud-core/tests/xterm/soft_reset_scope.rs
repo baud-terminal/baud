@@ -128,13 +128,12 @@ fn a_shrink_after_scrolling_does_not_panic() {
     );
 
     // Both of these panicked before the fix.
-    assert_eq!(t.rotation().index(), 0, "un-rotated over the old height");
     let w = t.stride().index();
     let vp = t.viewport();
     assert_eq!(vp.len(), 10 * w, "ten rows of the pitch");
-    // The top ten rows of what was on screen survive, each an `X` and
-    // nothing else; the rows below them went with the height.
-    for y in 0..10 {
+    // The cursor's ten rows survive -- nine of `X` and the blank row it
+    // stood on -- and the rows above them retired to the history.
+    for y in 0..9 {
         let row = &vp[y * w..y * w + 200];
         assert_eq!(
             row[0].content.as_codepoint().map(|v| v.value()),
@@ -146,6 +145,15 @@ fn a_shrink_after_scrolling_does_not_panic() {
             "row {y} holds one X"
         );
     }
+    assert!(
+        vp[9 * w..10 * w].iter().all(|c| c.content.is_empty()),
+        "the cursor's row"
+    );
+    assert_eq!(
+        t.scrollback().len(),
+        40 + 41,
+        "forty retired here, forty-one by the scrolls"
+    );
 }
 
 /// Growing is the same hazard from the other side, and must also be clean.
@@ -169,10 +177,10 @@ fn a_grow_after_scrolling_does_not_panic() {
         let w = t.stride().index();
         let vp = t.viewport();
         assert_eq!(vp.len(), 120 * w);
-        // The fifty rows that were on screen stay where they were -- 49 of
-        // `Y` and the blank line the cursor was on -- and the seventy the
-        // screen grew by are blank.
-        for y in 0..49 {
+        // Forty-one lines scrolled off and come back above the fifty that
+        // were on screen: 90 of `Y`, the blank line the cursor was on, and
+        // twenty-nine blank rows the history could not fill.
+        for y in 0..90 {
             assert_eq!(
                 vp[y * w].content.as_codepoint().map(|v| v.value()),
                 Some(u32::from(b'Y')),
@@ -180,8 +188,8 @@ fn a_grow_after_scrolling_does_not_panic() {
             );
         }
         assert!(
-            vp[49 * w..].iter().all(|c| c.content.is_empty()),
-            "and the same growing: blank below what was on screen"
+            vp[90 * w..].iter().all(|c| c.content.is_empty()),
+            "and the same growing: blank below what the history restored"
         );
     });
 }
@@ -283,9 +291,11 @@ fn a_resize_on_the_alternate_screen_reshapes_the_primary_too() {
 
     let w = t.stride().index();
     let vp = t.viewport();
-    // Eleven scrolls, so row `y` was line `11 + y`; twenty of them survive,
-    // in order, and the mark on row 49 went with the height.
-    for y in 0..20 {
+    // Eleven scrolls, so row `y` was line `11 + y`. The cursor was on the
+    // last row, so the twenty rows that survive are the last twenty -- lines
+    // 41 to 59 and the mark -- with the thirty above them retired to the
+    // history, in order.
+    for y in 0..19 {
         let text: String = vp[y * w..y * w + 2]
             .iter()
             .filter_map(|c| c.content.as_codepoint())
@@ -293,16 +303,20 @@ fn a_resize_on_the_alternate_screen_reshapes_the_primary_too() {
             .collect();
         assert_eq!(
             text,
-            format!("{:02}", 11 + y),
-            "row {y}: the primary came back in order, clipped to the new height"
+            format!("{:02}", 41 + y),
+            "row {y}: the primary came back in order, around the cursor"
         );
     }
-    assert!(
-        !vp.iter().any(|c| c
-            .content
-            .as_codepoint()
-            .is_some_and(|v| v.value() == u32::from(b'M'))),
-        "the mark on row 49 went with the height"
+    let mark: String = vp[19 * w..19 * w + 4]
+        .iter()
+        .filter_map(|c| c.content.as_codepoint())
+        .map(|v| char::from_u32(v.value()).unwrap_or('?'))
+        .collect();
+    assert_eq!(mark, "MARK", "the cursor's row is the last one");
+    assert_eq!(
+        t.scrollback().len(),
+        11 + 30,
+        "eleven by scrolls, thirty by the height"
     );
 }
 
@@ -416,7 +430,7 @@ fn get_row_bounds_what_row_takes_on_trust() {
 
 /// `stride` is the row pitch, and it is **not** the column count.
 ///
-/// Every row is `MAX_COLS` wide in memory however narrow the grid is, so
+/// Every row is the pitch wide in memory however narrow the grid is, so
 /// `viewport().len()` is `rows * stride`, not `rows * cols`. Confusing the two
 /// is the `RowBlock` mistake this project already typed its way out of --
 /// "operands the wrong way round, a plausible number and a silently wrong
@@ -435,20 +449,19 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
     // touching several fought an eight-way set with fifty of them. This core
     // then strode by the live width -- +14% on everything that scrolls -- and
     // a resize re-packed the grid. Now the pitch is fixed for the life of the
-    // storage: at least `MAX_COLS`, an odd number of lines so it aliases no
-    // way, at a step that spreads the rows over the sets -- so it keeps the
-    // 14% and a resize moves no cell.
+    // storage: at least the width provisioned -- not `MAX_COLS`, since with
+    // the grid as the scrollback ring every line costs a row of the pitch --
+    // an odd number of lines so it aliases no way, at a step that spreads the
+    // rows over the sets -- so it keeps the 14% and a resize moves no cell.
     //
     // The *contract* is why `stride()` is public at all: it is the row pitch,
     // and an embedder divides by it. A test that hard-codes 2048, or the
     // width, reads the wrong rows.
+    // Not `>`: the pitch is the provisioned width's own lines when they are
+    // an odd count, which 200 columns on a 64-byte line is.
     assert!(
-        t.stride().index() >= MAX_COLS,
-        "the pitch admits the widest grid"
-    );
-    assert!(
-        t.stride().index() > cols.index(),
-        "and it is not the live width"
+        t.stride().index() >= cols.index(),
+        "the pitch admits the width provisioned"
     );
     assert_eq!(
         t.viewport().len(),

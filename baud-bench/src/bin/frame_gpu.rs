@@ -31,7 +31,8 @@
 //!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
-use baud_core::grid_stride;
+use baud_core::{Depth, grid_stride};
+use baud_domain::RowRot;
 #[cfg(target_os = "macos")]
 fn main() {
     use baud_core::{Owned, Term};
@@ -160,10 +161,13 @@ fn main() {
     // The pitch every grid here is laid out at, the storage's and the GPU's,
     // so the copied arm's second buffer is the shape of the first.
     let geom = baud_bench::host_geometry();
-    let stride = grid_stride(&geom);
-    let (copy_grid, copy_mem) = gpu
-        .grid(Rows::of_index(usize::from(ws.ws_row)), stride)
-        .expect("a second shared grid");
+    let stride = grid_stride(&geom, Cols::of_index(usize::from(ws.ws_col)));
+    // The primary ring is the screen plus the scrollback; the copied arm's
+    // buffer holds the screen alone, in screen order, because that is what
+    // its copy is: the window, contiguous, under no rotation.
+    let rows = Rows::of_index(usize::from(ws.ws_row));
+    let ring = Owned::without_surfaces(&ws, &geom, Depth::DEFAULT).ring();
+    let (copy_grid, copy_mem) = gpu.grid(rows, stride).expect("a second shared grid");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut map = GlyphMap::over(map_mem);
     let noop: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
@@ -174,20 +178,19 @@ fn main() {
             // the others take the storage's own.
             let cell_arm = matches!(arm, Arm::Cells | Arm::Async | Arm::Copied);
             let (grid, shared) = if cell_arm {
-                let (g, cells) = gpu
-                    .grid(Rows::of_index(usize::from(ws.ws_row)), stride)
-                    .expect("a shared grid");
-                (Some(g), Some(cells))
+                let (g, cells) = gpu.grid(ring, stride).expect("a shared grid");
+                let (_, alt) = gpu.grid(rows, stride).expect("a shared alternate");
+                (Some(g), Some((cells, alt)))
             } else {
                 (None, None)
             };
             let mut owned = if cell_arm {
-                Owned::without_viewport(&ws, &geom)
+                Owned::without_surfaces(&ws, &geom, Depth::DEFAULT)
             } else {
                 Owned::with_geometry(&ws, &geom)
             };
             let mut t = match shared {
-                Some(cells) => Term::new(owned.storage_over(cells), &ws),
+                Some((cells, alt)) => Term::new(owned.storage_over(cells, alt), &ws),
                 None => Term::new(owned.storage(), &ws),
             };
             let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
@@ -220,9 +223,14 @@ fn main() {
                     });
                     r.resolve_styles_into(&t, styles_mem);
                     if arm == Arm::Copied {
-                        copy_mem[..t.cells().len()].copy_from_slice(t.cells());
+                        let vp = t.viewport();
+                        copy_mem[..vp.len()].copy_from_slice(vp);
                     }
                     s.convert += tc.elapsed();
+                    let (rotation, ring) = match arm == Arm::Copied {
+                        true => (RowRot::NONE, rows),
+                        false => (t.rotation(), t.ring()),
+                    };
                     let input = CellInput {
                         grid: if arm == Arm::Copied {
                             &copy_grid
@@ -232,7 +240,8 @@ fn main() {
                         styles: &styles,
                         map: &map_buffer,
                         stride: t.stride(),
-                        rotation: t.rotation(),
+                        rotation,
+                        ring,
                         cursor,
                     };
                     let done = match arm {

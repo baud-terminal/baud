@@ -150,14 +150,15 @@ pub struct ViewRef<'a> {
     stride: Stride,
     cols: Cols,
     rows: Rows,
+    ring: Rows,
     rot: RowRot,
 }
 
 impl<'a> ViewRef<'a> {
     fn phys(&self, r: Row) -> usize {
-        let rows = self.rows.index();
+        let ring = self.ring.index();
         let y = r.index() + self.rot.index();
-        if y >= rows { y - rows } else { y }
+        if y >= ring { y - ring } else { y }
     }
     pub fn row_slice(&self, r: Row) -> &'a [PackedCell] {
         let a = self.phys(r) * self.stride.index();
@@ -215,7 +216,25 @@ pub struct View<'a> {
     stride: Stride,
     cols: Cols,
     rows: Rows,
+    /// **Physical rows in the buffer -- the modulus of the rotation.** The
+    /// screen is `rows` of them, a window that advances one row a scroll;
+    /// the rows behind the window are the lines that scrolled off, still
+    /// where they were written, and the window moving back over them is
+    /// scrollback. A buffer with no more rows than the screen is the ring
+    /// this used to be, where the row that leaves the top is the row that
+    /// comes in at the bottom.
+    ring: Rows,
     rot: RowRot,
+}
+
+/// The surface a [`View`] is not addressing: the other screen's cells, marks,
+/// depth and rotation, held so the two can be swapped without a copy when
+/// `?1049` switches screens.
+pub struct Surface<'a> {
+    pub cells: &'a mut [PackedCell],
+    pub used: &'a mut [RowExtent],
+    pub ring: Rows,
+    pub rot: RowRot,
 }
 
 impl<'a> View<'a> {
@@ -225,6 +244,7 @@ impl<'a> View<'a> {
         stride: Stride,
         cols: Cols,
         rows: Rows,
+        ring: Rows,
         rot: RowRot,
     ) -> ViewRef<'a> {
         ViewRef {
@@ -232,6 +252,7 @@ impl<'a> View<'a> {
             stride,
             cols,
             rows,
+            ring,
             rot,
         }
     }
@@ -241,6 +262,7 @@ impl<'a> View<'a> {
         stride: Stride,
         cols: Cols,
         rows: Rows,
+        ring: Rows,
         rot: RowRot,
     ) -> View<'a> {
         View {
@@ -249,6 +271,7 @@ impl<'a> View<'a> {
             stride,
             cols,
             rows,
+            ring,
             rot,
         }
     }
@@ -267,150 +290,6 @@ impl<'a> View<'a> {
 
     /// The rotation this view holds.
     pub fn rot(&self) -> RowRot {
-        self.rot
-    }
-
-    /// **Park this surface whole, or bring a parked one back.** Cells, extents
-    /// and rotation move together in one call, and that is the entire point of
-    /// the shape.
-    ///
-    /// The three are one value. `RowExtent` is *where the row stops being
-    /// uniform*, indexed by **physical** row, and `RowRot` is what makes a
-    /// physical row out of a screen row -- so a save that took the cells and
-    /// left either behind would restore a grid whose rows are in the wrong
-    /// order or whose blanking stops at another surface's marks. The second is
-    /// the quiet one: a later erase would skip cells that are not blank.
-    ///
-    /// `baud-core2` keeps two live surfaces and pairs each with its rotation
-    /// through one accessor, which its own comment says exists because of a bug
-    /// "before the alternate screen had a rotation". Here there is one surface
-    /// and a parked copy, so the pairing is enforced by the signature instead:
-    /// there is no way to call this and get two of the three.
-    pub fn save_to(&self, cells: &mut [PackedCell], used: &mut [RowExtent]) -> (RowRot, usize) {
-        let n = self.park_rows(cells, used, Rows::ZERO, self.rows);
-        (self.rot, n)
-    }
-
-    /// Copy physical rows `from..to` into another surface, each to the wider
-    /// of the two rows' marks and at least the live width, and set the
-    /// destination's mark to the width copied.
-    ///
-    /// **A row is copied to its mark, not to the live width.** The mark
-    /// bounds the row's content over the whole pitch: a line written at 200
-    /// columns keeps its tail past a shrink to 100 and its mark still says
-    /// 200, so what travels is the content rather than the allocation -- 200
-    /// of 2416 cells at the corpus geometry, not 2416. The destination is
-    /// copied through *its* old mark too, so nothing it held survives beneath
-    /// the new one; see `parked_mark` for what the new mark is.
-    pub fn park_rows(
-        &self,
-        cells: &mut [PackedCell],
-        used: &mut [RowExtent],
-        from: Rows,
-        to: Rows,
-    ) -> usize {
-        let (s, cols) = (self.stride.index(), self.cols.index());
-        let mut n = 0;
-        let rows = used
-            .iter_mut()
-            .enumerate()
-            .take(to.index())
-            .skip(from.index());
-        for (p, mark) in rows {
-            let a = p * s;
-            let (src, dst) = (self.used[p].index(), mark.index());
-            let w = cols.max(src).max(dst);
-            cells[a..a + w].copy_from_slice(&self.cells[a..a + w]);
-            *mark = RowExtent::of(Self::parked_mark(cols, src, dst));
-            n += w;
-        }
-        n
-    }
-
-    /// The mark a copied row carries: its own, unless the destination held a
-    /// hidden tail past the live edge that reached further -- the copy wrote
-    /// the source's blank over that tail, so from the source's mark to the
-    /// tail's end the row is one blank and past it another, and the mark has
-    /// to cover both. A tight mark otherwise, so a park and an exit do not
-    /// make the next screenful blank the full width.
-    fn parked_mark(cols: usize, src: usize, dst: usize) -> usize {
-        match dst > cols {
-            true => dst.max(src),
-            false => src,
-        }
-    }
-
-    /// The inverse of [`View::save_to`], over `rows` rows -- every row the
-    /// park holds, which is more than the live height when the screen grew
-    /// while parked -- and it must be given all three.
-    pub fn restore_from(
-        &mut self,
-        cells: &[PackedCell],
-        used: &[RowExtent],
-        rot: RowRot,
-        rows: Rows,
-    ) -> usize {
-        let (s, cols) = (self.stride.index(), self.cols.index());
-        let mut n = 0;
-        for (p, parked) in used.iter().enumerate().take(rows.index()) {
-            let a = p * s;
-            let (src, dst) = (parked.index(), self.used[p].index());
-            let w = cols.max(src).max(dst);
-            self.cells[a..a + w].copy_from_slice(&cells[a..a + w]);
-            self.used[p] = RowExtent::of(Self::parked_mark(cols, src, dst));
-            n += w;
-        }
-        self.rot = rot;
-        n
-    }
-
-    /// Bring the view into line with a geometry that just changed, from
-    /// `old_rows` by `old_cols` to the rows and columns it was built with.
-    ///
-    /// **Nothing is blanked, in either direction.** The pitch is fixed, so a
-    /// cell keeps its address whatever the geometry: a narrower or shorter
-    /// screen stops addressing the cells past its edge, and a wider or taller
-    /// one addresses them again with what they held -- the content that was
-    /// there, because nothing reaches a cell past the live geometry except
-    /// the fills that clear a row, and those run *through* a mark that lies
-    /// past the live edge (see `fill_raw`), so a line cleared or reused by a
-    /// scroll while narrow does not bring a stale tail back when the screen
-    /// widens.
-    ///
-    /// Two things happen here, one an axis:
-    ///
-    /// * **A change of height un-rotates first**, over the *old* height, and
-    ///   answers `RowRot::NONE`. The rotation is an index into a row count
-    ///   that is about to change, and `rotate_left_by` panics when the
-    ///   rotation exceeds the slice: scroll a 50-row screen, shrink to 10,
-    ///   and `mid <= len` fails. Un-rotated, the rows past the new height sit
-    ///   in screen order below the live ones, untouched until the height
-    ///   comes back. A change of width alone leaves the rotation where it is.
-    /// * **A wider screen raises every mark to at least the old width.** The
-    ///   fill shortcut assumes a row is uniform from its mark to the live
-    ///   edge, and a fill taken while narrow stopped at the old edge, saying
-    ///   nothing about the cells past it that are live again now; raising the
-    ///   mark makes the next fill write them rather than trust them. Loose by
-    ///   at most the old width, once, on rows that then blank a little more.
-    ///
-    /// So a change of width moves no cell and a change of height moves cells
-    /// only to undo a rotation, and the parked primary takes the same
-    /// treatment through the same call.
-    pub fn resized_from(&mut self, old_rows: Rows, old_cols: Cols) -> RowRot {
-        let (rows, cols) = (self.rows.index(), self.cols.index());
-        let (orows, ocols) = (old_rows.index(), old_cols.index());
-        if rows != orows && self.rot.index() != 0 {
-            let live = RowBlock::leading(old_rows, self.stride);
-            let turned = RowBlock::leading(Rows::of_index(self.rot.index()), self.stride);
-            live.rotate_left_by(self.cells, turned);
-            self.used[..orows].rotate_left(self.rot.index());
-            self.rot = RowRot::NONE;
-        }
-        if cols > ocols {
-            for m in self.used.iter_mut() {
-                *m = RowExtent::of(m.index().max(ocols));
-            }
-        }
         self.rot
     }
 
@@ -449,6 +328,75 @@ impl<'a> View<'a> {
         }
     }
 
+    /// Exchange this view's surface with `other`: the cells, marks, depth
+    /// and rotation, leaving the geometry. What `?1049` does now -- the
+    /// alternate screen is a second surface rather than a place to park the
+    /// primary, so entering and leaving it copies nothing.
+    pub fn swap_surface(&mut self, other: &mut Surface<'a>) {
+        core::mem::swap(&mut self.cells, &mut other.cells);
+        core::mem::swap(&mut self.used, &mut other.used);
+        core::mem::swap(&mut self.ring, &mut other.ring);
+        core::mem::swap(&mut self.rot, &mut other.rot);
+    }
+
+    /// The ring's depth: physical rows in the buffer.
+    pub fn ring(&self) -> Rows {
+        self.ring
+    }
+
+    /// The screen's rows as one slice in screen order, when the window does
+    /// not wrap around the ring's end; a caller copies through
+    /// [`View::window_into`] otherwise. Most of the time it does not: the
+    /// window wraps for `rows` of every `ring` positions.
+    pub fn window(&self) -> Option<&[PackedCell]> {
+        let (a, n, s) = (self.rot.index(), self.rows.index(), self.stride.index());
+        match a + n <= self.ring.index() {
+            true => Some(&self.cells[a * s..(a + n) * s]),
+            false => None,
+        }
+    }
+
+    /// The screen's rows into `dst` in screen order, a row at a time, for
+    /// the window that wraps.
+    pub fn window_into(&self, dst: &mut [PackedCell]) {
+        let s = self.stride.index();
+        for y in 0..self.rows.index() {
+            let a = self.phys(Row::from_index(y)) * s;
+            dst[y * s..(y + 1) * s].copy_from_slice(&self.cells[a..a + s]);
+        }
+    }
+
+    /// Raise every mark to at least `old_cols`, after the screen widened.
+    /// The fill shortcut assumes a row is uniform from its mark to the live
+    /// edge, and a fill taken while narrow stopped at the old edge, saying
+    /// nothing about the cells past it that are live again now; raising the
+    /// mark makes the next fill write them rather than trust them. Loose by
+    /// at most the old width, once, on rows that then blank a little more.
+    /// Over the whole ring, because a retired row comes back the same way.
+    pub fn widened(&mut self, old_cols: Cols) {
+        for m in self.used.iter_mut() {
+            *m = RowExtent::of(m.index().max(old_cols.index()));
+        }
+    }
+
+    /// The row `ahead` rows past the window's end -- `ahead == 0` is the row
+    /// the next scroll brings in, `1` the one after -- as its `cols` live
+    /// cells, or nothing when the ring has no such row past the screen. What
+    /// a caller warms before the blank that will land on it: with the grid as
+    /// the ring, a scroll writes into a row nothing touched for `ring`
+    /// scrolls, so its lines are exactly the ones nothing has in cache.
+    pub fn incoming(&self, ahead: usize) -> &[PackedCell] {
+        if self.ring.index() <= self.rows.index() + ahead {
+            return &[];
+        }
+        let p = self
+            .rot
+            .advance(self.rows.index() + ahead, self.ring)
+            .index();
+        let base = p * self.stride.index();
+        &self.cells[base..base + self.cols.index()]
+    }
+
     /// Advance the rotation by `n` rows: a scroll, from the view's side.
     ///
     /// The view holds the rotation by value, so a caller that keeps one across
@@ -457,7 +405,7 @@ impl<'a> View<'a> {
     /// it. Returns the new rotation so the caller can keep its own copy in
     /// step.
     pub fn advance_rot(&mut self, n: usize) -> RowRot {
-        self.rot = self.rot.advance(n, self.rows);
+        self.rot = self.rot.advance(n, self.ring);
         self.rot
     }
 
@@ -466,7 +414,7 @@ impl<'a> View<'a> {
     /// same reason: a scroll that moves an index costs one row of blanking
     /// where one that moves the rows costs the whole screen.
     pub fn retreat_rot(&mut self, n: usize) -> RowRot {
-        self.rot = self.rot.retreat(n, self.rows);
+        self.rot = self.rot.retreat(n, self.ring);
         self.rot
     }
 
@@ -531,9 +479,9 @@ impl<'a> View<'a> {
         // the sum is below `2 * rows` and one subtraction is enough. The
         // modulo cost ~16% of the cells path -- it sits on the addressing path
         // that `put_ascii_run` reaches once per run and `put` once per cell.
-        let rows = self.rows.index();
+        let ring = self.ring.index();
         let y = r.index() + self.rot.index();
-        if y >= rows { y - rows } else { y }
+        if y >= ring { y - ring } else { y }
     }
 
     #[inline(always)]

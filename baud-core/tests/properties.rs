@@ -321,10 +321,15 @@ proptest! {
         let mut t = Term::new(owned.storage(), &w);
         t.write_at(BytePos::ZERO, &b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        // At the pitch, not the width: indexed by `COLS`, every probe past
+        // row 0 landed inside row 0 -- blank, unmarked, vacuous -- for as
+        // long as the pitch was wider than `ROWS * COLS`, and a narrower
+        // pitch is what made the probe fire.
+        let stride = t.stride().index();
         let cells = t.viewport().to_vec();
         for y in 0..ROWS {
             for x in 0..COLS {
-                let c = cells[y * COLS + x];
+                let c = cells[y * stride + x];
                 if !c.flags.is_marked() {
                     continue;
                 }

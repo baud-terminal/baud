@@ -29,14 +29,10 @@ fn the_pitch_is_the_cache_geometrys_and_survives_every_resize() {
     let pitch = owned.stride();
     assert_eq!(
         pitch,
-        grid_stride(&line128()),
-        "one function decides the pitch"
+        grid_stride(&line128(), Cols::of_index(200)),
+        "one function decides the pitch, for the width provisioned"
     );
-    assert_eq!(
-        pitch.index(),
-        2416,
-        "MAX_COLS plus 23 lines of 128 B, the searched step"
-    );
+    assert_eq!(pitch.index(), 208, "13 lines of 128 B for 200 columns");
     let mut t = Term::new(owned.storage(), &support::CORPUS);
     assert_eq!(
         t.stride(),
@@ -57,7 +53,16 @@ fn the_pitch_is_the_cache_geometrys_and_survives_every_resize() {
             ws_col: 2048,
         },
     ] {
-        assert_eq!(t.resize(&ws), Resized::Ok);
+        // The width is provisioned with the pitch: a wider ask is answered
+        // `Truncated` to it rather than clamped in silence.
+        let want = match usize::from(ws.ws_col) <= pitch.index() {
+            true => Resized::Ok,
+            false => Resized::Truncated {
+                cols: Cols::of_index(pitch.index()),
+                rows: Rows::of_index(usize::from(ws.ws_row)),
+            },
+        };
+        assert_eq!(t.resize(&ws), want);
         assert_eq!(
             t.stride(),
             pitch,
@@ -72,8 +77,11 @@ fn the_pitch_is_the_cache_geometrys_and_survives_every_resize() {
     // With nothing detected the fallback is still an odd multiple of the
     // smallest line any cache uses, so it aliases no way on any machine.
     let unknown = Owned::new(&support::CORPUS).stride();
-    assert_eq!(unknown, grid_stride(&CacheGeometry::UNKNOWN));
-    assert_eq!(unknown.index(), 3896, "MAX_COLS plus 231 lines of 64 B");
+    assert_eq!(
+        unknown,
+        grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(200))
+    );
+    assert_eq!(unknown.index(), 200, "25 lines of 64 B for 200 columns");
 }
 
 fn rows_text(t: &Term<'_>, rows: usize, n: usize) -> Vec<String> {
@@ -90,13 +98,14 @@ fn rows_text(t: &Term<'_>, rows: usize, n: usize) -> Vec<String> {
         .collect()
 }
 
-/// **A smaller window hides; a larger one shows it again, exactly.** Sixty
-/// numbered lines on a fifty-row screen, so the grid is rotated; shrink to
-/// ten by a hundred, grow back, and every row reads as it did -- read
-/// through `row`, which applies the rotation without undoing it, so the
-/// resize is what un-rotates.
+/// **A shrink then a growth is the identity.** Sixty numbered lines on a
+/// fifty-row screen, so the grid is rotated; shrink to ten by a hundred --
+/// the cursor is on the last row, so the forty rows above it retire to the
+/// history and the columns past 100 hide -- grow back, and every row reads
+/// as it did. Read through `row`, which applies the rotation without
+/// undoing it, so the resize is what un-rotates.
 #[test]
-fn a_smaller_window_hides_and_a_larger_one_shows_it_again() {
+fn a_shrink_then_a_growth_is_the_identity() {
     support::with_corpus(|t| {
         let lines: Vec<u8> = (0..60)
             .flat_map(|i| format!("line {i} {}\r\n", "x".repeat(150)).into_bytes())
@@ -113,11 +122,11 @@ fn a_smaller_window_hides_and_a_larger_one_shows_it_again() {
         );
         assert_eq!(
             rows_text(t, 10, 100),
-            before[..10]
+            before[40..]
                 .iter()
                 .map(|s| s[..100].to_string())
                 .collect::<Vec<_>>(),
-            "the top-left of the screen is what is live"
+            "the cursor's ten rows are what is live"
         );
         assert_eq!(
             t.resize(&WinSize {
@@ -209,10 +218,13 @@ fn a_line_cleared_while_narrow_comes_back_clean() {
 }
 
 /// A row reused by a scroll while the screen was narrow comes back with the
-/// new line and no old tail: the scroll's blank runs through the mark.
+/// new line and no old tail: the scroll's blank runs through the mark. On
+/// the alternate screen, which hides rows rather than retiring them, so the
+/// reused row is one that kept a tail.
 #[test]
 fn a_row_reused_by_a_scroll_while_narrow_comes_back_clean() {
     support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?1049h");
         let lines: Vec<u8> = (0..50)
             .flat_map(|i| format!("{i:02}{}\r\n", "A".repeat(198)).into_bytes())
             .collect();
@@ -336,7 +348,9 @@ fn a_change_of_width_moves_no_cell_and_keeps_the_rotation() {
 }
 
 /// The cursor is clamped into the grid that exists, not sent home: there is
-/// content to be relative to now.
+/// content to be relative to now. From row 39 on a fifty-row screen shrunk
+/// to twenty, ten rows below it are cut and twenty above it retire, so it
+/// lands on row 19.
 #[test]
 fn the_cursor_is_clamped_not_homed() {
     support::with_corpus(|t| {
@@ -362,10 +376,12 @@ fn the_cursor_is_clamped_not_homed() {
             }),
             Resized::Ok
         );
+        // Growing back reveals the ten rows cut below and pulls the twenty
+        // retired lines in above, so the cursor's row moves down by twenty.
         assert_eq!(
             t.cursor(),
-            (Row::from_index(4), Col::at_index(4)),
-            "a cursor inside the new grid stays put"
+            (Row::from_index(24), Col::at_index(4)),
+            "a cursor inside the new grid moves with its row"
         );
     });
 }
@@ -378,7 +394,17 @@ fn the_cursor_is_clamped_not_homed() {
 /// which is why the mark was set to where the red stops, not to zero.
 #[test]
 fn a_blank_left_past_the_old_edge_is_not_mistaken_for_the_blank_beyond_it() {
-    support::with_corpus(|t| {
+    // The pitch is the provisioned width, so provision the width this grows
+    // to; the corpus geometry is what the terminal starts at.
+    let mut owned = Owned::with_geometry(
+        &WinSize {
+            ws_row: 50,
+            ws_col: 250,
+        },
+        &CacheGeometry::UNKNOWN,
+    );
+    let t = &mut Term::new(owned.storage(), &support::CORPUS);
+    {
         support::feed(t, "A".repeat(200).as_bytes());
         support::shrink(
             t,
@@ -403,7 +429,7 @@ fn a_blank_left_past_the_old_edge_is_not_mistaken_for_the_blank_beyond_it() {
                 .all(|c| t.style_of(*c) == StyleWord::DEFAULT),
             "no red survives a default erase over the whole row"
         );
-    });
+    }
 }
 
 /// **A wider screen raises the marks to the old edge.** A red erase while

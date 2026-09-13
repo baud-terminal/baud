@@ -179,3 +179,18 @@ pub trait CacheProbe {
     /// The hierarchy as this host reports it, or as much of it as it will.
     fn detect() -> CacheGeometry;
 }
+
+/// Warming the lines a write is about to need.
+///
+/// With the grid as the scrollback ring, a scroll blanks a row nothing has
+/// touched for `ring` scrolls, and the lines it needs are exactly the ones
+/// nothing has in cache: the counters put the same 13 misses on every scroll
+/// at any depth, served from L2 at fifty lines and from further out at two
+/// thousand, where they cost ten times the stall. A hint issued a scroll
+/// ahead has them on their way before the blank's stores land. Nothing waits
+/// on it, nothing changes, and a backend with no such instruction does
+/// nothing -- `Portable` is that backend.
+pub trait Warm {
+    /// Ask for the lines holding `cells`, for stores about to land on them.
+    fn warm_stores(cells: &[PackedCell]);
+}

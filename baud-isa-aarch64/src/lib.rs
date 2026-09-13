@@ -18,7 +18,7 @@
 #![cfg(target_arch = "aarch64")]
 
 use baud_domain::*;
-use baud_isa::{Decode, DecodedBlock, LANES, Portable, Scan};
+use baud_isa::{Decode, DecodedBlock, LANES, Portable, Scan, Warm};
 
 mod cache;
 
@@ -260,5 +260,26 @@ impl Decode for Neon {
     unsafe fn block(buf: &[StreamByte]) -> DecodedBlock {
         // SAFETY: `Portable` requires no target feature.
         unsafe { Portable::block(buf) }
+    }
+}
+
+/// `prfm pstl1keep` over every line the slice touches: a prefetch for a
+/// store, into L1, kept. Eight cells is 64 bytes, so a 64-byte line gets one
+/// hint and a 128-byte line two; the second is a no-op the core absorbs.
+impl Warm for Neon {
+    #[inline(always)]
+    fn warm_stores(cells: &[PackedCell]) {
+        for line in cells.chunks(8) {
+            // SAFETY: `prfm` is a hint. It reads nothing, writes nothing,
+            // raises nothing -- an address it cannot translate is ignored by
+            // the architecture -- and the pointer is into a live slice.
+            unsafe {
+                core::arch::asm!(
+                    "prfm pstl1keep, [{p}]",
+                    p = in(reg) line.as_ptr(),
+                    options(nostack, readonly, preserves_flags)
+                );
+            }
+        }
     }
 }

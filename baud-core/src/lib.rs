@@ -94,6 +94,8 @@ pub use baud_domain::{
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 pub use graph::Node;
 
+/// Scrollback: the lines behind the screen's window onto the ring.
+pub use baud_domain::{Back, Depth, Scrollback, Wrap};
 /// The sixteen allocations a `Storage` borrows, for a caller that has an
 /// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
 /// nothing for a `Box` to own.

@@ -97,6 +97,64 @@ impl Paint<'_, '_> {
         self.cells = self.cells.plus(n.index());
     }
 
+    /// A row is about to scroll off the top of the primary screen: **nothing
+    /// moves.** The window advances over it and it becomes the newest line
+    /// behind the window, so the bookkeeping is one count up, bounded by the
+    /// rows the ring has past the screen -- and one hidden row fewer, because
+    /// the row the window takes in at the bottom is the first of the rows a
+    /// shorter window cut. The alternate screen keeps no lines: an editor's
+    /// redraws are not lines anyone scrolls back to. A region that does not
+    /// start at the top is a window inside the screen, not the screen moving,
+    /// and never reaches here.
+    pub(crate) fn retire(&mut self) {
+        if self.cold.screen != crate::term::Screen::Normal {
+            return;
+        }
+        let room = self.view.ring().index() - self.rows.index();
+        let hist = (self.book.hist.index() + 1).min(room);
+        self.book.hist = Rows::of_count(hist);
+        self.book.hidden =
+            Rows::of_count(self.book.hidden.index().saturating_sub(1).min(room - hist));
+    }
+
+    /// **The row the scroll after the next will blank, asked for now.** With
+    /// the grid as the ring, the row a scroll brings in was last touched
+    /// `ring` scrolls ago, so the blank's stores land on lines nothing has in
+    /// cache: the counters put the same thirteen misses on every scroll at
+    /// any depth, served from L2 at fifty lines of history and from further
+    /// out at two thousand, where they cost ten times the stall -- 0.56x on
+    /// `flat`. One row ahead of the one being blanked is a scroll's worth of
+    /// lead, ~50 ns on `flat`; the hint is thirteen instructions on the
+    /// ISA arms and nothing on the portable build.
+    #[cfg(feature = "probe-warm-scroll")]
+    #[inline(always)]
+    pub(crate) fn warm_incoming(&self) {
+        let next = self.view.incoming(1);
+        #[cfg(all(feature = "neon-scan", target_arch = "aarch64"))]
+        <baud_isa_aarch64::Neon as baud_isa::Warm>::warm_stores(next);
+        #[cfg(all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2"))]
+        <baud_isa_x86_64::Avx2 as baud_isa::Warm>::warm_stores(next);
+        #[cfg(not(any(
+            all(feature = "neon-scan", target_arch = "aarch64"),
+            all(feature = "avx2-scan", target_arch = "x86_64", target_feature = "avx2")
+        )))]
+        let _ = next;
+    }
+
+    /// The inverse, for a full-screen scroll *down* on the primary: the row
+    /// the window takes in at the top is the newest line behind it, blanked
+    /// as it arrives, and the row that leaves the bottom is kept past the
+    /// live height the way a shorter window keeps one.
+    pub(crate) fn unretire(&mut self) {
+        if self.cold.screen != crate::term::Screen::Normal {
+            return;
+        }
+        let room = self.view.ring().index() - self.rows.index();
+        let hist = self.book.hist.index().saturating_sub(1);
+        self.book.hist = Rows::of_count(hist);
+        self.book.hidden = Rows::of_count((self.book.hidden.index() + 1).min(room - hist));
+    }
+
     // ---- scrolling ------------------------------------------------------
 
     /// **The full-screen case rotates and the region case copies**, which is
@@ -116,7 +174,10 @@ impl Paint<'_, '_> {
                 self.scroll_rot += k;
             }
             for _ in 0..k {
+                self.retire();
                 self.view.advance_rot(1);
+                #[cfg(feature = "probe-warm-scroll")]
+                self.warm_incoming();
                 self.fill_row_counted(Row::from_index(last));
             }
             return;
@@ -150,7 +211,10 @@ impl Paint<'_, '_> {
                 self.scroll_rot += k;
             }
             for _ in 0..k {
+                self.retire();
                 self.view.advance_rot(1);
+                #[cfg(feature = "probe-warm-scroll")]
+                self.warm_incoming();
                 // **Descending, so a row is read before it is overwritten.**
                 for y in (bot.index() + 1..=last).rev() {
                     self.view
@@ -196,6 +260,7 @@ impl Paint<'_, '_> {
         if top.index() == 0 && bot.index() == last {
             for _ in 0..k {
                 self.view.retreat_rot(1);
+                self.unretire();
                 self.fill_row_counted(Row::ZERO);
             }
             return;
@@ -811,21 +876,14 @@ impl Paint<'_, '_> {
                 // main/alternate stacks. A swap is balanced because this arm and
                 // the exit arm each fire once per transition.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
-                // **Park the primary before anything clears it.** This is the
-                // whole of the second buffer: the grid is handed to the
-                // alternate screen and the primary waits in `AltBuf` until the
-                // exit brings it back. Cells, extents and rotation go together
-                // in one call so two of the three cannot travel.
-                // **Counted, because it is write traffic to the grid.** This
-                // file records a region copy that counted only the blanks it
-                // left and so undercounted by the height of the region;
-                // parking is the same shape, one screen at a time. Both arms
-                // of any A/B must attribute it or the counter stops being the
-                // check that two arms did equal work.
-                let (rot, n) = self.view.save_to(self.alt.cells, self.alt.used);
-                self.alt.rot = rot;
-                self.alt.reach = self.rows;
-                self.cells = self.cells.plus(n);
+                // **Two surfaces, swapped, nothing copied.** The alternate
+                // screen is its own buffer at the pitch; the view takes it
+                // and the primary rides as `other` until the exit swaps them
+                // back, its cells, marks, ring and rotation all where they
+                // were. This replaced a park that copied the primary out and
+                // back, which was the one thing standing between the grid
+                // and being the GPU's in place on both screens.
+                self.view.swap_surface(&mut self.other);
                 // The alternate screen is cleared on entry, so a rotation left
                 // from the last time an application was in it describes
                 // nothing. Blanks rotate to blanks, so this is tidiness rather
@@ -839,16 +897,13 @@ impl Paint<'_, '_> {
                 self.cold.screen = Screen::Normal;
                 // Restore the primary screen's kitty stack; see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
-                // Cells first, then the cursor: `restore` clamps against the
+                // Surface first, then the cursor: `restore` clamps against the
                 // geometry and moves the cursor, and it should be moving over
-                // the screen the application is about to see.
-                let n = self.view.restore_from(
-                    self.alt.cells,
-                    self.alt.used,
-                    self.alt.rot,
-                    self.alt.reach,
-                );
-                self.cells = self.cells.plus(n);
+                // the screen the application is about to see. A resize taken
+                // while the alternate screen was up was applied to the
+                // primary as it happened, around the cursor it was saved
+                // with, so there is nothing to catch up on here.
+                self.view.swap_surface(&mut self.other);
                 let s = self.cold.alt_saved.take();
                 self.restore(s);
             }

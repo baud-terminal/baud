@@ -526,12 +526,49 @@ impl<'b> Term<'b> {
     /// unlike [`Term::viewport`] this needs no mutation to answer.
     pub fn row_extent(&self, y: Row) -> RowExtent {
         // The rotation resolved here rather than through a `View`, which would
-        // need the cells this does not read. Both operands are below `rows`,
-        // so one conditional subtract does what `%` would -- the same shape
-        // `View::phys` uses, and worth ~4% there.
-        let rows = self.rows.index();
-        let p = y.index() + self.rot.index();
-        self.store.used[if p >= rows { p - rows } else { p }]
+        // need the cells this does not read. Both operands are below the
+        // ring, so one conditional subtract does what `%` would -- the same
+        // shape `View::phys` uses, and worth ~4% there.
+        let (_, used, ring, rot) = self.surface();
+        let ring = ring.index();
+        let p = y.index() + rot.index();
+        used[if p >= ring { p - ring } else { p }]
+    }
+
+    /// The live surface: its cells, its marks, its ring and its rotation, by
+    /// which screen is up. The primary is the whole ring, scrollback and all;
+    /// the alternate is a ring of the screen's capacity.
+    fn surface(&self) -> (&[PackedCell], &[RowExtent], Rows, RowRot) {
+        match self.cold.screen {
+            Screen::Normal => (
+                self.store.vp,
+                self.store.used,
+                self.store.ring_rows(),
+                self.rot,
+            ),
+            Screen::Alternate => (
+                self.store.alt.cells,
+                self.store.alt.used,
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            ),
+        }
+    }
+
+    /// The two rotations back from a read: the view's is the live screen's,
+    /// the other surface's is the other screen's, whichever way `?1049` left
+    /// them.
+    pub(crate) fn set_rots(&mut self, (live, other): (RowRot, RowRot)) {
+        match self.cold.screen {
+            Screen::Normal => {
+                self.rot = live;
+                self.store.alt.rot = other;
+            }
+            Screen::Alternate => {
+                self.store.alt.rot = live;
+                self.rot = other;
+            }
+        }
     }
 
     /// How many rows the caller provisioned. See [`Storage::row_capacity`].
@@ -563,19 +600,17 @@ impl<'b> Term<'b> {
     /// with a tail. Reflow -- deciding where a wrapped line breaks now -- is a
     /// renderer's problem and has no right answer at this layer; what this
     /// layer owes is that a resize costs what it touches, which is nothing
-    /// but the rotation. [`View::resized_from`] is the whole of it, run over
-    /// the live surface and the parked one alike, because both are laid out
-    /// at the one pitch.
+    /// but the rotation. [`View::widened`] is the whole of the width's half,
+    /// run over both surfaces, because both are laid out at the one pitch;
+    /// the height's half is the rotation moving over the ring, below.
     ///
     /// Three things happen besides, in an order that is not free:
     ///
-    /// * **A change of height un-rotates first, over the old height.**
-    ///   `Term.rot` and the parked `AltBuf.rot` are indexes into a row count
-    ///   that is about to change, and `viewport` un-rotates with
-    ///   `rotate_left_by` -- which **panics** when the rotation is larger
-    ///   than the slice. Scroll a 50-row screen, shrink to 10, ask for the
-    ///   viewport: `mid <= len`. A change of width alone leaves the rotation
-    ///   where it is.
+    /// * **A change of height moves the window, not the rows.** The
+    ///   rotation is an index into the ring, whose depth a resize never
+    ///   changes, so nothing is un-rotated and nothing can outrun a slice --
+    ///   the `mid <= len` panic a shrink under a live rotation once produced
+    ///   has no operation left to live in.
     /// * **DECSTBM and the side margins are reset.** xterm does, a stale
     ///   bottom margin points off the grid, and a stale *side* margin is an
     ///   addressing error rather than a region: `cold.right` is what `room()`
@@ -599,46 +634,98 @@ impl<'b> Term<'b> {
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
 
-        // Both surfaces, at the pitch they share; each answers the rotation
-        // it is now under.
-        self.rot = View::new(
-            self.store.vp,
-            self.store.used,
-            self.stride,
-            cols,
-            rows,
-            self.rot,
-        )
-        .resized_from(old_rows, old_cols);
-        self.store.alt.rot = View::new(
-            self.store.alt.cells,
-            self.store.alt.used,
-            self.stride,
-            cols,
-            rows,
-            self.store.alt.rot,
-        )
-        .resized_from(old_rows, old_cols);
-        // A taller screen while the alternate one is up exposes rows of the
-        // parked primary that the application can now write: park them
-        // first, and the exit brings them back with the rest.
-        if self.cold.screen == Screen::Alternate && rows.index() > self.store.alt.reach.index() {
-            let n = View::new(
+        // **The primary's height changes the way xterm's does, and it is
+        // rotation arithmetic over the ring.** A shorter screen keeps the
+        // cursor's rows: the rows below the cursor are cut from the bottom
+        // and stay where they are past the live height, and only what the
+        // cursor needs is retired -- the window advances over the top rows,
+        // which become lines behind it without moving. A taller screen shows
+        // the cut rows first, then retreats the window over the retired
+        // ones, newest nearest the old top, and blanks whatever rows are
+        // left: they hold lines already behind the window, which would show
+        // twice. Applied to the primary whichever screen is up, around the
+        // cursor the primary has -- its own, or the one it was saved with --
+        // so an exit from the alternate screen has nothing to catch up on.
+        if rows.index() != old_rows.index() {
+            let ring = self.store.ring_rows();
+            let spare = ring.index() - rows.index();
+            let (from, to) = (old_rows.index(), rows.index());
+            let live = self.cold.screen == Screen::Normal;
+            let mut cy = match live {
+                true => self.cy.index(),
+                false => self.cold.alt_saved.map_or(0, |s| s.cy.index()),
+            }
+            .min(from - 1);
+            let (mut hist, mut hidden) =
+                (self.store.book.hist.index(), self.store.book.hidden.index());
+            if to < from {
+                let k = from - to;
+                let cut = k.min(from - 1 - cy);
+                let retire = k - cut;
+                self.rot = self.rot.advance(retire, ring);
+                hist = (hist + retire).min(spare);
+                hidden = (hidden + cut).min(spare - hist);
+                cy -= retire;
+            } else {
+                let k = to - from;
+                let reveal = k.min(hidden);
+                hidden -= reveal;
+                let pull = (k - reveal).min(hist);
+                self.rot = self.rot.retreat(pull, ring);
+                hist -= pull;
+                cy += pull;
+                let mut v = View::new(
+                    self.store.vp,
+                    self.store.used,
+                    self.stride,
+                    Cols::of_index(old_cols.index().max(cols.index())),
+                    rows,
+                    ring,
+                    self.rot,
+                );
+                let mut n = 0;
+                for y in from + reveal + pull..to {
+                    n += v.fill_row(Row::from_index(y), PackedCell::EMPTY).index();
+                }
+                self.cells_written += n;
+                hist = hist.min(spare);
+                hidden = hidden.min(spare - hist);
+            }
+            self.store.book.hist = Rows::of_count(hist);
+            self.store.book.hidden = Rows::of_count(hidden);
+            match live {
+                true => self.cy = Row::from_index(cy),
+                false => {
+                    if let Some(s) = self.cold.alt_saved.as_mut() {
+                        s.cy = Row::from_index(cy.min(to - 1));
+                    }
+                }
+            }
+        }
+
+        // **A wider screen raises the marks on both surfaces**, so a fill
+        // taken while narrow is not trusted past the edge it stopped at.
+        if cols.index() > old_cols.index() {
+            View::new(
                 self.store.vp,
                 self.store.used,
                 self.stride,
                 cols,
                 rows,
+                self.store.ring_rows(),
                 self.rot,
             )
-            .park_rows(
+            .widened(old_cols);
+            View::new(
                 self.store.alt.cells,
                 self.store.alt.used,
-                self.store.alt.reach,
+                self.stride,
+                cols,
                 rows,
-            );
-            self.cells_written += n;
-            self.store.alt.reach = rows;
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            )
+            .widened(old_cols);
         }
 
         self.rows = rows;
@@ -745,7 +832,8 @@ impl<'b> Term<'b> {
     /// slice; a single row is already contiguous wherever it sits, so `phys`
     /// answers it with arithmetic and nothing moves.
     pub fn row(&self, y: Row) -> &[PackedCell] {
-        View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot).row_slice(y)
+        let (cells, _, ring, rot) = self.surface();
+        View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot).row_slice(y)
     }
 
     /// One row, or `None` if `y` is not on the grid.
@@ -774,6 +862,22 @@ impl<'b> Term<'b> {
     /// `?2004`. Whether pasted text should be bracketed.
     pub fn bracketed_paste(&self) -> bool {
         self.cold.modes.is_set(ModeBit::BracketedPaste)
+    }
+
+    /// The lines that scrolled off the top of the primary screen, newest
+    /// first, each to its mark: what a scrolled-back window shows above the
+    /// screen. They are rows of the ring behind the window, so the read is a
+    /// view and the scroll that made them wrote nothing extra; empty on a
+    /// storage built with [`Depth::NONE`], whose ring is the screen.
+    pub fn scrollback(&self) -> Scrollback<'_> {
+        Scrollback::new(
+            self.store.vp,
+            self.store.used,
+            self.stride.index(),
+            self.store.ring_rows(),
+            self.rot,
+            self.store.book.hist,
+        )
     }
 
     /// The live geometry, which a resize can change.
@@ -924,33 +1028,65 @@ impl<'b> Term<'b> {
     /// insertion that landed between a comment and its function, the
     /// stranded-attribute shape `CLAUDE.md` records seven times for
     /// `#[inline]`, here on a `///`.
-    /// The live grid as the core holds it: `rows` rows of [`Term::stride`]
-    /// cells, still under the rotation -- screen row `y` is physical row
-    /// `(y + rotation) % rows`, [`Term::rotation`]. What a reader that can
-    /// apply the rotation itself -- a shader, one multiply and one modulo a
-    /// cell -- takes, so the grid is read in place and the in-place turn
-    /// [`Term::viewport`] pays once a frame is never paid at all.
+    /// The live surface's ring as the core holds it: [`Term::ring`] rows of
+    /// [`Term::stride`] cells, under the rotation -- screen row `y` is
+    /// physical row `(y + rotation) % ring`, [`Term::rotation`]. What a
+    /// reader that can apply the rotation itself -- a shader, one multiply
+    /// and one modulo a cell -- takes, so the grid is read in place and
+    /// nothing is turned or copied for a frame. On the primary screen the
+    /// rows behind the window are the scrollback, so the same reader can
+    /// show a window scrolled back by offsetting the rotation.
     pub fn cells(&self) -> &[PackedCell] {
-        RowBlock::leading(self.rows, self.stride).of(self.store.vp)
+        let (cells, _, ring, _) = self.surface();
+        RowBlock::leading(ring, self.stride).of(cells)
     }
 
     /// The rotation [`Term::cells`] is under.
     pub fn rotation(&self) -> RowRot {
-        self.rot
+        self.surface().3
     }
 
+    /// The modulus of that rotation: physical rows in the live surface's
+    /// ring. The screen's capacity plus the scrollback on the primary, the
+    /// capacity alone on the alternate.
+    pub fn ring(&self) -> Rows {
+        self.surface().2
+    }
+
+    /// The screen in screen order, `rows` rows of [`Term::stride`] cells: the
+    /// window into the ring as one slice when it does not wrap around the
+    /// ring's end, which it does not for all but `rows` of every `ring`
+    /// positions, and a copy of the window's rows into the storage's scratch
+    /// otherwise. Nothing in the ring moves either way, so a scroll's
+    /// rotation stays where it is and [`Term::cells`] keeps answering.
     pub fn viewport(&mut self) -> &[PackedCell] {
-        let stride = self.stride;
-        let live = RowBlock::leading(self.rows, stride);
-        if self.rot.index() != 0 {
-            // Un-rotated in place, once a *frame*, where the scroll that made
-            // the rotation happens once a *scroll*.
-            let turned = RowBlock::leading(Rows::of_index(self.rot.index()), stride);
-            live.rotate_left_by(self.store.vp, turned);
-            self.store.used[..self.rows.index()].rotate_left(self.rot.index());
-            self.rot = RowRot::NONE;
+        let (rows, stride) = (self.rows, self.stride);
+        let Storage {
+            vp,
+            used,
+            depth,
+            alt,
+            scratch,
+            ..
+        } = &mut self.store;
+        let (cells, ring, rot): (&[PackedCell], Rows, RowRot) = match self.cold.screen {
+            Screen::Normal => (vp, Rows::of_index(used.len()), self.rot),
+            Screen::Alternate => (
+                alt.cells,
+                Rows::of_index(used.len() - depth.lines()),
+                alt.rot,
+            ),
+        };
+        if rot.index() + rows.index() <= ring.index() {
+            return RowBlock::from_row(Rows::of_count(rot.index()), rows, stride).of(cells);
         }
-        live.of(self.store.vp)
+        for y in 0..rows.index() {
+            let p = rot.advance(y, ring).index();
+            RowBlock::nth(y, stride)
+                .of_mut(scratch)
+                .copy_from_slice(RowBlock::nth(p, stride).of(cells));
+        }
+        RowBlock::leading(rows, stride).of(scratch)
     }
 
     /// Place bytes in the arena at `base`, the way a `read(2)` would.
@@ -1020,7 +1156,8 @@ impl<'b> Term<'b> {
     /// when the store refused the cluster -- the count is
     /// [`Term::marks_dropped`].
     pub fn marks(&self, r: Row, c: Col) -> impl Iterator<Item = u32> + '_ {
-        let v = View::new_ref(self.store.vp, self.stride, self.cols, self.rows, self.rot);
+        let (cells, _, ring, rot) = self.surface();
+        let v = View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot);
         // **Either half of a wide character answers, and the lead is what
         // holds them.** A renderer draws the glyph at the lead and a selection
         // hands back whichever column the pointer landed on -- so a caller

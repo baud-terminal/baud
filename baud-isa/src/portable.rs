@@ -1,4 +1,4 @@
-use crate::{DECODE_LANES, Decode, DecodedBlock, LANES, Scan};
+use crate::{DECODE_LANES, Decode, DecodedBlock, LANES, Scan, Warm};
 use baud_domain::*;
 
 /// Vectorised through `core::simd`, which lowers to NEON on aarch64, SSE2 on
@@ -182,4 +182,11 @@ impl Decode for Portable {
             bytes: ByteLen::from_index(bytes),
         }
     }
+}
+
+/// No hint: `core::simd` has no prefetch, and a portable backend that did
+/// nothing here is the baseline the ISA arms are measured against.
+impl Warm for Portable {
+    #[inline(always)]
+    fn warm_stores(_cells: &[PackedCell]) {}
 }

@@ -122,8 +122,9 @@ impl Term<'_> {
             }
             self.cy = p.cy;
             self.cx = p.cx;
-            self.rot = p.view.rot();
+            let rots = (p.view.rot(), p.other.rot);
             self.cells_written += p.cells.index();
+            self.set_rots(rots);
             return;
         }
         // The segment arm below consumes the whole read itself and leaves
@@ -227,7 +228,7 @@ impl Term<'_> {
         self.last_cp = p.last_cp;
         self.cy = p.cy;
         self.cx = p.cx;
-        self.rot = p.view.rot();
+        let rots = (p.view.rot(), p.other.rot);
         self.style = p.style;
         self.style_raw = p.style_raw;
         self.flags = p.flags;
@@ -288,6 +289,7 @@ impl Term<'_> {
         self.node = node;
         self.utf8 = utf8;
         self.utf8_min = min;
+        self.set_rots(rots);
     }
 }
 

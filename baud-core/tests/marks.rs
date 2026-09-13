@@ -256,27 +256,35 @@ fn the_rotated_grid_under_its_rotation_is_the_viewport() {
     // The lent viewport is laid out at the storage's pitch, which is what a
     // GPU buffer would be sized by too -- not five rows of the maximum, the
     // hard-coded `MAX_COLS` pitch this repo records five porting bugs against.
-    let mut st = Owned::without_viewport(&ws, &baud_domain::CacheGeometry::UNKNOWN);
-    let span = baud_domain::RowBlock::leading(baud_domain::Rows::of_index(5), st.stride());
-    let mut vp = vec![baud_domain::PackedCell::EMPTY; span.len()];
-    let mut t = Term::new(st.storage_over(&mut vp), &ws);
+    let mut st = Owned::without_surfaces(
+        &ws,
+        &baud_domain::CacheGeometry::UNKNOWN,
+        baud_domain::Depth::NONE,
+    );
+    let ring = baud_domain::RowBlock::leading(st.ring(), st.stride());
+    let screen = baud_domain::RowBlock::leading(st.rows(), st.stride());
+    let mut vp = vec![baud_domain::PackedCell::EMPTY; ring.len()];
+    let mut alt = vec![baud_domain::PackedCell::EMPTY; screen.len()];
+    let mut t = Term::new(st.storage_over(&mut vp, &mut alt), &ws);
     // Eight lines on a five-row screen: three scrolls, a rotation of three.
     feed(&mut t, "a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh");
     let rot = t.rotation().index();
     assert_eq!(rot, 3);
     let stride = t.stride().index();
     let rows = 5usize;
+    let ring = t.ring().index();
+    assert_eq!(ring, rows, "no depth: the ring is the screen");
     let turned: Vec<_> = (0..rows)
         .flat_map(|y| {
-            let p = (y + rot) % rows;
+            let p = (y + rot) % ring;
             t.cells()[p * stride..p * stride + stride].to_vec()
         })
         .collect();
     assert_eq!(turned, t.viewport().to_vec());
     assert_eq!(
         t.rotation().index(),
-        0,
-        "the turn is paid once, by `viewport`"
+        rot,
+        "nothing is turned: the window is read where it is"
     );
 }
 

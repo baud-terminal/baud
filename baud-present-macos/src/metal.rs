@@ -157,6 +157,7 @@ struct CU {
     uint2 viewport; uint2 cell; uint2 grid; uint2 sides; uint2 cursor;
     uint cursor_kind; uint baseline; uint underline; uint strike;
     uint thickness; uint map_slots; uint map_shift; uint stride; uint rot;
+    uint ring;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -174,9 +175,11 @@ static float4 clip(float2 p, constant CU& u) {
 }
 
 // The cell at screen row `row`, column `col`: the grid is read in place,
-// under the core's rotation, at its live stride.
+// under the core's rotation, at its live stride, modulo the ring -- the
+// buffer's rows, which on the primary screen are the screen plus the
+// scrollback behind it.
 static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint row) {
-    uint prow = (row + u.rot) % u.grid.y;
+    uint prow = (row + u.rot) % u.ring;
     return cells[prow * u.stride + col];
 }
 
@@ -399,17 +402,20 @@ struct CellUniforms {
     map_shift: Uni,
     stride: Uni,
     rotation: Uni,
+    ring: Uni,
 }
 
 /// What the cell path draws from: the grid in place, under its rotation
-/// and at its stride, the rendition table resolved, the glyph map, and
-/// where the cursor is.
+/// and at its stride, modulo its ring, the rendition table resolved, the
+/// glyph map, and where the cursor is.
 pub struct CellInput<'a> {
     pub grid: &'a GridBuffer,
     pub styles: &'a StylesBuffer,
     pub map: &'a MapBuffer,
     pub stride: Stride,
     pub rotation: RowRot,
+    /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
+    pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
 }
 
@@ -735,9 +741,11 @@ impl Gpu {
             .newBufferWithLength_options(bytes.0.max(1), MTLResourceOptions::StorageModeShared)
     }
 
-    /// Memory for a viewport of `rows` rows at `stride` cells, in the GPU's
+    /// Memory for a surface of `rows` rows at `stride` cells, in the GPU's
     /// own reach: the buffer the cell path binds, and the slice to lend
-    /// the core through `Owned::storage_over`. Every cell starts empty.
+    /// the core through `Owned::storage_over` -- the primary ring at
+    /// `Owned::ring` rows, the alternate screen at `Owned::rows`. Every
+    /// cell starts empty.
     pub fn grid(
         &self,
         rows: Rows,
@@ -1112,6 +1120,7 @@ impl Gpu {
             map_shift: Uni(32 - MAP_BITS),
             stride: Uni::of(Elems(input.stride.index())),
             rotation: Uni::of(Elems(input.rotation.index())),
+            ring: Uni::of(Elems(input.ring.index())),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target)?;
@@ -1119,9 +1128,9 @@ impl Gpu {
         let ulen = core::mem::size_of::<CellUniforms>();
         // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
         // copies `setBytes` data at the call; the buffer and texture indices
-        // match the shaders' attributes; the grid holds `rows * stride`
-        // cells and the shader reads `(row + rot) % rows * stride + col`
-        // with `col < cols <= stride`; the style buffer holds every slot a
+        // match the shaders' attributes; the grid holds `ring * stride`
+        // cells and the shader reads `(row + rot) % ring * stride + col`
+        // with `col < cols <= stride` and `rows <= ring`; the style buffer holds every slot a
         // cell can name; the map buffer holds every slot the probe reaches.
         unsafe {
             for (pipe, instances) in [

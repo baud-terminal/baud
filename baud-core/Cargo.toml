@@ -105,6 +105,17 @@ probe-pinned-node = []
 probe-const-stride = ["baud-domain/probe-const-stride"]
 # The run scan, priced by doing it twice: 7% of cat-cjk.
 probe-double-scan = []
+# **Prefetch the row the scroll after the next will blank.** With the grid as
+# the scrollback ring, a scroll's blank lands on lines nothing has touched
+# for `ring` scrolls, and this hints them a scroll ahead through
+# `baud_isa::Warm`. Measured, and it is a loss: `flat` at 2,000 lines of
+# depth 2349 -> 3477 (the L2 cliff hidden), and **cat 0.62x, git-log 0.76x at
+# every depth** -- the cost scales with the lines hinted (a mark-bounded hint
+# is 0.80x, a single line is neutral and hides nothing), so on this core a
+# prefetch is not a hint but a load the demand traffic queues behind. Kept as
+# the arm that re-measures it; it does nothing without `neon-scan` or
+# `avx2-scan`.
+probe-warm-scroll = []
 # The ASCII-only ingest arm: one 256-entry table, one lookup per byte, no scan.
 ascii-only = []
 # The write is a lookup: the cell comes from table[b0][b1][b2], not a decode.

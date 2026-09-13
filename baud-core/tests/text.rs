@@ -334,9 +334,8 @@ fn a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode() {
 /// Scroll a 50-row screen eleven times, shrink to ten rows, ask for the
 /// viewport: the rotation is 11 and the slice is 10, and `rotate_left` panics
 /// `mid <= self.len()`. That is why `resize` un-rotates **over the old
-/// height** before it changes the row count -- and, because the pitch is
-/// fixed, that turn is the only cell movement a resize makes: the top rows
-/// of the screen survive, in order. It is also the reason a resize entry
+/// height** before it changes the row count -- and the rows around the
+/// cursor survive, in order, with the rows above them retired to history. It is also the reason a resize entry
 /// point that nothing calls is dangerous rather than merely untested --
 /// `baud-core2`'s equivalent had a panic in it and no caller for long enough
 /// to keep it.
@@ -357,7 +356,9 @@ fn shrinking_after_a_scroll_does_not_panic() {
     // A live rotation, which is what makes this case reachable at all --
     // read through `row`, which applies it without undoing it.
     assert_ne!(t.rotation().index(), 0, "the screen has scrolled");
-    let before: Vec<Vec<baud_domain::PackedCell>> = (0..10)
+    // The cursor is on the last row, so the ten rows that stay are the
+    // bottom ten; the forty above them retire to the history.
+    let before: Vec<Vec<baud_domain::PackedCell>> = (40..50)
         .map(|y| t.row(baud_domain::Row::from_index(y)).to_vec())
         .collect();
     let small = WinSize {
@@ -365,11 +366,6 @@ fn shrinking_after_a_scroll_does_not_panic() {
         ws_col: 80,
     };
     assert_eq!(t.resize(&small), Resized::Ok);
-    assert_eq!(
-        t.rotation().index(),
-        0,
-        "a change of height leaves no rotation"
-    );
     let w = t.stride().index();
     let vp = t.viewport();
     assert_eq!(vp.len(), 10 * w, "the viewport is the new size");
@@ -389,9 +385,15 @@ fn growing_past_the_row_capacity_is_truncated() {
         ws_row: 24,
         ws_col: 80,
     };
-    let mut owned = Owned::new(&ws);
+    // Rows are provisioned as given; the width is provisioned to what the
+    // resize below asks for, because the pitch is the provisioned width and
+    // a wider ask is truncated to it too, which is not the claim under test.
+    let mut owned = Owned::new(&WinSize {
+        ws_row: 24,
+        ws_col: 100,
+    });
     let mut t = Term::new(owned.storage(), &ws);
-    // `Owned::new` provisions exactly the geometry it was given, so 24 rows is
+    // `Owned::new` provisions exactly the rows it was given, so 24 rows is
     // both the live count and the capacity -- and that is a claim worth
     // asserting rather than assuming, because it is what makes the next
     // resize truncate.
@@ -407,7 +409,7 @@ fn growing_past_the_row_capacity_is_truncated() {
     match t.resize(&big) {
         Resized::Truncated { cols, rows } => {
             assert_eq!(rows.index(), 24, "clamped to what was provisioned");
-            assert_eq!(cols.index(), 100, "columns are free to MAX_COLS");
+            assert_eq!(cols.index(), 100, "columns are free to the pitch");
         }
         Resized::Ok => panic!("growing past the capacity must not report Ok"),
     }

@@ -312,6 +312,12 @@ impl Rows {
     /// holds nothing yet. Not a geometry -- `of_index` clamps to one for
     /// that, because a screen with no rows has no cell to address.
     pub const ZERO: Rows = Rows(0);
+    /// A count of rows that may be none -- rows hidden below a screen, rows
+    /// a park holds -- as distinct from a geometry, which `of_index` keeps
+    /// at one.
+    pub fn of_count(n: usize) -> Rows {
+        Rows(n)
+    }
     pub fn of_index(n: usize) -> Rows {
         Rows(n.max(1))
     }
@@ -372,6 +378,14 @@ impl RowBlock {
         RowBlock {
             start: n * stride.index(),
             len: stride.index(),
+        }
+    }
+    /// `rows` rows starting at row index `start`: a window into a ring that
+    /// does not wrap around its end.
+    pub fn from_row(start: Rows, rows: Rows, stride: Stride) -> RowBlock {
+        RowBlock {
+            start: start.index() * stride.index(),
+            len: rows.index() * stride.index(),
         }
     }
     pub fn of<T>(self, buf: &[T]) -> &[T] {

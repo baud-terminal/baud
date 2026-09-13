@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::pty::{Pty, Stream};
-use baud_core::{Owned, Term, grid_stride};
+use baud_core::{Depth, Owned, Term, grid_stride};
 use baud_domain::{
     BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
 };
@@ -137,7 +137,10 @@ fn describe(geom: &CacheGeometry) -> String {
 /// The cell path's memory, all of it where the GPU reads it: the grid the
 /// core writes, the styles the renderer resolves, the map the walk fills.
 struct CellMemory {
+    /// The primary ring.
     grid: GridBuffer,
+    /// The alternate screen's surface, bound while `Term::screen` says so.
+    alt: GridBuffer,
     styles: StylesBuffer,
     styles_mem: &'static mut [Resolved],
     map_buffer: MapBuffer,
@@ -229,7 +232,7 @@ impl App {
         // one pitch every allocator here agrees on through `grid_stride`.
         let request = wanted();
         let geom = host_geometry();
-        let pitch = grid_stride(&geom);
+        let pitch = grid_stride(&geom, Cols::of_index(usize::from(MAX_GRID.ws_col)));
         eprintln!(
             "cache: {}; grid pitch {} cells, {} B a row",
             describe(&geom),
@@ -245,17 +248,23 @@ impl App {
                 Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
             Term::new(owned.storage(), ws)
         };
-        let rows = Rows::of_index(usize::from(MAX_GRID.ws_row));
+        // **Both surfaces are the GPU's on the cell path.** The primary is
+        // the ring -- the screen's capacity plus the scrollback -- and the
+        // alternate screen is its own buffer of the capacity, so entering
+        // it swaps which buffer the shader reads and copies nothing.
         let (mut wanted, gpu, term, grid) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
-                match gpu.grid(rows, pitch) {
-                    Some((grid, cells)) => {
-                        let owned: &'static mut Owned =
-                            Box::leak(Box::new(Owned::without_viewport(&MAX_GRID, &geom)));
-                        let term = Term::new(owned.storage_over(cells), &ws);
-                        (Path::Cells, Some(gpu), term, Some(grid))
+                let owned: &'static mut Owned = Box::leak(Box::new(Owned::without_surfaces(
+                    &MAX_GRID,
+                    &geom,
+                    Depth::DEFAULT,
+                )));
+                match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
+                    (Some((grid, cells)), Some((alt, alt_cells))) => {
+                        let term = Term::new(owned.storage_over(cells, alt_cells), &ws);
+                        (Path::Cells, Some(gpu), term, Some((grid, alt)))
                     }
-                    None => {
+                    _ => {
                         eprintln!("no shared grid; drawing the instances");
                         (Path::Instances, Some(gpu), own_grid(&ws), None)
                     }
@@ -308,9 +317,10 @@ impl App {
         let pty = Pty::spawn(&ws, move || reader_waker.wake()).expect("pty");
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
-            (Some(gpu), Some(grid)) => match (gpu.styles(&term), gpu.map()) {
+            (Some(gpu), Some((grid, alt))) => match (gpu.styles(&term), gpu.map()) {
                 (Some((styles, styles_mem)), Some((map_buffer, entries))) => Some(CellMemory {
                     grid,
+                    alt,
                     styles,
                     styles_mem,
                     map_buffer,
@@ -318,9 +328,10 @@ impl App {
                 }),
                 _ => {
                     eprintln!("no shared styles or map; drawing the instances");
-                    // The terminal's viewport lives in this buffer for the
-                    // life of the process, whichever path draws it.
+                    // The terminal's surfaces live in these buffers for the
+                    // life of the process, whichever path draws them.
                     std::mem::forget(grid);
+                    std::mem::forget(alt);
                     wanted = Path::Instances;
                     None
                 }
@@ -456,11 +467,15 @@ impl App {
                     ..Frame::default()
                 };
                 let input = CellInput {
-                    grid: &cell.grid,
+                    grid: match self.term.screen() {
+                        baud_core::Screen::Normal => &cell.grid,
+                        baud_core::Screen::Alternate => &cell.alt,
+                    },
                     styles: &cell.styles,
                     map: &cell.map_buffer,
                     stride: self.term.stride(),
                     rotation: self.term.rotation(),
+                    ring: self.term.ring(),
                     cursor,
                 };
                 if let Some(p) = &mut self.presenter {

@@ -9,7 +9,7 @@
 //! ```
 
 use baud_core::*;
-use baud_domain::Stride;
+use baud_domain::{Depth, Stride};
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -74,7 +74,7 @@ fn stride_arm(ws: &WinSize) -> Stride {
     )))]
     {
         let _ = ws;
-        grid_stride(&baud_bench::host_geometry())
+        grid_stride(&baud_bench::host_geometry(), Cols::of_index(200))
     }
 }
 
@@ -253,10 +253,22 @@ fn main() {
         stride.index(),
         stride.bytes()
     );
+    // The scrollback the app runs with, so a scrolling payload pays what
+    // it pays there -- which is nothing a scroll: the grid is the ring and
+    // the window moves. `BAUD_HIST` is the exploration arm -- lines behind
+    // the screen, zero for none -- read once at start, never in the loop.
+    let depth = match std::env::var("BAUD_HIST") {
+        Ok(v) => Depth::of(v.parse::<usize>().expect("BAUD_HIST=<lines>")),
+        Err(_) => Depth::DEFAULT,
+    };
+    eprintln!("scrollback: {} lines", depth.lines());
+    let ring_rows = Rows::of_index(rows.index() + depth.lines());
     let span = RowBlock::leading(rows, stride);
+    let ring = RowBlock::leading(ring_rows, stride);
     let mut arena = vec![0u8; ARENA];
-    let mut vp = vec![PackedCell::EMPTY; span.len()];
-    let mut used = vec![RowExtent::ZERO; rows.index()];
+    let mut vp = vec![PackedCell::EMPTY; ring.len()];
+    let mut used = vec![RowExtent::ZERO; ring_rows.index()];
+    let mut scratch = vec![PackedCell::EMPTY; span.len()];
     // **An empty table is how this benchmark declines it.** The only read is
     // behind `cell-table`; passing the full 2 MiB otherwise costs 262,144
     // property-table lookups and 2 MiB of stores at construction, for a table
@@ -281,8 +293,10 @@ fn main() {
         Storage::new(
             &mut arena,
             stride,
+            depth,
             &mut vp,
             &mut used,
+            &mut scratch,
             &mut cells3,
             &mut tmpl,
             &mut tabs,

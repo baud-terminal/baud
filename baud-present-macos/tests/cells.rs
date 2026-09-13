@@ -14,7 +14,7 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
-use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{BytePos, Cols, Depth, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_present_macos::{CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, StylesBuffer};
 use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Resolved, Stack, Theme};
@@ -73,6 +73,7 @@ impl Arms<'_, '_> {
             map: &self.map_buffer,
             stride: t.stride(),
             rotation: t.rotation(),
+            ring: t.ring(),
             cursor,
         };
         let Some(Drawn::Frame(_)) =
@@ -121,11 +122,14 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
     // The viewport is the GPU's memory: the core writes it, the shader
     // reads it.
-    let mut owned = Owned::without_viewport(&WS, &CacheGeometry::UNKNOWN);
+    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::NONE);
     let (grid, cells) = gpu
-        .grid(Rows::of_index(usize::from(WS.ws_row)), owned.stride())
+        .grid(owned.ring(), owned.stride())
         .expect("a shared grid");
-    let mut t = Term::new(owned.storage_over(cells), &WS);
+    let (_, alt) = gpu
+        .grid(owned.rows(), owned.stride())
+        .expect("a shared alternate");
+    let mut t = Term::new(owned.storage_over(cells, alt), &WS);
     let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut arms = Arms {

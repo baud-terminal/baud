@@ -53,16 +53,17 @@ pub const STRIDE_MAX: usize = 32;
 pub const GRID: usize = MAX_ROWS * MAX_COLS;
 
 /// The row pitch a terminal's grid is laid out at, for the cache hierarchy
-/// `geom` describes: at least `MAX_COLS` cells, an odd number of lines so it
-/// is a multiple of no power-of-two way at any level and no page, padded by
-/// the step a search chose so rows spread over the sets. See
-/// [`store_stride`].
+/// `geom` describes and the width a caller provisions: an odd number of
+/// lines so it is a multiple of no power-of-two way at any level and no
+/// page, at a total a search chose so rows spread over the sets. The width
+/// rather than `MAX_COLS`, because with the grid as the scrollback ring every
+/// line costs one row of the pitch. See [`store_stride`].
 ///
 /// One function, so every allocator of a grid -- [`Owned`], a bench, an
 /// embedder placing the viewport in GPU memory -- lays it out at the same
 /// pitch the core will address it by.
-pub fn grid_stride(geom: &CacheGeometry) -> Stride {
-    store_stride(geom, Cols::of_index(MAX_COLS))
+pub fn grid_stride(geom: &CacheGeometry, cols: Cols) -> Stride {
+    store_stride(geom, cols)
 }
 
 /// Everything the core writes into, **placed by the caller**.
@@ -79,8 +80,15 @@ pub struct Storage<'b> {
     /// Bytes as they arrived. A read writes here and the parser reads here;
     /// nothing copies between.
     pub(crate) arena: &'b mut [u8],
-    /// The materialised viewport.
+    /// The primary screen's rows and the lines behind them: `used.len()`
+    /// physical rows at the pitch, of which the screen is a window.
     pub(crate) vp: &'b mut [PackedCell],
+    /// Room for one screen's rows in screen order, for a caller that asks
+    /// [`Term::viewport`] while the window wraps around the ring's end.
+    pub(crate) scratch: &'b mut [PackedCell],
+    /// How many of `vp`'s rows are scrollback: the ring is the screen's
+    /// capacity plus this.
+    pub(crate) depth: Depth,
     /// The pitch `vp` and `alt` are laid out at: row `p` begins at
     /// `p * stride` cells. **Fixed for the life of the storage** and at least
     /// `MAX_COLS`, so a resize is a change of how many cells in each row are
@@ -152,6 +160,8 @@ pub struct Storage<'b> {
     /// Everything a control string writes. See [`StrBuf`].
     pub(crate) strs: StrBuf<'b>,
     pub(crate) alt: AltBuf<'b>,
+    /// The primary ring's bookkeeping; see [`Book`].
+    pub(crate) book: Book,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
     /// `DECRQM` or an `XTVERSION`.
     ///
@@ -180,16 +190,21 @@ pub struct Storage<'b> {
 pub struct AltBuf<'b> {
     pub(crate) cells: &'b mut [PackedCell],
     pub(crate) used: &'b mut [RowExtent],
-    /// The rotation the parked cells are in. `RowRot::NONE` when nothing is
-    /// parked, which is also what the alternate screen starts at -- it is
-    /// cleared on entry, so a rotation left over from last time describes
-    /// nothing.
+    /// The alternate screen's rotation, into a ring of `used.len()` rows.
+    /// `RowRot::NONE` when it is not up: it is cleared on entry, so a
+    /// rotation left over from last time describes nothing.
     pub(crate) rot: RowRot,
-    /// How many rows the park holds: the height at entry, raised whenever
-    /// the screen grows taller while parked -- the rows a taller alternate
-    /// screen exposes are the primary's, and they are parked before the
-    /// application can write them, so the exit restores every one.
-    pub(crate) reach: Rows,
+}
+
+/// What the scroll paths keep about the primary ring, a word `Paint`
+/// carries: how many rows behind the window are lines that scrolled off,
+/// and how many after it were cut by a shorter window and can come back.
+/// Grid bookkeeping, so it lives here rather than in `Cold`, whose size is
+/// pinned.
+#[derive(Clone, Copy)]
+pub struct Book {
+    pub(crate) hist: Rows,
+    pub(crate) hidden: Rows,
 }
 
 /// Everything a control string writes, in one struct.
@@ -275,6 +290,8 @@ impl<'b> StrBuf<'b> {
 #[cfg(feature = "alloc")]
 pub struct Owned {
     stride: Stride,
+    depth: Depth,
+    scratch: alloc::vec::Vec<PackedCell>,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowExtent>,
@@ -313,15 +330,27 @@ impl Owned {
     /// hands in what its host detected -- `baud-isa`'s per-arch crates -- so
     /// the pitch is the one searched for *this* machine's line.
     pub fn with_geometry(ws: &WinSize, geom: &CacheGeometry) -> Owned {
+        Owned::with_history(ws, geom, Depth::DEFAULT)
+    }
+
+    /// Sized to `ws` at the pitch `geom` and `ws`'s width choose, with
+    /// `depth` lines of scrollback behind the screen: [`Depth::NONE`] for a
+    /// terminal that keeps none. The width is provisioned as well as the
+    /// height -- a resize past it answers `Truncated` -- because every line
+    /// of scrollback costs a row of the pitch.
+    pub fn with_history(ws: &WinSize, geom: &CacheGeometry, depth: Depth) -> Owned {
         use alloc::vec;
-        let (_, rows) = ws.geometry();
-        let stride = grid_stride(geom);
+        let (cols, rows) = ws.geometry();
+        let stride = grid_stride(geom, cols);
         let span = RowBlock::leading(rows, stride);
+        let ring = RowBlock::leading(Rows::of_index(rows.index() + depth.lines()), stride);
         Owned {
             stride,
+            depth,
+            scratch: vec![PackedCell::EMPTY; span.len()],
             arena: vec![0u8; ARENA],
-            vp: vec![PackedCell::EMPTY; span.len()],
-            used: vec![RowExtent::ZERO; rows.index()],
+            vp: vec![PackedCell::EMPTY; ring.len()],
+            used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
             tmpl: vec![None; NSTYLE],
             tabs: vec![false; MAX_COLS],
@@ -338,33 +367,76 @@ impl Owned {
         }
     }
 
-    /// Sized to `ws` with **no viewport of its own**, for an embedder that
-    /// places the grid where a GPU can read it in place and lends it
-    /// through [`Owned::storage_over`]. Everything else is allocated here,
-    /// and the pitch the viewport must be laid out at is [`Owned::stride`].
-    pub fn without_viewport(ws: &WinSize, geom: &CacheGeometry) -> Owned {
-        let mut owned = Owned::with_geometry(ws, geom);
+    /// Sized to `ws` with **neither surface of its own**, for an embedder
+    /// that places both where a GPU can read them in place and lends them
+    /// through [`Owned::storage_over`]: the primary ring at [`Owned::ring`]
+    /// rows and the alternate screen at [`Owned::rows`], both at
+    /// [`Owned::stride`]. Everything else is allocated here.
+    pub fn without_surfaces(ws: &WinSize, geom: &CacheGeometry, depth: Depth) -> Owned {
+        let mut owned = Owned::with_history(ws, geom, depth);
         owned.vp = alloc::vec::Vec::new();
+        owned.alt = alloc::vec::Vec::new();
         owned
     }
 
-    /// The pitch this storage lays its grid out at, for a caller placing the
-    /// viewport somewhere else -- a GPU buffer of `rows * stride` cells --
-    /// before lending it through [`Owned::storage_over`].
+    /// The pitch this storage lays its grids out at.
     pub fn stride(&self) -> Stride {
         self.stride
     }
 
-    /// Lend them all to a `Storage` with `vp` standing in for the viewport:
-    /// `rows` rows at [`Owned::stride`], as [`Owned::with_geometry`] would
-    /// have allocated, in memory the caller chose -- a shared GPU buffer, so
-    /// the grid the core writes is the grid the GPU reads.
-    pub fn storage_over<'v>(&'v mut self, vp: &'v mut [PackedCell]) -> Storage<'v> {
+    /// Physical rows in the primary ring: the screen's capacity plus the
+    /// scrollback.
+    pub fn ring(&self) -> Rows {
+        Rows::of_index(self.used.len())
+    }
+
+    /// The screen's capacity in rows, which is the alternate screen's ring.
+    pub fn rows(&self) -> Rows {
+        Rows::of_index(self.used.len() - self.depth.lines())
+    }
+
+    /// Lend them all to a `Storage` with `vp` and `alt` standing in for the
+    /// two surfaces, in memory the caller chose -- shared GPU buffers, so the
+    /// grid the core writes is the grid the GPU reads.
+    pub fn storage_over<'v>(
+        &'v mut self,
+        vp: &'v mut [PackedCell],
+        alt: &'v mut [PackedCell],
+    ) -> Storage<'v> {
         Storage::new(
             &mut self.arena,
             self.stride,
+            self.depth,
             vp,
             &mut self.used,
+            &mut self.scratch,
+            &mut self.cells3,
+            &mut self.tmpl,
+            &mut self.tabs,
+            &mut self.reply,
+            alt,
+            &mut self.alt_used,
+            &mut self.clusters,
+            StrBuf {
+                pending: &mut self.pending,
+                title: &mut self.title,
+                icon: &mut self.icon,
+                palette: &mut self.palette,
+                links: &mut self.links,
+                link_len: &mut self.link_len,
+            },
+        )
+    }
+
+    /// Lend them all to a `Storage`.
+    pub fn storage(&mut self) -> Storage<'_> {
+        Storage::new(
+            &mut self.arena,
+            self.stride,
+            self.depth,
+            &mut self.vp,
+            &mut self.used,
+            &mut self.scratch,
             &mut self.cells3,
             &mut self.tmpl,
             &mut self.tabs,
@@ -382,7 +454,10 @@ impl Owned {
             },
         )
     }
+}
 
+#[cfg(feature = "alloc")]
+impl Owned {
     /// Sized to `ws`, with the three-byte cell table **present**.
     ///
     /// The one caller that wants it is the table's own equivalence test, which
@@ -404,31 +479,6 @@ impl Owned {
     /// the table against the cells the write path produced from the same bytes.
     pub fn cell_table(&self) -> &[PackedCell] {
         &self.cells3
-    }
-
-    /// Lend them all to a `Storage`, in the one order that is correct.
-    pub fn storage(&mut self) -> Storage<'_> {
-        Storage::new(
-            &mut self.arena,
-            self.stride,
-            &mut self.vp,
-            &mut self.used,
-            &mut self.cells3,
-            &mut self.tmpl,
-            &mut self.tabs,
-            &mut self.reply,
-            &mut self.alt,
-            &mut self.alt_used,
-            &mut self.clusters,
-            StrBuf {
-                pending: &mut self.pending,
-                title: &mut self.title,
-                icon: &mut self.icon,
-                palette: &mut self.palette,
-                links: &mut self.links,
-                link_len: &mut self.link_len,
-            },
-        )
     }
 }
 
@@ -488,6 +538,12 @@ impl<'b> Storage<'b> {
     /// rather than a silent clamp -- an embedder that wants headroom
     /// provisions for it, and this is the number it provisions.
     pub fn row_capacity(&self) -> Rows {
+        Rows::of_index(self.used.len() - self.depth.lines())
+    }
+
+    /// Physical rows in the primary ring: the screen's capacity plus the
+    /// scrollback.
+    pub fn ring_rows(&self) -> Rows {
         Rows::of_index(self.used.len())
     }
 
@@ -499,8 +555,10 @@ impl<'b> Storage<'b> {
     pub fn new(
         arena: &'b mut [u8],
         stride: Stride,
+        depth: Depth,
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
+        scratch: &'b mut [PackedCell],
         cells3: &'b mut [PackedCell],
         tmpl: &'b mut [Option<StyleWord>],
         tabs: &'b mut [bool],
@@ -535,17 +593,28 @@ impl<'b> Storage<'b> {
         // `RowBlock` computes the span so the two operands cannot be the
         // wrong way round -- a transposition here is a plausible number and a
         // silently wrong slice.
-        let span = RowBlock::leading(Rows::of_index(used.len()), stride);
-        assert!(span.fits(vp), "viewport is short of its rows");
+        assert!(
+            used.len() > depth.lines(),
+            "the ring holds no screen: {} rows against {} of scrollback",
+            used.len(),
+            depth.lines()
+        );
+        let ring = RowBlock::leading(Rows::of_index(used.len()), stride);
+        assert!(ring.fits(vp), "the ring is short of its rows");
+        let screen = RowBlock::leading(Rows::of_index(used.len() - depth.lines()), stride);
+        assert!(screen.fits(scratch), "the scratch is short of a screen");
         // **Required, not optional.** An absent buffer would mean the
         // alternate screen is recognised, entered, and then quietly destroys
         // the primary on the way out -- which `docs/vt-coverage.md` rates as
         // worse than not implementing it, because the application is given no
         // way to find out.
-        assert!(span.fits(alt), "the parked primary is short of its rows");
         assert!(
-            alt_used.len() >= used.len(),
-            "the parked extents are one per row"
+            screen.fits(alt),
+            "the alternate screen is short of its rows"
+        );
+        assert!(
+            alt_used.len() >= used.len() - depth.lines(),
+            "the alternate screen's extents are one per row"
         );
         assert!(
             cells3.len() == CELLS3 || cells3.is_empty(),
@@ -561,7 +630,9 @@ impl<'b> Storage<'b> {
         Storage {
             arena,
             stride,
+            depth,
             vp,
+            scratch,
             used,
             cells3,
             tmpl,
@@ -572,7 +643,10 @@ impl<'b> Storage<'b> {
                 cells: alt,
                 used: alt_used,
                 rot: RowRot::NONE,
-                reach: Rows::ZERO,
+            },
+            book: Book {
+                hist: Rows::ZERO,
+                hidden: Rows::ZERO,
             },
             strs,
         }

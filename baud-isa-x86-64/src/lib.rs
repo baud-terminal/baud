@@ -9,7 +9,7 @@
 #![cfg(target_arch = "x86_64")]
 
 use baud_domain::*;
-use baud_isa::{Decode, DecodedBlock, Portable, Scan};
+use baud_isa::{Decode, DecodedBlock, Portable, Scan, Warm};
 
 mod cache;
 
@@ -216,5 +216,23 @@ impl Decode for Avx2 {
     unsafe fn block(buf: &[StreamByte]) -> DecodedBlock {
         // SAFETY: `Portable` requires no target feature.
         unsafe { Portable::block(buf) }
+    }
+}
+
+/// `prefetcht0` over every line the slice touches. SSE is baseline on
+/// x86-64, so unlike the scans this needs no feature the build has to name.
+impl Warm for Avx2 {
+    #[inline(always)]
+    fn warm_stores(cells: &[PackedCell]) {
+        for line in cells.chunks(8) {
+            // SAFETY: a prefetch reads nothing and writes nothing, the
+            // pointer is into a live slice, and SSE -- the feature the
+            // intrinsic names -- is baseline on every x86-64.
+            unsafe {
+                core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
+                    line.as_ptr().cast::<i8>(),
+                );
+            }
+        }
     }
 }
