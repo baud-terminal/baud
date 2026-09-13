@@ -3,12 +3,13 @@
 
 use crate::pty::Pty;
 use baud_core::{Owned, Term};
+use baud_domain::PackedCell;
 use baud_domain::{
     BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
 };
 use baud_font::{Face, FaceIndex, Px};
-use baud_present_macos::{GpuFrame, Mode, Presenter};
-use baud_render::{Blend, Damage, Frame, PxSize, Renderer, Stack, Tally, Target, Theme};
+use baud_present_macos::{CellInput, GpuFrame, Mode, Presenter};
+use baud_render::{Blend, Damage, Frame, GlyphMap, PxSize, Renderer, Stack, Tally, Target, Theme};
 use macos_liquid_glass::drawable::{
     DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll,
 };
@@ -36,13 +37,22 @@ const MAX_GRID: WinSize = WinSize {
 /// (D14, default background only).
 const BG_ALPHA: u8 = 0xD8;
 
-/// Which path draws: the CPU compositor, or Metal when `BAUD_GPU=1` is in
-/// the environment and a device answers. The CPU path is the default until
-/// the `frame_gpu` bench says which is faster on which recording.
-fn wanted() -> Mode {
+/// Which path draws: the CPU compositor, Metal over the converted
+/// instances when `BAUD_GPU=1` is in the environment, or Metal over the raw
+/// grid when it is `BAUD_GPU=cells`. The CPU path is the default until the
+/// `frame_gpu` bench says which is faster on which recording.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Path {
+    Cpu,
+    Instances,
+    Cells,
+}
+
+fn wanted() -> Path {
     match std::env::var_os("BAUD_GPU") {
-        Some(v) if v == "1" => Mode::Gpu,
-        _ => Mode::Cpu,
+        Some(v) if v == "1" => Path::Instances,
+        Some(v) if v == "cells" => Path::Cells,
+        _ => Path::Cpu,
     }
 }
 
@@ -71,7 +81,12 @@ struct App {
     last_report: std::time::Instant,
     stats: Frame,
     gpu_stats: GpuFrame,
-    wanted: Mode,
+    wanted: Path,
+    /// The cell path's glyph map and its copy of the grid: the copy exists
+    /// because `Term::viewport` borrows the terminal exclusively while the
+    /// styles still have to be resolved against it.
+    map: GlyphMap,
+    cells: Vec<PackedCell>,
 }
 
 impl App {
@@ -123,6 +138,8 @@ impl App {
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
             wanted: wanted(),
+            map: GlyphMap::new(),
+            cells: Vec::new(),
         }
     }
 
@@ -152,11 +169,11 @@ impl App {
             self.frame_h = h;
             self.frame = vec![0; slots(w) * slots(h)];
             self.presenter = match self.wanted {
-                Mode::Gpu => Presenter::with_gpu(w, h).or_else(|| {
-                    eprintln!("BAUD_GPU=1 but no Metal device or shaders; drawing on the CPU");
+                Path::Instances | Path::Cells => Presenter::with_gpu(w, h).or_else(|| {
+                    eprintln!("BAUD_GPU set but no Metal device or shaders; drawing on the CPU");
                     Presenter::new(w, h)
                 }),
-                Mode::Cpu => Presenter::new(w, h),
+                Path::Cpu => Presenter::new(w, h),
             };
             if let Some(p) = &self.presenter {
                 eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
@@ -168,6 +185,32 @@ impl App {
         }
         let damage = Damage::Incremental;
         match self.presenter.as_ref().map(Presenter::mode) {
+            Some(Mode::Gpu) if self.wanted == Path::Cells => {
+                let t0 = std::time::Instant::now();
+                self.cells.clear();
+                self.cells.extend_from_slice(self.term.viewport());
+                self.map.ensure(&self.cells, &mut self.renderer);
+                let cursor = self.term.cursor_visible().then(|| {
+                    let (r, c) = self.term.cursor();
+                    (r, c, self.term.cursor_style())
+                });
+                let styles = self.renderer.resolve_styles(&self.term).to_vec();
+                self.stats = Frame {
+                    convert: t0.elapsed(),
+                    ..Frame::default()
+                };
+                let input = CellInput {
+                    cells: &self.cells,
+                    styles: &styles,
+                    map: &self.map,
+                    cursor,
+                };
+                if let Some(p) = &mut self.presenter {
+                    if let Some(g) = p.draw_cells(view, &self.renderer, &input) {
+                        self.gpu_stats = g;
+                    }
+                }
+            }
             Some(Mode::Gpu) => {
                 let converted = self.renderer.convert(&mut self.term, damage);
                 self.stats = Frame {

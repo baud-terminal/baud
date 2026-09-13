@@ -164,6 +164,7 @@ dependencies = [
 name = "baud-present-macos"
 version = "0.1.0"
 dependencies = [
+ "baud-core",
  "baud-domain",
  "baud-font",
  "baud-render",

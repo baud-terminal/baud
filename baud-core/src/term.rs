@@ -871,6 +871,15 @@ impl<'b> Term<'b> {
         self.store.tmpl[cell.style.index()].unwrap_or(StyleWord::DEFAULT)
     }
 
+    /// The whole rendition table, indexed by [`StyleId`]: what a renderer
+    /// that resolves every slot once a frame reads, rather than asking
+    /// [`Term::style_of`] once a cell. `None` is a slot nothing was minted
+    /// in, and reads as [`StyleWord::DEFAULT`], which is what `style_of`
+    /// answers for it.
+    pub fn styles(&self) -> &[Option<StyleWord>] {
+        self.store.tmpl
+    }
+
     /// The materialised viewport, un-rotated so a renderer gets a contiguous
     /// slice in screen order, `rows` rows of [`Term::stride`] cells each.
     ///

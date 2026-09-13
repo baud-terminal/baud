@@ -2,6 +2,7 @@
 
 use crate::atlas::{Atlas, AtlasStats, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, Placed, RUN_CELLS, RunCache, Shaped};
+use crate::cellmap::{Resolved, Shapes};
 use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
@@ -126,6 +127,8 @@ pub struct Renderer<'f, 'a> {
     last_cursor: Cursor,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
+    /// The rendition table resolved slot by slot, for the cell path.
+    resolved: Vec<Resolved>,
     /// The palette the last frame resolved against: `OSC 4` repaints
     /// cells whose words never change, so a different palette is a full
     /// frame.
@@ -183,6 +186,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             per_row: Vec::new(),
             last_cursor: None,
             dirty: Vec::new(),
+            resolved: Vec::new(),
             last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
         };
@@ -377,6 +381,61 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The grid the last frame was converted for.
     pub fn grid(&self) -> (Cols, Rows) {
         (self.cols, self.rows)
+    }
+
+    /// The glyph a codepoint draws as a cluster of one: the face the stack
+    /// selects, shaped alone so a single substitution still applies, its
+    /// atlas slot with the shaper's offsets folded into the placement.
+    /// `None` when it draws nothing. What the cell path's map holds.
+    pub fn single(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
+        let face = self.stack.select(cp);
+        let clusters = [ClusterIn {
+            cps: vec![cp],
+            at: CellIx(0),
+        }];
+        let shaped = self.shape(face, &clusters);
+        let p = *shaped.glyphs().first()?;
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let mut slot = self.atlas.slot(f, face, p.id, scale)?;
+        slot.left += scale.px(f32::from(p.dx)).round() as i32;
+        slot.top -= scale.px(f32::from(p.dy)).round() as i32;
+        Some(slot)
+    }
+
+    /// The terminal's rendition table resolved through the theme and the
+    /// live palette, one entry a slot, by the same rules `convert` applies
+    /// a cell at a time -- so the cell path draws a rendition the way the
+    /// instance path does, without a second spelling of them.
+    pub fn resolve_styles(&mut self, term: &Term<'_>) -> &[Resolved] {
+        let table = term.styles();
+        self.resolved.clear();
+        for slot in table {
+            let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
+            let (fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
+            if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
+                bg = bg.with_alpha(self.theme.bg_alpha);
+            }
+            let attrs = style.attrs();
+            let mut shapes = Shapes::default();
+            if attrs.has(Attrs::UNDERLINE) {
+                shapes = shapes.with(Shapes::UNDERLINE);
+            }
+            if attrs.has(Attrs::STRIKE) {
+                shapes = shapes.with(Shapes::STRIKE);
+            }
+            let underline = self.theme.underline(style, fg, |ch| term.palette(ch));
+            if underline == fg && style.underline().is_default() {
+                shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
+            }
+            self.resolved.push(Resolved {
+                fg,
+                bg,
+                underline,
+                shapes,
+            });
+        }
+        &self.resolved
     }
 
     /// Resolves one row's colours and glyphs.

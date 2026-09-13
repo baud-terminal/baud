@@ -24,9 +24,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::slots;
-use baud_domain::{Cols, Rows};
+use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, Rows};
 use baud_font::Px;
-use baud_render::{Argb, Atlas, Generation, Instance, Renderer, Side, Tally};
+use baud_render::{
+    Argb, Atlas, Generation, GlyphMap, Instance, MAP_BITS, MapEntry, MapGeneration, Renderer,
+    Resolved, Side, Tally,
+};
 use core::ffi::c_void;
 use core::ptr::NonNull;
 use objc2::rc::Retained;
@@ -54,6 +57,14 @@ const BUFFER_FLOOR: usize = 64 * 1024;
 /// Uniforms as the shaders read them: viewport, cell, grid, mask side and
 /// colour side, each a `float2`.
 const UNIFORM_FLOATS: usize = 10;
+
+/// The cell path's uniforms, all `uint`: viewport, cell, grid, the two
+/// sides, the cursor cell, then the cursor kind, baseline, underline and
+/// strike rows, thickness, the map's slot count and the hash shift.
+const CELL_UNIFORMS: usize = 17;
+
+/// How many shapes a cell may draw in the cell path's shape pass.
+const SHAPES_PER_CELL: usize = 3;
 
 const SHADERS: &str = r#"
 #include <metal_stdlib>
@@ -114,6 +125,135 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
     }
     return float4(in.color.rgb * in.color.a, in.color.a);
 }
+
+// ---- The cell path: the raw grid, resolved per cell in the vertex stage.
+
+struct CU {
+    uint2 viewport; uint2 cell; uint2 grid; uint2 sides; uint2 cursor;
+    uint cursor_kind; uint baseline; uint underline; uint strike;
+    uint thickness; uint map_slots; uint map_shift;
+};
+struct Style { uint fg; uint bg; uint ul; uint shapes; };
+struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
+
+struct FlatOut { float4 pos [[position]]; float4 color; };
+
+static float4 unpack(uint c) {
+    return float4(float((c >> 16) & 0xffu), float((c >> 8) & 0xffu),
+                  float(c & 0xffu), float(c >> 24)) / 255.0;
+}
+
+static float4 clip(float2 p, constant CU& u) {
+    float2 n = p / float2(u.viewport);
+    return float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
+}
+
+// The cell's colours after the block cursor's swap, which the CPU path
+// applies after the rendition rules and before anything is drawn.
+static void colors(constant CU& u, device const Style* styles, uint2 cell,
+                   uint col, uint row, thread uint& fgw, thread uint& bgw) {
+    Style s = styles[cell.y & 0xffffu];
+    fgw = s.fg; bgw = s.bg;
+    if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
+        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
+    }
+}
+
+vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                              device const uint2* cells [[buffer(0)]],
+                              device const Style* styles [[buffer(1)]],
+                              constant CU& u [[buffer(2)]]) {
+    uint col = iid % u.grid.x, row = iid / u.grid.x;
+    uint fgw, bgw;
+    colors(u, styles, cells[iid], col, row, fgw, bgw);
+    float2 c = float2(vid & 1u, vid >> 1u);
+    float2 p = (float2(col, row) + c) * float2(u.cell);
+    FlatOut o;
+    o.pos = clip(p, u);
+    float4 bg = unpack(bgw);
+    o.color = float4(bg.rgb * bg.a, bg.a);
+    return o;
+}
+
+fragment float4 flat_fragment(FlatOut in [[stage_in]]) { return in.color; }
+
+vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                              device const uint2* cells [[buffer(0)]],
+                              device const Style* styles [[buffer(1)]],
+                              constant CU& u [[buffer(2)]],
+                              device const Entry* entries [[buffer(3)]]) {
+    GOut o;
+    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
+    uint2 cell = cells[iid];
+    uint content = cell.x;
+    if (content > 0x10FFFFu) return o;
+    uint mask = u.map_slots - 1u;
+    uint i = (content * 0x9E3779B1u) >> u.map_shift;
+    Entry e; bool found = false;
+    for (uint n = 0u; n < u.map_slots; n++) {
+        e = entries[i];
+        if (e.key == 0xFFFFFFFFu) break;
+        if (e.key == content) { found = true; break; }
+        i = (i + 1u) & mask;
+    }
+    if (!found || e.kind > 2u) return o;
+    uint col = iid % u.grid.x, row = iid / u.grid.x;
+    uint fgw, bgw;
+    colors(u, styles, cell, col, row, fgw, bgw);
+    float2 c = float2(vid & 1u, vid >> 1u);
+    float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
+                           float(row * u.cell.y + u.baseline) + float(e.at.y));
+    float2 wh = float2(e.rect.zw);
+    o.pos = clip(origin + c * wh, u);
+    float side = e.kind == 1u ? float(u.sides.y) : float(u.sides.x);
+    o.uv = (float2(e.rect.xy) + c * wh) / side;
+    o.color = unpack(fgw);
+    o.kind = e.kind;
+    return o;
+}
+
+// Three shapes a cell: its underline, its strike, and the cursor when it
+// is an underline or a bar. A shape not drawn is a zero-area quad.
+vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                              device const uint2* cells [[buffer(0)]],
+                              device const Style* styles [[buffer(1)]],
+                              constant CU& u [[buffer(2)]]) {
+    GOut o;
+    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
+    uint which = iid % 3u, ci = iid / 3u;
+    uint col = ci % u.grid.x, row = ci / u.grid.x;
+    uint2 cell = cells[ci];
+    Style s = styles[cell.y & 0xffffu];
+    uint fgw, bgw;
+    colors(u, styles, cell, col, row, fgw, bgw);
+    float2 at; float2 wh; uint colw;
+    float thick = float(max(u.thickness, 2u));
+    if (which == 0u) {
+        if ((s.shapes & 1u) == 0u) return o;
+        at = float2(col * u.cell.x, row * u.cell.y + u.underline);
+        wh = float2(u.cell.x, u.thickness);
+        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
+    } else if (which == 1u) {
+        if ((s.shapes & 2u) == 0u) return o;
+        at = float2(col * u.cell.x, row * u.cell.y + u.strike);
+        wh = float2(u.cell.x, u.thickness);
+        colw = fgw;
+    } else {
+        if (col != u.cursor.x || row != u.cursor.y || u.cursor_kind < 2u) return o;
+        if (u.cursor_kind == 2u) {
+            at = float2(col * u.cell.x, float(row * u.cell.y + u.cell.y) - thick);
+            wh = float2(u.cell.x, thick);
+        } else {
+            at = float2(col * u.cell.x, row * u.cell.y);
+            wh = float2(thick, u.cell.y);
+        }
+        colw = fgw;
+    }
+    float2 c = float2(vid & 1u, vid >> 1u);
+    o.pos = clip(at + c * wh, u);
+    o.color = unpack(colw);
+    return o;
+}
 "#;
 
 type Texture = Retained<ProtocolObject<dyn MTLTexture>>;
@@ -146,6 +286,51 @@ pub struct GpuFrame {
 #[derive(Clone, Copy)]
 struct Ring(usize);
 
+/// What the cell path draws from: the grid as the terminal holds it, the
+/// rendition table resolved, the glyph map, and where the cursor is.
+pub struct CellInput<'a> {
+    pub cells: &'a [PackedCell],
+    pub styles: &'a [Resolved],
+    pub map: &'a GlyphMap,
+    pub cursor: Option<(Row, Col, CursorStyle)>,
+}
+
+/// How the cursor is drawn, as the shader switches on it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CursorKind {
+    None,
+    Block,
+    Underline,
+    Bar,
+}
+
+impl CursorKind {
+    fn of(cursor: Option<(Row, Col, CursorStyle)>) -> CursorKind {
+        match cursor.map(|(_, _, s)| s) {
+            None => CursorKind::None,
+            Some(CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock) => CursorKind::Block,
+            Some(CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline) => {
+                CursorKind::Underline
+            }
+            Some(CursorStyle::BlinkingBar | CursorStyle::SteadyBar) => CursorKind::Bar,
+        }
+    }
+
+    /// The discriminant the shader switches on.
+    fn code(self) -> CursorCode {
+        CursorCode(match self {
+            CursorKind::None => 0,
+            CursorKind::Block => 1,
+            CursorKind::Underline => 2,
+            CursorKind::Bar => 3,
+        })
+    }
+}
+
+/// A cursor kind as the uniform carries it.
+#[derive(Clone, Copy)]
+struct CursorCode(u32);
+
 /// One atlas sheet on the GPU.
 struct Sheet {
     texture: Texture,
@@ -164,9 +349,19 @@ pub struct Gpu {
     queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     bg_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     glyph_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    cell_bg_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    cell_glyph_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    cell_shape_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     instances: Vec<Buffer>,
     ring: Ring,
+    /// The cell path's grid and style rings, and its one map buffer --
+    /// one, because every draw waits, so the GPU is never reading it
+    /// while the next frame writes.
+    cells: Vec<Buffer>,
+    styles: Vec<Buffer>,
+    map: Buffer,
+    map_at: Option<MapGeneration>,
     background: Option<Background>,
     mask: Option<Sheet>,
     color: Option<Sheet>,
@@ -272,26 +467,35 @@ impl Gpu {
             };
         let bg_pipe = pipeline(&device, &library, "bg_vertex", "bg_fragment")?;
         let glyph_pipe = pipeline(&device, &library, "glyph_vertex", "glyph_fragment")?;
+        let cell_bg_pipe = pipeline(&device, &library, "cell_bg_vertex", "flat_fragment")?;
+        let cell_glyph_pipe = pipeline(&device, &library, "cell_glyph_vertex", "glyph_fragment")?;
+        let cell_shape_pipe = pipeline(&device, &library, "cell_shape_vertex", "glyph_fragment")?;
         let sd = MTLSamplerDescriptor::new();
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);
         sd.setMagFilter(MTLSamplerMinMagFilter::Nearest);
         let sampler = device.newSamplerStateWithDescriptor(&sd)?;
-        let instances = (0..RING)
-            .map(|_| {
-                device.newBufferWithLength_options(
-                    BUFFER_FLOOR,
-                    MTLResourceOptions::StorageModeShared,
-                )
-            })
-            .collect::<Option<Vec<_>>>()?;
+        let fresh = || {
+            device.newBufferWithLength_options(BUFFER_FLOOR, MTLResourceOptions::StorageModeShared)
+        };
+        let instances = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
+        let cells = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
+        let styles = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
+        let map = fresh()?;
         Some(Gpu {
             device,
             queue,
             bg_pipe,
             glyph_pipe,
+            cell_bg_pipe,
+            cell_glyph_pipe,
+            cell_shape_pipe,
             sampler,
             instances,
             ring: Ring(0),
+            cells,
+            styles,
+            map,
+            map_at: None,
             background: None,
             mask: None,
             color: None,
@@ -537,6 +741,205 @@ impl Gpu {
             submit,
             gpu,
         })
+    }
+
+    /// Makes `buffer` hold `bytes`, reallocating it when too small.
+    fn fill(&self, buffer: &mut Buffer, bytes: &[u8]) -> Option<()> {
+        if buffer.length() < bytes.len() {
+            let want = bytes.len().max(BUFFER_FLOOR).next_power_of_two();
+            *buffer = self
+                .device
+                .newBufferWithLength_options(want, MTLResourceOptions::StorageModeShared)?;
+        }
+        let ptr = buffer.contents().cast::<u8>();
+        // SAFETY: a shared buffer's contents are CPU-addressable for its
+        // whole length, at least `bytes.len()` after the check above, and
+        // the GPU is not reading it: every draw waits for completion.
+        let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes.len()) };
+        dst.copy_from_slice(bytes);
+        Some(())
+    }
+
+    /// Draws the raw grid: the cell path. Uploads the cells and the
+    /// resolved styles whole, the glyph map when its generation moved,
+    /// then a background pass, a glyph pass and a shape pass, each one
+    /// instanced draw over every cell. Waits for completion.
+    pub fn draw_cells(
+        &mut self,
+        renderer: &Renderer<'_, '_>,
+        input: &CellInput<'_>,
+        target: &Target,
+    ) -> Option<GpuFrame> {
+        let t0 = Instant::now();
+        let (cols, rows) = renderer.grid();
+        let count = cols.index().saturating_mul(rows.index());
+        if input.cells.len() < count {
+            return None;
+        }
+        let metrics = renderer.metrics();
+        let slot = self.ring.0;
+        let mut cells = self.cells[slot].clone();
+        self.fill(&mut cells, cell_bytes(&input.cells[..count]))?;
+        self.cells[slot] = cells;
+        let mut styles = self.styles[slot].clone();
+        self.fill(&mut styles, resolved_bytes(input.styles))?;
+        self.styles[slot] = styles;
+        if self.map_at != Some(input.map.generation()) {
+            let mut map = self.map.clone();
+            self.fill(&mut map, entry_bytes(input.map.entries()))?;
+            self.map = map;
+            self.map_at = Some(input.map.generation());
+        }
+        self.ring = Ring((slot + 1) % RING);
+        self.sheets_for(renderer.atlas())?;
+        let mask = self.mask.as_ref()?.texture.clone();
+        let color = self.color.as_ref()?.texture.clone();
+        let (tw, th) = target.size();
+        let (crow, ccol) = input.cursor.map_or((u32::MAX, u32::MAX), |(r, c, _)| {
+            (
+                u32::try_from(r.index()).unwrap_or(u32::MAX),
+                u32::try_from(c.index()).unwrap_or(u32::MAX),
+            )
+        });
+        let uniforms: [u32; CELL_UNIFORMS] = [
+            tw.value(),
+            th.value(),
+            metrics.cell_w.value(),
+            metrics.cell_h.value(),
+            u32::try_from(cols.index()).unwrap_or(0),
+            u32::try_from(rows.index()).unwrap_or(0),
+            self.mask.as_ref()?.side.value(),
+            self.color.as_ref()?.side.value(),
+            ccol,
+            crow,
+            CursorKind::of(input.cursor).code().0,
+            metrics.baseline.value(),
+            metrics.underline.value(),
+            metrics.strike.value(),
+            metrics.thickness.value(),
+            u32::try_from(input.map.entries().len()).unwrap_or(0),
+            32 - MAP_BITS,
+        ];
+        let upload_time = t0.elapsed();
+        let t1 = Instant::now();
+        let pass = MTLRenderPassDescriptor::new();
+        // SAFETY: attachment 0 exists on every pass descriptor.
+        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
+        att.setTexture(Some(&target.texture));
+        att.setLoadAction(MTLLoadAction::Clear);
+        att.setStoreAction(MTLStoreAction::Store);
+        att.setClearColor(MTLClearColor {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        });
+        let cmd = self.queue.commandBuffer()?;
+        let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        let ubytes = NonNull::from(&uniforms).cast::<c_void>();
+        let ulen = core::mem::size_of::<[u32; CELL_UNIFORMS]>();
+        // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
+        // copies `setBytes` data at the call; the buffer and texture indices
+        // match the shaders' attributes; the cell buffer holds `count`
+        // cells, the style buffer every slot a cell can name, and the map
+        // buffer every slot the probe can reach.
+        unsafe {
+            for (pipe, instances) in [
+                (&self.cell_bg_pipe, count),
+                (&self.cell_glyph_pipe, count),
+                (&self.cell_shape_pipe, count.saturating_mul(SHAPES_PER_CELL)),
+            ] {
+                enc.setRenderPipelineState(pipe);
+                enc.setVertexBuffer_offset_atIndex(Some(&self.cells[slot]), 0, 0);
+                enc.setVertexBuffer_offset_atIndex(Some(&self.styles[slot]), 0, 1);
+                enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
+                enc.setVertexBuffer_offset_atIndex(Some(&self.map), 0, 3);
+                enc.setFragmentTexture_atIndex(Some(&mask), 0);
+                enc.setFragmentTexture_atIndex(Some(&color), 1);
+                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                    MTLPrimitiveType::TriangleStrip,
+                    0,
+                    4,
+                    instances,
+                );
+            }
+        }
+        enc.endEncoding();
+        cmd.commit();
+        cmd.waitUntilCompleted();
+        let submit = t1.elapsed();
+        let gpu = Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0));
+        Some(GpuFrame {
+            instances: Tally::of(count),
+            upload: upload_time,
+            submit,
+            gpu,
+        })
+    }
+
+    /// Reads a target back as `0xAARRGGBB` words, premultiplied, row-major
+    /// at the target's width; `None` when `out` is too small.
+    pub fn read(&self, target: &Target, out: &mut [u32]) -> Option<()> {
+        let (w, h) = target.size();
+        let (ws, hs) = (slots(w), slots(h));
+        if out.len() < ws.saturating_mul(hs) {
+            return None;
+        }
+        let region = MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width: ws,
+                height: hs,
+                depth: 1,
+            },
+        };
+        // SAFETY: `out` holds at least `w * h` words, checked above, and the
+        // region is the texture's own extent at four bytes a texel, so the
+        // copy writes inside the slice.
+        unsafe {
+            target.texture.getBytes_bytesPerRow_fromRegion_mipmapLevel(
+                NonNull::from(out).cast::<c_void>(),
+                ws.saturating_mul(4),
+                region,
+                0,
+            );
+        }
+        Some(())
+    }
+}
+
+/// The grid as bytes: `PackedCell` is `repr(C)` `{u32, u16, u16}`, eight
+/// bytes with no padding.
+fn cell_bytes(cells: &[PackedCell]) -> &[u8] {
+    // SAFETY: `PackedCell` is `repr(C)` over `u32`, `u16`, `u16` -- eight
+    // initialised bytes with no padding -- so the slice is `8 * len` bytes.
+    unsafe {
+        core::slice::from_raw_parts(cells.as_ptr().cast::<u8>(), cells.len().saturating_mul(8))
+    }
+}
+
+/// The resolved styles as bytes: `Resolved` is `repr(C)` over four `u32`s.
+fn resolved_bytes(styles: &[Resolved]) -> &[u8] {
+    // SAFETY: `Resolved` is `repr(C)` over four `repr(transparent)` `u32`
+    // newtypes, sixteen initialised bytes with no padding.
+    unsafe {
+        core::slice::from_raw_parts(
+            styles.as_ptr().cast::<u8>(),
+            styles.len().saturating_mul(Resolved::BYTES),
+        )
+    }
+}
+
+/// The glyph map as bytes: `MapEntry` is `repr(C)`, twenty-four bytes.
+fn entry_bytes(entries: &[MapEntry]) -> &[u8] {
+    // SAFETY: `MapEntry` is `repr(C)` over `u32, u32, u16 x4, i16 x2, u32`
+    // newtypes -- twenty-four initialised bytes with no padding.
+    unsafe {
+        core::slice::from_raw_parts(
+            entries.as_ptr().cast::<u8>(),
+            entries.len().saturating_mul(MapEntry::BYTES),
+        )
     }
 }
 

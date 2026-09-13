@@ -27,6 +27,7 @@
 
 mod atlas;
 mod cache;
+mod cellmap;
 mod color;
 mod composite;
 mod instance;
@@ -37,6 +38,10 @@ mod units;
 
 pub use atlas::{Atlas, AtlasStats, Code, Generation, Kind, Side, Slot, Tex};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
+pub use cellmap::{
+    CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved,
+    Shapes,
+};
 pub use color::{Argb, Theme};
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};

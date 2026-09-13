@@ -28,7 +28,7 @@
 
 pub mod metal;
 
-pub use metal::{Gpu, GpuFrame, Memory, Target};
+pub use metal::{CellInput, Gpu, GpuFrame, Memory, Target};
 
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
@@ -46,8 +46,10 @@ struct Next(usize);
 enum Draw {
     /// The compositor paints, and `present` copies the frame in.
     Cpu,
-    /// Metal renders into the surface through a target per surface.
-    Gpu { gpu: Gpu, targets: Vec<Target> },
+    /// Metal renders into the surface through a target per surface. Boxed,
+    /// because a `Gpu` is a dozen words of device state beside a unit
+    /// variant.
+    Gpu { gpu: Box<Gpu>, targets: Vec<Target> },
 }
 
 /// Which of the two paths a presenter takes, for the caller that has to
@@ -85,7 +87,7 @@ impl Presenter {
     /// Surfaces of `width` by `height` pixels with a Metal target over
     /// each; `None` when the kernel declines or there is no Metal device.
     pub fn with_gpu(width: Px, height: Px) -> Option<Presenter> {
-        let gpu = Gpu::new()?;
+        let gpu = Box::new(Gpu::new()?);
         Presenter::build(
             width,
             height,
@@ -186,6 +188,24 @@ impl Presenter {
         };
         let slot = self.next.0;
         let frame = gpu.draw(renderer, targets.get(slot)?)?;
+        view.set_surface(self.surfaces[slot].io_surface());
+        self.next = Next((slot + 1) % SURFACES);
+        Some(frame)
+    }
+
+    /// Draws the raw grid -- the cell path -- into the next surface on the
+    /// GPU and shows it on `view`. The GPU path only.
+    pub fn draw_cells(
+        &mut self,
+        view: &DrawableView,
+        renderer: &Renderer<'_, '_>,
+        input: &CellInput<'_>,
+    ) -> Option<GpuFrame> {
+        let Draw::Gpu { gpu, targets } = &mut self.draw else {
+            return None;
+        };
+        let slot = self.next.0;
+        let frame = gpu.draw_cells(renderer, input, targets.get(slot)?)?;
         view.set_surface(self.surfaces[slot].io_surface());
         self.next = Next((slot + 1) % SURFACES);
         Some(frame)

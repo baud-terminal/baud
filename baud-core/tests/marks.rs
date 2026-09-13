@@ -220,3 +220,26 @@ fn a_wide_base_at_the_right_margin_still_owns_what_follows_it() {
         "wide base at columns 198-199, marks_dropped={d}"
     );
 }
+
+/// The table a renderer resolves once a frame answers, slot for slot, what
+/// `style_of` answers a cell at a time.
+#[test]
+fn the_style_table_is_what_style_of_reads() {
+    let ws = baud_domain::WinSize {
+        ws_col: 20,
+        ws_row: 4,
+    };
+    let mut st = Owned::new(&ws);
+    let mut t = Term::new(st.storage(), &ws);
+    feed(&mut t, "\x1b[31;1mred\x1b[0m plain \x1b[44mblue");
+    let cells: Vec<_> = t.viewport()[..14].to_vec();
+    let table = t.styles();
+    for cell in cells {
+        let slot = table[cell.style.index()].unwrap_or(baud_domain::StyleWord::DEFAULT);
+        assert_eq!(slot, t.style_of(cell));
+    }
+    // The three renditions the bytes minted are distinct slots.
+    let ids: std::collections::BTreeSet<_> =
+        t.viewport()[..14].iter().map(|c| c.style.index()).collect();
+    assert_eq!(ids.len(), 3);
+}

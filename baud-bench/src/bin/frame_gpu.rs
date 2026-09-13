@@ -6,8 +6,14 @@
 //! or uploads and draws the whole frame on the GPU into an offscreen
 //! texture, waiting for completion (the `gpu` arm, `Gpu::draw`). A third
 //! arm, `cpu2`, is the CPU arm again -- the A/A control every sweep here
-//! carries. The three run interleaved per round, a fresh renderer per arm
-//! per round, and every round is printed so the reader discards the first.
+//! carries. The fourth, `cells`, converts nothing: it uploads the raw grid
+//! and the resolved rendition table and lets the shader resolve every
+//! cell (`Gpu::draw_cells`), keeping only the glyph map complete on the
+//! CPU -- its `convert` column is that walk. It draws a smaller program
+//! (no ligatures, no marks; see `baud_render::GlyphMap`), and the `marks`
+//! column counts the cells whose marks it skipped. The four run
+//! interleaved per round, a fresh renderer per arm per round, and every
+//! round is printed so the reader discards the first.
 //!
 //! What it does not measure: the present. The CPU arm's frame is not
 //! copied into a surface and the GPU arm's texture is not an IOSurface;
@@ -21,8 +27,8 @@ fn main() {
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
     use baud_font::Face;
-    use baud_present_macos::Gpu;
-    use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+    use baud_present_macos::{CellInput, Gpu};
+    use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Stack, Target, Theme};
     use std::time::{Duration, Instant};
 
     let mut args = std::env::args().skip(1);
@@ -91,8 +97,18 @@ fn main() {
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!("memory: {:?}", gpu.unified_memory());
     println!(
-        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9}",
-        "round", "arm", "frames", "us/frame", "convert", "draw", "upload", "gpu", "rows", "inst"
+        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7}",
+        "round",
+        "arm",
+        "frames",
+        "us/frame",
+        "convert",
+        "draw",
+        "upload",
+        "gpu",
+        "rows",
+        "inst",
+        "marks"
     );
     /// One arm's sums over a replay.
     #[derive(Default)]
@@ -106,20 +122,24 @@ fn main() {
         gpu: Duration,
         rows: u64,
         inst: u64,
+        marks: u64,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Arm {
         Cpu,
         Gpu,
         Cpu2,
+        Cells,
     }
-    let arms = [Arm::Cpu, Arm::Gpu, Arm::Cpu2];
+    let arms = [Arm::Cpu, Arm::Gpu, Arm::Cpu2, Arm::Cells];
+    let mut cells: Vec<baud_domain::PackedCell> = Vec::new();
     for round in 0..rounds {
         for arm in arms {
             let mut r = fresh();
             let mut owned = Owned::new(&ws);
             let mut t = Term::new(owned.storage(), &ws);
             let mut s = Sums::default();
+            let mut map = GlyphMap::new();
             let mut at = 0usize;
             let t0 = Instant::now();
             while at < data.len() {
@@ -127,6 +147,31 @@ fn main() {
                 t.write_at(BytePos::ZERO, &data[at..at + n]);
                 t.feed(BytePos::ZERO, ReadLen::from_index(n));
                 at += n;
+                if arm == Arm::Cells {
+                    let tc = Instant::now();
+                    cells.clear();
+                    cells.extend_from_slice(t.viewport());
+                    map.ensure(&cells, &mut r);
+                    let cursor = t.cursor_visible().then(|| {
+                        let (row, col) = t.cursor();
+                        (row, col, t.cursor_style())
+                    });
+                    let styles = r.resolve_styles(&t).to_vec();
+                    s.convert += tc.elapsed();
+                    let input = CellInput {
+                        cells: &cells,
+                        styles: &styles,
+                        map: &map,
+                        cursor,
+                    };
+                    let g = gpu.draw_cells(&r, &input, &target).expect("draw_cells");
+                    s.frames += 1;
+                    s.draw += g.upload + g.submit;
+                    s.upload += g.upload;
+                    s.gpu += g.gpu;
+                    s.inst += g.instances.value();
+                    continue;
+                }
                 let converted = r.convert(&mut t, damage);
                 s.frames += 1;
                 s.convert += converted.convert;
@@ -145,17 +190,20 @@ fn main() {
                         s.gpu += g.gpu;
                         s.inst += g.instances.value();
                     }
+                    Arm::Cells => unreachable!("the cell arm continues above"),
                 }
             }
             s.total = t0.elapsed();
+            s.marks = map.stats().dropped_marks.value();
             let per = |d: Duration| d.as_secs_f64() * 1e6 / s.frames as f64;
             println!(
-                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1}",
+                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7}",
                 round,
                 match arm {
                     Arm::Cpu => "cpu",
                     Arm::Gpu => "gpu",
                     Arm::Cpu2 => "cpu2",
+                    Arm::Cells => "cells",
                 },
                 s.frames,
                 per(s.total),
@@ -165,6 +213,7 @@ fn main() {
                 per(s.gpu),
                 s.rows as f64 / s.frames as f64,
                 s.inst as f64 / s.frames as f64,
+                s.marks,
             );
         }
     }
