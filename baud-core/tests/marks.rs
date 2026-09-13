@@ -275,3 +275,52 @@ fn the_rotated_grid_under_its_rotation_is_the_viewport() {
         "the turn is paid once, by `viewport`"
     );
 }
+
+/// A live rendition is not evicted from the style table by a colliding one.
+///
+/// The bug: `intern_style` overwrote a bucket on any hash collision, so a
+/// foreground cell whose `StyleId` collided with a later background style
+/// resolved to *that* style's word -- coloured box behind the text. 1024
+/// buckets collide at even odds by ~38 distinct renditions, and a colour
+/// chart followed by the 256-colour cube reproduced it every run. Open
+/// addressing over a bounded window fixes it: a distinct style takes a free
+/// slot rather than evicting a different live one. This paints the two and
+/// asserts the foreground cells resolve to the same word before and after
+/// the cube exists -- which fails on eviction and holds on the probe.
+#[test]
+fn a_colliding_rendition_does_not_evict_a_live_one() {
+    let ws = baud_domain::WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+    let mut st = Owned::new(&ws);
+    let mut t = Term::new(st.storage(), &ws);
+    // Row 0: sixteen distinct foreground renditions, one glyph each.
+    feed(&mut t, "\x1b[H");
+    for c in 0..8 {
+        feed(&mut t, &format!("\x1b[3{c}mX\x1b[0m"));
+        feed(&mut t, &format!("\x1b[9{c}mY\x1b[0m"));
+    }
+    // What each of those cells resolves to, before any colliding style exists.
+    let cells0: Vec<_> = t.viewport()[..16].to_vec();
+    let before: Vec<_> = cells0.iter().map(|c| t.style_of(*c)).collect();
+    // The 256-colour cube: 216 distinct background renditions, which under
+    // eviction reuse some of row 0's buckets.
+    feed(&mut t, "\r\n");
+    for i in 16..=231 {
+        feed(&mut t, &format!("\x1b[48;5;{i}m  \x1b[0m"));
+    }
+    // Row 0's cells must resolve to exactly what they did before.
+    let cells1: Vec<_> = t.viewport()[..16].to_vec();
+    let after: Vec<_> = cells1.iter().map(|c| t.style_of(*c)).collect();
+    let wrong: Vec<_> = (0..16).filter(|&i| before[i] != after[i]).collect();
+    assert!(
+        wrong.is_empty(),
+        "renditions evicted at columns {wrong:?}: a foreground cell now \
+         resolves to a colliding style's background"
+    );
+    // And the sixteen are still sixteen distinct slots, none collapsed.
+    let ids: std::collections::BTreeSet<_> =
+        t.viewport()[..16].iter().map(|c| c.style.index()).collect();
+    assert_eq!(ids.len(), 16, "two distinct renditions share a slot");
+}

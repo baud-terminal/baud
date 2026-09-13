@@ -28,7 +28,7 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// `(recording, digest)`, regenerate with `GOLDEN_PRINT=1`.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0x456c152d8222558e),
-    ("utf8/btop.raw", 0xf64790824bddfe88),
+    ("utf8/btop.raw", 0xf65863f26cfca29a),
     ("ascii/cat-scroll.raw", 0xe999d6de53f9bd22),
     ("ascii/git-log.raw", 0xdd0654c533b33046),
     ("ascii/less-pager.raw", 0xfefd4d0139c73789),

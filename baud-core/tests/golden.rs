@@ -178,13 +178,19 @@ fn every_fixture_owes_the_same_reply() {
     );
 }
 
-/// Each recording renders to the digest core2 rendered it to.
+/// Each recording renders to its pinned digest, over content and **resolved
+/// rendition**.
 ///
 /// A digest rather than a cell list because nine times ten thousand cells is
 /// not a file anyone reads. It says *that* a rendering changed; the eleven
-/// suites say what.
+/// suites say what. It folds `style_of(cell)` -- the colour a renderer draws
+/// -- and not `style.index()`, the slot in the rendition table: the slot is an
+/// internal id that open-addressed interning reassigns without changing a
+/// colour, and it is blind to the eviction bug the probe fixed, where a cell
+/// kept its slot id while the slot's contents were overwritten. The digests
+/// were recomputed from this core when the fold changed; core2 is gone.
 #[test]
-fn every_recording_renders_to_core2s_digest() {
+fn every_recording_renders_to_its_pinned_digest() {
     let p = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/recordings.txt");
     let src = std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{p}: {e}"));
     let mut checked = 0usize;
@@ -202,24 +208,22 @@ fn every_recording_renders_to_core2s_digest() {
         support::with_corpus(|t| {
             support::feed(t, &bytes);
             let w2 = t.stride().index();
-            let vp = t.viewport();
+            let cells: Vec<_> = t.viewport()[..50 * w2].to_vec();
             let mut digest = 0xcbf29ce484222325u64;
             let mut got = 0usize;
-            for y in 0..50 {
-                for x in 0..w2 {
-                    let c = vp[y * w2 + x];
-                    let v = match c.content.as_codepoint() {
-                        Some(cp) => cp.value(),
-                        None if c.content.is_empty() => u32::MAX,
-                        None => 0,
-                    };
-                    digest ^= u64::from(v);
-                    digest = digest.wrapping_mul(0x100000001b3);
-                    digest ^= c.style.index() as u64;
-                    digest = digest.wrapping_mul(0x100000001b3);
-                    if v != u32::MAX {
-                        got += 1;
-                    }
+            for c in cells {
+                let v = match c.content.as_codepoint() {
+                    Some(cp) => cp.value(),
+                    None if c.content.is_empty() => u32::MAX,
+                    None => 0,
+                };
+                digest ^= u64::from(v);
+                digest = digest.wrapping_mul(0x100000001b3);
+                // The resolved rendition, not the slot: what a renderer draws.
+                digest ^= t.style_of(c).key();
+                digest = digest.wrapping_mul(0x100000001b3);
+                if v != u32::MAX {
+                    got += 1;
                 }
             }
             assert_eq!(NonBlank(got), nonblank, "{rec}: non-blank cells");

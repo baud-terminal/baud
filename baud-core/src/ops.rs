@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::Paint;
-use crate::storage::NSTYLE;
+use crate::storage::{NSTYLE, STYLE_PROBE};
 use crate::term::{Saved, Screen};
 use baud_domain::*;
 
@@ -339,32 +339,55 @@ impl Paint<'_, '_> {
 
     // ---- rendition ------------------------------------------------------
 
-    /// **A bounded, evict-on-collision table**, the same contract `StyleWord`
-    /// carries in `baud-core2`. A growable one is the content-addressing
-    /// failure mode this repo already measured at -18%.
+    /// **A bounded table, open-addressed so two live styles do not evict each
+    /// other while a slot is free.** The read stays one load -- a cell holds
+    /// the final slot as its `StyleId` and `resolve` is `tmpl[id]` -- and only
+    /// the intern, run once per `SGR` rather than per cell, probes.
+    ///
+    /// The evict-on-collision version this replaced was a visible bug, not a
+    /// rare one: a foreground cell and a colliding background style shared a
+    /// bucket, the later store evicted the earlier, and the foreground cell
+    /// then resolved to the other style's background -- a coloured box behind
+    /// text on any screen with enough distinct renditions to collide, which a
+    /// 256-colour chart or a busy TUI reaches well under the 1024 slots. The
+    /// birthday bound is the tell: ~38 distinct styles already give an even
+    /// chance of one collision in 1024 buckets, so "rare" was wrong.
+    ///
+    /// Linear probing over a bounded window fixes it without a search on the
+    /// read or unbounded work on the write. A distinct style takes the first
+    /// free or matching slot within [`STYLE_PROBE`] of its bucket, so it
+    /// evicts a *different* live style only when that whole window is full --
+    /// a local cluster of occupied slots, which needs far more live styles
+    /// than a screen holds. Past that it evicts at the bucket, the old
+    /// behaviour, so the table stays bounded and never grows.
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         #[cfg(feature = "probe-double-intern")]
         core::hint::black_box(StyleId::bucket(raw, NSTYLE));
-        // **The whole intern, not just the hash.** `probe-double-intern`
-        // doubles `bucket` only and reads flat, which prices the multiply and
-        // says nothing about the 24-byte store -- and the store is what a
-        // lazy intern would skip. Storing twice to the same slot is
-        // idempotent, so every counter is unchanged.
         #[cfg(feature = "probe-double-intern-full")]
         {
             let k2 = StyleId::bucket(raw, NSTYLE);
             self.tmpl[k2] = Some(raw);
         }
-        let k = StyleId::bucket(raw, NSTYLE);
-        // **Stored unconditionally, and comparing first was measured flat.**
-        // `Option<StyleWord>` is 24 bytes and `btop.raw` sends ~20,000 SGRs a
-        // rep, so skipping the store on a hit looked like obvious duplicate
-        // work -- `baud-core2` does exactly that. It is worth nothing here:
-        // btop 814-818 against 806-811, asciiquarium and vim overlapping. The
-        // slot is already in L1 and already dirty, so the store is free and
-        // the compare is not.
-        self.tmpl[k] = Some(raw);
-        StyleId::from_index(k)
+        let base = StyleId::bucket(raw, NSTYLE);
+        // Probe for this style's own slot, or the first free one, within the
+        // window. `NSTYLE` is a power of two, so the mask wraps the window at
+        // the end of the table. A hit returns the slot the style already has,
+        // which is why equal cells share a `StyleId`.
+        let mut k = base;
+        for _ in 0..STYLE_PROBE {
+            match self.tmpl[k] {
+                Some(w) if w == raw => return StyleId::from_index(k),
+                None => {
+                    self.tmpl[k] = Some(raw);
+                    return StyleId::from_index(k);
+                }
+                Some(_) => k = (k + 1) & (NSTYLE - 1),
+            }
+        }
+        // The window is full of other live styles: evict at the bucket, which
+        // is the bounded table's contract, and the read stays one load.
+        self.tmpl[base] = Some(raw);
+        StyleId::from_index(base)
     }
 
     /// SGR. **The single-parameter form first**, because that is what a
