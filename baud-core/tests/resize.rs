@@ -101,9 +101,10 @@ fn rows_text(t: &Term<'_>, rows: usize, n: usize) -> Vec<String> {
 /// **A shrink then a growth is the identity.** Sixty numbered lines on a
 /// fifty-row screen, so the grid is rotated; shrink to ten by a hundred --
 /// the cursor is on the last row, so the forty rows above it retire to the
-/// history and the columns past 100 hide -- grow back, and every row reads
-/// as it did. Read through `row`, which applies the rotation without
-/// undoing it, so the resize is what un-rotates.
+/// history and every 158-column line is re-cut into two rows, the window
+/// sliding down to keep the cursor -- grow back, and the lines join and
+/// the rows come back from the history, so every row reads as it did.
+/// Read through `row`, which applies the rotation without undoing it.
 #[test]
 fn a_shrink_then_a_growth_is_the_identity() {
     support::with_corpus(|t| {
@@ -120,13 +121,17 @@ fn a_shrink_then_a_growth_is_the_identity() {
                 ws_col: 100,
             },
         );
+        let cut: Vec<String> = (55..60)
+            .flat_map(|i| {
+                let l = format!("line {i} {}", "x".repeat(150));
+                [l[..100].to_string(), format!("{:<100}", &l[100..])]
+            })
+            .chain([" ".repeat(100)])
+            .collect();
         assert_eq!(
             rows_text(t, 10, 100),
-            before[40..]
-                .iter()
-                .map(|s| s[..100].to_string())
-                .collect::<Vec<_>>(),
-            "the cursor's ten rows are what is live"
+            cut[1..],
+            "the cursor's row and the nine re-cut rows above it are what is live"
         );
         assert_eq!(
             t.resize(&WinSize {

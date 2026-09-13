@@ -1,5 +1,8 @@
 use crate::*;
 
+mod reflow;
+pub use reflow::Reflowed;
+
 /// A grid indexed by [`Row`] and [`Col`], never by an integer.
 ///
 /// This is what removes `as_index` from call sites: you cannot index it with a

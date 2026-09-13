@@ -703,29 +703,61 @@ impl<'b> Term<'b> {
             }
         }
 
-        // **A wider screen raises the marks on both surfaces**, so a fill
-        // taken while narrow is not trusted past the edge it stopped at.
-        if cols.index() > old_cols.index() {
-            View::new(
+        // **A change of width reflows the primary**: its lines are re-cut
+        // to the new width in place, through the history, and the window
+        // and the cursor follow their cells (`View::reflow`). The
+        // alternate screen keeps the cell-addressed contract -- a
+        // full-screen program is told and redraws -- so a wider one only
+        // raises its marks, so a fill taken while narrow is not trusted
+        // past the edge it stopped at.
+        if cols.index() != old_cols.index() {
+            let live = self.cold.screen == Screen::Normal;
+            let cursor = match live {
+                true => (self.cy, self.cx),
+                false => self
+                    .cold
+                    .alt_saved
+                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
+            };
+            let r = View::new(
                 self.store.vp,
                 self.store.used,
                 self.stride,
-                cols,
+                Cols::of_index(old_cols.index().max(cols.index())),
                 rows,
                 self.store.ring_rows(),
                 self.rot,
             )
-            .widened(old_cols);
-            View::new(
-                self.store.alt.cells,
-                self.store.alt.used,
-                self.stride,
+            .reflow(
+                old_cols,
                 cols,
-                rows,
-                self.store.row_capacity(),
-                self.store.alt.rot,
-            )
-            .widened(old_cols);
+                self.store.book.hist,
+                self.store.book.hidden,
+                cursor,
+            );
+            self.rot = r.rot;
+            self.store.book.hist = r.hist;
+            self.store.book.hidden = r.hidden;
+            match live {
+                true => (self.cy, self.cx) = r.cursor,
+                false => {
+                    if let Some(s) = self.cold.alt_saved.as_mut() {
+                        (s.cy, s.cx) = r.cursor;
+                    }
+                }
+            }
+            if cols.index() > old_cols.index() {
+                View::new(
+                    self.store.alt.cells,
+                    self.store.alt.used,
+                    self.stride,
+                    cols,
+                    rows,
+                    self.store.row_capacity(),
+                    self.store.alt.rot,
+                )
+                .widened(old_cols);
+            }
         }
 
         self.rows = rows;

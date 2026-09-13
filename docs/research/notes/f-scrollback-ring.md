@@ -78,10 +78,17 @@ And where it is not, stated so it is not re-proposed as an improvement:
   lever to reach for if the depth is ever raised past L2, and the depth
   sweep is the instrument that would say so.
 * **Reflow on resize** copies in every design that has it -- ghostty's
-  `ReflowCursor` is "the only bulk row-copying operation". baud has no
-  reflow yet; when it comes, the wrap flag beside the row marks is the
-  input, and a copy on resize is what the field pays and what a resize can
-  afford, once, where a scroll cannot, every two hundred bytes.
+  `ReflowCursor` is "the only bulk row-copying operation", and it copies
+  into fresh pages because an in-place reflow can overwrite a source row it
+  has not read yet. baud's is in place, in one ring, with the order chosen
+  so that it cannot: widening ascends over cells because a destination row
+  holds at least as many real cells as a source row, narrowing descends with
+  the destination end advanced by the total growth because it holds fewer,
+  and the rows the destination wraps onto are the lines the ring drops.
+  The wrap flag beside the row marks is the input; the copy is once per
+  width change, ~0.6 ms for two thousand lines, where a scroll cannot copy
+  every two hundred bytes. `CLAUDE.md`'s "A change of width reflows the
+  primary" has the tests and the cost.
 
 ## What the research says, and it had the answer before the terminals did
 

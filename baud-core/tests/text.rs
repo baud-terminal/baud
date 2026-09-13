@@ -423,12 +423,11 @@ fn growing_past_the_row_capacity_is_truncated() {
 
 /// **A resize while parked in the alternate screen reshapes the primary too.**
 ///
-/// Both surfaces are laid out at the one pitch, so the parked primary takes
-/// the same treatment the live one does: the smaller geometry hides what
-/// lies past its edge, `restore_from` brings every parked row back with its
-/// content to the mark, and growing the window afterwards shows the rest of
-/// the line. Every full-screen program enters the alternate screen, so this
-/// is the common case rather than an edge.
+/// The primary is reflowed whichever screen is up: the narrower geometry
+/// re-cuts its line into two rows while the alternate screen shows, leaving
+/// it brings both rows back, and growing the window afterwards joins them
+/// again. Every full-screen program enters the alternate screen, so this is
+/// the common case rather than an edge.
 #[test]
 fn a_resize_while_parked_restores_the_primary_whole() {
     let ws = WinSize {
@@ -457,12 +456,18 @@ fn a_resize_while_parked_restores_the_primary_whole() {
         .collect();
     assert_eq!(
         text, "PRIMARY TEXT THAT CO",
-        "the first twenty columns are live"
+        "the first twenty columns are the line's first row"
     );
+    let rest: String = vp[w..w + 16]
+        .iter()
+        .filter_map(|c| c.content.as_codepoint())
+        .map(|cp| char::from_u32(cp.value()).unwrap_or('?'))
+        .collect();
+    assert_eq!(rest, "MES BACK CLIPPED", "and the second row is the rest");
     assert!(
         vp.iter()
-            .skip(w)
-            .take(11 * w)
+            .skip(2 * w)
+            .take(10 * w)
             .all(|c| c.content == Content::EMPTY),
         "and nothing else was on the primary"
     );
