@@ -1252,20 +1252,6 @@ impl<'a> View<'a> {
         self.snap_at(base, from.index(), to.index())
     }
 
-    /// The boundary rule itself, against a row base the caller already has.
-    ///
-    /// Split out so `clear_partners` -- which runs once per non-ASCII
-    /// codepoint -- computes `phys` **once**. Going through `snap` cost three
-    /// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
-    /// 7% of the CJK path for two loads and two compares of actual work.
-    #[inline(always)]
-    /// Record that a cell carries entries in the marks table.
-    ///
-    /// The inverse needs no code: every write builds a fresh [`PackedCell`]
-    /// from the terminal's current flags, which never carry
-    /// [`CellFlags::MARKED`], so overwriting a cell un-records its marks. That
-    /// is the whole point of keeping the bit here rather than in the table --
-    /// a table keyed on cell identity cannot see a cell rewritten in place.
     /// Which cell owns the character at `c`. Mirrors [`ViewRef::lead`], which
     /// is the definition; a `View` is a `ViewRef` that can also write, and a
     /// caller holding one should not have to give up the write to ask.
@@ -1301,6 +1287,13 @@ impl<'a> View<'a> {
         self.used[p] = self.used[p].reached(c.col().index() + 1);
     }
 
+    /// Record that a cell carries entries in the marks table.
+    ///
+    /// The inverse needs no code: every write builds a fresh [`PackedCell`]
+    /// from the terminal's current flags, which never carry
+    /// [`CellFlags::MARKED`], so overwriting a cell un-records its marks. That
+    /// is the whole point of keeping the bit here rather than in the table --
+    /// a table keyed on cell identity cannot see a cell rewritten in place.
     pub fn set_marked(&mut self, r: Row, c: LeadCol) {
         if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
             return;
@@ -1331,6 +1324,18 @@ impl<'a> View<'a> {
         }
     }
 
+    /// The boundary rule itself, against a row base the caller already has.
+    ///
+    /// Split out so `clear_partners` -- which runs once per non-ASCII
+    /// codepoint -- computes `phys` **once**. Going through `snap` cost three
+    /// per call there (`snap`'s, `at`'s and `reached`'s), and it profiled at
+    /// 7% of the CJK path for two loads and two compares of actual work.
+    ///
+    /// No `#[inline(always)]`: it carried one, stranded for a long time onto
+    /// `lead` by an insertion between this comment and the signature, and
+    /// re-attaching it measured cat-cjk 0.98x, disjoint from an A/A copy.
+    /// LLVM inlines this private function on its own judgement, and the
+    /// forced form is the one that costs.
     fn snap_at(&self, base: usize, a: usize, b: usize) -> (usize, usize) {
         let cols = self.cols.index();
         let (mut a, mut b) = (a.min(cols), b.min(cols));
