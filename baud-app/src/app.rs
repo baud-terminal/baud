@@ -32,6 +32,10 @@ enum Pending {
 
 /// The font size in points; pixels are this times the backing scale.
 const POINTS: f32 = 13.0;
+/// The longest a synchronised update is honoured before a frame is drawn
+/// anyway -- long enough that no real redraw is cut off, short enough that a
+/// stalled update is not a frozen window. Two display-link periods at 60 Hz.
+const SYNC_MAX: Duration = Duration::from_millis(33);
 /// The largest grid the storage is provisioned for.
 const MAX_GRID: WinSize = WinSize {
     ws_col: 400,
@@ -129,6 +133,12 @@ struct App {
     last_commit: Instant,
     interval: Duration,
     last_tick: Option<f64>,
+    /// When the terminal opened a synchronised update (`?2026`) that has not
+    /// closed. A frame is held while one is open, so a half-drawn screen --
+    /// btop's menu redraws inside one -- is never presented; but only up to
+    /// [`SYNC_MAX`], so a program that opens one and stalls cannot freeze the
+    /// window, which `RIS` does not clear.
+    sync_since: Option<Instant>,
 }
 
 impl App {
@@ -229,6 +239,7 @@ impl App {
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             last_tick: None,
+            sync_since: None,
         }
     }
 
@@ -483,6 +494,21 @@ impl Driver {
         }
         if self.app.pending != Pending::Dirty {
             return;
+        }
+        // Hold the frame while the application is mid synchronised update, so
+        // a partial redraw is never shown -- btop wraps its menu redraw in
+        // one, and presenting between the `?2026h` and the `?2026l` flickered
+        // 89 times over a ten-second run. Not past SYNC_MAX, or an update that
+        // opens and stalls would freeze the window, which `RIS` does not
+        // clear. The closing `?2026l` feeds in and wakes us, and this call
+        // then presents the finished screen.
+        if self.app.term.synchronized_output() {
+            let since = *self.app.sync_since.get_or_insert_with(Instant::now);
+            if since.elapsed() < SYNC_MAX {
+                return;
+            }
+        } else {
+            self.app.sync_since = None;
         }
         let due = trigger == Trigger::Tick || self.app.last_commit.elapsed() >= self.app.interval;
         if due {
