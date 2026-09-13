@@ -216,7 +216,7 @@ fn main() {
                 at += n;
                 if cell_arm {
                     let tc = Instant::now();
-                    map.ensure(t.cells(), &mut r);
+                    map.ensure(t.viewport(), &mut r);
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())

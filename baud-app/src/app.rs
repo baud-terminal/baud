@@ -455,7 +455,7 @@ impl App {
         ) {
             (Some(Mode::Gpu), Some(cell)) => {
                 let t0 = Instant::now();
-                cell.map.ensure(self.term.cells(), &mut self.renderer);
+                cell.map.ensure(self.term.viewport(), &mut self.renderer);
                 let cursor = self.term.cursor_visible().then(|| {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())

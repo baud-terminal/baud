@@ -24,7 +24,7 @@ use crate::color::Argb;
 use crate::instance::Screen;
 use crate::renderer::Renderer;
 use crate::units::Tally;
-use baud_domain::{Codepoint, PackedCell};
+use baud_domain::{Codepoint, Viewport};
 
 /// The map's slot count, a power of two so the probe wraps by a mask.
 pub const MAP_BITS: u32 = 12;
@@ -229,17 +229,23 @@ impl<'m> GlyphMap<'m> {
         }
     }
 
-    /// Makes sure every drawable codepoint in `cells` has an entry,
+    /// Makes sure every drawable codepoint on the screen has an entry,
     /// resolving the missing ones through the renderer's shaper and atlas.
     /// Empties the map first when the atlas grew since the last call, and
     /// whenever it passes three quarters full, so a probe stays short.
-    pub fn ensure(&mut self, cells: &[PackedCell], r: &mut Renderer<'_, '_>) {
+    pub fn ensure(&mut self, vp: Viewport<'_>, r: &mut Renderer<'_, '_>) {
         if r.atlas_stats().grown.value() != self.grown.value() {
             self.grown = r.atlas_stats().grown;
             self.clear();
         }
         let mut changed = false;
-        for cell in cells {
+        // **The screen, not the ring.** The grid holds the scrollback behind
+        // the window, and a walk over `Term::cells` took every retained row
+        // -- 2,050 where the screen is 50 -- which doubled the cell path's
+        // frame on a scrolling recording. The viewport is the two slices of
+        // the ring the screen occupies, and nothing is copied to walk them.
+        let (head, tail) = vp.parts();
+        for cell in head.iter().chain(tail) {
             if cell.flags.is_marked() {
                 self.stats.dropped_marks.bump();
             }

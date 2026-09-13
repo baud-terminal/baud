@@ -61,7 +61,7 @@ impl Arms<'_, '_> {
         let target_b = self.gpu.offscreen(w, h).expect("target");
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
-        self.map.ensure(t.cells(), &mut self.renderer);
+        self.map.ensure(t.viewport(), &mut self.renderer);
         let cursor = t.cursor_visible().then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
