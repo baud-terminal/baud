@@ -107,7 +107,7 @@ fn links_and_styles_are_independent() {
 #[test]
 fn a_link_survives_a_wrap() {
     let mut v = b"\x1b]8;;http://a\x1b\\".to_vec();
-    v.extend(std::iter::repeat(b'x').take(205));
+    v.extend(std::iter::repeat_n(b'x', 205));
     let s = run(&v);
     assert!(s.uris[0].is_some());
     // **Row 1, column 0 -- at the live stride, not at `MAX_COLS`.** This read
@@ -119,7 +119,7 @@ fn a_link_survives_a_wrap() {
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
     t.write_at(BytePos::ZERO, &v);
-    t.feed(BytePos::ZERO, ReadLen::from_index((&v).len()));
+    t.feed(BytePos::ZERO, ReadLen::from_index(v.len()));
     let w = t.stride().index();
     let wrapped = t.viewport()[w];
     assert!(
@@ -132,7 +132,7 @@ fn a_link_survives_a_wrap() {
 #[test]
 fn an_overlong_uri_is_bounded() {
     let mut v = b"\x1b]8;;http://".to_vec();
-    v.extend(std::iter::repeat(b'a').take(LINK_MAX * 2));
+    v.extend(std::iter::repeat_n(b'a', LINK_MAX * 2));
     v.extend_from_slice(b"\x1b\\x");
     let s = run(&v);
     let uri = s.uris[0].as_deref().expect("still a link");

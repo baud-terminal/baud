@@ -137,8 +137,7 @@ fn overflow_is_counted_not_silent() {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     // Each CPR is 6-8 bytes; REPLY is 256, so well over 64 queries overflow it.
-    let flood: Vec<u8> = std::iter::repeat(b"\x1b[6n".as_slice())
-        .take(200)
+    let flood: Vec<u8> = std::iter::repeat_n(b"\x1b[6n".as_slice(), 200)
         .flatten()
         .copied()
         .collect();
@@ -165,7 +164,7 @@ fn overflow_is_counted_not_silent() {
 /// lines that happen to be full.
 #[test]
 fn cpr_clamps_the_pending_wrap_sentinel() {
-    let full: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let full: Vec<u8> = std::iter::repeat_n(b'x', 200).collect();
     let mut q = full.clone();
     q.extend_from_slice(b"\x1b[6n");
     assert_eq!(
@@ -190,7 +189,7 @@ fn cpr_clamps_the_pending_wrap_sentinel() {
 /// this is the drift the clamp exists to prevent, measured end to end.
 #[test]
 fn cpr_round_trips_from_a_full_line() {
-    let full: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let full: Vec<u8> = std::iter::repeat_n(b'x', 200).collect();
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);

@@ -74,7 +74,7 @@ fn inserting_at_the_end_matches_replace() {
 /// the line is a fixed width and the far end is lost.
 #[test]
 fn text_pushed_past_the_end_is_discarded() {
-    let long: Vec<u8> = std::iter::repeat(b'x').take(200).collect();
+    let long: Vec<u8> = std::iter::repeat_n(b'x', 200).collect();
     let mut v = long.clone();
     v.extend_from_slice(b"\x1b[1;1H\x1b[4hZ");
     let after = grid(&v);
@@ -91,7 +91,7 @@ fn text_pushed_past_the_end_is_discarded() {
 #[test]
 fn insert_stops_at_the_right_margin() {
     let mut base: Vec<u8> = Vec::new();
-    base.extend(std::iter::repeat(b'a').take(20));
+    base.extend(std::iter::repeat_n(b'a', 20));
     let mut v = base.clone();
     v.extend_from_slice(b"\x1b[?69h\x1b[5;10s\x1b[1;5H\x1b[4hZ");
     let after = grid(&v);

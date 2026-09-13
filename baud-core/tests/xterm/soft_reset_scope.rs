@@ -117,7 +117,7 @@ fn a_shrink_after_scrolling_does_not_panic() {
     // leaves the rotation at 41 -- comfortably past the ten rows below.
     let payload: Vec<u8> = (0..90).flat_map(|_| b"X\r\n".to_vec()).collect();
     t.write_at(BytePos::ZERO, &payload);
-    t.feed(BytePos::ZERO, ReadLen::from_index((&payload).len()));
+    t.feed(BytePos::ZERO, ReadLen::from_index(payload.len()));
 
     assert_eq!(
         t.resize(&WinSize {
@@ -450,7 +450,7 @@ fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
     let mut payload: Vec<u8> = b"\x1b[?1049h".to_vec();
     payload.extend((0..90).flat_map(|_| b"X\r\n".to_vec()));
     t.write_at(BytePos::ZERO, &payload);
-    t.feed(BytePos::ZERO, ReadLen::from_index((&payload).len()));
+    t.feed(BytePos::ZERO, ReadLen::from_index(payload.len()));
 
     assert_eq!(
         t.resize(&WinSize {

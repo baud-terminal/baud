@@ -86,7 +86,7 @@ fn an_empty_title_clears_it() {
 #[test]
 fn an_overlong_title_is_truncated() {
     let mut v = b"\x1b]2;".to_vec();
-    v.extend(std::iter::repeat(b'x').take(OSC_MAX * 3));
+    v.extend(std::iter::repeat_n(b'x', OSC_MAX * 3));
     v.push(0x07);
     let o = run(&v);
     // The cap is on the whole payload, `2;` included -- so the title is two

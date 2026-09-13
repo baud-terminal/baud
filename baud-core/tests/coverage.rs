@@ -171,7 +171,7 @@ fn quoted_counts_match_reality() {
         .filter(|l| {
             l.trim_matches('|')
                 .split('|')
-                .any(|c| c.trim().split_whitespace().next() == Some("done"))
+                .any(|c| c.split_whitespace().next() == Some("done"))
         })
         .count();
 

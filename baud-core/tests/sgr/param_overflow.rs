@@ -46,7 +46,7 @@ fn feed_in_chunks(bytes: &[u8], chunk: usize) -> Attrs {
 #[test]
 fn the_capacity_covers_the_longest_reply_baud_emits() {
     assert_eq!(ParamIdx::CAPACITY, 1 + Attrs::WIRE.len() + 1 + 3 * 5);
-    assert!(
+    const _: () = assert!(
         ParamIdx::CAPACITY >= 35,
         "bold plus three truecolours already answers with seventeen"
     );

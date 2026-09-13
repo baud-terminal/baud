@@ -179,7 +179,7 @@ fn bel_terminates_a_dcs() {
 #[test]
 fn an_overlong_dcs_payload_is_bounded() {
     let mut v = b"\x1bP$q".to_vec();
-    v.extend(std::iter::repeat(b'x').take(OSC_MAX * 3));
+    v.extend(std::iter::repeat_n(b'x', OSC_MAX * 3));
     v.extend_from_slice(b"\x1b\\");
     // Truncated to an unknown setting, answered as invalid, and no panic.
     assert_eq!(replies(&v), b"\x1bP0$r\x1b\\");

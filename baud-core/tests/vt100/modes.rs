@@ -54,7 +54,7 @@ fn dectcem_toggles_and_defaults_visible() {
 #[test]
 fn autowrap_is_on_by_default() {
     // 200 columns; 205 characters must land on row 1.
-    let long: Vec<u8> = std::iter::repeat(b'x').take(205).collect();
+    let long: Vec<u8> = std::iter::repeat_n(b'x', 205).collect();
     assert_eq!(term(&long), (1, 5));
 }
 
@@ -63,7 +63,7 @@ fn autowrap_is_on_by_default() {
 #[test]
 fn decawm_reset_stops_at_the_right_margin() {
     let mut v = b"\x1b[?7l".to_vec();
-    v.extend(std::iter::repeat(b'x').take(205));
+    v.extend(std::iter::repeat_n(b'x', 205));
     assert_eq!(term(&v), (0, 199), "must stay on row 0, at the last column");
 }
 
@@ -71,7 +71,7 @@ fn decawm_reset_stops_at_the_right_margin() {
 #[test]
 fn decawm_can_be_set_again() {
     let mut v = b"\x1b[?7l\x1b[?7h".to_vec();
-    v.extend(std::iter::repeat(b'x').take(205));
+    v.extend(std::iter::repeat_n(b'x', 205));
     assert_eq!(term(&v), (1, 5));
 }
 
@@ -81,7 +81,7 @@ fn decawm_can_be_set_again() {
 #[test]
 fn decawm_reset_does_not_scroll_at_the_last_row() {
     let mut v = b"\x1b[?7l\x1b[50;1H".to_vec();
-    v.extend(std::iter::repeat(b'x').take(400));
+    v.extend(std::iter::repeat_n(b'x', 400));
     assert_eq!(term(&v), (49, 199), "cursor pinned to the last cell");
 }
 
