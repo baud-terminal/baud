@@ -835,8 +835,8 @@ impl<'b> Term<'b> {
     /// which the window is for all but `rows` of every `ring` positions,
     /// and takes [`Viewport::parts`] otherwise.
     pub fn viewport(&self) -> Viewport<'_> {
-        let (cells, _, ring, rot) = self.surface();
-        Viewport::new(cells, self.stride, self.cols, self.rows, ring, rot)
+        let (cells, used, ring, rot) = self.surface();
+        Viewport::new(cells, used, self.stride, self.cols, self.rows, ring, rot)
     }
 
     /// The screen scrolled `back` lines into the history: the window that

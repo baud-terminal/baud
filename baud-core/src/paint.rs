@@ -919,6 +919,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         self.cx = self.cold.left;
+        // The row being left continues onto the next: the fact a reflow
+        // needs, kept in the mark the write already touched.
+        self.view.set_wrapped(self.cy);
         self.index();
     }
 
@@ -979,6 +982,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `lf_returns_to_column_one_when_lnm_is_set` is what found the gap.
     #[inline(always)]
     pub(crate) fn line_feed(&mut self) {
+        // A newline ends the row it leaves, however it was written before.
+        self.view.set_ended(self.cy);
         self.index();
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
             self.cx = Col::ZERO;

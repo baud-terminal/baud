@@ -27,8 +27,9 @@ use crate::quantity::Rows;
 use crate::store::RowExtent;
 
 /// How a stored line ended: at a newline, or by the writer wrapping onto the
-/// next row. The fact a reflow needs and the cells do not carry; until the
-/// wrap flag lands beside the marks, every line reads as `Ended`.
+/// next row. The fact a reflow needs and the cells do not carry; it rides in
+/// the row mark's top bit, set at the wrap and cleared by a newline or a fill
+/// to the row's end.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Wrap {
     Ended,
@@ -105,7 +106,11 @@ impl<'a> Scrollback<'a> {
         let p = self.rot.retreat(back.0 + 1, self.ring).index();
         let n = self.used[p].index();
         let start = p * self.stride;
-        Some((&self.cells[start..start + n], Wrap::Ended))
+        let wrap = match self.used[p].wrapped() {
+            true => Wrap::Continues,
+            false => Wrap::Ended,
+        };
+        Some((&self.cells[start..start + n], wrap))
     }
 }
 

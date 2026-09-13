@@ -162,19 +162,60 @@ pub struct RowExtent(pub(crate) u16);
 
 impl RowExtent {
     pub const ZERO: RowExtent = RowExtent(0);
+    /// **The row continues onto the next one**: text reached its last column
+    /// and wrapped, rather than ending at a newline. The fact a reflow needs
+    /// and the cells do not carry, kept in the mark's top bit because the
+    /// mark is the one word per row every write already touches, and a
+    /// pitch is never past 32,767 cells. A fill to the row's end clears it
+    /// -- a blanked row ends where it stops -- and a newline clears it on
+    /// the row it leaves.
+    const WRAP: u16 = 0x8000;
+    const MARK: u16 = 0x7fff;
     /// The mark after a write that reached column `to` (exclusive).
+    ///
+    /// **One `max`, and the wrap survives it without being looked at.** A
+    /// wrapped row's mark is at least the width it wrapped at -- `wrapping`
+    /// raises it there -- and a write reaches no further than the width, so
+    /// the flagged word is the larger operand and comes through whole. This
+    /// runs once a character on the per-character path, and the masked
+    /// form measured 3% on cat-cjk; the cold paths that must see past the
+    /// flag mask for themselves.
     ///
     /// Saturating rather than wrapping: a caller that somehow presents a column
     /// past `u16` must end up with a mark that is too *large*, never one that
     /// wraps to a small number and leaves text behind it.
     pub fn reached(self, to: usize) -> RowExtent {
-        RowExtent(self.0.max(u16::try_from(to).unwrap_or(u16::MAX)))
+        RowExtent(
+            self.0
+                .max(u16::try_from(to).unwrap_or(Self::MARK).min(Self::MARK)),
+        )
     }
+    /// The mark: where the row stops being uniform.
     pub fn index(self) -> usize {
-        self.0 as usize
+        (self.0 & Self::MARK) as usize
     }
+    /// A mark with no wrap: what a fill leaves.
     pub fn of(n: usize) -> RowExtent {
-        RowExtent(u16::try_from(n).unwrap_or(u16::MAX))
+        RowExtent(u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK))
+    }
+    pub fn wrapped(self) -> bool {
+        self.0 & Self::WRAP != 0
+    }
+    /// The mark flagged as continuing, raised to `cols`: the width the row
+    /// wrapped at, which is what lets `reached` keep the flag by `max` alone.
+    /// Loose by the cells between a side margin and the edge, once, which is
+    /// the safe direction -- a mark too large blanks more, never less.
+    pub fn wrapping(self, cols: usize) -> RowExtent {
+        RowExtent(self.reached(cols).0 | Self::WRAP)
+    }
+    pub fn ended(self) -> RowExtent {
+        RowExtent(self.0 & Self::MARK)
+    }
+    /// The mark raised to at least `n`, the wrap kept: the cold path's form
+    /// of `reached`, for a raise that may exceed a flagged mark.
+    pub fn raised_to(self, n: usize) -> RowExtent {
+        let n = u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK);
+        RowExtent((self.0 & Self::WRAP) | (self.0 & Self::MARK).max(n))
     }
 }
 

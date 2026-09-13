@@ -271,3 +271,57 @@ fn a_view_back_starts_that_many_lines_above_the_screen() {
         );
     });
 }
+
+/// **A row that wrapped says so, and a row a newline ended does not.** The
+/// flag rides in the row mark, so it costs no store the write did not make,
+/// and the scrollback reads it back as `Wrap::Continues`.
+#[test]
+fn a_wrapped_row_continues_and_a_newline_ends_it() {
+    support::with_corpus(|t| {
+        let long = "x".repeat(450);
+        support::feed(t, long.as_bytes());
+        support::feed(t, b"\r\nshort\r\n");
+        let vp = t.viewport();
+        assert_eq!(
+            vp.wrapped(Row::from_index(0)),
+            Wrap::Continues,
+            "200 of 450"
+        );
+        assert_eq!(
+            vp.wrapped(Row::from_index(1)),
+            Wrap::Continues,
+            "400 of 450"
+        );
+        assert_eq!(
+            vp.wrapped(Row::from_index(2)),
+            Wrap::Ended,
+            "the tail, ended by the newline"
+        );
+        assert_eq!(vp.wrapped(Row::from_index(3)), Wrap::Ended);
+        assert_eq!(
+            t.row_extent(Row::from_index(0)).index(),
+            200,
+            "the mark is the mark"
+        );
+        // Erasing a wrapped row to its end ends it: what the row held is gone.
+        support::feed(t, b"\x1b[1;1H\x1b[2K");
+        assert_eq!(t.viewport().wrapped(Row::from_index(0)), Wrap::Ended);
+        // And a line that scrolled off reads back with its wrap.
+        let lines: Vec<u8> = (0..60).flat_map(|_| b"y\r\n".to_vec()).collect();
+        support::feed(t, long.as_bytes());
+        support::feed(t, b"\r\n");
+        support::feed(t, &lines);
+        let sb = t.scrollback();
+        let mut seen = 0;
+        for n in 0..sb.len() {
+            let (cells, w) = sb.line(Back::of(n)).expect("retained");
+            if cells.len() == 200 {
+                assert_eq!(w, Wrap::Continues, "a full row that wrapped, {n} back");
+                seen += 1;
+            } else {
+                assert_eq!(w, Wrap::Ended);
+            }
+        }
+        assert_eq!(seen, 2, "the two full rows of the long line");
+    });
+}

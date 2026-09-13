@@ -240,6 +240,7 @@ pub struct View<'a> {
 #[derive(Clone, Copy)]
 pub struct Viewport<'a> {
     cells: &'a [PackedCell],
+    used: &'a [RowExtent],
     stride: Stride,
     cols: Cols,
     rows: Rows,
@@ -250,6 +251,7 @@ pub struct Viewport<'a> {
 impl<'a> Viewport<'a> {
     pub fn new(
         cells: &'a [PackedCell],
+        used: &'a [RowExtent],
         stride: Stride,
         cols: Cols,
         rows: Rows,
@@ -258,6 +260,7 @@ impl<'a> Viewport<'a> {
     ) -> Viewport<'a> {
         Viewport {
             cells,
+            used,
             stride,
             cols,
             rows,
@@ -290,6 +293,15 @@ impl<'a> Viewport<'a> {
     pub fn row(&self, y: Row) -> &'a [PackedCell] {
         let a = self.phys(y.index()) * self.stride.index();
         &self.cells[a..a + self.cols.index()]
+    }
+
+    /// Whether screen row `y` continues onto the next: how its text ended,
+    /// which the cells do not say and a reflow or a selection needs.
+    pub fn wrapped(&self, y: Row) -> Wrap {
+        match self.used[self.phys(y.index())].wrapped() {
+            true => Wrap::Continues,
+            false => Wrap::Ended,
+        }
     }
 
     /// Screen row `y` at the full pitch, which is what an index at the pitch
@@ -506,6 +518,28 @@ impl<'a> View<'a> {
         }
     }
 
+    /// Row `r` continues onto the next: its text reached the last column and
+    /// wrapped. Set by the writer at the wrap, on the row being left.
+    ///
+    /// Out of line, and so is `set_ended`: both are once-a-line events, and
+    /// inlined into the writers they grew the per-byte body by enough to
+    /// cost btop 7% on a recording that wraps nothing -- the body's size is
+    /// paid by every payload whether the call runs or not.
+    #[cold]
+    #[inline(never)]
+    pub fn set_wrapped(&mut self, r: Row) {
+        let p = self.phys(r);
+        self.used[p] = self.used[p].wrapping(self.cols.index());
+    }
+
+    /// Row `r` ends where it stops: a newline left it. Clears the wrap.
+    #[cold]
+    #[inline(never)]
+    pub fn set_ended(&mut self, r: Row) {
+        let p = self.phys(r);
+        self.used[p] = self.used[p].ended();
+    }
+
     /// Exchange this view's surface with `other`: the cells, marks, depth
     /// and rotation, leaving the geometry. What `?1049` does now -- the
     /// alternate screen is a second surface rather than a place to park the
@@ -553,7 +587,7 @@ impl<'a> View<'a> {
     /// Over the whole ring, because a retired row comes back the same way.
     pub fn widened(&mut self, old_cols: Cols) {
         for m in self.used.iter_mut() {
-            *m = RowExtent::of(m.index().max(old_cols.index()));
+            *m = m.raised_to(old_cols.index());
         }
     }
 
