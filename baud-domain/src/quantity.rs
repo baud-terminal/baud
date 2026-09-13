@@ -308,6 +308,10 @@ impl Rows {
     /// A row count that is already known, such as the length of a slice the
     /// caller placed. `WinSize::geometry` is the path for geometry that came
     /// off the wire; this is for one that did not.
+    /// No rows: the start of a range over physical rows, or a park that
+    /// holds nothing yet. Not a geometry -- `of_index` clamps to one for
+    /// that, because a screen with no rows has no cell to address.
+    pub const ZERO: Rows = Rows(0);
     pub fn of_index(n: usize) -> Rows {
         Rows(n.max(1))
     }

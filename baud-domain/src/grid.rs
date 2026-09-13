@@ -287,75 +287,118 @@ impl<'a> View<'a> {
     /// and a parked copy, so the pairing is enforced by the signature instead:
     /// there is no way to call this and get two of the three.
     pub fn save_to(&self, cells: &mut [PackedCell], used: &mut [RowExtent]) -> (RowRot, usize) {
-        // **The live cells, row by row, not the allocation.** The pitch is
-        // fixed at `MAX_COLS` or more so the geometry can grow, and only
-        // `cols` of each row's cells are live -- 200 of 2416 at the corpus
-        // geometry. Copying the rows whole would move ten times the bytes,
-        // park cells no addressing path can reach, and put them on the
-        // counter that says two layouts do the same work.
-        //
-        // Every cell past `cols` is `EMPTY` on both surfaces, by the invariant
-        // [`View::resized_from`] keeps, so a row's width is all there is to
-        // copy and the parked copy stays clean past it.
-        let (s, w, m) = (self.stride.index(), self.cols.index(), self.rows.index());
-        for p in 0..m {
+        let n = self.park_rows(cells, used, Rows::ZERO, self.rows);
+        (self.rot, n)
+    }
+
+    /// Copy physical rows `from..to` into another surface, each to the wider
+    /// of the two rows' marks and at least the live width, and set the
+    /// destination's mark to the width copied.
+    ///
+    /// **A row is copied to its mark, not to the live width.** The mark
+    /// bounds the row's content over the whole pitch: a line written at 200
+    /// columns keeps its tail past a shrink to 100 and its mark still says
+    /// 200, so what travels is the content rather than the allocation -- 200
+    /// of 2416 cells at the corpus geometry, not 2416. The destination is
+    /// copied through *its* old mark too, so nothing it held survives beneath
+    /// the new one; see `parked_mark` for what the new mark is.
+    pub fn park_rows(
+        &self,
+        cells: &mut [PackedCell],
+        used: &mut [RowExtent],
+        from: Rows,
+        to: Rows,
+    ) -> usize {
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        let mut n = 0;
+        let rows = used
+            .iter_mut()
+            .enumerate()
+            .take(to.index())
+            .skip(from.index());
+        for (p, mark) in rows {
             let a = p * s;
+            let (src, dst) = (self.used[p].index(), mark.index());
+            let w = cols.max(src).max(dst);
             cells[a..a + w].copy_from_slice(&self.cells[a..a + w]);
+            *mark = RowExtent::of(Self::parked_mark(cols, src, dst));
+            n += w;
         }
-        used[..m].copy_from_slice(&self.used[..m]);
-        (self.rot, m * w)
+        n
     }
 
-    /// The inverse of [`View::save_to`], and it must be given all three.
-    pub fn restore_from(&mut self, cells: &[PackedCell], used: &[RowExtent], rot: RowRot) -> usize {
-        let (s, w, m) = (self.stride.index(), self.cols.index(), self.rows.index());
-        for p in 0..m {
+    /// The mark a copied row carries: its own, unless the destination held a
+    /// hidden tail past the live edge that reached further -- the copy wrote
+    /// the source's blank over that tail, so from the source's mark to the
+    /// tail's end the row is one blank and past it another, and the mark has
+    /// to cover both. A tight mark otherwise, so a park and an exit do not
+    /// make the next screenful blank the full width.
+    fn parked_mark(cols: usize, src: usize, dst: usize) -> usize {
+        match dst > cols {
+            true => dst.max(src),
+            false => src,
+        }
+    }
+
+    /// The inverse of [`View::save_to`], over `rows` rows -- every row the
+    /// park holds, which is more than the live height when the screen grew
+    /// while parked -- and it must be given all three.
+    pub fn restore_from(
+        &mut self,
+        cells: &[PackedCell],
+        used: &[RowExtent],
+        rot: RowRot,
+        rows: Rows,
+    ) -> usize {
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        let mut n = 0;
+        for (p, parked) in used.iter().enumerate().take(rows.index()) {
             let a = p * s;
+            let (src, dst) = (parked.index(), self.used[p].index());
+            let w = cols.max(src).max(dst);
             self.cells[a..a + w].copy_from_slice(&cells[a..a + w]);
+            self.used[p] = RowExtent::of(Self::parked_mark(cols, src, dst));
+            n += w;
         }
-        self.used[..m].copy_from_slice(&used[..m]);
         self.rot = rot;
-        m * w
+        n
     }
 
-    /// Bring the cells into line with a geometry that just changed, from
-    /// `old_rows` by `old_cols` to the rows and columns this view was built
-    /// with.
+    /// Bring the view into line with a geometry that just changed, from
+    /// `old_rows` by `old_cols` to the rows and columns it was built with.
     ///
-    /// **The pitch is fixed, so a change of width moves no cell.** Row `p`
-    /// begins at `p * stride` before and after; what changes is how many of
-    /// its cells are live. What this keeps is the invariant every other path
-    /// relies on -- *every cell at a column of `cols` or beyond, and every
-    /// cell in a row of `rows` or beyond, is [`PackedCell::EMPTY`]* -- and
-    /// each part is paid only when its axis shrinks:
+    /// **Nothing is blanked, in either direction.** The pitch is fixed, so a
+    /// cell keeps its address whatever the geometry: a narrower or shorter
+    /// screen stops addressing the cells past its edge, and a wider or taller
+    /// one addresses them again with what they held -- the content that was
+    /// there, because nothing reaches a cell past the live geometry except
+    /// the fills that clear a row, and those run *through* a mark that lies
+    /// past the live edge (see `fill_raw`), so a line cleared or reused by a
+    /// scroll while narrow does not bring a stale tail back when the screen
+    /// widens.
     ///
-    /// * **A narrower screen blanks the columns it lost, on every row**, and
-    ///   lowers any mark that reached past the new width to it. Every row,
-    ///   not only the marked ones: past a row's mark the cells are uniform
-    ///   with its last, and that last may be a *styled* blank rather than
-    ///   `EMPTY`, which a later growth would show as a wrong background. A
-    ///   wider screen then finds blank cells there by construction and does
-    ///   nothing.
-    /// * **A shorter screen blanks the rows it lost**, whole, and zeroes
-    ///   their marks. A taller one finds them blank.
+    /// Two things happen here, one an axis:
+    ///
     /// * **A change of height un-rotates first**, over the *old* height, and
     ///   answers `RowRot::NONE`. The rotation is an index into a row count
     ///   that is about to change, and `rotate_left_by` panics when the
     ///   rotation exceeds the slice: scroll a 50-row screen, shrink to 10,
-    ///   and `mid <= len` fails. A change of width alone leaves the rotation
-    ///   where it is, so the common drag -- one axis at a time -- moves
-    ///   nothing at all.
+    ///   and `mid <= len` fails. Un-rotated, the rows past the new height sit
+    ///   in screen order below the live ones, untouched until the height
+    ///   comes back. A change of width alone leaves the rotation where it is.
+    /// * **A wider screen raises every mark to at least the old width.** The
+    ///   fill shortcut assumes a row is uniform from its mark to the live
+    ///   edge, and a fill taken while narrow stopped at the old edge, saying
+    ///   nothing about the cells past it that are live again now; raising the
+    ///   mark makes the next fill write them rather than trust them. Loose by
+    ///   at most the old width, once, on rows that then blank a little more.
     ///
-    /// Everything here addresses physical rows directly; `phys` is never
-    /// consulted, because the marks are physical and the rotation is either
-    /// unchanged or already gone.
-    ///
-    /// Returns the rotation the surface is now under and the cells written.
-    pub fn resized_from(&mut self, old_rows: Rows, old_cols: Cols) -> (RowRot, usize) {
-        let s = self.stride.index();
+    /// So a change of width moves no cell and a change of height moves cells
+    /// only to undo a rotation, and the parked primary takes the same
+    /// treatment through the same call.
+    pub fn resized_from(&mut self, old_rows: Rows, old_cols: Cols) -> RowRot {
         let (rows, cols) = (self.rows.index(), self.cols.index());
         let (orows, ocols) = (old_rows.index(), old_cols.index());
-        let mut n = 0;
         if rows != orows && self.rot.index() != 0 {
             let live = RowBlock::leading(old_rows, self.stride);
             let turned = RowBlock::leading(Rows::of_index(self.rot.index()), self.stride);
@@ -363,21 +406,47 @@ impl<'a> View<'a> {
             self.used[..orows].rotate_left(self.rot.index());
             self.rot = RowRot::NONE;
         }
-        for p in rows..orows {
-            let a = p * s;
-            self.cells[a..a + ocols].fill(PackedCell::EMPTY);
-            self.used[p] = RowExtent::ZERO;
-            n += ocols;
-        }
-        if cols < ocols {
-            for p in 0..rows.min(orows) {
-                let a = p * s;
-                self.cells[a + cols..a + ocols].fill(PackedCell::EMPTY);
-                self.used[p] = RowExtent::of(self.used[p].index().min(cols));
-                n += ocols - cols;
+        if cols > ocols {
+            for m in self.used.iter_mut() {
+                *m = RowExtent::of(m.index().max(ocols));
             }
         }
-        (self.rot, n)
+        self.rot
+    }
+
+    /// A fill from `a` to the live edge on a row whose mark lies past it:
+    /// the fill runs to the mark instead. `fill_raw`'s cold half.
+    #[cold]
+    #[inline(never)]
+    fn fill_past_edge(&mut self, p: usize, a: usize, cell: PackedCell) -> usize {
+        let base = p * self.stride.index();
+        let to = self.used[p].index();
+        self.used[p] = self.mark_after_fill(base, to, cell, RowExtent::of(a));
+        if a >= to {
+            return 0;
+        }
+        self.cells[base + a..base + to].fill(cell);
+        to - a
+    }
+
+    /// The mark after a fill of `cell` that ran to `to`, where `low` is the
+    /// mark the fill would leave on a row it covered to the live edge and no
+    /// further. Past the live edge the fill may have reached into content the
+    /// screen is too narrow to show, and past *that* lies whatever blank the
+    /// row was last cleared to; if that blank is not this one, the row is not
+    /// uniform from `low` on and the mark has to say so.
+    fn mark_after_fill(
+        &self,
+        base: usize,
+        to: usize,
+        cell: PackedCell,
+        low: RowExtent,
+    ) -> RowExtent {
+        let (cols, s) = (self.cols.index(), self.stride.index());
+        match to <= cols || to >= s || self.cells[base + to] == cell {
+            true => low,
+            false => RowExtent::of(to),
+        }
     }
 
     /// Advance the rotation by `n` rows: a scroll, from the view's side.
@@ -1175,6 +1244,16 @@ impl<'a> View<'a> {
         // redraws with -- `opcost` prices `EL to end` at **26.6 ns** against a
         // `CUP` at 1.2, almost all of it clearing 140 columns that a 60-column
         // line never used.
+        // **Through the mark, when the mark lies past the live edge.** A fill
+        // to the end of the row is the row being cleared, and a row written
+        // wider than the screen is now keeps that content past the edge until
+        // the screen widens again -- so the clear has to reach it, or a line
+        // the application erased comes back with a tail. Rare -- it needs a
+        // resize -- so it is a cold call, and the body below is the one that
+        // was measured.
+        if to_end && self.used[p].index() > cols {
+            return self.fill_past_edge(p, a, cell);
+        }
         let b = match to_end && self.cells[base + cols - 1] == cell {
             true => self.used[p].index().max(a).min(b),
             false => b,
@@ -1238,6 +1317,14 @@ impl<'a> View<'a> {
         let p = self.phys(r);
         let base = p * self.stride.index();
         let blanking = cell.content == Content::EMPTY;
+        // Through the mark when it lies past the live edge: see `fill_raw`.
+        if self.used[p].index() > cols {
+            let low = match blanking {
+                true => RowExtent::ZERO,
+                false => RowExtent::of(cols),
+            };
+            return RowExtent::of(self.fill_past_edge_row(p, cell, low));
+        }
         let to = match blanking && self.cells[base + cols - 1] == cell {
             true => self.used[p].index().min(cols),
             false => cols,
@@ -1256,6 +1343,20 @@ impl<'a> View<'a> {
             false => RowExtent::of(cols),
         };
         RowExtent::of(to)
+    }
+
+    /// A whole-row fill on a row whose mark lies past the live edge: the
+    /// fill runs to the mark, and the mark after it is `low` unless the
+    /// blank beyond is a different one. `fill_row`'s cold half.
+    #[cold]
+    #[inline(never)]
+    fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {
+        let base = p * self.stride.index();
+        let to = self.used[p].index();
+        #[cfg(not(feature = "ceiling-no-rowfill"))]
+        self.cells[base..base + to].fill(cell);
+        self.used[p] = self.mark_after_fill(base, to, cell, low);
+        to
     }
     /// Shift a row's cells left by `n`, blanking the tail. `CSI P`.
     pub fn delete_chars(&mut self, r: Row, at: Col, n: Count, blank: PackedCell) {

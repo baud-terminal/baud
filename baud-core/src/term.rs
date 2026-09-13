@@ -552,16 +552,20 @@ impl<'b> Term<'b> {
     /// silence. Columns are free to the pitch, which is `MAX_COLS` or more by
     /// construction.
     ///
-    /// **The content survives, clipped; nothing reflows.** The pitch is fixed,
-    /// so row `p` begins at the same cell before and after, and a change of
-    /// width moves nothing: a narrower screen blanks the columns it lost and a
-    /// wider one finds blank cells where it grew. A shorter screen keeps its
-    /// top rows. Reflow -- deciding where a wrapped line breaks now -- is a
+    /// **The content survives, hidden; nothing reflows and nothing is
+    /// blanked.** The pitch is fixed, so a cell keeps its address whatever
+    /// the geometry: a narrower or shorter screen stops addressing what lies
+    /// past its edge, and a wider or taller one addresses it again -- the
+    /// window is a view onto a grid that is as large as it was ever made.
+    /// What keeps that sound is that a row's mark bounds its content over the
+    /// whole pitch, and a clear runs through the mark, so a line the
+    /// application erased while the screen was narrow does not come back
+    /// with a tail. Reflow -- deciding where a wrapped line breaks now -- is a
     /// renderer's problem and has no right answer at this layer; what this
-    /// layer owes is that a resize costs what it touches and no more, which
-    /// is the delta and not the grid. [`View::resized_from`] is the whole of
-    /// it, run over the live surface and the parked one alike, because both
-    /// are laid out at the one pitch.
+    /// layer owes is that a resize costs what it touches, which is nothing
+    /// but the rotation. [`View::resized_from`] is the whole of it, run over
+    /// the live surface and the parked one alike, because both are laid out
+    /// at the one pitch.
     ///
     /// Three things happen besides, in an order that is not free:
     ///
@@ -596,8 +600,8 @@ impl<'b> Term<'b> {
         let (old_rows, old_cols) = (self.rows, self.cols);
 
         // Both surfaces, at the pitch they share; each answers the rotation
-        // it is now under, and both count what they touched.
-        let (rot, n) = View::new(
+        // it is now under.
+        self.rot = View::new(
             self.store.vp,
             self.store.used,
             self.stride,
@@ -606,8 +610,7 @@ impl<'b> Term<'b> {
             self.rot,
         )
         .resized_from(old_rows, old_cols);
-        self.rot = rot;
-        let (parked, m) = View::new(
+        self.store.alt.rot = View::new(
             self.store.alt.cells,
             self.store.alt.used,
             self.stride,
@@ -616,8 +619,27 @@ impl<'b> Term<'b> {
             self.store.alt.rot,
         )
         .resized_from(old_rows, old_cols);
-        self.store.alt.rot = parked;
-        self.cells_written += n + m;
+        // A taller screen while the alternate one is up exposes rows of the
+        // parked primary that the application can now write: park them
+        // first, and the exit brings them back with the rest.
+        if self.cold.screen == Screen::Alternate && rows.index() > self.store.alt.reach.index() {
+            let n = View::new(
+                self.store.vp,
+                self.store.used,
+                self.stride,
+                cols,
+                rows,
+                self.rot,
+            )
+            .park_rows(
+                self.store.alt.cells,
+                self.store.alt.used,
+                self.store.alt.reach,
+                rows,
+            );
+            self.cells_written += n;
+            self.store.alt.reach = rows;
+        }
 
         self.rows = rows;
         self.cols = cols;

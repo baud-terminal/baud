@@ -824,6 +824,7 @@ impl Paint<'_, '_> {
                 // check that two arms did equal work.
                 let (rot, n) = self.view.save_to(self.alt.cells, self.alt.used);
                 self.alt.rot = rot;
+                self.alt.reach = self.rows;
                 self.cells = self.cells.plus(n);
                 // The alternate screen is cleared on entry, so a rotation left
                 // from the last time an application was in it describes
@@ -841,9 +842,12 @@ impl Paint<'_, '_> {
                 // Cells first, then the cursor: `restore` clamps against the
                 // geometry and moves the cursor, and it should be moving over
                 // the screen the application is about to see.
-                let n = self
-                    .view
-                    .restore_from(self.alt.cells, self.alt.used, self.alt.rot);
+                let n = self.view.restore_from(
+                    self.alt.cells,
+                    self.alt.used,
+                    self.alt.rot,
+                    self.alt.reach,
+                );
                 self.cells = self.cells.plus(n);
                 let s = self.cold.alt_saved.take();
                 self.restore(s);

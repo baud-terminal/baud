@@ -185,6 +185,11 @@ pub struct AltBuf<'b> {
     /// cleared on entry, so a rotation left over from last time describes
     /// nothing.
     pub(crate) rot: RowRot,
+    /// How many rows the park holds: the height at entry, raised whenever
+    /// the screen grows taller while parked -- the rows a taller alternate
+    /// screen exposes are the primary's, and they are parked before the
+    /// application can write them, so the exit restores every one.
+    pub(crate) reach: Rows,
 }
 
 /// Everything a control string writes, in one struct.
@@ -567,6 +572,7 @@ impl<'b> Storage<'b> {
                 cells: alt,
                 used: alt_used,
                 rot: RowRot::NONE,
+                reach: Rows::ZERO,
             },
             strs,
         }
