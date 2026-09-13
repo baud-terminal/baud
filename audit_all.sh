@@ -217,6 +217,12 @@ crate_audit "baud-present-macos" 0 1 baud-present-macos/src
 # The protocol values (`ObjectId(u32)`, `Opcode(u16)`, `Fixed(i32)`) are
 # newtypes. Set at the count, and it does not move to fit a change.
 crate_audit "baud-wayland" 11 8 baud-wayland/src
+# baud-xkb: 10 raw sites and 6 signature primitives, and they are the keymap's
+# own numbers -- keycode ranges, level and group indices, the 32-bit modifier
+# mask the Wayland protocol serialises (a type alias, since it is the wire's
+# encoding and not an index) -- plus the byte cursor the lexer carries. The
+# keysym and the keycode are newtypes. Set at the count.
+crate_audit "baud-xkb" 10 6 baud-xkb/src
 crate_audit "baud-app" 0 1 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP

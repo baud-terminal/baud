@@ -1,0 +1,13 @@
+[package]
+name = "baud-xkb"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "An XKB keymap compiler for the keymap text a Wayland compositor hands a client: the four sections, the interpret step, and the key state machine; no libxkbcommon."
+# Not published: a platform crate for the app, with no crates.io audience.
+publish = false
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }
