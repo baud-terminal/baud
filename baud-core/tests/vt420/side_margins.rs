@@ -69,7 +69,7 @@ fn csi_s_is_decslrm_with_declrmm() {
 fn disabling_declrmm_restores_full_width() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1b[?69l");
-    v.extend(std::iter::repeat(b'x').take(20));
+    v.extend(std::iter::repeat_n(b'x', 20));
     // With margins gone, 20 characters occupy columns 0..20.
     assert_eq!(cursor(&v), (0, 20));
 }
@@ -91,7 +91,7 @@ fn decslrm_homes_the_cursor() {
 #[test]
 fn an_inverted_range_is_rejected() {
     let mut v = b"\x1b[?69h\x1b[10;5s".to_vec();
-    v.extend(std::iter::repeat(b'x').take(20));
+    v.extend(std::iter::repeat_n(b'x', 20));
     assert_eq!(cursor(&v), (0, 20), "margins unchanged, so full width");
 }
 
@@ -99,7 +99,7 @@ fn an_inverted_range_is_rejected() {
 #[test]
 fn a_zero_width_region_is_rejected() {
     let mut v = b"\x1b[?69h\x1b[5;5s".to_vec();
-    v.extend(std::iter::repeat(b'x').take(20));
+    v.extend(std::iter::repeat_n(b'x', 20));
     assert_eq!(cursor(&v), (0, 20));
 }
 
@@ -113,7 +113,7 @@ fn a_zero_width_region_is_rejected() {
 fn text_wraps_within_the_margins() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1b[1;5H"); // to the left margin
-    v.extend(std::iter::repeat(b'x').take(7)); // 6 fit (cols 5..10), 1 wraps
+    v.extend(std::iter::repeat_n(b'x', 7)); // 6 fit (cols 5..10), 1 wraps
     let (_, (r, c), _) = run(&v);
     assert_eq!(r, 1, "wrapped to the next row");
     assert_eq!(c, 5, "and to the left margin, not column 0");
@@ -124,7 +124,7 @@ fn text_wraps_within_the_margins() {
 fn no_wrap_pins_to_the_right_margin() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1b[?7l\x1b[1;5H");
-    v.extend(std::iter::repeat(b'x').take(50));
+    v.extend(std::iter::repeat_n(b'x', 50));
     assert_eq!(cursor(&v), (0, 9), "the right margin is column index 9");
 }
 
@@ -133,7 +133,7 @@ fn no_wrap_pins_to_the_right_margin() {
 fn ich_stops_at_the_right_margin() {
     // Fill the row, set margins, then insert inside them.
     let mut base = b"".to_vec();
-    base.extend(std::iter::repeat(b'a').take(20));
+    base.extend(std::iter::repeat_n(b'a', 20));
     let mut v = base.clone();
     v.extend_from_slice(LRM);
     v.extend_from_slice(b"\x1b[1;5H\x1b[2@");
@@ -155,7 +155,7 @@ fn ich_stops_at_the_right_margin() {
 #[test]
 fn dch_does_not_pull_from_outside_the_margins() {
     let mut base = b"".to_vec();
-    base.extend(std::iter::repeat(b'a').take(20));
+    base.extend(std::iter::repeat_n(b'a', 20));
     let mut v = base.clone();
     v.extend_from_slice(LRM);
     v.extend_from_slice(b"\x1b[1;5H\x1b[2P");
@@ -174,9 +174,9 @@ fn dch_does_not_pull_from_outside_the_margins() {
 #[test]
 fn decic_inserts_columns_within_the_margins() {
     let mut v = b"".to_vec();
-    v.extend(std::iter::repeat(b'a').take(20));
+    v.extend(std::iter::repeat_n(b'a', 20));
     v.extend_from_slice(b"\r\n");
-    v.extend(std::iter::repeat(b'b').take(20));
+    v.extend(std::iter::repeat_n(b'b', 20));
     let base = v.clone();
     v.extend_from_slice(LRM);
     v.extend_from_slice(b"\x1b[1;5H\x1b['}");
@@ -194,7 +194,7 @@ fn decic_inserts_columns_within_the_margins() {
 #[test]
 fn decdc_deletes_columns_and_fills_at_the_margin() {
     let mut v = b"".to_vec();
-    v.extend(std::iter::repeat(b'a').take(20));
+    v.extend(std::iter::repeat_n(b'a', 20));
     let base = v.clone();
     v.extend_from_slice(LRM);
     v.extend_from_slice(b"\x1b[1;5H\x1b['~");
@@ -211,7 +211,7 @@ fn decdc_deletes_columns_and_fills_at_the_margin() {
 #[test]
 fn the_column_operations_are_inert_outside_the_margins() {
     let mut base = b"".to_vec();
-    base.extend(std::iter::repeat(b'a').take(20));
+    base.extend(std::iter::repeat_n(b'a', 20));
     let mut set = base.clone();
     set.extend_from_slice(LRM);
     let mut ic = set.clone();
@@ -243,7 +243,7 @@ fn decrqss_reports_the_scroll_region() {
 fn ris_resets_the_side_margins() {
     let mut v = LRM.to_vec();
     v.extend_from_slice(b"\x1bc");
-    v.extend(std::iter::repeat(b'x').take(20));
+    v.extend(std::iter::repeat_n(b'x', 20));
     assert_eq!(cursor(&v), (0, 20));
 }
 
