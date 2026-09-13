@@ -20,7 +20,7 @@ shift 3
 here=$(cd "$(dirname "$0")/.." && pwd)
 child="$here/scripts/vt-child.sh"
 : "${ALACRITTY:=alacritty}" "${KITTY:=kitty}" "${GHOSTTY:=ghostty}" "${WEZTERM:=wezterm}"
-: "${BAUD:=$here/target/release/baud-app}"
+: "${BAUD:=$here/target/release/baud}"
 : "${TERMINALS:=baud alacritty kitty ghostty wezterm}"
 run_one() {
   term="$1"
@@ -32,7 +32,7 @@ run_one() {
     ;;
   alacritty)
     "$ALACRITTY" -o window.dimensions.columns=200 -o window.dimensions.lines=50 \
-      -o font.normal.family=Menlo -o font.size=13 \
+      -o 'font.normal.family="Menlo"' -o font.size=13 \
       -e bash "$child" alacritty "$rec" "$reps" "$out" 2>/dev/null
     ;;
   kitty)

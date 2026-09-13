@@ -19,3 +19,9 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
+
+# The binary is `baud`; the crate keeps its name so the workspace reads
+# the same way as `baud-present-macos` beside it.
+[[bin]]
+name = "baud"
+path = "src/main.rs"

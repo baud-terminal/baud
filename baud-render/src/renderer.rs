@@ -265,12 +265,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// A GPU path takes [`Renderer::instances`], [`Renderer::background`]
     /// and [`Renderer::atlas`] from here; the CPU path calls
     /// [`Renderer::paint`].
-    pub fn convert(&mut self, term: &mut Term<'_>, damage: Damage) -> Converted {
-        let t0 = Instant::now();
+    /// Sizes the renderer to the terminal's grid, when it differs. Every
+    /// frame goes through it -- [`Renderer::convert`] calls it, and a path
+    /// that never converts, the cell path, must call it before it asks
+    /// [`Renderer::pixel_size`] for a surface: the app once built its
+    /// surface for the 80x24 grid the renderer started with, and the layer
+    /// stretched those cells over a 200x50 window.
+    pub fn fit(&mut self, term: &Term<'_>) {
         let (cols, rows) = term.geometry();
         if cols.index() != self.cols.index() || rows.index() != self.rows.index() {
             self.resize(cols, rows);
         }
+    }
+
+    pub fn convert(&mut self, term: &mut Term<'_>, damage: Damage) -> Converted {
+        let t0 = Instant::now();
+        self.fit(term);
+        let (cols, rows) = term.geometry();
         let stride = term.stride().index();
         let ncols = cols.index();
         {

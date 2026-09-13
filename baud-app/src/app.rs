@@ -238,6 +238,10 @@ impl App {
     }
 
     fn present(&mut self, view: &DrawableView) {
+        // The surface is the renderer's size, so the renderer follows the
+        // terminal first; the cell path never converts and would otherwise
+        // keep the grid it started with.
+        self.renderer.fit(&self.term);
         let (w, h) = self.renderer.pixel_size();
         if (w, h) != (self.frame_w, self.frame_h) || self.presenter.is_none() {
             self.frame_w = w;
@@ -261,6 +265,23 @@ impl App {
             };
             if let Some(p) = &self.presenter {
                 eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
+                if std::env::var_os("BAUD_DEBUG_GEOMETRY").is_some() {
+                    let (cw, ch) = self.metrics_cell();
+                    let (rc, rr) = self.renderer.grid();
+                    let (tc, tr) = self.term.geometry();
+                    eprintln!(
+                        "geometry: cell {cw}x{ch} px, renderer {}x{} = {}x{} px, term {}x{}, pty {}x{}, scale {}",
+                        rc.index(),
+                        rr.index(),
+                        w.value(),
+                        h.value(),
+                        tc.index(),
+                        tr.index(),
+                        self.grid.ws_col,
+                        self.grid.ws_row,
+                        self.scale
+                    );
+                }
             }
             self.pending = Pending::Dirty;
         }
@@ -599,25 +620,42 @@ pub fn run() {
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
     let glass = GlassSurface::new(mtm, frame, GlassStyle::Regular, 16.0).expect("glass");
     let view = DrawableView::new(mtm, frame);
-    // The initial grid from the window's points and the cell size at this
-    // scale; the view's first resize callback settles it.
+    // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
+    // default, so a benchmark runs every terminal at one geometry. The pty
+    // is *spawned* at that grid: sized afterwards, the child sometimes read
+    // the default before the window's resize landed -- one row in fifteen.
+    let grid = std::env::var("BAUD_GRID").ok().and_then(|g| {
+        let (c, r) = g.split_once('x')?;
+        Some(WinSize {
+            ws_col: c.parse().ok()?,
+            ws_row: r.parse().ok()?,
+        })
+    });
+    // Otherwise the initial grid is a placeholder the view's first resize
+    // callback settles from the window's points and the cell size.
     let probe = App::new(
-        WinSize {
-            ws_col: 80,
-            ws_row: 24,
-        },
+        grid.as_ref().map_or(
+            WinSize {
+                ws_col: 80,
+                ws_row: 24,
+            },
+            |ws| WinSize {
+                ws_col: ws.ws_col,
+                ws_row: ws.ws_row,
+            },
+        ),
         scale,
         view.waker(),
     );
-    // `BAUD_GRID=COLSxROWS` sizes the window to a grid, in points from the
-    // cell metrics at this scale, so a benchmark runs every terminal at one
-    // geometry.
-    if let Some(grid) = std::env::var("BAUD_GRID").ok().and_then(|g| {
-        let (c, r) = g.split_once('x')?;
-        Some((c.parse::<f64>().ok()?, r.parse::<f64>().ok()?))
-    }) {
+    if let Some(ws) = grid {
+        // The window sized to the grid in points, from the cell metrics at
+        // this scale, before it is shown; its first resize callback then
+        // computes the same grid and changes nothing.
         let (cw, ch) = probe.metrics_cell();
-        let wanted = NSSize::new(grid.0 * cw / scale, grid.1 * ch / scale);
+        let wanted = NSSize::new(
+            f64::from(ws.ws_col) * cw / scale,
+            f64::from(ws.ws_row) * ch / scale,
+        );
         window.ns_window().setContentSize(wanted);
     }
     let driver = Driver {

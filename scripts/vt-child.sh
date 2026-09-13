@@ -46,7 +46,7 @@ hops=0
 while [ "$hops" -lt 5 ]; do
   comm=$(ps -o comm= -p "$pid" 2>/dev/null)
   case "$comm" in
-  *alacritty* | *kitty* | *ghostty* | *wezterm* | *baud-app*) break ;;
+  *alacritty* | *kitty* | *ghostty* | *wezterm* | */baud | baud) break ;;
   esac
   pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
   hops=$((hops + 1))
