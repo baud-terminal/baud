@@ -10,3 +10,15 @@ description = "aarch64 implementations of baud-isa's domain-typed scan operation
 [dependencies]
 baud-domain = { path = "../baud-domain" }
 baud-isa = { path = "../baud-isa" }
+
+# **`std` is the cache probe asking the operating system**, and nothing else.
+# `CCSIDR_EL1` -- the register that describes an aarch64 cache -- traps at
+# EL0, so a user process cannot read its own geometry from the hardware the
+# way x86-64 reads `CPUID`. What it can do is ask the kernel: `sysctlbyname`
+# on macOS, sysfs on Linux (through `baud-isa`'s own `std` feature, so the
+# parser is spelled once). Off, the crate is `no_std` and the probe answers
+# unknown, which resolves to the safe pitch. **No crate for the one call**:
+# `sysctlbyname` is declared here as the four-line `extern` it is, so this
+# crate stays what the ISA crates are -- `baud-domain`, `baud-isa`, nothing.
+[features]
+std = ["baud-isa/std"]

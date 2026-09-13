@@ -26,6 +26,16 @@ zerocopy = "0.8"
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
 
+# The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
+# it may ask the kernel. Target-gated the way `baud-core` gates its scans.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-aarch64 = { path = "../baud-isa-aarch64", features = ["std"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
+
 
 [features]
 default = ["neon-scan"]
@@ -36,6 +46,20 @@ diag = ["baud-core/diag"]
 # throughput figure, same as `diag`.
 # Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
 scan-neon = []
+# The grid's row pitch, for `ingest2`'s stride arms. Off, the pitch is what
+# ships: `grid_stride`, from the cache geometry. `stride-live` lays
+# the grid out at the live column count, the layout this core had before and
+# the one the fixed pitch must match; `stride-pad0` at `MAX_COLS`, exactly one
+# L1 way a row on this class of machine, the aliasing layout the +14% was
+# measured against -- the positive control. Mutually exclusive by
+# construction: both at once does not compile.
+stride-live = []
+stride-pad0 = []
+# The exploration arm: the pitch from `BAUD_STRIDE`, in cells, read once at
+# start. Not a runtime switch in the loop -- the pitch is a field whichever
+# arm sets it -- so one binary sweeps candidate pitches; what ships is still
+# decided by `grid_stride` and measured with the arms above.
+stride-env = []
 # The new core's arms, named apart from core2's so one `--features` cannot
 # silently arm the wrong crate.
 new-no-write = ["baud-core/ceiling-no-write"]

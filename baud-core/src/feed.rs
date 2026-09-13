@@ -41,7 +41,6 @@ impl Term<'_> {
             self.rows,
             self.cols,
             self.rot,
-            self.stride,
             self.style,
             self.style_raw,
             self.flags,

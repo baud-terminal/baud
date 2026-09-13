@@ -11,6 +11,10 @@
 use baud_domain::*;
 use baud_isa::{Decode, DecodedBlock, Portable, Scan};
 
+mod cache;
+
+pub use cache::Host;
+
 /// 32-byte lanes on x86-64. Requires AVX2.
 pub struct Avx2;
 

@@ -5,7 +5,8 @@
 //! moving them was to re-spell that API on top of `write_at`/`feed` so the
 //! files could come across untouched. That would have hidden the one
 //! difference that matters: `viewport()` strides by `MAX_COLS` in core2 and by
-//! the **live column count** here, so `t.viewport()[..8]` and
+//! a **fixed pitch of at least that** here -- `Term::stride`, chosen from the
+//! cache line, not a number -- so `t.viewport()[..8]` and
 //! `t.row(Row::from_index(1))` do not mean the same thing in the two crates.
 //! Fifty-two `viewport()` call sites would have passed vacuously.
 //!

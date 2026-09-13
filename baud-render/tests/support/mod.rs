@@ -88,7 +88,7 @@ pub fn renderer<'f, 'a>(faces: &'f [Face<'a>]) -> Renderer<'f, 'a> {
         PxSize::of(PX).unwrap(),
         Theme::dark(),
         Blend::Native,
-        Cols::from_stride(usize::from(WS.ws_col)),
+        Cols::of_index(usize::from(WS.ws_col)),
         Rows::of_index(usize::from(WS.ws_row)),
     )
     .unwrap()

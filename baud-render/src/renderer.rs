@@ -199,7 +199,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blend,
             cache: RunCache::new(),
             atlas: Atlas::new(),
-            cols: Cols::from_stride(0),
+            cols: Cols::of_index(0),
             rows: Rows::of_index(0),
             prev: Vec::new(),
             known: Prev::Unknown,

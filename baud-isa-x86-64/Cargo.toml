@@ -10,3 +10,11 @@ description = "AVX2 implementations of baud-isa's domain-typed scan operations. 
 [dependencies]
 baud-domain = { path = "../baud-domain" }
 baud-isa = { path = "../baud-isa" }
+
+# **`std` is a fallback, not the probe.** `CPUID` leaf 4 answers the cache
+# geometry from the instruction itself and needs no operating system; the
+# feature only adds Linux's sysfs walk (spelled once, in `baud-isa`) for a
+# hypervisor that blanks the leaf. Off by default, and off the probe still
+# works.
+[features]
+std = ["baud-isa/std"]

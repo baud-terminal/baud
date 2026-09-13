@@ -7,12 +7,12 @@ use crate::*;
 /// conversion happens once, inside `Index`, instead of everywhere.
 pub struct Grid<'buf, T> {
     cells: &'buf mut [T],
-    stride: Cols,
+    stride: Stride,
     rows: Rows,
 }
 
 impl<'buf, T> Grid<'buf, T> {
-    pub fn new(cells: &'buf mut [T], stride: Cols, rows: Rows) -> Grid<'buf, T> {
+    pub fn new(cells: &'buf mut [T], stride: Stride, rows: Rows) -> Grid<'buf, T> {
         Grid {
             cells,
             stride,
@@ -22,7 +22,7 @@ impl<'buf, T> Grid<'buf, T> {
     pub fn rows(&self) -> Rows {
         self.rows
     }
-    pub fn stride(&self) -> Cols {
+    pub fn stride(&self) -> Stride {
         self.stride
     }
 }
@@ -30,15 +30,15 @@ impl<'buf, T> Grid<'buf, T> {
 impl<'buf, T> core::ops::Index<Row> for Grid<'buf, T> {
     type Output = [T];
     fn index(&self, r: Row) -> &[T] {
-        let a = r.0 * self.stride.0;
-        &self.cells[a..a + self.stride.0]
+        let a = r.0 * self.stride.index();
+        &self.cells[a..a + self.stride.index()]
     }
 }
 
 impl<'buf, T> core::ops::IndexMut<Row> for Grid<'buf, T> {
     fn index_mut(&mut self, r: Row) -> &mut [T] {
-        let a = r.0 * self.stride.0;
-        &mut self.cells[a..a + self.stride.0]
+        let a = r.0 * self.stride.index();
+        &mut self.cells[a..a + self.stride.index()]
     }
 }
 
@@ -46,13 +46,13 @@ impl<'buf, T> core::ops::IndexMut<Row> for Grid<'buf, T> {
 impl<'buf, T> core::ops::Index<(Row, Col)> for Grid<'buf, T> {
     type Output = T;
     fn index(&self, (r, c): (Row, Col)) -> &T {
-        &self.cells[r.0 * self.stride.0 + c.0]
+        &self.cells[r.0 * self.stride.index() + c.0]
     }
 }
 
 impl<'buf, T> core::ops::IndexMut<(Row, Col)> for Grid<'buf, T> {
     fn index_mut(&mut self, (r, c): (Row, Col)) -> &mut T {
-        &mut self.cells[r.0 * self.stride.0 + c.0]
+        &mut self.cells[r.0 * self.stride.index() + c.0]
     }
 }
 
@@ -147,7 +147,7 @@ impl RowRot {
 
 pub struct ViewRef<'a> {
     cells: &'a [PackedCell],
-    stride: Cols,
+    stride: Stride,
     cols: Cols,
     rows: Rows,
     rot: RowRot,
@@ -212,7 +212,7 @@ pub struct View<'a> {
     /// marks separately would have to remember both, which is the shape of
     /// invariant this crate keeps moving *into* `View` rather than out of it.
     used: &'a mut [RowExtent],
-    stride: Cols,
+    stride: Stride,
     cols: Cols,
     rows: Rows,
     rot: RowRot,
@@ -222,7 +222,7 @@ impl<'a> View<'a> {
     /// Read-only view. Same addressing, no mutation.
     pub fn new_ref(
         cells: &'a [PackedCell],
-        stride: Cols,
+        stride: Stride,
         cols: Cols,
         rows: Rows,
         rot: RowRot,
@@ -238,7 +238,7 @@ impl<'a> View<'a> {
     pub fn new(
         cells: &'a mut [PackedCell],
         used: &'a mut [RowExtent],
-        stride: Cols,
+        stride: Stride,
         cols: Cols,
         rows: Rows,
         rot: RowRot,
@@ -287,31 +287,97 @@ impl<'a> View<'a> {
     /// and a parked copy, so the pairing is enforced by the signature instead:
     /// there is no way to call this and get two of the three.
     pub fn save_to(&self, cells: &mut [PackedCell], used: &mut [RowExtent]) -> (RowRot, usize) {
-        // **The live region, not the allocation.** `vp` is sized for
-        // `MAX_COLS` so the geometry can grow, and the stride is the *live*
-        // column count -- 200 against 2048 at the corpus geometry, so the
-        // cells that mean anything are the first 10,000 of 102,400. Copying
-        // the slice would move ten times the bytes and park 92,400 cells no
-        // addressing path can reach.
-        let n = self.live();
-        cells[..n].copy_from_slice(&self.cells[..n]);
-        let m = self.rows.index();
+        // **The live cells, row by row, not the allocation.** The pitch is
+        // fixed at `MAX_COLS` or more so the geometry can grow, and only
+        // `cols` of each row's cells are live -- 200 of 2416 at the corpus
+        // geometry. Copying the rows whole would move ten times the bytes,
+        // park cells no addressing path can reach, and put them on the
+        // counter that says two layouts do the same work.
+        //
+        // Every cell past `cols` is `EMPTY` on both surfaces, by the invariant
+        // [`View::resized_from`] keeps, so a row's width is all there is to
+        // copy and the parked copy stays clean past it.
+        let (s, w, m) = (self.stride.index(), self.cols.index(), self.rows.index());
+        for p in 0..m {
+            let a = p * s;
+            cells[a..a + w].copy_from_slice(&self.cells[a..a + w]);
+        }
         used[..m].copy_from_slice(&self.used[..m]);
-        (self.rot, n)
-    }
-
-    /// Cells the addressing paths can actually reach: rows by stride.
-    fn live(&self) -> usize {
-        self.rows.index() * self.stride.index()
+        (self.rot, m * w)
     }
 
     /// The inverse of [`View::save_to`], and it must be given all three.
     pub fn restore_from(&mut self, cells: &[PackedCell], used: &[RowExtent], rot: RowRot) -> usize {
-        let (n, m) = (self.live(), self.rows.index());
-        self.cells[..n].copy_from_slice(&cells[..n]);
+        let (s, w, m) = (self.stride.index(), self.cols.index(), self.rows.index());
+        for p in 0..m {
+            let a = p * s;
+            self.cells[a..a + w].copy_from_slice(&cells[a..a + w]);
+        }
         self.used[..m].copy_from_slice(&used[..m]);
         self.rot = rot;
-        n
+        m * w
+    }
+
+    /// Bring the cells into line with a geometry that just changed, from
+    /// `old_rows` by `old_cols` to the rows and columns this view was built
+    /// with.
+    ///
+    /// **The pitch is fixed, so a change of width moves no cell.** Row `p`
+    /// begins at `p * stride` before and after; what changes is how many of
+    /// its cells are live. What this keeps is the invariant every other path
+    /// relies on -- *every cell at a column of `cols` or beyond, and every
+    /// cell in a row of `rows` or beyond, is [`PackedCell::EMPTY`]* -- and
+    /// each part is paid only when its axis shrinks:
+    ///
+    /// * **A narrower screen blanks the columns it lost, on every row**, and
+    ///   lowers any mark that reached past the new width to it. Every row,
+    ///   not only the marked ones: past a row's mark the cells are uniform
+    ///   with its last, and that last may be a *styled* blank rather than
+    ///   `EMPTY`, which a later growth would show as a wrong background. A
+    ///   wider screen then finds blank cells there by construction and does
+    ///   nothing.
+    /// * **A shorter screen blanks the rows it lost**, whole, and zeroes
+    ///   their marks. A taller one finds them blank.
+    /// * **A change of height un-rotates first**, over the *old* height, and
+    ///   answers `RowRot::NONE`. The rotation is an index into a row count
+    ///   that is about to change, and `rotate_left_by` panics when the
+    ///   rotation exceeds the slice: scroll a 50-row screen, shrink to 10,
+    ///   and `mid <= len` fails. A change of width alone leaves the rotation
+    ///   where it is, so the common drag -- one axis at a time -- moves
+    ///   nothing at all.
+    ///
+    /// Everything here addresses physical rows directly; `phys` is never
+    /// consulted, because the marks are physical and the rotation is either
+    /// unchanged or already gone.
+    ///
+    /// Returns the rotation the surface is now under and the cells written.
+    pub fn resized_from(&mut self, old_rows: Rows, old_cols: Cols) -> (RowRot, usize) {
+        let s = self.stride.index();
+        let (rows, cols) = (self.rows.index(), self.cols.index());
+        let (orows, ocols) = (old_rows.index(), old_cols.index());
+        let mut n = 0;
+        if rows != orows && self.rot.index() != 0 {
+            let live = RowBlock::leading(old_rows, self.stride);
+            let turned = RowBlock::leading(Rows::of_index(self.rot.index()), self.stride);
+            live.rotate_left_by(self.cells, turned);
+            self.used[..orows].rotate_left(self.rot.index());
+            self.rot = RowRot::NONE;
+        }
+        for p in rows..orows {
+            let a = p * s;
+            self.cells[a..a + ocols].fill(PackedCell::EMPTY);
+            self.used[p] = RowExtent::ZERO;
+            n += ocols;
+        }
+        if cols < ocols {
+            for p in 0..rows.min(orows) {
+                let a = p * s;
+                self.cells[a + cols..a + ocols].fill(PackedCell::EMPTY);
+                self.used[p] = RowExtent::of(self.used[p].index().min(cols));
+                n += ocols - cols;
+            }
+        }
+        (self.rot, n)
     }
 
     /// Advance the rotation by `n` rows: a scroll, from the view's side.

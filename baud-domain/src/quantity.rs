@@ -356,7 +356,7 @@ pub struct RowBlock {
 
 impl RowBlock {
     /// The first `rows` rows.
-    pub fn leading(rows: Rows, stride: Cols) -> RowBlock {
+    pub fn leading(rows: Rows, stride: Stride) -> RowBlock {
         RowBlock {
             start: 0,
             len: rows.index() * stride.index(),
@@ -364,7 +364,7 @@ impl RowBlock {
     }
     /// One row-sized block at row index `n`. Used for the style template table,
     /// where each style owns one row of pre-filled cells.
-    pub fn nth(n: usize, stride: Cols) -> RowBlock {
+    pub fn nth(n: usize, stride: Stride) -> RowBlock {
         RowBlock {
             start: n * stride.index(),
             len: stride.index(),
@@ -585,7 +585,13 @@ impl Width {
 }
 
 impl Cols {
-    pub fn from_stride(n: usize) -> Cols {
+    /// A width from a count. At least one: a grid with no columns has no cell
+    /// to address, and every caller clamps to a geometry anyway.
+    ///
+    /// **Not a stride.** The row pitch is [`Stride`], a different type. The
+    /// two were the same number for long enough that swapping them at a call
+    /// site was invisible; now it does not compile.
+    pub fn of_index(n: usize) -> Cols {
         Cols(n.max(1))
     }
     pub fn clamp(self, max: usize) -> Cols {

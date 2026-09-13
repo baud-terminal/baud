@@ -331,12 +331,15 @@ fn a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode() {
 ///
 /// `Term::viewport` un-rotates in place with `rotate_left_by`, and a rotation
 /// is an index into the row count that was live when the scroll happened.
-/// Scroll a 50-row screen forty-one times, shrink to ten rows, ask for the
-/// viewport: the rotation is 41 and the slice is 10, and `rotate_left` panics
-/// `mid <= self.len()`. That is why `resize` clears **both** rotations before
-/// it blanks anything, and it is the reason a resize entry point that nothing
-/// calls is dangerous rather than merely untested -- `baud-core2`'s equivalent
-/// had a panic in it and no caller for long enough to keep it.
+/// Scroll a 50-row screen eleven times, shrink to ten rows, ask for the
+/// viewport: the rotation is 11 and the slice is 10, and `rotate_left` panics
+/// `mid <= self.len()`. That is why `resize` un-rotates **over the old
+/// height** before it changes the row count -- and, because the pitch is
+/// fixed, that turn is the only cell movement a resize makes: the top rows
+/// of the screen survive, in order. It is also the reason a resize entry
+/// point that nothing calls is dangerous rather than merely untested --
+/// `baud-core2`'s equivalent had a panic in it and no caller for long enough
+/// to keep it.
 #[test]
 fn shrinking_after_a_scroll_does_not_panic() {
     let ws = WinSize {
@@ -351,19 +354,32 @@ fn shrinking_after_a_scroll_does_not_panic() {
     }
     t.write_at(BytePos::ZERO, &prog);
     t.feed(BytePos::ZERO, ReadLen::from_index(prog.len()));
-    // A live rotation, which is what makes this case reachable at all.
+    // A live rotation, which is what makes this case reachable at all --
+    // read through `row`, which applies it without undoing it.
+    assert_ne!(t.rotation().index(), 0, "the screen has scrolled");
+    let before: Vec<Vec<baud_domain::PackedCell>> = (0..10)
+        .map(|y| t.row(baud_domain::Row::from_index(y)).to_vec())
+        .collect();
     let small = WinSize {
         ws_row: 10,
         ws_col: 80,
     };
     assert_eq!(t.resize(&small), Resized::Ok);
+    assert_eq!(
+        t.rotation().index(),
+        0,
+        "a change of height leaves no rotation"
+    );
     let w = t.stride().index();
     let vp = t.viewport();
     assert_eq!(vp.len(), 10 * w, "the viewport is the new size");
-    assert!(
-        vp.iter().all(|c| c.content == Content::EMPTY),
-        "resize does not carry content, so every cell is blank"
-    );
+    for (y, row) in before.iter().enumerate() {
+        assert_eq!(
+            &vp[y * w..y * w + 80],
+            &row[..80],
+            "row {y} is the row that was on screen"
+        );
+    }
 }
 
 /// Growing past what the caller provisioned says so rather than clamping.
@@ -403,22 +419,23 @@ fn growing_past_the_row_capacity_is_truncated() {
     assert_eq!(t.resize(&small), Resized::Ok);
 }
 
-/// **A resize while parked in the alternate screen must not restore garbage.**
+/// **A resize while parked in the alternate screen reshapes the primary too.**
 ///
-/// The parked primary is laid out at the *old* stride, so blanking it to the
-/// new `live()` would leave cells past the new width reachable -- and
-/// `restore_from` copies `rows * stride` of them back on the next `?1049 l`.
-/// Every full-screen program enters the alternate screen, so this is the
-/// common case rather than an edge.
+/// Both surfaces are laid out at the one pitch, so the parked primary takes
+/// the same clip the live one does: a narrower screen blanks the columns it
+/// lost and a shorter one the rows, and `restore_from` copies `cols` cells a
+/// row back on the next `?1049 l` -- never a cell the new geometry cannot
+/// reach. Every full-screen program enters the alternate screen, so this is
+/// the common case rather than an edge.
 #[test]
-fn a_resize_while_parked_restores_a_blank_primary() {
+fn a_resize_while_parked_restores_the_primary_clipped() {
     let ws = WinSize {
         ws_row: 24,
         ws_col: 80,
     };
     let mut owned = Owned::new(&ws);
     let mut t = Term::new(owned.storage(), &ws);
-    let prog = b"PRIMARY TEXT THAT MUST NOT COME BACK\x1b[?1049hALT";
+    let prog = b"PRIMARY TEXT THAT COMES BACK CLIPPED\x1b[?1049hALT";
     t.write_at(BytePos::ZERO, prog);
     t.feed(BytePos::ZERO, ReadLen::from_index(prog.len()));
     let narrow = WinSize {
@@ -431,9 +448,22 @@ fn a_resize_while_parked_restores_a_blank_primary() {
     t.feed(BytePos::ZERO, ReadLen::from_index(back.len()));
     let w = t.stride().index();
     let vp = t.viewport();
+    let text: String = vp[..20]
+        .iter()
+        .filter_map(|c| c.content.as_codepoint())
+        .map(|cp| char::from_u32(cp.value()).unwrap_or('?'))
+        .collect();
+    assert_eq!(
+        text, "PRIMARY TEXT THAT CO",
+        "the first twenty columns survive"
+    );
     assert!(
-        vp[..12 * w].iter().all(|c| c.content == Content::EMPTY),
-        "the parked primary came back with old-stride content in it"
+        vp[20..w].iter().all(|c| c.content == Content::EMPTY),
+        "the columns the screen lost are blank"
+    );
+    assert!(
+        vp[w..12 * w].iter().all(|c| c.content == Content::EMPTY),
+        "and nothing else was on the primary"
     );
 }
 

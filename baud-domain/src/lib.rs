@@ -25,6 +25,7 @@
 #![forbid(unsafe_code)]
 
 mod brand;
+mod cache;
 mod cell;
 mod cluster_data;
 
@@ -59,6 +60,7 @@ mod width;
 mod width_data;
 
 pub use brand::*;
+pub use cache::*;
 pub use cell::*;
 pub use dec_graphics::*;
 pub use decode::*;

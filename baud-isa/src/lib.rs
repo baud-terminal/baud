@@ -3,6 +3,8 @@
 use baud_domain::*;
 
 mod portable;
+#[cfg(feature = "std")]
+pub mod sysfs;
 
 pub use portable::*;
 // Gated to match the definitions in `avx2.rs`: an unconditional re-export of a
@@ -153,4 +155,27 @@ pub trait Decode {
     /// The caller must have established every target feature the chosen
     /// implementation requires, exactly as for `Scan`.
     unsafe fn block(buf: &[StreamByte]) -> DecodedBlock;
+}
+
+/// A cache-geometry probe: what the host knows about its own hierarchy.
+///
+/// **Same shape as [`Scan`], for the same reason.** Detecting a cache line is
+/// hardware-specific, so it lives beside the vector scans in the per-arch
+/// crates rather than in `baud-core`, which is `no_std` and never asks a
+/// machine anything. The answer is `baud-domain`'s [`CacheGeometry`], and
+/// only the line size in it is load-bearing -- `store_stride` pads the grid's
+/// row pitch to an odd multiple of it -- the levels are there for a host to
+/// validate the pitch against and to print.
+///
+/// **A probe may fail to learn and must not fail to return.** Every field of
+/// [`CacheGeometry`] is optional and [`CacheGeometry::UNKNOWN`] resolves to a
+/// safe fallback line, so an implementation that cannot read the hardware
+/// -- a virtual machine hiding `CPUID` leaf 4, a kernel with no sysfs -- hands
+/// back what it has and a terminal still constructs. Nothing here is `unsafe`
+/// at the trait: where an instruction is used it is one the target always
+/// has (`CPUID` on x86-64, `CTR_EL0` at EL0 on aarch64), so there is no
+/// feature for a caller to establish.
+pub trait CacheProbe {
+    /// The hierarchy as this host reports it, or as much of it as it will.
+    fn detect() -> CacheGeometry;
 }

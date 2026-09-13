@@ -13,6 +13,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_core::{Owned, Term};
+use baud_domain::CacheGeometry;
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_present_macos::{CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, StylesBuffer};
@@ -113,20 +114,17 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         PxSize::of(14.0).unwrap(),
         Theme::dark(),
         Blend::Native,
-        Cols::from_stride(usize::from(WS.ws_col)),
+        Cols::of_index(usize::from(WS.ws_col)),
         Rows::of_index(usize::from(WS.ws_row)),
     )
     .unwrap();
     let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
     // The viewport is the GPU's memory: the core writes it, the shader
     // reads it.
+    let mut owned = Owned::without_viewport(&WS, &CacheGeometry::UNKNOWN);
     let (grid, cells) = gpu
-        .grid(
-            Rows::of_index(usize::from(WS.ws_row)),
-            Cols::from_stride(baud_core::MAX_COLS),
-        )
+        .grid(Rows::of_index(usize::from(WS.ws_row)), owned.stride())
         .expect("a shared grid");
-    let mut owned = Owned::without_viewport(&WS);
     let mut t = Term::new(owned.storage_over(cells), &WS);
     let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");

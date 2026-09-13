@@ -31,6 +31,7 @@
 //!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
+use baud_core::grid_stride;
 #[cfg(target_os = "macos")]
 fn main() {
     use baud_core::{Owned, Term};
@@ -95,7 +96,7 @@ fn main() {
             PxSize::of(14.0).unwrap(),
             Theme::dark(),
             Blend::Native,
-            Cols::from_stride(usize::from(ws.ws_col)),
+            Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
         )
         .unwrap()
@@ -156,11 +157,12 @@ fn main() {
         Arm::Async,
         Arm::Copied,
     ];
+    // The pitch every grid here is laid out at, the storage's and the GPU's,
+    // so the copied arm's second buffer is the shape of the first.
+    let geom = baud_bench::host_geometry();
+    let stride = grid_stride(&geom);
     let (copy_grid, copy_mem) = gpu
-        .grid(
-            Rows::of_index(usize::from(ws.ws_row)),
-            Cols::from_stride(usize::from(ws.ws_col)),
-        )
+        .grid(Rows::of_index(usize::from(ws.ws_row)), stride)
         .expect("a second shared grid");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut map = GlyphMap::over(map_mem);
@@ -173,19 +175,16 @@ fn main() {
             let cell_arm = matches!(arm, Arm::Cells | Arm::Async | Arm::Copied);
             let (grid, shared) = if cell_arm {
                 let (g, cells) = gpu
-                    .grid(
-                        Rows::of_index(usize::from(ws.ws_row)),
-                        Cols::from_stride(baud_core::MAX_COLS),
-                    )
+                    .grid(Rows::of_index(usize::from(ws.ws_row)), stride)
                     .expect("a shared grid");
                 (Some(g), Some(cells))
             } else {
                 (None, None)
             };
             let mut owned = if cell_arm {
-                Owned::without_viewport(&ws)
+                Owned::without_viewport(&ws, &geom)
             } else {
-                Owned::new(&ws)
+                Owned::with_geometry(&ws, &geom)
             };
             let mut t = match shared {
                 Some(cells) => Term::new(owned.storage_over(cells), &ws),

@@ -13,3 +13,12 @@ description = "Instruction-set implementations of baud's domain-typed scan opera
 # `fn movemask(v) -> u32` exports the bug class the newtypes exist to prevent.
 [dependencies]
 baud-domain = { path = "../baud-domain" }
+
+[features]
+# **Off by default, and it adds no crate.** `std` is only the standard library,
+# for the one probe that has to ask an operating system: the Linux sysfs walk
+# in `sysfs.rs`. The trait it feeds, `CacheProbe`, is `no_std`, and the two
+# per-arch crates implement it from an instruction where the hardware
+# answers directly (`CPUID` on x86-64) -- `std` is what they enable when it
+# does not (`CCSIDR_EL1` traps at EL0 on aarch64).
+std = []

@@ -128,17 +128,24 @@ fn a_shrink_after_scrolling_does_not_panic() {
     );
 
     // Both of these panicked before the fix.
+    assert_eq!(t.rotation().index(), 0, "un-rotated over the old height");
     let w = t.stride().index();
     let vp = t.viewport();
-    assert_eq!(vp.len(), 10 * w, "ten rows of the live stride");
-    // Here the stride *is* the width, so every cell in view is grid -- there
-    // is no zeroed tail to except, which is one thing the live stride
-    // simplifies. What matters is still that no content survived.
-    assert!(
-        !vp.iter()
-            .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'X'))),
-        "resize clears: no scrolled-off text may remain visible"
-    );
+    assert_eq!(vp.len(), 10 * w, "ten rows of the pitch");
+    // The top ten rows of what was on screen survive, each an `X` and
+    // nothing else; the rows below them went with the height.
+    for y in 0..10 {
+        let row = &vp[y * w..y * w + 200];
+        assert_eq!(
+            row[0].content.as_codepoint().map(|v| v.value()),
+            Some(u32::from(b'X')),
+            "row {y}"
+        );
+        assert!(
+            row[1..].iter().all(|c| c.content.is_empty()),
+            "row {y} holds one X"
+        );
+    }
 }
 
 /// Growing is the same hazard from the other side, and must also be clean.
@@ -162,10 +169,19 @@ fn a_grow_after_scrolling_does_not_panic() {
         let w = t.stride().index();
         let vp = t.viewport();
         assert_eq!(vp.len(), 120 * w);
+        // The fifty rows that were on screen stay where they were -- 49 of
+        // `Y` and the blank line the cursor was on -- and the seventy the
+        // screen grew by are blank.
+        for y in 0..49 {
+            assert_eq!(
+                vp[y * w].content.as_codepoint().map(|v| v.value()),
+                Some(u32::from(b'Y')),
+                "row {y}"
+            );
+        }
         assert!(
-            !vp.iter()
-                .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'Y'))),
-            "and the same growing"
+            vp[49 * w..].iter().all(|c| c.content.is_empty()),
+            "and the same growing: blank below what was on screen"
         );
     });
 }
@@ -233,13 +249,13 @@ fn save_and_restore_round_trips_when_the_grid_has_not_changed() {
 /// **Resizing while on the alternate screen clears the primary too.**
 ///
 /// `resize` discards the row rotation, which is only sound if the buffer that
-/// rotation described is cleared with it. `clear_screen` clears whichever
-/// screen is current, so a resize taken on the alternate screen left the
-/// primary holding rotated content with `rot` back at zero: every row
-/// displaced. The path is ordinary — a full-screen application is *on* the
+/// rotation described has to go with it. `resize` un-rotates the parked
+/// primary over its old height and clips it like the live surface, so it
+/// comes back in order; a version that forgot the rotation left every row
+/// displaced, and one that cleared the live screen left the primary alone. The path is ordinary — a full-screen application is *on* the
 /// alternate screen, which is when a user resizes the window.
 #[test]
-fn a_resize_on_the_alternate_screen_clears_the_primary_too() {
+fn a_resize_on_the_alternate_screen_reshapes_the_primary_too() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &support::CORPUS);
@@ -247,8 +263,11 @@ fn a_resize_on_the_alternate_screen_clears_the_primary_too() {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index((b).len()));
     };
-    // Scroll the primary so the rotation is non-zero, then mark it.
-    let payload: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
+    // Scroll the primary so the rotation is non-zero, numbering the lines so
+    // a displaced row is visible, then mark the last row.
+    let payload: Vec<u8> = (0..60)
+        .flat_map(|i| format!("{i:02}\r\n").into_bytes())
+        .collect();
     feed(&mut t, &payload);
     feed(&mut t, b"MARK");
 
@@ -262,13 +281,28 @@ fn a_resize_on_the_alternate_screen_clears_the_primary_too() {
     );
     feed(&mut t, b"\x1b[?1049l");
 
+    let w = t.stride().index();
+    let vp = t.viewport();
+    // Eleven scrolls, so row `y` was line `11 + y`; twenty of them survive,
+    // in order, and the mark on row 49 went with the height.
+    for y in 0..20 {
+        let text: String = vp[y * w..y * w + 2]
+            .iter()
+            .filter_map(|c| c.content.as_codepoint())
+            .map(|v| char::from_u32(v.value()).unwrap_or('?'))
+            .collect();
+        assert_eq!(
+            text,
+            format!("{:02}", 11 + y),
+            "row {y}: the primary came back in order, clipped to the new height"
+        );
+    }
     assert!(
-        !t.viewport().iter().any(|c| c
+        !vp.iter().any(|c| c
             .content
             .as_codepoint()
-            .is_some_and(|v| v.value() == u32::from(b'x'))),
-        "the primary must be cleared, not left rotated with the rotation \
-         forgotten"
+            .is_some_and(|v| v.value() == u32::from(b'M'))),
+        "the mark on row 49 went with the height"
     );
 }
 
@@ -395,17 +429,27 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
     let mut t = Term::new(s.storage(), &support::CORPUS);
     let (cols, rows) = t.geometry();
 
-    // **The inverse of `baud-core2`'s claim, and deliberately so.** core2
-    // strides by `MAX_COLS`, so a 200-column grid is 2048 wide in memory. This
-    // core strides by the live column count, which is worth +14% on every
-    // payload that scrolls: at 2048 cells a row, consecutive rows landed in
-    // the same L1 sets and any operation touching several fought an eight-way
-    // set with fifty of them.
+    // **The pitch is neither `baud-core2`'s nor the live width.** core2 strode
+    // by `MAX_COLS`, and 2048 cells is exactly one 16 KB L1 way, so every row
+    // of a 200-column screen landed in the same sets and any operation
+    // touching several fought an eight-way set with fifty of them. This core
+    // then strode by the live width -- +14% on everything that scrolls -- and
+    // a resize re-packed the grid. Now the pitch is fixed for the life of the
+    // storage: at least `MAX_COLS`, an odd number of lines so it aliases no
+    // way, at a step that spreads the rows over the sets -- so it keeps the
+    // 14% and a resize moves no cell.
     //
-    // The *contract* is unchanged and is why `stride()` is public at all: it
-    // is the row pitch, and an embedder divides by it. What changed is the
-    // number, so a test that hard-codes 2048 reads the wrong rows.
-    assert_eq!(t.stride(), cols, "the pitch is the live width here");
+    // The *contract* is why `stride()` is public at all: it is the row pitch,
+    // and an embedder divides by it. A test that hard-codes 2048, or the
+    // width, reads the wrong rows.
+    assert!(
+        t.stride().index() >= MAX_COLS,
+        "the pitch admits the widest grid"
+    );
+    assert!(
+        t.stride().index() > cols.index(),
+        "and it is not the live width"
+    );
     assert_eq!(
         t.viewport().len(),
         rows.index() * t.stride().index(),
@@ -420,9 +464,9 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
         }),
         Resized::Ok
     );
-    // The inverse again: this core's pitch *is* the geometry, so a resize
-    // moves it. `before` is what it was, and it must have changed with `cols`.
-    assert_ne!(t.stride(), before, "the pitch follows the geometry here");
+    // A resize changes the geometry and not the pitch: the rows stay where
+    // they are and only the live width of each moves.
+    assert_eq!(t.stride(), before, "the pitch survives the geometry");
     assert_eq!(t.viewport().len(), 7 * t.stride().index());
 }
 
@@ -435,7 +479,7 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
 /// `viewport`'s `rotate_left` panics outright on a rotation larger than the
 /// slice.
 ///
-/// `resize` discards both through `clear_rotations`, and this is the test that
+/// `resize` un-rotates both over the old height, and this is the test that
 /// says so. Without the alternate arm it would be exactly the gap the primary's
 /// version was written to close, one screen over -- and `CLAUDE.md` records
 /// `Term::resize` as an entry point that had **no caller anywhere** until a
@@ -462,10 +506,12 @@ fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
 
     let w = t.stride().index();
     let vp = t.viewport();
-    assert_eq!(vp.len(), 10 * w, "ten rows of the live stride");
-    assert!(
-        !vp.iter()
-            .any(|c| c.content.as_codepoint().map(|v| v.value()) == Some(u32::from(b'X'))),
-        "resize clears both buffers: no scrolled-off text may remain visible"
-    );
+    assert_eq!(vp.len(), 10 * w, "ten rows of the pitch");
+    for y in 0..10 {
+        assert_eq!(
+            vp[y * w].content.as_codepoint().map(|v| v.value()),
+            Some(u32::from(b'X')),
+            "row {y}: the top of the alternate screen survives the height"
+        );
+    }
 }

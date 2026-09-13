@@ -44,8 +44,26 @@ pub const MAX_ROWS: usize = 640;
 /// the block, and this is where the decode buffer stops instead.
 pub const STRIDE_MAX: usize = 32;
 
-/// Cells in the materialised viewport.
+/// Cells in the widest, tallest viewport: the ceiling on the *live* grid.
+///
+/// Not the allocation behind it, which is `rows * stride` -- and the pitch
+/// [`grid_stride`] chooses exceeds `MAX_COLS` by about 10 KB of cells a row,
+/// so a caller sizing memory asks [`RowBlock::leading`] with the pitch rather
+/// than multiplying these two.
 pub const GRID: usize = MAX_ROWS * MAX_COLS;
+
+/// The row pitch a terminal's grid is laid out at, for the cache hierarchy
+/// `geom` describes: at least `MAX_COLS` cells, an odd number of lines so it
+/// is a multiple of no power-of-two way at any level and no page, padded by
+/// the step a search chose so rows spread over the sets. See
+/// [`store_stride`].
+///
+/// One function, so every allocator of a grid -- [`Owned`], a bench, an
+/// embedder placing the viewport in GPU memory -- lays it out at the same
+/// pitch the core will address it by.
+pub fn grid_stride(geom: &CacheGeometry) -> Stride {
+    store_stride(geom, Cols::of_index(MAX_COLS))
+}
 
 /// Everything the core writes into, **placed by the caller**.
 ///
@@ -63,6 +81,14 @@ pub struct Storage<'b> {
     pub(crate) arena: &'b mut [u8],
     /// The materialised viewport.
     pub(crate) vp: &'b mut [PackedCell],
+    /// The pitch `vp` and `alt` are laid out at: row `p` begins at
+    /// `p * stride` cells. **Fixed for the life of the storage** and at least
+    /// `MAX_COLS`, so a resize is a change of how many cells in each row are
+    /// live and moves none of them. Chosen by [`grid_stride`] from the cache
+    /// geometry a host detected -- an odd number of lines, so it aliases no
+    /// way, at a step that spreads the rows over every set -- or by
+    /// [`Stride::of_cells`] in a bench arm reproducing another layout.
+    pub(crate) stride: Stride,
     /// How far each physical row stops being uniform. Blanking stops here, so
     /// a mostly-empty row costs a fraction of its width.
     pub(crate) used: &'b mut [RowExtent],
@@ -243,6 +269,7 @@ impl<'b> StrBuf<'b> {
 /// `no_std` target still compiles with nothing but `core`.
 #[cfg(feature = "alloc")]
 pub struct Owned {
+    stride: Stride,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowExtent>,
@@ -270,10 +297,23 @@ impl Owned {
     /// 2 MiB otherwise costs 262,144 property-table lookups and 2 MiB of
     /// stores at construction for a table no read will consult.
     pub fn new(ws: &WinSize) -> Owned {
+        Owned::with_geometry(ws, &CacheGeometry::UNKNOWN)
+    }
+
+    /// Sized to `ws`, at the pitch [`grid_stride`] derives from `geom`.
+    ///
+    /// [`Owned::new`] passes [`CacheGeometry::UNKNOWN`], which is safe: an
+    /// odd number of the smallest line any cache uses, so it aliases no way
+    /// on any machine, at the step the search chose for that line. An app
+    /// hands in what its host detected -- `baud-isa`'s per-arch crates -- so
+    /// the pitch is the one searched for *this* machine's line.
+    pub fn with_geometry(ws: &WinSize, geom: &CacheGeometry) -> Owned {
         use alloc::vec;
         let (_, rows) = ws.geometry();
-        let span = RowBlock::leading(rows, Cols::from_stride(MAX_COLS));
+        let stride = grid_stride(geom);
+        let span = RowBlock::leading(rows, stride);
         Owned {
+            stride,
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; span.len()],
             used: vec![RowExtent::ZERO; rows.index()],
@@ -295,20 +335,29 @@ impl Owned {
 
     /// Sized to `ws` with **no viewport of its own**, for an embedder that
     /// places the grid where a GPU can read it in place and lends it
-    /// through [`Owned::storage_over`]. Everything else is allocated here.
-    pub fn without_viewport(ws: &WinSize) -> Owned {
-        let mut owned = Owned::new(ws);
+    /// through [`Owned::storage_over`]. Everything else is allocated here,
+    /// and the pitch the viewport must be laid out at is [`Owned::stride`].
+    pub fn without_viewport(ws: &WinSize, geom: &CacheGeometry) -> Owned {
+        let mut owned = Owned::with_geometry(ws, geom);
         owned.vp = alloc::vec::Vec::new();
         owned
     }
 
+    /// The pitch this storage lays its grid out at, for a caller placing the
+    /// viewport somewhere else -- a GPU buffer of `rows * stride` cells --
+    /// before lending it through [`Owned::storage_over`].
+    pub fn stride(&self) -> Stride {
+        self.stride
+    }
+
     /// Lend them all to a `Storage` with `vp` standing in for the viewport:
-    /// `rows` rows at the maximum stride, as [`Owned::new`] would have
-    /// allocated, in memory the caller chose -- a shared GPU buffer, so the
-    /// grid the core writes is the grid the GPU reads.
+    /// `rows` rows at [`Owned::stride`], as [`Owned::with_geometry`] would
+    /// have allocated, in memory the caller chose -- a shared GPU buffer, so
+    /// the grid the core writes is the grid the GPU reads.
     pub fn storage_over<'v>(&'v mut self, vp: &'v mut [PackedCell]) -> Storage<'v> {
         Storage::new(
             &mut self.arena,
+            self.stride,
             vp,
             &mut self.used,
             &mut self.cells3,
@@ -356,6 +405,7 @@ impl Owned {
     pub fn storage(&mut self) -> Storage<'_> {
         Storage::new(
             &mut self.arena,
+            self.stride,
             &mut self.vp,
             &mut self.used,
             &mut self.cells3,
@@ -443,6 +493,7 @@ impl<'b> Storage<'b> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         arena: &'b mut [u8],
+        stride: Stride,
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
         cells3: &'b mut [PackedCell],
@@ -479,7 +530,7 @@ impl<'b> Storage<'b> {
         // `RowBlock` computes the span so the two operands cannot be the
         // wrong way round -- a transposition here is a plausible number and a
         // silently wrong slice.
-        let span = RowBlock::leading(Rows::of_index(used.len()), Cols::from_stride(MAX_COLS));
+        let span = RowBlock::leading(Rows::of_index(used.len()), stride);
         assert!(span.fits(vp), "viewport is short of its rows");
         // **Required, not optional.** An absent buffer would mean the
         // alternate screen is recognised, entered, and then quietly destroys
@@ -504,6 +555,7 @@ impl<'b> Storage<'b> {
         );
         Storage {
             arena,
+            stride,
             vp,
             used,
             cells3,

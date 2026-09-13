@@ -264,7 +264,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         rows: Rows,
         cols: Cols,
         rot: RowRot,
-        stride: Cols,
         style: StyleId,
         style_raw: StyleWord,
         flags: CellFlags,
@@ -279,6 +278,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     ) -> Paint<'a, 'b> {
         let Storage {
             arena,
+            stride,
             vp,
             used,
             cells3,
@@ -319,7 +319,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             clusters,
             strs,
             cold,
-            view: View::new(vp, used, stride, cols, rows, rot),
+            view: View::new(vp, used, *stride, cols, rows, rot),
             cy,
             cx,
             rows,

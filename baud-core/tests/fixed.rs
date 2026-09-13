@@ -26,9 +26,9 @@ fn a_cell_is_eight_bytes() {
 
 /// The grid is a fixed number of fixed cells, and the caller owns it.
 ///
-/// `GRID` is the ceiling a caller must provide for the largest screen; the
-/// live grid strides by the column count, which is what keeps consecutive rows
-/// off the same L1 sets.
+/// `GRID` is the ceiling on the live grid at the largest screen; the allocation
+/// strides by a fixed pitch chosen from the cache line, `store_stride`, which is
+/// what keeps consecutive rows off the same L1 sets.
 #[test]
 fn the_grid_is_a_fixed_number_of_fixed_cells() {
     assert_eq!(GRID, MAX_ROWS * MAX_COLS);

@@ -253,8 +253,12 @@ fn the_rotated_grid_under_its_rotation_is_the_viewport() {
         ws_col: 20,
         ws_row: 5,
     };
-    let mut vp = vec![baud_domain::PackedCell::EMPTY; 5 * baud_core::MAX_COLS];
-    let mut st = Owned::without_viewport(&ws);
+    // The lent viewport is laid out at the storage's pitch, which is what a
+    // GPU buffer would be sized by too -- not five rows of the maximum, the
+    // hard-coded `MAX_COLS` pitch this repo records five porting bugs against.
+    let mut st = Owned::without_viewport(&ws, &baud_domain::CacheGeometry::UNKNOWN);
+    let span = baud_domain::RowBlock::leading(baud_domain::Rows::of_index(5), st.stride());
+    let mut vp = vec![baud_domain::PackedCell::EMPTY; span.len()];
     let mut t = Term::new(st.storage_over(&mut vp), &ws);
     // Eight lines on a five-row screen: three scrolls, a rotation of three.
     feed(&mut t, "a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh");
@@ -360,7 +364,11 @@ fn the_style_table_is_exact_below_capacity() {
             feed(&mut t, "\r\n");
         }
     }
-    let cells: Vec<_> = t.viewport()[..usize::from(N)].to_vec();
+    // Row by row, through the row accessor: the pitch is wider than the
+    // 200-column screen, and the addressing is the core's to do.
+    let cells: Vec<_> = (0..usize::from(N))
+        .map(|i| t.row(baud_domain::Row::from_index(i / 200))[i % 200])
+        .collect();
     let mut wrong = 0usize;
     for (i, c) in cells.iter().enumerate() {
         let (r, g, b) = rgb(u16::try_from(i).unwrap());

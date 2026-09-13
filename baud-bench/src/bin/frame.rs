@@ -79,7 +79,7 @@ fn main() {
             PxSize::of(14.0).unwrap(),
             Theme::dark(),
             Blend::Native,
-            Cols::from_stride(usize::from(ws.ws_col)),
+            Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
         )
         .unwrap()

@@ -21,7 +21,7 @@ mod support;
 
 use std::collections::BTreeMap;
 
-const STRIDE_HINT: usize = 200;
+const CORPUS_COLS: usize = 200;
 
 /// One fixture: the bytes, and what core2 made of them.
 struct Fixture {
@@ -111,11 +111,15 @@ fn every_fixture_renders_what_core2_rendered() {
         support::with_corpus(|t| {
             support::feed(t, &f.bytes);
             let w = t.stride().index();
-            assert_eq!(w, STRIDE_HINT, "{}: the corpus is 200 wide", f.name);
+            assert!(
+                w >= CORPUS_COLS,
+                "{}: the pitch admits the corpus width",
+                f.name
+            );
             let vp = t.viewport();
             let mut got = BTreeMap::new();
             for y in 0..50 {
-                for x in 0..w {
+                for x in 0..CORPUS_COLS {
                     let c = vp[y * w + x];
                     let v = match c.content.as_codepoint() {
                         Some(cp) => cp.value(),
@@ -208,7 +212,12 @@ fn every_recording_renders_to_its_pinned_digest() {
         support::with_corpus(|t| {
             support::feed(t, &bytes);
             let w2 = t.stride().index();
-            let cells: Vec<_> = t.viewport()[..50 * w2].to_vec();
+            // The live cells, row by row: the pitch is wider than the screen
+            // and the padding past each row is not a rendering.
+            let vp = t.viewport();
+            let cells: Vec<_> = (0..50)
+                .flat_map(|y| vp[y * w2..y * w2 + CORPUS_COLS].to_vec())
+                .collect();
             let mut digest = 0xcbf29ce484222325u64;
             let mut got = 0usize;
             for c in cells {

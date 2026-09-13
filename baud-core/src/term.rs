@@ -267,18 +267,24 @@ pub struct Term<'b> {
     pub(crate) cx: Col,
     pub(crate) rows: Rows,
     pub(crate) cols: Cols,
-    /// The distance between rows in the grid.
+    /// The distance between rows in the grid: [`Storage::stride`], fixed for
+    /// the life of the storage.
     ///
-    /// **The live column count, not `MAX_COLS`.** Striding by the maximum put
-    /// consecutive rows 16 KB apart, and on a 128 KB eight-way L1 the set
-    /// index spans exactly 16 KB -- so every row of a 200-column screen mapped
-    /// to the same sets, and any operation touching several rows thrashed an
-    /// eight-way set with fifty of them. 78 KB of live cells were smeared over
-    /// 800 KB of address space. Measured, cells byte-identical: **+16% on an
-    /// ASCII payload that scrolls and +12% on one with newlines**, and flat on
-    /// one that never leaves a row -- which is exactly the split a set
-    /// conflict predicts.
-    pub(crate) stride: Cols,
+    /// **Neither the live column count nor `MAX_COLS`.** Striding by the
+    /// maximum put consecutive rows 16 KB apart, and on a 128 KB eight-way L1
+    /// the set index spans exactly 16 KB -- so every row of a 200-column
+    /// screen mapped to the same sets, and any operation touching several
+    /// rows thrashed an eight-way set with fifty of them; 78 KB of live cells
+    /// were smeared over 800 KB of address space. Striding by the live width
+    /// instead was **+16% on an ASCII payload that scrolls and +12% on one
+    /// with newlines**, flat on one that never leaves a row -- the split a
+    /// set conflict predicts -- and it made the pitch follow the geometry, so
+    /// a resize re-packed every row. [`store_stride`] keeps the win by
+    /// construction -- an odd number of lines aliases no way, and the
+    /// searched step spreads the rows' starts over the sets, which the first
+    /// fixed pitch did not and cost 10% for -- and it does not move when the
+    /// width does.
+    pub(crate) stride: Stride,
     pub(crate) rot: RowRot,
 
     pub(crate) style: StyleId,
@@ -543,88 +549,84 @@ impl<'b> Term<'b> {
     /// grid is caller-provided, so this can shrink freely and can only grow
     /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
     /// number, and asking for more returns `Truncated` rather than clamping in
-    /// silence. Columns are free to `MAX_COLS`, because `vp` is strided for the
-    /// maximum by construction.
+    /// silence. Columns are free to the pitch, which is `MAX_COLS` or more by
+    /// construction.
     ///
-    /// **The content does not survive.** Reflow is a renderer's problem and
-    /// this core has no renderer; a grid whose rows are a different width is a
-    /// different grid, and pretending otherwise means deciding where a wrapped
-    /// line breaks now -- a decision with no right answer at this layer.
+    /// **The content survives, clipped; nothing reflows.** The pitch is fixed,
+    /// so row `p` begins at the same cell before and after, and a change of
+    /// width moves nothing: a narrower screen blanks the columns it lost and a
+    /// wider one finds blank cells where it grew. A shorter screen keeps its
+    /// top rows. Reflow -- deciding where a wrapped line breaks now -- is a
+    /// renderer's problem and has no right answer at this layer; what this
+    /// layer owes is that a resize costs what it touches and no more, which
+    /// is the delta and not the grid. [`View::resized_from`] is the whole of
+    /// it, run over the live surface and the parked one alike, because both
+    /// are laid out at the one pitch.
     ///
-    /// Four things have to happen in an order that is not free.
+    /// Three things happen besides, in an order that is not free:
     ///
-    /// * **Both rotations go to `NONE` before anything blanks.** `Term.rot`
-    ///   and the parked `AltBuf.rot` are indexes into a row count that is
-    ///   about to change, and `viewport` un-rotates with `rotate_left_by` --
-    ///   which **panics** when the rotation is larger than the slice. Scroll a
-    ///   50-row screen, shrink to 10, ask for the viewport: `mid <= len`.
-    /// * **DECSTBM is reset.** xterm does, and a stale bottom margin points
-    ///   off the grid.
-    /// * **The parked primary is blanked whole**, not to the new `live()`.
-    ///   It is laid out at the *old* stride, so any partial blank keyed on the
-    ///   new geometry leaves reachable garbage that `restore_from` would copy
-    ///   back on the next `?1049 l`. Every full-screen program enters the
-    ///   alternate screen, so "resized while parked" is the common case.
-    /// * The cursor goes home, because there is no content to be relative to.
+    /// * **A change of height un-rotates first, over the old height.**
+    ///   `Term.rot` and the parked `AltBuf.rot` are indexes into a row count
+    ///   that is about to change, and `viewport` un-rotates with
+    ///   `rotate_left_by` -- which **panics** when the rotation is larger
+    ///   than the slice. Scroll a 50-row screen, shrink to 10, ask for the
+    ///   viewport: `mid <= len`. A change of width alone leaves the rotation
+    ///   where it is.
+    /// * **DECSTBM and the side margins are reset.** xterm does, a stale
+    ///   bottom margin points off the grid, and a stale *side* margin is an
+    ///   addressing error rather than a region: `cold.right` is what `room()`
+    ///   and every wrap test read, so a resize from 200 columns to 8 once left
+    ///   the write path believing it had 192 more than the grid has. Found by
+    ///   `autowrap_off_leaves_the_cursor_on_the_last_column`, after the
+    ///   margins work reset them on `RIS` and `DECSTR` and missed the third
+    ///   place that changes the geometry.
+    /// * **The cursor is clamped, not homed.** There is content to be
+    ///   relative to now, and a pending wrap at the old right edge is
+    ///   forgotten with the edge.
     ///
-    /// **Two things core2 does here and this does not, deliberately.** It
-    /// resets side margins, which this core does not record at all -- porting
-    /// the call would be a line that does nothing. And it rebuilds the tab
-    /// table, which is `MAX_COLS` long and stamped every eighth column at
-    /// construction, so no width change can invalidate it.
+    /// **One thing core2 does here and this does not, deliberately.** It
+    /// rebuilds the tab table, which is `MAX_COLS` long and stamped every
+    /// eighth column at construction, so no width change can invalidate it.
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
-        let cols = want_cols.clamp(MAX_COLS);
+        let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
         let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
+        let (old_rows, old_cols) = (self.rows, self.cols);
 
-        self.rows = rows;
-        self.cols = cols;
-        self.stride = Cols::from_stride(cols.index());
-        self.cy = Row::ZERO;
-        self.cx = Col::ZERO;
-        self.cold.top = Row::ZERO;
-        self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
-        // **The side margins go with the vertical ones**, and leaving them was
-        // worse than leaving a scrolling region: `cold.right` is what `room()`
-        // and every wrap test read, so a resize from 200 columns to 8 left the
-        // write path believing it had 192 more than the grid has. A stale
-        // region is a region; a stale *margin* is an addressing error.
-        //
-        // Found by `autowrap_off_leaves_the_cursor_on_the_last_column`, which
-        // resizes to 4x8 first -- the margins work added the field and reset it
-        // on `RIS` and `DECSTR` and missed the third place that changes the
-        // geometry.
-        self.cold.left = Col::ZERO;
-        self.cold.right = Col::at_index(cols.index().saturating_sub(1));
-        // Before the blanks, and both of them.
-        self.rot = RowRot::NONE;
-        self.store.alt.rot = RowRot::NONE;
-
-        let mut v = View::new(
+        // Both surfaces, at the pitch they share; each answers the rotation
+        // it is now under, and both count what they touched.
+        let (rot, n) = View::new(
             self.store.vp,
             self.store.used,
             self.stride,
             cols,
             rows,
             self.rot,
-        );
-        for y in 0..rows.index() {
-            v.fill(
-                Row::from_index(y),
-                Col::ZERO,
-                Col::at_index(cols.index()),
-                PackedCell::EMPTY,
-            );
-        }
-        // Whole, at whatever stride it was written in.
-        for c in self.store.alt.cells.iter_mut() {
-            *c = PackedCell::EMPTY;
-        }
-        for u in self.store.alt.used.iter_mut() {
-            *u = RowExtent::ZERO;
-        }
+        )
+        .resized_from(old_rows, old_cols);
+        self.rot = rot;
+        let (parked, m) = View::new(
+            self.store.alt.cells,
+            self.store.alt.used,
+            self.stride,
+            cols,
+            rows,
+            self.store.alt.rot,
+        )
+        .resized_from(old_rows, old_cols);
+        self.store.alt.rot = parked;
+        self.cells_written += n + m;
+
+        self.rows = rows;
+        self.cols = cols;
+        self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
+        self.cx = Col::at_index(self.cx.index().min(cols.index() - 1));
+        self.cold.top = Row::ZERO;
+        self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
+        self.cold.left = Col::ZERO;
+        self.cold.right = Col::at_index(cols.index().saturating_sub(1));
         match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
@@ -640,7 +642,13 @@ impl<'b> Term<'b> {
             *stop = i % 8 == 0 && i != 0;
         }
         let (cols, rows) = ws.geometry();
-        let (cols, rows) = (cols.clamp(MAX_COLS), rows.clamp(MAX_ROWS));
+        // The pitch admits `MAX_COLS` by construction; a bench arm that lays
+        // the grid out narrower bounds the width with it.
+        let stride = store.stride;
+        let (cols, rows) = (
+            cols.clamp(MAX_COLS).clamp(stride.index()),
+            rows.clamp(MAX_ROWS),
+        );
         Term {
             #[cfg(feature = "ceiling-segment-cache")]
             seen: [SegHash::ZERO; crate::feed::SEGS],
@@ -651,7 +659,7 @@ impl<'b> Term<'b> {
             cx: Col::ZERO,
             rows,
             cols,
-            stride: Cols::from_stride(cols.index()),
+            stride,
             rot: RowRot::NONE,
             style: StyleId::DEFAULT,
             style_raw: StyleWord::DEFAULT,
@@ -855,10 +863,11 @@ impl<'b> Term<'b> {
 
     /// The distance between rows in the slice [`Term::viewport`] returns.
     ///
-    /// **A renderer indexes by this, not by `MAX_COLS`.** The grid is
-    /// contiguous at the live width, which is what keeps consecutive rows off
-    /// the same L1 sets.
-    pub fn stride(&self) -> Cols {
+    /// **A renderer indexes by this, not by `MAX_COLS` and not by the
+    /// width.** The pitch is fixed for the life of the storage at
+    /// [`store_stride`]'s choice, which is what keeps consecutive rows off
+    /// the same L1 sets, and it survives a resize.
+    pub fn stride(&self) -> Stride {
         self.stride
     }
 

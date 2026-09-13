@@ -51,7 +51,7 @@
 
 use crate::slots;
 use baud_core::Term;
-use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows};
+use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px;
 use baud_render::{
     Atlas, Dirty, Generation, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer, Replaced,
@@ -408,7 +408,7 @@ pub struct CellInput<'a> {
     pub grid: &'a GridBuffer,
     pub styles: &'a StylesBuffer,
     pub map: &'a MapBuffer,
-    pub stride: Cols,
+    pub stride: Stride,
     pub rotation: RowRot,
     pub cursor: Option<(Row, Col, CursorStyle)>,
 }
@@ -741,7 +741,7 @@ impl Gpu {
     pub fn grid(
         &self,
         rows: Rows,
-        stride: Cols,
+        stride: Stride,
     ) -> Option<(GridBuffer, &'static mut [PackedCell])> {
         let n = rows.index().saturating_mul(stride.index());
         let buffer = self.shared(Span(n.saturating_mul(core::mem::size_of::<PackedCell>())))?;

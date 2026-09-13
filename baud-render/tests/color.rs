@@ -39,7 +39,7 @@ fn colour_glyphs_and_rendition_shapes_reach_the_pixels() {
         PxSize::of(20.0).unwrap(),
         Theme::dark(),
         Blend::Native,
-        Cols::from_stride(usize::from(WS.ws_col)),
+        Cols::of_index(usize::from(WS.ws_col)),
         Rows::of_index(usize::from(WS.ws_row)),
     )
     .unwrap();

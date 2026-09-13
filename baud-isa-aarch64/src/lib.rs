@@ -20,6 +20,10 @@
 use baud_domain::*;
 use baud_isa::{Decode, DecodedBlock, LANES, Portable, Scan};
 
+mod cache;
+
+pub use cache::Host;
+
 /// The aarch64 scanner: `shrn` instead of a horizontal reduction.
 ///
 /// NEON is baseline on aarch64 -- there is no feature to detect and no

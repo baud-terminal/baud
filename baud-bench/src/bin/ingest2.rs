@@ -9,6 +9,7 @@
 //! ```
 
 use baud_core::*;
+use baud_domain::Stride;
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -37,6 +38,44 @@ fn power_source() -> String {
 /// on a benchmark payload generator.
 fn alloc_sgr(n: usize) -> String {
     format!("\x1b[{n}m")
+}
+
+/// The row pitch the arm under measurement lays the grid out at.
+///
+/// **One binary per arm**, because a runtime switch in the loop once measured
+/// a fake 13-17%. The default is what ships: the pitch `grid_stride` derives
+/// from the cache geometry. `stride-live` is the
+/// layout this core had before -- the live column count, the +14% over the
+/// aliasing one that the fixed pitch has to match. `stride-pad0` is the
+/// aliasing layout itself, `MAX_COLS` cells and exactly one L1 way a row on
+/// this class of machine, kept as the positive control: an instrument that
+/// cannot see the 14% cannot see the pitch either.
+fn stride_arm(ws: &WinSize) -> Stride {
+    #[cfg(feature = "stride-live")]
+    {
+        let (cols, _) = ws.geometry();
+        Stride::of_cells(cols.index())
+    }
+    #[cfg(feature = "stride-pad0")]
+    {
+        let _ = ws;
+        Stride::of_cells(MAX_COLS)
+    }
+    #[cfg(feature = "stride-env")]
+    {
+        let _ = ws;
+        let n = std::env::var("BAUD_STRIDE").expect("BAUD_STRIDE=<cells>");
+        Stride::of_cells(n.parse().expect("BAUD_STRIDE is a cell count"))
+    }
+    #[cfg(not(any(
+        feature = "stride-live",
+        feature = "stride-pad0",
+        feature = "stride-env"
+    )))]
+    {
+        let _ = ws;
+        grid_stride(&baud_bench::host_geometry())
+    }
 }
 
 fn main() {
@@ -208,7 +247,13 @@ fn main() {
         ws_col: 200,
     };
     let (_, rows) = ws.geometry();
-    let span = RowBlock::leading(rows, Cols::from_stride(MAX_COLS));
+    let stride = stride_arm(&ws);
+    eprintln!(
+        "grid pitch: {} cells, {} B a row",
+        stride.index(),
+        stride.bytes()
+    );
+    let span = RowBlock::leading(rows, stride);
     let mut arena = vec![0u8; ARENA];
     let mut vp = vec![PackedCell::EMPTY; span.len()];
     let mut used = vec![RowExtent::ZERO; rows.index()];
@@ -235,6 +280,7 @@ fn main() {
     let mut t = Term::new(
         Storage::new(
             &mut arena,
+            stride,
             &mut vp,
             &mut used,
             &mut cells3,

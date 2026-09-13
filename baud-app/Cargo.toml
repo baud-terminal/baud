@@ -16,6 +16,16 @@ baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render" }
 libc = "0.2"
 
+# The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
+# it may ask the kernel. Target-gated the way `baud-core` gates its scans.
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-aarch64 = { path = "../baud-isa-aarch64", features = ["std"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+baud-isa = { path = "../baud-isa" }
+baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }

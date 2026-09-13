@@ -12,7 +12,7 @@ fn legal_uses_compile() {
 
     // typed grid: indexed by axis, never by integer
     let mut buf = vec![Cell2::default(); 80 * 24];
-    let mut g = Grid::new(&mut buf, cols, rows);
+    let mut g = Grid::new(&mut buf, Stride::of_cells(cols.index()), rows);
     let r = OneBased::from_param(None).to_row(rows);
     let c = OneBased::from_param(None).to_col(cols);
     g[(r, c)] = Cell2 { v: 7 };
