@@ -59,14 +59,16 @@ enum Path {
 
 /// What `BAUD_GPU` asks for.
 ///
-/// **Unset is `Auto`: probe once and take the best path the machine
-/// supports** -- Metal over the converted instances, else the CPU. The cell
-/// path stays opt-in (`cells`), because it draws a smaller program: no
-/// cross-cell ligature and no attached mark, counted by
-/// `MapStats::dropped_marks` at 55 cells a frame on cat-cjk. That is a
-/// fidelity trade a user makes, not one a probe makes for them. `0` or `cpu`
-/// forces the CPU, for a comparison that needs it; a bench pins the path
-/// explicitly so two arms never measure two tiers.
+/// **Unset is `Auto`: probe once and take the fastest path the machine
+/// supports** -- the raw grid read by the shader where it lives, which costs
+/// the CPU 15-20 us a frame on every recording; else Metal over the
+/// converted instances; else the CPU. The cell path draws a smaller program
+/// -- no cross-cell ligature and no attached mark, counted by
+/// `MapStats::dropped_marks` at 55 cells a frame on cat-cjk -- and the owner
+/// took that trade for the default (2026-09-13) until the hybrid lands;
+/// `1` asks for the instances and their fidelity, `0` or `cpu` forces the
+/// CPU for a comparison that needs it. A bench pins the path explicitly so
+/// two arms never measure two tiers.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Request {
     Auto,
@@ -245,30 +247,24 @@ impl App {
         };
         let rows = Rows::of_index(usize::from(MAX_GRID.ws_row));
         let (mut wanted, gpu, term, grid) = match (request, probe) {
-            (Request::Force(Path::Cells), Some(gpu)) => match gpu.grid(rows, pitch) {
-                Some((grid, cells)) => {
-                    let owned: &'static mut Owned =
-                        Box::leak(Box::new(Owned::without_viewport(&MAX_GRID, &geom)));
-                    let term = Term::new(owned.storage_over(cells), &ws);
-                    (Path::Cells, Some(gpu), term, Some(grid))
+            (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
+                match gpu.grid(rows, pitch) {
+                    Some((grid, cells)) => {
+                        let owned: &'static mut Owned =
+                            Box::leak(Box::new(Owned::without_viewport(&MAX_GRID, &geom)));
+                        let term = Term::new(owned.storage_over(cells), &ws);
+                        (Path::Cells, Some(gpu), term, Some(grid))
+                    }
+                    None => {
+                        eprintln!("no shared grid; drawing the instances");
+                        (Path::Instances, Some(gpu), own_grid(&ws), None)
+                    }
                 }
-                None => {
-                    eprintln!("BAUD_GPU=cells but no shared grid; drawing the instances");
-                    (Path::Instances, Some(gpu), own_grid(&ws), None)
-                }
-            },
-            (Request::Force(Path::Cells), None) => {
-                eprintln!("BAUD_GPU=cells but no Metal device or shaders; drawing on the CPU");
-                (Path::Cpu, None, own_grid(&ws), None)
             }
-            (Request::Force(Path::Instances) | Request::Auto, Some(gpu)) => {
+            (Request::Force(Path::Instances), Some(gpu)) => {
                 (Path::Instances, Some(gpu), own_grid(&ws), None)
             }
-            (Request::Force(Path::Instances), None) => {
-                eprintln!("BAUD_GPU=1 but no Metal device or shaders; drawing on the CPU");
-                (Path::Cpu, None, own_grid(&ws), None)
-            }
-            (Request::Auto, None) => {
+            (Request::Force(Path::Cells | Path::Instances) | Request::Auto, None) => {
                 eprintln!("no Metal device or shaders; drawing on the CPU");
                 (Path::Cpu, None, own_grid(&ws), None)
             }
@@ -321,7 +317,7 @@ impl App {
                     map: GlyphMap::over(entries),
                 }),
                 _ => {
-                    eprintln!("BAUD_GPU=cells but no shared styles or map; drawing the instances");
+                    eprintln!("no shared styles or map; drawing the instances");
                     // The terminal's viewport lives in this buffer for the
                     // life of the process, whichever path draws it.
                     std::mem::forget(grid);
