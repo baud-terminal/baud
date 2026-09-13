@@ -14,11 +14,17 @@ size=$(stty size 2>/dev/null | tr ' ' 'x')
 bytes=$(wc -c <"$rec")
 sleep 1
 t0=$(perl -MTime::HiRes=time -e 'print time')
+# One `cat` over the recording `reps` times, not one a rep: a fork and
+# exec is ~5 ms on this box, and twenty of them were half the wall of a
+# 200 ms run -- the same half for every terminal, so the band they all sat
+# in was mostly the harness's own forks.
+args=()
 i=0
 while [ "$i" -lt "$reps" ]; do
-  cat "$rec"
+  args+=("$rec")
   i=$((i + 1))
 done
+[ "$reps" -gt 0 ] && cat "${args[@]}"
 # Every recording is truncated mid-session: btop's ends in a lone ESC and
 # inside a synchronised update. So end the update -- wezterm holds its
 # replies while one is open, and its RIS does not close it -- then reset

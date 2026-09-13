@@ -87,6 +87,18 @@ enum Trigger {
     Wake,
 }
 
+/// Where the grid comes from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sizing {
+    /// The window's size, through the view's resize callback.
+    Window,
+    /// `BAUD_GRID`: the window was sized to the grid, and the grid does
+    /// not follow the window back. The callback fires with the view's
+    /// default frame before it settles at the window's, and a pty resized
+    /// through that transient is what a benchmark's child read as 120x40.
+    Fixed,
+}
+
 struct App {
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
@@ -102,6 +114,7 @@ struct App {
     frame_h: Px,
     scale: CGFloat,
     grid: WinSize,
+    sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
     frames: Tally,
@@ -119,7 +132,7 @@ struct App {
 }
 
 impl App {
-    fn new(ws: WinSize, scale: CGFloat, waker: Waker) -> App {
+    fn new(ws: WinSize, sizing: Sizing, scale: CGFloat, waker: Waker) -> App {
         let wanted = wanted();
         // The storage, the font files and the faces live as long as the
         // process: the renderer borrows them for the life of the window.
@@ -206,6 +219,7 @@ impl App {
             frame_h,
             scale,
             grid: ws,
+            sizing,
             pending: Pending::Dirty,
             frames: Tally::default(),
             last_report: std::time::Instant::now(),
@@ -562,6 +576,9 @@ impl Responder for Driver {
             // the renderer is rebuilt with it.
             self.app.scale = scale;
         }
+        if self.app.sizing == Sizing::Fixed {
+            return;
+        }
         let px_w = size.width * scale;
         let px_h = size.height * scale;
         let cols = ((px_w / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
@@ -644,6 +661,11 @@ pub fn run() {
                 ws_row: ws.ws_row,
             },
         ),
+        if grid.is_some() {
+            Sizing::Fixed
+        } else {
+            Sizing::Window
+        },
         scale,
         view.waker(),
     );
