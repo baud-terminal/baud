@@ -1,23 +1,27 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
-use crate::pty::Pty;
+use crate::pty::{Pty, Stream};
 use baud_core::{Owned, Term};
-use baud_domain::PackedCell;
 use baud_domain::{
     BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
 };
 use baud_font::{Face, FaceIndex, Px};
-use baud_present_macos::{CellInput, GpuFrame, Mode, Presenter};
-use baud_render::{Blend, Damage, Frame, GlyphMap, PxSize, Renderer, Stack, Tally, Target, Theme};
+use baud_present_macos::{
+    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presenter, StylesBuffer,
+};
+use baud_render::{
+    Blend, Damage, Frame, GlyphMap, PxSize, Renderer, Resolved, Stack, Tally, Target, Theme,
+};
 use macos_liquid_glass::drawable::{
-    DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll,
+    DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 use macos_liquid_glass::window::GlassWindow;
+use std::time::{Duration, Instant};
 
 /// Whether the screen needs painting.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,10 +69,33 @@ const FACES: [(&str, u32); 3] = [
     ("/System/Library/Fonts/Apple Symbols.ttf", 0),
 ];
 
+/// The cell path's memory, all of it where the GPU reads it: the grid the
+/// core writes, the styles the renderer resolves, the map the walk fills.
+struct CellMemory {
+    grid: GridBuffer,
+    styles: StylesBuffer,
+    styles_mem: &'static mut [Resolved],
+    map_buffer: MapBuffer,
+    map: GlyphMap<'static>,
+}
+
+/// What asked for a frame: the display link's tick, which is the vsync,
+/// or a wake from another thread.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    Tick,
+    Wake,
+}
+
 struct App {
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
     presenter: Option<Presenter>,
+    /// The GPU made before the terminal, on the cell path, so the grid
+    /// could be lent from it; taken by the presenter when it exists.
+    gpu: Option<Gpu>,
+    cell: Option<CellMemory>,
+    waker: Waker,
     pty: Pty,
     frame: Vec<u32>,
     frame_w: Px,
@@ -82,19 +109,48 @@ struct App {
     stats: Frame,
     gpu_stats: GpuFrame,
     wanted: Path,
-    /// The cell path's glyph map and its copy of the grid: the copy exists
-    /// because `Term::viewport` borrows the terminal exclusively while the
-    /// styles still have to be resolved against it.
-    map: GlyphMap,
-    cells: Vec<PackedCell>,
+    /// When the last frame was committed, and how far apart the display
+    /// link's ticks are: a wake draws at once when a frame's worth of time
+    /// has passed, and leaves it to the tick otherwise, so a flood draws
+    /// once a vsync and a keystroke draws now.
+    last_commit: Instant,
+    interval: Duration,
+    last_tick: Option<f64>,
 }
 
 impl App {
-    fn new(ws: WinSize, scale: CGFloat) -> App {
+    fn new(ws: WinSize, scale: CGFloat, waker: Waker) -> App {
+        let wanted = wanted();
         // The storage, the font files and the faces live as long as the
         // process: the renderer borrows them for the life of the window.
-        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&MAX_GRID)));
-        let term = Term::new(owned.storage(), &ws);
+        // On the cell path the viewport is not the storage's own: it is
+        // lent by the GPU, so the grid the core writes is the grid the
+        // shader reads, in place.
+        let (gpu, term, grid) = match wanted {
+            Path::Cells => match Gpu::new() {
+                Some(gpu) => {
+                    let (grid, cells) = gpu
+                        .grid(
+                            Rows::of_index(usize::from(MAX_GRID.ws_row)),
+                            Cols::from_stride(baud_core::MAX_COLS),
+                        )
+                        .expect("a shared grid");
+                    let owned: &'static mut Owned =
+                        Box::leak(Box::new(Owned::without_viewport(&MAX_GRID)));
+                    let term = Term::new(owned.storage_over(cells), &ws);
+                    (Some(gpu), term, Some(grid))
+                }
+                None => {
+                    eprintln!("BAUD_GPU=cells but no Metal device; drawing on the CPU");
+                    let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&MAX_GRID)));
+                    (None, Term::new(owned.storage(), &ws), None)
+                }
+            },
+            _ => {
+                let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&MAX_GRID)));
+                (None, Term::new(owned.storage(), &ws), None)
+            }
+        };
         let data: Vec<&'static [u8]> = FACES
             .iter()
             .map(|(path, _)| {
@@ -120,12 +176,30 @@ impl App {
             Rows::of_index(usize::from(ws.ws_row)),
         )
         .expect("cell metrics");
-        let pty = Pty::spawn(&ws).expect("pty");
+        let reader_waker = waker;
+        let pty = Pty::spawn(&ws, move || reader_waker.wake()).expect("pty");
         let (frame_w, frame_h) = renderer.pixel_size();
+        let cell = match (&gpu, grid) {
+            (Some(gpu), Some(grid)) => {
+                let (styles, styles_mem) = gpu.styles(&term).expect("shared styles");
+                let (map_buffer, entries) = gpu.map().expect("a shared map");
+                Some(CellMemory {
+                    grid,
+                    styles,
+                    styles_mem,
+                    map_buffer,
+                    map: GlyphMap::over(entries),
+                })
+            }
+            _ => None,
+        };
         App {
             term,
             renderer,
             presenter: None,
+            gpu,
+            cell,
+            waker,
             pty,
             frame: vec![0; slots(frame_w) * slots(frame_h)],
             frame_w,
@@ -137,9 +211,10 @@ impl App {
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
-            wanted: wanted(),
-            map: GlyphMap::new(),
-            cells: Vec::new(),
+            wanted,
+            last_commit: Instant::now(),
+            interval: Duration::from_micros(8333),
+            last_tick: None,
         }
     }
 
@@ -168,12 +243,21 @@ impl App {
             self.frame_w = w;
             self.frame_h = h;
             self.frame = vec![0; slots(w) * slots(h)];
-            self.presenter = match self.wanted {
-                Path::Instances | Path::Cells => Presenter::with_gpu(w, h).or_else(|| {
-                    eprintln!("BAUD_GPU set but no Metal device or shaders; drawing on the CPU");
-                    Presenter::new(w, h)
-                }),
-                Path::Cpu => Presenter::new(w, h),
+            self.presenter = match (self.wanted, self.gpu.take(), self.presenter.take()) {
+                // A presenter that exists keeps its GPU across a resize.
+                (Path::Instances | Path::Cells, _, Some(mut p)) if p.mode() == Mode::Gpu => {
+                    p.resize(w, h).map(|()| p)
+                }
+                (Path::Instances | Path::Cells, Some(gpu), _) => Presenter::over(gpu, w, h),
+                (Path::Instances | Path::Cells, None, _) => {
+                    Presenter::with_gpu(w, h).or_else(|| {
+                        eprintln!(
+                            "BAUD_GPU set but no Metal device or shaders; drawing on the CPU"
+                        );
+                        Presenter::new(w, h)
+                    })
+                }
+                (Path::Cpu, _, _) => Presenter::new(w, h),
             };
             if let Some(p) = &self.presenter {
                 eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
@@ -184,34 +268,42 @@ impl App {
             return;
         }
         let damage = Damage::Incremental;
-        match self.presenter.as_ref().map(Presenter::mode) {
-            Some(Mode::Gpu) if self.wanted == Path::Cells => {
-                let t0 = std::time::Instant::now();
-                self.cells.clear();
-                self.cells.extend_from_slice(self.term.viewport());
-                self.map.ensure(&self.cells, &mut self.renderer);
+        let waker = self.waker;
+        match (
+            self.presenter.as_ref().map(Presenter::mode),
+            self.cell.as_mut(),
+        ) {
+            (Some(Mode::Gpu), Some(cell)) => {
+                let t0 = Instant::now();
+                cell.map.ensure(self.term.cells(), &mut self.renderer);
                 let cursor = self.term.cursor_visible().then(|| {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
                 });
-                let styles = self.renderer.resolve_styles(&self.term).to_vec();
+                self.renderer
+                    .resolve_styles_into(&self.term, cell.styles_mem);
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
                 };
                 let input = CellInput {
-                    cells: &self.cells,
-                    styles: &styles,
-                    map: &self.map,
+                    grid: &cell.grid,
+                    styles: &cell.styles,
+                    map: &cell.map_buffer,
+                    stride: self.term.stride(),
+                    rotation: self.term.rotation(),
                     cursor,
                 };
                 if let Some(p) = &mut self.presenter {
-                    if let Some(g) = p.draw_cells(view, &self.renderer, &input) {
-                        self.gpu_stats = g;
+                    match p.draw_cells(waker, &mut self.renderer, &input) {
+                        Some(Drawn::Frame(g)) => self.gpu_stats = g,
+                        // Still in flight: the completion wakes us.
+                        Some(Drawn::Busy) => return,
+                        None => {}
                     }
                 }
             }
-            Some(Mode::Gpu) => {
+            (Some(Mode::Gpu), None) => {
                 let converted = self.renderer.convert(&mut self.term, damage);
                 self.stats = Frame {
                     rows_dirty: converted.rows_dirty,
@@ -220,8 +312,10 @@ impl App {
                     ..Frame::default()
                 };
                 if let Some(p) = &mut self.presenter {
-                    if let Some(g) = p.draw(view, &self.renderer) {
-                        self.gpu_stats = g;
+                    match p.draw(waker, &mut self.renderer) {
+                        Some(Drawn::Frame(g)) => self.gpu_stats = g,
+                        Some(Drawn::Busy) => return,
+                        None => {}
                     }
                 }
             }
@@ -237,11 +331,12 @@ impl App {
             }
         }
         self.pending = Pending::Clean;
+        self.last_commit = Instant::now();
         self.frames.bump();
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
                 Some(Mode::Gpu) => eprintln!(
-                    "{} frames; last: {} rows, {} instances, convert {:?}, upload {:?}, submit {:?}, gpu {:?}",
+                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}, gpu {:?}",
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
                     self.gpu_stats.instances.value(),
@@ -323,6 +418,43 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
+}
+
+impl Driver {
+    /// One turn of the loop, on any event: while a frame is in flight the
+    /// bytes stay in the channel, because the grid they would write is
+    /// the grid the GPU is reading, and the completion wakes us. Otherwise
+    /// feed everything that arrived, then draw -- at once on a tick, and
+    /// on a wake only if a frame's worth of time has passed since the last
+    /// commit, so a flood draws once a vsync and a keystroke draws now.
+    fn pump(&mut self, trigger: Trigger) {
+        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+            return;
+        }
+        let drained = self.app.pty.drain();
+        for chunk in &drained.chunks {
+            self.app.term.write_at(BytePos::ZERO, chunk);
+            self.app
+                .term
+                .feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+            self.app.pending = Pending::Dirty;
+        }
+        self.app.flush_reply();
+        if drained.stream == Stream::Closed {
+            // The child is gone: the window has nothing left to show.
+            if let Some(mtm) = MainThreadMarker::new() {
+                NSApplication::sharedApplication(mtm).terminate(None);
+            }
+        }
+        if self.app.pending != Pending::Dirty {
+            return;
+        }
+        let due = trigger == Trigger::Tick || self.app.last_commit.elapsed() >= self.app.interval;
+        if due {
+            let view = self.view.clone();
+            self.app.present(&view);
+        }
+    }
 }
 
 impl Responder for Driver {
@@ -427,19 +559,19 @@ impl Responder for Driver {
         }
     }
 
-    fn frame(&mut self, _target: f64) {
-        for chunk in self.app.pty.drain() {
-            self.app.term.write_at(BytePos::ZERO, &chunk);
-            self.app
-                .term
-                .feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
-            self.app.pending = Pending::Dirty;
+    fn frame(&mut self, target: f64) {
+        if let Some(last) = self.app.last_tick {
+            let dt = target - last;
+            if dt > 0.001 && dt < 0.1 {
+                self.app.interval = Duration::from_secs_f64(dt);
+            }
         }
-        self.app.flush_reply();
-        if self.app.pending == Pending::Dirty {
-            let view = self.view.clone();
-            self.app.present(&view);
-        }
+        self.app.last_tick = Some(target);
+        self.pump(Trigger::Tick);
+    }
+
+    fn wake(&mut self) {
+        self.pump(Trigger::Wake);
     }
 
     fn focus(&mut self, _focus: Focus) {}
@@ -475,7 +607,19 @@ pub fn run() {
             ws_row: 24,
         },
         scale,
+        view.waker(),
     );
+    // `BAUD_GRID=COLSxROWS` sizes the window to a grid, in points from the
+    // cell metrics at this scale, so a benchmark runs every terminal at one
+    // geometry.
+    if let Some(grid) = std::env::var("BAUD_GRID").ok().and_then(|g| {
+        let (c, r) = g.split_once('x')?;
+        Some((c.parse::<f64>().ok()?, r.parse::<f64>().ok()?))
+    }) {
+        let (cw, ch) = probe.metrics_cell();
+        let wanted = NSSize::new(grid.0 * cw / scale, grid.1 * ch / scale);
+        window.ns_window().setContentSize(wanted);
+    }
     let driver = Driver {
         app: probe,
         view: view.clone(),

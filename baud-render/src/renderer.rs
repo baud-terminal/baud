@@ -127,8 +127,6 @@ pub struct Renderer<'f, 'a> {
     last_cursor: Cursor,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
-    /// The rendition table resolved slot by slot, for the cell path.
-    resolved: Vec<Resolved>,
     /// The palette the last frame resolved against: `OSC 4` repaints
     /// cells whose words never change, so a different palette is a full
     /// frame.
@@ -186,7 +184,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             per_row: Vec::new(),
             last_cursor: None,
             dirty: Vec::new(),
-            resolved: Vec::new(),
             last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
         };
@@ -378,6 +375,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.atlas
     }
 
+    /// The atlas, for a copy that takes its dirty rectangles.
+    pub fn atlas_mut(&mut self) -> &mut Atlas {
+        &mut self.atlas
+    }
+
     /// The grid the last frame was converted for.
     pub fn grid(&self) -> (Cols, Rows) {
         (self.cols, self.rows)
@@ -404,13 +406,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The terminal's rendition table resolved through the theme and the
-    /// live palette, one entry a slot, by the same rules `convert` applies
-    /// a cell at a time -- so the cell path draws a rendition the way the
-    /// instance path does, without a second spelling of them.
-    pub fn resolve_styles(&mut self, term: &Term<'_>) -> &[Resolved] {
+    /// live palette into `out`, one entry a slot, by the same rules
+    /// `convert` applies a cell at a time -- so the cell path draws a
+    /// rendition the way the instance path does, without a second spelling
+    /// of them. `out` is the memory a shader reads, so nothing is copied
+    /// after this. Slots past `out` are not resolved; the count written is
+    /// returned.
+    pub fn resolve_styles_into(&self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
         let table = term.styles();
-        self.resolved.clear();
-        for slot in table {
+        let mut n = Tally::default();
+        for (slot, dst) in table.iter().zip(out.iter_mut()) {
             let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
             let (fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
             if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
@@ -428,14 +433,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if underline == fg && style.underline().is_default() {
                 shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
             }
-            self.resolved.push(Resolved {
+            *dst = Resolved {
                 fg,
                 bg,
                 underline,
                 shapes,
-            });
+            };
+            n.bump();
         }
-        &self.resolved
+        n
     }
 
     /// Resolves one row's colours and glyphs.

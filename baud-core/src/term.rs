@@ -893,6 +893,21 @@ impl<'b> Term<'b> {
     /// insertion that landed between a comment and its function, the
     /// stranded-attribute shape `CLAUDE.md` records seven times for
     /// `#[inline]`, here on a `///`.
+    /// The live grid as the core holds it: `rows` rows of [`Term::stride`]
+    /// cells, still under the rotation -- screen row `y` is physical row
+    /// `(y + rotation) % rows`, [`Term::rotation`]. What a reader that can
+    /// apply the rotation itself -- a shader, one multiply and one modulo a
+    /// cell -- takes, so the grid is read in place and the in-place turn
+    /// [`Term::viewport`] pays once a frame is never paid at all.
+    pub fn cells(&self) -> &[PackedCell] {
+        RowBlock::leading(self.rows, self.stride).of(self.store.vp)
+    }
+
+    /// The rotation [`Term::cells`] is under.
+    pub fn rotation(&self) -> RowRot {
+        self.rot
+    }
+
     pub fn viewport(&mut self) -> &[PackedCell] {
         let stride = self.stride;
         let live = RowBlock::leading(self.rows, stride);

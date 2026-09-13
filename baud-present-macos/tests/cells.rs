@@ -3,6 +3,11 @@
 //! cursor in each shape. A pixel that differs is a rule one arm applies
 //! and the other does not.
 //!
+//! The cell arm reads the terminal's viewport in place -- the grid is
+//! shared GPU memory lent to the core, under its rotation -- so the test
+//! also checks that a grid read that way, rotation and all, matches the
+//! instance arm's turned copy.
+//!
 //! macOS only, and it needs a Metal device: it panics without one rather
 //! than passing, because a comparison that skips itself reads as a pass.
 #![cfg(target_os = "macos")]
@@ -10,8 +15,8 @@
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_present_macos::{CellInput, Gpu};
-use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Stack, Theme};
+use baud_present_macos::{CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, StylesBuffer};
+use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Resolved, Stack, Theme};
 
 const WS: WinSize = WinSize {
     ws_col: 40,
@@ -39,6 +44,11 @@ fn scene(t: &mut Term<'_>) {
 struct Arms<'f, 'a> {
     gpu: Gpu,
     renderer: Renderer<'f, 'a>,
+    grid: GridBuffer,
+    styles: StylesBuffer,
+    styles_mem: &'static mut [Resolved],
+    map_buffer: MapBuffer,
+    map: GlyphMap<'static>,
 }
 
 impl Arms<'_, '_> {
@@ -48,31 +58,38 @@ impl Arms<'_, '_> {
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target_a = self.gpu.offscreen(w, h).expect("target");
         let target_b = self.gpu.offscreen(w, h).expect("target");
-        self.renderer.convert(t, Damage::Full);
-        self.gpu.draw(&self.renderer, &target_a).expect("draw");
-        let mut a = vec![0u32; n];
-        self.gpu.read(&target_a, &mut a).expect("read");
-        let cells = t.viewport().to_vec();
-        let mut map = GlyphMap::new();
-        map.ensure(&cells, &mut self.renderer);
+        // The cell arm first: it reads the grid under its rotation, and the
+        // instance arm's `convert` would turn it in place.
+        self.map.ensure(t.cells(), &mut self.renderer);
         let cursor = t.cursor_visible().then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
         });
-        let styles = self.renderer.resolve_styles(t).to_vec();
+        self.renderer.resolve_styles_into(t, self.styles_mem);
         let input = CellInput {
-            cells: &cells,
-            styles: &styles,
-            map: &map,
+            grid: &self.grid,
+            styles: &self.styles,
+            map: &self.map_buffer,
+            stride: t.stride(),
+            rotation: t.rotation(),
             cursor,
         };
-        self.gpu
-            .draw_cells(&self.renderer, &input, &target_b)
-            .expect("draw_cells");
+        let Some(Drawn::Frame(_)) =
+            self.gpu
+                .draw_cells(&mut self.renderer, &input, &target_b, Done::Wait)
+        else {
+            panic!("draw_cells");
+        };
         let mut b = vec![0u32; n];
         self.gpu.read(&target_b, &mut b).expect("read");
+        self.renderer.convert(t, Damage::Full);
+        let Some(Drawn::Frame(_)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
+            panic!("draw");
+        };
+        let mut a = vec![0u32; n];
+        self.gpu.read(&target_a, &mut a).expect("read");
         assert!(
-            map.stats().live.value() > 20,
+            self.map.stats().live.value() > 20,
             "the map holds the scene's glyphs"
         );
         (a, b)
@@ -100,12 +117,28 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         Rows::of_index(usize::from(WS.ws_row)),
     )
     .unwrap();
+    let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
+    // The viewport is the GPU's memory: the core writes it, the shader
+    // reads it.
+    let (grid, cells) = gpu
+        .grid(
+            Rows::of_index(usize::from(WS.ws_row)),
+            Cols::from_stride(baud_core::MAX_COLS),
+        )
+        .expect("a shared grid");
+    let mut owned = Owned::without_viewport(&WS);
+    let mut t = Term::new(owned.storage_over(cells), &WS);
+    let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
+    let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut arms = Arms {
-        gpu: Gpu::new().expect("a Metal device; this test cannot skip itself"),
+        gpu,
         renderer,
+        grid,
+        styles,
+        styles_mem,
+        map_buffer,
+        map: GlyphMap::over(map_mem),
     };
-    let mut owned = Owned::new(&WS);
-    let mut t = Term::new(owned.storage(), &WS);
     scene(&mut t);
     // Every cursor shape, block first.
     for (shape, name) in [
@@ -126,6 +159,18 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "{diff} pixels differ between the arms with a {name} cursor"
         );
     }
+    // Scroll the scene so the grid is under a rotation, and compare again:
+    // the cell arm reads it rotated, the instance arm turns it.
+    feed(&mut t, b"\x1b[6;1H\r\nafter one\r\nafter two");
+    assert_ne!(t.rotation().index(), 0, "the scene scrolled");
+    let (a, b) = arms.draw(&mut t);
+    let diff = differing(&a, &b);
+    assert_eq!(
+        diff,
+        0,
+        "{diff} pixels differ under a rotation of {}",
+        t.rotation().index()
+    );
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

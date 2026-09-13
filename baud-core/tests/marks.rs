@@ -243,3 +243,35 @@ fn the_style_table_is_what_style_of_reads() {
         t.viewport()[..14].iter().map(|c| c.style.index()).collect();
     assert_eq!(ids.len(), 3);
 }
+
+/// The rotated grid under its rotation is the viewport: what a shader
+/// reading the cells in place has to compute, checked against the turn the
+/// core makes for a reader that cannot.
+#[test]
+fn the_rotated_grid_under_its_rotation_is_the_viewport() {
+    let ws = baud_domain::WinSize {
+        ws_col: 20,
+        ws_row: 5,
+    };
+    let mut vp = vec![baud_domain::PackedCell::EMPTY; 5 * baud_core::MAX_COLS];
+    let mut st = Owned::without_viewport(&ws);
+    let mut t = Term::new(st.storage_over(&mut vp), &ws);
+    // Eight lines on a five-row screen: three scrolls, a rotation of three.
+    feed(&mut t, "a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh");
+    let rot = t.rotation().index();
+    assert_eq!(rot, 3);
+    let stride = t.stride().index();
+    let rows = 5usize;
+    let turned: Vec<_> = (0..rows)
+        .flat_map(|y| {
+            let p = (y + rot) % rows;
+            t.cells()[p * stride..p * stride + stride].to_vec()
+        })
+        .collect();
+    assert_eq!(turned, t.viewport().to_vec());
+    assert_eq!(
+        t.rotation().index(),
+        0,
+        "the turn is paid once, by `viewport`"
+    );
+}

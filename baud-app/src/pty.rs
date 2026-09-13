@@ -10,12 +10,31 @@
 use baud_domain::WinSize;
 use baud_font::Px;
 use std::ffi::CString;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// The master's file descriptor, owned here.
 pub struct Pty {
     master: libc::c_int,
     rx: Receiver<Vec<u8>>,
+    /// Set by the reader when it has woken the main thread and not yet
+    /// been drained, so a flood of reads sends one wake, not one a read.
+    signalled: Arc<AtomicBool>,
+}
+
+/// Whether the child is still on the other end of the pty.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Stream {
+    Open,
+    /// The reader saw end of file: the child exited.
+    Closed,
+}
+
+/// What a drain found: the chunks that arrived, and whether more can.
+pub struct Drained {
+    pub chunks: Vec<Vec<u8>>,
+    pub stream: Stream,
 }
 
 /// What `read(2)` delivers at most per call, the tty's own quantum.
@@ -23,11 +42,22 @@ const READ_CHUNK: usize = 4096;
 
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else `/bin/zsh` -- on a fresh pty
-    /// of `size`, and starts reading it.
-    pub fn spawn(size: &WinSize) -> Option<Pty> {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    /// of `size`, and starts reading it. With `BAUD_CMD` set, forks
+    /// `/bin/sh -c "$BAUD_CMD"` instead, which is how a benchmark drives
+    /// the terminal: the window closes when the command ends.
+    pub fn spawn(size: &WinSize, wake: impl Fn() + Send + 'static) -> Option<Pty> {
+        let cmd = std::env::var("BAUD_CMD").ok();
+        let shell = match &cmd {
+            Some(_) => "/bin/sh".to_string(),
+            None => std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string()),
+        };
         let shell_c = CString::new(shell.clone()).ok()?;
-        let argv0 = CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("zsh"))).ok()?;
+        let argv0 = match &cmd {
+            Some(_) => CString::new("sh").ok()?,
+            None => CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("zsh"))).ok()?,
+        };
+        let dash_c = CString::new("-c").ok()?;
+        let cmd_c = cmd.and_then(|c| CString::new(c).ok());
         let term = CString::new("TERM=xterm-256color").ok()?;
         let colorterm = CString::new("COLORTERM=truecolor").ok()?;
         let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
@@ -51,24 +81,50 @@ impl Pty {
             unsafe {
                 libc::putenv(term.into_raw());
                 libc::putenv(colorterm.into_raw());
-                let argv = [argv0.as_ptr(), std::ptr::null()];
+                let argv = match &cmd_c {
+                    Some(c) => [
+                        argv0.as_ptr(),
+                        dash_c.as_ptr(),
+                        c.as_ptr(),
+                        std::ptr::null(),
+                    ],
+                    None => [
+                        argv0.as_ptr(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                        std::ptr::null(),
+                    ],
+                };
                 libc::execvp(shell_c.as_ptr(), argv.as_ptr());
                 libc::_exit(127);
             }
         }
         let (tx, rx) = channel();
         let fd = master;
-        std::thread::spawn(move || reader(fd, tx));
-        Some(Pty { master, rx })
+        let signalled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&signalled);
+        std::thread::spawn(move || reader(fd, tx, flag, wake));
+        Some(Pty {
+            master,
+            rx,
+            signalled,
+        })
     }
 
     /// Chunks the shell wrote since the last call, in order.
-    pub fn drain(&self) -> Vec<Vec<u8>> {
-        let mut out = Vec::new();
-        while let Ok(chunk) = self.rx.try_recv() {
-            out.push(chunk);
-        }
-        out
+    pub fn drain(&self) -> Drained {
+        // Cleared before draining, so a chunk that lands after the drain
+        // begins earns its own wake.
+        self.signalled.store(false, Ordering::Release);
+        let mut chunks = Vec::new();
+        let stream = loop {
+            match self.rx.try_recv() {
+                Ok(chunk) => chunks.push(chunk),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break Stream::Open,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break Stream::Closed,
+            }
+        };
+        Drained { chunks, stream }
     }
 
     /// Writes `bytes` to the shell, all of them.
@@ -101,7 +157,7 @@ impl Pty {
     }
 }
 
-fn reader(fd: libc::c_int, tx: Sender<Vec<u8>>) {
+fn reader(fd: libc::c_int, tx: Sender<Vec<u8>>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let mut buf = vec![0u8; READ_CHUNK];
     loop {
         // SAFETY: the buffer is valid for READ_CHUNK bytes.
@@ -112,6 +168,11 @@ fn reader(fd: libc::c_int, tx: Sender<Vec<u8>>) {
         let n = usize::try_from(n).unwrap_or(0);
         if tx.send(buf[..n].to_vec()).is_err() {
             return;
+        }
+        // The chunk is in the channel; wake the main thread once for
+        // however many arrive before it drains.
+        if !signalled.swap(true, Ordering::AcqRel) {
+            wake();
         }
     }
 }

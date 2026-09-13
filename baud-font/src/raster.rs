@@ -35,8 +35,10 @@ use crate::face::UnitsPerEm;
 use crate::outline::{Sink, Transform};
 use core::f32::math::{ceil, floor, sqrt};
 
-/// A count of pixels along one axis.
+/// A count of pixels along one axis. `repr(transparent)`, so a uniform
+/// block a shader reads may carry it where it means a pixel count.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
 pub struct Px(u32);
 
 impl Px {

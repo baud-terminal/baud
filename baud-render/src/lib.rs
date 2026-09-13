@@ -36,7 +36,9 @@ mod renderer;
 mod stack;
 mod units;
 
-pub use atlas::{Atlas, AtlasStats, Code, Generation, Kind, Side, Slot, Tex};
+pub use atlas::{
+    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Tex, TexRect,
+};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
     CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved,

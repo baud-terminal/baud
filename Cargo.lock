@@ -168,6 +168,7 @@ dependencies = [
  "baud-domain",
  "baud-font",
  "baud-render",
+ "block2",
  "macos-liquid-glass",
  "objc2",
  "objc2-foundation",

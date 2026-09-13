@@ -8,17 +8,19 @@
 //! non-opaque layer, because an opaque one paints the glass out (the crate's
 //! own luma measurements, pinned as `mlg-measurements`).
 //!
-//! **Three surfaces in rotation, and the renderer keeps its own frame.**
-//! A surface being shown must not be written, so on the CPU path the frame
-//! is painted into the renderer's persistent buffer -- which is what
-//! row-granular damage needs, a target that still holds the last frame --
-//! and copied whole into the next surface, premultiplied on the way because
-//! Core Animation reads `IOSurface` pixels premultiplied and the compositor
-//! keeps straight alpha. That copy is the price of the split and it is
-//! measured by the `present` column of `baud-bench`'s `frame` bench once
-//! one exists. On the GPU path ([`metal`]) the surface is the render
-//! target and the blend writes premultiplied pixels directly, so there is
-//! no copy.
+//! **Three surfaces in rotation, and nobody waits.** A surface being shown
+//! must not be written, so a frame goes to the next one. On the CPU path
+//! the frame is painted into the renderer's persistent buffer -- which is
+//! what row-granular damage needs, a target that still holds the last
+//! frame -- and copied whole into the surface, premultiplied on the way
+//! because Core Animation reads `IOSurface` pixels premultiplied and the
+//! compositor keeps straight alpha. On the GPU paths ([`metal`]) the
+//! surface is the render target, the blend writes premultiplied pixels
+//! directly, and the draw is committed with a completion handler: when
+//! the GPU is done, the handler hands the surface to the main thread
+//! through the view's [`Waker`] and wakes the responder. A draw asked for
+//! while one is in flight answers [`Drawn::Busy`], and the responder tries
+//! again on the wake.
 //!
 //! The crate compiles to nothing off macOS, the `baud-isa-aarch64` pattern
 //! for a target-bound crate. `unsafe` is denied here and allowed in one
@@ -28,17 +30,21 @@
 
 pub mod metal;
 
-pub use metal::{CellInput, Gpu, GpuFrame, Memory, Target};
+pub use metal::{
+    CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory, StylesBuffer,
+    Target,
+};
 
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
-use macos_liquid_glass::drawable::{DrawableView, Surface};
+use macos_liquid_glass::drawable::{DrawableView, Surface, Waker};
+use std::sync::Arc;
 
 /// How many surfaces rotate: one showing, one the compositor may still be
-/// reading for the previous transaction, one being written.
+/// reading for the previous transaction, one being drawn.
 const SURFACES: usize = 3;
 
-/// Which of the surfaces is written next.
+/// Which of the surfaces is drawn next.
 #[derive(Clone, Copy)]
 struct Next(usize);
 
@@ -87,12 +93,17 @@ impl Presenter {
     /// Surfaces of `width` by `height` pixels with a Metal target over
     /// each; `None` when the kernel declines or there is no Metal device.
     pub fn with_gpu(width: Px, height: Px) -> Option<Presenter> {
-        let gpu = Box::new(Gpu::new()?);
+        Presenter::over(Gpu::new()?, width, height)
+    }
+
+    /// The same over a `Gpu` the caller already made -- because it lent
+    /// the terminal its grid memory before there was a window to size.
+    pub fn over(gpu: Gpu, width: Px, height: Px) -> Option<Presenter> {
         Presenter::build(
             width,
             height,
             Draw::Gpu {
-                gpu,
+                gpu: Box::new(gpu),
                 targets: Vec::new(),
             },
         )
@@ -141,6 +152,15 @@ impl Presenter {
         }
     }
 
+    /// Whether the GPU is still reading a frame's buffers. The CPU path is
+    /// never in flight.
+    pub fn in_flight(&self) -> InFlight {
+        match &self.draw {
+            Draw::Cpu => InFlight::Idle,
+            Draw::Gpu { gpu, .. } => gpu.in_flight(),
+        }
+    }
+
     /// Replaces the surfaces at a new size, keeping the path; the old ones
     /// are released once the layer stops showing them.
     pub fn resize(&mut self, width: Px, height: Px) -> Option<()> {
@@ -179,36 +199,58 @@ impl Presenter {
         Presented::Yes
     }
 
-    /// Draws the renderer's current frame into the next surface on the GPU
-    /// and shows it on `view`. The GPU path only; `None` otherwise, or when
-    /// a Metal resource could not be made.
-    pub fn draw(&mut self, view: &DrawableView, renderer: &Renderer<'_, '_>) -> Option<GpuFrame> {
-        let Draw::Gpu { gpu, targets } = &mut self.draw else {
-            return None;
-        };
-        let slot = self.next.0;
-        let frame = gpu.draw(renderer, targets.get(slot)?)?;
-        view.set_surface(self.surfaces[slot].io_surface());
-        self.next = Next((slot + 1) % SURFACES);
-        Some(frame)
+    /// What the GPU does when a frame into the next surface is done: hand
+    /// that surface to the main thread and wake the responder, through the
+    /// view's waker, from the GPU's thread.
+    fn on_done(&self, waker: Waker) -> Done {
+        let handle = self.surfaces[self.next.0].handle();
+        Done::Notify(Arc::new(move || {
+            waker.present(&handle);
+            waker.wake();
+        }))
     }
 
-    /// Draws the raw grid -- the cell path -- into the next surface on the
-    /// GPU and shows it on `view`. The GPU path only.
-    pub fn draw_cells(
-        &mut self,
-        view: &DrawableView,
-        renderer: &Renderer<'_, '_>,
-        input: &CellInput<'_>,
-    ) -> Option<GpuFrame> {
+    fn committed(&mut self, drawn: Drawn) -> Drawn {
+        if let Drawn::Frame(_) = drawn {
+            self.next = Next((self.next.0 + 1) % SURFACES);
+        }
+        drawn
+    }
+
+    /// Commits the renderer's converted frame -- the instance path -- into
+    /// the next surface, to be shown when the GPU is done. The GPU path
+    /// only; `None` otherwise, or when a Metal resource could not be made.
+    pub fn draw(&mut self, waker: Waker, renderer: &mut Renderer<'_, '_>) -> Option<Drawn> {
+        let done = self.on_done(waker);
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };
-        let slot = self.next.0;
-        let frame = gpu.draw_cells(renderer, input, targets.get(slot)?)?;
-        view.set_surface(self.surfaces[slot].io_surface());
-        self.next = Next((slot + 1) % SURFACES);
-        Some(frame)
+        let drawn = gpu.draw(renderer, targets.get(self.next.0)?, done)?;
+        Some(self.committed(drawn))
+    }
+
+    /// Commits the raw grid -- the cell path -- into the next surface, to be
+    /// shown when the GPU is done. The GPU path only.
+    pub fn draw_cells(
+        &mut self,
+        waker: Waker,
+        renderer: &mut Renderer<'_, '_>,
+        input: &CellInput<'_>,
+    ) -> Option<Drawn> {
+        let done = self.on_done(waker);
+        let Draw::Gpu { gpu, targets } = &mut self.draw else {
+            return None;
+        };
+        let drawn = gpu.draw_cells(renderer, input, targets.get(self.next.0)?, done)?;
+        Some(self.committed(drawn))
+    }
+
+    /// The GPU, to lend memory from, on the GPU path.
+    pub fn gpu(&self) -> Option<&Gpu> {
+        match &self.draw {
+            Draw::Cpu => None,
+            Draw::Gpu { gpu, .. } => Some(gpu),
+        }
     }
 }
 

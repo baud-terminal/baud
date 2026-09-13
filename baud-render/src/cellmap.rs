@@ -121,19 +121,16 @@ pub struct MapStats {
     pub cleared: Tally,
 }
 
-pub struct GlyphMap {
-    entries: Vec<MapEntry>,
+/// The map's entries live where the caller put them -- a shared GPU
+/// buffer, so the shader probes the very slots the CPU fills and nothing
+/// is copied -- and the map borrows them for its life.
+pub struct GlyphMap<'m> {
+    entries: &'m mut [MapEntry],
     generation: MapGeneration,
     /// The atlas's grow count the entries were resolved against; a grown
     /// atlas has moved every slot.
     grown: Tally,
     stats: MapStats,
-}
-
-impl Default for GlyphMap {
-    fn default() -> Self {
-        GlyphMap::new()
-    }
 }
 
 /// A position in the map.
@@ -152,18 +149,39 @@ impl MapSlot {
     }
 }
 
-impl GlyphMap {
-    pub fn new() -> GlyphMap {
+impl<'m> GlyphMap<'m> {
+    /// A map over `entries`, which must hold [`MAP_SLOTS`]; every slot is
+    /// emptied first.
+    ///
+    /// # Panics
+    /// If `entries` is not exactly [`MAP_SLOTS`] long: the probe wraps by
+    /// a mask, so any other length would index past the end.
+    pub fn over(entries: &'m mut [MapEntry]) -> GlyphMap<'m> {
+        assert!(
+            entries.len() == MAP_SLOTS,
+            "a glyph map is MAP_SLOTS entries"
+        );
+        entries.fill(MapEntry::EMPTY);
         GlyphMap {
-            entries: vec![MapEntry::EMPTY; MAP_SLOTS],
+            entries,
             generation: MapGeneration::default(),
             grown: Tally::default(),
             stats: MapStats::default(),
         }
     }
 
+    /// Memory for a map, for a caller with nowhere better to put it.
+    pub fn backing() -> Vec<MapEntry> {
+        vec![MapEntry::EMPTY; MAP_SLOTS]
+    }
+
+    /// Gives the entries back, for a map made afresh over the same memory.
+    pub fn into_entries(self) -> &'m mut [MapEntry] {
+        self.entries
+    }
+
     pub fn entries(&self) -> &[MapEntry] {
-        &self.entries
+        self.entries
     }
 
     pub fn generation(&self) -> MapGeneration {

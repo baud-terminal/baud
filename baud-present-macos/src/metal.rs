@@ -1,35 +1,63 @@
-//! Metal: the same instance records and background words the CPU
-//! compositor paints, drawn by the GPU into the IOSurface the layer shows.
+//! Metal: the frame the renderer converts, or the raw grid the terminal
+//! holds, drawn by the GPU into the IOSurface the layer shows -- without
+//! copying what already sits in memory the GPU can read, and without
+//! waiting for it.
 //!
-//! The design is `docs/research/notes/j-rendering.md` D2, D3 and D5. Every
-//! frame uploads the whole instance array by one copy into a `.shared`
-//! buffer from a ring of three -- D2: nobody uploads partial ranges, and on
-//! Apple silicon a shared buffer is the GPU's own memory -- and the whole
-//! background bitmap into a `cols` by `rows` texture. The two atlas sheets
-//! are uploaded only when [`Atlas::generation`] moved. One full-screen pass
-//! paints the background, one instanced draw paints the glyphs, and the
-//! blend is premultiplied `ONE, ONE_MINUS_SRC_ALPHA`, so the surface holds
-//! what Core Animation reads without the CPU path's premultiplying copy.
+//! The design is `docs/research/notes/j-rendering.md` D2, D3, D5 and D13,
+//! on a machine with one memory. Two paths share the shaders' second
+//! half and differ in what the CPU does before the draw:
 //!
-//! The shaders are Metal Shading Language compiled at first use from the
-//! source below, because a `.metallib` needs Xcode's toolchain at build
-//! time and the source is forty lines.
+//! * **Instances.** `Renderer::convert` resolves every dirty row into
+//!   twenty-byte records on the CPU; `Gpu::draw` writes them into a
+//!   `.shared` ring slot -- the write is the upload, D2's one copy -- and
+//!   draws one background pass and one instanced glyph pass.
+//! * **Cells.** Nothing is converted. The terminal's viewport *lives* in a
+//!   shared buffer ([`Gpu::grid`] lends the core its memory), the rendition
+//!   table is resolved straight into another ([`Gpu::styles`]), the glyph
+//!   map is kept in a third ([`Gpu::map`]), and a vertex shader resolves
+//!   every cell itself, undoing the core's row rotation with one modulo so
+//!   the core never turns the grid in place either. `Gpu::draw_cells`
+//!   uploads nothing; it binds.
+//!
+//! **Nothing waits.** A draw is committed with a completion handler, and
+//! the caller's [`Done::Notify`] closure runs on the GPU's thread when the
+//! frame is finished -- the presenter uses it to hand the surface to the
+//! main thread and wake the responder. One frame is in flight at a time:
+//! while it is, the buffers it reads are the ones the core writes, so the
+//! caller keeps incoming bytes queued until [`Gpu::in_flight`] says idle,
+//! and a draw asked for meanwhile answers [`Drawn::Busy`] rather than
+//! blocking. That single atomic is the whole synchronisation, and it is
+//! what makes the zero-copy grid safe: the GPU reads it only inside a
+//! window the core does not write.
+//!
+//! The atlas is the one thing still copied, and only the texels a new
+//! glyph wrote: the renderer's sheets are CPU memory the rasteriser
+//! writes, and a texture takes them by rectangle
+//! ([`baud_render::Atlas::take_dirty`]). After the first screenful that is
+//! nothing at all.
+//!
+//! The shaders are Metal Shading Language compiled at first use, because a
+//! `.metallib` needs Xcode's toolchain at build time and the source is
+//! two hundred lines.
 //!
 //! **This is the one module in the crate that needs `unsafe`.** Every
 //! `objc2-metal` call that takes a pointer or an index the framework does
-//! not bounds-check is `unsafe fn`, and each call here carries the reason
-//! its contract holds. The crate denies `unsafe_code` and this module
-//! allows it, so the boundary is one attribute wide.
+//! not bounds-check is `unsafe fn`, the shared-memory slices are made from
+//! buffer contents, and each site carries the reason its contract holds.
+//! The crate denies `unsafe_code` and this module allows it, so the
+//! boundary is one attribute wide.
 #![allow(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use crate::slots;
-use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, Rows};
+use baud_core::Term;
+use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows};
 use baud_font::Px;
 use baud_render::{
-    Argb, Atlas, Generation, GlyphMap, Instance, MAP_BITS, MapEntry, MapGeneration, Renderer,
-    Resolved, Side, Tally,
+    Atlas, Dirty, Generation, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer, Replaced,
+    Resolved, Side, Tally, TexRect,
 };
+use block2::RcBlock;
 use core::ffi::c_void;
 use core::ptr::NonNull;
 use objc2::rc::Retained;
@@ -44,24 +72,21 @@ use objc2_metal::{
     MTLSamplerMinMagFilter, MTLSamplerState, MTLSize, MTLStorageMode, MTLStoreAction, MTLTexture,
     MTLTextureDescriptor, MTLTextureUsage,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-/// How many instance buffers rotate: one the GPU may still be reading, one
-/// queued, one being written.
+/// How many instance buffers rotate on the instance path: one the GPU may
+/// still be reading, one queued, one being written.
 const RING: usize = 3;
 
 /// The smallest instance buffer allocated, so a sparse screen does not
 /// reallocate as it fills.
 const BUFFER_FLOOR: usize = 64 * 1024;
 
-/// Uniforms as the shaders read them: viewport, cell, grid, mask side and
-/// colour side, each a `float2`.
+/// Uniforms as the instance shaders read them: viewport, cell, grid, mask
+/// side and colour side, each a `float2`.
 const UNIFORM_FLOATS: usize = 10;
-
-/// The cell path's uniforms, all `uint`: viewport, cell, grid, the two
-/// sides, the cursor cell, then the cursor kind, baseline, underline and
-/// strike rows, thickness, the map's slot count and the hash shift.
-const CELL_UNIFORMS: usize = 17;
 
 /// How many shapes a cell may draw in the cell path's shape pass.
 const SHAPES_PER_CELL: usize = 3;
@@ -131,7 +156,7 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
 struct CU {
     uint2 viewport; uint2 cell; uint2 grid; uint2 sides; uint2 cursor;
     uint cursor_kind; uint baseline; uint underline; uint strike;
-    uint thickness; uint map_slots; uint map_shift;
+    uint thickness; uint map_slots; uint map_shift; uint stride; uint rot;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -146,6 +171,13 @@ static float4 unpack(uint c) {
 static float4 clip(float2 p, constant CU& u) {
     float2 n = p / float2(u.viewport);
     return float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
+}
+
+// The cell at screen row `row`, column `col`: the grid is read in place,
+// under the core's rotation, at its live stride.
+static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint row) {
+    uint prow = (row + u.rot) % u.grid.y;
+    return cells[prow * u.stride + col];
 }
 
 // The cell's colours after the block cursor's swap, which the CPU path
@@ -165,7 +197,7 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               constant CU& u [[buffer(2)]]) {
     uint col = iid % u.grid.x, row = iid / u.grid.x;
     uint fgw, bgw;
-    colors(u, styles, cells[iid], col, row, fgw, bgw);
+    colors(u, styles, cell_at(u, cells, col, row), col, row, fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = (float2(col, row) + c) * float2(u.cell);
     FlatOut o;
@@ -184,7 +216,8 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const Entry* entries [[buffer(3)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
-    uint2 cell = cells[iid];
+    uint col = iid % u.grid.x, row = iid / u.grid.x;
+    uint2 cell = cell_at(u, cells, col, row);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
     uint mask = u.map_slots - 1u;
@@ -197,7 +230,6 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         i = (i + 1u) & mask;
     }
     if (!found || e.kind > 2u) return o;
-    uint col = iid % u.grid.x, row = iid / u.grid.x;
     uint fgw, bgw;
     colors(u, styles, cell, col, row, fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
@@ -222,7 +254,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
     uint which = iid % 3u, ci = iid / 3u;
     uint col = ci % u.grid.x, row = ci / u.grid.x;
-    uint2 cell = cells[ci];
+    uint2 cell = cell_at(u, cells, col, row);
     Style s = styles[cell.y & 0xffffu];
     uint fgw, bgw;
     colors(u, styles, cell, col, row, fgw, bgw);
@@ -258,6 +290,8 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
 type Texture = Retained<ProtocolObject<dyn MTLTexture>>;
 type Buffer = Retained<ProtocolObject<dyn MTLBuffer>>;
+type CommandBuffer = Retained<ProtocolObject<dyn MTLCommandBuffer>>;
+type Encoder = Retained<ProtocolObject<dyn MTLRenderCommandEncoder>>;
 
 /// A texture the GPU draws a frame into.
 pub struct Target {
@@ -273,7 +307,8 @@ impl Target {
 }
 
 /// What one GPU frame cost: building the uploads, the wall time from
-/// commit to completion, and the GPU's own start-to-end.
+/// commit to completion or to the handler being armed, and the GPU's own
+/// start-to-end where the frame was waited for.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GpuFrame {
     pub instances: Tally,
@@ -286,12 +321,83 @@ pub struct GpuFrame {
 #[derive(Clone, Copy)]
 struct Ring(usize);
 
-/// What the cell path draws from: the grid as the terminal holds it, the
-/// rendition table resolved, the glyph map, and where the cursor is.
+/// Shared memory the terminal's viewport lives in: what [`Gpu::grid`]
+/// lends the core and what the cell path binds. The GPU reads the cells
+/// the core writes, in place.
+pub struct GridBuffer(Buffer);
+
+/// Shared memory the resolved rendition table lives in.
+pub struct StylesBuffer(Buffer);
+
+/// Shared memory the glyph map lives in.
+pub struct MapBuffer(Buffer);
+
+/// A count of elements in a shared buffer.
+#[derive(Clone, Copy)]
+struct Elems(usize);
+
+/// The bytes between one row of a sheet and the next.
+#[derive(Clone, Copy)]
+struct RowBytes(usize);
+
+/// A shared buffer's length in bytes.
+#[derive(Clone, Copy)]
+struct Span(usize);
+
+/// A sheet's texel format, and so its bytes a texel.
+#[derive(Clone, Copy)]
+enum Texel {
+    A8,
+    Bgra8,
+}
+
+/// A count as a uniform word carries it.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+struct Uni(u32);
+
+impl Uni {
+    fn of(n: Elems) -> Uni {
+        Uni(u32::try_from(n.0).unwrap_or(u32::MAX))
+    }
+}
+
+/// The cell path's uniforms as the shader's `CU` reads them: five `uint2`
+/// then nine `uint`, 76 bytes, `repr(C)`. Every field is a pixel count or
+/// a cell count, and says which.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CellUniforms {
+    viewport_w: Px,
+    viewport_h: Px,
+    cell_w: Px,
+    cell_h: Px,
+    cols: Uni,
+    rows: Uni,
+    mask_side: Px,
+    color_side: Px,
+    cursor_col: Uni,
+    cursor_row: Uni,
+    cursor: CursorCode,
+    baseline: Px,
+    underline: Px,
+    strike: Px,
+    thickness: Px,
+    map_slots: Uni,
+    map_shift: Uni,
+    stride: Uni,
+    rotation: Uni,
+}
+
+/// What the cell path draws from: the grid in place, under its rotation
+/// and at its stride, the rendition table resolved, the glyph map, and
+/// where the cursor is.
 pub struct CellInput<'a> {
-    pub cells: &'a [PackedCell],
-    pub styles: &'a [Resolved],
-    pub map: &'a GlyphMap,
+    pub grid: &'a GridBuffer,
+    pub styles: &'a StylesBuffer,
+    pub map: &'a MapBuffer,
+    pub stride: Cols,
+    pub rotation: RowRot,
     pub cursor: Option<(Row, Col, CursorStyle)>,
 }
 
@@ -329,7 +435,35 @@ impl CursorKind {
 
 /// A cursor kind as the uniform carries it.
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 struct CursorCode(u32);
+
+/// What to do when the GPU finishes a frame.
+pub enum Done {
+    /// Block until it has: for a bench or a test that reads the target
+    /// back. Never in a frame loop.
+    Wait,
+    /// Run this on the GPU's completion thread, and return at once.
+    Notify(Arc<dyn Fn() + Send + Sync>),
+}
+
+/// What a draw did.
+#[derive(Clone, Copy, Debug)]
+pub enum Drawn {
+    /// Committed; with [`Done::Wait`], completed.
+    Frame(GpuFrame),
+    /// A frame is still in flight and reads the memory this one would
+    /// bind, so nothing was done. The caller hears about the completion
+    /// through its [`Done::Notify`].
+    Busy,
+}
+
+/// Whether the GPU is reading the shared buffers right now.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum InFlight {
+    Idle,
+    Busy,
+}
 
 /// One atlas sheet on the GPU.
 struct Sheet {
@@ -337,7 +471,7 @@ struct Sheet {
     side: Side,
 }
 
-/// The background bitmap on the GPU, one texel a cell.
+/// The background bitmap on the GPU, one texel a cell: the instance path's.
 struct Background {
     texture: Texture,
     cols: Cols,
@@ -355,18 +489,13 @@ pub struct Gpu {
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     instances: Vec<Buffer>,
     ring: Ring,
-    /// The cell path's grid and style rings, and its one map buffer --
-    /// one, because every draw waits, so the GPU is never reading it
-    /// while the next frame writes.
-    cells: Vec<Buffer>,
-    styles: Vec<Buffer>,
-    map: Buffer,
-    map_at: Option<MapGeneration>,
     background: Option<Background>,
     mask: Option<Sheet>,
     color: Option<Sheet>,
-    /// The atlas generation the sheets were uploaded at.
+    /// The atlas generation the sheets were last brought up to.
     uploaded: Option<Generation>,
+    /// Frames committed and not yet completed: zero or one.
+    in_flight: Arc<AtomicUsize>,
 }
 
 fn pipeline(
@@ -398,7 +527,7 @@ fn pipeline(
     }
 }
 
-/// A 2D texture of `format`, `w` by `h`, for shader reads.
+/// A 2D texture of `format`, `w` by `h`.
 fn texture(
     device: &ProtocolObject<dyn MTLDevice>,
     format: MTLPixelFormat,
@@ -423,36 +552,102 @@ fn texture(
 
 /// Copies `bytes` -- exactly `h` rows, so a row is `len / h` bytes --
 /// into the whole of a `w` by `h` texture.
-fn upload(texture: &ProtocolObject<dyn MTLTexture>, w: Px, h: Px, bytes: &[u8]) {
+fn upload(texture: &ProtocolObject<dyn MTLTexture>, w: Px, h: Px, bytes: &[u8], texel: Texel) {
     let rows = slots(h);
     if rows == 0 || !bytes.len().is_multiple_of(rows) {
         return;
     }
-    let row_bytes = bytes.len() / rows;
+    let row_bytes = RowBytes(bytes.len() / rows);
+    let rect = TexRect {
+        x: baud_render::Tex(0),
+        y: baud_render::Tex(0),
+        w: baud_render::Tex(u16::try_from(w.value()).unwrap_or(u16::MAX)),
+        h: baud_render::Tex(u16::try_from(h.value()).unwrap_or(u16::MAX)),
+    };
+    upload_rect(texture, rect, bytes, row_bytes, texel);
+}
+
+/// Copies the texels of `rect` from a sheet whose rows are `row_bytes`
+/// apart -- `bytes` starts at the sheet's first byte -- into the same
+/// rectangle of the texture. The dirty-rectangle upload.
+fn upload_rect(
+    texture: &ProtocolObject<dyn MTLTexture>,
+    rect: TexRect,
+    bytes: &[u8],
+    row_bytes: RowBytes,
+    texel: Texel,
+) {
+    let (x, y, w, h) = (
+        usize::from(rect.x.0),
+        usize::from(rect.y.0),
+        usize::from(rect.w.0),
+        usize::from(rect.h.0),
+    );
+    let row_bytes = row_bytes.0;
+    if w == 0 || h == 0 || row_bytes == 0 {
+        return;
+    }
+    let bpp = match texel {
+        Texel::A8 => 1,
+        Texel::Bgra8 => 4,
+    };
+    let start = y
+        .saturating_mul(row_bytes)
+        .saturating_add(x.saturating_mul(bpp));
+    let need = (h - 1)
+        .saturating_mul(row_bytes)
+        .saturating_add(w.saturating_mul(bpp));
+    let Some(src) = bytes.get(start..) else {
+        return;
+    };
+    if src.len() < need {
+        return;
+    }
     let region = MTLRegion {
-        origin: MTLOrigin { x: 0, y: 0, z: 0 },
+        origin: MTLOrigin { x, y, z: 0 },
         size: MTLSize {
-            width: slots(w),
-            height: slots(h),
+            width: w,
+            height: h,
             depth: 1,
         },
     };
-    // SAFETY: `bytes` holds exactly `row_bytes * h` bytes, and the region
-    // is the texture's own extent, so the copy reads inside the slice and
-    // writes inside the texture; Metal validates the row against the
-    // width.
+    // SAFETY: `src` holds at least `(h - 1) * row_bytes + w * bpp` bytes
+    // from the rectangle's first texel, checked above, and the region lies
+    // inside the texture the rectangle was cut from, so the copy reads
+    // inside the slice and writes inside the texture.
     unsafe {
         texture.replaceRegion_mipmapLevel_withBytes_bytesPerRow(
             region,
             0,
-            NonNull::from(bytes).cast::<c_void>(),
+            NonNull::from(src).cast::<c_void>(),
             row_bytes,
         );
     }
 }
 
+/// A `repr(C)` slice over the first `n` elements of a shared buffer's
+/// contents, for the life of the process: the buffer is retained forever.
+///
+/// # Safety
+/// `T` must be valid for any bit pattern the caller then writes, and the
+/// caller must not read the slice through the GPU while writing it here,
+/// which [`Gpu::in_flight`] is the gate for.
+unsafe fn lend<T>(buffer: &Buffer, n: Elems) -> Option<&'static mut [T]> {
+    let n = n.0;
+    if buffer.length() < n.saturating_mul(core::mem::size_of::<T>()) {
+        return None;
+    }
+    let keep: Buffer = buffer.clone();
+    core::mem::forget(keep);
+    let ptr = buffer.contents().cast::<T>();
+    // SAFETY: a shared buffer's contents are page-aligned, at least
+    // `n * size_of::<T>()` bytes as checked, and now retained for the life
+    // of the process; the caller upholds the rest.
+    Some(unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), n) })
+}
+
 impl Gpu {
-    /// The system default device with both pipelines compiled; `None` when
+    /// The system default device with every pipeline compiled; `None` when
     /// there is no Metal device or the shaders fail to compile.
     pub fn new() -> Option<Gpu> {
         let device = MTLCreateSystemDefaultDevice()?;
@@ -474,13 +669,14 @@ impl Gpu {
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);
         sd.setMagFilter(MTLSamplerMinMagFilter::Nearest);
         let sampler = device.newSamplerStateWithDescriptor(&sd)?;
-        let fresh = || {
-            device.newBufferWithLength_options(BUFFER_FLOOR, MTLResourceOptions::StorageModeShared)
-        };
-        let instances = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
-        let cells = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
-        let styles = (0..RING).map(|_| fresh()).collect::<Option<Vec<_>>>()?;
-        let map = fresh()?;
+        let instances = (0..RING)
+            .map(|_| {
+                device.newBufferWithLength_options(
+                    BUFFER_FLOOR,
+                    MTLResourceOptions::StorageModeShared,
+                )
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some(Gpu {
             device,
             queue,
@@ -492,25 +688,79 @@ impl Gpu {
             sampler,
             instances,
             ring: Ring(0),
-            cells,
-            styles,
-            map,
-            map_at: None,
             background: None,
             mask: None,
             color: None,
             uploaded: None,
+            in_flight: Arc::new(AtomicUsize::new(0)),
         })
     }
 
     /// Whether the device shares memory with the CPU, which is what makes
-    /// the `.shared` ring the right choice (D2's discrete arm is unbuilt).
+    /// reading the grid in place a read rather than a transfer (D2's
+    /// discrete arm is unbuilt).
     pub fn unified_memory(&self) -> Memory {
         if self.device.hasUnifiedMemory() {
             Memory::Unified
         } else {
             Memory::Discrete
         }
+    }
+
+    /// Whether a frame is being read by the GPU. While it is, the shared
+    /// buffers a draw binds must not be written: keep incoming bytes
+    /// queued, and draw when the completion arrives.
+    pub fn in_flight(&self) -> InFlight {
+        if self.in_flight.load(Ordering::Acquire) == 0 {
+            InFlight::Idle
+        } else {
+            InFlight::Busy
+        }
+    }
+
+    fn shared(&self, bytes: Span) -> Option<Buffer> {
+        self.device
+            .newBufferWithLength_options(bytes.0.max(1), MTLResourceOptions::StorageModeShared)
+    }
+
+    /// Memory for a viewport of `rows` rows at `stride` cells, in the GPU's
+    /// own reach: the buffer the cell path binds, and the slice to lend
+    /// the core through `Owned::storage_over`. Every cell starts empty.
+    pub fn grid(
+        &self,
+        rows: Rows,
+        stride: Cols,
+    ) -> Option<(GridBuffer, &'static mut [PackedCell])> {
+        let n = rows.index().saturating_mul(stride.index());
+        let buffer = self.shared(Span(n.saturating_mul(core::mem::size_of::<PackedCell>())))?;
+        // SAFETY: `PackedCell` is `repr(C)` over plain integers, valid for
+        // every bit pattern, and the slice is filled before anything reads
+        // it; the in-flight gate keeps the GPU's reads out of the core's
+        // writes.
+        let cells = unsafe { lend::<PackedCell>(&buffer, Elems(n)) }?;
+        cells.fill(PackedCell::EMPTY);
+        Some((GridBuffer(buffer), cells))
+    }
+
+    /// Memory for the rendition table resolved, one entry a slot of
+    /// `term`'s table, for `Renderer::resolve_styles_into` to write.
+    pub fn styles(&self, term: &Term<'_>) -> Option<(StylesBuffer, &'static mut [Resolved])> {
+        let n = term.styles().len();
+        let buffer = self.shared(Span(n.saturating_mul(Resolved::BYTES)))?;
+        // SAFETY: `Resolved` is `repr(C)` over four `u32` newtypes, valid
+        // for every bit pattern, and written before it is read.
+        let styles = unsafe { lend::<Resolved>(&buffer, Elems(n)) }?;
+        styles.fill(Resolved::default());
+        Some((StylesBuffer(buffer), styles))
+    }
+
+    /// Memory for a glyph map, for `GlyphMap::over`.
+    pub fn map(&self) -> Option<(MapBuffer, &'static mut [MapEntry])> {
+        let buffer = self.shared(Span(MAP_SLOTS.saturating_mul(MapEntry::BYTES)))?;
+        // SAFETY: `MapEntry` is `repr(C)` over integer newtypes, valid for
+        // every bit pattern; `GlyphMap::over` empties every slot first.
+        let entries = unsafe { lend::<MapEntry>(&buffer, Elems(MAP_SLOTS)) }?;
+        Some((MapBuffer(buffer), entries))
     }
 
     /// A render target over `surface`, so a frame drawn into it is what the
@@ -542,7 +792,8 @@ impl Gpu {
         })
     }
 
-    /// A render target nothing shows, for measuring the draw alone.
+    /// A render target nothing shows, for measuring the draw alone or
+    /// reading it back.
     pub fn offscreen(&self, width: Px, height: Px) -> Option<Target> {
         let texture = texture(
             &self.device,
@@ -583,15 +834,15 @@ impl Gpu {
         self.background.as_ref()
     }
 
-    /// Uploads both atlas sheets when the atlas changed since the last
-    /// upload, recreating a texture whose side grew.
-    fn sheets_for(&mut self, atlas: &Atlas) -> Option<()> {
-        if self.uploaded == Some(atlas.generation()) && self.mask.is_some() && self.color.is_some()
-        {
-            return Some(());
-        }
+    /// Brings the two sheet textures up to the atlas: a replaced sheet is
+    /// made afresh at its side and taken whole, an unchanged one is left
+    /// alone, and one a glyph landed on takes that rectangle and no more.
+    fn sheets_for(&mut self, atlas: &mut Atlas) -> Option<()> {
+        let generation = atlas.generation();
+        let (dirty, mask_replaced, color_replaced) = atlas.take_dirty();
+        let mut whole = Dirty::default();
         let side = atlas.side();
-        if self.mask.as_ref().is_none_or(|s| s.side != side) {
+        if self.mask.as_ref().is_none_or(|s| s.side != side) || mask_replaced == Replaced::Yes {
             let px = Px::of(side.value());
             let texture = texture(
                 &self.device,
@@ -601,9 +852,10 @@ impl Gpu {
                 MTLTextureUsage::ShaderRead,
             )?;
             self.mask = Some(Sheet { texture, side });
+            whole.mask = Some(full(side));
         }
         let cside = atlas.color_side();
-        if self.color.as_ref().is_none_or(|s| s.side != cside) {
+        if self.color.as_ref().is_none_or(|s| s.side != cside) || color_replaced == Replaced::Yes {
             let px = Px::of(cside.value());
             let texture = texture(
                 &self.device,
@@ -616,44 +868,112 @@ impl Gpu {
                 texture,
                 side: cside,
             });
+            whole.color = Some(full(cside));
         }
-        let px = Px::of(side.value());
-        upload(&self.mask.as_ref()?.texture, px, px, atlas.pixels());
-        let cpx = Px::of(cside.value());
-        upload(
-            &self.color.as_ref()?.texture,
-            cpx,
-            cpx,
-            word_bytes(atlas.argb()),
-        );
-        self.uploaded = Some(atlas.generation());
+        if let Some(r) = whole.mask.or(dirty.mask) {
+            upload_rect(
+                &self.mask.as_ref()?.texture,
+                r,
+                atlas.pixels(),
+                RowBytes(slots(Px::of(side.value()))),
+                Texel::A8,
+            );
+        }
+        if let Some(r) = whole.color.or(dirty.color) {
+            upload_rect(
+                &self.color.as_ref()?.texture,
+                r,
+                word_bytes(atlas.argb()),
+                RowBytes(slots(Px::of(cside.value())).saturating_mul(4)),
+                Texel::Bgra8,
+            );
+        }
+        self.uploaded = Some(generation);
         Some(())
     }
 
-    /// Draws the renderer's current frame into `target`, waiting for the
-    /// GPU to finish so the surface may be shown. `None` when a resource
-    /// could not be made.
-    pub fn draw(&mut self, renderer: &Renderer<'_, '_>, target: &Target) -> Option<GpuFrame> {
+    /// A pass over `target`, cleared to transparent.
+    fn encoder(&self, target: &Target) -> Option<(CommandBuffer, Encoder)> {
+        let pass = MTLRenderPassDescriptor::new();
+        // SAFETY: attachment 0 exists on every pass descriptor.
+        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
+        att.setTexture(Some(&target.texture));
+        att.setLoadAction(MTLLoadAction::Clear);
+        att.setStoreAction(MTLStoreAction::Store);
+        att.setClearColor(MTLClearColor {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        });
+        let cmd = self.queue.commandBuffer()?;
+        let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        Some((cmd, enc))
+    }
+
+    /// Commits `cmd`: waits, or arms `done` and returns. Counts the frame
+    /// in flight either way, and out again when it completes.
+    fn commit(
+        &self,
+        cmd: &ProtocolObject<dyn MTLCommandBuffer>,
+        done: Done,
+    ) -> (Duration, Duration) {
+        let t1 = Instant::now();
+        self.in_flight.fetch_add(1, Ordering::AcqRel);
+        match done {
+            Done::Wait => {
+                cmd.commit();
+                cmd.waitUntilCompleted();
+                self.in_flight.fetch_sub(1, Ordering::AcqRel);
+                let gpu = Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0));
+                (t1.elapsed(), gpu)
+            }
+            Done::Notify(then) => {
+                let flying = Arc::clone(&self.in_flight);
+                let block =
+                    RcBlock::new(move |_: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                        flying.fetch_sub(1, Ordering::AcqRel);
+                        then();
+                    });
+                // SAFETY: the block is a valid `MTLCommandBufferHandler`
+                // for the length of the call; Metal copies it, so the
+                // `RcBlock` may drop after.
+                unsafe { cmd.addCompletedHandler(RcBlock::as_ptr(&block)) };
+                cmd.commit();
+                (t1.elapsed(), Duration::ZERO)
+            }
+        }
+    }
+
+    /// The instance path: writes the renderer's records into a ring slot,
+    /// the background bitmap into its texture, brings the sheets up, and
+    /// draws. `None` when a resource could not be made; [`Drawn::Busy`]
+    /// while a frame is in flight.
+    pub fn draw(
+        &mut self,
+        renderer: &mut Renderer<'_, '_>,
+        target: &Target,
+        done: Done,
+    ) -> Option<Drawn> {
+        if self.in_flight() == InFlight::Busy {
+            return Some(Drawn::Busy);
+        }
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
         let metrics = renderer.metrics();
         let count = renderer.instances().count();
         let bytes = count.saturating_mul(Instance::BYTES);
-        // The instance ring.
         let slot = self.ring.0;
         if self.instances[slot].length() < bytes {
             let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
-            self.instances[slot] = self
-                .device
-                .newBufferWithLength_options(want, MTLResourceOptions::StorageModeShared)?;
+            self.instances[slot] = self.shared(Span(want))?;
         }
         {
             let buffer = &self.instances[slot];
             let ptr = buffer.contents().cast::<u8>();
             // SAFETY: a shared buffer's contents are CPU-addressable for
-            // its whole length, which is at least `bytes` after the check
-            // above; the GPU last read this slot two frames ago and has
-            // completed, because every draw waits.
+            // its whole length, at least `bytes` after the check above, and
+            // nothing is in flight, so the GPU is not reading it.
             let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
             for (chunk, inst) in dst
                 .chunks_exact_mut(Instance::BYTES)
@@ -663,15 +983,20 @@ impl Gpu {
             }
         }
         self.ring = Ring((slot + 1) % RING);
-        // The background bitmap, whole.
         let bg = self.background_for(cols, rows)?;
         let (bw, bh) = (
             Px::of(u32::try_from(bg.cols.index()).ok()?),
             Px::of(u32::try_from(bg.rows.index()).ok()?),
         );
-        upload(&bg.texture, bw, bh, argb_bytes(renderer.background()));
+        upload(
+            &bg.texture,
+            bw,
+            bh,
+            argb_bytes(renderer.background()),
+            Texel::Bgra8,
+        );
         let bg_texture = bg.texture.clone();
-        self.sheets_for(renderer.atlas())?;
+        self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
         let (tw, th) = target.size();
@@ -688,21 +1013,7 @@ impl Gpu {
             px_f32(Px::of(self.color.as_ref()?.side.value())),
         ];
         let upload_time = t0.elapsed();
-        let t1 = Instant::now();
-        let pass = MTLRenderPassDescriptor::new();
-        // SAFETY: attachment 0 exists on every pass descriptor.
-        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
-        att.setTexture(Some(&target.texture));
-        att.setLoadAction(MTLLoadAction::Clear);
-        att.setStoreAction(MTLStoreAction::Store);
-        att.setClearColor(MTLClearColor {
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
-            alpha: 0.0,
-        });
-        let cmd = self.queue.commandBuffer()?;
-        let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        let (cmd, enc) = self.encoder(target)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
         enc.setRenderPipelineState(&self.bg_pipe);
@@ -731,118 +1042,75 @@ impl Gpu {
             }
         }
         enc.endEncoding();
-        cmd.commit();
-        cmd.waitUntilCompleted();
-        let submit = t1.elapsed();
-        let gpu = Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0));
-        Some(GpuFrame {
+        let (submit, gpu) = self.commit(&cmd, done);
+        Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count),
             upload: upload_time,
             submit,
             gpu,
-        })
+        }))
     }
 
-    /// Makes `buffer` hold `bytes`, reallocating it when too small.
-    fn fill(&self, buffer: &mut Buffer, bytes: &[u8]) -> Option<()> {
-        if buffer.length() < bytes.len() {
-            let want = bytes.len().max(BUFFER_FLOOR).next_power_of_two();
-            *buffer = self
-                .device
-                .newBufferWithLength_options(want, MTLResourceOptions::StorageModeShared)?;
-        }
-        let ptr = buffer.contents().cast::<u8>();
-        // SAFETY: a shared buffer's contents are CPU-addressable for its
-        // whole length, at least `bytes.len()` after the check above, and
-        // the GPU is not reading it: every draw waits for completion.
-        let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes.len()) };
-        dst.copy_from_slice(bytes);
-        Some(())
-    }
-
-    /// Draws the raw grid: the cell path. Uploads the cells and the
-    /// resolved styles whole, the glyph map when its generation moved,
-    /// then a background pass, a glyph pass and a shape pass, each one
-    /// instanced draw over every cell. Waits for completion.
+    /// The cell path: binds the grid, the styles and the map where they
+    /// already are, brings the sheets up by the texels new glyphs wrote,
+    /// and draws a background pass, a glyph pass and a shape pass, each one
+    /// instanced draw over every cell. Nothing is copied. `None` when a
+    /// resource could not be made; [`Drawn::Busy`] while a frame is in
+    /// flight.
     pub fn draw_cells(
         &mut self,
-        renderer: &Renderer<'_, '_>,
+        renderer: &mut Renderer<'_, '_>,
         input: &CellInput<'_>,
         target: &Target,
-    ) -> Option<GpuFrame> {
+        done: Done,
+    ) -> Option<Drawn> {
+        if self.in_flight() == InFlight::Busy {
+            return Some(Drawn::Busy);
+        }
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
         let count = cols.index().saturating_mul(rows.index());
-        if input.cells.len() < count {
-            return None;
-        }
         let metrics = renderer.metrics();
-        let slot = self.ring.0;
-        let mut cells = self.cells[slot].clone();
-        self.fill(&mut cells, cell_bytes(&input.cells[..count]))?;
-        self.cells[slot] = cells;
-        let mut styles = self.styles[slot].clone();
-        self.fill(&mut styles, resolved_bytes(input.styles))?;
-        self.styles[slot] = styles;
-        if self.map_at != Some(input.map.generation()) {
-            let mut map = self.map.clone();
-            self.fill(&mut map, entry_bytes(input.map.entries()))?;
-            self.map = map;
-            self.map_at = Some(input.map.generation());
-        }
-        self.ring = Ring((slot + 1) % RING);
-        self.sheets_for(renderer.atlas())?;
+        self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
         let (tw, th) = target.size();
-        let (crow, ccol) = input.cursor.map_or((u32::MAX, u32::MAX), |(r, c, _)| {
-            (
-                u32::try_from(r.index()).unwrap_or(u32::MAX),
-                u32::try_from(c.index()).unwrap_or(u32::MAX),
-            )
-        });
-        let uniforms: [u32; CELL_UNIFORMS] = [
-            tw.value(),
-            th.value(),
-            metrics.cell_w.value(),
-            metrics.cell_h.value(),
-            u32::try_from(cols.index()).unwrap_or(0),
-            u32::try_from(rows.index()).unwrap_or(0),
-            self.mask.as_ref()?.side.value(),
-            self.color.as_ref()?.side.value(),
-            ccol,
-            crow,
-            CursorKind::of(input.cursor).code().0,
-            metrics.baseline.value(),
-            metrics.underline.value(),
-            metrics.strike.value(),
-            metrics.thickness.value(),
-            u32::try_from(input.map.entries().len()).unwrap_or(0),
-            32 - MAP_BITS,
-        ];
+        let (cursor_row, cursor_col) = input
+            .cursor
+            .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
+                (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
+            });
+        let uniforms = CellUniforms {
+            viewport_w: tw,
+            viewport_h: th,
+            cell_w: metrics.cell_w,
+            cell_h: metrics.cell_h,
+            cols: Uni::of(Elems(cols.index())),
+            rows: Uni::of(Elems(rows.index())),
+            mask_side: Px::of(self.mask.as_ref()?.side.value()),
+            color_side: Px::of(self.color.as_ref()?.side.value()),
+            cursor_col,
+            cursor_row,
+            cursor: CursorKind::of(input.cursor).code(),
+            baseline: metrics.baseline,
+            underline: metrics.underline,
+            strike: metrics.strike,
+            thickness: metrics.thickness,
+            map_slots: Uni::of(Elems(MAP_SLOTS)),
+            map_shift: Uni(32 - MAP_BITS),
+            stride: Uni::of(Elems(input.stride.index())),
+            rotation: Uni::of(Elems(input.rotation.index())),
+        };
         let upload_time = t0.elapsed();
-        let t1 = Instant::now();
-        let pass = MTLRenderPassDescriptor::new();
-        // SAFETY: attachment 0 exists on every pass descriptor.
-        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
-        att.setTexture(Some(&target.texture));
-        att.setLoadAction(MTLLoadAction::Clear);
-        att.setStoreAction(MTLStoreAction::Store);
-        att.setClearColor(MTLClearColor {
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
-            alpha: 0.0,
-        });
-        let cmd = self.queue.commandBuffer()?;
-        let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        let (cmd, enc) = self.encoder(target)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
-        let ulen = core::mem::size_of::<[u32; CELL_UNIFORMS]>();
+        let ulen = core::mem::size_of::<CellUniforms>();
         // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
         // copies `setBytes` data at the call; the buffer and texture indices
-        // match the shaders' attributes; the cell buffer holds `count`
-        // cells, the style buffer every slot a cell can name, and the map
-        // buffer every slot the probe can reach.
+        // match the shaders' attributes; the grid holds `rows * stride`
+        // cells and the shader reads `(row + rot) % rows * stride + col`
+        // with `col < cols <= stride`; the style buffer holds every slot a
+        // cell can name; the map buffer holds every slot the probe reaches.
         unsafe {
             for (pipe, instances) in [
                 (&self.cell_bg_pipe, count),
@@ -850,10 +1118,10 @@ impl Gpu {
                 (&self.cell_shape_pipe, count.saturating_mul(SHAPES_PER_CELL)),
             ] {
                 enc.setRenderPipelineState(pipe);
-                enc.setVertexBuffer_offset_atIndex(Some(&self.cells[slot]), 0, 0);
-                enc.setVertexBuffer_offset_atIndex(Some(&self.styles[slot]), 0, 1);
+                enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
+                enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
                 enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
-                enc.setVertexBuffer_offset_atIndex(Some(&self.map), 0, 3);
+                enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
                 enc.setFragmentTexture_atIndex(Some(&mask), 0);
                 enc.setFragmentTexture_atIndex(Some(&color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
@@ -866,20 +1134,18 @@ impl Gpu {
             }
         }
         enc.endEncoding();
-        cmd.commit();
-        cmd.waitUntilCompleted();
-        let submit = t1.elapsed();
-        let gpu = Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0));
-        Some(GpuFrame {
+        let (submit, gpu) = self.commit(&cmd, done);
+        Some(Drawn::Frame(GpuFrame {
             instances: Tally::of(count),
             upload: upload_time,
             submit,
             gpu,
-        })
+        }))
     }
 
     /// Reads a target back as `0xAARRGGBB` words, premultiplied, row-major
-    /// at the target's width; `None` when `out` is too small.
+    /// at the target's width; `None` when `out` is too small. Only sound
+    /// after a [`Done::Wait`] draw.
     pub fn read(&self, target: &Target, out: &mut [u32]) -> Option<()> {
         let (w, h) = target.size();
         let (ws, hs) = (slots(w), slots(h));
@@ -909,45 +1175,22 @@ impl Gpu {
     }
 }
 
-/// The grid as bytes: `PackedCell` is `repr(C)` `{u32, u16, u16}`, eight
-/// bytes with no padding.
-fn cell_bytes(cells: &[PackedCell]) -> &[u8] {
-    // SAFETY: `PackedCell` is `repr(C)` over `u32`, `u16`, `u16` -- eight
-    // initialised bytes with no padding -- so the slice is `8 * len` bytes.
-    unsafe {
-        core::slice::from_raw_parts(cells.as_ptr().cast::<u8>(), cells.len().saturating_mul(8))
-    }
-}
-
-/// The resolved styles as bytes: `Resolved` is `repr(C)` over four `u32`s.
-fn resolved_bytes(styles: &[Resolved]) -> &[u8] {
-    // SAFETY: `Resolved` is `repr(C)` over four `repr(transparent)` `u32`
-    // newtypes, sixteen initialised bytes with no padding.
-    unsafe {
-        core::slice::from_raw_parts(
-            styles.as_ptr().cast::<u8>(),
-            styles.len().saturating_mul(Resolved::BYTES),
-        )
-    }
-}
-
-/// The glyph map as bytes: `MapEntry` is `repr(C)`, twenty-four bytes.
-fn entry_bytes(entries: &[MapEntry]) -> &[u8] {
-    // SAFETY: `MapEntry` is `repr(C)` over `u32, u32, u16 x4, i16 x2, u32`
-    // newtypes -- twenty-four initialised bytes with no padding.
-    unsafe {
-        core::slice::from_raw_parts(
-            entries.as_ptr().cast::<u8>(),
-            entries.len().saturating_mul(MapEntry::BYTES),
-        )
-    }
-}
-
 /// Whether the GPU and CPU share one memory.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Memory {
     Unified,
     Discrete,
+}
+
+/// The whole of a sheet of `side`.
+fn full(side: Side) -> TexRect {
+    let s = baud_render::Tex(u16::try_from(side.value()).unwrap_or(u16::MAX));
+    TexRect {
+        x: baud_render::Tex(0),
+        y: baud_render::Tex(0),
+        w: s,
+        h: s,
+    }
 }
 
 /// `0xAARRGGBB` words as the bytes a `BGRA8Unorm` texture reads: on a
@@ -962,7 +1205,7 @@ fn word_bytes(words: &[u32]) -> &[u8] {
 }
 
 /// The same for the compositor's colour words.
-fn argb_bytes(words: &[Argb]) -> &[u8] {
+fn argb_bytes(words: &[baud_render::Argb]) -> &[u8] {
     // SAFETY: `Argb` is `repr(transparent)` over `u32`, so a slice of it
     // is a slice of `u32` of the same length at the same address.
     let words: &[u32] =

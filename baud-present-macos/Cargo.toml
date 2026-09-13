@@ -10,6 +10,7 @@ description = "baud's macOS presentation layer: an IOSurface-backed content view
 publish = false
 
 [dependencies]
+baud-core = { path = "../baud-core", features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render" }
@@ -25,7 +26,6 @@ objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-io-surface = "0.3.2"
 objc2-metal = { version = "0.3.2", features = ["objc2-io-surface", "objc2-core-foundation"] }
-
-# The two-arm pixel comparison drives a terminal and the renderer.
-[dev-dependencies]
-baud-core = { path = "../baud-core", features = ["alloc"] }
+# The completion handler is a block: the frame is presented when the GPU
+# says it is done, and nothing waits for it.
+block2 = "0.6"

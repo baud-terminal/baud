@@ -293,6 +293,42 @@ impl Owned {
         }
     }
 
+    /// Sized to `ws` with **no viewport of its own**, for an embedder that
+    /// places the grid where a GPU can read it in place and lends it
+    /// through [`Owned::storage_over`]. Everything else is allocated here.
+    pub fn without_viewport(ws: &WinSize) -> Owned {
+        let mut owned = Owned::new(ws);
+        owned.vp = alloc::vec::Vec::new();
+        owned
+    }
+
+    /// Lend them all to a `Storage` with `vp` standing in for the viewport:
+    /// `rows` rows at the maximum stride, as [`Owned::new`] would have
+    /// allocated, in memory the caller chose -- a shared GPU buffer, so the
+    /// grid the core writes is the grid the GPU reads.
+    pub fn storage_over<'v>(&'v mut self, vp: &'v mut [PackedCell]) -> Storage<'v> {
+        Storage::new(
+            &mut self.arena,
+            vp,
+            &mut self.used,
+            &mut self.cells3,
+            &mut self.tmpl,
+            &mut self.tabs,
+            &mut self.reply,
+            &mut self.alt,
+            &mut self.alt_used,
+            &mut self.clusters,
+            StrBuf {
+                pending: &mut self.pending,
+                title: &mut self.title,
+                icon: &mut self.icon,
+                palette: &mut self.palette,
+                links: &mut self.links,
+                link_len: &mut self.link_len,
+            },
+        )
+    }
+
     /// Sized to `ws`, with the three-byte cell table **present**.
     ///
     /// The one caller that wants it is the table's own equivalence test, which

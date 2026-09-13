@@ -146,12 +146,57 @@ impl Sheet {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Generation(u64);
 
+/// A rectangle of texels on a sheet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TexRect {
+    pub x: Tex,
+    pub y: Tex,
+    pub w: Tex,
+    pub h: Tex,
+}
+
+impl TexRect {
+    /// The smallest rectangle covering both.
+    fn union(self, o: TexRect) -> TexRect {
+        let x0 = self.x.0.min(o.x.0);
+        let y0 = self.y.0.min(o.y.0);
+        let x1 = (self.x.0 + self.w.0).max(o.x.0 + o.w.0);
+        let y1 = (self.y.0 + self.h.0).max(o.y.0 + o.h.0);
+        TexRect {
+            x: Tex(x0),
+            y: Tex(y0),
+            w: Tex(x1 - x0),
+            h: Tex(y1 - y0),
+        }
+    }
+}
+
+/// What a copy of the sheets elsewhere has to fetch since it last asked:
+/// the texels written on each, or nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Dirty {
+    pub mask: Option<TexRect>,
+    pub color: Option<TexRect>,
+}
+
+/// Whether a sheet was replaced -- grown and emptied -- since the last
+/// [`Atlas::take_dirty`], so a copy has to be made afresh at the new side.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Replaced {
+    #[default]
+    No,
+    Yes,
+}
+
 pub struct Atlas {
     generation: Generation,
     mask: Sheet,
     pixels: Vec<u8>,
     color: Sheet,
     argb: Vec<u32>,
+    dirty: Dirty,
+    mask_replaced: Replaced,
+    color_replaced: Replaced,
     /// `None` records a glyph with no ink, so a space is looked up once.
     map: HashMap<GlyphKey, Option<Slot>>,
     scratch: Vec<f32>,
@@ -175,6 +220,9 @@ impl Atlas {
             pixels: Vec::new(),
             color: Sheet::new(Side::FIRST),
             argb: Vec::new(),
+            dirty: Dirty::default(),
+            mask_replaced: Replaced::No,
+            color_replaced: Replaced::No,
             map: HashMap::new(),
             scratch: Vec::new(),
             coverage: Vec::new(),
@@ -192,6 +240,8 @@ impl Atlas {
         let n = slots(Px::of(side.0));
         self.pixels.clear();
         self.pixels.resize(n * n, 0);
+        self.mask_replaced = Replaced::Yes;
+        self.dirty.mask = None;
         self.map.retain(|_, s| {
             !matches!(
                 s,
@@ -208,6 +258,8 @@ impl Atlas {
         let n = slots(Px::of(side.0));
         self.argb.clear();
         self.argb.resize(n * n, 0);
+        self.color_replaced = Replaced::Yes;
+        self.dirty.color = None;
         self.map.retain(|_, s| {
             !matches!(
                 s,
@@ -227,6 +279,23 @@ impl Atlas {
 
     fn touched(&mut self) {
         self.generation = Generation(self.generation.0.wrapping_add(1));
+    }
+
+    /// The texels written since the last call, and whether either sheet
+    /// was replaced since -- in which case its rectangle is the whole new
+    /// sheet's worth of texels a copy has to fetch. Clears both.
+    pub fn take_dirty(&mut self) -> (Dirty, Replaced, Replaced) {
+        let out = (
+            self.dirty,
+            core::mem::take(&mut self.mask_replaced),
+            core::mem::take(&mut self.color_replaced),
+        );
+        self.dirty = Dirty::default();
+        out
+    }
+
+    fn dirtied(slot: &mut Option<TexRect>, r: TexRect) {
+        *slot = Some(slot.map_or(r, |d| d.union(r)));
     }
 
     /// The mask texture's side.
@@ -445,12 +514,19 @@ impl Atlas {
             }
         }
         self.touched();
-        Some(Slot {
-            kind: Kind::Color,
+        let rect = TexRect {
             x: Tex(u16::try_from(x.value()).ok()?),
             y: Tex(u16::try_from(y.value()).ok()?),
             w: Tex(u16::try_from(w.value()).ok()?),
             h: Tex(u16::try_from(h.value()).ok()?),
+        };
+        Atlas::dirtied(&mut self.dirty.color, rect);
+        Some(Slot {
+            kind: Kind::Color,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
             left: at.left,
             top: at.top,
         })
@@ -496,12 +572,19 @@ impl Atlas {
         };
         self.blit(x, y, w, h);
         self.touched();
-        Some(Slot {
-            kind: Kind::Mask,
+        let rect = TexRect {
             x: Tex(u16::try_from(x.value()).ok()?),
             y: Tex(u16::try_from(y.value()).ok()?),
             w: Tex(u16::try_from(w.value()).ok()?),
             h: Tex(u16::try_from(h.value()).ok()?),
+        };
+        Atlas::dirtied(&mut self.dirty.mask, rect);
+        Some(Slot {
+            kind: Kind::Mask,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
             left: fit.left,
             top: fit.top,
         })
