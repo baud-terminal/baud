@@ -26,7 +26,7 @@ fn run(bytes: &[u8]) -> (Vec<PackedCell>, bool) {
     let mut t = Term::new(s.storage(), &support::CORPUS);
     support::feed(&mut t, bytes);
     let alt = t.screen() == Screen::Alternate;
-    (t.viewport().to_vec(), alt)
+    (support::screen(&t).to_vec(), alt)
 }
 
 /// **DECSTR does not leave the alternate screen.**
@@ -129,7 +129,7 @@ fn a_shrink_after_scrolling_does_not_panic() {
 
     // Both of these panicked before the fix.
     let w = t.stride().index();
-    let vp = t.viewport();
+    let vp = support::screen(&t);
     assert_eq!(vp.len(), 10 * w, "ten rows of the pitch");
     // The cursor's ten rows survive -- nine of `X` and the blank row it
     // stood on -- and the rows above them retired to the history.
@@ -175,7 +175,7 @@ fn a_grow_after_scrolling_does_not_panic() {
             Resized::Ok
         );
         let w = t.stride().index();
-        let vp = t.viewport();
+        let vp = support::screen(&t);
         assert_eq!(vp.len(), 120 * w);
         // Forty-one lines scrolled off and come back above the fifty that
         // were on screen: 90 of `Y`, the blank line the cursor was on, and
@@ -290,7 +290,7 @@ fn a_resize_on_the_alternate_screen_reshapes_the_primary_too() {
     feed(&mut t, b"\x1b[?1049l");
 
     let w = t.stride().index();
-    let vp = t.viewport();
+    let vp = support::screen(&t);
     // Eleven scrolls, so row `y` was line `11 + y`. The cursor was on the
     // last row, so the twenty rows that survive are the last twenty -- lines
     // 41 to 59 and the mark -- with the thirty above them retired to the
@@ -464,7 +464,7 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
         "the pitch admits the width provisioned"
     );
     assert_eq!(
-        t.viewport().len(),
+        support::screen(&t).len(),
         rows.index() * t.stride().index(),
         "the viewport is rows by stride"
     );
@@ -480,7 +480,7 @@ fn stride_is_the_row_pitch_and_here_it_is_the_column_count() {
     // A resize changes the geometry and not the pitch: the rows stay where
     // they are and only the live width of each moves.
     assert_eq!(t.stride(), before, "the pitch survives the geometry");
-    assert_eq!(t.viewport().len(), 7 * t.stride().index());
+    assert_eq!(support::screen(&t).len(), 7 * t.stride().index());
 }
 
 /// **The same shrink, on the alternate screen.**
@@ -518,7 +518,7 @@ fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
     );
 
     let w = t.stride().index();
-    let vp = t.viewport();
+    let vp = support::screen(&t);
     assert_eq!(vp.len(), 10 * w, "ten rows of the pitch");
     for y in 0..10 {
         assert_eq!(

@@ -20,7 +20,7 @@ fn grid(bytes: &[u8]) -> Vec<PackedCell> {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    t.viewport().to_vec()
+    support::screen(&t).to_vec()
 }
 
 fn replies(bytes: &[u8]) -> Vec<u8> {
@@ -153,7 +153,11 @@ fn insert_mode_is_chunk_invariant() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             i += n;
         }
-        assert_eq!(t.viewport().to_vec(), whole, "differed at chunk {chunk}");
+        assert_eq!(
+            support::screen(&t).to_vec(),
+            whole,
+            "differed at chunk {chunk}"
+        );
     }
 }
 
@@ -176,5 +180,5 @@ fn insert_mode_renders_the_same_in_runs_mode() {
         t.write_at(BytePos::ZERO, seq);
         t.feed(BytePos::ZERO, ReadLen::from_index((seq).len()));
     }
-    assert_eq!(t2.viewport().to_vec(), t1.viewport().to_vec());
+    assert_eq!(support::screen(&t2).to_vec(), support::screen(&t1).to_vec());
 }

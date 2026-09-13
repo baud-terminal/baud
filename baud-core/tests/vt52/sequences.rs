@@ -8,7 +8,7 @@ fn run(bytes: &[u8]) -> (Vec<PackedCell>, (usize, usize), Vec<u8>, TerminalMode)
     support::feed(&mut t, bytes);
     let (r, c) = t.cursor();
     (
-        t.viewport().to_vec(),
+        support::screen(&t).to_vec(),
         (r.index(), c.index()),
         t.reply().to_vec(),
         t.terminal_mode(),
@@ -207,6 +207,10 @@ fn vt52_is_chunk_invariant() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             i += n;
         }
-        assert_eq!(t.viewport().to_vec(), whole, "differed at chunk {chunk}");
+        assert_eq!(
+            support::screen(&t).to_vec(),
+            whole,
+            "differed at chunk {chunk}"
+        );
     }
 }

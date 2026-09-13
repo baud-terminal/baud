@@ -121,10 +121,10 @@ fn deccolm_clears_and_records_but_does_not_resize() {
         let mut u = T {
             s: Owned::new(&support::CORPUS),
         };
-        let mut t2 = Term::new(u.s.storage(), &support::CORPUS);
-        t2.viewport().to_vec()
+        let t2 = Term::new(u.s.storage(), &support::CORPUS);
+        support::screen(&t2).to_vec()
     };
-    assert_eq!(term.viewport(), &blank[..], "the screen is cleared");
+    assert_eq!(support::screen(&term), blank, "the screen is cleared");
 }
 
 /// `?12` is the blink axis of DECSCUSR reached by another route, so it must

@@ -318,19 +318,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    pub fn convert(&mut self, term: &mut Term<'_>, damage: Damage) -> Converted {
+    pub fn convert(&mut self, term: &Term<'_>, damage: Damage) -> Converted {
         let t0 = Instant::now();
         self.blink_seen = Blinking::Unseen;
         self.fit(term);
         let (cols, rows) = term.geometry();
-        let stride = term.stride().index();
         let ncols = cols.index();
-        {
-            let vp = term.viewport();
-            for r in 0..rows.index() {
-                let src = &vp[r * stride..r * stride + ncols];
-                self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(src);
-            }
+        // Each row read where the core holds it, through the rotation and
+        // the ring; the copy into `cur` is this path's own frame-to-frame
+        // damage record, not the core's.
+        for r in 0..rows.index() {
+            self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(term.row(Row::from_index(r)));
         }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));

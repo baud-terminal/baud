@@ -32,6 +32,6 @@ fn main() {
 
     // A terminal is not write-only: drain anything it owes the host.
     let owed = term.reply().len(); // e.g. the answer to a DSR
-    let cells = term.viewport().len(); // the materialised grid
+    let cells = term.cells().len(); // the grid, ring and all
     println!("{owed} bytes owed, {cells} cells");
 }

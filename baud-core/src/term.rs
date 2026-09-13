@@ -523,7 +523,7 @@ impl<'b> Term<'b> {
     /// property suite caught the version that only lowered.
     ///
     /// Takes `&self`: the rotation is resolved here rather than undone, so
-    /// unlike [`Term::viewport`] this needs no mutation to answer.
+    /// it needs no mutation to answer.
     pub fn row_extent(&self, y: Row) -> RowExtent {
         // The rotation resolved here rather than through a `View`, which would
         // need the cells this does not read. Both operands are below the
@@ -827,10 +827,15 @@ impl<'b> Term<'b> {
 
     /// One row of the grid, resolved through the rotation.
     ///
-    /// **Takes `&self` where `viewport` takes `&mut self`.** `viewport`
-    /// un-rotates the whole grid in place so a renderer gets one contiguous
-    /// slice; a single row is already contiguous wherever it sits, so `phys`
-    /// answers it with arithmetic and nothing moves.
+    /// One screen row, `cols` cells, read where it is: through the rotation
+    /// and the ring, with no copy. **The only way to read the screen**, on
+    /// purpose. `viewport()` promised one contiguous slice of the screen and
+    /// kept the promise, when the window wrapped around the ring's end, by
+    /// copying its rows into a scratch -- fifty frames in every ring's worth,
+    /// for the two readers that held it to the promise. Both walk rows, so
+    /// the promise, the scratch and the copy are gone; a reader that wants
+    /// the whole screen at once takes `Term::cells` under `Term::rotation`
+    /// and `Term::ring`, which is what the GPU does.
     pub fn row(&self, y: Row) -> &[PackedCell] {
         let (cells, _, ring, rot) = self.surface();
         View::new_ref(cells, self.stride, self.cols, self.rows, ring, rot).row_slice(y)
@@ -987,7 +992,7 @@ impl<'b> Term<'b> {
         (self.bytes_in, self.cells_written)
     }
 
-    /// The distance between rows in the slice [`Term::viewport`] returns.
+    /// The distance between rows in [`Term::cells`].
     ///
     /// **A renderer indexes by this, not by `MAX_COLS` and not by the
     /// width.** The pitch is fixed for the life of the storage at
@@ -1015,19 +1020,6 @@ impl<'b> Term<'b> {
         self.store.tmpl
     }
 
-    /// The materialised viewport, un-rotated so a renderer gets a contiguous
-    /// slice in screen order, `rows` rows of [`Term::stride`] cells each.
-    ///
-    /// **`&mut` is not a wart.** The rotation is undone here, once a *frame*,
-    /// rather than on every scroll -- which is where the laziness that makes a
-    /// scroll O(1) is paid for.
-    ///
-    /// This is the renderer's entry point, and for a long time it carried no
-    /// doc at all: three doc blocks -- this one, [`Term::style_of`]'s and
-    /// [`Term::stride`]'s -- had been concatenated onto `stride` by an
-    /// insertion that landed between a comment and its function, the
-    /// stranded-attribute shape `CLAUDE.md` records seven times for
-    /// `#[inline]`, here on a `///`.
     /// The live surface's ring as the core holds it: [`Term::ring`] rows of
     /// [`Term::stride`] cells, under the rotation -- screen row `y` is
     /// physical row `(y + rotation) % ring`, [`Term::rotation`]. What a
@@ -1051,42 +1043,6 @@ impl<'b> Term<'b> {
     /// capacity alone on the alternate.
     pub fn ring(&self) -> Rows {
         self.surface().2
-    }
-
-    /// The screen in screen order, `rows` rows of [`Term::stride`] cells: the
-    /// window into the ring as one slice when it does not wrap around the
-    /// ring's end, which it does not for all but `rows` of every `ring`
-    /// positions, and a copy of the window's rows into the storage's scratch
-    /// otherwise. Nothing in the ring moves either way, so a scroll's
-    /// rotation stays where it is and [`Term::cells`] keeps answering.
-    pub fn viewport(&mut self) -> &[PackedCell] {
-        let (rows, stride) = (self.rows, self.stride);
-        let Storage {
-            vp,
-            used,
-            depth,
-            alt,
-            scratch,
-            ..
-        } = &mut self.store;
-        let (cells, ring, rot): (&[PackedCell], Rows, RowRot) = match self.cold.screen {
-            Screen::Normal => (vp, Rows::of_index(used.len()), self.rot),
-            Screen::Alternate => (
-                alt.cells,
-                Rows::of_index(used.len() - depth.lines()),
-                alt.rot,
-            ),
-        };
-        if rot.index() + rows.index() <= ring.index() {
-            return RowBlock::from_row(Rows::of_count(rot.index()), rows, stride).of(cells);
-        }
-        for y in 0..rows.index() {
-            let p = rot.advance(y, ring).index();
-            RowBlock::nth(y, stride)
-                .of_mut(scratch)
-                .copy_from_slice(RowBlock::nth(p, stride).of(cells));
-        }
-        RowBlock::leading(rows, stride).of(scratch)
     }
 
     /// Place bytes in the arena at `base`, the way a `read(2)` would.
@@ -1146,10 +1102,10 @@ impl<'b> Term<'b> {
     ///
     /// **Resolved through the grid, not from a position key.** The cell holds
     /// the cluster index, so this is one load and a bounds check, and it is
-    /// correct after a scroll, after `viewport` and on either screen -- the
+    /// correct after a scroll and on either screen -- the
     /// index moved when the cell moved. `baud-core2` answers the same question
     /// from a table keyed on surface, physical row, column and generation, and
-    /// an adversarial review reproduced what that costs: one `viewport()` call
+    /// an adversarial review reproduced what that costs: one un-rotating read
     /// and the answer is empty, then a stranger's.
     ///
     /// Empty when the cell has no continuations, and empty rather than wrong

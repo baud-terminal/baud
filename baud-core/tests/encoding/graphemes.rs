@@ -179,7 +179,7 @@ fn where_a_combining_mark_ends_up() {
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index((bytes).len()));
     let cols = t.cursor().1.index();
-    let cells: Vec<u32> = t.viewport()[..cols.max(1)]
+    let cells: Vec<u32> = support::screen(&t)[..cols.max(1)]
         .iter()
         .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
         .collect();

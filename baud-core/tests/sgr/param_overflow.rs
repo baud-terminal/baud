@@ -32,7 +32,7 @@ fn feed_in_chunks(bytes: &[u8], chunk: usize) -> Attrs {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    let cell = t.viewport()[0];
+    let cell = support::screen(&t)[0];
     t.style_of(cell).attrs()
 }
 

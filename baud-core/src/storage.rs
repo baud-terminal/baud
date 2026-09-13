@@ -83,9 +83,6 @@ pub struct Storage<'b> {
     /// The primary screen's rows and the lines behind them: `used.len()`
     /// physical rows at the pitch, of which the screen is a window.
     pub(crate) vp: &'b mut [PackedCell],
-    /// Room for one screen's rows in screen order, for a caller that asks
-    /// [`Term::viewport`] while the window wraps around the ring's end.
-    pub(crate) scratch: &'b mut [PackedCell],
     /// How many of `vp`'s rows are scrollback: the ring is the screen's
     /// capacity plus this.
     pub(crate) depth: Depth,
@@ -153,7 +150,7 @@ pub struct Storage<'b> {
     /// Interned grapheme clusters, indexed **from the cell**.
     ///
     /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
-    /// the cell moves -- which is what makes it survive `RowRot`, `viewport`
+    /// the cell moves -- which is what makes it survive `RowRot`, a frame's read
     /// and the alternate screen without a parallel structure to keep in step,
     /// and is exactly what `baud-core2`'s position key does not.
     pub(crate) clusters: ClusterStore<'b>,
@@ -291,7 +288,6 @@ impl<'b> StrBuf<'b> {
 pub struct Owned {
     stride: Stride,
     depth: Depth,
-    scratch: alloc::vec::Vec<PackedCell>,
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowExtent>,
@@ -347,7 +343,6 @@ impl Owned {
         Owned {
             stride,
             depth,
-            scratch: vec![PackedCell::EMPTY; span.len()],
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
@@ -409,7 +404,6 @@ impl Owned {
             self.depth,
             vp,
             &mut self.used,
-            &mut self.scratch,
             &mut self.cells3,
             &mut self.tmpl,
             &mut self.tabs,
@@ -436,7 +430,6 @@ impl Owned {
             self.depth,
             &mut self.vp,
             &mut self.used,
-            &mut self.scratch,
             &mut self.cells3,
             &mut self.tmpl,
             &mut self.tabs,
@@ -558,7 +551,6 @@ impl<'b> Storage<'b> {
         depth: Depth,
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
-        scratch: &'b mut [PackedCell],
         cells3: &'b mut [PackedCell],
         tmpl: &'b mut [Option<StyleWord>],
         tabs: &'b mut [bool],
@@ -602,7 +594,6 @@ impl<'b> Storage<'b> {
         let ring = RowBlock::leading(Rows::of_index(used.len()), stride);
         assert!(ring.fits(vp), "the ring is short of its rows");
         let screen = RowBlock::leading(Rows::of_index(used.len() - depth.lines()), stride);
-        assert!(screen.fits(scratch), "the scratch is short of a screen");
         // **Required, not optional.** An absent buffer would mean the
         // alternate screen is recognised, entered, and then quietly destroys
         // the primary on the way out -- which `docs/vt-coverage.md` rates as
@@ -632,7 +623,6 @@ impl<'b> Storage<'b> {
             stride,
             depth,
             vp,
-            scratch,
             used,
             cells3,
             tmpl,

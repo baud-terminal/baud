@@ -24,7 +24,7 @@ fn run(bytes: &[u8]) -> (Vec<PackedCell>, Charset) {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    (t.viewport().to_vec(), t.charset())
+    (support::screen(&t).to_vec(), t.charset())
 }
 
 fn charset(bytes: &[u8]) -> Charset {
@@ -269,7 +269,11 @@ fn charset_handling_is_chunk_invariant() {
             t.feed(BytePos::ZERO, ReadLen::from_index(n));
             i += n;
         }
-        assert_eq!(t.viewport().to_vec(), whole, "differed at chunk {chunk}");
+        assert_eq!(
+            support::screen(&t).to_vec(),
+            whole,
+            "differed at chunk {chunk}"
+        );
     }
 }
 

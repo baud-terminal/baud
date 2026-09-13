@@ -29,7 +29,7 @@ fn grid(bytes: &[u8]) -> Vec<PackedCell> {
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, bytes);
-    t.viewport().to_vec()
+    support::screen(&t).to_vec()
 }
 
 /// NUL is a fill character with no effect: not printed, cursor unmoved.

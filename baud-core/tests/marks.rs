@@ -232,15 +232,17 @@ fn the_style_table_is_what_style_of_reads() {
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
     feed(&mut t, "\x1b[31;1mred\x1b[0m plain \x1b[44mblue");
-    let cells: Vec<_> = t.viewport()[..14].to_vec();
+    let cells: Vec<_> = support::screen(&t)[..14].to_vec();
     let table = t.styles();
     for cell in cells {
         let slot = table[cell.style.index()].unwrap_or(baud_domain::StyleWord::DEFAULT);
         assert_eq!(slot, t.style_of(cell));
     }
     // The three renditions the bytes minted are distinct slots.
-    let ids: std::collections::BTreeSet<_> =
-        t.viewport()[..14].iter().map(|c| c.style.index()).collect();
+    let ids: std::collections::BTreeSet<_> = support::screen(&t)[..14]
+        .iter()
+        .map(|c| c.style.index())
+        .collect();
     assert_eq!(ids.len(), 3);
 }
 
@@ -280,7 +282,7 @@ fn the_rotated_grid_under_its_rotation_is_the_viewport() {
             t.cells()[p * stride..p * stride + stride].to_vec()
         })
         .collect();
-    assert_eq!(turned, t.viewport().to_vec());
+    assert_eq!(turned, support::screen(&t).to_vec());
     assert_eq!(
         t.rotation().index(),
         rot,
@@ -314,7 +316,7 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
         feed(&mut t, &format!("\x1b[9{c}mY\x1b[0m"));
     }
     // What each of those cells resolves to, before any colliding style exists.
-    let cells0: Vec<_> = t.viewport()[..16].to_vec();
+    let cells0: Vec<_> = support::screen(&t)[..16].to_vec();
     let before: Vec<_> = cells0.iter().map(|c| t.style_of(*c)).collect();
     // The 256-colour cube: 216 distinct background renditions, which under
     // eviction reuse some of row 0's buckets.
@@ -323,7 +325,7 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
         feed(&mut t, &format!("\x1b[48;5;{i}m  \x1b[0m"));
     }
     // Row 0's cells must resolve to exactly what they did before.
-    let cells1: Vec<_> = t.viewport()[..16].to_vec();
+    let cells1: Vec<_> = support::screen(&t)[..16].to_vec();
     let after: Vec<_> = cells1.iter().map(|c| t.style_of(*c)).collect();
     let wrong: Vec<_> = (0..16).filter(|&i| before[i] != after[i]).collect();
     assert!(
@@ -332,8 +334,10 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
          resolves to a colliding style's background"
     );
     // And the sixteen are still sixteen distinct slots, none collapsed.
-    let ids: std::collections::BTreeSet<_> =
-        t.viewport()[..16].iter().map(|c| c.style.index()).collect();
+    let ids: std::collections::BTreeSet<_> = support::screen(&t)[..16]
+        .iter()
+        .map(|c| c.style.index())
+        .collect();
     assert_eq!(ids.len(), 16, "two distinct renditions share a slot");
 }
 

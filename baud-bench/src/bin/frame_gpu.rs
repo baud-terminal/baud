@@ -32,7 +32,7 @@
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
 use baud_core::{Depth, grid_stride};
-use baud_domain::RowRot;
+use baud_domain::{Row, RowBlock, RowRot};
 #[cfg(target_os = "macos")]
 fn main() {
     use baud_core::{Owned, Term};
@@ -223,8 +223,11 @@ fn main() {
                     });
                     r.resolve_styles_into(&t, styles_mem);
                     if arm == Arm::Copied {
-                        let vp = t.viewport();
-                        copy_mem[..vp.len()].copy_from_slice(vp);
+                        let (cols, rows) = t.geometry();
+                        for y in 0..rows.index() {
+                            RowBlock::nth(y, t.stride()).of_mut(copy_mem)[..cols.index()]
+                                .copy_from_slice(t.row(Row::from_index(y)));
+                        }
                     }
                     s.convert += tc.elapsed();
                     let (rotation, ring) = match arm == Arm::Copied {
@@ -259,7 +262,7 @@ fn main() {
                     s.inst += g.instances.value();
                     continue;
                 }
-                let converted = r.convert(&mut t, damage);
+                let converted = r.convert(&t, damage);
                 s.frames += 1;
                 s.convert += converted.convert;
                 s.rows += converted.rows_dirty.value();

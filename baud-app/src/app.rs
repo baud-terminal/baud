@@ -488,7 +488,7 @@ impl App {
                 }
             }
             (Some(Mode::Gpu), None) => {
-                let converted = self.renderer.convert(&mut self.term, damage);
+                let converted = self.renderer.convert(&self.term, damage);
                 self.stats = Frame {
                     rows_dirty: converted.rows_dirty,
                     rows: converted.rows,

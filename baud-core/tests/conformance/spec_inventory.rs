@@ -341,7 +341,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
     }
     let (r, c) = t.cursor();
     Snapshot {
-        grid: t.viewport().to_vec(),
+        grid: support::screen(&t).to_vec(),
         cursor: (r.index(), c.index()),
         reply: t.reply().to_vec(),
         unsupported: t.unsupported,

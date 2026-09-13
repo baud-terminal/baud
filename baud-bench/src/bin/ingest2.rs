@@ -268,7 +268,6 @@ fn main() {
     let mut arena = vec![0u8; ARENA];
     let mut vp = vec![PackedCell::EMPTY; ring.len()];
     let mut used = vec![RowExtent::ZERO; ring_rows.index()];
-    let mut scratch = vec![PackedCell::EMPTY; span.len()];
     // **An empty table is how this benchmark declines it.** The only read is
     // behind `cell-table`; passing the full 2 MiB otherwise costs 262,144
     // property-table lookups and 2 MiB of stores at construction, for a table
@@ -296,7 +295,6 @@ fn main() {
             depth,
             &mut vp,
             &mut used,
-            &mut scratch,
             &mut cells3,
             &mut tmpl,
             &mut tabs,

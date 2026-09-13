@@ -4,11 +4,17 @@
 //! of `read_slot`/`base`/`write`/`feed`/`commit_read`, and the temptation when
 //! moving them was to re-spell that API on top of `write_at`/`feed` so the
 //! files could come across untouched. That would have hidden the one
-//! difference that matters: `viewport()` strides by `MAX_COLS` in core2 and by
-//! a **fixed pitch of at least that** here -- `Term::stride`, chosen from the
-//! cache line, not a number -- so `t.viewport()[..8]` and
+//! difference that matters: `viewport()` strode by `MAX_COLS` in core2 and
+//! the pitch here is `Term::stride`, chosen from the cache line and the
+//! provisioned width, not a number -- so `screen(t)[..8]` and
 //! `t.row(Row::from_index(1))` do not mean the same thing in the two crates.
 //! Fifty-two `viewport()` call sites would have passed vacuously.
+//!
+//! **`screen` is the test's copy of the window, and the core makes none.**
+//! `Term::viewport` used to hand a test one contiguous slice at the pitch and
+//! copied to do it when the window wrapped the ring; the readers that matter
+//! walk rows, so the copy is gone from the core and lives here, where an
+//! allocation is free.
 //!
 //! So this is `baud-core`'s own loop factored once, and the ported tests were
 //! read rather than rewritten by pattern.
@@ -135,4 +141,19 @@ pub fn ignores_are(dir: &str, files: &[&str], want: &[&str]) {
         "{dir}: the ignore list moved -- a gap was added or closed, and this \
          pin has to move with it"
     );
+}
+
+/// The screen as one slice at the pitch, `rows * stride` cells in screen
+/// order -- what `Term::viewport` used to answer, copied here from
+/// `Term::row` so a test can index `y * stride + x` the way the suites were
+/// written. The core itself never makes this copy.
+pub fn screen(t: &Term<'_>) -> Vec<PackedCell> {
+    let (_, rows) = t.geometry();
+    let stride = t.stride().index();
+    let mut out = vec![PackedCell::EMPTY; rows.index() * stride];
+    for y in 0..rows.index() {
+        let row = t.row(Row::from_index(y));
+        out[y * stride..y * stride + row.len()].copy_from_slice(row);
+    }
+    out
 }

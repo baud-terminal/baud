@@ -116,7 +116,7 @@ fn every_fixture_renders_what_core2_rendered() {
                 "{}: the pitch admits the corpus width",
                 f.name
             );
-            let vp = t.viewport();
+            let vp = support::screen(&t);
             let mut got = BTreeMap::new();
             for y in 0..50 {
                 for x in 0..CORPUS_COLS {
@@ -214,7 +214,7 @@ fn every_recording_renders_to_its_pinned_digest() {
             let w2 = t.stride().index();
             // The live cells, row by row: the pitch is wider than the screen
             // and the padding past each row is not a rendering.
-            let vp = t.viewport();
+            let vp = support::screen(&t);
             let cells: Vec<_> = (0..50)
                 .flat_map(|y| vp[y * w2..y * w2 + CORPUS_COLS].to_vec())
                 .collect();
