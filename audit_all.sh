@@ -205,8 +205,10 @@ crate_audit "baud-font" 16 68 baud-font/src
 # `Key::fold(u32)`, `FaceIx::index -> usize`, and the two colour helpers
 # `triple(u8, u8, u8)` and `grey(u8)` that build an `Argb` from wire bytes.
 crate_audit "baud-render" 0 11 baud-render/src
-crate_audit "baud-present-macos" 0 0 baud-present-macos/src
-crate_audit "baud-app" 0 0 baud-app/src
+# baud-present-macos and baud-app: one signature primitive each, the same
+# edge -- `slots(Px) -> usize`, where a pixel count becomes a slice index.
+crate_audit "baud-present-macos" 0 1 baud-present-macos/src
+crate_audit "baud-app" 0 1 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and

@@ -10,3 +10,10 @@ description = "baud's macOS presentation layer: an IOSurface-backed content view
 publish = false
 
 [dependencies]
+baud-font = { path = "../baud-font" }
+baud-render = { path = "../baud-render" }
+
+# The owner's window crate, extended in place on its `feat/drawable-view`
+# branch for the drawable view and the surface; a path until it is released.
+[target.'cfg(target_os = "macos")'.dependencies]
+macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }

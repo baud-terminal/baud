@@ -10,3 +10,12 @@ description = "The terminal: a pty, baud-core, baud-render and a platform presen
 publish = false
 
 [dependencies]
+baud-core = { path = "../baud-core", features = ["alloc"] }
+baud-domain = { path = "../baud-domain" }
+baud-font = { path = "../baud-font" }
+baud-render = { path = "../baud-render" }
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+baud-present-macos = { path = "../baud-present-macos" }
+macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
