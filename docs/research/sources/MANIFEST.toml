@@ -4675,3 +4675,132 @@ group  = "J"
 # The exclusions: a precomposed character that decomposes but is never the
 # result of composition (Full_Composition_Exclusion), so gen-compose.py
 # leaves its pair out of the compose table and keeps it in the decompose one.
+
+# ---- F: where a retired line lives, in the shipping terminals -----------
+# Read for `f-scrollback-ring.md`: the five structures the field uses for the
+# lines that scrolled off, so baud's grid-as-ring could be checked against
+# them rather than against a preference. External: each is a source file of
+# a living project, read and hashed at the tag named in its URL.
+
+[sources.alacritty-storage]
+key    = "alacritty-storage"
+title  = "alacritty 0.15.1, grid/storage.rs -- Storage<T>, the ring of rows with a `zero` offset that scrolling rotates by modular addition"
+author = "Joe Wilm, Christian Duerr and the Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/grid/storage.rs"
+file   = "alacritty-storage.rs"
+sha256 = "808482f4c054fa76f016b654fe7e593fcf1a94165c4edc4c8c37089f40da67d4"
+bytes  = 22244
+status = "external"
+group  = "F"
+
+[sources.foot-grid]
+key    = "foot-grid"
+title  = "foot 1.21.0, grid.h -- the rows array as a power-of-two ring, `offset` advanced by a scroll, rows allocated when first written"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/grid.h"
+file   = "foot-grid.h"
+sha256 = "04ead22914c41fd7bceddb378695de63a546f4e39b51ed4fc538367be8dbdc14"
+bytes  = 3843
+status = "external"
+group  = "F"
+
+[sources.ghostty-pagelist]
+key    = "ghostty-pagelist"
+title  = "ghostty d9840f3, terminal/PageList.zig -- pages from a pool, rows appended in place, the viewport a pin, eviction and compression per page"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/PageList.zig"
+file   = "ghostty-pagelist.zig"
+sha256 = "db1dca79f733f94b694c2c8664a3efafd0574e44c7ecd6013526c4a6de7dfa8b"
+bytes  = 714933
+status = "external"
+group  = "F"
+
+[sources.kitty-history]
+key    = "kitty-history"
+title  = "kitty 0.43.1, history.c -- HistoryBuf, a segmented ring at full width that a retiring line is copied into, and pagerhist behind it"
+author = "Kovid Goyal and the kitty contributors"
+year   = 2025
+venue  = "kitty terminal emulator"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/history.c"
+file   = "kitty-history.c"
+sha256 = "5b4d6244bec0f6d68098c0be22f34ff570c7cc535c8b680579b3cb6b0e296411"
+bytes  = 24869
+status = "external"
+group  = "F"
+
+[sources.tmux-grid]
+key    = "tmux-grid"
+title  = "tmux 3.5a, grid.c -- one line array for history and screen, a scroll appends by realloc, history trimmed a tenth at a time by memmove"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2024
+venue  = "tmux terminal multiplexer"
+url    = "https://raw.githubusercontent.com/tmux/tmux/3.5a/grid.c"
+file   = "tmux-grid.c"
+sha256 = "c98d4a314659f28d595b6321a2eafa376f958168de8feefdf64cb69b1eb20110"
+bytes  = 35192
+status = "external"
+group  = "F"
+
+# ---- D/F: the research behind where a retired line lives -------------------
+# Read for `f-scrollback-ring.md`. Each is a paper the design question turned
+# out to already have an answer in: the cost of a write miss is the fetch, a
+# log is the structure that writes once and forward, a power-of-two stride is
+# the pathology, and a software prefetch is an instruction with a distance.
+
+[sources.jouppi-write-policies]
+key    = "jouppi-write-policies"
+title  = "Cache Write Policies and Performance -- fetch-on-write, write-validate, write-around and write-invalidate, measured"
+author = "Norman P. Jouppi"
+year   = 1993
+venue  = "ISCA 1993; DEC WRL Research Report 91/12"
+url    = "https://web.archive.org/web/2020id_/https://www.hpl.hp.com/techreports/Compaq-DEC/WRL-91-12.pdf"
+file   = "jouppi-1991-wrl-91-12.pdf"
+sha256 = "4bd782e7dd3c1c9f0d173d38fb70d46589eb6fa8090619450865970621c92820"
+bytes  = 146721
+status = "external"
+group  = "D"
+
+[sources.lfs]
+key    = "lfs"
+title  = "The Design and Implementation of a Log-Structured File System"
+author = "Mendel Rosenblum and John K. Ousterhout"
+year   = 1992
+venue  = "ACM Transactions on Computer Systems 10(1); SOSP 1991"
+url    = "https://people.eecs.berkeley.edu/~brewer/cs262/LFS.pdf"
+file   = "rosenblum-ousterhout-1992-lfs.pdf"
+sha256 = "cc6a7d7e52cd9182368f42024188bfbcf899f3fc47ce8b87c33a1aabffa286b7"
+bytes  = 248011
+status = "external"
+group  = "F"
+
+[sources.lam-blocked]
+key    = "lam-blocked"
+title  = "The Cache Performance and Optimizations of Blocked Algorithms -- self-interference misses and the array sizes that cause them"
+author = "Monica S. Lam, Edward E. Rothberg and Michael E. Wolf"
+year   = 1991
+venue  = "ASPLOS IV"
+url    = "https://web.archive.org/web/2016id_/https://suif.stanford.edu/papers/lam-asplos91.pdf"
+file   = "lam-rothberg-wolf-1991-blocked.pdf"
+sha256 = "c49dde19ee6c0da4ada6192e8fe736b52cb3118185b66be3eeba159791d70ccd"
+bytes  = 1204908
+status = "external"
+group  = "D"
+
+[sources.lee-prefetching]
+key    = "lee-prefetching"
+title  = "When Prefetching Works, When It Doesn't, and Why"
+author = "Jaekyu Lee, Hyesoon Kim and Richard Vuduc"
+year   = 2012
+venue  = "ACM Transactions on Architecture and Code Optimization 9(1)"
+url    = "https://faculty.cc.gatech.edu/~hyesoon/lee_taco12.pdf"
+file   = "lee-kim-vuduc-2012-prefetching.pdf"
+sha256 = "462eedfc3a1abab755eef8a79e7e46954fd6c7ebb52623344fae330b0fa3b67a"
+bytes  = 2065978
+status = "external"
+group  = "D"
