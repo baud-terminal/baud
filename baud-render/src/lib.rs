@@ -35,12 +35,12 @@ mod renderer;
 mod stack;
 mod units;
 
-pub use atlas::{Atlas, AtlasStats, Kind, Slot, Tex};
+pub use atlas::{Atlas, AtlasStats, Code, Generation, Kind, Side, Slot, Tex};
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use color::{Argb, Theme};
 pub use composite::{Blend, Target};
-pub use instance::Instance;
+pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
-pub use renderer::{Damage, Frame, Renderer};
+pub use renderer::{Converted, Damage, Frame, Renderer};
 pub use stack::{FaceIx, Stack};
 pub use units::{Band, Coverage, Digest, Tally};

@@ -21,6 +21,11 @@ baud-render = { path = "../baud-render" }
 libc = "0.2"
 zerocopy = "0.8"
 
+# `frame_gpu` draws the same frames through Metal; the crate compiles to
+# nothing elsewhere and the bin says so.
+[target.'cfg(target_os = "macos")'.dependencies]
+baud-present-macos = { path = "../baud-present-macos" }
+
 
 [features]
 default = ["neon-scan"]

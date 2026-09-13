@@ -24,18 +24,40 @@ use std::collections::HashMap;
 
 /// A pixel position or size inside the atlas.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
 pub struct Tex(pub u16);
 
-/// Which texture an image lives on, and so how it composites.
+/// Which texture an image lives on, and so how it composites. `repr(u32)`
+/// with fixed discriminants, because the value rides in the instance
+/// record a shader reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u32)]
 pub enum Kind {
     /// An `A8` coverage mask, painted in the instance's colour.
-    Mask,
+    Mask = 0,
     /// An `ARGB` image, painted as it is; the instance's colour is unused.
-    Color,
+    Color = 1,
     /// No texels at all: every pixel fully covered, in the instance's
     /// colour. Underlines, strikes and cursor shapes.
-    Solid,
+    Solid = 2,
+}
+
+/// A kind's discriminant as the shader reads it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub struct Code(pub u32);
+
+impl Kind {
+    /// The discriminant a shader switches on: the same numbers the enum
+    /// declares, spelled once more here because reading them back needs a
+    /// cast, and `tests/instance.rs` pins that the two agree.
+    pub const fn code(self) -> Code {
+        Code(match self {
+            Kind::Mask => 0,
+            Kind::Color => 1,
+            Kind::Solid => 2,
+        })
+    }
 }
 
 /// Where an image goes on screen relative to the glyph origin: `left`
@@ -119,7 +141,13 @@ impl Sheet {
     }
 }
 
+/// Counts every change to either sheet, so a copy of the atlas elsewhere
+/// -- a GPU texture -- knows when it is stale.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Generation(u64);
+
 pub struct Atlas {
+    generation: Generation,
     mask: Sheet,
     pixels: Vec<u8>,
     color: Sheet,
@@ -142,6 +170,7 @@ impl Default for Atlas {
 impl Atlas {
     pub fn new() -> Atlas {
         let mut a = Atlas {
+            generation: Generation::default(),
             mask: Sheet::new(Side::FIRST),
             pixels: Vec::new(),
             color: Sheet::new(Side::FIRST),
@@ -188,6 +217,16 @@ impl Atlas {
                 })
             )
         });
+    }
+
+    /// Which version of the sheets this is; every placement and reset
+    /// moves it.
+    pub fn generation(&self) -> Generation {
+        self.generation
+    }
+
+    fn touched(&mut self) {
+        self.generation = Generation(self.generation.0.wrapping_add(1));
     }
 
     /// The mask texture's side.
@@ -405,6 +444,7 @@ impl Atlas {
                 dst.copy_from_slice(src);
             }
         }
+        self.touched();
         Some(Slot {
             kind: Kind::Color,
             x: Tex(u16::try_from(x.value()).ok()?),
@@ -455,6 +495,7 @@ impl Atlas {
             self.reset_mask(next);
         };
         self.blit(x, y, w, h);
+        self.touched();
         Some(Slot {
             kind: Kind::Mask,
             x: Tex(u16::try_from(x.value()).ok()?),

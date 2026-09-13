@@ -10,6 +10,7 @@ description = "baud's macOS presentation layer: an IOSurface-backed content view
 publish = false
 
 [dependencies]
+baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render" }
 
@@ -17,3 +18,10 @@ baud-render = { path = "../baud-render" }
 # branch for the drawable view and the surface; a path until it is released.
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
+# Metal, and the two crates the surface-to-texture bridge names. The same
+# `objc2` family and versions the window crate pins, so the `IOSurface` it
+# hands over is the type these read.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-io-surface = "0.3.2"
+objc2-metal = { version = "0.3.2", features = ["objc2-io-surface", "objc2-core-foundation"] }

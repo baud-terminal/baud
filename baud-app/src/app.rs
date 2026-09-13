@@ -7,7 +7,7 @@ use baud_domain::{
     BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
 };
 use baud_font::{Face, FaceIndex, Px};
-use baud_present_macos::Presenter;
+use baud_present_macos::{GpuFrame, Mode, Presenter};
 use baud_render::{Blend, Damage, Frame, PxSize, Renderer, Stack, Tally, Target, Theme};
 use macos_liquid_glass::drawable::{
     DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll,
@@ -36,6 +36,16 @@ const MAX_GRID: WinSize = WinSize {
 /// (D14, default background only).
 const BG_ALPHA: u8 = 0xD8;
 
+/// Which path draws: the CPU compositor, or Metal when `BAUD_GPU=1` is in
+/// the environment and a device answers. The CPU path is the default until
+/// the `frame_gpu` bench says which is faster on which recording.
+fn wanted() -> Mode {
+    match std::env::var_os("BAUD_GPU") {
+        Some(v) if v == "1" => Mode::Gpu,
+        _ => Mode::Cpu,
+    }
+}
+
 /// The faces, by path, in fallback order: the system's mono, its emoji,
 /// and its symbols -- braille and the box and block drawing Menlo lacks,
 /// which is what btop's graphs are made of.
@@ -60,6 +70,8 @@ struct App {
     frames: Tally,
     last_report: std::time::Instant,
     stats: Frame,
+    gpu_stats: GpuFrame,
+    wanted: Mode,
 }
 
 impl App {
@@ -109,6 +121,8 @@ impl App {
             frames: Tally::default(),
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
+            gpu_stats: GpuFrame::default(),
+            wanted: wanted(),
         }
     }
 
@@ -137,33 +151,72 @@ impl App {
             self.frame_w = w;
             self.frame_h = h;
             self.frame = vec![0; slots(w) * slots(h)];
-            self.presenter = Presenter::new(w, h);
+            self.presenter = match self.wanted {
+                Mode::Gpu => Presenter::with_gpu(w, h).or_else(|| {
+                    eprintln!("BAUD_GPU=1 but no Metal device or shaders; drawing on the CPU");
+                    Presenter::new(w, h)
+                }),
+                Mode::Cpu => Presenter::new(w, h),
+            };
+            if let Some(p) = &self.presenter {
+                eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
+            }
             self.pending = Pending::Dirty;
         }
         if self.pending == Pending::Clean {
             return;
         }
         let damage = Damage::Incremental;
-        let stats = {
-            let mut target = Target::new(&mut self.frame, w, w, h).expect("target");
-            self.renderer.render(&mut self.term, &mut target, damage)
-        };
-        self.stats = stats;
-        if let Some(p) = &mut self.presenter {
-            p.present(view, &self.frame, w);
+        match self.presenter.as_ref().map(Presenter::mode) {
+            Some(Mode::Gpu) => {
+                let converted = self.renderer.convert(&mut self.term, damage);
+                self.stats = Frame {
+                    rows_dirty: converted.rows_dirty,
+                    rows: converted.rows,
+                    convert: converted.convert,
+                    ..Frame::default()
+                };
+                if let Some(p) = &mut self.presenter {
+                    if let Some(g) = p.draw(view, &self.renderer) {
+                        self.gpu_stats = g;
+                    }
+                }
+            }
+            _ => {
+                let stats = {
+                    let mut target = Target::new(&mut self.frame, w, w, h).expect("target");
+                    self.renderer.render(&mut self.term, &mut target, damage)
+                };
+                self.stats = stats;
+                if let Some(p) = &mut self.presenter {
+                    p.present(view, &self.frame, w);
+                }
+            }
         }
         self.pending = Pending::Clean;
         self.frames.bump();
         if self.last_report.elapsed().as_secs() >= 5 {
-            eprintln!(
-                "{} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
-                self.frames.value(),
-                self.stats.rows_dirty.value(),
-                self.stats.instances.value(),
-                self.stats.convert,
-                self.stats.composite,
-                self.stats.cache
-            );
+            match self.presenter.as_ref().map(Presenter::mode) {
+                Some(Mode::Gpu) => eprintln!(
+                    "{} frames; last: {} rows, {} instances, convert {:?}, upload {:?}, submit {:?}, gpu {:?}",
+                    self.frames.value(),
+                    self.stats.rows_dirty.value(),
+                    self.gpu_stats.instances.value(),
+                    self.stats.convert,
+                    self.gpu_stats.upload,
+                    self.gpu_stats.submit,
+                    self.gpu_stats.gpu
+                ),
+                _ => eprintln!(
+                    "{} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
+                    self.frames.value(),
+                    self.stats.rows_dirty.value(),
+                    self.stats.instances.value(),
+                    self.stats.convert,
+                    self.stats.composite,
+                    self.stats.cache
+                ),
+            }
             self.last_report = std::time::Instant::now();
         }
     }

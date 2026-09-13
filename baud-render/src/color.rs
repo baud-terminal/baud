@@ -5,6 +5,7 @@ use baud_domain::{Attrs, Chan, ColorWord, StyleWord};
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
 /// `wl_shm` buffer both take once premultiplied at the edge.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[repr(transparent)]
 pub struct Argb(pub u32);
 
 impl Argb {

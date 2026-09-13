@@ -24,6 +24,15 @@ pub enum Damage {
     Full,
 }
 
+/// What [`Renderer::convert`] did, handed to [`Renderer::paint`] or to a
+/// GPU path.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Converted {
+    pub rows_dirty: Tally,
+    pub rows: Tally,
+    pub convert: Duration,
+}
+
 /// What one frame cost and did.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Frame {
@@ -115,6 +124,8 @@ pub struct Renderer<'f, 'a> {
     fg: Vec<Argb>,
     per_row: Vec<Vec<Instance>>,
     last_cursor: Cursor,
+    /// Which rows the last `convert` found changed; what `paint` repaints.
+    dirty: Vec<bool>,
     /// The palette the last frame resolved against: `OSC 4` repaints
     /// cells whose words never change, so a different palette is a full
     /// frame.
@@ -171,6 +182,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fg: Vec::new(),
             per_row: Vec::new(),
             last_cursor: None,
+            dirty: Vec::new(),
             last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
         };
@@ -217,6 +229,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
+        self.dirty = vec![false; rows.index()];
         self.known = Prev::Unknown;
     }
 
@@ -235,13 +248,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Reads the terminal, converts the rows that changed and paints them
-    /// into `target`.
+    /// into `target`: [`Renderer::convert`] then [`Renderer::paint`].
     pub fn render(
         &mut self,
         term: &mut Term<'_>,
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
+        let converted = self.convert(term, damage);
+        self.paint(target, converted)
+    }
+
+    /// Reads the terminal and converts the rows that changed since the
+    /// last frame into instances and background words, without painting.
+    /// A GPU path takes [`Renderer::instances`], [`Renderer::background`]
+    /// and [`Renderer::atlas`] from here; the CPU path calls
+    /// [`Renderer::paint`].
+    pub fn convert(&mut self, term: &mut Term<'_>, damage: Damage) -> Converted {
         let t0 = Instant::now();
         let (cols, rows) = term.geometry();
         if cols.index() != self.cols.index() || rows.index() != self.rows.index() {
@@ -272,13 +295,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let full =
             damage == Damage::Full || self.known == Prev::Unknown || palette != self.last_palette;
         self.last_palette = palette;
-        let mut frame = Frame {
-            rows: Tally::of(rows.index()),
-            ..Frame::default()
-        };
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
-        let mut dirty = vec![false; rows.index()];
-        for (r, d) in dirty.iter_mut().enumerate() {
+        let mut rows_dirty = Tally::default();
+        for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range]
                 || self.cur_styles[r] != self.prev_styles[r];
@@ -286,17 +305,36 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved =
                 cursor_here != cursor_was || (cursor_here && cursor != self.last_cursor);
-            *d = full || changed || cursor_moved;
+            self.dirty[r] = full || changed || cursor_moved;
         }
-        for (r, &d) in dirty.iter().enumerate() {
-            if d {
+        for r in 0..rows.index() {
+            if self.dirty[r] {
                 self.convert_row(term, Row::from_index(r), cursor);
-                frame.rows_dirty.bump();
+                rows_dirty.bump();
             }
         }
-        frame.convert = t0.elapsed();
+        core::mem::swap(&mut self.prev, &mut self.cur);
+        core::mem::swap(&mut self.prev_styles, &mut self.cur_styles);
+        self.known = Prev::Known;
+        self.last_cursor = cursor;
+        Converted {
+            rows_dirty,
+            rows: Tally::of(rows.index()),
+            convert: t0.elapsed(),
+        }
+    }
+
+    /// Paints the rows the last [`Renderer::convert`] found dirty into
+    /// `target`, which must still hold the frame before.
+    pub fn paint(&mut self, target: &mut Target<'_>, converted: Converted) -> Frame {
         let t1 = Instant::now();
-        for (r, &d) in dirty.iter().enumerate() {
+        let mut frame = Frame {
+            rows_dirty: converted.rows_dirty,
+            rows: converted.rows,
+            convert: converted.convert,
+            ..Frame::default()
+        };
+        for r in 0..self.rows.index() {
             let row = Row::from_index(r);
             frame.instances.add(Tally::of(self.per_row[r].len()));
             for inst in &self.per_row[r] {
@@ -306,7 +344,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     Kind::Mask => {}
                 }
             }
-            if !d {
+            if !self.dirty[r] {
                 continue;
             }
             let band = self.band(row);
@@ -318,11 +356,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
         frame.composite = t1.elapsed();
         frame.cache = self.cache.stats();
         frame.atlas = self.atlas.stats();
-        core::mem::swap(&mut self.prev, &mut self.cur);
-        core::mem::swap(&mut self.prev_styles, &mut self.cur_styles);
-        self.known = Prev::Known;
-        self.last_cursor = cursor;
         frame
+    }
+
+    /// Every instance of the current frame, row by row: what a GPU path
+    /// uploads whole (D2: nobody uploads partial ranges).
+    pub fn instances(&self) -> impl Iterator<Item = &Instance> + '_ {
+        self.per_row.iter().flatten()
+    }
+
+    /// The background word of every cell, row-major, `cols` by `rows`.
+    pub fn background(&self) -> &[Argb] {
+        &self.bg
+    }
+
+    pub fn atlas(&self) -> &Atlas {
+        &self.atlas
+    }
+
+    /// The grid the last frame was converted for.
+    pub fn grid(&self) -> (Cols, Rows) {
+        (self.cols, self.rows)
     }
 
     /// Resolves one row's colours and glyphs.
