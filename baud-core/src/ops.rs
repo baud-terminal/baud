@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::Paint;
-use crate::storage::{NSTYLE, STYLE_PROBE};
+use crate::storage::NSTYLE;
 use crate::term::{Saved, Screen};
 use baud_domain::*;
 
@@ -339,10 +339,11 @@ impl Paint<'_, '_> {
 
     // ---- rendition ------------------------------------------------------
 
-    /// **A bounded table, open-addressed so two live styles do not evict each
-    /// other while a slot is free.** The read stays one load -- a cell holds
-    /// the final slot as its `StyleId` and `resolve` is `tmpl[id]` -- and only
-    /// the intern, run once per `SGR` rather than per cell, probes.
+    /// **A bounded table, open-addressed over its whole length so a distinct
+    /// rendition evicts another only when all `NSTYLE` slots are occupied.**
+    /// The read stays one load -- a cell holds the final slot as its `StyleId`
+    /// and `resolve` is `tmpl[id]` -- and only the intern, run once per `SGR`
+    /// rather than per cell, probes.
     ///
     /// The evict-on-collision version this replaced was a visible bug, not a
     /// rare one: a foreground cell and a colliding background style shared a
@@ -353,13 +354,22 @@ impl Paint<'_, '_> {
     /// birthday bound is the tell: ~38 distinct styles already give an even
     /// chance of one collision in 1024 buckets, so "rare" was wrong.
     ///
-    /// Linear probing over a bounded window fixes it without a search on the
-    /// read or unbounded work on the write. A distinct style takes the first
-    /// free or matching slot within [`STYLE_PROBE`] of its bucket, so it
-    /// evicts a *different* live style only when that whole window is full --
-    /// a local cluster of occupied slots, which needs far more live styles
-    /// than a screen holds. Past that it evicts at the bucket, the old
-    /// behaviour, so the table stays bounded and never grows.
+    /// Linear probing fixes it without a search on the read. A distinct style
+    /// takes the first free or matching slot from its bucket, so it evicts a
+    /// *different* live style only when the probe wraps the whole table -- that
+    /// is, only when every one of the `NSTYLE` slots holds a live style, which
+    /// is the one case a fixed table cannot serve exactly. Below that the
+    /// mapping is **exact**: distinct renditions never share a slot and never
+    /// corrupt each other's colour.
+    ///
+    /// The cost is a probe on the write path, and the probe length is
+    /// `1/(1 - load)` on average -- a fraction of a slot while the table is
+    /// far from full, which a screen holding a few hundred renditions in 1024
+    /// slots is. The table never reclaims a slot a rewritten cell no longer
+    /// references, so a long session that mints more than `NSTYLE` *distinct*
+    /// renditions fills it and the probe lengthens toward a scan; that is the
+    /// bound a garbage-collected table would remove, and it is recorded rather
+    /// than paid for here.
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         #[cfg(feature = "probe-double-intern")]
         core::hint::black_box(StyleId::bucket(raw, NSTYLE));
@@ -369,12 +379,12 @@ impl Paint<'_, '_> {
             self.tmpl[k2] = Some(raw);
         }
         let base = StyleId::bucket(raw, NSTYLE);
-        // Probe for this style's own slot, or the first free one, within the
-        // window. `NSTYLE` is a power of two, so the mask wraps the window at
-        // the end of the table. A hit returns the slot the style already has,
+        // Probe for this style's own slot or the first free one. `NSTYLE` is a
+        // power of two, so `& (NSTYLE - 1)` wraps and the loop visits every
+        // slot exactly once. A hit returns the slot the style already has,
         // which is why equal cells share a `StyleId`.
         let mut k = base;
-        for _ in 0..STYLE_PROBE {
+        for _ in 0..NSTYLE {
             match self.tmpl[k] {
                 Some(w) if w == raw => return StyleId::from_index(k),
                 None => {
@@ -384,8 +394,8 @@ impl Paint<'_, '_> {
                 Some(_) => k = (k + 1) & (NSTYLE - 1),
             }
         }
-        // The window is full of other live styles: evict at the bucket, which
-        // is the bounded table's contract, and the read stays one load.
+        // Every slot holds a live style: evict at the bucket, the only case a
+        // fixed table cannot serve exactly, and the read stays one load.
         self.tmpl[base] = Some(raw);
         StyleId::from_index(base)
     }

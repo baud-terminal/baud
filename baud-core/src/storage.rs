@@ -390,18 +390,6 @@ pub const NCLUSTER: usize = 64;
 /// of cache under truecolour key pressure.
 pub const NSTYLE: usize = 1024;
 
-/// How far [`intern_style`] probes from a rendition's bucket before it evicts.
-///
-/// Open addressing over this window is what stops two live styles evicting
-/// each other while the table has room. 16 is enough that a 256-colour screen
-/// -- 232 distinct styles in 1024 slots -- places every one without collision,
-/// and small enough that the probe is a handful of L1 loads on the write path,
-/// run once per `SGR` not per cell. A cluster of 16 occupied slots needs far
-/// more live renditions than a 200x50 grid can hold.
-///
-/// [`intern_style`]: crate::term::Term::intern_style
-pub const STYLE_PROBE: usize = 16;
-
 /// How many `(lead, continuation)` prefixes a three-byte character has.
 pub const CELLS3_PREFIXES: usize = 16 * 64;
 /// Entries in the three-byte cell table.

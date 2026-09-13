@@ -324,3 +324,58 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
         t.viewport()[..16].iter().map(|c| c.style.index()).collect();
     assert_eq!(ids.len(), 16, "two distinct renditions share a slot");
 }
+
+/// The style table is exact up to its capacity: `NSTYLE` distinct renditions
+/// each get their own slot, and only the one past capacity evicts.
+///
+/// This is the guarantee full-table open addressing buys over the bounded
+/// window -- a distinct colour never displaces another while a slot is free.
+/// It paints many distinct truecolour foregrounds, well past the ~38 where the
+/// old direct-mapped table first collided and past the 16-slot window, and
+/// asserts every cell still reports the colour it was written with.
+#[test]
+fn the_style_table_is_exact_below_capacity() {
+    let ws = baud_domain::WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+    let mut st = Owned::new(&ws);
+    let mut t = Term::new(st.storage(), &ws);
+    // 900 distinct foregrounds, under the 1024 slots, over 5 rows of 200.
+    // `u16` throughout so the channel values need no cast; `rgb` derives the
+    // three from `i` the same way both when writing and when checking.
+    const N: u16 = 900;
+    let rgb = |i: u16| {
+        (
+            i & 0xff,
+            i.wrapping_mul(5) & 0xff,
+            i.wrapping_mul(11) & 0xff,
+        )
+    };
+    feed(&mut t, "\x1b[H");
+    for i in 0..N {
+        let (r, g, b) = rgb(i);
+        feed(&mut t, &format!("\x1b[38;2;{r};{g};{b}mX"));
+        if (i + 1) % 200 == 0 {
+            feed(&mut t, "\r\n");
+        }
+    }
+    let cells: Vec<_> = t.viewport()[..usize::from(N)].to_vec();
+    let mut wrong = 0usize;
+    for (i, c) in cells.iter().enumerate() {
+        let (r, g, b) = rgb(u16::try_from(i).unwrap());
+        let want = baud_domain::ColorWord::rgb(
+            baud_domain::Chan::from_offset(r, 0),
+            baud_domain::Chan::from_offset(g, 0),
+            baud_domain::Chan::from_offset(b, 0),
+        );
+        if t.style_of(*c).fg() != want {
+            wrong += 1;
+        }
+    }
+    assert_eq!(
+        wrong, 0,
+        "{wrong} of {N} distinct renditions report the wrong colour with \
+         fewer than NSTYLE slots in use"
+    );
+}
