@@ -30,8 +30,6 @@ enum Pending {
     Dirty,
 }
 
-/// The font size in points; pixels are this times the backing scale.
-const POINTS: f32 = 13.0;
 /// The longest a synchronised update is honoured before a frame is drawn
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
@@ -41,10 +39,6 @@ const MAX_GRID: WinSize = WinSize {
     ws_col: 400,
     ws_row: 150,
 };
-/// The default background's alpha: below one so the glass shows through
-/// (D14, default background only).
-const BG_ALPHA: u8 = 0xD8;
-
 /// Which path draws: the CPU compositor, Metal over the converted
 /// instances when `BAUD_GPU=1` is in the environment, or Metal over the raw
 /// grid when it is `BAUD_GPU=cells`. The CPU path is the default until the
@@ -63,15 +57,6 @@ fn wanted() -> Path {
         _ => Path::Cpu,
     }
 }
-
-/// The faces, by path, in fallback order: the system's mono, its emoji,
-/// and its symbols -- braille and the box and block drawing Menlo lacks,
-/// which is what btop's graphs are made of.
-const FACES: [(&str, u32); 3] = [
-    ("/System/Library/Fonts/Menlo.ttc", 0),
-    ("/System/Library/Fonts/Apple Color Emoji.ttc", 0),
-    ("/System/Library/Fonts/Apple Symbols.ttf", 0),
-];
 
 /// The cell path's memory, all of it where the GPU reads it: the grid the
 /// core writes, the styles the renderer resolves, the map the walk fills.
@@ -174,25 +159,34 @@ impl App {
                 (None, Term::new(owned.storage(), &ws), None)
             }
         };
-        let data: Vec<&'static [u8]> = FACES
+        let cfg = crate::config::Config::load();
+        // Read and leak each face's bytes, then parse; the faces borrow them
+        // for the life of the window. A face that will not read or parse is
+        // fatal with its path, because a terminal with no font draws nothing.
+        let data: Vec<&'static [u8]> = cfg
+            .faces
             .iter()
-            .map(|(path, _)| {
-                let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+            .map(|f| {
+                let bytes =
+                    std::fs::read(&f.path).unwrap_or_else(|e| panic!("font {}: {e}", f.path));
                 &*Box::leak(bytes.into_boxed_slice())
             })
             .collect();
         let faces: &'static [Face<'static>] = Box::leak(
             data.iter()
-                .zip(FACES)
-                .map(|(d, (_, i))| Face::parse_index(d, FaceIndex::of(i)).expect("system face"))
+                .zip(&cfg.faces)
+                .map(|(d, f)| {
+                    Face::parse_index(d, FaceIndex::of(f.index))
+                        .unwrap_or_else(|_| panic!("font {}: not a face", f.path))
+                })
                 .collect::<Vec<_>>()
                 .into_boxed_slice(),
         );
         let mut theme = Theme::dark();
-        theme.bg_alpha = baud_domain::Chan::from_u8(BG_ALPHA);
+        theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
         let renderer = Renderer::new(
             Stack::new(faces).expect("faces"),
-            PxSize::of(POINTS * scale as f32).expect("size"),
+            PxSize::of(cfg.font_size * scale as f32).expect("size"),
             theme,
             Blend::Native,
             Cols::from_stride(usize::from(ws.ws_col)),

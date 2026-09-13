@@ -1,0 +1,33 @@
+# baud configuration -- copy to `config.toml` and edit.
+#
+# Looked up at $BAUD_CONFIG, then $XDG_CONFIG_HOME/baud/config.toml, then
+# ~/.config/baud/config.toml, then ./config.toml. A key baud does not know is
+# ignored, and any field left out keeps its built-in default, so a config with
+# only the keys you care about is fine -- or no config at all, which runs the
+# system Menlo stack below.
+
+# Points; pixels are this times the display's backing scale.
+font_size = 13
+
+# The window background's opacity, 0 clear to 255 opaque, so the desktop shows
+# through the glass. 216 is the default.
+background_alpha = 216
+
+# The fallback stack, first face first: a face supplies the glyphs the faces
+# before it lack. A ".ttc" collection may carry "@N" to pick a face in it.
+#
+# The default is the system's mono, its colour emoji, and its symbols for the
+# braille and box drawing the mono lacks:
+fonts = [
+  "/System/Library/Fonts/Menlo.ttc@0",
+  "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+  "/System/Library/Fonts/Apple Symbols.ttf",
+]
+
+# For FiraCode with programming ligatures, point the first face at its file and
+# keep the emoji and symbol fallbacks -- FiraCode has neither:
+# fonts = [
+#   "/path/to/FiraCode-Regular.ttf",
+#   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+#   "/System/Library/Fonts/Apple Symbols.ttf",
+# ]

@@ -15,6 +15,7 @@
 
 #[cfg(target_os = "macos")]
 mod app;
+mod config;
 #[cfg(target_os = "macos")]
 mod pty;
 

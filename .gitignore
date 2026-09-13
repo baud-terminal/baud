@@ -30,3 +30,4 @@ result-*
 # swallow e.g. `docs/todo.md` in a project that wants to commit one.
 /todo.md
 /TODO.md
+/config.toml
