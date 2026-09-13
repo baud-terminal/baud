@@ -185,6 +185,13 @@ struct App {
     sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
+    /// How many lines above the live screen the window sits: zero is the
+    /// live screen, and the bound is what the core retains. Anchored to
+    /// content while output arrives, so the line being read stays put;
+    /// a key press snaps it back to the bottom.
+    back: Rows,
+    /// Wheel travel not yet a whole line, in points.
+    scroll_accum: f64,
     frames: Tally,
     last_report: std::time::Instant,
     stats: Frame,
@@ -280,6 +287,13 @@ impl App {
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
         };
         let cfg = crate::config::Config::load();
+        match &cfg.source {
+            Some(p) => eprintln!("config: {}", p.display()),
+            None => eprintln!("config: none found; the built-in stack"),
+        }
+        for f in &cfg.faces {
+            eprintln!("face: {}", f.path);
+        }
         // Read and leak each face's bytes, then parse; the faces borrow them
         // for the life of the window. A face that will not read or parse is
         // fatal with its path, because a terminal with no font draws nothing.
@@ -360,6 +374,8 @@ impl App {
             grid: ws,
             sizing,
             pending: Pending::Dirty,
+            back: Rows::ZERO,
+            scroll_accum: 0.0,
             frames: Tally::default(),
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
@@ -455,8 +471,12 @@ impl App {
         ) {
             (Some(Mode::Gpu), Some(cell)) => {
                 let t0 = Instant::now();
-                cell.map.ensure(self.term.viewport(), &mut self.renderer);
-                let cursor = self.term.cursor_visible().then(|| {
+                // The window `back` lines up the ring: the shader's rotation
+                // retreats by that and reads the retained rows where they
+                // are, so a scrolled-back frame costs what a live one costs.
+                let view = self.term.view(self.back);
+                cell.map.ensure(view, &mut self.renderer);
+                let cursor = (self.term.cursor_visible() && self.back.index() == 0).then(|| {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
                 });
@@ -474,7 +494,7 @@ impl App {
                     styles: &cell.styles,
                     map: &cell.map_buffer,
                     stride: self.term.stride(),
-                    rotation: self.term.rotation(),
+                    rotation: view.rotation(),
                     ring: self.term.ring(),
                     cursor,
                 };
@@ -488,7 +508,7 @@ impl App {
                 }
             }
             (Some(Mode::Gpu), None) => {
-                let converted = self.renderer.convert(&self.term, damage);
+                let converted = self.renderer.convert(&self.term, self.back, damage);
                 self.stats = Frame {
                     rows_dirty: converted.rows_dirty,
                     rows: converted.rows,
@@ -617,12 +637,23 @@ impl Driver {
             return;
         }
         let drained = self.app.pty.drain();
+        let before = self.app.term.rotation();
         for chunk in &drained.chunks {
             self.app.term.write_at(BytePos::ZERO, chunk);
             self.app
                 .term
                 .feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
             self.app.pending = Pending::Dirty;
+        }
+        // Looking back while output scrolls: the window stays on the lines
+        // it was showing, which means it moves up the ring by however many
+        // rows the screen scrolled -- the rotation's advance -- and no
+        // further than what is retained.
+        if self.app.back.index() > 0 {
+            let ring = self.app.term.ring().index();
+            let advanced = (self.app.term.rotation().index() + ring - before.index()) % ring;
+            let retained = self.app.term.scrollback().len();
+            self.app.back = Rows::of_count((self.app.back.index() + advanced).min(retained));
         }
         self.app.flush_reply();
         if drained.stream == Stream::Closed {
@@ -659,6 +690,13 @@ impl Driver {
 
 impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
+        // Typing snaps the window back to the live screen, where the
+        // keystroke's effect is.
+        if self.app.back.index() != 0 {
+            self.app.back = Rows::ZERO;
+            self.app.scroll_accum = 0.0;
+            self.app.pending = Pending::Dirty;
+        }
         let m = mods(key.modifiers);
         if key.modifiers.command {
             // Menu territory; nothing to send.
@@ -732,7 +770,42 @@ impl Responder for Driver {
 
     fn mouse(&mut self, _event: &Mouse) {}
 
-    fn scroll(&mut self, _event: &Scroll) {}
+    /// The wheel moves the window over the history. A trackpad sends
+    /// points and a wheel sends lines; both accumulate to whole rows of the
+    /// cell height, positive `dy` being "show earlier lines" the way AppKit
+    /// delivers it. The alternate screen keeps no history and gets nothing
+    /// here; a pager or an editor on it will want the wheel as keys, which
+    /// is a separate protocol.
+    fn scroll(&mut self, event: &Scroll) {
+        if self.app.term.screen() != baud_core::Screen::Normal {
+            return;
+        }
+        let (_, ch) = self.app.metrics_cell();
+        let lines = match event.precise {
+            true => {
+                self.app.scroll_accum += event.dy * self.app.scale;
+                let whole = (self.app.scroll_accum / ch).trunc();
+                self.app.scroll_accum -= whole * ch;
+                whole
+            }
+            false => event.dy.trunc(),
+        };
+        // Whole lines, signed; the retained count bounds the window above
+        // and the live screen bounds it below.
+        let step = lines as i64;
+        if step == 0 {
+            return;
+        }
+        let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(i64::MAX);
+        let now = i64::try_from(self.app.back.index()).unwrap_or(0);
+        let back = Rows::of_count(usize::try_from((now + step).clamp(0, retained)).unwrap_or(0));
+        if back.index() == self.app.back.index() {
+            return;
+        }
+        self.app.back = back;
+        self.app.pending = Pending::Dirty;
+        self.pump(Trigger::Wake);
+    }
 
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
         let (cw, ch) = self.app.metrics_cell();

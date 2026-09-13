@@ -262,7 +262,7 @@ fn main() {
                     s.inst += g.instances.value();
                     continue;
                 }
-                let converted = r.convert(&t, damage);
+                let converted = r.convert(&t, Rows::ZERO, damage);
                 s.frames += 1;
                 s.convert += converted.convert;
                 s.rows += converted.rows_dirty.value();

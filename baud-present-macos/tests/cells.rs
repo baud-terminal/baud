@@ -50,6 +50,8 @@ struct Arms<'f, 'a> {
     styles_mem: &'static mut [Resolved],
     map_buffer: MapBuffer,
     map: GlyphMap<'static>,
+    /// Lines above the live screen both arms draw.
+    back: Rows,
 }
 
 impl Arms<'_, '_> {
@@ -61,8 +63,9 @@ impl Arms<'_, '_> {
         let target_b = self.gpu.offscreen(w, h).expect("target");
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
-        self.map.ensure(t.viewport(), &mut self.renderer);
-        let cursor = t.cursor_visible().then(|| {
+        let view = t.view(self.back);
+        self.map.ensure(view, &mut self.renderer);
+        let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
         });
@@ -72,7 +75,7 @@ impl Arms<'_, '_> {
             styles: &self.styles,
             map: &self.map_buffer,
             stride: t.stride(),
-            rotation: t.rotation(),
+            rotation: view.rotation(),
             ring: t.ring(),
             cursor,
         };
@@ -84,7 +87,7 @@ impl Arms<'_, '_> {
         };
         let mut b = vec![0u32; n];
         self.gpu.read(&target_b, &mut b).expect("read");
-        self.renderer.convert(t, Damage::Full);
+        self.renderer.convert(t, self.back, Damage::Full);
         let Some(Drawn::Frame(_)) = self.gpu.draw(&mut self.renderer, &target_a, Done::Wait) else {
             panic!("draw");
         };
@@ -122,7 +125,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
     // The viewport is the GPU's memory: the core writes it, the shader
     // reads it.
-    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::NONE);
+    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12));
     let (grid, cells) = gpu
         .grid(owned.ring(), owned.stride())
         .expect("a shared grid");
@@ -140,6 +143,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         styles_mem,
         map_buffer,
         map: GlyphMap::over(map_mem),
+        back: Rows::ZERO,
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -173,6 +177,19 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "{diff} pixels differ under a rotation of {}",
         t.rotation().index()
     );
+    // Looking back into the history: both arms draw the window three lines
+    // up the ring, the cell arm by a retreated rotation and the instance
+    // arm by the same view, and they agree -- and differ from the live
+    // screen, so the offset reached the pixels.
+    let (live, _) = arms.draw(&mut t);
+    arms.back = Rows::of_count(3);
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms disagree three lines back");
+    assert!(
+        differing(&a, &live) > 0,
+        "three lines back is not the live screen"
+    );
+    arms.back = Rows::ZERO;
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

@@ -20,6 +20,11 @@ pub struct FaceSpec {
 }
 
 pub struct Config {
+    /// Where the file was found, so the startup log can say which config
+    /// is in force -- a `baud` launched outside the checkout once fell back
+    /// to the Menlo stack in silence, and looked like a font that had
+    /// stopped being respected.
+    pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
     /// Points; pixels are this times the backing scale.
@@ -43,6 +48,7 @@ impl Config {
             .collect(),
             font_size: 13.0,
             background_alpha: 0xD8,
+            source: None,
         }
     }
 
@@ -50,8 +56,9 @@ impl Config {
     /// defaults themselves when none is found.
     pub fn load() -> Config {
         let mut c = Config::defaults();
-        if let Some(text) = read_first() {
+        if let Some((path, text)) = read_first() {
             c.apply(&text);
+            c.source = Some(path);
         }
         c
     }
@@ -100,7 +107,7 @@ impl FaceSpec {
     }
 }
 
-fn read_first() -> Option<String> {
+fn read_first() -> Option<(std::path::PathBuf, String)> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     let xdg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from);
     let mut paths: Vec<std::path::PathBuf> = Vec::new();
@@ -116,7 +123,7 @@ fn read_first() -> Option<String> {
     paths.push("config.toml".into());
     paths
         .into_iter()
-        .find_map(|p| std::fs::read_to_string(p).ok())
+        .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
 }
 
 /// `key = value` pairs. A value runs to the end of the line, or, when it opens

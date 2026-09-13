@@ -296,7 +296,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
-        let converted = self.convert(term, damage);
+        let converted = self.convert(term, Rows::ZERO, damage);
         self.paint(target, converted)
     }
 
@@ -318,16 +318,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    pub fn convert(&mut self, term: &Term<'_>, damage: Damage) -> Converted {
+    pub fn convert(&mut self, term: &Term<'_>, back: Rows, damage: Damage) -> Converted {
         let t0 = Instant::now();
         self.blink_seen = Blinking::Unseen;
         self.fit(term);
         let (cols, rows) = term.geometry();
         let ncols = cols.index();
         // Each row read where the core holds it, through the rotation and
-        // the ring; the copy into `cur` is this path's own frame-to-frame
-        // damage record, not the core's.
-        let vp = term.viewport();
+        // the ring, `back` lines into the history when the user is looking
+        // back; the copy into `cur` is this path's own frame-to-frame damage
+        // record, not the core's, and a change of `back` dirties the rows it
+        // moves the way any other change does.
+        let vp = term.view(back);
         for r in 0..rows.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
         }
@@ -339,7 +341,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             self.cur_styles[r] = d;
         }
-        let cursor: Cursor = term.cursor_visible().then(|| {
+        // No cursor while looking back: it belongs to the live screen, which
+        // is `back` lines below the window.
+        let cursor: Cursor = (term.cursor_visible() && back.index() == 0).then(|| {
             let (r, c) = term.cursor();
             (r, c, term.cursor_style())
         });

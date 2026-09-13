@@ -272,6 +272,20 @@ impl<'a> Viewport<'a> {
         if p >= ring { p - ring } else { p }
     }
 
+    /// The same view `n` rows further back into the ring: the window over
+    /// the lines that scrolled off, its top `n` lines above the screen's.
+    /// The rotation retreats and nothing else changes, so a scrolled-back
+    /// screen is read the way the live one is -- in place, at the pitch,
+    /// through the rotation -- and costs a frame what the live one costs. A
+    /// caller bounds `n` by what is retained; the ring holds whatever is
+    /// behind the window past that, which is stale.
+    pub fn back(&self, n: usize) -> Viewport<'a> {
+        Viewport {
+            rot: self.rot.retreat(n, self.ring),
+            ..*self
+        }
+    }
+
     /// Screen row `y`'s `cols` live cells.
     pub fn row(&self, y: Row) -> &'a [PackedCell] {
         let a = self.phys(y.index()) * self.stride.index();
@@ -294,6 +308,14 @@ impl<'a> Viewport<'a> {
     }
     pub fn stride(&self) -> Stride {
         self.stride
+    }
+    /// The rotation this view reads under -- what a shader that reads the
+    /// ring in place takes, `(row + rotation) % ring`.
+    pub fn rotation(&self) -> RowRot {
+        self.rot
+    }
+    pub fn ring(&self) -> Rows {
+        self.ring
     }
     /// Cells at the pitch, `rows * stride`: the extent an index can address.
     pub fn len(&self) -> usize {

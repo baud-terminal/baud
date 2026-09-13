@@ -236,3 +236,38 @@ fn the_ring_is_the_capacity_plus_the_depth() {
     assert_eq!(t.ring().index(), 57);
     assert_eq!(row_text(&t, 48, 1), "x", "the primary is back, unmoved");
 }
+
+/// `Term::view(back)` is the screen scrolled `back` lines into the history:
+/// its top row is the line that far above the live screen, it is bounded by
+/// what is retained, and the alternate screen -- which keeps none -- shows
+/// itself whatever is asked.
+#[test]
+fn a_view_back_starts_that_many_lines_above_the_screen() {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..60)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        assert_eq!(t.scrollback().len(), 11);
+        let text = |v: Viewport<'_>, y: usize| text_of(&v.row(Row::from_index(y))[..7]);
+        assert_eq!(
+            text(t.view(Rows::ZERO), 0),
+            "line 11",
+            "back zero is the screen"
+        );
+        assert_eq!(text(t.view(Rows::of_count(1)), 0), "line 10");
+        assert_eq!(text(t.view(Rows::of_count(11)), 0), "line 0 ");
+        assert_eq!(text(t.view(Rows::of_count(11)), 11), "line 11");
+        assert_eq!(
+            text(t.view(Rows::of_count(500)), 0),
+            "line 0 ",
+            "bounded by what is retained"
+        );
+        support::feed(t, b"\x1b[?1049h\x1b[1;1Halt");
+        assert_eq!(
+            text(t.view(Rows::of_count(5)), 0),
+            "alt    ",
+            "the alternate screen has no history to look back into"
+        );
+    });
+}

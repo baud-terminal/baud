@@ -839,6 +839,20 @@ impl<'b> Term<'b> {
         Viewport::new(cells, self.stride, self.cols, self.rows, ring, rot)
     }
 
+    /// The screen scrolled `back` lines into the history: the window that
+    /// starts `back` lines above the live screen, bounded by what is
+    /// retained, and the live screen itself on the alternate screen, which
+    /// keeps none. What a renderer draws while the user is looking back --
+    /// the same read as [`Term::viewport`], at a rotation `back` further
+    /// round the ring, so it costs a frame nothing more.
+    pub fn view(&self, back: Rows) -> Viewport<'_> {
+        let n = match self.cold.screen {
+            Screen::Normal => back.index().min(self.store.book.hist.index()),
+            Screen::Alternate => 0,
+        };
+        self.viewport().back(n)
+    }
+
     /// One screen row, `cols` cells: [`Viewport::row`].
     pub fn row(&self, y: Row) -> &[PackedCell] {
         self.viewport().row(y)
