@@ -208,6 +208,15 @@ crate_audit "baud-render" 0 11 baud-render/src
 # baud-present-macos and baud-app: one signature primitive each, the same
 # edge -- `slots(Px) -> usize`, where a pixel count becomes a slice index.
 crate_audit "baud-present-macos" 0 1 baud-present-macos/src
+# baud-wayland: eleven raw sites and eight signature primitives, and the
+# floor is the kernel's socket ABI -- `sys.rs` declares `sendmsg`/`recvmsg`
+# and their `msghdr`/`cmsghdr` as the platform lays them out (`u32` and
+# `usize` lengths, `i32` flags), the way the ISA crates declare
+# `sysctlbyname` -- plus the wire's own widths: a header's `usize` size, the
+# byte cursor `put`/`word` carry, and the 24.8 fixed-point's saturating cast.
+# The protocol values (`ObjectId(u32)`, `Opcode(u16)`, `Fixed(i32)`) are
+# newtypes. Set at the count, and it does not move to fit a change.
+crate_audit "baud-wayland" 11 8 baud-wayland/src
 crate_audit "baud-app" 0 1 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP

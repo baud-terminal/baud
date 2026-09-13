@@ -29,7 +29,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-CRATES="baud-bench:30 baud-core:1 baud-font:0 baud-render:0 baud-present-macos:0 baud-app:0"
+CRATES="baud-bench:30 baud-core:1 baud-font:0 baud-render:0 baud-present-macos:0 baud-app:0 baud-wayland:0"
 
 fail=0
 total=0

@@ -1,0 +1,13 @@
+[package]
+name = "baud-wayland"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Wayland wire protocol spoken over the socket, with the interface tables generated at build time from the pinned protocol XMLs; no libwayland."
+# Not published: a platform crate for the app, with no crates.io audience.
+publish = false
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }

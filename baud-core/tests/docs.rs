@@ -168,6 +168,7 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-render/",
         "baud-present-macos/",
         "baud-app/",
+        "baud-wayland/",
         "bench-others/",
         "docs/",
         "scripts/",
@@ -293,6 +294,7 @@ fn every_test_named_in_the_docs_exists() {
         "baud-render",
         "baud-present-macos",
         "baud-app",
+        "baud-wayland",
     ] {
         let dir = root().join(d);
         assert!(
