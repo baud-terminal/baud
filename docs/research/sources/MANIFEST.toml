@@ -4804,3 +4804,52 @@ sha256 = "462eedfc3a1abab755eef8a79e7e46954fd6c7ebb52623344fae330b0fa3b67a"
 bytes  = 2065978
 status = "external"
 group  = "D"
+
+[sources.xkb-keymap-text-format]
+key    = "xkb-keymap-text-format"
+title  = "The XKB keymap text format, V1 and V2 (libxkbcommon doc/keymap-text-format-v1-v2.md at xkbcommon-1.13.2)"
+author = "libxkbcommon contributors"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon (MIT)"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/doc/keymap-text-format-v1-v2.md"
+file   = "xkb-keymap-text-format-v1-v2.md"
+sha256 = "2926ee55203e5951c9bb03be382acf3ab6a5d463a9f0766274054f61d5429acc"
+bytes  = 135888
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the keymap text a compositor hands a
+# client in wl_keyboard.keymap, and the library that defines it, read as the
+# specification for baud's own XKB compiler and linked nowhere.
+
+[sources.xkbcommon-keysyms]
+key    = "xkbcommon-keysyms"
+title  = "xkbcommon-keysyms.h -- the keysym definitions (libxkbcommon 1.13.2)"
+author = "libxkbcommon contributors"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon (MIT)"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h"
+file   = "xkbcommon-keysyms.h"
+sha256 = "13023369f65a17411606084e3e09557b4886aeb15f89affba4aaa86490a463f3"
+bytes  = 264502
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the keymap text a compositor hands a
+# client in wl_keyboard.keymap, and the library that defines it, read as the
+# specification for baud's own XKB compiler and linked nowhere.
+
+[sources.xkbcommon-h]
+key    = "xkbcommon-h"
+title  = "xkbcommon.h -- the library's API and its keymap/state model (libxkbcommon 1.13.2)"
+author = "libxkbcommon contributors"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon (MIT)"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon.h"
+file   = "xkbcommon.h"
+sha256 = "17e58db5edc299d13b4365adce6c6d805e16642977ffaacf98d9be0c4c7071ff"
+bytes  = 88598
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- the keymap text a compositor hands a
+# client in wl_keyboard.keymap, and the library that defines it, read as the
+# specification for baud's own XKB compiler and linked nowhere.
+
