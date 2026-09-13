@@ -31,3 +31,15 @@ fonts = [
 #   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
+
+# For CJK coverage (Japanese, Chinese, Korean), stack a CJK face before the
+# emoji and symbol fallbacks. Hiragino Sans GB covers Japanese kana and Chinese
+# Han; Apple SD Gothic Neo covers Korean. A face earlier in the list wins per
+# cluster, so keep your text face first:
+# fonts = [
+#   "/System/Library/Fonts/Menlo.ttc@0",
+#   "/System/Library/Fonts/Hiragino Sans GB.ttc@0",
+#   "/System/Library/Fonts/AppleSDGothicNeo.ttc@0",
+#   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+#   "/System/Library/Fonts/Apple Symbols.ttf",
+# ]
