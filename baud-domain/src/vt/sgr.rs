@@ -177,12 +177,9 @@ impl SgrAttr {
             7 => (SgrAttr::Set(Attrs::REVERSE), ParamCount(1)),
             8 => (SgrAttr::Set(Attrs::HIDDEN), ParamCount(1)),
             9 => (SgrAttr::Set(Attrs::STRIKE), ParamCount(1)),
-            // 21 is doubly-underlined in ECMA-48 3rd and in xterm. baud has one
-            // underline bit, so a double underline is an underline -- losing the
-            // doubling is visibly wrong but losing the underline entirely is
-            // worse, and inventing a second bit no renderer reads would be the
-            // "set and never used" failure.
-            21 => (SgrAttr::Set(Attrs::UNDERLINE), ParamCount(1)),
+            // 21 is doubly-underlined in ECMA-48 3rd and in xterm; the
+            // renderer draws it as two lines, so it has its own bit.
+            21 => (SgrAttr::Set(Attrs::DOUBLE_UNDERLINE), ParamCount(1)),
             22 => (SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM)), ParamCount(1)),
             20 => (SgrAttr::Set(Attrs::FRAKTUR), ParamCount(1)),
             // `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not
@@ -192,7 +189,10 @@ impl SgrAttr {
                 SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR)),
                 ParamCount(1),
             ),
-            24 => (SgrAttr::Unset(Attrs::UNDERLINE), ParamCount(1)),
+            24 => (
+                SgrAttr::Unset(Attrs::UNDERLINE.with(Attrs::DOUBLE_UNDERLINE)),
+                ParamCount(1),
+            ),
             25 => (SgrAttr::Unset(Attrs::BLINK), ParamCount(1)),
             27 => (SgrAttr::Unset(Attrs::REVERSE), ParamCount(1)),
             28 => (SgrAttr::Unset(Attrs::HIDDEN), ParamCount(1)),
@@ -474,10 +474,12 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             8 => Some(SgrAttr::Set(Attrs::HIDDEN)),
             9 => Some(SgrAttr::Set(Attrs::STRIKE)),
             20 => Some(SgrAttr::Set(Attrs::FRAKTUR)),
-            21 => Some(SgrAttr::Set(Attrs::UNDERLINE)),
+            21 => Some(SgrAttr::Set(Attrs::DOUBLE_UNDERLINE)),
             22 => Some(SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM))),
             23 => Some(SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR))),
-            24 => Some(SgrAttr::Unset(Attrs::UNDERLINE)),
+            24 => Some(SgrAttr::Unset(
+                Attrs::UNDERLINE.with(Attrs::DOUBLE_UNDERLINE),
+            )),
             25 => Some(SgrAttr::Unset(Attrs::BLINK)),
             26 => Some(SgrAttr::Set(Attrs::PROPORTIONAL)),
             27 => Some(SgrAttr::Unset(Attrs::REVERSE)),

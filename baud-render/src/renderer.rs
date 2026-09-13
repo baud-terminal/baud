@@ -25,6 +25,28 @@ pub enum Damage {
     Full,
 }
 
+/// The blink phase of a frame -- one half of the cycle a driver toggles off
+/// its display link, the hardware vsync clock. A cell with `Attrs::BLINK`
+/// draws its foreground on [`Blink::Shown`] and hides it (foreground set to
+/// its own background) on [`Blink::Hidden`]. Blink is a *frame* property, not
+/// part of the interned rendition, so it is resolved each frame here rather
+/// than stored in a cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Blink {
+    #[default]
+    Shown,
+    Hidden,
+}
+
+/// Whether the last convert or resolve saw a cell with `Attrs::BLINK`, so a
+/// driver repaints on a phase flip only when something blinks.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Blinking {
+    #[default]
+    Unseen,
+    Seen,
+}
+
 /// What [`Renderer::convert`] did, handed to [`Renderer::paint`] or to a
 /// GPU path.
 #[derive(Clone, Copy, Debug, Default)]
@@ -125,6 +147,11 @@ pub struct Renderer<'f, 'a> {
     fg: Vec<Argb>,
     per_row: Vec<Vec<Instance>>,
     last_cursor: Cursor,
+    /// This frame's blink phase, set by [`Renderer::set_blink`] before a
+    /// convert or resolve, and whether any blinking cell was seen -- so the
+    /// driver repaints on a phase flip only when something actually blinks.
+    blink: Blink,
+    blink_seen: Blinking,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
     /// The palette the last frame resolved against: `OSC 4` repaints
@@ -183,6 +210,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fg: Vec::new(),
             per_row: Vec::new(),
             last_cursor: None,
+            blink: Blink::default(),
+            blink_seen: Blinking::default(),
             dirty: Vec::new(),
             last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
@@ -193,6 +222,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     pub fn metrics(&self) -> Metrics {
         self.metrics
+    }
+
+    /// Sets the blink phase the next convert or resolve draws with.
+    pub fn set_blink(&mut self, blink: Blink) {
+        self.blink = blink;
+    }
+
+    /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`,
+    /// so a driver repaints on a phase flip only when something blinks.
+    pub fn blink_seen(&self) -> Blinking {
+        self.blink_seen
     }
 
     pub fn cache_stats(&self) -> CacheStats {
@@ -280,6 +320,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     pub fn convert(&mut self, term: &mut Term<'_>, damage: Damage) -> Converted {
         let t0 = Instant::now();
+        self.blink_seen = Blinking::Unseen;
         self.fit(term);
         let (cols, rows) = term.geometry();
         let stride = term.stride().index();
@@ -423,21 +464,35 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// of them. `out` is the memory a shader reads, so nothing is copied
     /// after this. Slots past `out` are not resolved; the count written is
     /// returned.
-    pub fn resolve_styles_into(&self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
+    pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
+        self.blink_seen = Blinking::Unseen;
         let table = term.styles();
         let mut n = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
             let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
-            let (fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
+            let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
             if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
                 bg = bg.with_alpha(self.theme.bg_alpha);
             }
             let attrs = style.attrs();
+            let blink_hidden = if attrs.has(Attrs::BLINK) {
+                self.blink_seen = Blinking::Seen;
+                self.blink == Blink::Hidden
+            } else {
+                false
+            };
+            if blink_hidden {
+                fg = bg;
+            }
             let mut shapes = Shapes::default();
-            if attrs.has(Attrs::UNDERLINE) {
+            if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE))
+            {
                 shapes = shapes.with(Shapes::UNDERLINE);
             }
-            if attrs.has(Attrs::STRIKE) {
+            if !blink_hidden && attrs.has(Attrs::DOUBLE_UNDERLINE) {
+                shapes = shapes.with(Shapes::DOUBLE_UNDERLINE);
+            }
+            if !blink_hidden && attrs.has(Attrs::STRIKE) {
                 shapes = shapes.with(Shapes::STRIKE);
             }
             let underline = self.theme.underline(style, fg, |ch| term.palette(ch));
@@ -485,21 +540,48 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 core::mem::swap(&mut fg, &mut bg);
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
             }
+            let attrs = style.attrs();
+            // Blink hides the whole foreground -- glyph, underline, strike --
+            // on the off phase, by drawing it in the cell's own background.
+            let blink_hidden = if attrs.has(Attrs::BLINK) {
+                self.blink_seen = Blinking::Seen;
+                self.blink == Blink::Hidden
+            } else {
+                false
+            };
+            if blink_hidden {
+                fg = bg;
+            }
             self.fg[range.start + c] = fg;
             self.bg[range.start + c] = bg;
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
-            let attrs = style.attrs();
-            if attrs.has(Attrs::UNDERLINE) {
+            let double = attrs.has(Attrs::DOUBLE_UNDERLINE);
+            if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || double) {
                 let color = self.theme.underline(style, fg, |ch| term.palette(ch));
+                let ul = px_i32(self.metrics.underline);
                 shapes.push(solid(
                     screen(x),
-                    screen(top + px_i32(self.metrics.underline)),
+                    screen(top + ul),
                     self.metrics.cell_w,
                     self.metrics.thickness,
                     color,
                 ));
+                if double {
+                    // A second line below, one thickness of gap between them,
+                    // clamped so it stays inside the cell.
+                    let gap = i32::try_from(self.metrics.thickness.value().max(1)).unwrap_or(1) + 1;
+                    let low = px_i32(self.metrics.cell_h) - px_i32(self.metrics.thickness);
+                    let y = (ul + gap).min(low.max(ul));
+                    shapes.push(solid(
+                        screen(x),
+                        screen(top + y),
+                        self.metrics.cell_w,
+                        self.metrics.thickness,
+                        color,
+                    ));
+                }
             }
-            if attrs.has(Attrs::STRIKE) {
+            if !blink_hidden && attrs.has(Attrs::STRIKE) {
                 shapes.push(solid(
                     screen(x),
                     screen(top + px_i32(self.metrics.strike)),

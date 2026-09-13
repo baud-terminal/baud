@@ -66,6 +66,11 @@ impl Attrs {
     pub const IDEOGRAM_DOUBLE_OVERLINE: Attrs = Attrs(1 << 16);
     /// `SGR 64` -- "ideogram stress marking", off by `SGR 65`.
     pub const IDEOGRAM_STRESS: Attrs = Attrs(1 << 17);
+    /// `SGR 21` -- doubly underlined (ECMA-48 3rd, xterm). A distinct bit from
+    /// [`Attrs::UNDERLINE`] now that a renderer draws it as two lines; the note
+    /// that a second bit "no renderer reads" would be the set-and-never-used
+    /// failure held only until one did.
+    pub const DOUBLE_UNDERLINE: Attrs = Attrs(1 << 18);
 
     /// The five aspects `SGR 65` cancels together.
     ///
@@ -88,7 +93,7 @@ impl Attrs {
     /// to report the current rendition, and a `match` per bit is the shape that
     /// silently omits one -- which is how `fold` came to discard every
     /// attribute except reset and foreground.
-    pub const WIRE: [(Attrs, u8); 18] = [
+    pub const WIRE: [(Attrs, u8); 19] = [
         (Attrs::BOLD, 1),
         (Attrs::DIM, 2),
         (Attrs::ITALIC, 3),
@@ -98,6 +103,7 @@ impl Attrs {
         (Attrs::HIDDEN, 8),
         (Attrs::STRIKE, 9),
         (Attrs::FRAKTUR, 20),
+        (Attrs::DOUBLE_UNDERLINE, 21),
         (Attrs::PROPORTIONAL, 26),
         (Attrs::FRAMED, 51),
         (Attrs::ENCIRCLED, 52),
@@ -109,7 +115,7 @@ impl Attrs {
         (Attrs::IDEOGRAM_STRESS, 64),
     ];
 
-    /// Fourteen bits of the thirty-two are still free.
+    /// Thirteen bits of the thirty-two are still free.
     ///
     /// The ideogram aspects needed five and there were three, so `Attrs` went
     /// to `u32` and `StyleWord` to twenty bytes -- `NSTYLE * 8` = 512 bytes in

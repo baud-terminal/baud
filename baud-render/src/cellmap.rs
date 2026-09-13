@@ -283,6 +283,8 @@ impl Shapes {
     /// `underline`: what `SGR 58` unset means, and the cursor's swap
     /// applies to it.
     pub const UNDERLINE_FOLLOWS_FG: Shapes = Shapes(4);
+    /// A second underline below the first: `SGR 21`, doubly underlined.
+    pub const DOUBLE_UNDERLINE: Shapes = Shapes(8);
 
     pub fn with(self, s: Shapes) -> Shapes {
         Shapes(self.0 | s.0)

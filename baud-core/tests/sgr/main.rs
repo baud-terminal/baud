@@ -13,6 +13,7 @@ mod ideogram;
 mod param_overflow;
 mod rep_align;
 mod subparams;
+mod underline;
 
 /// **No gaps, and the gate stays so a new one has to say so.**
 ///

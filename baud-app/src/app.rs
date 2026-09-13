@@ -11,7 +11,8 @@ use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presenter, StylesBuffer,
 };
 use baud_render::{
-    Blend, Damage, Frame, GlyphMap, PxSize, Renderer, Resolved, Stack, Tally, Target, Theme,
+    Blend, Blink, Blinking, Damage, Frame, GlyphMap, PxSize, Renderer, Resolved, Stack, Tally,
+    Target, Theme,
 };
 use macos_liquid_glass::drawable::{
     DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
@@ -34,6 +35,9 @@ enum Pending {
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
+/// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
+/// hides for this long. ~1.2 Hz, the middle of what terminals use.
+const BLINK_HALF: f64 = 0.4;
 /// The largest grid the storage is provisioned for.
 const MAX_GRID: WinSize = WinSize {
     ws_col: 400,
@@ -124,6 +128,14 @@ struct App {
     /// [`SYNC_MAX`], so a program that opens one and stalls cannot freeze the
     /// window, which `RIS` does not clear.
     sync_since: Option<Instant>,
+    /// The blink phase this frame draws with, whether any cell blinks, and
+    /// whether the phase just flipped -- which forces a full repaint, since a
+    /// blink changes no cell content and row damage would not catch it.
+    blink: Blink,
+    blink_present: Blinking,
+    /// The damage the next frame draws with -- `Full` for the frame after a
+    /// blink flip, since a blink changes no cell and row damage would miss it.
+    next_damage: Damage,
 }
 
 impl App {
@@ -234,6 +246,9 @@ impl App {
             interval: Duration::from_micros(8333),
             last_tick: None,
             sync_since: None,
+            blink: Blink::default(),
+            blink_present: Blinking::default(),
+            next_damage: Damage::Incremental,
         }
     }
 
@@ -307,7 +322,9 @@ impl App {
         if self.pending == Pending::Clean {
             return;
         }
-        let damage = Damage::Incremental;
+        self.renderer.set_blink(self.blink);
+        let damage = self.next_damage;
+        self.next_damage = Damage::Incremental;
         let waker = self.waker;
         match (
             self.presenter.as_ref().map(Presenter::mode),
@@ -370,6 +387,7 @@ impl App {
                 }
             }
         }
+        self.blink_present = self.renderer.blink_seen();
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
         self.frames.bump();
@@ -625,6 +643,22 @@ impl Responder for Driver {
             }
         }
         self.app.last_tick = Some(target);
+        // Blink is driven off the display link's timestamp -- the hardware
+        // vsync clock -- so the phase is accurate without a timer of its own.
+        // A full cycle is two BLINK_HALF periods; the phase flips a repaint
+        // only when a cell actually blinks.
+        let phase = if (target / BLINK_HALF).rem_euclid(2.0) < 1.0 {
+            Blink::Shown
+        } else {
+            Blink::Hidden
+        };
+        if phase != self.app.blink {
+            self.app.blink = phase;
+            if self.app.blink_present == Blinking::Seen {
+                self.app.next_damage = Damage::Full;
+                self.app.pending = Pending::Dirty;
+            }
+        }
         self.pump(Trigger::Tick);
     }
 

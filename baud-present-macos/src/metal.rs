@@ -89,7 +89,7 @@ const BUFFER_FLOOR: usize = 64 * 1024;
 const UNIFORM_FLOATS: usize = 10;
 
 /// How many shapes a cell may draw in the cell path's shape pass.
-const SHAPES_PER_CELL: usize = 3;
+const SHAPES_PER_CELL: usize = 4;
 
 const SHADERS: &str = r#"
 #include <metal_stdlib>
@@ -244,15 +244,16 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     return o;
 }
 
-// Three shapes a cell: its underline, its strike, and the cursor when it
-// is an underline or a bar. A shape not drawn is a zero-area quad.
+// Four shapes a cell: its underline, its strike, a second underline line for
+// a double underline, and the cursor when it is an underline or a bar. A shape
+// not drawn is a zero-area quad.
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
-    uint which = iid % 3u, ci = iid / 3u;
+    uint which = iid % 4u, ci = iid / 4u;
     uint col = ci % u.grid.x, row = ci / u.grid.x;
     uint2 cell = cell_at(u, cells, col, row);
     Style s = styles[cell.y & 0xffffu];
@@ -270,6 +271,17 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         at = float2(col * u.cell.x, row * u.cell.y + u.strike);
         wh = float2(u.cell.x, u.thickness);
         colw = fgw;
+    } else if (which == 2u) {
+        // The second line of a double underline, below the first by a gap and
+        // clamped inside the cell.
+        if ((s.shapes & 8u) == 0u) return o;
+        float th = float(u.thickness);
+        float gap = max(th, 1.0) + 1.0;
+        float low = float(u.cell.y) - th;
+        float y = min(float(u.underline) + gap, max(low, float(u.underline)));
+        at = float2(col * u.cell.x, float(row * u.cell.y) + y);
+        wh = float2(u.cell.x, u.thickness);
+        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     } else {
         if (col != u.cursor.x || row != u.cursor.y || u.cursor_kind < 2u) return o;
         if (u.cursor_kind == 2u) {

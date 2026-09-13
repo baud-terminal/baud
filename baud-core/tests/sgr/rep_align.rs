@@ -68,12 +68,18 @@ fn rapid_blink_is_blink() {
     assert_eq!(grid(b"\x1b[6mx"), grid(b"\x1b[5mx"));
 }
 
-/// Double underline (21) is an underline. Losing the doubling is visibly wrong;
-/// losing the underline entirely is worse.
+/// Double underline (21) is its own rendition, distinct from single (4) and
+/// from plain -- a renderer draws it as two lines. See `sgr/underline.rs` for
+/// the attribute; here it is enough that the cell differs from both.
 #[test]
-fn double_underline_underlines() {
-    assert_eq!(grid(b"\x1b[21mx"), grid(b"\x1b[4mx"));
-    assert_ne!(grid(b"\x1b[21mx"), grid(b"x"));
+fn double_underline_is_distinct() {
+    assert_ne!(
+        grid(b"\x1b[21mx"),
+        grid(b"\x1b[4mx"),
+        "double is not single"
+    );
+    assert_ne!(grid(b"\x1b[21mx"), grid(b"x"), "double is not plain");
+    assert_ne!(grid(b"\x1b[4mx"), grid(b"x"), "single is not plain");
 }
 
 // ── colours ─────────────────────────────────────────────────────────────────
