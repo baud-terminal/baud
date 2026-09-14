@@ -39,7 +39,9 @@ fn main() {
     use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
     use baud_font::Face;
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight};
-    use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Stack, Target, Theme};
+    use baud_render::{
+        Blend, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack, Target, Theme,
+    };
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -109,7 +111,7 @@ fn main() {
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!("memory: {:?}", gpu.unified_memory());
     println!(
-        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>9}",
+        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>7} {:>7} {:>9}",
         "round",
         "arm",
         "frames",
@@ -120,7 +122,9 @@ fn main() {
         "gpu",
         "rows",
         "inst",
-        "marks",
+        "miss",
+        "clear",
+        "rec",
         "wait"
     );
     /// One arm's sums over a replay.
@@ -135,7 +139,9 @@ fn main() {
         gpu: Duration,
         rows: u64,
         inst: u64,
-        marks: u64,
+        miss: u64,
+        clear: u64,
+        rec: u64,
         wait: Duration,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -170,6 +176,10 @@ fn main() {
     let (copy_grid, copy_mem) = gpu.grid(rows, stride).expect("a second shared grid");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut map = GlyphMap::over(map_mem);
+    let (overlay, overlay_mem) = gpu
+        .overlay(Cols::of_index(usize::from(ws.ws_col)), rows)
+        .expect("a shared overlay");
+    let mut records: Vec<Instance> = Vec::new();
     let noop: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
     for round in 0..rounds {
         for arm in arms {
@@ -197,6 +207,7 @@ fn main() {
             // A fresh map per arm per round, like the renderer: the entries
             // live in the shared buffer, so the map is remade over it.
             map = GlyphMap::over(map.into_entries());
+            let mut exceptions = Overlay::new();
             let mut s = Sums::default();
             let mut at = 0usize;
             let t0 = Instant::now();
@@ -222,6 +233,17 @@ fn main() {
                         (row, col, t.cursor_style())
                     });
                     r.resolve_styles_into(&t, styles_mem);
+                    exceptions.ensure(
+                        &Scene {
+                            term: &t,
+                            view: t.viewport(),
+                            styles: styles_mem,
+                            cursor,
+                        },
+                        &mut r,
+                        overlay_mem,
+                        &mut records,
+                    );
                     if arm == Arm::Copied {
                         let vp = t.viewport();
                         for y in 0..rows.index() {
@@ -246,6 +268,8 @@ fn main() {
                         rotation,
                         ring,
                         cursor,
+                        overlay: &overlay,
+                        records: &records,
                     };
                     let done = match arm {
                         Arm::Async => Done::Notify(Arc::clone(&noop)),
@@ -291,10 +315,12 @@ fn main() {
                 std::hint::spin_loop();
             }
             s.total = t0.elapsed();
-            s.marks = map.stats().dropped_marks.value();
+            s.miss = map.stats().misses.value();
+            s.clear = map.stats().cleared.value();
+            s.rec = exceptions.stats().records.value();
             let per = |d: Duration| d.as_secs_f64() * 1e6 / s.frames as f64;
             println!(
-                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>9.1}",
+                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7} {:>7} {:>9.1}",
                 round,
                 match arm {
                     Arm::Cpu => "cpu",
@@ -312,7 +338,9 @@ fn main() {
                 per(s.gpu),
                 s.rows as f64 / s.frames as f64,
                 s.inst as f64 / s.frames as f64,
-                s.marks,
+                s.miss,
+                s.clear,
+                s.rec,
                 per(s.wait),
             );
         }

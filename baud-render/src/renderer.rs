@@ -100,6 +100,15 @@ enum Starter {
     Plain,
 }
 
+/// One glyph of a shaped cluster: its atlas slot and the offsets, in
+/// pixels, the shaper placed it at relative to the cell's origin.
+#[derive(Clone, Copy, Debug)]
+pub struct ClusterGlyph {
+    pub slot: crate::atlas::Slot,
+    pub dx: i32,
+    pub dy: i32,
+}
+
 /// What one frame cost and did.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Frame {
@@ -515,6 +524,36 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// selects, shaped alone so a single substitution still applies, its
     /// atlas slot with the shaper's offsets folded into the placement.
     /// `None` when it draws nothing. What the cell path's map holds.
+    /// A whole cluster -- a base and its attached codepoints -- shaped by
+    /// itself: every glyph with its atlas slot and its offsets in pixels.
+    /// What the overlay draws for a marked cell; the shaper is the one
+    /// definition of what a family or a base with a mark looks like.
+    pub fn cluster(&mut self, cps: &[Codepoint]) -> Vec<ClusterGlyph> {
+        let Some(&base) = cps.first() else {
+            return Vec::new();
+        };
+        let face = self.stack.select(base);
+        let clusters = [ClusterIn {
+            cps: cps.to_vec(),
+            at: CellIx(0),
+        }];
+        let shaped = self.shape(face, &clusters);
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let mut out = Vec::new();
+        for p in shaped.glyphs() {
+            let Some(slot) = self.atlas.slot(f, face, p.id, scale) else {
+                continue;
+            };
+            out.push(ClusterGlyph {
+                slot,
+                dx: scale.px(f32::from(p.dx)).round() as i32,
+                dy: scale.px(f32::from(p.dy)).round() as i32,
+            });
+        }
+        out
+    }
+
     pub fn single(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
         let face = self.stack.select(cp);
         let clusters = [ClusterIn {
@@ -717,7 +756,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 key = key.fold(cp.value());
                 if cell.flags.is_marked() {
                     exc.marked.bump();
-                    for m in term.marks(r, Col::at_index(c)) {
+                    for m in term.cluster_marks(cell) {
                         if let Some(mc) = Codepoint::new(m) {
                             cps.push(mc);
                             key = key.fold(m);

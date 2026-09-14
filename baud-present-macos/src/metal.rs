@@ -216,9 +216,11 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]],
-                              device const Entry* entries [[buffer(3)]]) {
+                              device const Entry* entries [[buffer(3)]],
+                              device const uchar* overlay [[buffer(4)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
+    if (overlay[iid] != 0) return o;
     uint col = iid % u.grid.x, row = iid / u.grid.x;
     uint2 cell = cell_at(u, cells, col, row);
     uint content = cell.x;
@@ -347,6 +349,10 @@ pub struct StylesBuffer(Buffer);
 /// Shared memory the glyph map lives in.
 pub struct MapBuffer(Buffer);
 
+/// The overlay: one byte a screen cell, set where the records draw the
+/// cell and the map must not.
+pub struct OverlayBuffer(Buffer);
+
 /// A count of elements in a shared buffer.
 #[derive(Clone, Copy)]
 struct Elems(usize);
@@ -417,6 +423,10 @@ pub struct CellInput<'a> {
     /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
     pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// One byte a screen cell: set where `records` draw the cell.
+    pub overlay: &'a OverlayBuffer,
+    /// What draws the cells the overlay masks, in the instance layout.
+    pub records: &'a [Instance],
 }
 
 /// How the cursor is drawn, as the shader switches on it.
@@ -775,6 +785,15 @@ impl Gpu {
     }
 
     /// Memory for a glyph map, for `GlyphMap::over`.
+    /// The overlay for a screen of at most `cols` by `rows`.
+    pub fn overlay(&self, cols: Cols, rows: Rows) -> Option<(OverlayBuffer, &'static mut [u8])> {
+        let n = cols.index().saturating_mul(rows.index());
+        let buffer = self.shared(Span(n.max(BUFFER_FLOOR)))?;
+        let bytes = unsafe { lend::<u8>(&buffer, Elems(n)) }?;
+        bytes.fill(0);
+        Some((OverlayBuffer(buffer), bytes))
+    }
+
     pub fn map(&self) -> Option<(MapBuffer, &'static mut [MapEntry])> {
         let buffer = self.shared(Span(MAP_SLOTS.saturating_mul(MapEntry::BYTES)))?;
         // SAFETY: `MapEntry` is `repr(C)` over integer newtypes, valid for
@@ -1143,6 +1162,7 @@ impl Gpu {
                 enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
                 enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
+                enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
                 enc.setFragmentTexture_atIndex(Some(&mask), 0);
                 enc.setFragmentTexture_atIndex(Some(&color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
@@ -1153,11 +1173,59 @@ impl Gpu {
                     instances,
                 );
             }
+            // The records: the cells the overlay masked, drawn as the
+            // instance path draws, after every cell pass.
+            let n = input.records.len();
+            if n > 0 {
+                let bytes = n.saturating_mul(Instance::BYTES);
+                let slot = self.ring.0;
+                if self.instances[slot].length() < bytes {
+                    let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
+                    self.instances[slot] = self.shared(Span(want))?;
+                }
+                {
+                    let buffer = &self.instances[slot];
+                    let ptr = buffer.contents().cast::<u8>();
+                    let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
+                    for (chunk, inst) in dst.chunks_exact_mut(Instance::BYTES).zip(input.records) {
+                        chunk.copy_from_slice(&inst.to_bytes());
+                    }
+                }
+                self.ring = Ring((slot + 1) % RING);
+                let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
+                let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
+                let u: [f32; UNIFORM_FLOATS] = [
+                    px_f32(tw),
+                    px_f32(th),
+                    px_f32(metrics.cell_w),
+                    px_f32(metrics.cell_h),
+                    0.0,
+                    0.0,
+                    side_m,
+                    side_m,
+                    side_c,
+                    side_c,
+                ];
+                let ubytes = NonNull::from(&u).cast::<c_void>();
+                let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
+                enc.setRenderPipelineState(&self.glyph_pipe);
+                enc.setVertexBuffer_offset_atIndex(Some(&self.instances[slot]), 0, 0);
+                enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
+                enc.setFragmentTexture_atIndex(Some(&mask), 0);
+                enc.setFragmentTexture_atIndex(Some(&color), 1);
+                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                    MTLPrimitiveType::TriangleStrip,
+                    0,
+                    4,
+                    n,
+                );
+            }
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
         Some(Drawn::Frame(GpuFrame {
-            instances: Tally::of(count),
+            instances: Tally::of(count.saturating_add(input.records.len())),
             upload: upload_time,
             submit,
             gpu,

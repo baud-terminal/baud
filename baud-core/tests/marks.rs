@@ -395,3 +395,33 @@ fn the_style_table_is_exact_below_capacity() {
          fewer than NSTYLE slots in use"
     );
 }
+
+/// `Term::marks` answers a screen position on the live screen. A reader
+/// walking a view scrolled back -- the renderer's convert, the cell path's
+/// overlay -- holds the cell itself, and the cell's cluster id and content
+/// are the store's key, so `cluster_marks` answers for that cell wherever
+/// on the ring it was read. Here the marked line is eleven rows above the
+/// screen: the live position holds a blank row and reports nothing, and
+/// the cell from the view scrolled back still carries its accent.
+#[test]
+fn a_mark_is_read_from_the_cell_of_a_view_scrolled_back() {
+    let ws = support::CORPUS;
+    let mut st = Owned::new(&ws);
+    let mut t = Term::new(st.storage(), &ws);
+    feed(&mut t, "e\u{0301}");
+    for _ in 0..60 {
+        feed(&mut t, "\n");
+    }
+    assert_eq!(
+        marks_at(&t, 0, 0),
+        Vec::<u32>::new(),
+        "the live row 0 is blank"
+    );
+    let back = t.view(baud_domain::Rows::of_count(11));
+    let cell = back.row(Row::from_index(0))[0];
+    assert_eq!(
+        t.cluster_marks(cell).collect::<Vec<u32>>(),
+        vec![0x301],
+        "the cell read from the view scrolled back carries its mark"
+    );
+}

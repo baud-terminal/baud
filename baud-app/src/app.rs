@@ -12,12 +12,12 @@ use baud_domain::{
 };
 use baud_font::Px;
 use baud_present_macos::{
-    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presented, Presenter,
-    StylesBuffer,
+    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
+    Presented, Presenter, StylesBuffer,
 };
 use baud_render::{
-    Blend, Blink, Blinking, Damage, Frame, GlyphMap, PxSize, Renderer, Resolved, Stack, Tally,
-    Target, Theme,
+    Blend, Blink, Blinking, Damage, Frame, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved,
+    Scene, Stack, Tally, Target, Theme,
 };
 use macos_liquid_glass::drawable::{
     DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
@@ -90,6 +90,12 @@ fn wanted() -> Request {
 /// The cell path's memory, all of it where the GPU reads it: the grid the
 /// core writes, the styles the renderer resolves, the map the walk fills.
 struct CellMemory {
+    /// The overlay and the records that draw the cells it masks, and the
+    /// cluster map the walk fills them from.
+    overlay: OverlayBuffer,
+    overlay_mem: &'static mut [u8],
+    exceptions: Overlay,
+    records: Vec<Instance>,
     /// The primary ring.
     grid: GridBuffer,
     /// The alternate screen's surface, bound while `Term::screen` says so.
@@ -270,14 +276,26 @@ impl App {
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (gpu.styles(&term), gpu.map()) {
-                (Some((styles, styles_mem)), Some((map_buffer, entries))) => Some(CellMemory {
-                    grid,
-                    alt,
-                    styles,
-                    styles_mem,
-                    map_buffer,
-                    map: GlyphMap::over(entries),
-                }),
+                (Some((styles, styles_mem)), Some((map_buffer, entries))) => {
+                    let (overlay, overlay_mem) = gpu
+                        .overlay(
+                            Cols::of_index(usize::from(MAX_GRID.ws_col)),
+                            Rows::of_index(usize::from(MAX_GRID.ws_row)),
+                        )
+                        .expect("a shared overlay");
+                    Some(CellMemory {
+                        overlay,
+                        overlay_mem,
+                        exceptions: Overlay::new(),
+                        records: Vec::new(),
+                        grid,
+                        alt,
+                        styles,
+                        styles_mem,
+                        map_buffer,
+                        map: GlyphMap::over(entries),
+                    })
+                }
                 _ => {
                     eprintln!("no shared styles or map; drawing the instances");
                     // The terminal's surfaces live in these buffers for the
@@ -420,6 +438,17 @@ impl App {
                 });
                 self.renderer
                     .resolve_styles_into(&self.term, cell.styles_mem);
+                cell.exceptions.ensure(
+                    &Scene {
+                        term: &self.term,
+                        view,
+                        styles: cell.styles_mem,
+                        cursor,
+                    },
+                    &mut self.renderer,
+                    cell.overlay_mem,
+                    &mut cell.records,
+                );
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
@@ -435,6 +464,8 @@ impl App {
                     rotation: view.rotation(),
                     ring: self.term.ring(),
                     cursor,
+                    overlay: &cell.overlay,
+                    records: &cell.records,
                 };
                 if let Some(p) = &mut self.presenter {
                     match p.draw_cells(waker, &mut self.renderer, &input) {

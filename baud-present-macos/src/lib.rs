@@ -31,8 +31,8 @@
 pub mod metal;
 
 pub use metal::{
-    CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory, StylesBuffer,
-    Target,
+    CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory, OverlayBuffer,
+    StylesBuffer, Target,
 };
 
 use baud_font::Px;

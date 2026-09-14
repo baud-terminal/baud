@@ -1182,6 +1182,19 @@ impl<'b> Term<'b> {
     }
 
     /// What tracking the application asked for: `?1000`, `?1002`, `?1003`.
+    /// The attached codepoints of `cell` itself, wherever on the ring it
+    /// was read: the store is keyed by the cell's cluster id and content,
+    /// not by a screen position, so a reader walking a view scrolled back
+    /// gets that cell's marks. `marks` resolves a position on the live
+    /// screen and answers the wrong cell for any other view.
+    pub fn cluster_marks(&self, cell: PackedCell) -> impl Iterator<Item = u32> + '_ {
+        self.store
+            .clusters
+            .get(cell.flags.cluster(), cell.content)
+            .into_iter()
+            .flat_map(|s| s.marks())
+    }
+
     pub fn mouse_tracking(&self) -> MouseTracking {
         self.cold.mouse
     }

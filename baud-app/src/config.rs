@@ -188,14 +188,16 @@ fn strings(value: &str) -> Vec<String> {
 /// The system mono, its colour emoji, its symbols for the braille and box
 /// drawing Menlo lacks, and the two faces that carry the CJK scripts --
 /// Hiragino Sans GB for Han and kana, Apple SD Gothic Neo for Hangul --
-/// which the first three do not: without them a CJK character is a box.
+/// which the first three do not: without them a CJK character is a box --
+/// and Kohinoor for Devanagari, which the corpus carries too.
 #[cfg(target_os = "macos")]
-const DEFAULT_FACES: [&str; 5] = [
+const DEFAULT_FACES: [&str; 6] = [
     "/System/Library/Fonts/Menlo.ttc@0",
     "/System/Library/Fonts/Apple Color Emoji.ttc@0",
     "/System/Library/Fonts/Apple Symbols.ttf",
     "/System/Library/Fonts/Hiragino Sans GB.ttc@0",
     "/System/Library/Fonts/AppleSDGothicNeo.ttc@0",
+    "/System/Library/Fonts/Kohinoor.ttc@0",
 ];
 
 #[cfg(target_os = "macos")]
@@ -244,7 +246,7 @@ mod tests {
     use baud_font::{Face, FaceIndex};
 
     #[test]
-    fn the_default_stack_carries_han_kana_hangul_box_drawing_and_emoji() {
+    fn the_default_stack_carries_han_kana_hangul_devanagari_box_drawing_and_emoji() {
         let specs: Vec<FaceSpec> = DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect();
         let files: Vec<Vec<u8>> = specs
             .iter()
@@ -259,6 +261,7 @@ mod tests {
             ("Han", 0x4E2D),
             ("kana", 0x3042),
             ("Hangul", 0xD55C),
+            ("Devanagari", 0x0928),
             ("box drawing", 0x2500),
             ("emoji", 0x1F600),
         ] {

@@ -16,8 +16,12 @@ use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{BytePos, Cols, Depth, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_present_macos::{CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, StylesBuffer};
-use baud_render::{Blend, Damage, GlyphMap, PxSize, Renderer, Resolved, Stack, Theme};
+use baud_present_macos::{
+    CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
+};
+use baud_render::{
+    Blend, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved, Scene, Stack, Theme,
+};
 
 const WS: WinSize = WinSize {
     ws_col: 40,
@@ -38,7 +42,8 @@ fn scene(t: &mut Term<'_>) {
           \x1b[31mred \x1b[1;32mbold green\x1b[0m \x1b[4munderline\x1b[0m \x1b[9mstrike\x1b[0m\r\n\
           \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done\r\n\
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
-          box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end",
+          box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end\r\n\
+          marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed",
     );
 }
 
@@ -50,6 +55,10 @@ struct Arms<'f, 'a> {
     styles_mem: &'static mut [Resolved],
     map_buffer: MapBuffer,
     map: GlyphMap<'static>,
+    overlay: OverlayBuffer,
+    overlay_mem: &'static mut [u8],
+    exceptions: Overlay,
+    records: Vec<Instance>,
     /// Lines above the live screen both arms draw.
     back: Rows,
 }
@@ -70,6 +79,17 @@ impl Arms<'_, '_> {
             (r, c, t.cursor_style())
         });
         self.renderer.resolve_styles_into(t, self.styles_mem);
+        self.exceptions.ensure(
+            &Scene {
+                term: t,
+                view,
+                styles: self.styles_mem,
+                cursor,
+            },
+            &mut self.renderer,
+            self.overlay_mem,
+            &mut self.records,
+        );
         let input = CellInput {
             grid: &self.grid,
             styles: &self.styles,
@@ -78,6 +98,8 @@ impl Arms<'_, '_> {
             rotation: view.rotation(),
             ring: t.ring(),
             cursor,
+            overlay: &self.overlay,
+            records: &self.records,
         };
         let Some(Drawn::Frame(_)) =
             self.gpu
@@ -135,6 +157,12 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let mut t = Term::new(owned.storage_over(cells, alt), &WS);
     let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
+    let (overlay, overlay_mem) = gpu
+        .overlay(
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .expect("a shared overlay");
     let mut arms = Arms {
         gpu,
         renderer,
@@ -143,6 +171,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         styles_mem,
         map_buffer,
         map: GlyphMap::over(map_mem),
+        overlay,
+        overlay_mem,
+        exceptions: Overlay::new(),
+        records: Vec::new(),
         back: Rows::ZERO,
     };
     scene(&mut t);
@@ -154,6 +186,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     ] {
         feed(&mut t, shape);
         let (a, b) = arms.draw(&mut t);
+        assert!(
+            arms.exceptions.stats().cells.value() >= 3,
+            "the three marked cells went to the records: {:?}",
+            arms.exceptions.stats()
+        );
         let drawn = a.iter().filter(|&&p| p != 0).count();
         assert!(
             drawn > a.len() / 2,

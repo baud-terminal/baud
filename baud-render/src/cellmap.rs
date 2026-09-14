@@ -27,7 +27,7 @@ use crate::units::Tally;
 use baud_domain::{Codepoint, Viewport};
 
 /// The map's slot count, a power of two so the probe wraps by a mask.
-pub const MAP_BITS: u32 = 12;
+pub const MAP_BITS: u32 = 14;
 pub const MAP_SLOTS: usize = 1 << MAP_BITS;
 
 /// A map entry's key: the codepoint, or [`CellKey::EMPTY`].
