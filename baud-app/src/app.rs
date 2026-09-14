@@ -16,8 +16,8 @@ use baud_present_macos::{
     Presented, Presenter, StylesBuffer,
 };
 use baud_render::{
-    Blend, Blink, Blinking, Damage, Frame, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved,
-    Scene, Stack, Tally, Target, Theme,
+    Blend, Blink, Blinking, Candidate, Damage, Frame, GlyphMap, Instance, Overlay, PxSize,
+    Renderer, Resolved, Scene, Stack, Tally, Target, Theme,
 };
 use macos_liquid_glass::drawable::{
     DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
@@ -96,6 +96,7 @@ struct CellMemory {
     overlay_mem: &'static mut [u8],
     exceptions: Overlay,
     records: Vec<Instance>,
+    candidates: Vec<Candidate>,
     /// The primary ring.
     grid: GridBuffer,
     /// The alternate screen's surface, bound while `Term::screen` says so.
@@ -288,6 +289,7 @@ impl App {
                         overlay_mem,
                         exceptions: Overlay::new(),
                         records: Vec::new(),
+                        candidates: Vec::new(),
                         grid,
                         alt,
                         styles,
@@ -431,7 +433,8 @@ impl App {
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
                 let view = self.term.view(self.back);
-                cell.map.ensure(view, &mut self.renderer);
+                cell.map
+                    .ensure(view, &mut self.renderer, &mut cell.candidates);
                 let cursor = (self.term.cursor_visible() && self.back.index() == 0).then(|| {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
@@ -444,6 +447,8 @@ impl App {
                         view,
                         styles: cell.styles_mem,
                         cursor,
+                        map: &cell.map,
+                        candidates: &cell.candidates,
                     },
                     &mut self.renderer,
                     cell.overlay_mem,

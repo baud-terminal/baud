@@ -16,6 +16,7 @@
 
 use crate::bytes::{Count, Index};
 use crate::ignorable::DEFAULT_IGNORABLE;
+use crate::layout::{Gdef, GlyphClass};
 use crate::shape::CombiningClass;
 use baud_domain::{Codepoint, GlyphId};
 
@@ -79,6 +80,10 @@ pub struct Glyph {
     /// ligature.
     pub last: Cluster,
     pub ignorable: Ignorable,
+    /// The glyph's `GDEF` class, read once when the glyph is written so
+    /// a lookup's filter does not search the class table for every
+    /// position it tests; `Other` on a face with no classes.
+    pub class: GlyphClass,
     pub attached: Attached,
     pub positioned: Positioned,
     pub mark: Mark,
@@ -99,6 +104,7 @@ impl Glyph {
             cluster,
             last: cluster,
             ignorable,
+            class: GlyphClass::Other,
             attached: Attached::No,
             positioned: Positioned::No,
             mark: Mark::No,
@@ -134,6 +140,16 @@ impl<'b> Buffer<'b> {
         *self.glyphs.get_mut(self.len.slot())? = g;
         self.len = Count::of(self.len.value().checked_add(1)?);
         Some(())
+    }
+
+    /// Every glyph's class read again from `gdef`, after a pass that
+    /// wrote glyph ids without one.
+    pub fn retag(&mut self, gdef: &Gdef<'_>) {
+        let mut at = Index::ZERO;
+        while let Some(g) = self.get_mut(at) {
+            g.class = gdef.class(g.id);
+            at = at.next();
+        }
     }
 
     pub fn len(&self) -> Count {

@@ -40,7 +40,8 @@ fn main() {
     use baud_font::Face;
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight};
     use baud_render::{
-        Blend, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack, Target, Theme,
+        Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
+        Tally, Target, Theme,
     };
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -111,7 +112,7 @@ fn main() {
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!("memory: {:?}", gpu.unified_memory());
     println!(
-        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>7} {:>7} {:>9}",
+        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>9}",
         "round",
         "arm",
         "frames",
@@ -123,7 +124,11 @@ fn main() {
         "rows",
         "inst",
         "miss",
-        "clear",
+        "ptest",
+        "cand",
+        "win",
+        "wcells",
+        "wmiss",
         "rec",
         "wait"
     );
@@ -139,9 +144,13 @@ fn main() {
         gpu: Duration,
         rows: u64,
         inst: u64,
-        miss: u64,
-        clear: u64,
-        rec: u64,
+        miss: Tally,
+        ptest: Tally,
+        cand: Tally,
+        win: Tally,
+        wcells: Tally,
+        wmiss: Tally,
+        rec: Tally,
         wait: Duration,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -164,6 +173,25 @@ fn main() {
         Arm::Async,
         Arm::Copied,
     ];
+    // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
+    // sweep sees one path.
+    let wanted = std::env::var("FRAME_ARMS").ok();
+    let arms: Vec<Arm> = arms
+        .into_iter()
+        .filter(|a| {
+            wanted.as_deref().is_none_or(|w| {
+                let name = match a {
+                    Arm::Cpu => "cpu",
+                    Arm::Gpu => "gpu",
+                    Arm::Cpu2 => "cpu2",
+                    Arm::Cells => "cells",
+                    Arm::Async => "async",
+                    Arm::Copied => "copied",
+                };
+                w.split(',').any(|n| n.trim() == name)
+            })
+        })
+        .collect();
     // The pitch every grid here is laid out at, the storage's and the GPU's,
     // so the copied arm's second buffer is the shape of the first.
     let geom = baud_bench::host_geometry();
@@ -180,9 +208,10 @@ fn main() {
         .overlay(Cols::of_index(usize::from(ws.ws_col)), rows)
         .expect("a shared overlay");
     let mut records: Vec<Instance> = Vec::new();
+    let mut candidates: Vec<Candidate> = Vec::new();
     let noop: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
     for round in 0..rounds {
-        for arm in arms {
+        for &arm in &arms {
             let mut r = fresh();
             // The cell arms lend the terminal its viewport from the GPU;
             // the others take the storage's own.
@@ -227,7 +256,7 @@ fn main() {
                 at += n;
                 if cell_arm {
                     let tc = Instant::now();
-                    map.ensure(t.viewport(), &mut r);
+                    map.ensure(t.viewport(), &mut r, &mut candidates);
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())
@@ -239,11 +268,18 @@ fn main() {
                             view: t.viewport(),
                             styles: styles_mem,
                             cursor,
+                            map: &map,
+                            candidates: &candidates,
                         },
                         &mut r,
                         overlay_mem,
                         &mut records,
                     );
+                    s.cand.add(Tally::of(candidates.len()));
+                    s.win.add(exceptions.stats().windows);
+                    s.wcells.add(exceptions.stats().window_cells);
+                    s.wmiss.add(exceptions.stats().window_misses);
+                    s.rec.add(exceptions.stats().records);
                     if arm == Arm::Copied {
                         let vp = t.viewport();
                         for y in 0..rows.index() {
@@ -315,12 +351,11 @@ fn main() {
                 std::hint::spin_loop();
             }
             s.total = t0.elapsed();
-            s.miss = map.stats().misses.value();
-            s.clear = map.stats().cleared.value();
-            s.rec = exceptions.stats().records.value();
+            s.miss = map.stats().misses;
+            s.ptest = map.stats().pair_tests;
             let per = |d: Duration| d.as_secs_f64() * 1e6 / s.frames as f64;
             println!(
-                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7} {:>7} {:>9.1}",
+                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>9.1}",
                 round,
                 match arm {
                     Arm::Cpu => "cpu",
@@ -338,9 +373,13 @@ fn main() {
                 per(s.gpu),
                 s.rows as f64 / s.frames as f64,
                 s.inst as f64 / s.frames as f64,
-                s.miss,
-                s.clear,
-                s.rec,
+                s.miss.value(),
+                s.ptest.value() as f64 / s.frames as f64,
+                s.cand.value() as f64 / s.frames as f64,
+                s.win.value() as f64 / s.frames as f64,
+                s.wcells.value() as f64 / s.frames as f64,
+                s.wmiss.value() as f64 / s.frames as f64,
+                s.rec.value() as f64 / s.frames as f64,
                 per(s.wait),
             );
         }

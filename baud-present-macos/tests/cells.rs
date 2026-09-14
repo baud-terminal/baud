@@ -20,7 +20,8 @@ use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved, Scene, Stack, Theme,
+    Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved, Scene,
+    Stack, Theme,
 };
 
 const WS: WinSize = WinSize {
@@ -43,7 +44,8 @@ fn scene(t: &mut Term<'_>) {
           \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done\r\n\
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
           box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end\r\n\
-          marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed",
+          marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed\r\n\
+          arrows a -> b => c != d <= e // f :: g <- end",
     );
 }
 
@@ -59,6 +61,7 @@ struct Arms<'f, 'a> {
     overlay_mem: &'static mut [u8],
     exceptions: Overlay,
     records: Vec<Instance>,
+    candidates: Vec<Candidate>,
     /// Lines above the live screen both arms draw.
     back: Rows,
 }
@@ -73,7 +76,8 @@ impl Arms<'_, '_> {
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
         let view = t.view(self.back);
-        self.map.ensure(view, &mut self.renderer);
+        self.map
+            .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
@@ -85,6 +89,8 @@ impl Arms<'_, '_> {
                 view,
                 styles: self.styles_mem,
                 cursor,
+                map: &self.map,
+                candidates: &self.candidates,
             },
             &mut self.renderer,
             self.overlay_mem,
@@ -175,6 +181,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         overlay_mem,
         exceptions: Overlay::new(),
         records: Vec::new(),
+        candidates: Vec::new(),
         back: Rows::ZERO,
     };
     scene(&mut t);
@@ -186,9 +193,17 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     ] {
         feed(&mut t, shape);
         let (a, b) = arms.draw(&mut t);
+        // Three marked cells, and seven ligature pairs under JetBrains
+        // Mono, each shaped in a window and drawn by at least one record.
+        eprintln!("overlay {name}: {:?}", arms.exceptions.stats());
         assert!(
-            arms.exceptions.stats().cells.value() >= 3,
-            "the three marked cells went to the records: {:?}",
+            arms.exceptions.stats().cells.value() >= 3 + 7,
+            "the marked and ligature cells went to the records: {:?}",
+            arms.exceptions.stats()
+        );
+        assert!(
+            arms.exceptions.stats().windows.value() >= 1,
+            "the admitted pairs were shaped in windows: {:?}",
             arms.exceptions.stats()
         );
         let drawn = a.iter().filter(|&&p| p != 0).count();

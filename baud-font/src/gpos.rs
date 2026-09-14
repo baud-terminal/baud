@@ -62,7 +62,7 @@ impl<'a> Gpos<'a> {
             if let Some(lookup) = self.layout.lookup(i) {
                 let mut pos = Index::ZERO;
                 while let Some(g) = buf.get(pos) {
-                    if lookup.filter.skip(g.id) == Skip::No {
+                    if lookup.filter.skip_class(g.class, g.id) == Skip::No {
                         self.apply_at(&lookup, buf, pos);
                     }
                     pos = pos.next();
@@ -108,7 +108,7 @@ impl<'a> Gpos<'a> {
         while let Some(p) = j.prev() {
             j = p;
             let g = buf.get(j)?;
-            if filter.skip(g.id) == Skip::Yes || g.ignorable == Ignorable::Yes {
+            if filter.skip_class(g.class, g.id) == Skip::Yes || g.ignorable == Ignorable::Yes {
                 continue;
             }
             if target == Target::Base && gdef.is_mark(g.id) {

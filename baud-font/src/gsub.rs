@@ -113,7 +113,7 @@ pub struct Gsub<'a> {
 
 /// One position's glyph, seen through a lookup's filter.
 fn seen(filter: &Filter<'_>, g: Glyph) -> Skip {
-    filter.skip(g.id)
+    filter.skip_class(g.class, g.id)
 }
 
 fn same(g: GlyphId, v: u16) -> bool {
@@ -157,7 +157,9 @@ impl<'a> Gsub<'a> {
                 }
             }
             if let Some(lookup) = self.layout.lookup(i) {
-                if self.apply_lookup(&lookup, buf, Depth::TOP) == Changed::Yes {
+                if self.apply_lookup(&lookup, buf, Depth::TOP, digests.get(i.slot()).copied())
+                    == Changed::Yes
+                {
                     have = Gsub::buffer_digest(buf);
                 }
             }
@@ -222,6 +224,119 @@ impl<'a> Gsub<'a> {
             }
         }
         Walked::Derived
+    }
+
+    /// The longest sequence a substitution the grid features name can
+    /// match, in glyphs: a ligature's component count, a chained rule's
+    /// backtrack, input and lookahead together. A window of adjacent
+    /// cells this wide on either side of a pair holds every rule that
+    /// pair could begin, so the window shapes to what the row shapes to.
+    /// `None` when a subtable could not be walked and no bound is known.
+    pub fn extent(&self, features: Features) -> Option<Count> {
+        let mut widest = Count::of(1u16);
+        for i in self.layout.lookups_for(features).iter() {
+            let lookup = self.layout.lookup(i)?;
+            let mut k = Index::ZERO;
+            while lookup.subtable_count().holds(k) {
+                let (kind, sub) = lookup.subtable(k, Kind::GSUB_EXTENSION)?;
+                let here = match kind {
+                    Kind::LIGATURE => Gsub::ligature_extent(sub)?,
+                    Kind::CHAINED => Gsub::chained_extent(sub)?,
+                    _ => Count::of(1u16),
+                };
+                if here.value() > widest.value() {
+                    widest = here;
+                }
+                k = k.next();
+            }
+        }
+        Some(widest)
+    }
+
+    fn ligature_extent(sub: Bytes<'a>) -> Option<Count> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let set_count: u16 = sub.read(Offset::of(4u32))?;
+        let sets: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(set_count))?;
+        let mut widest = Count::of(1u16);
+        let mut si = Index::ZERO;
+        while let Some(off) = sets.get(si) {
+            si = si.next();
+            let set = sub.tail(Offset::of(u32::from(off)))?;
+            let lig_count: u16 = set.read(Offset::ZERO)?;
+            let ligs: Array<'a, u16> = set.array(Offset::of(2u32), Count::of(lig_count))?;
+            let mut li = Index::ZERO;
+            while let Some(off) = ligs.get(li) {
+                li = li.next();
+                let lig = set.tail(Offset::of(u32::from(off)))?;
+                let count: u16 = lig.read(Offset::of(2u32))?;
+                if u32::from(count) > widest.value() {
+                    widest = Count::of(count);
+                }
+            }
+        }
+        Some(widest)
+    }
+
+    fn chained_extent(sub: Bytes<'a>) -> Option<Count> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        match format {
+            1 | 2 => {
+                let sets_at = match format {
+                    1 => Offset::of(4u32),
+                    _ => Offset::of(10u32),
+                };
+                let set_count: u16 = sub.read(sets_at)?;
+                let sets: Array<'a, u16> =
+                    sub.array(sets_at.plus(Len::of(2))?, Count::of(set_count))?;
+                let mut widest = Count::of(1u16);
+                let mut si = Index::ZERO;
+                while let Some(off) = sets.get(si) {
+                    si = si.next();
+                    if off == 0 {
+                        continue;
+                    }
+                    let set = sub.tail(Offset::of(u32::from(off)))?;
+                    let rule_count: u16 = set.read(Offset::ZERO)?;
+                    let rules: Array<'a, u16> =
+                        set.array(Offset::of(2u32), Count::of(rule_count))?;
+                    let mut ri = Index::ZERO;
+                    while let Some(off) = rules.get(ri) {
+                        ri = ri.next();
+                        let rule = set.tail(Offset::of(u32::from(off)))?;
+                        let back_n: u16 = rule.read(Offset::ZERO)?;
+                        let at = Offset::of(2u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                        let input_n: u16 = rule.read(at)?;
+                        let rest = Count::of(input_n.checked_sub(1)?);
+                        let at = at.plus(Len::of(2))?.plus(Len::of(2).times(rest)?)?;
+                        let ahead_n: u16 = rule.read(at)?;
+                        let span = back_n.saturating_add(input_n).saturating_add(ahead_n);
+                        if u32::from(span) > widest.value() {
+                            widest = Count::of(span);
+                        }
+                    }
+                }
+                Some(widest)
+            }
+            3 => {
+                let back_n: u16 = sub.read(Offset::of(2u32))?;
+                let at = Offset::of(4u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                let input_n: u16 = sub.read(at)?;
+                let at = at
+                    .plus(Len::of(2))?
+                    .plus(Len::of(2).times(Count::of(input_n))?)?;
+                let ahead_n: u16 = sub.read(at)?;
+                Some(Count::of(
+                    back_n
+                        .saturating_add(input_n)
+                        .saturating_add(ahead_n)
+                        .max(1),
+                ))
+            }
+            _ => None,
+        }
     }
 
     fn ligature_pairs(sub: Bytes<'a>, sink: &mut dyn FnMut(GlyphId, Digest)) -> Option<()> {
@@ -423,11 +538,24 @@ impl<'a> Gsub<'a> {
         }
     }
 
-    fn apply_lookup(&self, lookup: &Lookup<'a>, buf: &mut Buffer<'_>, depth: Depth) -> Changed {
+    /// Every position the filter admits, offered to the lookup -- except
+    /// where `digest`, the glyphs the lookup can start on, cannot hold
+    /// the glyph there, which is HarfBuzz's per-position test and what
+    /// keeps a face with hundreds of contextual lookups from searching
+    /// every subtable's coverage at every glyph.
+    fn apply_lookup(
+        &self,
+        lookup: &Lookup<'a>,
+        buf: &mut Buffer<'_>,
+        depth: Depth,
+        digest: Option<Digest>,
+    ) -> Changed {
         let mut changed = Changed::No;
         let mut pos = Index::ZERO;
         while let Some(g) = buf.get(pos) {
-            if seen(&lookup.filter, g) == Skip::Yes {
+            if seen(&lookup.filter, g) == Skip::Yes
+                || digest.is_some_and(|d| !d.may_have(Digest::of(g.id)))
+            {
                 pos = pos.next();
                 continue;
             }
@@ -492,7 +620,9 @@ impl<'a> Gsub<'a> {
             }
             _ => return None,
         };
-        buf.get_mut(pos)?.id = GlyphId::from_shaper(out);
+        let g = buf.get_mut(pos)?;
+        g.id = GlyphId::from_shaper(out);
+        g.class = self.layout.gdef().class(g.id);
         Some(Applied::after(pos))
     }
 
@@ -615,7 +745,12 @@ impl<'a> Gsub<'a> {
             }) else {
                 continue;
             };
-            return Some(Gsub::form_ligature(buf, &m, GlyphId::from_shaper(out)));
+            return Some(Gsub::form_ligature(
+                buf,
+                &m,
+                GlyphId::from_shaper(out),
+                &self.layout.gdef(),
+            ));
         }
         None
     }
@@ -623,7 +758,7 @@ impl<'a> Gsub<'a> {
     /// Replaces the first matched glyph with `out`, spanning every matched
     /// cell, and removes the other matched components. Glyphs the match
     /// skipped over -- marks, ignorables -- stay where they are.
-    fn form_ligature(buf: &mut Buffer<'_>, m: &Matched, out: GlyphId) -> Applied {
+    fn form_ligature(buf: &mut Buffer<'_>, m: &Matched, out: GlyphId, gdef: &Gdef<'_>) -> Applied {
         let first = m.at[0];
         let mut last = Cluster(0);
         for &p in m.positions() {
@@ -633,6 +768,7 @@ impl<'a> Gsub<'a> {
         }
         if let Some(g) = buf.get_mut(first) {
             g.id = out;
+            g.class = gdef.class(out);
             g.last = last.max(g.last);
         }
         // Remove from the back so earlier positions stay valid.

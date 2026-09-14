@@ -504,8 +504,9 @@ pub struct Filter<'a> {
 }
 
 impl Filter<'_> {
-    pub fn skip(&self, g: GlyphId) -> Skip {
-        let class = self.gdef.class(g);
+    /// The rule applied to a glyph whose class the buffer already holds;
+    /// only a mark's set and attachment class are looked up here.
+    pub fn skip_class(&self, class: GlyphClass, g: GlyphId) -> Skip {
         let flagged = match class {
             GlyphClass::Base => self.flags.has(LookupFlags::IGNORE_BASE),
             GlyphClass::Ligature => self.flags.has(LookupFlags::IGNORE_LIGATURES),

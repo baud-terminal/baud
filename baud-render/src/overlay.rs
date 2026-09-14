@@ -15,17 +15,25 @@
 //! Nothing here is per frame except the walk, which the glyph map already
 //! makes over every cell: a byte test a cell, a lookup a marked cell.
 
-use crate::cellmap::Resolved;
+use crate::atlas::Code;
+use crate::cellmap::{Candidate, GlyphMap, Resolved};
 use crate::instance::{Instance, Screen};
+use crate::metrics::Metrics;
 use crate::renderer::{ClusterGlyph, Renderer};
 use crate::units::Tally;
 use baud_core::Term;
-use baud_domain::{Codepoint, Col, CursorStyle, Row, Viewport};
+use baud_domain::{Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
 use std::collections::HashMap;
 
 /// What one frame's walk found and what the store holds.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OverlayStats {
+    /// Windows shaped this frame around the admitted pairs.
+    pub windows: Tally,
+    /// Windows shaped because their content had not been seen.
+    pub window_misses: Tally,
+    /// Cells the windows gathered this frame.
+    pub window_cells: Tally,
     /// Cells the records draw this frame.
     pub cells: Tally,
     /// Records emitted this frame.
@@ -43,11 +51,18 @@ pub struct Scene<'s, 't> {
     pub view: Viewport<'s>,
     pub styles: &'s [Resolved],
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// The glyph map the shader draws from, for what a cell draws alone.
+    pub map: &'s GlyphMap<'s>,
+    /// The cells that end an admitted pair, from the map's walk.
+    pub candidates: &'s [Candidate],
 }
 
 /// The cluster map and the walk that fills the overlay from it.
 pub struct Overlay {
     clusters: HashMap<ClusterKey, Vec<ClusterGlyph>>,
+    /// A window's content to what each of its cells draws: `None` where
+    /// the map already draws it, the glyphs where it does not.
+    windows: HashMap<ClusterKey, Vec<Option<Vec<ClusterGlyph>>>>,
     /// The atlas generation the kept slots belong to; a grow moves them.
     grown: Tally,
     stats: OverlayStats,
@@ -56,6 +71,22 @@ pub struct Overlay {
 /// A cluster's content, folded: the base, its marks and its width.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct ClusterKey(u64);
+
+/// The cell geometry a record needs, and the screen's width.
+struct Geom {
+    m: Metrics,
+    cols: Cols,
+}
+
+/// What colours a record: the resolved rendition table and the block
+/// cursor, whose cell swaps its colours.
+struct Paint<'p> {
+    styles: &'p [Resolved],
+    block: Option<(Row, Col, CursorStyle)>,
+}
+
+/// Distinct window contents kept before the store starts over.
+const WINDOWS_MAX: usize = 8192;
 
 impl ClusterKey {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -79,6 +110,12 @@ impl ClusterKey {
     fn wide(self) -> ClusterKey {
         ClusterKey((self.0 ^ 0xff).wrapping_mul(ClusterKey::PRIME))
     }
+
+    /// The boundary between two cells of a window, so `[a b] [c]` and
+    /// `[a] [b c]` are different windows.
+    fn next_cell(self) -> ClusterKey {
+        ClusterKey((self.0 ^ 0xfe).wrapping_mul(ClusterKey::PRIME))
+    }
 }
 
 impl Default for Overlay {
@@ -91,6 +128,7 @@ impl Overlay {
     pub fn new() -> Overlay {
         Overlay {
             clusters: HashMap::new(),
+            windows: HashMap::new(),
             grown: Tally::default(),
             stats: OverlayStats::default(),
         }
@@ -118,6 +156,7 @@ impl Overlay {
             if r.atlas_stats().grown.value() != self.grown.value() {
                 self.grown = r.atlas_stats().grown;
                 self.clusters.clear();
+                self.windows.clear();
             }
             self.walk(scene, r, mask, records);
             if r.atlas_stats().grown.value() == self.grown.value() {
@@ -139,28 +178,70 @@ impl Overlay {
         records.clear();
         self.stats.cells = Tally::default();
         self.stats.misses = Tally::default();
+        self.stats.windows = Tally::default();
+        self.stats.window_misses = Tally::default();
+        self.stats.window_cells = Tally::default();
         let cols = view.cols().index();
         let rows = view.rows().index();
         let Some(mask) = mask.get_mut(..cols.saturating_mul(rows)) else {
             return;
         };
         mask.fill(0);
-        let m = r.metrics();
-        let cell_w = i32::try_from(m.cell_w.value()).unwrap_or(0);
-        let cell_h = i32::try_from(m.cell_h.value()).unwrap_or(0);
-        let baseline = i32::try_from(m.baseline.value()).unwrap_or(0);
+        let geom = Geom {
+            m: r.metrics(),
+            cols: view.cols(),
+        };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
+        if self.windows.len() > WINDOWS_MAX {
+            self.windows.clear();
+        }
+        // The windows: around each admitted pair, as wide as the face's
+        // longest rule, merged where they touch, shaped as one run and
+        // cached by content.
+        let mut i = 0;
+        while i < scene.candidates.len() {
+            let y = scene.candidates[i].row.index();
+            let mut ranges: Vec<(usize, usize)> = Vec::new();
+            while i < scene.candidates.len() && scene.candidates[i].row.index() == y {
+                let c = scene.candidates[i].col.index();
+                let face = scene.candidates[i].face;
+                i += 1;
+                let ext = r
+                    .extent(face)
+                    .and_then(|e| usize::try_from(e.value()).ok())
+                    .unwrap_or(1)
+                    .max(1);
+                let lo = c.saturating_sub(ext);
+                let hi = (c + ext - 1).min(cols.saturating_sub(1));
+                match ranges.last_mut() {
+                    Some(last) if lo <= last.1 + 1 => last.1 = last.1.max(hi),
+                    _ => ranges.push((lo, hi)),
+                }
+            }
+            for (lo, hi) in ranges {
+                self.window(
+                    scene,
+                    r,
+                    Row::from_index(y),
+                    (lo, hi),
+                    &geom,
+                    block,
+                    mask,
+                    records,
+                );
+            }
+        }
+        // The marked cells the windows did not cover.
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
-                if !cell.flags.is_marked() {
+                if !cell.flags.is_marked() || mask[y * cols + x] != 0 {
                     continue;
                 }
                 let Some(cp) = cell.content.as_codepoint() else {
                     continue;
                 };
-                self.stats.cells.bump();
                 let mut cps = vec![cp];
                 let mut key = ClusterKey::start().fold(cp);
                 for mk in term.cluster_marks(*cell) {
@@ -181,30 +262,222 @@ impl Overlay {
                         g
                     }
                 };
+                self.stats.cells.bump();
                 mask[y * cols + x] = 1;
-                let resolved = styles.get(cell.style.index()).copied().unwrap_or_default();
-                let under_cursor =
-                    block.is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
-                let color = if under_cursor {
-                    resolved.bg
-                } else {
-                    resolved.fg
-                };
-                let ox = i32::try_from(x).unwrap_or(0) * cell_w;
-                let oy = i32::try_from(y).unwrap_or(0) * cell_h + baseline;
-                for g in glyphs {
-                    records.push(Instance {
-                        x: Screen(i16::try_from(ox + g.dx + g.slot.left).unwrap_or(i16::MAX)),
-                        y: Screen(i16::try_from(oy - g.dy + g.slot.top).unwrap_or(i16::MAX)),
-                        w: g.slot.w,
-                        h: g.slot.h,
-                        u: g.slot.x,
-                        v: g.slot.y,
-                        color,
-                        kind: g.slot.kind,
-                    });
+                Overlay::emit(
+                    records,
+                    (x, y),
+                    &glyphs,
+                    *cell,
+                    &Paint { styles, block },
+                    &geom,
+                );
+            }
+        }
+    }
+
+    /// One window of a row: its cells' clusters gathered, cut where the
+    /// face changes or a cell holds no codepoint, each piece shaped or
+    /// found, and the cells whose glyphs are not the map's masked and
+    /// drawn by records.
+    #[allow(clippy::too_many_arguments)]
+    fn window(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        y: Row,
+        range: (usize, usize),
+        geom: &Geom,
+        block: Option<(Row, Col, CursorStyle)>,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        let row = scene.view.row(y);
+        let mut piece: Vec<(usize, PackedCell, Vec<Codepoint>)> = Vec::new();
+        let flush = |piece: &mut Vec<(usize, PackedCell, Vec<Codepoint>)>,
+                     face: Code,
+                     this: &mut Overlay,
+                     r: &mut Renderer<'_, '_>,
+                     mask: &mut [u8],
+                     records: &mut Vec<Instance>| {
+            if piece.len() < 2 {
+                piece.clear();
+                return;
+            }
+            this.stats.windows.bump();
+            for _ in piece.iter() {
+                this.stats.window_cells.bump();
+            }
+            let mut key = ClusterKey::start();
+            for (_, cell, cps) in piece.iter() {
+                for c in cps {
+                    key = key.fold(*c);
+                }
+                if cell.flags.is_wide() {
+                    key = key.wide();
+                }
+                key = key.next_cell();
+            }
+            let paint = Paint {
+                styles: scene.styles,
+                block,
+            };
+            if let Some(drawn) = this.windows.get(&key) {
+                Overlay::paint_window(
+                    piece,
+                    drawn,
+                    y,
+                    geom,
+                    &paint,
+                    &mut this.stats,
+                    mask,
+                    records,
+                );
+            } else {
+                this.stats.window_misses.bump();
+                let cells: Vec<Vec<Codepoint>> =
+                    piece.iter().map(|(_, _, cps)| cps.clone()).collect();
+                let shaped = r.window(face, &cells);
+                let drawn: Vec<Option<Vec<ClusterGlyph>>> = piece
+                    .iter()
+                    .zip(shaped)
+                    .map(|((_, cell, cps), glyphs)| {
+                        let alone = scene.map.probe(cps[0]).map(|e| e.glyph());
+                        let same = !cell.flags.is_marked()
+                            && glyphs.len() == 1
+                            && Some(glyphs[0].id) == alone
+                            && glyphs[0].dx == 0
+                            && glyphs[0].dy == 0;
+                        (!same).then_some(glyphs)
+                    })
+                    .collect();
+                Overlay::paint_window(
+                    piece,
+                    &drawn,
+                    y,
+                    geom,
+                    &paint,
+                    &mut this.stats,
+                    mask,
+                    records,
+                );
+                this.windows.insert(key, drawn);
+            }
+            piece.clear();
+        };
+        // The face of the piece being gathered, from the map entries: a
+        // cell on another face, a cell with no codepoint, and a cell
+        // whose glyph is in no rule at any position -- which cannot be
+        // inside a match -- all cut the window, so what is left is the
+        // punctuation the rules are about, which repeats and caches.
+        let mut first: Option<Code> = None;
+        for x in range.0..=range.1 {
+            let Some(cell) = row.get(x) else {
+                break;
+            };
+            if cell.content == Content::WIDE_TAIL {
+                continue;
+            }
+            let entry = cell.content.as_codepoint().and_then(|cp| {
+                scene
+                    .map
+                    .probe(cp)
+                    .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
+            });
+            let cut = match entry {
+                None => true,
+                Some((_, _, in_rules)) => !in_rules,
+            } || matches!((first, entry), (Some(f), Some((_, face, _))) if f != face);
+            if cut {
+                if let Some(f) = first {
+                    flush(&mut piece, f, self, r, mask, records);
+                }
+                first = None;
+            }
+            let Some((cp, face, true)) = entry else {
+                continue;
+            };
+            if first.is_none() {
+                first = Some(face);
+            }
+            let mut cps = vec![cp];
+            for mk in scene.term.cluster_marks(*cell) {
+                if let Some(c) = Codepoint::new(mk) {
+                    cps.push(c);
                 }
             }
+            piece.push((x, *cell, cps));
+        }
+        if let Some(f) = first {
+            flush(&mut piece, f, self, r, mask, records);
+        }
+    }
+
+    /// A window's cells that the map does not draw: masked, counted and
+    /// drawn by records.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_window(
+        piece: &[(usize, PackedCell, Vec<Codepoint>)],
+        drawn: &[Option<Vec<ClusterGlyph>>],
+        y: Row,
+        geom: &Geom,
+        paint: &Paint<'_>,
+        stats: &mut OverlayStats,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        for ((x, cell, _), glyphs) in piece.iter().zip(drawn) {
+            if let Some(glyphs) = glyphs {
+                stats.cells.bump();
+                mask[y.index() * geom.cols.index() + x] = 1;
+                Overlay::emit(records, (*x, y.index()), glyphs, *cell, paint, geom);
+            }
+        }
+    }
+
+    /// The records for one cell's glyphs, coloured as the shader would
+    /// colour the cell.
+    fn emit(
+        records: &mut Vec<Instance>,
+        at: (usize, usize),
+        glyphs: &[ClusterGlyph],
+        cell: PackedCell,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let (x, y) = at;
+        let resolved = paint
+            .styles
+            .get(cell.style.index())
+            .copied()
+            .unwrap_or_default();
+        let under_cursor = paint
+            .block
+            .is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
+        let color = if under_cursor {
+            resolved.bg
+        } else {
+            resolved.fg
+        };
+        let cell_w = i32::try_from(geom.m.cell_w.value()).unwrap_or(0);
+        let cell_h = i32::try_from(geom.m.cell_h.value()).unwrap_or(0);
+        let baseline = i32::try_from(geom.m.baseline.value()).unwrap_or(0);
+        let ox = i32::try_from(x).unwrap_or(0) * cell_w;
+        let oy = i32::try_from(y).unwrap_or(0) * cell_h + baseline;
+        for g in glyphs {
+            let Some(slot) = g.slot else {
+                continue;
+            };
+            records.push(Instance {
+                x: Screen(i16::try_from(ox + g.dx + slot.left).unwrap_or(i16::MAX)),
+                y: Screen(i16::try_from(oy - g.dy + slot.top).unwrap_or(i16::MAX)),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color,
+                kind: slot.kind,
+            });
         }
     }
 }

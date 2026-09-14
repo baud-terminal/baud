@@ -421,6 +421,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             // HarfBuzz synthesises the class from Unicode, and so does
             // baud -- a default-ignorable is never a mark.
             let gdef = self.face.gdef();
+            glyph.class = gdef.class(id);
             glyph.mark = if gdef.has_classes() {
                 if gdef.is_mark(id) {
                     Mark::Yes
@@ -521,7 +522,13 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // carrying both shapes through `GSUB`.
         let mut declined = match (self.face.gsub(), self.face.morx()) {
             (Some(gsub), _) => gsub.apply_with(&mut self.buf, features, self.digests),
-            (None, Some(morx)) => morx.apply(&mut self.buf),
+            (None, Some(morx)) => {
+                // `morx` writes ids without classes; the positioning
+                // filters read them, so they are read again once here.
+                let declined = morx.apply(&mut self.buf);
+                self.buf.retag(&self.face.gdef());
+                declined
+            }
             (None, None) => Count::ZERO,
         };
         self.pen_pass();

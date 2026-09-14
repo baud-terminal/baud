@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Kind, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, Placed, RUN_CELLS, RunCache, Shaped};
 use crate::cellmap::{Resolved, Shapes};
 use crate::color::{Argb, Theme};
@@ -11,6 +11,7 @@ use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, CursorStyle, GlyphId, PackedCell, Row, Rows};
+use baud_font::bytes::Count;
 use baud_font::{
     Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale,
     Shaper, Walked,
@@ -99,21 +100,63 @@ pub struct Exceptions {
 /// shape to alone.
 #[derive(Clone, Default)]
 pub struct Pairs {
-    after: std::collections::HashMap<usize, LookupDigest>,
+    /// By first glyph: the digest of what may follow it, `None` for a
+    /// glyph no rule begins on. Indexed rather than hashed: the walk asks
+    /// once per adjacent pair whose entries carry both bits.
+    after: Vec<Option<LookupDigest>>,
+    /// Every glyph that may follow some first: the second bit's test.
+    seconds: LookupDigest,
     walked: Option<Walked>,
+}
+
+/// Whether a glyph can begin a pair, end one, both or neither -- the two
+/// bits the glyph map carries per entry so the walk consults the digests
+/// only where both are set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PairRole {
+    Neither,
+    Starts,
+    Ends,
+    Both,
 }
 
 impl Pairs {
     fn of(face: &Face<'_>) -> Pairs {
-        let mut after: std::collections::HashMap<usize, LookupDigest> =
-            std::collections::HashMap::new();
+        let mut after: Vec<Option<LookupDigest>> = Vec::new();
+        let mut seconds = LookupDigest::EMPTY;
         let walked = face.gsub().map(|gsub| {
             gsub.pairs(Features::GRID, &mut |first, d| {
-                let slot = after.entry(first.index()).or_insert(LookupDigest::EMPTY);
+                let i = first.index();
+                if after.len() <= i {
+                    after.resize(i + 1, None);
+                }
+                let slot = after[i].get_or_insert(LookupDigest::EMPTY);
                 *slot = slot.union(d);
+                seconds = seconds.union(d);
             })
         });
-        Pairs { after, walked }
+        Pairs {
+            after,
+            seconds,
+            walked,
+        }
+    }
+
+    pub fn role(&self, g: GlyphId) -> PairRole {
+        let (starts, ends) = match self.walked {
+            None => (false, false),
+            Some(Walked::Unreadable) => (true, true),
+            Some(Walked::Derived) => (
+                self.after.get(g.index()).is_some_and(Option::is_some),
+                self.seconds.may_have(LookupDigest::of(g)),
+            ),
+        };
+        match (starts, ends) {
+            (false, false) => PairRole::Neither,
+            (true, false) => PairRole::Starts,
+            (false, true) => PairRole::Ends,
+            (true, true) => PairRole::Both,
+        }
     }
 
     pub fn admits(&self, a: GlyphId, b: GlyphId) -> bool {
@@ -122,18 +165,21 @@ impl Pairs {
             Some(Walked::Unreadable) => true,
             Some(Walked::Derived) => self
                 .after
-                .get(&a.index())
+                .get(a.index())
+                .and_then(Option::as_ref)
                 .is_some_and(|d| d.may_have(LookupDigest::of(b))),
         }
     }
 
     /// How many first glyphs the tables name.
     pub fn firsts(&self) -> Tally {
-        Tally::of(self.after.len())
+        Tally::of(self.after.iter().filter(|d| d.is_some()).count())
     }
 }
 
-/// How a face's substitutions can be prefiltered.
+/// How a face's substitutions can be prefiltered: a count behind the
+/// `exceptions` feature, kept because the bench reports it.
+#[cfg(feature = "exceptions")]
 #[derive(Clone, Copy)]
 enum Starter {
     /// The union of the face's lookup digests: a glyph outside it starts
@@ -149,9 +195,22 @@ enum Starter {
 /// pixels, the shaper placed it at relative to the cell's origin.
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterGlyph {
-    pub slot: crate::atlas::Slot,
+    pub id: GlyphId,
+    /// `None` for a glyph with no ink -- a space, a spacer a ligature
+    /// leaves behind -- which is still the glyph the cell draws.
+    pub slot: Option<crate::atlas::Slot>,
     pub dx: i32,
     pub dy: i32,
+}
+
+/// What a codepoint shapes to alone: the glyph the cell shader draws for
+/// it, its atlas slot when it has ink, and its pair role.
+#[derive(Clone, Copy, Debug)]
+pub struct Single {
+    pub slot: Option<crate::atlas::Slot>,
+    pub glyph: GlyphId,
+    pub role: PairRole,
+    pub face: FaceIx,
 }
 
 /// What one frame cost and did.
@@ -228,9 +287,16 @@ pub struct Renderer<'f, 'a> {
     /// cache miss opens only the lookups that can touch the run.
     digests: Vec<Vec<LookupDigest>>,
     /// Per face, the prefilter the counts in [`Exceptions`] ask.
+    #[cfg(feature = "exceptions")]
     starters: Vec<Starter>,
     /// Per face, the glyph pairs its rules can begin on.
     pairs: Vec<Pairs>,
+    /// Per face, the longest sequence a rule can match, in glyphs; `None`
+    /// for a face with no substitution rules or one whose tables could
+    /// not be walked.
+    extents: Vec<Option<Count>>,
+    /// The faces by the code a map entry carries.
+    faces: Vec<FaceIx>,
     /// The single-codepoint resolution per codepoint, memoised for the
     /// `differs` count: the face and glyph the cell shader's map would
     /// draw, with its offsets -- not an atlas slot, which a repack moves.
@@ -298,6 +364,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 d
             })
             .collect();
+        #[cfg(feature = "exceptions")]
         let starters = stack
             .faces()
             .iter()
@@ -312,11 +379,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
             })
             .collect();
         let pairs = stack.faces().iter().map(Pairs::of).collect();
+        let extents = stack
+            .faces()
+            .iter()
+            .map(|f| f.gsub().and_then(|g| g.extent(Features::GRID)))
+            .collect();
+        let faces = stack.each().collect();
         let mut r = Renderer {
             stack,
             scales,
+            #[cfg(feature = "exceptions")]
             starters,
             pairs,
+            extents,
+            faces,
             #[cfg(feature = "exceptions")]
             singles: std::collections::HashMap::new(),
             digests,
@@ -591,10 +667,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let f = self.stack.face(face);
         let mut out = Vec::new();
         for p in shaped.glyphs() {
-            let Some(slot) = self.atlas.slot(f, face, p.id, scale) else {
-                continue;
-            };
+            let slot = self.atlas.slot(f, face, p.id, scale);
             out.push(ClusterGlyph {
+                id: p.id,
                 slot,
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
@@ -603,7 +678,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
-    pub fn single(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
+    pub fn single(&mut self, cp: Codepoint) -> Option<Single> {
         let face = self.stack.select(cp);
         let clusters = [ClusterIn {
             cps: vec![cp],
@@ -613,10 +688,71 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let p = *shaped.glyphs().first()?;
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
-        let mut slot = self.atlas.slot(f, face, p.id, scale)?;
-        slot.left += scale.px(f32::from(p.dx)).round() as i32;
-        slot.top -= scale.px(f32::from(p.dy)).round() as i32;
-        Some(slot)
+        let role = self.pairs[face.index()].role(p.id);
+        let slot = self.atlas.slot(f, face, p.id, scale).map(|mut slot| {
+            slot.left += scale.px(f32::from(p.dx)).round() as i32;
+            slot.top -= scale.px(f32::from(p.dy)).round() as i32;
+            slot
+        });
+        Some(Single {
+            slot,
+            glyph: p.id,
+            role,
+            face,
+        })
+    }
+
+    /// Whether two adjacent glyphs on the face a map entry names can
+    /// begin a substitution there.
+    pub fn admits(&self, face: Code, a: GlyphId, b: GlyphId) -> bool {
+        usize::try_from(face.0)
+            .ok()
+            .and_then(|i| self.pairs.get(i))
+            .is_some_and(|p| p.admits(a, b))
+    }
+
+    /// The longest rule the face a map entry names can match, in glyphs.
+    pub fn extent(&self, face: Code) -> Option<Count> {
+        usize::try_from(face.0)
+            .ok()
+            .and_then(|i| self.extents.get(i))
+            .copied()
+            .flatten()
+    }
+
+    /// A window of cells -- each a base with its attached codepoints --
+    /// shaped together as one run on the face named, answered per
+    /// cell: the glyphs the shaper placed at that cell, with slots and
+    /// offsets. A cell with no glyph of its own -- swallowed into a
+    /// ligature -- answers an empty list.
+    pub fn window(&mut self, face: Code, cells: &[Vec<Codepoint>]) -> Vec<Vec<ClusterGlyph>> {
+        let Some(&face) = usize::try_from(face.0).ok().and_then(|i| self.faces.get(i)) else {
+            return Vec::new();
+        };
+        let clusters: Vec<ClusterIn> = cells
+            .iter()
+            .enumerate()
+            .map(|(i, cps)| ClusterIn {
+                cps: cps.clone(),
+                at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
+            })
+            .collect();
+        let shaped = self.shape(face, &clusters);
+        let scale = self.scales[face.index()];
+        let f = self.stack.face(face);
+        let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
+        for p in shaped.glyphs() {
+            let slot = self.atlas.slot(f, face, p.id, scale);
+            if let Some(cell) = out.get_mut(usize::from(p.cell.0)) {
+                cell.push(ClusterGlyph {
+                    id: p.id,
+                    slot,
+                    dx: scale.px(f32::from(p.dx)).round() as i32,
+                    dy: scale.px(f32::from(p.dy)).round() as i32,
+                });
+            }
+        }
+        out
     }
 
     /// The terminal's rendition table resolved through the theme and the
@@ -777,9 +913,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let start = c;
             let mut clusters: Vec<ClusterIn> = Vec::new();
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
+            // The counts behind the `exceptions` feature: a cmap lookup, a
+            // digest test and a pair test per cell, which the bench reads
+            // and the app must not pay for.
+            #[cfg(feature = "exceptions")]
             let prefilter = self.starters[face.index()];
+            #[cfg(feature = "exceptions")]
             let mut starters_here = Tally::default();
+            #[cfg(feature = "exceptions")]
             let mut prev_glyph: Option<GlyphId> = None;
+            #[cfg(feature = "exceptions")]
             let mut pair_here = Tally::default();
             while c < row.len() && c - start < RUN_CELLS {
                 let cell = row[c];
@@ -790,25 +933,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     break;
                 }
                 let width = if cell.flags.is_wide() { 2usize } else { 1usize };
-                let glyph = self.stack.face(face).glyph(cp);
-                if let (Some(p), Some(g)) = (prev_glyph, glyph) {
-                    if self.pairs[face.index()].admits(p, g) {
-                        pair_here.bump();
-                    }
-                }
-                prev_glyph = glyph;
-                match prefilter {
-                    Starter::Gsub(d) => {
-                        if let Some(g) = glyph {
-                            let mut one = LookupDigest::EMPTY;
-                            one.add(g);
-                            if d.may_have(one) {
-                                starters_here.bump();
-                            }
+                #[cfg(feature = "exceptions")]
+                {
+                    let glyph = self.stack.face(face).glyph(cp);
+                    if let (Some(p), Some(g)) = (prev_glyph, glyph) {
+                        if self.pairs[face.index()].admits(p, g) {
+                            pair_here.bump();
                         }
                     }
-                    Starter::Morx => exc.morx.bump(),
-                    Starter::Plain => {}
+                    prev_glyph = glyph;
+                    match prefilter {
+                        Starter::Gsub(d) => {
+                            if let Some(g) = glyph {
+                                let mut one = LookupDigest::EMPTY;
+                                one.add(g);
+                                if d.may_have(one) {
+                                    starters_here.bump();
+                                }
+                            }
+                        }
+                        Starter::Morx => exc.morx.bump(),
+                        Starter::Plain => {}
+                    }
                 }
                 let mut cps = vec![cp];
                 key = key.fold(cp.value());
@@ -836,12 +982,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     s
                 }
             };
-            if starters_here.value() > 0 {
-                exc.starters.add(starters_here);
-                exc.shaped.add(Tally::of(c - start));
-            }
-            if pair_here.value() > 0 {
-                exc.bigram.add(Tally::of(c - start));
+            #[cfg(feature = "exceptions")]
+            {
+                if starters_here.value() > 0 {
+                    exc.starters.add(starters_here);
+                    exc.shaped.add(Tally::of(c - start));
+                }
+                if pair_here.value() > 0 {
+                    exc.bigram.add(Tally::of(c - start));
+                }
             }
             for p in shaped.glyphs() {
                 if p.last != p.cell {

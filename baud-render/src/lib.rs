@@ -42,8 +42,8 @@ pub use atlas::{
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
-    CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved,
-    Shapes,
+    Candidate, CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
+    Resolved, Shapes,
 };
 pub use color::{Argb, Theme};
 pub use composite::{Blend, Target};
@@ -51,7 +51,8 @@ pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{Overlay, OverlayStats, Scene};
 pub use renderer::{
-    Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, Pairs, Renderer,
+    Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, PairRole, Pairs, Renderer,
+    Single,
 };
 pub use stack::{FaceIx, Stack};
 pub use units::{Band, Coverage, Digest, Tally};

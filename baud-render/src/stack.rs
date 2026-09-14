@@ -36,6 +36,13 @@ impl<'f, 'a> Stack<'f, 'a> {
         self.faces
     }
 
+    /// Every face's index, in stack order.
+    pub fn each(&self) -> impl Iterator<Item = FaceIx> + '_ {
+        (0..self.faces.len())
+            .filter_map(|i| u8::try_from(i).ok())
+            .map(FaceIx)
+    }
+
     pub fn face(&self, ix: FaceIx) -> &'f Face<'a> {
         self.faces.get(ix.index()).unwrap_or(&self.faces[0])
     }

@@ -19,12 +19,22 @@
 //! nothing can count the ligatures that would have formed without shaping
 //! the runs, which is the work this path exists not to do.
 
-use crate::atlas::{Code, Kind, Slot, Tex};
+use crate::atlas::{Code, Kind, Tex};
 use crate::color::Argb;
 use crate::instance::Screen;
-use crate::renderer::Renderer;
+use crate::renderer::{PairRole, Renderer, Single};
 use crate::units::Tally;
-use baud_domain::{Codepoint, Viewport};
+use baud_domain::{Codepoint, Col, Content, GlyphId, Row, Viewport};
+
+/// A cell that ends an adjacent pair the face's rules can begin on: the
+/// second of the two, on the screen the map was ensured for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    pub row: Row,
+    pub col: Col,
+    /// The face both cells draw on, as the map entry codes it.
+    pub face: Code,
+}
 
 /// The map's slot count, a power of two so the probe wraps by a mask.
 pub const MAP_BITS: u32 = 14;
@@ -75,10 +85,39 @@ impl MapEntry {
         pad: Code(0),
     };
 
-    fn of(key: CellKey, slot: Option<Slot>) -> MapEntry {
-        match slot {
+    /// The pad word: the glyph the entry draws, and its pair role, so the
+    /// walk that probes the map learns both from the entry it holds.
+    fn pad_of(single: Option<Single>) -> Code {
+        let Some(s) = single else {
+            return Code(0);
+        };
+        let glyph = u32::from(u16::try_from(s.glyph.index()).unwrap_or(0));
+        let face = u32::from(u8::try_from(s.face.index()).unwrap_or(0)) << MapEntry::FACE_SHIFT;
+        let role = match s.role {
+            PairRole::Neither => 0,
+            PairRole::Starts => MapEntry::STARTS,
+            PairRole::Ends => MapEntry::ENDS,
+            PairRole::Both => MapEntry::STARTS | MapEntry::ENDS,
+        };
+        Code(glyph | role | face)
+    }
+
+    const STARTS: u32 = 1 << 16;
+    const ENDS: u32 = 1 << 17;
+    const FACE_SHIFT: u32 = 18;
+
+    /// The face the entry's glyph is on, as the code the renderer indexes
+    /// its faces by.
+    pub fn face(&self) -> Code {
+        Code((self.pad.0 >> MapEntry::FACE_SHIFT) & 0xff)
+    }
+
+    fn of(key: CellKey, single: Option<Single>) -> MapEntry {
+        let pad = MapEntry::pad_of(single);
+        match single.and_then(|s| s.slot) {
             None => MapEntry {
                 key,
+                pad,
                 ..MapEntry::EMPTY
             },
             Some(s) => MapEntry {
@@ -90,9 +129,22 @@ impl MapEntry {
                 h: s.h,
                 left: Screen(i16::try_from(s.left).unwrap_or(i16::MAX)),
                 top: Screen(i16::try_from(s.top).unwrap_or(i16::MAX)),
-                pad: Code(0),
+                pad,
             },
         }
+    }
+
+    /// The glyph the entry draws.
+    pub fn glyph(&self) -> GlyphId {
+        GlyphId::from_shaper(u16::try_from(self.pad.0 & 0xffff).unwrap_or(0))
+    }
+
+    pub fn starts_pair(&self) -> bool {
+        self.pad.0 & MapEntry::STARTS != 0
+    }
+
+    pub fn ends_pair(&self) -> bool {
+        self.pad.0 & MapEntry::ENDS != 0
     }
 
     /// The entry's kind as the atlas names it; `None` for no ink.
@@ -119,6 +171,9 @@ pub struct MapStats {
     pub dropped_marks: Tally,
     /// Times the map was emptied: the atlas grew under it, or it filled.
     pub cleared: Tally,
+    /// Adjacent cells whose entries could begin and end a pair, so the
+    /// face's digest was consulted.
+    pub pair_tests: Tally,
 }
 
 /// The map's entries live where the caller put them -- a shared GPU
@@ -233,43 +288,71 @@ impl<'m> GlyphMap<'m> {
     /// resolving the missing ones through the renderer's shaper and atlas.
     /// Empties the map first when the atlas grew since the last call, and
     /// whenever it passes three quarters full, so a probe stays short.
-    pub fn ensure(&mut self, vp: Viewport<'_>, r: &mut Renderer<'_, '_>) {
+    /// Every cell's entry present, and the cells that end a pair the
+    /// face's rules can begin on, in screen order, into `candidates` --
+    /// found on the same probe, from the two bits each entry carries: the
+    /// digests are consulted only where a cell that can end a pair follows
+    /// one that can start one.
+    pub fn ensure(
+        &mut self,
+        vp: Viewport<'_>,
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) {
         if r.atlas_stats().grown.value() != self.grown.value() {
             self.grown = r.atlas_stats().grown;
             self.clear();
         }
+        candidates.clear();
         let mut changed = false;
-        // **The screen, not the ring.** The grid holds the scrollback behind
-        // the window, and a walk over `Term::cells` took every retained row
-        // -- 2,050 where the screen is 50 -- which doubled the cell path's
-        // frame on a scrolling recording. The viewport is the two slices of
-        // the ring the screen occupies, and nothing is copied to walk them.
-        let (head, tail) = vp.parts();
-        for cell in head.iter().chain(tail) {
-            if cell.flags.is_marked() {
-                self.stats.dropped_marks.bump();
+        let cols = vp.cols().index();
+        for y in 0..vp.rows().index() {
+            let row = vp.row(Row::from_index(y));
+            let mut prev: Option<(GlyphId, Code)> = None;
+            for (x, cell) in row.iter().enumerate().take(cols) {
+                if cell.flags.is_marked() {
+                    self.stats.dropped_marks.bump();
+                }
+                let Some(cp) = cell.content.as_codepoint() else {
+                    if cell.content != Content::WIDE_TAIL {
+                        prev = None;
+                    }
+                    continue;
+                };
+                let (glyph, starts, ends, face) = match self.probe(cp) {
+                    Some(e) => (e.glyph(), e.starts_pair(), e.ends_pair(), e.face()),
+                    None => {
+                        self.stats.misses.bump();
+                        let single = r.single(cp);
+                        if r.atlas_stats().grown.value() != self.grown.value() {
+                            self.grown = r.atlas_stats().grown;
+                            self.clear();
+                        }
+                        if self.stats.live.value().saturating_mul(4)
+                            >= u64::try_from(MAP_SLOTS * 3).unwrap_or(0)
+                        {
+                            self.clear();
+                        }
+                        let e = MapEntry::of(CellKey(cp.value()), single);
+                        self.insert(e);
+                        changed = true;
+                        (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
+                    }
+                };
+                if let Some((pg, pf)) = prev {
+                    if ends && pf == face {
+                        self.stats.pair_tests.bump();
+                        if r.admits(face, pg, glyph) {
+                            candidates.push(Candidate {
+                                row: Row::from_index(y),
+                                col: Col::at_index(x),
+                                face,
+                            });
+                        }
+                    }
+                }
+                prev = starts.then_some((glyph, face));
             }
-            let Some(cp) = cell.content.as_codepoint() else {
-                continue;
-            };
-            if self.probe(cp).is_some() {
-                continue;
-            }
-            self.stats.misses.bump();
-            let slot = r.single(cp);
-            if r.atlas_stats().grown.value() != self.grown.value() {
-                // Resolving this glyph grew the atlas: every entry before
-                // it names a slot that moved.
-                self.grown = r.atlas_stats().grown;
-                self.clear();
-            }
-            if self.stats.live.value().saturating_mul(4)
-                >= u64::try_from(MAP_SLOTS * 3).unwrap_or(0)
-            {
-                self.clear();
-            }
-            self.insert(MapEntry::of(CellKey(cp.value()), slot));
-            changed = true;
         }
         if changed {
             self.generation = MapGeneration(self.generation.0.wrapping_add(1));
