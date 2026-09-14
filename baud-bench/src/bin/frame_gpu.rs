@@ -268,6 +268,7 @@ fn main() {
                             view: t.viewport(),
                             styles: styles_mem,
                             cursor,
+                            highlight: None,
                             map: &map,
                             candidates: &candidates,
                         },
@@ -304,6 +305,7 @@ fn main() {
                         rotation,
                         ring,
                         cursor,
+                        highlight: None,
                         overlay: &overlay,
                         records: &records,
                     };

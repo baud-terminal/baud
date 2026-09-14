@@ -7,6 +7,7 @@ use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
+use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
@@ -321,6 +322,11 @@ pub struct Renderer<'f, 'a> {
     fg: Vec<Argb>,
     per_row: Vec<Vec<Instance>>,
     last_cursor: Cursor,
+    /// The selection on this frame's view, set by [`Renderer::set_highlight`]
+    /// before a convert, and the one the last convert drew -- a row whose
+    /// share of it changed is dirty, the cursor's own rule.
+    highlight: Option<Highlight>,
+    last_highlight: Option<Highlight>,
     /// This frame's blink phase, set by [`Renderer::set_blink`] before a
     /// convert or resolve, and whether any blinking cell was seen -- so the
     /// driver repaints on a phase flip only when something actually blinks.
@@ -412,6 +418,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fg: Vec::new(),
             per_row: Vec::new(),
             last_cursor: None,
+            highlight: None,
+            last_highlight: None,
             blink: Blink::default(),
             blink_seen: Blinking::default(),
             dirty: Vec::new(),
@@ -427,6 +435,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Sets the blink phase the next convert or resolve draws with.
+    /// The selection to draw on the next frame, in the view's screen
+    /// coordinates, or none. One rule on every path: a selected cell's
+    /// resolved colours swap, before the block cursor's own swap.
+    pub fn set_highlight(&mut self, highlight: Option<Highlight>) {
+        self.highlight = highlight;
+    }
+
     pub fn set_blink(&mut self, blink: Blink) {
         self.blink = blink;
     }
@@ -564,7 +579,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved =
                 cursor_here != cursor_was || (cursor_here && cursor != self.last_cursor);
-            self.dirty[r] = full || changed || cursor_moved;
+            let row = Row::from_index(r);
+            let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
+            let selection_moved = selected(self.highlight) != selected(self.last_highlight);
+            self.dirty[r] = full || changed || cursor_moved || selection_moved;
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -576,6 +594,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         core::mem::swap(&mut self.prev_styles, &mut self.cur_styles);
         self.known = Prev::Known;
         self.last_cursor = cursor;
+        self.last_highlight = self.highlight;
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),
@@ -829,6 +848,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // Only the default background lets the glass through (D14).
             if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
                 bg = bg.with_alpha(self.theme.bg_alpha);
+            }
+            if self
+                .highlight
+                .is_some_and(|h| h.contains(r, Col::at_index(c)))
+            {
+                core::mem::swap(&mut fg, &mut bg);
+                bg = bg.with_alpha(Chan::from_u8(0xFF));
             }
             let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == Col::at_index(c));
             if matches!(

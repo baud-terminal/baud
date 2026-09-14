@@ -28,6 +28,7 @@
 #![cfg(target_os = "macos")]
 #![deny(unsafe_code)]
 
+pub mod clipboard;
 pub mod metal;
 
 pub use metal::{

@@ -20,6 +20,7 @@ use crate::cellmap::{Candidate, GlyphMap, Resolved};
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::renderer::{ClusterGlyph, Renderer};
+use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
@@ -51,6 +52,10 @@ pub struct Scene<'s, 't> {
     pub view: Viewport<'s>,
     pub styles: &'s [Resolved],
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// The selection on this view, or none: the same swap the cell passes
+    /// apply, so a record over a selected cell is drawn in the swapped
+    /// colour.
+    pub highlight: Option<Highlight>,
     /// The glyph map the shader draws from, for what a cell draws alone.
     pub map: &'s GlyphMap<'s>,
     /// The cells that end an admitted pair, from the map's walk.
@@ -78,11 +83,12 @@ struct Geom {
     cols: Cols,
 }
 
-/// What colours a record: the resolved rendition table and the block
-/// cursor, whose cell swaps its colours.
+/// What colours a record: the resolved rendition table, the selection and
+/// the block cursor, each of which swaps its cells' colours.
 struct Paint<'p> {
     styles: &'p [Resolved],
     block: Option<(Row, Col, CursorStyle)>,
+    highlight: Option<Highlight>,
 }
 
 /// Distinct window contents kept before the store starts over.
@@ -269,7 +275,11 @@ impl Overlay {
                     (x, y),
                     &glyphs,
                     *cell,
-                    &Paint { styles, block },
+                    &Paint {
+                        styles,
+                        block,
+                        highlight: scene.highlight,
+                    },
                     &geom,
                 );
             }
@@ -321,6 +331,7 @@ impl Overlay {
             let paint = Paint {
                 styles: scene.styles,
                 block,
+                highlight: scene.highlight,
             };
             if let Some(drawn) = this.windows.get(&key) {
                 Overlay::paint_window(
@@ -454,7 +465,11 @@ impl Overlay {
         let under_cursor = paint
             .block
             .is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
-        let color = if under_cursor {
+        let selected = paint
+            .highlight
+            .is_some_and(|h| h.contains(Row::from_index(y), Col::at_index(x)));
+        // The selection swaps, then the cursor swaps again: both is neither.
+        let color = if selected != under_cursor {
             resolved.bg
         } else {
             resolved.fg

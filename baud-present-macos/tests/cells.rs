@@ -14,14 +14,14 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
-use baud_domain::{BytePos, Cols, Depth, ReadLen, Rows, WinSize};
+use baud_domain::{BytePos, Col, Cols, Depth, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Resolved, Scene,
-    Stack, Theme,
+    Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Renderer, Resolved,
+    Scene, Stack, Theme,
 };
 
 const WS: WinSize = WinSize {
@@ -64,6 +64,8 @@ struct Arms<'f, 'a> {
     candidates: Vec<Candidate>,
     /// Lines above the live screen both arms draw.
     back: Rows,
+    /// The selection both arms draw, or none.
+    highlight: Option<Highlight>,
 }
 
 impl Arms<'_, '_> {
@@ -76,6 +78,7 @@ impl Arms<'_, '_> {
         // The cell arm first: it reads the grid under its rotation, and the
         // instance arm's `convert` would turn it in place.
         let view = t.view(self.back);
+        self.renderer.set_highlight(self.highlight);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
@@ -89,6 +92,7 @@ impl Arms<'_, '_> {
                 view,
                 styles: self.styles_mem,
                 cursor,
+                highlight: self.highlight,
                 map: &self.map,
                 candidates: &self.candidates,
             },
@@ -104,6 +108,7 @@ impl Arms<'_, '_> {
             rotation: view.rotation(),
             ring: t.ring(),
             cursor,
+            highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
         };
@@ -131,6 +136,25 @@ impl Arms<'_, '_> {
 
 fn differing(a: &[u32], b: &[u32]) -> usize {
     a.iter().zip(b).filter(|(x, y)| x != y).count()
+}
+
+/// The bounding box of the differing pixels, in cells: (col0, row0, col1, row1).
+fn diff_box(
+    a: &[u32],
+    b: &[u32],
+    w: usize,
+    cell: (usize, usize),
+) -> Option<(usize, usize, usize, usize)> {
+    let mut lo = (usize::MAX, usize::MAX);
+    let mut hi = (0, 0);
+    for (i, (x, y)) in a.iter().zip(b).enumerate() {
+        if x != y {
+            let (px, py) = (i % w, i / w);
+            lo = (lo.0.min(px), lo.1.min(py));
+            hi = (hi.0.max(px), hi.1.max(py));
+        }
+    }
+    (lo.0 != usize::MAX).then(|| (lo.0 / cell.0, lo.1 / cell.1, hi.0 / cell.0, hi.1 / cell.1))
 }
 
 #[test]
@@ -183,6 +207,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         records: Vec::new(),
         candidates: Vec::new(),
         back: Rows::ZERO,
+        highlight: None,
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -242,6 +267,36 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "three lines back is not the live screen"
     );
     arms.back = Rows::ZERO;
+    // A selection over the marked and ligature rows, with the block cursor
+    // inside it: both arms swap the selected cells' colours and the cursor
+    // swaps again, on the cell passes and on the records alike -- and the
+    // selection reaches the pixels.
+    feed(&mut t, b"\x1b[2 q\x1b[2;3H");
+    let (plain, _) = arms.draw(&mut t);
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(1), Col::at_index(2)),
+        to: (Row::from_index(4), Col::at_index(30)),
+    });
+    let (a, b) = arms.draw(&mut t);
+    {
+        let (w, _) = arms.renderer.pixel_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let bx = diff_box(&a, &b, usize::try_from(w.value()).unwrap(), cell);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree under a selection, in cells {bx:?}"
+        );
+    }
+    assert!(
+        differing(&a, &plain) > 0,
+        "the selection changed the pixels"
+    );
+    arms.highlight = None;
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

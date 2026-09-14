@@ -54,8 +54,8 @@ use baud_core::Term;
 use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px;
 use baud_render::{
-    Atlas, Dirty, Generation, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer, Replaced,
-    Resolved, Side, Tally, TexRect,
+    Atlas, Dirty, Generation, Highlight, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer,
+    Replaced, Resolved, Side, Tally, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -158,6 +158,8 @@ struct CU {
     uint cursor_kind; uint baseline; uint underline; uint strike;
     uint thickness; uint map_slots; uint map_shift; uint stride; uint rot;
     uint ring;
+    uint sel_on; uint sel_from_col; uint sel_from_row; uint sel_to_col;
+    uint sel_to_row;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -183,12 +185,24 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint r
     return cells[prow * u.stride + col];
 }
 
-// The cell's colours after the block cursor's swap, which the CPU path
-// applies after the rendition rules and before anything is drawn.
+// Whether the cell is inside the selection: row-major, both ends inclusive.
+static bool selected(constant CU& u, uint col, uint row) {
+    if (u.sel_on == 0u) return false;
+    bool after_from = row > u.sel_from_row || (row == u.sel_from_row && col >= u.sel_from_col);
+    bool before_to = row < u.sel_to_row || (row == u.sel_to_row && col <= u.sel_to_col);
+    return after_from && before_to;
+}
+
+// The cell's colours after the selection's swap and then the block
+// cursor's, which the CPU path applies in the same order after the
+// rendition rules and before anything is drawn.
 static void colors(constant CU& u, device const Style* styles, uint2 cell,
                    uint col, uint row, thread uint& fgw, thread uint& bgw) {
     Style s = styles[cell.y & 0xffffu];
     fgw = s.fg; bgw = s.bg;
+    if (selected(u, col, row)) {
+        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
+    }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
         uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
     }
@@ -384,8 +398,9 @@ impl Uni {
 }
 
 /// The cell path's uniforms as the shader's `CU` reads them: five `uint2`
-/// then nine `uint`, 76 bytes, `repr(C)`. Every field is a pixel count or
-/// a cell count, and says which.
+/// then fifteen `uint`, 100 bytes, `repr(C)`. Every field is a pixel count
+/// or a cell count, and says which; the last five are the selection, a
+/// flag and its two inclusive corners.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct CellUniforms {
@@ -409,6 +424,11 @@ struct CellUniforms {
     stride: Uni,
     rotation: Uni,
     ring: Uni,
+    sel_on: Uni,
+    sel_from_col: Uni,
+    sel_from_row: Uni,
+    sel_to_col: Uni,
+    sel_to_row: Uni,
 }
 
 /// What the cell path draws from: the grid in place, under its rotation
@@ -423,6 +443,9 @@ pub struct CellInput<'a> {
     /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
     pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// The selection on this view, or none: a selected cell's colours swap
+    /// before the cursor's own swap, the rule every path applies.
+    pub highlight: Option<Highlight>,
     /// One byte a screen cell: set where `records` draw the cell.
     pub overlay: &'a OverlayBuffer,
     /// What draws the cells the overlay masks, in the instance layout.
@@ -1179,6 +1202,11 @@ impl Gpu {
             stride: Uni::of(Elems(input.stride.index())),
             rotation: Uni::of(Elems(input.rotation.index())),
             ring: Uni::of(Elems(input.ring.index())),
+            sel_on: Uni(u32::from(input.highlight.is_some())),
+            sel_from_col: Uni::of(Elems(input.highlight.map_or(0, |h| h.from.1.index()))),
+            sel_from_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.from.0.index()))),
+            sel_to_col: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.1.index()))),
+            sel_to_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.0.index()))),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target)?;

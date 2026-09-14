@@ -6,19 +6,20 @@ use crate::host::{
     describe, host_geometry, load_faces, startup_first, startup_mark, startup_note,
 };
 use crate::pty::{Pty, Stream};
-use baud_core::{Depth, Owned, Term, grid_stride};
+use baud_core::{Depth, Owned, Screen, Term, grid_stride};
 use baud_domain::{
     BytePos, Codepoint, Col, Cols, FnKey, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent,
     MouseKind, MouseMods, MouseTracking, ReadLen, Row, Rows, WinSize,
 };
 use baud_font::Px;
+use baud_present_macos::clipboard;
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
     Presented, Presenter, StylesBuffer,
 };
 use baud_render::{
-    Blend, Blink, Blinking, Candidate, Damage, Frame, GlyphMap, Instance, Overlay, PxSize,
-    Renderer, Resolved, Scene, Stack, Tally, Target, Theme,
+    Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
+    PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target, Theme,
 };
 use macos_liquid_glass::drawable::{
     Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -164,6 +165,14 @@ struct App {
     /// content while output arrives, so the line being read stays put;
     /// a key press snaps it back to the bottom.
     back: Rows,
+    /// The selection, over absolute lines of the live surface -- see
+    /// `docs/research/notes/k-selection.md` -- and the rotation's advance
+    /// since launch that numbers those lines.
+    selection: Option<Selection>,
+    scrolled: Scrolled,
+    /// The screen the last pump saw: a switch is a different ring, and
+    /// ends what a selection named.
+    last_screen: Screen,
     /// Wheel travel not yet a whole line, in points.
     scroll_accum: f64,
     frames: Tally,
@@ -395,6 +404,9 @@ impl App {
             sizing,
             pending: Pending::Dirty,
             back: Rows::ZERO,
+            selection: None,
+            scrolled: Scrolled::START,
+            last_screen: Screen::Normal,
             scroll_accum: 0.0,
             frames: Tally::default(),
             last_report: std::time::Instant::now(),
@@ -435,6 +447,14 @@ impl App {
         // terminal first; the cell path never converts and would otherwise
         // keep the grid it started with.
         self.renderer.fit(&self.term);
+        // The selection's share of this view, for every path's one rule.
+        let highlight = {
+            let view = self.term.view(self.back);
+            let top = self.scrolled.top(self.back);
+            self.selection
+                .and_then(|s| s.highlight(top, view.rows(), view.cols()))
+        };
+        self.renderer.set_highlight(highlight);
         let (w, h) = self.renderer.pixel_size();
         if (w, h) != (self.frame_w, self.frame_h) || self.presenter.is_none() {
             self.frame_w = w;
@@ -509,6 +529,7 @@ impl App {
                         view,
                         styles: cell.styles_mem,
                         cursor,
+                        highlight,
                         map: &cell.map,
                         candidates: &cell.candidates,
                     },
@@ -542,6 +563,7 @@ impl App {
                     rotation: view.rotation(),
                     ring: self.term.ring(),
                     cursor,
+                    highlight,
                     overlay: &cell.overlay,
                     records: &cell.records,
                 };
@@ -737,11 +759,29 @@ impl Driver {
         // it was showing, which means it moves up the ring by however many
         // rows the screen scrolled -- the rotation's advance -- and no
         // further than what is retained.
+        let ring = self.app.term.ring().index();
+        let advanced = (self.app.term.rotation().index() + ring - before.index()) % ring;
+        let retained = self.app.term.scrollback().len();
         if self.app.back.index() > 0 {
-            let ring = self.app.term.ring().index();
-            let advanced = (self.app.term.rotation().index() + ring - before.index()) % ring;
-            let retained = self.app.term.scrollback().len();
             self.app.back = Rows::of_count((self.app.back.index() + advanced).min(retained));
+        }
+        // The selection names absolute lines; the count that numbers them
+        // advances with the screen. A surface switch is another ring, and a
+        // line the ring recycled is clipped away.
+        self.app.scrolled = self.app.scrolled.advanced(Rows::of_count(advanced));
+        let screen = self.app.term.screen();
+        if screen != self.app.last_screen {
+            self.app.last_screen = screen;
+            self.app.selection = None;
+        }
+        let oldest = self.app.scrolled.oldest(Rows::of_count(retained));
+        let gone = self
+            .app
+            .selection
+            .as_mut()
+            .is_some_and(|s| s.clip(oldest) == Clip::Cleared);
+        if gone {
+            self.app.selection = None;
         }
         self.app.flush_reply();
         if drained.stream == Stream::Closed {
@@ -778,18 +818,17 @@ impl Driver {
 
 impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
-        // Typing snaps the window back to the live screen, where the
-        // keystroke's effect is.
-        if self.app.back.index() != 0 {
-            self.app.back = Rows::ZERO;
-            self.app.scroll_accum = 0.0;
-            self.app.pending = Pending::Dirty;
-        }
-        let m = mods(key.modifiers);
         if key.modifiers.command {
-            // Menu territory; nothing to send.
+            // Menu territory; nothing reaches the child but a paste.
+            match key.unmodified.as_str() {
+                "c" => self.copy(),
+                "v" => self.paste(),
+                _ => {}
+            }
             return Handled::Consumed;
         }
+        self.snap_to_live();
+        let m = mods(key.modifiers);
         if let Some(code) = special(key) {
             self.app.send(KeyEvent::press(code, m));
             return Handled::Consumed;
@@ -861,7 +900,11 @@ impl Responder for Driver {
     /// encoding, refuses what the level does not cover and what X10 cannot
     /// encode, and this only turns the view's pixels into a cell.
     fn mouse(&mut self, event: &Mouse) {
-        if self.app.term.mouse_tracking() == MouseTracking::Off {
+        // The child's, when it tracks the mouse -- unless Shift is held,
+        // which is a selection whatever the child asked for: xterm's
+        // default, ctlseqs' XTSHIFTESCAPE at 0.
+        if self.app.term.mouse_tracking() == MouseTracking::Off || event.modifiers.shift {
+            self.select(event);
             return;
         }
         let (row, col) = self.cell_under(event.x, event.y);
@@ -988,6 +1031,9 @@ impl Responder for Driver {
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
             self.app.pty.resize(&ws, px(px_w), px(px_h));
             self.app.grid = ws;
+            // A reflow re-cuts every line, so the columns a selection named
+            // no longer name cells.
+            self.app.selection = None;
             // A new grid is a new surface, so repaint every row of it rather
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;
@@ -1266,6 +1312,91 @@ pub fn run() {
 const WHEEL_MAX: u64 = 64;
 
 impl Driver {
+    /// Typing, and a paste, snap the window back to the live screen, where
+    /// the keystroke's effect is.
+    fn snap_to_live(&mut self) {
+        if self.app.back.index() != 0 {
+            self.app.back = Rows::ZERO;
+            self.app.scroll_accum = 0.0;
+            self.app.pending = Pending::Dirty;
+        }
+    }
+
+    /// A press, drag or release as a selection: one click a cell, two a
+    /// word, three a line, a drag extending by the press's grain, Shift
+    /// moving the head and keeping the anchor, and a click that never
+    /// moved clearing what was there.
+    fn select(&mut self, event: &Mouse) {
+        let (row, col) = self.cell_under(event.x, event.y);
+        let scrolled = self.app.scrolled;
+        let back = self.app.back;
+        let view = self.app.term.view(back);
+        let top = scrolled.top(back);
+        let line = scrolled.line(back, row);
+        let span_at = |grain: Grain| match grain {
+            Grain::Cell => Span::cell(view.row(row), line, col),
+            Grain::Word => Span::word(view.row(row), line, col),
+            Grain::Line => Span::line(&view, top, row),
+        };
+        match event.kind {
+            ViewMouseKind::Down if event.button == ViewButton::Left => {
+                let grain = match event.clicks {
+                    0 | 1 => Grain::Cell,
+                    2 => Grain::Word,
+                    _ => Grain::Line,
+                };
+                self.app.selection = match self.app.selection {
+                    Some(mut sel) if event.modifiers.shift => {
+                        sel.extend(span_at(sel.grain()));
+                        Some(sel)
+                    }
+                    _ => Some(Selection::at(span_at(grain), grain)),
+                };
+                self.held = Some(MouseButton::Left);
+            }
+            ViewMouseKind::Dragged if self.held == Some(MouseButton::Left) => {
+                if let Some(sel) = self.app.selection.as_mut() {
+                    sel.extend(span_at(sel.grain()));
+                }
+            }
+            ViewMouseKind::Up => {
+                self.held = None;
+                if self.app.selection.is_some_and(|s| s.is_click()) {
+                    self.app.selection = None;
+                }
+            }
+            _ => return,
+        }
+        self.app.pending = Pending::Dirty;
+        self.pump(Trigger::Wake);
+    }
+
+    /// Cmd-C: the selection's text to the pasteboard, if there is one.
+    fn copy(&mut self) {
+        let Some(sel) = self.app.selection else {
+            return;
+        };
+        let text = sel.text(&self.app.term, self.app.scrolled);
+        if !text.is_empty() {
+            clipboard::write_text(&text);
+        }
+    }
+
+    /// Cmd-V: the pasteboard's string to the child, bracketed when it
+    /// asked (`?2004`), through the channel keys take.
+    fn paste(&mut self) {
+        let Some(text) = clipboard::read_text() else {
+            return;
+        };
+        let bracket = if self.app.term.bracketed_paste() {
+            Bracket::On
+        } else {
+            Bracket::Off
+        };
+        self.snap_to_live();
+        self.app.pty.write(&paste_bytes(&text, bracket));
+    }
+
     /// The cell under a point in the view, clamped to the grid: the view
     /// is the terminal's area below the titlebar inset, in points, and the
     /// grid is in pixels of the cell size.
@@ -1276,6 +1407,26 @@ impl Driver {
             self.app.metrics_cell(),
             (self.app.grid.ws_col, self.app.grid.ws_row),
         )
+    }
+}
+
+/// Whether the child asked for bracketed paste.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Bracket {
+    On,
+    Off,
+}
+
+/// The bytes a paste sends: bracketed as `?2004` specifies, with a forged
+/// end inside the text removed, because the child would take it as the
+/// end; or, unbracketed, with line endings as typed input carries them.
+fn paste_bytes(text: &str, bracket: Bracket) -> Vec<u8> {
+    match bracket {
+        Bracket::On => {
+            let body = text.replace("\x1b[201~", "");
+            [b"\x1b[200~".as_slice(), body.as_bytes(), b"\x1b[201~"].concat()
+        }
+        Bracket::Off => text.replace("\r\n", "\r").replace('\n', "\r").into_bytes(),
     }
 }
 
@@ -1311,6 +1462,19 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {
+        let forged = "a\x1b[201~b\r\nc\n";
+        assert_eq!(
+            paste_bytes(forged, Bracket::On),
+            b"\x1b[200~ab\r\nc\n\x1b[201~".to_vec()
+        );
+        assert_eq!(
+            paste_bytes(forged, Bracket::Off),
+            b"a\x1b[201~b\rc\r".to_vec()
+        );
+    }
 
     #[test]
     fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
