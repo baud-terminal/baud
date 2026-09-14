@@ -1,7 +1,10 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
-use crate::host::{MAX_GRID, describe, host_geometry, load_faces};
+use crate::host::{
+    FIRST_COMMIT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK, MAX_GRID, describe, host_geometry,
+    load_faces, startup_first, startup_mark,
+};
 use crate::pty::{Pty, Stream};
 use baud_core::{Depth, Owned, Term, grid_stride};
 use baud_domain::{
@@ -9,7 +12,8 @@ use baud_domain::{
 };
 use baud_font::Px;
 use baud_present_macos::{
-    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presenter, StylesBuffer,
+    CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presented, Presenter,
+    StylesBuffer,
 };
 use baud_render::{
     Blend, Blink, Blinking, Damage, Frame, GlyphMap, PxSize, Renderer, Resolved, Stack, Tally,
@@ -188,6 +192,7 @@ impl App {
         // one pitch every allocator here agrees on through `grid_stride`.
         let request = wanted();
         let geom = host_geometry();
+        startup_mark("geometry");
         let pitch = grid_stride(&geom, Cols::of_index(usize::from(MAX_GRID.ws_col)));
         eprintln!(
             "cache: {}; grid pitch {} cells, {} B a row",
@@ -199,6 +204,7 @@ impl App {
             Request::Force(Path::Cpu) => None,
             _ => Gpu::new(),
         };
+        startup_mark("gpu probed");
         let own_grid = |ws: &WinSize| {
             let owned: &'static mut Owned =
                 Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
@@ -236,6 +242,7 @@ impl App {
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
         };
         let cfg = crate::config::Config::load();
+        startup_mark("config");
         match &cfg.source {
             Some(p) => eprintln!("config: {}", p.display()),
             None => eprintln!("config: none found; the built-in stack"),
@@ -244,6 +251,7 @@ impl App {
             eprintln!("face: {}", f.path);
         }
         let faces = load_faces(&cfg);
+        startup_mark("faces");
         let mut theme = Theme::dark();
         theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
         let renderer = Renderer::new(
@@ -255,8 +263,10 @@ impl App {
             Rows::of_index(usize::from(ws.ws_row)),
         )
         .expect("cell metrics");
+        startup_mark("renderer");
         let reader_waker = waker;
         let pty = Pty::spawn(&ws, move || reader_waker.wake()).expect("pty");
+        startup_mark("pty");
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (gpu.styles(&term), gpu.map()) {
@@ -428,7 +438,10 @@ impl App {
                 };
                 if let Some(p) = &mut self.presenter {
                     match p.draw_cells(waker, &mut self.renderer, &input) {
-                        Some(Drawn::Frame(g)) => self.gpu_stats = g,
+                        Some(Drawn::Frame(g)) => {
+                            startup_first("first commit", &FIRST_COMMIT);
+                            self.gpu_stats = g;
+                        }
                         // Still in flight: the completion wakes us.
                         Some(Drawn::Busy) => return,
                         None => {}
@@ -445,7 +458,10 @@ impl App {
                 };
                 if let Some(p) = &mut self.presenter {
                     match p.draw(waker, &mut self.renderer) {
-                        Some(Drawn::Frame(g)) => self.gpu_stats = g,
+                        Some(Drawn::Frame(g)) => {
+                            startup_first("first commit", &FIRST_COMMIT);
+                            self.gpu_stats = g;
+                        }
                         Some(Drawn::Busy) => return,
                         None => {}
                     }
@@ -458,7 +474,9 @@ impl App {
                 };
                 self.stats = stats;
                 if let Some(p) = &mut self.presenter {
-                    p.present(view, &self.frame, w);
+                    if p.present(view, &self.frame, w) == Presented::Yes {
+                        startup_first("first present", &FIRST_PRESENT);
+                    }
                 }
             }
         }
@@ -775,6 +793,7 @@ impl Responder for Driver {
     }
 
     fn frame(&mut self, target: f64) {
+        startup_first("first tick", &FIRST_TICK);
         if let Some(last) = self.app.last_tick {
             let dt = target - last;
             if dt > 0.001 && dt < 0.1 {
@@ -802,6 +821,11 @@ impl Responder for Driver {
     }
 
     fn wake(&mut self) {
+        if self.app.frames.value() > 0
+            && self.app.presenter.as_ref().map(Presenter::in_flight) != Some(InFlight::Busy)
+        {
+            startup_first("first completion", &FIRST_DONE);
+        }
         self.pump(Trigger::Wake);
     }
 
@@ -834,12 +858,15 @@ pub fn run() {
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    startup_mark("nsapp");
     let icon = icon();
+    startup_mark("icon");
     if let Some(img) = &icon {
         macos_liquid_glass::set_application_icon(&ns_app, img);
     }
     let size = NSSize::new(960.0, 600.0);
     let window = GlassWindow::new(mtm, size, "baud");
+    startup_mark("glass window");
     let scale = window.ns_window().backingScaleFactor();
     // The window is FullSizeContentView, so its content spans the frame behind
     // the transparent titlebar and the traffic lights. `contentLayoutRect` is
@@ -856,6 +883,7 @@ pub fn run() {
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
     let glass = GlassSurface::new(mtm, frame, GlassStyle::Regular, 16.0).expect("glass");
     let view = DrawableView::new(mtm, frame);
+    startup_mark("window");
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -946,6 +974,7 @@ pub fn run() {
     window.set_min_size(NSSize::new(200.0, 100.0));
     window.center();
     window.show();
+    startup_mark("shown");
     window.make_first_responder(&view);
     view.start_display_link();
     ns_app.activate();

@@ -20,7 +20,9 @@
 //! seconds.
 
 use crate::config::Config;
-use crate::host::{MAX_GRID, describe, host_geometry, load_faces};
+use crate::host::{
+    FIRST_PRESENT, MAX_GRID, describe, host_geometry, load_faces, startup_first, startup_mark,
+};
 use crate::pty::{Chunk, Pty, Ready, wait};
 use baud_core::{Owned, Resized, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
@@ -73,6 +75,7 @@ struct Driver {
 pub fn run() {
     eprintln!("baud on Wayland: type-checked against Linux and not yet run on a compositor");
     let cfg = Config::load();
+    startup_mark("config");
     match &cfg.source {
         Some(p) => eprintln!("config: {}", p.display()),
         None => eprintln!("config: none found; the built-in stack"),
@@ -85,6 +88,7 @@ pub fn run() {
         eprintln!("face: {}", f.path);
     }
     let faces = load_faces(&cfg);
+    startup_mark("faces");
     let geom = host_geometry();
     eprintln!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
@@ -101,7 +105,9 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
+    startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST).expect("pty");
+    startup_mark("pty");
     let mut conn = match Connection::connect() {
         Ok(c) => c,
         Err(e) => {
@@ -109,6 +115,7 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+    startup_mark("wayland");
     let window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
         Ok(w) => w,
         Err(e) => {
@@ -262,6 +269,7 @@ impl Driver {
             .present(&mut self.conn.sender(), &self.frame, pitch)
             == Presented::Yes
         {
+            startup_first("first present", &FIRST_PRESENT);
             self.pending = Pending::Clean;
         }
     }

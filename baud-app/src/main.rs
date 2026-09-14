@@ -30,6 +30,8 @@ mod linux;
 mod pty;
 
 fn main() {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    host::startup_begin();
     #[cfg(target_os = "macos")]
     app::run();
     #[cfg(target_os = "linux")]

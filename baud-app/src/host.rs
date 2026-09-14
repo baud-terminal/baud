@@ -6,6 +6,9 @@
 use crate::config::Config;
 use baud_domain::{CacheGeometry, CacheLevel, WinSize};
 use baud_font::{Face, FaceIndex};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 /// The largest grid the storage is provisioned for.
 pub const MAX_GRID: WinSize = WinSize {
@@ -67,6 +70,7 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
         .iter()
         .map(|f| {
             let bytes = std::fs::read(&f.path).unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+            startup_mark(&format!("read {}", f.path.rsplit('/').next().unwrap_or("")));
             &*Box::leak(bytes.into_boxed_slice())
         })
         .collect();
@@ -74,10 +78,61 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
         data.iter()
             .zip(&cfg.faces)
             .map(|(d, f)| {
-                Face::parse_index(d, FaceIndex::of(f.index))
-                    .unwrap_or_else(|_| panic!("font {}: not a face", f.path))
+                let face = Face::parse_index(d, FaceIndex::of(f.index))
+                    .unwrap_or_else(|_| panic!("font {}: not a face", f.path));
+                startup_mark(&format!(
+                    "parse {}",
+                    f.path.rsplit('/').next().unwrap_or("")
+                ));
+                face
             })
             .collect::<Vec<_>>()
             .into_boxed_slice(),
     )
 }
+
+/// The launch clock: `startup_begin` is the first thing `main` does, and
+/// `startup_mark` prints how long after it a stage was reached -- when
+/// `BAUD_STARTUP` is set, so a normal launch prints nothing. What it cannot
+/// see is the time before `main`, the loader's; `scripts/startup-bench.py`
+/// measures that from outside and adds the two.
+static START: OnceLock<Instant> = OnceLock::new();
+static WANTED: OnceLock<Wanted> = OnceLock::new();
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wanted {
+    Print,
+    Quiet,
+}
+
+pub fn startup_begin() {
+    let _ = START.set(Instant::now());
+    let _ = WANTED.set(match std::env::var_os("BAUD_STARTUP") {
+        Some(_) => Wanted::Print,
+        None => Wanted::Quiet,
+    });
+}
+
+pub fn startup_mark(stage: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    let since = START.get().map_or(Duration::ZERO, Instant::elapsed);
+    eprintln!("startup: {stage:<18} {:9.3} ms", since.as_secs_f64() * 1e3);
+}
+
+/// A stage that happens many times and is worth printing once: the first
+/// frame committed, the first completion, the first present.
+pub fn startup_first(stage: &str, seen: &AtomicBool) {
+    if !seen.swap(true, Ordering::Relaxed) {
+        startup_mark(stage);
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub static FIRST_COMMIT: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_DONE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
+pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
