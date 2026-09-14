@@ -83,7 +83,9 @@ dependencies = [
  "baud-isa-aarch64",
  "baud-isa-x86-64",
  "baud-present-macos",
+ "baud-present-wayland",
  "baud-render",
+ "baud-wayland",
  "libc",
  "macos-liquid-glass",
 ]

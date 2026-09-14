@@ -31,6 +31,13 @@ _:
     # `tasks."test:bare"` needs no extra setup step in CI. x86_64-unknown-none
     # has no OS and no allocator, which is what makes it a real test of
     # baud-core's #![no_std] and its default-off `alloc` feature.
-    targets = [ "x86_64-unknown-none" ];
+    # The two Linux targets are for `cargo check` of the Wayland wiring in
+    # baud-app on this Mac: type-checked here, run on a Linux box. Nothing
+    # links for them here, and nothing needs to.
+    targets = [
+      "x86_64-unknown-none"
+      "aarch64-unknown-linux-gnu"
+      "x86_64-unknown-linux-gnu"
+    ];
   };
 }

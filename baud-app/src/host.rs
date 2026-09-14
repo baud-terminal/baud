@@ -1,0 +1,83 @@
+//! What both presentation layers set up the same way: the grid the storage
+//! is provisioned for, the cache probe whose answer picks the grid's pitch,
+//! and the faces the config names -- read once, parsed once, and leaked,
+//! because the renderer borrows them for the life of the process.
+
+use crate::config::Config;
+use baud_domain::{CacheGeometry, CacheLevel, WinSize};
+use baud_font::{Face, FaceIndex};
+
+/// The largest grid the storage is provisioned for.
+pub const MAX_GRID: WinSize = WinSize {
+    ws_col: 400,
+    ws_row: 150,
+};
+
+/// The cache geometry of the machine this runs on, from the per-arch probe:
+/// `UNKNOWN` where there is no probe, which still resolves to a pitch.
+pub fn host_geometry() -> CacheGeometry {
+    #[cfg(target_arch = "aarch64")]
+    {
+        <baud_isa_aarch64::Host as baud_isa::CacheProbe>::detect()
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        <baud_isa_x86_64::Host as baud_isa::CacheProbe>::detect()
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        CacheGeometry::UNKNOWN
+    }
+}
+
+/// One line for the log: what the probe found, level by level, and what
+/// was assumed where it found nothing.
+pub fn describe(geom: &CacheGeometry) -> String {
+    let level = |l: Option<CacheLevel>| match l {
+        Some(l) => match l.way() {
+            Some(w) => format!(
+                "{} KiB {}-way, {} KiB a way",
+                l.size.bytes() / 1024,
+                l.ways.count(),
+                w.bytes() / 1024
+            ),
+            None => format!("{} KiB", l.size.bytes() / 1024),
+        },
+        None => "unknown".to_string(),
+    };
+    let line = match geom.line_reported() {
+        Some(l) => format!("{} B", l.bytes()),
+        None => format!("unknown, {} B assumed", geom.line().bytes()),
+    };
+    format!(
+        "line {line}; L1d {}; L2 {}; L3 {}",
+        level(geom.l1d()),
+        level(geom.l2()),
+        level(geom.l3())
+    )
+}
+
+/// Every face the config names, read and parsed. Each face's bytes are
+/// leaked and then parsed, because the faces borrow them; a face that
+/// cannot be read or parsed is fatal with its path, because a terminal
+/// with no font draws nothing.
+pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
+    let data: Vec<&'static [u8]> = cfg
+        .faces
+        .iter()
+        .map(|f| {
+            let bytes = std::fs::read(&f.path).unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+            &*Box::leak(bytes.into_boxed_slice())
+        })
+        .collect();
+    Box::leak(
+        data.iter()
+            .zip(&cfg.faces)
+            .map(|(d, f)| {
+                Face::parse_index(d, FaceIndex::of(f.index))
+                    .unwrap_or_else(|_| panic!("font {}: not a face", f.path))
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    )
+}

@@ -208,15 +208,17 @@ crate_audit "baud-render" 0 11 baud-render/src
 # baud-present-macos and baud-app: one signature primitive each, the same
 # edge -- `slots(Px) -> usize`, where a pixel count becomes a slice index.
 crate_audit "baud-present-macos" 0 1 baud-present-macos/src
-# baud-wayland: eleven raw sites and eight signature primitives, and the
+# baud-wayland: seven raw sites and seven signature primitives, and the
 # floor is the kernel's socket ABI -- `sys.rs` declares `sendmsg`/`recvmsg`
-# and their `msghdr`/`cmsghdr` as the platform lays them out (`u32` and
-# `usize` lengths, `i32` flags), the way the ISA crates declare
+# and their `msghdr`/`cmsghdr` as the platform lays them out (`i32` flags,
+# and a length whose width is the platform's, `Len`, crossed by
+# `ControlBytes` in one place), the way the ISA crates declare
 # `sysctlbyname` -- plus the wire's own widths: a header's `usize` size, the
 # byte cursor `put`/`word` carry, and the 24.8 fixed-point's saturating cast.
 # The protocol values (`ObjectId(u32)`, `Opcode(u16)`, `Fixed(i32)`) are
-# newtypes. Set at the count, and it does not move to fit a change.
-crate_audit "baud-wayland" 11 8 baud-wayland/src
+# newtypes. It was eleven and eight until the lengths took a type; set at
+# the count, and it does not move to fit a change.
+crate_audit "baud-wayland" 7 7 baud-wayland/src
 # baud-xkb: 10 raw sites and 6 signature primitives, and they are the keymap's
 # own numbers -- keycode ranges, level and group indices, the 32-bit modifier
 # mask the Wayland protocol serialises (a type alias, since it is the wire's

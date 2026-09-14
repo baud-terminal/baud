@@ -19,6 +19,11 @@ let
   # allocator is what actually proves #![no_std] and the default-off `alloc`
   # feature; a green build on the host proves neither.
   bareTarget = "x86_64-unknown-none";
+  # The Linux gate. `baud-app`'s Wayland driver is `cfg(target_os = "linux")`,
+  # so a host build on this Mac never compiles it; the Linux standard library
+  # `nix/rust.nix` fetches lets clippy type-check it here. A module nothing
+  # builds does not go red, it goes absent.
+  linuxTarget = "aarch64-unknown-linux-gnu";
 in
 {
   # Set root explicitly for flake compatibility
@@ -81,6 +86,8 @@ in
     RUSTFLAGS="-D warnings" cargo test --release --quiet ${scope} || { echo "FAILED: test"; exit 1; }
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
+    echo "=== linux ==="
+    cargo clippy --quiet -p baud-app --target ${linuxTarget} -- -D warnings || { echo "FAILED: linux"; exit 1; }
     echo "=== sources ==="
     bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
     echo "=== audit ==="
@@ -265,6 +272,13 @@ in
       after = [ "test:unit" ];
     };
 
+    # The Linux wiring, type-checked under clippy for a target this Mac
+    # cannot run, so the driver cannot rot unbuilt between Linux sessions.
+    "test:linux" = {
+      exec = "cargo clippy --quiet -p baud-app --target ${linuxTarget} -- -D warnings";
+      after = [ "test:bare" ];
+    };
+
     # The source-provenance gate. A design claim that cites a paper nobody
     # fetched is worse than one with no citation, because it looks checked.
     "test:sources" = {
@@ -277,7 +291,7 @@ in
     # reason for each live in audit_all.sh.
     "test:audit" = {
       exec = "sh ./audit_all.sh";
-      after = [ "test:bare" ];
+      after = [ "test:linux" ];
     };
     # Every feature arm must build on its own. `--all-features` (dev-test) builds
     # them all at once, which masks per-arm rot; this checks each individually,
@@ -289,5 +303,5 @@ in
   };
 
   # https://devenv.sh/tests/
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:audit test:features";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features";
 }

@@ -31,7 +31,7 @@ pub fn anonymous(len: usize) -> io::Result<OwnedFd> {
         const MFD_CLOEXEC: u32 = 1;
         // SAFETY: a NUL-terminated name and a flag; the call allocates
         // nothing the caller owns but the descriptor it returns.
-        let raw = unsafe { memfd_create(b"baud-shm\0".as_ptr(), MFD_CLOEXEC) };
+        let raw = unsafe { memfd_create(c"baud-shm".as_ptr().cast(), MFD_CLOEXEC) };
         if raw < 0 {
             return Err(io::Error::last_os_error());
         }

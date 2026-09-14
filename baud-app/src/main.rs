@@ -10,18 +10,30 @@
 //! that changed and presents. That is "render on input, paced by the
 //! display link" (D13): a chunk never waits longer than one frame.
 //!
+//! Linux second, through `baud-present-wayland`: one loop that waits on the
+//! compositor's socket and the pty together, reads the pty where it is
+//! polled, and presents on the CPU into `wl_shm` -- `linux.rs`, which is
+//! type-checked against the Linux target from this Mac and has not yet run
+//! on a compositor.
+//!
 //! `unsafe` lives in `pty.rs` alone, which forbids nothing and says why at
-//! every call; `app.rs` forbids it.
+//! every call; `app.rs` and `linux.rs` forbid it.
 
 #[cfg(target_os = "macos")]
 mod app;
 mod config;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod host;
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 
 fn main() {
     #[cfg(target_os = "macos")]
     app::run();
-    #[cfg(not(target_os = "macos"))]
-    eprintln!("baud-app has a macOS presentation layer only, so far");
+    #[cfg(target_os = "linux")]
+    linux::run();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    eprintln!("baud-app presents on macOS and on Linux over Wayland, so far");
 }

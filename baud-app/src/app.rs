@@ -1,13 +1,13 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
+use crate::host::{MAX_GRID, describe, host_geometry, load_faces};
 use crate::pty::{Pty, Stream};
 use baud_core::{Depth, Owned, Term, grid_stride};
 use baud_domain::{
     BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
 };
-use baud_domain::{CacheGeometry, CacheLevel};
-use baud_font::{Face, FaceIndex, Px};
+use baud_font::Px;
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, Presenter, StylesBuffer,
 };
@@ -43,11 +43,6 @@ const SYNC_MAX: Duration = Duration::from_millis(33);
 /// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
 /// hides for this long. ~1.2 Hz, the middle of what terminals use.
 const BLINK_HALF: f64 = 0.4;
-/// The largest grid the storage is provisioned for.
-const MAX_GRID: WinSize = WinSize {
-    ws_col: 400,
-    ws_row: 150,
-};
 /// Which path draws: the CPU compositor, Metal over the converted
 /// instances, or Metal over the raw grid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,52 +81,6 @@ fn wanted() -> Request {
             Request::Auto
         }
     }
-}
-
-/// The cache hierarchy of this machine, from the per-arch probe: the grid's
-/// row pitch is padded against its line by `store_stride`, so rows alias no
-/// way and spread over every set. `UNKNOWN` where the probe cannot ask,
-/// which still resolves to a safe pitch.
-fn host_geometry() -> CacheGeometry {
-    #[cfg(target_arch = "aarch64")]
-    {
-        <baud_isa_aarch64::Host as baud_isa::CacheProbe>::detect()
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        <baud_isa_x86_64::Host as baud_isa::CacheProbe>::detect()
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    {
-        CacheGeometry::UNKNOWN
-    }
-}
-
-/// One line for the log: what the probe found, level by level, and what
-/// was assumed where it found nothing.
-fn describe(geom: &CacheGeometry) -> String {
-    let level = |l: Option<CacheLevel>| match l {
-        Some(l) => match l.way() {
-            Some(w) => format!(
-                "{} KiB {}-way, {} KiB a way",
-                l.size.bytes() / 1024,
-                l.ways.count(),
-                w.bytes() / 1024
-            ),
-            None => format!("{} KiB", l.size.bytes() / 1024),
-        },
-        None => "unknown".to_string(),
-    };
-    let line = match geom.line_reported() {
-        Some(l) => format!("{} B", l.bytes()),
-        None => format!("unknown, {} B assumed", geom.line().bytes()),
-    };
-    format!(
-        "line {line}; L1d {}; L2 {}; L3 {}",
-        level(geom.l1d()),
-        level(geom.l2()),
-        level(geom.l3())
-    )
 }
 
 /// The cell path's memory, all of it where the GPU reads it: the grid the
@@ -294,28 +243,7 @@ impl App {
         for f in &cfg.faces {
             eprintln!("face: {}", f.path);
         }
-        // Read and leak each face's bytes, then parse; the faces borrow them
-        // for the life of the window. A face that will not read or parse is
-        // fatal with its path, because a terminal with no font draws nothing.
-        let data: Vec<&'static [u8]> = cfg
-            .faces
-            .iter()
-            .map(|f| {
-                let bytes =
-                    std::fs::read(&f.path).unwrap_or_else(|e| panic!("font {}: {e}", f.path));
-                &*Box::leak(bytes.into_boxed_slice())
-            })
-            .collect();
-        let faces: &'static [Face<'static>] = Box::leak(
-            data.iter()
-                .zip(&cfg.faces)
-                .map(|(d, f)| {
-                    Face::parse_index(d, FaceIndex::of(f.index))
-                        .unwrap_or_else(|_| panic!("font {}: not a face", f.path))
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        );
+        let faces = load_faces(&cfg);
         let mut theme = Theme::dark();
         theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
         let renderer = Renderer::new(

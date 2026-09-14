@@ -402,3 +402,11 @@ impl Connection {
         }
     }
 }
+
+impl AsFd for Connection {
+    /// The socket, for a caller that waits on it beside other descriptors
+    /// and calls `receive` only when the wait says there is something.
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.sock.as_fd()
+    }
+}

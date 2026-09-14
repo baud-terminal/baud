@@ -26,6 +26,10 @@ baud-isa-aarch64 = { path = "../baud-isa-aarch64", features = ["std"] }
 baud-isa = { path = "../baud-isa" }
 baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+baud-present-wayland = { path = "../baud-present-wayland" }
+baud-wayland = { path = "../baud-wayland" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }

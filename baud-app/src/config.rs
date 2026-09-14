@@ -38,14 +38,7 @@ impl Config {
     /// symbols for the braille and box drawing Menlo lacks.
     pub fn defaults() -> Config {
         Config {
-            faces: [
-                "/System/Library/Fonts/Menlo.ttc@0",
-                "/System/Library/Fonts/Apple Color Emoji.ttc@0",
-                "/System/Library/Fonts/Apple Symbols.ttf",
-            ]
-            .iter()
-            .map(|s| FaceSpec::parse(s))
-            .collect(),
+            faces: default_faces(),
             font_size: 13.0,
             background_alpha: 0xD8,
             source: None,
@@ -190,4 +183,47 @@ fn strings(value: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// The system mono, its colour emoji, and its symbols for the braille and
+/// box drawing Menlo lacks.
+#[cfg(target_os = "macos")]
+fn default_faces() -> Vec<FaceSpec> {
+    [
+        "/System/Library/Fonts/Menlo.ttc@0",
+        "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+        "/System/Library/Fonts/Apple Symbols.ttf",
+    ]
+    .iter()
+    .map(|s| FaceSpec::parse(s))
+    .collect()
+}
+
+/// Linux has no one system mono, so the default is the first of the usual
+/// DejaVu Sans Mono locations that exists -- DejaVu carries the braille and
+/// the box drawing itself -- and Noto Color Emoji beside it where it is. An
+/// empty stack is reported at startup rather than guessed at; a config
+/// names anything else.
+#[cfg(target_os = "linux")]
+fn default_faces() -> Vec<FaceSpec> {
+    const MONO: &[&str] = &[
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+        "/run/current-system/sw/share/X11/fonts/DejaVuSansMono.ttf",
+    ];
+    const EMOJI: &[&str] = &[
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/google-noto-color-emoji-fonts/NotoColorEmoji.ttf",
+        "/run/current-system/sw/share/X11/fonts/NotoColorEmoji.ttf",
+    ];
+    let first = |paths: &[&str]| {
+        paths
+            .iter()
+            .find(|p| std::path::Path::new(p).exists())
+            .map(|s| FaceSpec::parse(s))
+    };
+    first(MONO).into_iter().chain(first(EMOJI)).collect()
 }
