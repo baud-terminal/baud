@@ -549,11 +549,20 @@ pub struct Gpu {
     in_flight: Arc<AtomicUsize>,
 }
 
+/// Whether a pass blends over what is under it, or replaces it. The
+/// background passes replace, so a cell's background is a single composite
+/// matching the margin's clear; glyphs and shapes blend over.
+enum Blend {
+    Over,
+    Replace,
+}
+
 fn pipeline(
     device: &ProtocolObject<dyn MTLDevice>,
     library: &ProtocolObject<dyn MTLLibrary>,
     vertex: &str,
     fragment: &str,
+    blend: Blend,
 ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
     let vf = library.newFunctionWithName(&NSString::from_str(vertex))?;
     let ff = library.newFunctionWithName(&NSString::from_str(fragment))?;
@@ -564,7 +573,10 @@ fn pipeline(
     // framework does not bounds-check the index, so only 0 is used.
     let att = unsafe { desc.colorAttachments().objectAtIndexedSubscript(0) };
     att.setPixelFormat(MTLPixelFormat::BGRA8Unorm);
-    att.setBlendingEnabled(true);
+    // The background passes replace: a cell's background is written once, the
+    // same single composite the margin's clear is, so the two match over the
+    // glass. Glyphs and shapes blend over that with premultiplied OVER.
+    att.setBlendingEnabled(matches!(blend, Blend::Over));
     att.setSourceRGBBlendFactor(MTLBlendFactor::One);
     att.setDestinationRGBBlendFactor(MTLBlendFactor::OneMinusSourceAlpha);
     att.setSourceAlphaBlendFactor(MTLBlendFactor::One);
@@ -719,11 +731,41 @@ impl Gpu {
                     return None;
                 }
             };
-        let bg_pipe = pipeline(&device, &library, "bg_vertex", "bg_fragment")?;
-        let glyph_pipe = pipeline(&device, &library, "glyph_vertex", "glyph_fragment")?;
-        let cell_bg_pipe = pipeline(&device, &library, "cell_bg_vertex", "flat_fragment")?;
-        let cell_glyph_pipe = pipeline(&device, &library, "cell_glyph_vertex", "glyph_fragment")?;
-        let cell_shape_pipe = pipeline(&device, &library, "cell_shape_vertex", "glyph_fragment")?;
+        let bg_pipe = pipeline(
+            &device,
+            &library,
+            "bg_vertex",
+            "bg_fragment",
+            Blend::Replace,
+        )?;
+        let glyph_pipe = pipeline(
+            &device,
+            &library,
+            "glyph_vertex",
+            "glyph_fragment",
+            Blend::Over,
+        )?;
+        let cell_bg_pipe = pipeline(
+            &device,
+            &library,
+            "cell_bg_vertex",
+            "flat_fragment",
+            Blend::Replace,
+        )?;
+        let cell_glyph_pipe = pipeline(
+            &device,
+            &library,
+            "cell_glyph_vertex",
+            "glyph_fragment",
+            Blend::Over,
+        )?;
+        let cell_shape_pipe = pipeline(
+            &device,
+            &library,
+            "cell_shape_vertex",
+            "glyph_fragment",
+            Blend::Over,
+        )?;
         let sd = MTLSamplerDescriptor::new();
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);
         sd.setMagFilter(MTLSamplerMinMagFilter::Nearest);
