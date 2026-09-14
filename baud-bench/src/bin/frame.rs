@@ -159,6 +159,52 @@ fn main() {
             best = Some(rep);
         }
     }
+    // `FRAME_RESCALE=<points>` prices a zoom: warm the atlas on the whole
+    // recording at 14 px, then rescale to the new size and time the one
+    // full-damage frame that follows -- the frame a font change forces, in
+    // which every visible glyph re-shapes and re-rasterises into an atlas
+    // that restarts at its smallest sheet. The grow and raster deltas say
+    // whether the cost is the rasterising or the atlas growing under it.
+    if let Ok(pts) = std::env::var("FRAME_RESCALE") {
+        let pts: f32 = pts.parse().unwrap_or(24.0);
+        let mut rz = fresh();
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let (w0, h0) = rz.pixel_size();
+        let mut px0 = vec![0u32; usize::try_from(w0.value() * h0.value()).unwrap()];
+        let mut at = 0usize;
+        while at < data.len() {
+            let n = 4096.min(data.len() - at);
+            t.write_at(BytePos::ZERO, &data[at..at + n]);
+            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+            at += n;
+            let mut target = Target::new(&mut px0, w0, w0, h0).unwrap();
+            rz.render(&mut t, &mut target, Damage::Full);
+        }
+        let a0 = rz.atlas_stats();
+        let c0 = rz.cache_stats();
+        if rz.rescale(PxSize::of(pts).unwrap()).is_some() {
+            let (w1, h1) = rz.pixel_size();
+            let mut px1 = vec![0u32; usize::try_from(w1.value() * h1.value()).unwrap()];
+            let mut target = Target::new(&mut px1, w1, w1, h1).unwrap();
+            let start = std::time::Instant::now();
+            let f = rz.render(&mut t, &mut target, Damage::Full);
+            let elapsed = start.elapsed();
+            let a1 = rz.atlas_stats();
+            let c1 = rz.cache_stats();
+            println!(
+                "rescale 14->{pts}px: frame {} us (convert {} us, paint {} us); raster {}, grown {}, misses {}",
+                elapsed.as_micros(),
+                f.convert.as_micros(),
+                f.composite.as_micros(),
+                a1.rasterised.value() - a0.rasterised.value(),
+                a1.grown.value() - a0.grown.value(),
+                c1.misses.value() - c0.misses.value(),
+            );
+        }
+        return;
+    }
+
     let Rep {
         frames,
         total,
