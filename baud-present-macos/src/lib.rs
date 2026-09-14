@@ -38,7 +38,8 @@ pub use metal::{
 
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
-use macos_liquid_glass::drawable::{DrawableView, Surface, Waker};
+pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
+use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
 use std::sync::Arc;
 
 /// How many surfaces rotate: one showing, one the compositor may still be
@@ -73,6 +74,8 @@ pub struct Presenter {
     width: Px,
     height: Px,
     draw: Draw,
+    /// What the surfaces' bytes mean; a resize keeps it.
+    space: ColorSpace,
 }
 
 /// Whether a frame reached the screen.
@@ -87,22 +90,23 @@ pub enum Presented {
 impl Presenter {
     /// Surfaces of `width` by `height` pixels for the CPU path; `None`
     /// when the kernel declines.
-    pub fn new(width: Px, height: Px) -> Option<Presenter> {
-        Presenter::build(width, height, Draw::Cpu)
+    pub fn new(width: Px, height: Px, space: ColorSpace) -> Option<Presenter> {
+        Presenter::build(width, height, space, Draw::Cpu)
     }
 
     /// Surfaces of `width` by `height` pixels with a Metal target over
     /// each; `None` when the kernel declines or there is no Metal device.
-    pub fn with_gpu(width: Px, height: Px) -> Option<Presenter> {
-        Presenter::over(Gpu::new()?, width, height)
+    pub fn with_gpu(width: Px, height: Px, space: ColorSpace) -> Option<Presenter> {
+        Presenter::over(Gpu::new()?, width, height, space)
     }
 
     /// The same over a `Gpu` the caller already made -- because it lent
     /// the terminal its grid memory before there was a window to size.
-    pub fn over(gpu: Gpu, width: Px, height: Px) -> Option<Presenter> {
+    pub fn over(gpu: Gpu, width: Px, height: Px, space: ColorSpace) -> Option<Presenter> {
         Presenter::build(
             width,
             height,
+            space,
             Draw::Gpu {
                 gpu: Box::new(gpu),
                 targets: Vec::new(),
@@ -110,10 +114,10 @@ impl Presenter {
         )
     }
 
-    fn build(width: Px, height: Px, draw: Draw) -> Option<Presenter> {
+    fn build(width: Px, height: Px, space: ColorSpace, draw: Draw) -> Option<Presenter> {
         let (w, h) = (slots(width), slots(height));
         let surfaces = (0..SURFACES)
-            .map(|_| Surface::new(w, h))
+            .map(|_| Surface::in_space(w, h, space))
             .collect::<Option<Vec<_>>>()?;
         let draw = match draw {
             Draw::Cpu => Draw::Cpu,
@@ -131,6 +135,7 @@ impl Presenter {
             width,
             height,
             draw,
+            space,
         })
     }
 
@@ -166,7 +171,7 @@ impl Presenter {
     /// are released once the layer stops showing them.
     pub fn resize(&mut self, width: Px, height: Px) -> Option<()> {
         let draw = core::mem::replace(&mut self.draw, Draw::Cpu);
-        *self = Presenter::build(width, height, draw)?;
+        *self = Presenter::build(width, height, self.space, draw)?;
         Some(())
     }
 

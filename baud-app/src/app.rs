@@ -15,7 +15,7 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
-    Presented, Presenter, StylesBuffer,
+    Presented, Presenter, StylesBuffer, SurfaceSpace,
 };
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
@@ -181,6 +181,8 @@ struct App {
     stats: Frame,
     gpu_stats: GpuFrame,
     wanted: Path,
+    /// What the surfaces' bytes mean; the presenter tags them with it.
+    space: SurfaceSpace,
     /// When the last frame was committed, and how far apart the display
     /// link's ticks are: a wake draws at once when a frame's worth of time
     /// has passed, and leaves it to the tick otherwise, so a flood draws
@@ -214,6 +216,8 @@ struct Boot {
     pitch: baud_domain::Stride,
     probe: std::thread::JoinHandle<Option<Gpu>>,
     renderer: Renderer<'static, 'static>,
+    /// What the surfaces' bytes mean, from the config.
+    space: SurfaceSpace,
 }
 
 impl Boot {
@@ -270,6 +274,10 @@ impl Boot {
         startup_mark("faces");
         let mut theme = Theme::dark();
         theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
+        let space = match cfg.colorspace {
+            crate::config::Space::Srgb => SurfaceSpace::Srgb,
+            crate::config::Space::DisplayP3 => SurfaceSpace::DisplayP3,
+        };
         // At a placeholder grid: the renderer follows the terminal
         // (`Renderer::fit`) once the grid is known, and the cell metrics --
         // what the grid is computed from -- do not depend on it.
@@ -289,6 +297,7 @@ impl Boot {
             pitch,
             probe,
             renderer,
+            space,
         }
     }
 
@@ -306,6 +315,7 @@ impl App {
             pitch,
             probe,
             mut renderer,
+            space,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -414,6 +424,7 @@ impl App {
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
             wanted,
+            space,
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             last_tick: None,
@@ -478,16 +489,17 @@ impl App {
                 (Path::Instances | Path::Cells, _, Some(mut p)) if p.mode() == Mode::Gpu => {
                     p.resize(w, h).map(|()| p)
                 }
-                (Path::Instances | Path::Cells, Some(gpu), _) => Presenter::over(gpu, w, h),
+                (Path::Instances | Path::Cells, Some(gpu), _) => {
+                    Presenter::over(gpu, w, h, self.space)
+                }
                 // The device was taken by a presenter that then declined
                 // its targets; probe once more, and say so if that fails.
-                (Path::Instances | Path::Cells, None, _) => {
-                    Presenter::with_gpu(w, h).or_else(|| {
+                (Path::Instances | Path::Cells, None, _) => Presenter::with_gpu(w, h, self.space)
+                    .or_else(|| {
                         eprintln!("no Metal device, shaders or targets; drawing on the CPU");
-                        Presenter::new(w, h)
-                    })
-                }
-                (Path::Cpu, _, _) => Presenter::new(w, h),
+                        Presenter::new(w, h, self.space)
+                    }),
+                (Path::Cpu, _, _) => Presenter::new(w, h, self.space),
             };
             if let Some(p) = &self.presenter {
                 eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());

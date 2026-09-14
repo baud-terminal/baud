@@ -31,6 +31,19 @@ pub struct Config {
     pub font_size: f32,
     /// The window background's opacity, 0 clear to 255 opaque.
     pub background_alpha: u8,
+    /// What the surface's bytes mean: sRGB, which is what every colour a
+    /// terminal receives is specified as, or Display P3 for a reader who
+    /// wants the theme's numbers read as the wider gamut on purpose. The
+    /// compositor converts to each display from there.
+    pub colorspace: Space,
+}
+
+/// The colour space the surface is tagged with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Space {
+    #[default]
+    Srgb,
+    DisplayP3,
 }
 
 impl Config {
@@ -41,6 +54,7 @@ impl Config {
             faces: default_faces(),
             font_size: 13.0,
             background_alpha: 0xD8,
+            colorspace: Space::Srgb,
             source: None,
         }
     }
@@ -68,6 +82,18 @@ impl Config {
                     if let Ok(v) = value.trim().parse::<u8>() {
                         self.background_alpha = v;
                     }
+                }
+                "colorspace" => {
+                    self.colorspace = match value.trim().trim_matches('"') {
+                        "srgb" => Space::Srgb,
+                        "display-p3" => Space::DisplayP3,
+                        other => {
+                            eprintln!(
+                                "config: colorspace {other:?} is not srgb or display-p3; using srgb"
+                            );
+                            Space::Srgb
+                        }
+                    };
                 }
                 "fonts" => {
                     let faces: Vec<_> =

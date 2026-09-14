@@ -13,6 +13,11 @@ font_size = 13
 # through the glass. 216 is the default.
 background_alpha = 216
 
+# What the surface's bytes mean, converted to each display by the compositor:
+# "srgb", which every colour a terminal receives is specified as, or
+# "display-p3" to read the theme's numbers as the wider gamut on purpose.
+colorspace = "srgb"
+
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.
 #
