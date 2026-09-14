@@ -510,11 +510,15 @@ impl App {
                     convert: t0.elapsed(),
                     ..Frame::default()
                 };
-                if !FIRST_COMMIT.load(Ordering::Relaxed) {
+                if !FIRST_COMMIT.load(Ordering::Relaxed)
+                    || (FIRST_BYTES.load(Ordering::Relaxed)
+                        && !FIRST_CONTENT.load(Ordering::Relaxed))
+                {
                     startup_note(&format!(
-                        "first walk: {} map misses, {} window misses",
+                        "walk: {} map misses, {} window misses, {:.1} ms",
                         cell.map.stats().misses.value(),
-                        cell.exceptions.stats().window_misses.value()
+                        cell.exceptions.stats().window_misses.value(),
+                        self.stats.convert.as_secs_f64() * 1e3
                     ));
                 }
                 let input = CellInput {
@@ -1100,17 +1104,11 @@ pub fn run() {
         pty,
         boot,
     );
-    let mut driver = Driver {
-        app: probe,
-        view: view.clone(),
-        dock_icon: icon.clone(),
-    };
-    window.set_content_view(glass.view());
     // A transparent container fills the glass; the terminal view sits inside it
     // inset below the titlebar, so the glass still fills the strip the traffic
     // lights float over while row 0 clears them. Autoresizing keeps the inset
     // fixed as the window grows.
-    let full = glass.view().frame().size;
+    let full = frame.size;
     let container = NSView::initWithFrame(
         NSView::alloc(mtm),
         NSRect::new(NSPoint::new(0.0, 0.0), full),
@@ -1139,13 +1137,22 @@ pub fn run() {
         );
         container.addSubview(&iv);
     }
-    glass.set_content_view(&container);
+    // The container is the window's content until the first tick, when
+    // it moves under the glass; see `LateGlass`.
+    window.set_content_view(&container);
+    startup_mark("views");
     window.set_accepts_mouse_moved(true);
     window.set_min_size(NSSize::new(200.0, 100.0));
     window.center();
+    startup_mark("centered");
     window.show();
     startup_mark("shown");
     window.make_first_responder(&view);
+    let mut driver = Driver {
+        app: probe,
+        view: view.clone(),
+        dock_icon: icon.clone(),
+    };
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
     // draw. Its completion wakes the responder through the run loop, which
@@ -1154,6 +1161,16 @@ pub fn run() {
     let v = driver.view.clone();
     driver.app.present(&v, Show::Now);
     startup_mark("first frame");
+    // The glass under the terminal now that the first frame is on the
+    // layer: ordering a window whose content is a glass effect view costs
+    // 10-20 ms more than ordering one whose content is a plain view, so
+    // the window went up bare and the material lands here, before the run
+    // loop -- and before a responder exists, because moving the container
+    // re-enters the view's resize callback, which a responder callback
+    // holding the view's borrow cannot survive.
+    window.set_content_view(glass.view());
+    glass.set_content_view(&container);
+    startup_mark("glass installed");
     view.set_responder(Box::new(driver));
     view.start_display_link();
     view.waker().wake();

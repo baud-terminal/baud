@@ -727,13 +727,35 @@ impl Gpu {
     /// Whether the device shares memory with the CPU, which is what makes
     /// reading the grid in place a read rather than a transfer (D2's
     /// discrete arm is unbuilt).
-    /// An empty command buffer, committed at launch: the queue is live and
-    /// the GPU clocked up before the first frame asks for it, so that
-    /// frame's completion does not pay the first-use latency.
+    /// One small render pass, committed at launch and not waited for: the
+    /// first *render* pass a process runs costs ~5 ms on this box whatever
+    /// it draws, an empty command buffer does not prepay it, and this one
+    /// runs while the window is being made rather than inside the first
+    /// frame.
     pub fn warm(&self) {
-        if let Some(cmd) = self.queue.commandBuffer() {
-            cmd.commit();
-        }
+        let Some(scratch) = texture(
+            &self.device,
+            MTLPixelFormat::BGRA8Unorm,
+            Px::of(4),
+            Px::of(4),
+            MTLTextureUsage::RenderTarget,
+        ) else {
+            return;
+        };
+        let pass = MTLRenderPassDescriptor::new();
+        let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
+        att.setTexture(Some(&scratch));
+        att.setLoadAction(MTLLoadAction::Clear);
+        att.setStoreAction(MTLStoreAction::Store);
+        let Some(cmd) = self.queue.commandBuffer() else {
+            return;
+        };
+        let Some(enc) = cmd.renderCommandEncoderWithDescriptor(&pass) else {
+            return;
+        };
+        enc.setRenderPipelineState(&self.cell_bg_pipe);
+        enc.endEncoding();
+        cmd.commit();
     }
 
     pub fn unified_memory(&self) -> Memory {

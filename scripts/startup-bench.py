@@ -43,7 +43,9 @@ walls = []
 last_lines = []
 for i in range(runs):
     t0 = time.perf_counter()
-    p = subprocess.Popen([binary], env=env, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True)
+    # `close_fds=False`: the default walks and closes every descriptor before
+    # exec, ~3 ms a launch on this box that the terminal never pays.
+    p = subprocess.Popen([binary], env=env, stderr=subprocess.PIPE, stdout=subprocess.DEVNULL, text=True, close_fds=False)
     lines = []
     wall = None
     for line in p.stderr:
