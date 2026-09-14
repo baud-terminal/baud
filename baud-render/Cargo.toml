@@ -11,3 +11,9 @@ description = "baud's compositor: cells to instance records to pixels, on the CP
 baud-domain = { path = "../baud-domain" }
 baud-core = { path = "../baud-core", features = ["alloc"] }
 baud-font = { path = "../baud-font" }
+
+[features]
+# The `differs` count in `Exceptions`: what the cell shader would draw
+# wrong, measured on the path that shapes every run. A memo per codepoint,
+# so the bench enables it and the app does not.
+exceptions = []

@@ -48,6 +48,6 @@ pub use color::{Argb, Theme};
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
-pub use renderer::{Blink, Blinking, Converted, Damage, Frame, Renderer};
+pub use renderer::{Blink, Blinking, Converted, Damage, Exceptions, Frame, Renderer};
 pub use stack::{FaceIx, Stack};
 pub use units::{Band, Coverage, Digest, Tally};

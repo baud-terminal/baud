@@ -54,6 +54,50 @@ pub struct Converted {
     pub rows_dirty: Tally,
     pub rows: Tally,
     pub convert: Duration,
+    pub exceptions: Exceptions,
+}
+
+/// What the converted rows held that one glyph a cell cannot draw, and
+/// what finding it would cost a path that shapes only where it must. A
+/// count, taken on the path that shapes every run, of the cells the cell
+/// shader gets wrong and of the cells a per-face prefilter would send to
+/// the shaper to find them:
+///
+/// * `differs`: cells whose shaped glyphs are not what the cell shader's
+///   map gives for the codepoint alone -- a different glyph, a different
+///   offset, more than one glyph or none. This is the cells the shader
+///   draws wrong, and it is counted only under the `exceptions` feature,
+///   because it keeps a memo of the single-codepoint answer per codepoint.
+/// * `spanning`: cells covered by a glyph that spans more than its own
+///   cluster -- a ligature drawn as one wide glyph.
+/// * `marked`: cells carrying attached codepoints in the cluster store.
+/// * `starters`: cells whose glyph some `GSUB` lookup the grid features
+///   name can start on -- the face's own first-position coverage, so a
+///   font with unusual lookups is covered by construction.
+/// * `shaped`: cells of the runs holding at least one starter, which is
+///   what a prefiltered path would shape each frame.
+/// * `morx`: cells on a face with a `morx` table and no `GSUB`, which
+///   has no coverage to prefilter on.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Exceptions {
+    pub differs: Tally,
+    pub spanning: Tally,
+    pub marked: Tally,
+    pub starters: Tally,
+    pub shaped: Tally,
+    pub morx: Tally,
+}
+
+/// How a face's substitutions can be prefiltered.
+#[derive(Clone, Copy)]
+enum Starter {
+    /// The union of the face's lookup digests: a glyph outside it starts
+    /// no substitution.
+    Gsub(LookupDigest),
+    /// A `morx` face: no coverage to ask.
+    Morx,
+    /// No substitution table at all.
+    Plain,
 }
 
 /// What one frame cost and did.
@@ -69,6 +113,7 @@ pub struct Frame {
     pub atlas: AtlasStats,
     pub convert: Duration,
     pub composite: Duration,
+    pub exceptions: Exceptions,
 }
 
 /// An FNV-1a fold over the 256 palette entries the core carries.
@@ -128,6 +173,13 @@ pub struct Renderer<'f, 'a> {
     /// Per face, a digest per `GSUB` lookup the grid features name, so a
     /// cache miss opens only the lookups that can touch the run.
     digests: Vec<Vec<LookupDigest>>,
+    /// Per face, the prefilter the counts in [`Exceptions`] ask.
+    starters: Vec<Starter>,
+    /// The single-codepoint resolution per codepoint, memoised for the
+    /// `differs` count: the face and glyph the cell shader's map would
+    /// draw, with its offsets -- not an atlas slot, which a repack moves.
+    #[cfg(feature = "exceptions")]
+    singles: std::collections::HashMap<u32, Option<(FaceIx, Placed)>>,
     metrics: Metrics,
     theme: Theme,
     blend: Blend,
@@ -190,9 +242,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 d
             })
             .collect();
+        let starters = stack
+            .faces()
+            .iter()
+            .map(|f| match (f.gsub(), f.morx()) {
+                (Some(gsub), _) => {
+                    let mut d = vec![LookupDigest::EMPTY; MAX_LOOKUPS];
+                    gsub.digests(Features::GRID, &mut d);
+                    Starter::Gsub(d.into_iter().fold(LookupDigest::EMPTY, LookupDigest::union))
+                }
+                (None, Some(_)) => Starter::Morx,
+                (None, None) => Starter::Plain,
+            })
+            .collect();
         let mut r = Renderer {
             stack,
             scales,
+            starters,
+            #[cfg(feature = "exceptions")]
+            singles: std::collections::HashMap::new(),
             digests,
             metrics,
             theme,
@@ -353,6 +421,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_palette = palette;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut rows_dirty = Tally::default();
+        let mut exceptions = Exceptions::default();
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range]
@@ -365,7 +434,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
-                self.convert_row(term, Row::from_index(r), cursor);
+                self.convert_row(term, Row::from_index(r), cursor, &mut exceptions);
                 rows_dirty.bump();
             }
         }
@@ -377,6 +446,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             rows_dirty,
             rows: Tally::of(rows.index()),
             convert: t0.elapsed(),
+            exceptions,
         }
     }
 
@@ -388,6 +458,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             rows_dirty: converted.rows_dirty,
             rows: converted.rows,
             convert: converted.convert,
+            exceptions: converted.exceptions,
             ..Frame::default()
         };
         for r in 0..self.rows.index() {
@@ -514,7 +585,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Resolves one row's colours and glyphs.
-    fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor) {
+    fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
         // A copy of the row, so shaping may borrow the renderer mutably.
         let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
@@ -618,6 +689,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let start = c;
             let mut clusters: Vec<ClusterIn> = Vec::new();
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
+            let prefilter = self.starters[face.index()];
+            let mut starters_here = Tally::default();
             while c < row.len() && c - start < RUN_CELLS {
                 let cell = row[c];
                 let Some(cp) = cell.content.as_codepoint() else {
@@ -627,9 +700,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     break;
                 }
                 let width = if cell.flags.is_wide() { 2usize } else { 1usize };
+                match prefilter {
+                    Starter::Gsub(d) => {
+                        if let Some(g) = self.stack.face(face).glyph(cp) {
+                            let mut one = LookupDigest::EMPTY;
+                            one.add(g);
+                            if d.may_have(one) {
+                                starters_here.bump();
+                            }
+                        }
+                    }
+                    Starter::Morx => exc.morx.bump(),
+                    Starter::Plain => {}
+                }
                 let mut cps = vec![cp];
                 key = key.fold(cp.value());
                 if cell.flags.is_marked() {
+                    exc.marked.bump();
                     for m in term.marks(r, Col::at_index(c)) {
                         if let Some(mc) = Codepoint::new(m) {
                             cps.push(mc);
@@ -652,6 +739,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     s
                 }
             };
+            if starters_here.value() > 0 {
+                exc.starters.add(starters_here);
+                exc.shaped.add(Tally::of(c - start));
+            }
+            for p in shaped.glyphs() {
+                if p.last != p.cell {
+                    exc.spanning
+                        .add(Tally::of(usize::from(p.last.0) - usize::from(p.cell.0) + 1));
+                }
+            }
+            #[cfg(feature = "exceptions")]
+            self.count_differs(r, Col::at_index(start), &clusters, &shaped, exc);
             self.emit(face, r, Col::at_index(start), &shaped, &mut instances);
         }
         instances.extend(shapes);
@@ -691,6 +790,59 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Instances for a shaped run starting at column `start` of row `r`.
+    /// The `differs` count: for each cluster of the run, whether the
+    /// shaped glyphs are what the cell shader's map would draw for its
+    /// base codepoint -- one glyph, the same atlas slot, the same offset.
+    #[cfg(feature = "exceptions")]
+    fn count_differs(
+        &mut self,
+        r: Row,
+        start: Col,
+        clusters: &[ClusterIn],
+        shaped: &Shaped,
+        exc: &mut Exceptions,
+    ) {
+        let range = self.row_cells(r);
+        for cl in clusters {
+            let col = start.index() + usize::from(cl.at.0);
+            let Some(cp) = self
+                .cur
+                .get(range.start + col)
+                .and_then(|c| c.content.as_codepoint())
+            else {
+                continue;
+            };
+            let alone = match self.singles.get(&cp.value()) {
+                Some(s) => *s,
+                None => {
+                    let face = self.stack.select(cp);
+                    let one = [ClusterIn {
+                        cps: vec![cp],
+                        at: CellIx(0),
+                    }];
+                    let s = self.shape(face, &one).glyphs().first().map(|p| (face, *p));
+                    self.singles.insert(cp.value(), s);
+                    s
+                }
+            };
+            let face = self.stack.select(cp);
+            let mine: Vec<Placed> = shaped
+                .glyphs()
+                .iter()
+                .copied()
+                .filter(|p| p.cell == cl.at)
+                .collect();
+            let same = match (alone, mine.as_slice()) {
+                (None, []) => true,
+                (Some((af, a)), [p]) => af == face && a.id == p.id && a.dx == p.dx && a.dy == p.dy,
+                _ => false,
+            };
+            if !same {
+                exc.differs.bump();
+            }
+        }
+    }
+
     fn emit(&mut self, face: FaceIx, r: Row, start: Col, shaped: &Shaped, out: &mut Vec<Instance>) {
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
