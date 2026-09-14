@@ -60,11 +60,6 @@ enum Pending {
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
-/// How long the window size must hold before the child is told: a live
-/// resize fires the callback continuously, and one `SIGWINCH` at the end
-/// beats dozens during, which a prompt that reprints on `WINCH` turns into
-/// a trail. 80 ms is ~5 frames, below noticing.
-const RESIZE_SETTLE: Duration = Duration::from_millis(80);
 /// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
 /// hides for this long. ~1.2 Hz, the middle of what terminals use.
 const BLINK_HALF: f64 = 0.4;
@@ -171,14 +166,6 @@ struct App {
     padding: f64,
     scale: CGFloat,
     grid: WinSize,
-    /// The pty size owed but not yet sent: a live drag fires the resize
-    /// callback dozens of times, so the child gets one `SIGWINCH` on the
-    /// next tick, not one per intermediate size -- a prompt that reprints on
-    /// `WINCH` would otherwise leave a trail. `None` when the pty is current.
-    pty_owed: Option<(WinSize, Px, Px)>,
-    /// When the size last changed, so the owed resize is sent only once it
-    /// settles -- a continuous drag keeps moving this forward.
-    resize_at: Option<Instant>,
     sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
@@ -448,8 +435,6 @@ impl App {
             padding,
             scale,
             grid: ws,
-            pty_owed: None,
-            resize_at: None,
             sizing,
             pending: Pending::Dirty,
             back: Rows::ZERO,
@@ -1154,21 +1139,6 @@ impl Responder for Driver {
                 self.app.pending = Pending::Dirty;
             }
         }
-        // Send the owed pty resize once the size has settled: a continuous
-        // drag keeps `resize_at` moving, so the child gets one `SIGWINCH`
-        // when it stops rather than one per intermediate size. The display
-        // link keeps ticking during a live resize, so a per-tick flush would
-        // still trail; the debounce is what collapses it.
-        if self
-            .app
-            .resize_at
-            .is_some_and(|t| t.elapsed() >= RESIZE_SETTLE)
-        {
-            self.app.resize_at = None;
-            if let Some((ws, w, h)) = self.app.pty_owed.take() {
-                self.app.pty.resize(&ws, w, h);
-            }
-        }
         self.pump(Trigger::Tick);
     }
 
@@ -1197,12 +1167,23 @@ impl Responder for Driver {
 }
 
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
-/// bundle: the dock icon and the titlebar mark both read from it.
+/// bundle. The dock wants the mark with its own padding, the way an app icon
+/// sits in the Dock; the titlebar wants it snug against its box, or the strip
+/// makes it tiny -- so the two read from different crops of the same mark.
 fn icon() -> Option<Retained<NSImage>> {
     // The bare mark on a transparent ground -- just the glyph, no square behind
-    // it -- for both the dock and the titlebar. The SVG itself, not a raster,
-    // so NSImage renders it as a vector with real transparency.
+    // it. The SVG itself, not a raster, so NSImage renders it as a vector with
+    // real transparency. This one keeps the 512-box padding, for the Dock.
     const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-mark-amber.svg");
+    macos_liquid_glass::image_from_bytes(BYTES)
+}
+
+/// The same mark, cropped snug to its own bounds. In the padded 512 box the
+/// glyph is a third of the height, so a titlebar-sized box drew a mark half
+/// the size of a traffic light; this viewBox is tight to the strokes, so the
+/// box the icon is given is the size the mark is drawn at.
+fn icon_titlebar() -> Option<Retained<NSImage>> {
+    const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-mark-amber-tight.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
@@ -1390,21 +1371,25 @@ pub fn run() {
                     // strip from geometry we already know: it runs from
                     // `full.height - inset` to `full.height`.
                     let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
-                    // A peer of the lights, bigger than before: their height
-                    // and a half, clamped so it stays within the strip.
-                    let s = (z.size.height * 1.5).clamp(16.0, inset - 4.0);
+                    // A peer of the lights: nearly the full strip height, so
+                    // the snug mark reads at a traffic light's size or larger.
+                    let s = (z.size.height * 1.8).clamp(18.0, inset - 2.0);
                     (s, z.origin.x + z.size.width + gap)
                 })
             }
             _ => None,
         };
         let (s, left) = measured.unwrap_or_else(|| {
-            let s = (inset * 0.8).clamp(16.0, inset - 4.0);
+            let s = (inset - 2.0).clamp(18.0, 28.0);
             (s, 74.0)
         });
         // Centred in the titlebar strip, whose top is the window top.
         let cy = full.height - inset / 2.0;
-        let iv = macos_liquid_glass::icon_view(mtm, img);
+        // The snug crop, not the padded dock mark, so the box is the size.
+        let iv = match icon_titlebar() {
+            Some(tight) => macos_liquid_glass::icon_view(mtm, &tight),
+            None => macos_liquid_glass::icon_view(mtm, img),
+        };
         iv.setFrame(NSRect::new(
             NSPoint::new(left, cy - s / 2.0),
             NSSize::new(s, s),
@@ -1602,17 +1587,12 @@ impl Driver {
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
-            // The pty resize is owed, not sent: the tick flushes one
-            // `SIGWINCH` after the drag settles rather than dozens during it.
-            self.app.pty_owed = Some((
-                WinSize {
-                    ws_col: ws.ws_col,
-                    ws_row: ws.ws_row,
-                },
-                px(px_w),
-                px(px_h),
-            ));
-            self.app.resize_at = Some(Instant::now());
+            // The `SIGWINCH` is sent on the drag event itself, not deferred:
+            // a full-screen program redraws into the new geometry as the
+            // window moves, so it fills the rows the reflow opened rather
+            // than leaving them blank until the drag stops -- the black gaps
+            // a settle-delay left in a live resize.
+            self.app.pty.resize(&ws, px(px_w), px(px_h));
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells.
