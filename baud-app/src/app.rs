@@ -2,8 +2,8 @@
 #![forbid(unsafe_code)]
 
 use crate::host::{
-    FIRST_COMMIT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK, MAX_GRID, describe, host_geometry,
-    load_faces, startup_first, startup_mark,
+    FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK, MAX_GRID,
+    describe, host_geometry, load_faces, startup_first, startup_mark, startup_note,
 };
 use crate::pty::{Pty, Stream};
 use baud_core::{Depth, Owned, Term, grid_stride};
@@ -26,12 +26,24 @@ use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSView,
+    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSScreen,
+    NSView, NSWindow, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 use macos_liquid_glass::window::GlassWindow;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+
+/// How a frame reaches the screen: through the GPU's completion and the
+/// run loop, as every frame in the loop does, or on this thread with the
+/// GPU waited for -- the first frame at launch, before a run loop exists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Show {
+    Event,
+    Now,
+}
 
 /// Whether the screen needs painting.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -180,8 +192,20 @@ struct App {
     next_damage: Damage,
 }
 
-impl App {
-    fn new(ws: WinSize, sizing: Sizing, scale: CGFloat, waker: Waker) -> App {
+/// What launch prepares before a window or a grid exists -- the cache
+/// geometry, the GPU, the config, the faces and the renderer -- so the
+/// child shell can be spawned and AppKit started with all of it done.
+/// Under six milliseconds together; the point is what it lets overlap.
+struct Boot {
+    request: Request,
+    geom: baud_domain::CacheGeometry,
+    pitch: baud_domain::Stride,
+    probe: Option<Gpu>,
+    renderer: Renderer<'static, 'static>,
+}
+
+impl Boot {
+    fn prepare(scale: CGFloat) -> Boot {
         // **One probe, before the terminal.** Every path but the CPU's needs
         // the same device, `Gpu::new` compiles the shaders, and the cell path
         // has to know before the storage is placed whether the grid can live
@@ -211,7 +235,60 @@ impl App {
             Request::Force(Path::Cpu) => None,
             _ => Gpu::new(),
         };
+        if let Some(g) = &probe {
+            g.warm();
+        }
         startup_mark("gpu probed");
+        let cfg = crate::config::Config::load();
+        startup_mark("config");
+        match &cfg.source {
+            Some(p) => eprintln!("config: {}", p.display()),
+            None => eprintln!("config: none found; the built-in stack"),
+        }
+        for f in &cfg.faces {
+            eprintln!("face: {}", f.path);
+        }
+        let faces = load_faces(&cfg);
+        startup_mark("faces");
+        let mut theme = Theme::dark();
+        theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
+        // At a placeholder grid: the renderer follows the terminal
+        // (`Renderer::fit`) once the grid is known, and the cell metrics --
+        // what the grid is computed from -- do not depend on it.
+        let renderer = Renderer::new(
+            Stack::new(faces).expect("faces"),
+            PxSize::of(cfg.font_size * scale as f32).expect("size"),
+            theme,
+            Blend::Native,
+            Cols::of_index(80),
+            Rows::of_index(24),
+        )
+        .expect("cell metrics");
+        startup_mark("renderer");
+        Boot {
+            request,
+            geom,
+            pitch,
+            probe,
+            renderer,
+        }
+    }
+
+    fn metrics_cell(&self) -> (f64, f64) {
+        let m = self.renderer.metrics();
+        (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()))
+    }
+}
+
+impl App {
+    fn new(ws: WinSize, sizing: Sizing, scale: CGFloat, waker: Waker, pty: Pty, boot: Boot) -> App {
+        let Boot {
+            request,
+            geom,
+            pitch,
+            probe,
+            mut renderer,
+        } = boot;
         let own_grid = |ws: &WinSize| {
             let owned: &'static mut Owned =
                 Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
@@ -248,32 +325,7 @@ impl App {
             }
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
         };
-        let cfg = crate::config::Config::load();
-        startup_mark("config");
-        match &cfg.source {
-            Some(p) => eprintln!("config: {}", p.display()),
-            None => eprintln!("config: none found; the built-in stack"),
-        }
-        for f in &cfg.faces {
-            eprintln!("face: {}", f.path);
-        }
-        let faces = load_faces(&cfg);
-        startup_mark("faces");
-        let mut theme = Theme::dark();
-        theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
-        let renderer = Renderer::new(
-            Stack::new(faces).expect("faces"),
-            PxSize::of(cfg.font_size * scale as f32).expect("size"),
-            theme,
-            Blend::Native,
-            Cols::of_index(usize::from(ws.ws_col)),
-            Rows::of_index(usize::from(ws.ws_row)),
-        )
-        .expect("cell metrics");
-        startup_mark("renderer");
-        let reader_waker = waker;
-        let pty = Pty::spawn(&ws, move || reader_waker.wake()).expect("pty");
-        startup_mark("pty");
+        renderer.fit(&term);
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (gpu.styles(&term), gpu.map()) {
@@ -368,7 +420,7 @@ impl App {
         }
     }
 
-    fn present(&mut self, view: &DrawableView) {
+    fn present(&mut self, screen: &DrawableView, show: Show) {
         // The surface is the renderer's size, so the renderer follows the
         // terminal first; the cell path never converts and would otherwise
         // keep the grid it started with.
@@ -458,6 +510,13 @@ impl App {
                     convert: t0.elapsed(),
                     ..Frame::default()
                 };
+                if !FIRST_COMMIT.load(Ordering::Relaxed) {
+                    startup_note(&format!(
+                        "first walk: {} map misses, {} window misses",
+                        cell.map.stats().misses.value(),
+                        cell.exceptions.stats().window_misses.value()
+                    ));
+                }
                 let input = CellInput {
                     grid: match self.term.screen() {
                         baud_core::Screen::Normal => &cell.grid,
@@ -473,9 +532,19 @@ impl App {
                     records: &cell.records,
                 };
                 if let Some(p) = &mut self.presenter {
-                    match p.draw_cells(waker, &mut self.renderer, &input) {
+                    let drawn = match show {
+                        Show::Event => p.draw_cells(waker, &mut self.renderer, &input),
+                        Show::Now => p.draw_cells_now(screen, &mut self.renderer, &input),
+                    };
+                    match drawn {
                         Some(Drawn::Frame(g)) => {
                             startup_first("first commit", &FIRST_COMMIT);
+                            if show == Show::Now {
+                                startup_first("first present", &FIRST_PRESENT);
+                            }
+                            if FIRST_BYTES.load(Ordering::Relaxed) {
+                                startup_first("first content", &FIRST_CONTENT);
+                            }
                             self.gpu_stats = g;
                         }
                         // Still in flight: the completion wakes us.
@@ -493,9 +562,19 @@ impl App {
                     ..Frame::default()
                 };
                 if let Some(p) = &mut self.presenter {
-                    match p.draw(waker, &mut self.renderer) {
+                    let drawn = match show {
+                        Show::Event => p.draw(waker, &mut self.renderer),
+                        Show::Now => p.draw_now(screen, &mut self.renderer),
+                    };
+                    match drawn {
                         Some(Drawn::Frame(g)) => {
                             startup_first("first commit", &FIRST_COMMIT);
+                            if show == Show::Now {
+                                startup_first("first present", &FIRST_PRESENT);
+                            }
+                            if FIRST_BYTES.load(Ordering::Relaxed) {
+                                startup_first("first content", &FIRST_CONTENT);
+                            }
                             self.gpu_stats = g;
                         }
                         Some(Drawn::Busy) => return,
@@ -510,8 +589,11 @@ impl App {
                 };
                 self.stats = stats;
                 if let Some(p) = &mut self.presenter {
-                    if p.present(view, &self.frame, w) == Presented::Yes {
+                    if p.present(screen, &self.frame, w) == Presented::Yes {
                         startup_first("first present", &FIRST_PRESENT);
+                        if FIRST_BYTES.load(Ordering::Relaxed) {
+                            startup_first("first content", &FIRST_CONTENT);
+                        }
                     }
                 }
             }
@@ -605,6 +687,10 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
+    /// The Dock icon, set on the first display-link tick: vImage converts
+    /// the image for the Dock on this thread, ~10 ms, and nothing on
+    /// screen waits for it.
+    dock_icon: Option<Retained<NSImage>>,
 }
 
 impl Driver {
@@ -619,6 +705,9 @@ impl Driver {
             return;
         }
         let drained = self.app.pty.drain();
+        if !drained.chunks.is_empty() {
+            startup_first("first bytes", &FIRST_BYTES);
+        }
         let before = self.app.term.rotation();
         for chunk in &drained.chunks {
             self.app.term.write_at(BytePos::ZERO, chunk);
@@ -665,7 +754,7 @@ impl Driver {
         let due = trigger == Trigger::Tick || self.app.last_commit.elapsed() >= self.app.interval;
         if due {
             let view = self.view.clone();
-            self.app.present(&view);
+            self.app.present(&view, Show::Event);
         }
     }
 }
@@ -824,12 +913,16 @@ impl Responder for Driver {
             // the pitch is fixed, so each row was clipped or extended in place
             // -- so this paints what is there at the new geometry, and the
             // child redraws into it on `SIGWINCH`.
-            self.app.present(&self.view);
+            self.app.present(&self.view, Show::Event);
         }
     }
 
     fn frame(&mut self, target: f64) {
         startup_first("first tick", &FIRST_TICK);
+        if let (Some(img), Some(mtm)) = (self.dock_icon.take(), MainThreadMarker::new()) {
+            macos_liquid_glass::set_application_icon(&NSApplication::sharedApplication(mtm), &img);
+            startup_mark("dock icon");
+        }
         if let Some(last) = self.app.last_tick {
             let dt = target - last;
             if dt > 0.001 && dt < 0.1 {
@@ -892,34 +985,32 @@ fn icon() -> Option<Retained<NSImage>> {
 
 pub fn run() {
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
-    let ns_app = NSApplication::sharedApplication(mtm);
-    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-    startup_mark("nsapp");
-    let icon = icon();
-    startup_mark("icon");
-    if let Some(img) = &icon {
-        macos_liquid_glass::set_application_icon(&ns_app, img);
-    }
     let size = NSSize::new(960.0, 600.0);
-    let window = GlassWindow::new(mtm, size, "baud");
-    startup_mark("glass window");
-    let scale = window.ns_window().backingScaleFactor();
-    // The window is FullSizeContentView, so its content spans the frame behind
-    // the transparent titlebar and the traffic lights. `contentLayoutRect` is
-    // the area below the titlebar, so the difference is the titlebar height in
-    // points -- the top inset the terminal must leave so row 0 clears the
-    // lights. Constant for the life of the window.
+    // What the grid needs before a window exists: the display's scale, and
+    // the titlebar's height -- the window is FullSizeContentView, so its
+    // content spans the frame behind the transparent titlebar and the
+    // traffic lights, and the terminal leaves that strip so row 0 clears
+    // the lights. Both are class-level answers, so the child shell can be
+    // spawned at its real grid before AppKit starts, and its own startup
+    // overlaps AppKit's rather than following it.
+    let early_scale = crate::pty::display_scale();
     let inset = {
-        let w = window.ns_window();
-        let content_h = w
-            .contentView()
-            .map_or(size.height, |v| v.frame().size.height);
-        (content_h - w.contentLayoutRect().size.height).max(0.0)
+        let content = NSRect::new(NSPoint::new(0.0, 0.0), size);
+        let frame =
+            NSWindow::frameRectForContentRect_styleMask(content, NSWindowStyleMask::Titled, mtm);
+        (frame.size.height - size.height).max(0.0)
     };
-    let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
-    let glass = GlassSurface::new(mtm, frame, GlassStyle::Regular, 16.0).expect("glass");
-    let view = DrawableView::new(mtm, frame);
-    startup_mark("window");
+    startup_mark("screen");
+    let scale = match early_scale {
+        Some(s) => s,
+        None => {
+            // No display CoreGraphics will name: AppKit's answer, at
+            // AppKit's price.
+            NSApplication::sharedApplication(mtm);
+            NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
+        }
+    };
+    let boot = Boot::prepare(scale);
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -931,19 +1022,74 @@ pub fn run() {
             ws_row: r.parse().ok()?,
         })
     });
-    // Otherwise the initial grid is a placeholder the view's first resize
-    // callback settles from the window's points and the cell size.
+    let (cw, ch) = boot.metrics_cell();
+    let ws = grid.as_ref().map_or_else(
+        || {
+            grid_for(
+                NSSize::new(size.width, (size.height - inset).max(0.0)),
+                scale,
+                (cw, ch),
+            )
+        },
+        |ws| WinSize {
+            ws_col: ws.ws_col,
+            ws_row: ws.ws_row,
+        },
+    );
+    // The reader wakes the main thread through the view, which does not
+    // exist yet; bytes that arrive before it does wait in the channel and
+    // the first wake after the window is shown drains them.
+    let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
+    let wake_late = Arc::clone(&late);
+    let pty = Pty::spawn(&ws, move || {
+        if let Some(w) = wake_late.get() {
+            w.wake();
+        }
+    })
+    .expect("pty");
+    startup_mark("pty");
+    let ns_app = NSApplication::sharedApplication(mtm);
+    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    startup_mark("nsapp");
+    let icon = icon();
+    startup_mark("icon");
+    let window = GlassWindow::new(mtm, size, "baud");
+    startup_mark("glass window");
+    // The inset predicted above, checked against the window that exists
+    // now; the window's own value is what the layout uses.
+    let measured = {
+        let w = window.ns_window();
+        let content_h = w
+            .contentView()
+            .map_or(size.height, |v| v.frame().size.height);
+        (content_h - w.contentLayoutRect().size.height).max(0.0)
+    };
+    if (measured - inset).abs() > 0.5 {
+        startup_note(&format!(
+            "titlebar inset: predicted {inset:.1}, measured {measured:.1}"
+        ));
+    }
+    let inset = measured;
+    let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
+    let glass = GlassSurface::new(mtm, frame, GlassStyle::Regular, 16.0).expect("glass");
+    let view = DrawableView::new(mtm, frame);
+    startup_mark("window");
+    let _ = late.set(view.waker());
+    if grid.is_some() {
+        // The window sized to the grid in points, from the cell metrics at
+        // this scale, before it is shown; its first resize callback then
+        // computes the same grid and changes nothing. The grid sits below
+        // the titlebar inset, so the window is that much taller than the
+        // grid; otherwise the inset would steal a row from the fixed
+        // geometry a benchmark asked for.
+        let wanted = NSSize::new(
+            f64::from(ws.ws_col) * cw / scale,
+            f64::from(ws.ws_row) * ch / scale + inset,
+        );
+        window.ns_window().setContentSize(wanted);
+    }
     let probe = App::new(
-        grid.as_ref().map_or(
-            WinSize {
-                ws_col: 80,
-                ws_row: 24,
-            },
-            |ws| WinSize {
-                ws_col: ws.ws_col,
-                ws_row: ws.ws_row,
-            },
-        ),
+        ws,
         if grid.is_some() {
             Sizing::Fixed
         } else {
@@ -951,26 +1097,14 @@ pub fn run() {
         },
         scale,
         view.waker(),
+        pty,
+        boot,
     );
-    if let Some(ws) = grid {
-        // The window sized to the grid in points, from the cell metrics at
-        // this scale, before it is shown; its first resize callback then
-        // computes the same grid and changes nothing.
-        let (cw, ch) = probe.metrics_cell();
-        // The grid sits below the titlebar inset, so the window is that much
-        // taller than the grid; otherwise the inset would steal a row from the
-        // fixed geometry a benchmark asked for.
-        let wanted = NSSize::new(
-            f64::from(ws.ws_col) * cw / scale,
-            f64::from(ws.ws_row) * ch / scale + inset,
-        );
-        window.ns_window().setContentSize(wanted);
-    }
-    let driver = Driver {
+    let mut driver = Driver {
         app: probe,
         view: view.clone(),
+        dock_icon: icon.clone(),
     };
-    view.set_responder(Box::new(driver));
     window.set_content_view(glass.view());
     // A transparent container fills the glass; the terminal view sits inside it
     // inset below the titlebar, so the glass still fills the strip the traffic
@@ -1012,10 +1146,29 @@ pub fn run() {
     window.show();
     startup_mark("shown");
     window.make_first_responder(&view);
+    // The first frame now, on this thread, before the run loop is entered:
+    // the geometry the view's first resize callback would report, then one
+    // draw. Its completion wakes the responder through the run loop, which
+    // is where the surface reaches the layer.
+    Responder::resized(&mut driver, view.frame().size, scale);
+    let v = driver.view.clone();
+    driver.app.present(&v, Show::Now);
+    startup_mark("first frame");
+    view.set_responder(Box::new(driver));
     view.start_display_link();
-    // The first frame at once, rather than at the display link's first
-    // tick 35-43 ms later: the wake runs as soon as the run loop starts.
     view.waker().wake();
     ns_app.activate();
     ns_app.run();
+}
+
+/// The grid a view of `size` points holds at `scale`, from the cell size
+/// in pixels: the arithmetic of `Responder::resized`, for the spawn that
+/// happens before the view exists.
+fn grid_for(size: NSSize, scale: CGFloat, cell: (f64, f64)) -> WinSize {
+    let cols = ((size.width * scale / cell.0).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
+    let rows = ((size.height * scale / cell.1).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
+    WinSize {
+        ws_col: u16::try_from(cols).unwrap_or(2),
+        ws_row: u16::try_from(rows).unwrap_or(1),
+    }
 }

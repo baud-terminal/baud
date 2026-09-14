@@ -229,6 +229,43 @@ impl Presenter {
         Some(self.committed(drawn))
     }
 
+    /// The instance path drawn and shown now: the GPU waited for and the
+    /// surface set on `view` on this thread. For the first frame at launch,
+    /// before a run loop exists to carry the completion; never in the loop.
+    pub fn draw_now(
+        &mut self,
+        view: &DrawableView,
+        renderer: &mut Renderer<'_, '_>,
+    ) -> Option<Drawn> {
+        let slot = self.next.0;
+        let Draw::Gpu { gpu, targets } = &mut self.draw else {
+            return None;
+        };
+        let drawn = gpu.draw(renderer, targets.get(slot)?, Done::Wait)?;
+        if let Drawn::Frame(_) = drawn {
+            view.set_surface(self.surfaces[slot].io_surface());
+        }
+        Some(self.committed(drawn))
+    }
+
+    /// The cell path drawn and shown now; see [`Presenter::draw_now`].
+    pub fn draw_cells_now(
+        &mut self,
+        view: &DrawableView,
+        renderer: &mut Renderer<'_, '_>,
+        input: &CellInput<'_>,
+    ) -> Option<Drawn> {
+        let slot = self.next.0;
+        let Draw::Gpu { gpu, targets } = &mut self.draw else {
+            return None;
+        };
+        let drawn = gpu.draw_cells(renderer, input, targets.get(slot)?, Done::Wait)?;
+        if let Drawn::Frame(_) = drawn {
+            view.set_surface(self.surfaces[slot].io_surface());
+        }
+        Some(self.committed(drawn))
+    }
+
     /// Commits the raw grid -- the cell path -- into the next surface, to be
     /// shown when the GPU is done. The GPU path only.
     pub fn draw_cells(

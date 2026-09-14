@@ -727,6 +727,15 @@ impl Gpu {
     /// Whether the device shares memory with the CPU, which is what makes
     /// reading the grid in place a read rather than a transfer (D2's
     /// discrete arm is unbuilt).
+    /// An empty command buffer, committed at launch: the queue is live and
+    /// the GPU clocked up before the first frame asks for it, so that
+    /// frame's completion does not pay the first-use latency.
+    pub fn warm(&self) {
+        if let Some(cmd) = self.queue.commandBuffer() {
+            cmd.commit();
+        }
+    }
+
     pub fn unified_memory(&self) -> Memory {
         if self.device.hasUnifiedMemory() {
             Memory::Unified

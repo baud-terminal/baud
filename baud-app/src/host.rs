@@ -131,8 +131,24 @@ pub fn startup_first(stage: &str, seen: &AtomicBool) {
     }
 }
 
+/// A free-form line under the same flag, for a count the stages cannot
+/// carry -- the first frame's map misses, a predicted inset that missed.
+#[cfg(target_os = "macos")]
+pub fn startup_note(text: &str) {
+    if WANTED.get() != Some(&Wanted::Print) {
+        return;
+    }
+    eprintln!("startup: {text}");
+}
+
 #[cfg(target_os = "macos")]
 pub static FIRST_COMMIT: AtomicBool = AtomicBool::new(false);
+/// The first bytes the child wrote, and the first frame committed after
+/// them: what a user waits for, where `first commit` is an empty screen.
+#[cfg(target_os = "macos")]
+pub static FIRST_BYTES: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+pub static FIRST_CONTENT: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub static FIRST_DONE: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]

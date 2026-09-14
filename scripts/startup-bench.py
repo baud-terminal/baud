@@ -25,10 +25,19 @@ import time
 
 runs = int(sys.argv[1]) if len(sys.argv) > 1 else 7
 binary = sys.argv[2] if len(sys.argv) > 2 else "target/release/baud"
-FIRST = re.compile(r"^startup: (first completion|first present)\s")
+# `BAUD_BENCH_STAGE` names the line the wall is taken to: the first frame
+# by default, or `first content` for the first frame after the child wrote.
+STAGE = os.environ.get("BAUD_BENCH_STAGE", "first completion|first present")
+FIRST = re.compile(rf"^startup: ({STAGE})\s")
 
 env = dict(os.environ)
-env.update({"BAUD_STARTUP": "1", "BAUD_CMD": "sleep 5", "BAUD_GRID": "200x50"})
+env.update({"BAUD_STARTUP": "1", "BAUD_GRID": "200x50"})
+# `BAUD_CMD=shell` runs the login shell the app would run, for the wall to
+# `first content`; anything else is the child, and unset is `sleep 5`.
+if env.get("BAUD_CMD") == "shell":
+    del env["BAUD_CMD"]
+else:
+    env.setdefault("BAUD_CMD", "sleep 5")
 
 walls = []
 last_lines = []

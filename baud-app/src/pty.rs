@@ -2,7 +2,8 @@
 //! macOS and polled beside the compositor's socket on Linux.
 //!
 //! The one place this binary calls libc: `forkpty`, `execvp`, `read`,
-//! `write`, `poll`, the `TIOCSWINSZ` ioctl, and `mmap` for the font files. On macOS the reader thread
+//! `write`, `poll`, the `TIOCSWINSZ` ioctl, `mmap` for the font files, and
+//! CoreGraphics for the display's scale before AppKit exists. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
 //! every `read(2)` -- 4096 bytes at a time, which is what `N_TTY_BUF_SIZE`
 //! and the Darwin clist hand back anyway -- to the main thread over a
@@ -363,4 +364,47 @@ pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
     // SAFETY: `ptr` is a live, page-aligned, read-only mapping of exactly
     // `len` bytes that outlives every borrow of it.
     Ok(unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) })
+}
+
+#[cfg(target_os = "macos")]
+/// A display, as CoreGraphics names one.
+#[repr(transparent)]
+struct DisplayId(u32);
+
+#[cfg(target_os = "macos")]
+/// A count of pixels, as `CGDisplayPixelsWide` returns one.
+#[repr(transparent)]
+struct Pixels(usize);
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGMainDisplayID() -> DisplayId;
+    fn CGDisplayPixelsWide(display: DisplayId) -> Pixels;
+    fn CGDisplayBounds(display: DisplayId) -> macos_liquid_glass::objc2_core_foundation::CGRect;
+}
+
+/// The main display's backing scale -- pixels over points -- from
+/// CoreGraphics, which answers without starting AppKit. Asking
+/// `NSScreen` for the same number costs AppKit's whole initialisation,
+/// 42 ms measured, and the grid the shell is spawned at needs it first.
+/// `None` when the display reports no width, which is no display.
+#[cfg(target_os = "macos")]
+pub fn display_scale() -> Option<f64> {
+    // SAFETY: three CoreGraphics calls with no pointers and no
+    // preconditions; a display id is a plain integer and the bounds a
+    // struct returned by value.
+    let (pixels, bounds) = unsafe {
+        let id = CGMainDisplayID();
+        (
+            CGDisplayPixelsWide(DisplayId(id.0)),
+            CGDisplayBounds(DisplayId(id.0)),
+        )
+    };
+    let points = bounds.size.width;
+    if points <= 0.0 || pixels.0 == 0 {
+        return None;
+    }
+    // A count of pixels a display has is exact in an f64.
+    Some(pixels.0 as f64 / points)
 }
