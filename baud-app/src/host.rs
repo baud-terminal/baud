@@ -60,18 +60,20 @@ pub fn describe(geom: &CacheGeometry) -> String {
     )
 }
 
-/// Every face the config names, read and parsed. Each face's bytes are
-/// leaked and then parsed, because the faces borrow them; a face that
-/// cannot be read or parsed is fatal with its path, because a terminal
-/// with no font draws nothing.
+/// Every face the config names, mapped and parsed. Each face's bytes are
+/// a read-only mapping for the life of the process, because the faces
+/// borrow them and a read of the whole file was the launch's largest
+/// controllable cost; a face that cannot be mapped or parsed is fatal
+/// with its path, because a terminal with no font draws nothing.
 pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
     let data: Vec<&'static [u8]> = cfg
         .faces
         .iter()
         .map(|f| {
-            let bytes = std::fs::read(&f.path).unwrap_or_else(|e| panic!("font {}: {e}", f.path));
-            startup_mark(&format!("read {}", f.path.rsplit('/').next().unwrap_or("")));
-            &*Box::leak(bytes.into_boxed_slice())
+            let bytes = crate::pty::map_readonly(&f.path)
+                .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+            startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
+            bytes
         })
         .collect();
     Box::leak(

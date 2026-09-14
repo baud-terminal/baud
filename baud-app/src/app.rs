@@ -977,6 +977,9 @@ pub fn run() {
     startup_mark("shown");
     window.make_first_responder(&view);
     view.start_display_link();
+    // The first frame at once, rather than at the display link's first
+    // tick 35-43 ms later: the wake runs as soon as the run loop starts.
+    view.waker().wake();
     ns_app.activate();
     ns_app.run();
 }

@@ -2,7 +2,7 @@
 //! macOS and polled beside the compositor's socket on Linux.
 //!
 //! The one place this binary calls libc: `forkpty`, `execvp`, `read`,
-//! `write`, `poll` and the `TIOCSWINSZ` ioctl. On macOS the reader thread
+//! `write`, `poll`, the `TIOCSWINSZ` ioctl, and `mmap` for the font files. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
 //! every `read(2)` -- 4096 bytes at a time, which is what `N_TTY_BUF_SIZE`
 //! and the Darwin clist hand back anyway -- to the main thread over a
@@ -309,4 +309,58 @@ pub fn wait(
         _ => Ready::Readable,
     };
     Ok((ready(&fds[0]), ready(&fds[1])))
+}
+
+/// A font file as a read-only, private mapping, for the life of the
+/// process. A face is a bounds-checked view over the file's bytes, so a
+/// mapping is the same thing a read into memory is -- without the read:
+/// Apple Color Emoji is 192 MB, and reading it whole was 17 ms of every
+/// launch for the few strikes a screen uses. The pages a face touches are
+/// the pages that get paged in.
+pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
+    let c = CString::new(path).map_err(|_| std::io::Error::other("a NUL in a font path"))?;
+    // SAFETY: a NUL-terminated path and flags; the descriptor returned is
+    // ours until `close` below.
+    let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `st` is a zeroed stat buffer the kernel fills for an open fd.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: an open descriptor and a pointer to a stat buffer of the
+    // right layout.
+    if unsafe { libc::fstat(fd, &mut st) } < 0 {
+        let e = std::io::Error::last_os_error();
+        // SAFETY: the descriptor is ours and open.
+        unsafe { libc::close(fd) };
+        return Err(e);
+    }
+    let len = usize::try_from(st.st_size).unwrap_or(0);
+    if len == 0 {
+        // SAFETY: as above.
+        unsafe { libc::close(fd) };
+        return Err(std::io::Error::other("an empty font file"));
+    }
+    // SAFETY: a private read-only mapping of the whole file at offset
+    // zero; the kernel validates the length against the file. The mapping
+    // is never unmapped, so the slice below lives as long as the process.
+    let ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            fd,
+            0,
+        )
+    };
+    // SAFETY: the mapping holds its own reference to the file; the
+    // descriptor is no longer needed.
+    unsafe { libc::close(fd) };
+    if ptr == libc::MAP_FAILED {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `ptr` is a live, page-aligned, read-only mapping of exactly
+    // `len` bytes that outlives every borrow of it.
+    Ok(unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) })
 }
