@@ -1167,14 +1167,17 @@ impl Responder for Driver {
 }
 
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
-/// bundle. The dock wants the mark with its own padding, the way an app icon
-/// sits in the Dock; the titlebar wants it snug against its box, or the strip
-/// makes it tiny -- so the two read from different crops of the same mark.
+/// bundle. The Dock wants a proper app icon -- a rounded square with the mark
+/// centred and padding around it, like every other app; the titlebar wants
+/// the bare mark snug against its box, or the strip makes it tiny -- so the
+/// two read from different files.
 fn icon() -> Option<Retained<NSImage>> {
-    // The bare mark on a transparent ground -- just the glyph, no square behind
-    // it. The SVG itself, not a raster, so NSImage renders it as a vector with
-    // real transparency. This one keeps the 512-box padding, for the Dock.
-    const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-mark-amber.svg");
+    // A proper app icon for the Dock: a dark rounded square at ~80% of the
+    // canvas with the amber mark centred and transparent padding around it,
+    // the way every other Dock icon sits. The titlebar uses the bare mark
+    // (`icon_titlebar`); the Dock wants the box. The SVG itself, not a raster,
+    // so NSImage renders it as a vector.
+    const BYTES: &[u8] = include_bytes!("../../assets/logo/baud-icon-dock.svg");
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
@@ -1371,9 +1374,9 @@ pub fn run() {
                     // strip from geometry we already know: it runs from
                     // `full.height - inset` to `full.height`.
                     let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
-                    // A peer of the lights: nearly the full strip height, so
-                    // the snug mark reads at a traffic light's size or larger.
-                    let s = (z.size.height * 1.8).clamp(18.0, inset - 2.0);
+                    // A peer of the lights: a little larger than a button, the
+                    // snug mark reading at about a traffic light's size.
+                    let s = (z.size.height * 1.4).clamp(16.0, inset - 4.0);
                     (s, z.origin.x + z.size.width + gap)
                 })
             }
