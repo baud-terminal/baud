@@ -3,7 +3,8 @@
 //! more rows and a wider one joins them back, on the screen and through the
 //! history alike, and a line that ended at a newline stays its own. The
 //! alternate screen is not reflowed -- a full-screen program redraws on
-//! `SIGWINCH` -- and keeps the cell-addressed contract a resize had before.
+//! `SIGWINCH` -- and a widen blanks the columns it reveals rather than
+//! showing the stale frame under the program's redraw.
 
 mod support;
 
@@ -211,10 +212,15 @@ fn the_tail_fill_survives_a_rewrap() {
     });
 }
 
-/// **The alternate screen keeps the cell-addressed contract**: a program
-/// that painted a full-screen frame is told the size changed and redraws,
-/// and until it does its cells stay where they were, hidden past the edge
-/// and shown again when it widens.
+/// **The alternate screen is cell-addressed, not reflowed, and a widen shows
+/// blank rather than the old frame.** A program that painted a full-screen
+/// frame is told the size changed and redraws; a narrower screen hides its
+/// tail past the edge rather than re-cutting it into a second row (that is
+/// the not-reflowed half). A wider screen does *not* bring the hidden tail
+/// back under the program's redraw -- which lands a frame or two later -- but
+/// blanks the revealed columns, so the grow shows the overlap plus empty
+/// space, not two frames at once. The tail is gone; the program owns the
+/// screen and repaints it.
 #[test]
 fn the_alternate_screen_is_not_reflowed() {
     support::with_corpus(|t| {
@@ -225,7 +231,11 @@ fn the_alternate_screen_is_not_reflowed() {
         assert_eq!(row_text(t, 0), line[..100]);
         assert_eq!(row_text(t, 1), "", "the tail is hidden, not re-cut");
         resize(t, 200, 50);
-        assert_eq!(row_text(t, 0), line);
+        assert_eq!(
+            row_text(t, 0),
+            line[..100],
+            "the revealed columns are blank, not the stale tail"
+        );
         support::feed(t, b"\x1b[?1049l");
         assert_eq!(row_text(t, 0), "", "the primary was blank throughout");
     });

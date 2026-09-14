@@ -706,10 +706,13 @@ impl<'b> Term<'b> {
         // **A change of width reflows the primary**: its lines are re-cut
         // to the new width in place, through the history, and the window
         // and the cursor follow their cells (`View::reflow`). The
-        // alternate screen keeps the cell-addressed contract -- a
-        // full-screen program is told and redraws -- so a wider one only
-        // raises its marks, so a fill taken while narrow is not trusted
-        // past the edge it stopped at.
+        // alternate screen is cell-addressed rather than reflowed -- a
+        // full-screen program is told and redraws -- and a wider one blanks
+        // the columns it reveals (`View::widened`): the program owns the
+        // screen and repaints it a frame later, so showing the frame it drew
+        // when it was last this wide, under the incoming one, is two images
+        // at once. Blanking also raises the mark, so a fill taken while
+        // narrow is not trusted past the edge it stopped at.
         if cols.index() != old_cols.index() {
             let live = self.cold.screen == Screen::Normal;
             let cursor = match live {

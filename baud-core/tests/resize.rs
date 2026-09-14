@@ -252,9 +252,13 @@ fn a_row_reused_by_a_scroll_while_narrow_comes_back_clean() {
             Resized::Ok
         );
         let text = rows_text(t, 10, 200);
-        // `new` was typed over a line of `A`s without clearing it, so that
-        // row keeps its tail -- overwrite semantics, as at any width. The row
-        // the scroll brought in is the one that must be clean to the pitch.
+        // Within the width it was typed at, `new` overwrote a line of `A`s
+        // without clearing it, so that row keeps those `A`s -- overwrite
+        // semantics. The row the scroll brought in is clean there, which is
+        // what a scroll owes: the reused row must not carry the tail of what
+        // it replaced. Past the old edge, the grow blanks every row alike --
+        // the alternate screen shows the program empty space to redraw into,
+        // not the frame it drew when it was last this wide.
         assert!(
             text[8].starts_with("newA"),
             "the new line is on screen: {:?}",
@@ -264,7 +268,14 @@ fn a_row_reused_by_a_scroll_while_narrow_comes_back_clean() {
             text[9].trim().is_empty(),
             "the row the scroll reused carries no tail"
         );
-        assert!(text[7].ends_with('A'), "the row above kept its tail");
+        assert!(
+            text[7][..100].ends_with('A'),
+            "the row above kept the tail it was typed with"
+        );
+        assert!(
+            text[7][100..].trim().is_empty(),
+            "the columns the grow revealed are blank, not the old tail"
+        );
     });
 }
 
@@ -498,5 +509,42 @@ fn the_parked_primary_survives_an_alternate_screen_that_grows_wider() {
         support::feed(t, format!("\x1b[1;1H{}", "X".repeat(200)).as_bytes());
         support::feed(t, b"\x1b[?1049l");
         assert_eq!(rows_text(t, 1, 200)[0], line, "the whole line is back");
+    });
+}
+
+/// **The alternate screen blanks the columns a grow reveals.** A full-screen
+/// program owns the alternate screen and redraws a frame or two after a
+/// resize; the columns a grow exposes held whatever was there when the screen
+/// was last that wide, and showing them under the incoming draw is the "two
+/// images at once" a grow used to flash. Fill the alternate screen across all
+/// 200 columns, shrink to 100 -- the right half is hidden, not blanked -- and
+/// grow back to 200: the revealed columns read blank, while the overlap the
+/// program has not yet redrawn keeps its content.
+#[test]
+fn the_alternate_screen_blanks_the_columns_a_grow_reveals() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?1049h");
+        support::feed(t, format!("\x1b[1;1H{}", "X".repeat(200)).as_bytes());
+        support::shrink(
+            t,
+            &WinSize {
+                ws_row: 50,
+                ws_col: 100,
+            },
+        );
+        assert_eq!(
+            t.resize(&WinSize {
+                ws_row: 50,
+                ws_col: 200,
+            }),
+            Resized::Ok
+        );
+        let row = &rows_text(t, 1, 200)[0];
+        assert_eq!(&row[..100], &"X".repeat(100), "the overlap is kept");
+        assert_eq!(
+            &row[100..],
+            &" ".repeat(100),
+            "the revealed columns are blank, not stale"
+        );
     });
 }

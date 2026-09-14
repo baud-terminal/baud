@@ -581,16 +581,26 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Raise every mark to at least `old_cols`, after the screen widened.
-    /// The fill shortcut assumes a row is uniform from its mark to the live
-    /// edge, and a fill taken while narrow stopped at the old edge, saying
-    /// nothing about the cells past it that are live again now; raising the
-    /// mark makes the next fill write them rather than trust them. Loose by
-    /// at most the old width, once, on rows that then blank a little more.
-    /// Over the whole ring, because a retired row comes back the same way.
+    /// After the screen widened, blank the columns the alternate surface just
+    /// revealed -- `[old_cols, cols)` in every visible row. The alternate
+    /// screen has no scrollback and the application owns it: a cell past the
+    /// old edge holds whatever was there when the screen was last this wide,
+    /// and a full-screen program redraws a frame or two *after* the resize, so
+    /// showing that stale content under the incoming draw is the "two images
+    /// at once" a grow used to flash. Blanking the revealed columns leaves the
+    /// overlap -- which the program redraws -- and clears the new region,
+    /// which is what a resize should show. `fill` sets each row's mark to the
+    /// old edge as it goes, which is what the earlier mark-only version did
+    /// for the fill shortcut; the difference is that the cells are now blank
+    /// rather than merely marked stale. This is the width half of a grow; the
+    /// primary reflows instead, so it is never revealed stale.
     pub fn widened(&mut self, old_cols: Cols) {
-        for m in self.used.iter_mut() {
-            *m = m.raised_to(old_cols.index());
+        let (from, to) = (
+            Col::at_index(old_cols.index()),
+            Col::at_index(self.cols.index()),
+        );
+        for y in 0..self.rows.index() {
+            self.fill(Row::from_index(y), from, to, PackedCell::EMPTY);
         }
     }
 
