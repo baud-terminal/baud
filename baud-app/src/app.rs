@@ -1623,14 +1623,18 @@ impl Driver {
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;
             self.app.pending = Pending::Dirty;
-            // Draw at the new size *now*. A live drag runs a modal resize loop
-            // in which the display link does not tick, so without a present
-            // here the layer stretches the last surface and the window looks
-            // corrupted until the drag ends. `term.resize` kept the content --
-            // the pitch is fixed, so each row was clipped or extended in place
-            // -- so this paints what is there at the new geometry, and the
-            // child redraws into it on `SIGWINCH`.
-            self.app.present(&self.view, Show::Event);
+            // Draw at the new size *now*, and synchronously. A live drag runs
+            // a modal resize loop in which the display link does not tick and
+            // the async draw's completion -- delivered through the main run
+            // loop -- is never drained, so an async present issued here sees
+            // the previous frame still in flight, returns `Drawn::Busy`, and
+            // draws nothing: the layer keeps one stale surface stretched over
+            // every new size for the whole drag, which is the freeze. A
+            // synchronous draw waits for the GPU and sets the layer itself, so
+            // each step shows a correctly sized frame. `term.resize` kept the
+            // content -- the pitch is fixed, each row clipped or extended in
+            // place -- and the child redraws into it on `SIGWINCH`.
+            self.app.present(&self.view, Show::Now);
         }
     }
 
