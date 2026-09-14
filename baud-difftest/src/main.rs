@@ -18,7 +18,7 @@
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term as ATerm};
-use alacritty_terminal::vte::ansi::Processor;
+use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor};
 use baud_core::*;
 /// The geometry both sides are measured at, and the single place it is written.
 ///
@@ -72,7 +72,24 @@ impl alacritty_terminal::grid::Dimensions for Dim {
 // **`Owned::new` provisions exactly the geometry it is given**, because the
 // grid is caller-provided here -- `baud-core2`'s `Storage` was a fixed
 // `[PackedCell; GRID]` that could always grow, and this one cannot.
-fn ours(bytes: &[u8]) -> Vec<char> {
+/// Whether a cell's background is the default or one an SGR set: a coloured
+/// run that wraps, or an erase in a colour, must colour the same cells on
+/// both sides, and a character-only comparison cannot see a coloured blank.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Bg {
+    Default,
+    Set,
+}
+
+/// One cell as both sides are compared: what it shows, and whether its
+/// background was set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Cell {
+    ch: char,
+    bg: Bg,
+}
+
+fn ours(bytes: &[u8]) -> Vec<Cell> {
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     let mut i = 0;
@@ -82,18 +99,23 @@ fn ours(bytes: &[u8]) -> Vec<char> {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    (0..rows())
-        .flat_map(|y| {
-            let r = t.row(Row::from_index(y)).to_vec();
-            r.into_iter()
-        })
-        .map(|c| {
-            c.content
+    let mut out = Vec::with_capacity(rows() * cols());
+    for y in 0..rows() {
+        for c in t.row(Row::from_index(y)) {
+            let ch = c
+                .content
                 .as_codepoint()
                 .and_then(|p| char::from_u32(p.value()))
-                .unwrap_or(if c.content.is_wide_tail() { '\0' } else { ' ' })
-        })
-        .collect()
+                .unwrap_or(if c.content.is_wide_tail() { '\0' } else { ' ' });
+            let bg = if t.style_of(*c).bg().is_default() {
+                Bg::Default
+            } else {
+                Bg::Set
+            };
+            out.push(Cell { ch, bg });
+        }
+    }
+    out
 }
 
 /// How many cells each normalisation below touched on one case.
@@ -163,7 +185,7 @@ impl Normalised {
 ///   untouched. On screen both are blank.
 ///
 /// Anything else is compared as stored.
-fn theirs(bytes: &[u8], n: &mut Normalised) -> Vec<char> {
+fn theirs(bytes: &[u8], n: &mut Normalised) -> Vec<Cell> {
     // No scrollback: the comparison is over the visible grid, and a retained
     // history would let alacritty answer from rows `rows()` cannot reach.
     let cfg = Config {
@@ -182,7 +204,7 @@ fn theirs(bytes: &[u8], n: &mut Normalised) -> Vec<char> {
             let wide_spacer = cell
                 .flags
                 .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER);
-            out.push(if wide_spacer {
+            let ch = if wide_spacer {
                 n.spacers.bump();
                 '\0'
             } else if cell.c == '\t' {
@@ -190,7 +212,13 @@ fn theirs(bytes: &[u8], n: &mut Normalised) -> Vec<char> {
                 ' '
             } else {
                 cell.c
-            });
+            };
+            let bg = if cell.bg == Color::Named(NamedColor::Background) {
+                Bg::Default
+            } else {
+                Bg::Set
+            };
+            out.push(Cell { ch, bg });
         }
     }
     out
@@ -209,6 +237,19 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
         ("insert lines", b"a\r\nb\r\nc\x1b[2;1H\x1b[1L".to_vec()),
         ("cursor motion", b"abc\x1b[2D\x1b[Bx".to_vec()),
         ("wrap at margin", vec![b'x'; cols() + 10]),
+        // A coloured run of blanks past the margin: the wrapped remainder is
+        // coloured and the rest of its row is not, on both sides.
+        ("wrapped background", {
+            let mut v = b"\x1b[48;2;255;0;0m".to_vec();
+            v.extend(vec![b' '; cols() + 44]);
+            v.extend(b"\x1b[0m\r\nnext");
+            v
+        }),
+        // Erase-line paints the whole row in the current background.
+        (
+            "erase-line bg",
+            b"\x1b[48;2;0;0;255m\x1b[2K\x1b[0m\r\nafter".to_vec(),
+        ),
         ("tab", b"a\tb\tc".to_vec()),
         ("backspace", b"abc\x08\x08X".to_vec()),
         ("UTF-8 CJK", "日本語".as_bytes().to_vec()),
