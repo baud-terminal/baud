@@ -7,6 +7,7 @@ use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
+use crate::scrollbar::{self, Thumb, Window};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
@@ -327,6 +328,11 @@ pub struct Renderer<'f, 'a> {
     /// share of it changed is dirty, the cursor's own rule.
     highlight: Option<Highlight>,
     last_highlight: Option<Highlight>,
+    /// The scrollbar's thumb on this frame and the last, and its one solid
+    /// instance: a row the thumb covered or covers is dirty, the same rule.
+    bar: Option<Thumb>,
+    last_bar: Option<Thumb>,
+    bar_inst: Vec<Instance>,
     /// This frame's blink phase, set by [`Renderer::set_blink`] before a
     /// convert or resolve, and whether any blinking cell was seen -- so the
     /// driver repaints on a phase flip only when something actually blinks.
@@ -420,6 +426,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_cursor: None,
             highlight: None,
             last_highlight: None,
+            bar: None,
+            last_bar: None,
+            bar_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
             dirty: Vec::new(),
@@ -440,6 +449,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// resolved colours swap, before the block cursor's own swap.
     pub fn set_highlight(&mut self, highlight: Option<Highlight>) {
         self.highlight = highlight;
+    }
+
+    /// The scrollbar for the next frame, from where the window sits, or
+    /// none: the thumb's geometry is the spec's, its instance is one solid
+    /// in the theme's foreground, and every path draws it -- the CPU and
+    /// instance paths from the instance list, the cell path from
+    /// [`Renderer::scrollbar`] appended to its records.
+    pub fn set_scrollbar(&mut self, win: Option<Window>) {
+        let size = self.pixel_size();
+        self.bar =
+            win.and_then(|w| scrollbar::thumb(w, size, self.metrics.cell_w, self.metrics.cell_h));
+        self.bar_inst.clear();
+        if let Some(t) = self.bar {
+            self.bar_inst.push(scrollbar::instance(t, self.theme.fg));
+        }
+    }
+
+    /// The scrollbar's thumb, if one is drawn: what a press is tested
+    /// against.
+    pub fn thumb(&self) -> Option<Thumb> {
+        self.bar
+    }
+
+    /// The scrollbar's instances, for a path that draws records of its own.
+    pub fn scrollbar(&self) -> &[Instance] {
+        &self.bar_inst
     }
 
     pub fn set_blink(&mut self, blink: Blink) {
@@ -582,7 +617,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let row = Row::from_index(r);
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
             let selection_moved = selected(self.highlight) != selected(self.last_highlight);
-            self.dirty[r] = full || changed || cursor_moved || selection_moved;
+            let band = self.band(row);
+            let under_bar = |b: Option<Thumb>| b.is_some_and(|t| t.overlaps(band.top, band.bottom));
+            let bar_moved = under_bar(self.bar) != under_bar(self.last_bar)
+                || (under_bar(self.bar) && self.bar != self.last_bar);
+            self.dirty[r] = full || changed || cursor_moved || selection_moved || bar_moved;
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -595,6 +634,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.known = Prev::Known;
         self.last_cursor = cursor;
         self.last_highlight = self.highlight;
+        self.last_bar = self.bar;
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),
@@ -632,6 +672,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in &self.per_row[r] {
                 target.over(inst, &self.atlas, self.blend, band);
             }
+            for inst in &self.bar_inst {
+                target.over(inst, &self.atlas, self.blend, band);
+            }
         }
         frame.composite = t1.elapsed();
         frame.cache = self.cache.stats();
@@ -642,7 +685,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Every instance of the current frame, row by row: what a GPU path
     /// uploads whole (D2: nobody uploads partial ranges).
     pub fn instances(&self) -> impl Iterator<Item = &Instance> + '_ {
-        self.per_row.iter().flatten()
+        self.per_row.iter().flatten().chain(self.bar_inst.iter())
     }
 
     /// The background word of every cell, row-major, `cols` by `rows`.

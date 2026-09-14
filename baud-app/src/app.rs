@@ -20,6 +20,7 @@ use baud_present_macos::{
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
     PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target, Theme,
+    Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -434,6 +435,15 @@ impl App {
         self.flush_reply();
     }
 
+    /// Where the window sits in the ring, for the scrollbar.
+    fn window(&self) -> Window {
+        Window {
+            retained: Rows::of_count(self.term.scrollback().len()),
+            back: self.back,
+            rows: self.term.viewport().rows(),
+        }
+    }
+
     fn flush_reply(&mut self) {
         let reply = self.term.reply().to_vec();
         if !reply.is_empty() {
@@ -455,6 +465,9 @@ impl App {
                 .and_then(|s| s.highlight(top, view.rows(), view.cols()))
         };
         self.renderer.set_highlight(highlight);
+        // The scrollbar's thumb, where the window sits in the ring; none on
+        // the live screen.
+        self.renderer.set_scrollbar(Some(self.window()));
         let (w, h) = self.renderer.pixel_size();
         if (w, h) != (self.frame_w, self.frame_h) || self.presenter.is_none() {
             self.frame_w = w;
@@ -537,6 +550,8 @@ impl App {
                     cell.overlay_mem,
                     &mut cell.records,
                 );
+                // The thumb rides with the records, drawn after the cell passes.
+                cell.records.extend_from_slice(self.renderer.scrollbar());
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
@@ -730,6 +745,22 @@ struct Driver {
     /// The button a drag reports: the one that went down, until it comes
     /// up. AppKit's motion events name no button.
     held: Option<MouseButton>,
+    /// A drag of the scrollbar's thumb: where it was grabbed, in frame
+    /// pixels, and where its top was.
+    bar_drag: Option<BarDrag>,
+}
+
+#[derive(Clone, Copy)]
+struct BarDrag {
+    grab_y: Px,
+    top: Px,
+}
+
+/// Whether the scrollbar took a mouse event.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Took {
+    Yes,
+    No,
 }
 
 impl Driver {
@@ -901,6 +932,9 @@ impl Responder for Driver {
     /// encoding, refuses what the level does not cover and what X10 cannot
     /// encode, and this only turns the view's pixels into a cell.
     fn mouse(&mut self, event: &Mouse) {
+        if self.scrollbar(event) == Took::Yes {
+            return;
+        }
         // The child's, when it tracks the mouse -- unless Shift is held,
         // which is a selection whatever the child asked for: xterm's
         // default, ctlseqs' XTSHIFTESCAPE at 0.
@@ -1282,6 +1316,7 @@ pub fn run() {
         view: view.clone(),
         dock_icon: icon.clone(),
         held: None,
+        bar_drag: None,
     };
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
@@ -1374,6 +1409,53 @@ impl Driver {
         }
         self.app.pending = Pending::Dirty;
         self.pump(Trigger::Wake);
+    }
+
+    /// The scrollbar's strip, while the thumb is visible: a press on the
+    /// thumb starts a drag, a press off it in the strip jumps the thumb to
+    /// the pointer, and the window follows through the inverse geometry.
+    fn scrollbar(&mut self, event: &Mouse) -> Took {
+        let scale = self.app.scale;
+        let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
+        let (x, y) = (at(event.x), at(event.y));
+        let Some(t) = self.app.renderer.thumb() else {
+            self.bar_drag = None;
+            return Took::No;
+        };
+        let win = self.app.window();
+        let size = self.app.renderer.pixel_size();
+        let cell_h = self.app.renderer.metrics().cell_h;
+        let top = match event.kind {
+            ViewMouseKind::Down if event.button == ViewButton::Left && t.in_strip(x) => {
+                if t.covers_y(y) {
+                    self.bar_drag = Some(BarDrag {
+                        grab_y: y,
+                        top: t.top,
+                    });
+                    return Took::Yes;
+                }
+                Px::of(y.value().saturating_sub(t.height.value() / 2))
+            }
+            ViewMouseKind::Dragged => {
+                let Some(d) = self.bar_drag else {
+                    return Took::No;
+                };
+                let moved = i64::from(y.value()) - i64::from(d.grab_y.value());
+                Px::of(u32::try_from((i64::from(d.top.value()) + moved).max(0)).unwrap_or(0))
+            }
+            ViewMouseKind::Up if self.bar_drag.is_some() => {
+                self.bar_drag = None;
+                return Took::Yes;
+            }
+            _ => return Took::No,
+        };
+        let back = back_for(win, size, cell_h, top);
+        if back.index() != self.app.back.index() {
+            self.app.back = back;
+            self.app.pending = Pending::Dirty;
+            self.pump(Trigger::Wake);
+        }
+        Took::Yes
     }
 
     /// Cmd-C: the selection's text to the pasteboard, if there is one.

@@ -21,7 +21,7 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Renderer, Resolved,
-    Scene, Stack, Theme,
+    Scene, Stack, Theme, Window,
 };
 
 const WS: WinSize = WinSize {
@@ -66,6 +66,8 @@ struct Arms<'f, 'a> {
     back: Rows,
     /// The selection both arms draw, or none.
     highlight: Option<Highlight>,
+    /// Where the window sits, for the scrollbar both arms draw.
+    window: Option<Window>,
 }
 
 impl Arms<'_, '_> {
@@ -79,6 +81,7 @@ impl Arms<'_, '_> {
         // instance arm's `convert` would turn it in place.
         let view = t.view(self.back);
         self.renderer.set_highlight(self.highlight);
+        self.renderer.set_scrollbar(self.window);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
@@ -100,6 +103,7 @@ impl Arms<'_, '_> {
             self.overlay_mem,
             &mut self.records,
         );
+        self.records.extend_from_slice(self.renderer.scrollbar());
         let input = CellInput {
             grid: &self.grid,
             styles: &self.styles,
@@ -208,6 +212,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         candidates: Vec::new(),
         back: Rows::ZERO,
         highlight: None,
+        window: None,
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -266,6 +271,22 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&a, &live) > 0,
         "three lines back is not the live screen"
     );
+    // The scrollbar's thumb, three lines up a ring with history behind
+    // it: one solid on the instance list and on the cell path's records,
+    // equal between the arms and a change to the pixels.
+    arms.window = Some(Window {
+        retained: Rows::of_count(t.scrollback().len()),
+        back: Rows::of_count(3),
+        rows: t.viewport().rows(),
+    });
+    let (bar_a, bar_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&bar_a, &bar_b),
+        0,
+        "the arms disagree with a scrollbar"
+    );
+    assert!(differing(&bar_a, &a) > 0, "the thumb reached the pixels");
+    arms.window = None;
     arms.back = Rows::ZERO;
     // A selection over the marked and ligature rows, with the block cursor
     // inside it: both arms swap the selected cells' colours and the cursor
