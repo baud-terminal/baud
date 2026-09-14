@@ -30,8 +30,8 @@ use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSScreen,
-    NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSImageView,
+    NSScreen, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
@@ -794,6 +794,18 @@ struct Driver {
     /// A drag of the scrollbar's thumb: where it was grabbed, in frame
     /// pixels, and where its top was.
     bar_drag: Option<BarDrag>,
+    /// The titlebar mark, repositioned on every resize. A manual autoresizing
+    /// mask lost it after a fast drag to a tiny window -- the frame clamped
+    /// and never came back -- so the driver places it itself instead: `icon_x`
+    /// from the left, centred in the `icon_inset` strip at the top of its
+    /// superview, whose height it reads each time.
+    icon: Option<Retained<NSImageView>>,
+    /// The icon's superview (the content container), whose height gives the
+    /// window top; read rather than `superview()`, which is `unsafe`.
+    icon_super: Retained<NSView>,
+    icon_x: CGFloat,
+    icon_size: CGFloat,
+    icon_inset: CGFloat,
 }
 
 #[derive(Clone, Copy)]
@@ -1347,6 +1359,8 @@ pub fn run() {
     startup_mark("centered");
     window.show();
     startup_mark("shown");
+    let mut icon_iv: Option<Retained<NSImageView>> = None;
+    let (mut icon_x, mut icon_s) = (0.0_f64, 0.0_f64);
     if let Some(img) = &icon {
         // Placed against the real traffic lights rather than a hand-picked x.
         // The window is FullSizeContentView, so `container` (the content view)
@@ -1397,10 +1411,12 @@ pub fn run() {
             NSPoint::new(left, cy - s / 2.0),
             NSSize::new(s, s),
         ));
-        iv.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewMinYMargin | NSAutoresizingMaskOptions::ViewMaxXMargin,
-        );
+        // No autoresizing mask: a drag to a tiny window clamps the frame and
+        // it never recovers. `Driver::place_icon` re-places it every resize.
         container.addSubview(&iv);
+        icon_iv = Some(iv);
+        icon_x = left;
+        icon_s = s;
     }
     window.make_first_responder(&view);
     let mut driver = Driver {
@@ -1409,6 +1425,11 @@ pub fn run() {
         dock_icon: icon.clone(),
         held: None,
         bar_drag: None,
+        icon: icon_iv,
+        icon_super: container.clone(),
+        icon_x,
+        icon_size: icon_s,
+        icon_inset: inset,
     };
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
@@ -1560,6 +1581,18 @@ impl Driver {
         Took::Yes
     }
 
+    /// Re-place the titlebar mark at the top-left of its superview, whose
+    /// height it reads now rather than at launch. Cheap -- one `setFrame` --
+    /// and it runs on every resize so the mark cannot drift or vanish.
+    fn place_icon(&self) {
+        let Some(iv) = &self.icon else { return };
+        let cy = self.icon_super.frame().size.height - self.icon_inset / 2.0;
+        iv.setFrame(NSRect::new(
+            NSPoint::new(self.icon_x, cy - self.icon_size / 2.0),
+            NSSize::new(self.icon_size, self.icon_size),
+        ));
+    }
+
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) {
@@ -1574,6 +1607,8 @@ impl Driver {
             Px::of(u32::try_from(px_w.max(0.0) as i64).unwrap_or(0)),
             Px::of(u32::try_from(px_h.max(0.0) as i64).unwrap_or(0)),
         );
+        // The titlebar mark follows the window's top-left on every resize.
+        self.place_icon();
         if self.app.sizing == Sizing::Fixed {
             return;
         }
