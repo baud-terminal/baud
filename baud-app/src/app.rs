@@ -1628,19 +1628,21 @@ impl Driver {
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;
             self.app.pending = Pending::Dirty;
-            // Draw at the new size *now*, and synchronously. A live drag runs
-            // a modal resize loop in which the display link does not tick and
-            // the async draw's completion -- delivered through the main run
-            // loop -- is never drained, so an async present issued here sees
-            // the previous frame still in flight, returns `Drawn::Busy`, and
-            // draws nothing: the layer keeps one stale surface stretched over
-            // every new size for the whole drag, which is the freeze. A
-            // synchronous draw waits for the GPU and sets the layer itself, so
-            // each step shows a correctly sized frame. `term.resize` kept the
+            // Ask for a frame at the new size, asynchronously -- nothing
+            // waits. The GPU draws off the main thread and its completion
+            // hands the surface to the layer through a wake delivered in the
+            // run loop's *common* modes, so it lands during the modal resize
+            // loop rather than sitting queued until the drag ends. A late
+            // frame is a size behind the window for an instant and the layer
+            // clips it top-left (`contentsGravity`) rather than stretching, so
+            // it is a thin sliver at the moving edge, not a freeze. If the GPU
+            // is still busy this step draws nothing and the in-flight frame's
+            // completion drives the next; either way the main thread returns
+            // at once and keeps tracking the drag. `term.resize` kept the
             // content -- the pitch is fixed, each row clipped or extended in
             // place -- and the child redraws into it on `SIGWINCH`.
             let t_present = Instant::now();
-            self.app.present(&self.view, Show::Now);
+            self.app.present(&self.view, Show::Event);
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
                 let g = &self.app.gpu_stats;
                 eprintln!(
