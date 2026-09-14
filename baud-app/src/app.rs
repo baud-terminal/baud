@@ -819,12 +819,8 @@ impl Driver {
 impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
         if key.modifiers.command {
-            // Menu territory; nothing reaches the child but a paste.
-            match key.unmodified.as_str() {
-                "c" => self.copy(),
-                "v" => self.paste(),
-                _ => {}
-            }
+            // Menu territory: a key equivalent the menu carries never gets
+            // here, and one it does not sends nothing to the child.
             return Handled::Consumed;
         }
         self.snap_to_live();
@@ -870,6 +866,11 @@ impl Responder for Driver {
     }
 
     fn command(&mut self, selector: &str) {
+        match selector {
+            "copy:" => return self.copy(),
+            "paste:" => return self.paste(),
+            _ => {}
+        }
         let code = match selector {
             "insertNewline:" | "insertLineBreak:" => KeyCode::Enter,
             "deleteBackward:" => KeyCode::Backspace,
@@ -1300,6 +1301,10 @@ pub fn run() {
     window.set_content_view(glass.view());
     glass.set_content_view(&container);
     startup_mark("glass installed");
+    // The menu after the first frame, before the run loop: key equivalents
+    // need it from the first event, and nothing on screen waits for it.
+    macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
+    startup_mark("menu");
     view.set_responder(Box::new(driver));
     view.start_display_link();
     view.waker().wake();
