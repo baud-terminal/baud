@@ -54,7 +54,7 @@ use baud_core::Term;
 use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px;
 use baud_render::{
-    Atlas, Dirty, Generation, Highlight, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer,
+    Argb, Atlas, Dirty, Generation, Highlight, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer,
     Replaced, Resolved, Side, Tally, TexRect,
 };
 use block2::RcBlock;
@@ -70,7 +70,7 @@ use objc2_metal::{
     MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
     MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
     MTLSamplerMinMagFilter, MTLSamplerState, MTLSize, MTLStorageMode, MTLStoreAction, MTLTexture,
-    MTLTextureDescriptor, MTLTextureUsage,
+    MTLTextureDescriptor, MTLTextureUsage, MTLViewport,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -86,7 +86,7 @@ const BUFFER_FLOOR: usize = 64 * 1024;
 
 /// Uniforms as the instance shaders read them: viewport, cell, grid, mask
 /// side and colour side, each a `float2`.
-const UNIFORM_FLOATS: usize = 10;
+const UNIFORM_FLOATS: usize = 12;
 
 /// How many shapes a cell may draw in the cell path's shape pass.
 const SHAPES_PER_CELL: usize = 4;
@@ -95,7 +95,7 @@ const SHADERS: &str = r#"
 #include <metal_stdlib>
 using namespace metal;
 
-struct U { float2 viewport; float2 cell; float2 grid; float2 mask; float2 color; };
+struct U { float2 viewport; float2 cell; float2 grid; float2 mask; float2 color; float2 pad; };
 struct Inst { short2 xy; ushort2 wh; ushort2 uv; uint color; uint kind; };
 
 struct BgOut { float4 pos [[position]]; };
@@ -110,7 +110,7 @@ vertex BgOut bg_vertex(uint vid [[vertex_id]]) {
 fragment float4 bg_fragment(BgOut in [[stage_in]],
                             constant U& u [[buffer(0)]],
                             texture2d<float, access::read> bg [[texture(0)]]) {
-    float2 cf = in.pos.xy / u.cell;
+    float2 cf = (in.pos.xy - u.pad) / u.cell;
     if (cf.x >= u.grid.x || cf.y >= u.grid.y) return float4(0.0);
     float4 c = bg.read(uint2(cf));
     return float4(c.rgb * c.a, c.a);
@@ -993,22 +993,26 @@ impl Gpu {
         Some(())
     }
 
-    /// A pass over `target`, cleared to transparent.
-    fn encoder(&self, target: &Target) -> Option<(CommandBuffer, Encoder)> {
+    /// A pass over `target`, cleared to `clear` -- the terminal's own
+    /// background, so the margin around the grid is the same colour as a
+    /// default cell rather than a see-through edge -- with the rasteriser
+    /// confined to `viewport`, the grid centred in the surface.
+    fn encoder(
+        &self,
+        target: &Target,
+        clear: MTLClearColor,
+        viewport: MTLViewport,
+    ) -> Option<(CommandBuffer, Encoder)> {
         let pass = MTLRenderPassDescriptor::new();
         // SAFETY: attachment 0 exists on every pass descriptor.
         let att = unsafe { pass.colorAttachments().objectAtIndexedSubscript(0) };
         att.setTexture(Some(&target.texture));
         att.setLoadAction(MTLLoadAction::Clear);
         att.setStoreAction(MTLStoreAction::Store);
-        att.setClearColor(MTLClearColor {
-            red: 0.0,
-            green: 0.0,
-            blue: 0.0,
-            alpha: 0.0,
-        });
+        att.setClearColor(clear);
         let cmd = self.queue.commandBuffer()?;
         let enc = cmd.renderCommandEncoderWithDescriptor(&pass)?;
+        enc.setViewport(viewport);
         Some((cmd, enc))
     }
 
@@ -1062,6 +1066,8 @@ impl Gpu {
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
         let metrics = renderer.metrics();
+        let grid_px = renderer.pixel_size();
+        let clear = clear_of(renderer.clear_color());
         let count = renderer.instances().count();
         let bytes = count.saturating_mul(Instance::BYTES);
         let slot = self.ring.0;
@@ -1100,10 +1106,10 @@ impl Gpu {
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
-        let (tw, th) = target.size();
+        let (viewport, pad) = letterbox(target, grid_px);
         let uniforms: [f32; UNIFORM_FLOATS] = [
-            px_f32(tw),
-            px_f32(th),
+            px_f32(grid_px.0),
+            px_f32(grid_px.1),
             px_f32(metrics.cell_w),
             px_f32(metrics.cell_h),
             px_f32(bw),
@@ -1112,9 +1118,11 @@ impl Gpu {
             px_f32(Px::of(self.mask.as_ref()?.side.value())),
             px_f32(Px::of(self.color.as_ref()?.side.value())),
             px_f32(Px::of(self.color.as_ref()?.side.value())),
+            pad[0],
+            pad[1],
         ];
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target)?;
+        let (cmd, enc) = self.encoder(target, clear, viewport)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
         enc.setRenderPipelineState(&self.bg_pipe);
@@ -1172,18 +1180,20 @@ impl Gpu {
         let (cols, rows) = renderer.grid();
         let count = cols.index().saturating_mul(rows.index());
         let metrics = renderer.metrics();
+        let grid_px = renderer.pixel_size();
+        let clear = clear_of(renderer.clear_color());
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
-        let (tw, th) = target.size();
+        let (viewport, pad) = letterbox(target, grid_px);
         let (cursor_row, cursor_col) = input
             .cursor
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
                 (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
             });
         let uniforms = CellUniforms {
-            viewport_w: tw,
-            viewport_h: th,
+            viewport_w: grid_px.0,
+            viewport_h: grid_px.1,
             cell_w: metrics.cell_w,
             cell_h: metrics.cell_h,
             cols: Uni::of(Elems(cols.index())),
@@ -1209,7 +1219,7 @@ impl Gpu {
             sel_to_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.0.index()))),
         };
         let upload_time = t0.elapsed();
-        let (cmd, enc) = self.encoder(target)?;
+        let (cmd, enc) = self.encoder(target, clear, viewport)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<CellUniforms>();
         // SAFETY: as in `draw` -- `uniforms` outlives the encoder and Metal
@@ -1262,8 +1272,8 @@ impl Gpu {
                 let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
                 let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
                 let u: [f32; UNIFORM_FLOATS] = [
-                    px_f32(tw),
-                    px_f32(th),
+                    px_f32(grid_px.0),
+                    px_f32(grid_px.1),
                     px_f32(metrics.cell_w),
                     px_f32(metrics.cell_h),
                     0.0,
@@ -1272,6 +1282,8 @@ impl Gpu {
                     side_m,
                     side_c,
                     side_c,
+                    pad[0],
+                    pad[1],
                 ];
                 let ubytes = NonNull::from(&u).cast::<c_void>();
                 let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
@@ -1361,6 +1373,39 @@ fn word_bytes(words: &[u32]) -> &[u8] {
 }
 
 /// The same for the compositor's colour words.
+/// The grid centred in the surface: the rasteriser viewport at the pad
+/// offset, and that same pad as two floats for the instance background
+/// fragment, which indexes cells by the surface pixel it lands on.
+fn letterbox(target: &Target, grid: (Px, Px)) -> (MTLViewport, [f32; 2]) {
+    let (tw, th) = target.size();
+    let px = |v: u32| f64::from(v);
+    let pad_x = (px(tw.value()) - px(grid.0.value())).max(0.0) / 2.0;
+    let pad_y = (px(th.value()) - px(grid.1.value())).max(0.0) / 2.0;
+    (
+        MTLViewport {
+            originX: pad_x,
+            originY: pad_y,
+            width: px(grid.0.value()),
+            height: px(grid.1.value()),
+            znear: 0.0,
+            zfar: 1.0,
+        },
+        [pad_x as f32, pad_y as f32],
+    )
+}
+
+/// A straight colour as the render pass's premultiplied clear.
+fn clear_of(c: Argb) -> MTLClearColor {
+    let [a, r, g, b] = c.0.to_be_bytes();
+    let a = f64::from(a) / 255.0;
+    MTLClearColor {
+        red: f64::from(r) / 255.0 * a,
+        green: f64::from(g) / 255.0 * a,
+        blue: f64::from(b) / 255.0 * a,
+        alpha: a,
+    }
+}
+
 fn argb_bytes(words: &[baud_render::Argb]) -> &[u8] {
     // SAFETY: `Argb` is `repr(transparent)` over `u32`, so a slice of it
     // is a slice of `u32` of the same length at the same address.

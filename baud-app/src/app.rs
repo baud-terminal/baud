@@ -31,7 +31,7 @@ use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSScreen,
-    NSView, NSWindow, NSWindowStyleMask,
+    NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
@@ -161,6 +161,14 @@ struct App {
     frame: Vec<u32>,
     frame_w: Px,
     frame_h: Px,
+    /// The whole view in pixels: the surface the grid is centred in.
+    view_px: (Px, Px),
+    /// The letterbox margin the grid is centred by, so pointer math can
+    /// take it off a view coordinate before naming a cell.
+    pad_px: (Px, Px),
+    /// The gutter in points, from the config; the grid leaves this on each
+    /// side and the presenter clears it to the terminal background.
+    padding: f64,
     scale: CGFloat,
     grid: WinSize,
     /// The pty size owed but not yet sent: a live drag fires the resize
@@ -237,6 +245,8 @@ struct Boot {
     space: SurfaceSpace,
     /// The font size in points; pixels are this times the backing scale.
     font_size: f32,
+    /// The gutter in points around the grid, from the config.
+    padding: f64,
 }
 
 impl Boot {
@@ -318,6 +328,7 @@ impl Boot {
             renderer,
             space,
             font_size: cfg.font_size,
+            padding: f64::from(cfg.padding),
         }
     }
 
@@ -337,6 +348,7 @@ impl App {
             mut renderer,
             space,
             font_size,
+            padding,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -431,6 +443,9 @@ impl App {
             frame: vec![0; slots(frame_w) * slots(frame_h)],
             frame_w,
             frame_h,
+            view_px: (frame_w, frame_h),
+            pad_px: (Px::of(0), Px::of(0)),
+            padding,
             scale,
             grid: ws,
             pty_owed: None,
@@ -504,27 +519,35 @@ impl App {
         // The scrollbar's thumb, where the window sits in the ring; none on
         // the live screen.
         self.renderer.set_scrollbar(Some(self.window()));
+        // The grid, and the whole surface it is centred in; the letterbox
+        // margin between them is the gap.
         let (w, h) = self.renderer.pixel_size();
-        if (w, h) != (self.frame_w, self.frame_h) || self.presenter.is_none() {
+        let (sw, sh) = self.view_px;
+        self.pad_px = (
+            Px::of(sw.value().saturating_sub(w.value()) / 2),
+            Px::of(sh.value().saturating_sub(h.value()) / 2),
+        );
+        let surface_stale = self.presenter.as_ref().map(Presenter::size) != Some((sw, sh));
+        if (w, h) != (self.frame_w, self.frame_h) || surface_stale || self.presenter.is_none() {
             self.frame_w = w;
             self.frame_h = h;
             self.frame = vec![0; slots(w) * slots(h)];
             self.presenter = match (self.wanted, self.gpu.take(), self.presenter.take()) {
                 // A presenter that exists keeps its GPU across a resize.
                 (Path::Instances | Path::Cells, _, Some(mut p)) if p.mode() == Mode::Gpu => {
-                    p.resize(w, h).map(|()| p)
+                    p.resize(sw, sh).map(|()| p)
                 }
                 (Path::Instances | Path::Cells, Some(gpu), _) => {
-                    Presenter::over(gpu, w, h, self.space)
+                    Presenter::over(gpu, sw, sh, self.space)
                 }
                 // The device was taken by a presenter that then declined
                 // its targets; probe once more, and say so if that fails.
-                (Path::Instances | Path::Cells, None, _) => Presenter::with_gpu(w, h, self.space)
+                (Path::Instances | Path::Cells, None, _) => Presenter::with_gpu(sw, sh, self.space)
                     .or_else(|| {
                         eprintln!("no Metal device, shaders or targets; drawing on the CPU");
-                        Presenter::new(w, h, self.space)
+                        Presenter::new(sw, sh, self.space)
                     }),
-                (Path::Cpu, _, _) => Presenter::new(w, h, self.space),
+                (Path::Cpu, _, _) => Presenter::new(sw, sh, self.space),
             };
             if let Some(p) = &self.presenter {
                 eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
@@ -676,8 +699,9 @@ impl App {
                     self.renderer.render(&mut self.term, &mut target, damage)
                 };
                 self.stats = stats;
+                let clear = self.renderer.clear_color();
                 if let Some(p) = &mut self.presenter {
-                    if p.present(screen, &self.frame, w) == Presented::Yes {
+                    if p.present(screen, &self.frame, w, clear) == Presented::Yes {
                         startup_first("first present", &FIRST_PRESENT);
                         if FIRST_BYTES.load(Ordering::Relaxed) {
                             startup_first("first content", &FIRST_CONTENT);
@@ -1210,6 +1234,10 @@ pub fn run() {
         }
     };
     let boot = Boot::prepare(scale);
+    // The gutter in points: the grid floats inset from all four sides -- below
+    // the titlebar and in from the left, right and bottom -- with the glass in
+    // the margin. The pty and the renderer follow the inset area.
+    let padding = boot.padding;
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -1225,7 +1253,10 @@ pub fn run() {
     let ws = grid.as_ref().map_or_else(
         || {
             grid_for(
-                NSSize::new(size.width, (size.height - inset).max(0.0)),
+                NSSize::new(
+                    (size.width - 2.0 * padding).max(0.0),
+                    (size.height - inset - 2.0 * padding).max(0.0),
+                ),
                 scale,
                 (cw, ch),
             )
@@ -1282,8 +1313,8 @@ pub fn run() {
         // grid; otherwise the inset would steal a row from the fixed
         // geometry a benchmark asked for.
         let wanted = NSSize::new(
-            f64::from(ws.ws_col) * cw / scale,
-            f64::from(ws.ws_row) * ch / scale + inset,
+            f64::from(ws.ws_col) * cw / scale + 2.0 * padding,
+            f64::from(ws.ws_row) * ch / scale + inset + 2.0 * padding,
         );
         window.ns_window().setContentSize(wanted);
     }
@@ -1320,18 +1351,8 @@ pub fn run() {
     // The icon in the titlebar strip, just right of the traffic lights and
     // centred in the inset. Pinned to the top-left so it stays as the window
     // grows; the glass shows through around it.
-    if let Some(img) = &icon {
-        let s = (inset * 0.62).max(14.0);
-        let iv = macos_liquid_glass::icon_view(mtm, img);
-        iv.setFrame(NSRect::new(
-            NSPoint::new(78.0, full.height - inset + (inset - s) / 2.0),
-            NSSize::new(s, s),
-        ));
-        iv.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewMinYMargin | NSAutoresizingMaskOptions::ViewMaxXMargin,
-        );
-        container.addSubview(&iv);
-    }
+    // The icon in the titlebar strip is placed after `show()`, below,
+    // once the traffic-light buttons have been laid out.
     // The container is the window's content until the first tick, when
     // it moves under the glass; see `LateGlass`.
     window.set_content_view(&container);
@@ -1342,6 +1363,57 @@ pub fn run() {
     startup_mark("centered");
     window.show();
     startup_mark("shown");
+    if let Some(img) = &icon {
+        // Placed against the real traffic lights rather than a hand-picked x.
+        // The window is FullSizeContentView, so `container` (the content view)
+        // spans the whole frame and shares the theme frame's bottom-left
+        // origin -- so a standard button's `frame` is already in container
+        // coordinates, no conversion (which would be `unsafe` here) needed.
+        let w = window.ns_window();
+        let lights = (
+            w.standardWindowButton(NSWindowButton::CloseButton),
+            w.standardWindowButton(NSWindowButton::MiniaturizeButton),
+            w.standardWindowButton(NSWindowButton::ZoomButton),
+        );
+        // Read after `show()`, so the buttons are laid out; a zero-height
+        // frame means they are not, and the fallback places it by the strip.
+        let measured = match lights {
+            (Some(close), Some(mini), Some(zoom)) => {
+                let (c, m, z) = (close.frame(), mini.frame(), zoom.frame());
+                (z.size.height >= 1.0).then(|| {
+                    // Horizontal comes from the buttons: x is shared with the
+                    // container (the titlebar view spans the width from x=0).
+                    // Vertical does NOT -- a button's `frame` is in the
+                    // titlebar view's own coordinates, so its y is near that
+                    // view's bottom, not the window's top. Convert would be
+                    // `unsafe`, forbidden here, so the icon is centred in the
+                    // strip from geometry we already know: it runs from
+                    // `full.height - inset` to `full.height`.
+                    let gap = (m.origin.x - (c.origin.x + c.size.width)).max(0.0);
+                    // A peer of the lights, bigger than before: their height
+                    // and a half, clamped so it stays within the strip.
+                    let s = (z.size.height * 1.5).clamp(16.0, inset - 4.0);
+                    (s, z.origin.x + z.size.width + gap)
+                })
+            }
+            _ => None,
+        };
+        let (s, left) = measured.unwrap_or_else(|| {
+            let s = (inset * 0.8).clamp(16.0, inset - 4.0);
+            (s, 74.0)
+        });
+        // Centred in the titlebar strip, whose top is the window top.
+        let cy = full.height - inset / 2.0;
+        let iv = macos_liquid_glass::icon_view(mtm, img);
+        iv.setFrame(NSRect::new(
+            NSPoint::new(left, cy - s / 2.0),
+            NSSize::new(s, s),
+        ));
+        iv.setAutoresizingMask(
+            NSAutoresizingMaskOptions::ViewMinYMargin | NSAutoresizingMaskOptions::ViewMaxXMargin,
+        );
+        container.addSubview(&iv);
+    }
     window.make_first_responder(&view);
     let mut driver = Driver {
         app: probe,
@@ -1454,7 +1526,12 @@ impl Driver {
     fn scrollbar(&mut self, event: &Mouse) -> Took {
         let scale = self.app.scale;
         let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
-        let (x, y) = (at(event.x), at(event.y));
+        // The grid is centred in the surface; the thumb's geometry is in
+        // grid pixels, so the pointer comes in from view pixels less the
+        // letterbox margin.
+        let (px, py) = self.app.pad_px;
+        let x = Px::of(at(event.x).value().saturating_sub(px.value()));
+        let y = Px::of(at(event.y).value().saturating_sub(py.value()));
         let Some(t) = self.app.renderer.thumb() else {
             self.bar_drag = None;
             return Took::No;
@@ -1499,13 +1576,24 @@ impl Driver {
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) {
         let (cw, ch) = self.app.metrics_cell();
+        let px_w = size.width * scale;
+        let px_h = size.height * scale;
+        // The surface is the whole view; the grid is centred in it, so it
+        // is computed from the view less a gutter on each side and the
+        // presenter clears the margin the centring leaves to the terminal
+        // background -- a gap, not a see-through edge or a border.
+        self.app.view_px = (
+            Px::of(u32::try_from(px_w.max(0.0) as i64).unwrap_or(0)),
+            Px::of(u32::try_from(px_h.max(0.0) as i64).unwrap_or(0)),
+        );
         if self.app.sizing == Sizing::Fixed {
             return;
         }
-        let px_w = size.width * scale;
-        let px_h = size.height * scale;
-        let cols = ((px_w / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
-        let rows = ((px_h / ch).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
+        let gutter = 2.0 * self.app.padding * scale;
+        let cols =
+            (((px_w - gutter).max(cw) / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
+        let rows =
+            (((px_h - gutter).max(ch) / ch).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
         let ws = WinSize {
             ws_col: u16::try_from(cols).unwrap_or(2),
             ws_row: u16::try_from(rows).unwrap_or(1),
@@ -1602,6 +1690,7 @@ impl Driver {
             self.app.scale,
             self.app.metrics_cell(),
             (self.app.grid.ws_col, self.app.grid.ws_row),
+            (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
         )
     }
 }
@@ -1628,10 +1717,16 @@ fn paste_bytes(text: &str, bracket: Bracket) -> Vec<u8> {
 
 /// `cell_under` as a pure function of the point, the scale, the cell size
 /// in pixels and the grid, so a test can pin the arithmetic.
-fn cell_under(at: (f64, f64), scale: CGFloat, cell: (f64, f64), grid: (u16, u16)) -> (Row, Col) {
-    let col = ((at.0 * scale / cell.0).floor() as i64)
+fn cell_under(
+    at: (f64, f64),
+    scale: CGFloat,
+    cell: (f64, f64),
+    grid: (u16, u16),
+    pad: (u32, u32),
+) -> (Row, Col) {
+    let col = (((at.0 * scale - f64::from(pad.0)) / cell.0).floor() as i64)
         .clamp(0, i64::from(grid.0).saturating_sub(1).max(0));
-    let row = ((at.1 * scale / cell.1).floor() as i64)
+    let row = (((at.1 * scale - f64::from(pad.1)) / cell.1).floor() as i64)
         .clamp(0, i64::from(grid.1).saturating_sub(1).max(0));
     (
         Row::from_index(usize::try_from(row).unwrap_or(0)),
@@ -1676,11 +1771,11 @@ mod tests {
     fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
         // 2x scale, 20x40 px cells, a 200x50 grid: point (105, 21) is
         // 210x42 px, cell (10, 1).
-        let (r, c) = cell_under((105.0, 21.0), 2.0, (20.0, 40.0), (200, 50));
+        let (r, c) = cell_under((105.0, 21.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (1, 10));
-        let (r, c) = cell_under((-3.0, -3.0), 2.0, (20.0, 40.0), (200, 50));
+        let (r, c) = cell_under((-3.0, -3.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (0, 0));
-        let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50));
+        let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
     }
 }

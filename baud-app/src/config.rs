@@ -3,9 +3,9 @@
 //! A small, dependency-free reader for a subset of TOML -- `key = value`,
 //! string and integer scalars, and a bracketed list of strings that may span
 //! lines. baud owns its stack rather than pulling `serde` and a TOML crate for
-//! three keys; the subset is enough for a font list and two numbers, and a key
-//! it does not understand is ignored rather than fatal, so a newer config does
-//! not break an older binary.
+//! a handful of keys -- a font list, `font_size`, `background_alpha`,
+//! `padding` and `colorspace` -- and a key it does not understand is ignored
+//! rather than fatal, so a newer config does not break an older binary.
 //!
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
@@ -31,6 +31,11 @@ pub struct Config {
     pub font_size: f32,
     /// The window background's opacity, 0 clear to 255 opaque.
     pub background_alpha: u8,
+    /// The gutter, in points, left of and right of and below the grid, so
+    /// the glass shows through around the terminal rather than the cells
+    /// meeting the window's edge. The titlebar strip is the top gutter and
+    /// is not this.
+    pub padding: f32,
     /// What the surface's bytes mean: sRGB, which is what every colour a
     /// terminal receives is specified as, or Display P3 for a reader who
     /// wants the theme's numbers read as the wider gamut on purpose. The
@@ -54,6 +59,7 @@ impl Config {
             faces: default_faces(),
             font_size: 13.0,
             background_alpha: 0xD8,
+            padding: 8.0,
             colorspace: Space::Srgb,
             source: None,
         }
@@ -81,6 +87,11 @@ impl Config {
                 "background_alpha" => {
                     if let Ok(v) = value.trim().parse::<u8>() {
                         self.background_alpha = v;
+                    }
+                }
+                "padding" => {
+                    if let Ok(v) = value.trim().parse::<f32>() {
+                        self.padding = v.max(0.0);
                     }
                 }
                 "colorspace" => {

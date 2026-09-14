@@ -517,6 +517,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.atlas.stats()
     }
 
+    /// The default-background colour, straight (not premultiplied), for a
+    /// presenter to clear the margin around the grid to -- so the gutter is
+    /// the terminal's own background rather than a see-through edge. It is
+    /// what a default cell resolves to: the theme background at its alpha,
+    /// the one colour the glass shows through (D14).
+    pub fn clear_color(&self) -> Argb {
+        self.theme.bg.with_alpha(self.theme.bg_alpha)
+    }
+
     /// The pixel size of the whole grid.
     pub fn pixel_size(&self) -> (Px, Px) {
         (

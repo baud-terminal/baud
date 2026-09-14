@@ -178,20 +178,41 @@ impl Presenter {
     /// Copies `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
     /// at least the presenter's size -- into the next surface premultiplied,
     /// and shows it on `view`. The CPU path only.
-    pub fn present(&mut self, view: &DrawableView, frame: &[u32], stride: Px) -> Presented {
+    pub fn present(
+        &mut self,
+        view: &DrawableView,
+        frame: &[u32],
+        stride: Px,
+        clear: Argb,
+    ) -> Presented {
         if self.mode() != Mode::Cpu {
             return Presented::No;
         }
-        let (w, h) = (slots(self.width), slots(self.height));
-        let stride = slots(stride);
-        if stride < w || frame.len() < stride * h {
+        // The surface is the whole view; the grid frame is centred in it and
+        // the margin is filled with the terminal background, so the gutter
+        // is the same colour as a default cell rather than a see-through
+        // edge -- the letterbox the GPU paths do with a clear and a viewport.
+        let (sw, sh) = (slots(self.width), slots(self.height));
+        let fw = slots(stride);
+        if fw == 0 || fw > sw {
             return Presented::No;
         }
+        let fh = frame.len() / fw;
+        if fh > sh {
+            return Presented::No;
+        }
+        let pad_x = (sw - fw) / 2;
+        let pad_y = (sh - fh) / 2;
+        let bg = premultiply(clear).0;
         let surface = &self.surfaces[self.next.0];
         let ok = surface.write(|pixels, dst_stride| {
-            for y in 0..h {
-                let src = &frame[y * stride..y * stride + w];
-                let dst = &mut pixels[y * dst_stride..y * dst_stride + w];
+            for p in pixels.iter_mut() {
+                *p = bg;
+            }
+            for y in 0..fh {
+                let src = &frame[y * fw..y * fw + fw];
+                let base = (y + pad_y) * dst_stride + pad_x;
+                let dst = &mut pixels[base..base + fw];
                 for (d, &s) in dst.iter_mut().zip(src) {
                     *d = premultiply(Argb(s)).0;
                 }

@@ -13,6 +13,11 @@ font_size = 13
 # through the glass. 216 is the default.
 background_alpha = 216
 
+# The gutter in points around the grid -- left, right and below -- so the glass
+# shows through rather than the cells meeting the window's edge. The titlebar
+# strip is the top gutter. 8 is the default; 0 turns it off.
+padding = 8
+
 # What the surface's bytes mean, converted to each display by the compositor:
 # "srgb", which every colour a terminal receives is specified as, or
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
