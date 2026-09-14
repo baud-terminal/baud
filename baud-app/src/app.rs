@@ -1584,8 +1584,30 @@ impl Driver {
             ws_row: u16::try_from(rows).unwrap_or(1),
         };
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
+            let before = self.app.term.rotation();
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
+            // Anchor the view to the content, not the grid. A shorter screen
+            // keeps the cursor's row and retires the top into history (xterm's
+            // rule); left alone the first line would scroll away on every drag
+            // step. So the window moves up the ring by exactly what the resize
+            // retired -- the same pin `pump` applies while output scrolls --
+            // and the first visible line stays the first visible line. A
+            // taller screen pulls rows back and the window follows down toward
+            // the live screen; typing snaps all the way back to it, where the
+            // cursor is. `scrolled` is left untouched: it numbers lines for a
+            // selection, and a resize has already cleared the selection.
+            let ring = self.app.term.ring().index();
+            let fwd = (self.app.term.rotation().index() + ring - before.index()) % ring;
+            let advanced = if fwd * 2 <= ring {
+                i64::try_from(fwd).unwrap_or(0)
+            } else {
+                i64::try_from(fwd).unwrap_or(0) - i64::try_from(ring).unwrap_or(0)
+            };
+            let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(0);
+            let nb =
+                (i64::try_from(self.app.back.index()).unwrap_or(0) + advanced).clamp(0, retained);
+            self.app.back = Rows::of_count(usize::try_from(nb).unwrap_or(0));
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
             // The `SIGWINCH` is sent on the drag event itself, not deferred:
             // a full-screen program redraws into the new geometry as the
