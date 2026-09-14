@@ -170,6 +170,7 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-app/",
         "baud-wayland/",
         "baud-xkb/",
+        "baud-present-wayland/",
         "bench-others/",
         "docs/",
         "scripts/",
@@ -297,6 +298,7 @@ fn every_test_named_in_the_docs_exists() {
         "baud-app",
         "baud-wayland",
         "baud-xkb",
+        "baud-present-wayland",
     ] {
         let dir = root().join(d);
         assert!(

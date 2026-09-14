@@ -24,6 +24,7 @@ members = ["baud-domain", "baud-core", "baud-bench",
   "baud-app",
     "baud-wayland",
     "baud-xkb",
+    "baud-present-wayland",
 ]
 
 # bench-others/* are standalone harnesses against sibling checkouts of other

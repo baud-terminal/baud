@@ -1,0 +1,15 @@
+[package]
+name = "baud-present-wayland"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "baud's Wayland presentation layer: a wl_shm window over the pure-protocol connection, xdg-shell, frame pacing on the frame callback, and the keyboard through baud-xkb."
+# Not published: a platform crate for the app, with no crates.io audience.
+publish = false
+
+[dependencies]
+baud-domain = { path = "../baud-domain" }
+baud-wayland = { path = "../baud-wayland" }
+baud-xkb = { path = "../baud-xkb" }

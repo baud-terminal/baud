@@ -223,6 +223,11 @@ crate_audit "baud-wayland" 11 8 baud-wayland/src
 # encoding and not an index) -- plus the byte cursor the lexer carries. The
 # keysym and the keycode are newtypes. Set at the count.
 crate_audit "baud-xkb" 10 6 baud-xkb/src
+# baud-present-wayland: 4 raw sites and 14 signature primitives, the kernel's
+# mapping ABI in `sys.rs` (`mmap`, `munmap`, `ftruncate`, `memfd_create`, as
+# the externs they are) and the pool's byte arithmetic -- a stride in words,
+# an offset into the file -- which the wire carries as `int`. Set at the count.
+crate_audit "baud-present-wayland" 6 14 baud-present-wayland/src
 crate_audit "baud-app" 0 1 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP

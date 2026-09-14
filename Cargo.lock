@@ -183,6 +183,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "baud-present-wayland"
+version = "0.1.0"
+dependencies = [
+ "baud-domain",
+ "baud-wayland",
+ "baud-xkb",
+]
+
+[[package]]
 name = "baud-render"
 version = "0.1.0"
 dependencies = [
