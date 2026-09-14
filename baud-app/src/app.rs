@@ -200,7 +200,7 @@ struct Boot {
     request: Request,
     geom: baud_domain::CacheGeometry,
     pitch: baud_domain::Stride,
-    probe: Option<Gpu>,
+    probe: std::thread::JoinHandle<Option<Gpu>>,
     renderer: Renderer<'static, 'static>,
 }
 
@@ -231,14 +231,20 @@ impl Boot {
             pitch.index(),
             pitch.bytes()
         );
-        let probe = match request {
-            Request::Force(Path::Cpu) => None,
-            _ => Gpu::new(),
-        };
-        if let Some(g) = &probe {
-            g.warm();
-        }
-        startup_mark("gpu probed");
+        // The Metal device on its own thread: creating it is 10-30 ms on
+        // this box, and AppKit's initialisation on the main thread is what
+        // it overlaps -- the probe is joined once the window exists.
+        let probe = std::thread::spawn(move || {
+            let g = match request {
+                Request::Force(Path::Cpu) => None,
+                _ => Gpu::new(),
+            };
+            if let Some(g) = &g {
+                g.warm();
+            }
+            g
+        });
+        startup_mark("gpu probing");
         let cfg = crate::config::Config::load();
         startup_mark("config");
         match &cfg.source {
@@ -289,6 +295,8 @@ impl App {
             probe,
             mut renderer,
         } = boot;
+        let probe = probe.join().unwrap_or(None);
+        startup_mark("gpu joined");
         let own_grid = |ws: &WinSize| {
             let owned: &'static mut Owned =
                 Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));

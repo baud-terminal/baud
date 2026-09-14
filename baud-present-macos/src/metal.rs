@@ -674,6 +674,14 @@ unsafe fn lend<T>(buffer: &Buffer, n: Elems) -> Option<&'static mut [T]> {
     Some(unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), n) })
 }
 
+// SAFETY: every field is a Metal object -- device, queue, pipeline states,
+// sampler, buffers, textures -- which Apple documents as usable from any
+// thread with the caller ordering access, plus an `Arc<AtomicUsize>`; the
+// bindings mark the device and queue `Send` and leave buffers and textures
+// unmarked. A `Gpu` crosses a thread exactly once, whole, when the probe
+// that built it is joined, and nothing touches it on two threads at once.
+unsafe impl Send for Gpu {}
+
 impl Gpu {
     /// The system default device with every pipeline compiled; `None` when
     /// there is no Metal device or the shaders fail to compile.
