@@ -99,7 +99,7 @@ impl Config {
                         "srgb" => Space::Srgb,
                         "display-p3" => Space::DisplayP3,
                         other => {
-                            eprintln!(
+                            crate::warn!(
                                 "config: colorspace {other:?} is not srgb or display-p3; using srgb"
                             );
                             Space::Srgb

@@ -26,16 +26,18 @@ mod config;
 mod host;
 #[cfg(target_os = "linux")]
 mod linux;
+mod log;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 
 fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     host::startup_begin();
+    log::init();
     #[cfg(target_os = "macos")]
     app::run();
     #[cfg(target_os = "linux")]
     linux::run();
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    eprintln!("baud-app presents on macOS and on Linux over Wayland, so far");
+    crate::warn!("baud-app presents on macOS and on Linux over Wayland, so far");
 }

@@ -102,7 +102,7 @@ fn wanted() -> Request {
         Some(v) if v == "cells" => Request::Force(Path::Cells),
         Some(v) if v == "0" || v == "cpu" => Request::Force(Path::Cpu),
         Some(v) => {
-            eprintln!("BAUD_GPU={v:?} is not 0, 1 or cells; choosing automatically");
+            crate::warn!("BAUD_GPU={v:?} is not 0, 1 or cells; choosing automatically");
             Request::Auto
         }
     }
@@ -270,7 +270,7 @@ impl Boot {
         let geom = host_geometry();
         startup_mark("geometry");
         let pitch = grid_stride(&geom, Cols::of_index(usize::from(MAX_GRID.ws_col)));
-        eprintln!(
+        crate::info!(
             "cache: {}; grid pitch {} cells, {} B a row",
             describe(&geom),
             pitch.index(),
@@ -293,11 +293,11 @@ impl Boot {
         let cfg = crate::config::Config::load();
         startup_mark("config");
         match &cfg.source {
-            Some(p) => eprintln!("config: {}", p.display()),
-            None => eprintln!("config: none found; the built-in stack"),
+            Some(p) => crate::info!("config: {}", p.display()),
+            None => crate::info!("config: none found; the built-in stack"),
         }
         for f in &cfg.faces {
-            eprintln!("face: {}", f.path);
+            crate::info!("face: {}", f.path);
         }
         let faces = load_faces(&cfg);
         startup_mark("faces");
@@ -374,7 +374,7 @@ impl App {
                         (Path::Cells, Some(gpu), term, Some((grid, alt)))
                     }
                     _ => {
-                        eprintln!("no shared grid; drawing the instances");
+                        crate::warn!("no shared grid; drawing the instances");
                         (Path::Instances, Some(gpu), own_grid(&ws), None)
                     }
                 }
@@ -383,7 +383,7 @@ impl App {
                 (Path::Instances, Some(gpu), own_grid(&ws), None)
             }
             (Request::Force(Path::Cells | Path::Instances) | Request::Auto, None) => {
-                eprintln!("no Metal device or shaders; drawing on the CPU");
+                crate::warn!("no Metal device or shaders; drawing on the CPU");
                 (Path::Cpu, None, own_grid(&ws), None)
             }
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
@@ -414,7 +414,7 @@ impl App {
                     })
                 }
                 _ => {
-                    eprintln!("no shared styles or map; drawing the instances");
+                    crate::warn!("no shared styles or map; drawing the instances");
                     // The terminal's surfaces live in these buffers for the
                     // life of the process, whichever path draws them.
                     std::mem::forget(grid);
@@ -425,7 +425,7 @@ impl App {
             },
             _ => None,
         };
-        eprintln!(
+        crate::info!(
             "renderer: {wanted:?}{}",
             match request {
                 Request::Auto => " (chosen)",
@@ -544,13 +544,13 @@ impl App {
                 // its targets; probe once more, and say so if that fails.
                 (Path::Instances | Path::Cells, None, _) => Presenter::with_gpu(sw, sh, self.space)
                     .or_else(|| {
-                        eprintln!("no Metal device, shaders or targets; drawing on the CPU");
+                        crate::warn!("no Metal device, shaders or targets; drawing on the CPU");
                         Presenter::new(sw, sh, self.space)
                     }),
                 (Path::Cpu, _, _) => Presenter::new(sw, sh, self.space),
             };
             if let Some(p) = &self.presenter {
-                eprintln!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
+                crate::info!("presenting through {:?}, memory {:?}", p.mode(), p.memory());
                 if std::env::var_os("BAUD_DEBUG_GEOMETRY").is_some() {
                     let (cw, ch) = self.metrics_cell();
                     let (rc, rr) = self.renderer.grid();
@@ -716,7 +716,7 @@ impl App {
         self.frames.bump();
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
-                Some(Mode::Gpu) => eprintln!(
+                Some(Mode::Gpu) => crate::info!(
                     "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}, gpu {:?}",
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
@@ -726,7 +726,7 @@ impl App {
                     self.gpu_stats.submit,
                     self.gpu_stats.gpu
                 ),
-                _ => eprintln!(
+                _ => crate::info!(
                     "{} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
                     self.frames.value(),
                     self.stats.rows_dirty.value(),

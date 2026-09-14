@@ -73,24 +73,26 @@ struct Driver {
 }
 
 pub fn run() {
-    eprintln!("baud on Wayland: type-checked against Linux and not yet run on a compositor");
+    crate::warn!("baud on Wayland: type-checked against Linux and not yet run on a compositor");
     let cfg = Config::load();
     startup_mark("config");
     match &cfg.source {
-        Some(p) => eprintln!("config: {}", p.display()),
-        None => eprintln!("config: none found; the built-in stack"),
+        Some(p) => crate::info!("config: {}", p.display()),
+        None => crate::info!("config: none found; the built-in stack"),
     }
     if cfg.faces.is_empty() {
-        eprintln!("no font: none of the usual DejaVu Sans Mono paths exists; name one in a config");
+        crate::warn!(
+            "no font: none of the usual DejaVu Sans Mono paths exists; name one in a config"
+        );
         std::process::exit(1);
     }
     for f in &cfg.faces {
-        eprintln!("face: {}", f.path);
+        crate::info!("face: {}", f.path);
     }
     let faces = load_faces(&cfg);
     startup_mark("faces");
     let geom = host_geometry();
-    eprintln!("cache: {}", describe(&geom));
+    crate::info!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
     let term = Term::new(owned.storage(), &FIRST);
     let mut theme = Theme::dark();
@@ -111,7 +113,7 @@ pub fn run() {
     let mut conn = match Connection::connect() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("wayland: {e}");
+            crate::warn!("wayland: {e}");
             std::process::exit(1);
         }
     };
@@ -119,7 +121,7 @@ pub fn run() {
     let window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
         Ok(w) => w,
         Err(e) => {
-            eprintln!("wayland: {e:?}");
+            crate::warn!("wayland: {e:?}");
             std::process::exit(1);
         }
     };
@@ -137,7 +139,7 @@ pub fn run() {
         sync_since: None,
     };
     if let Err(e) = d.conn.flush() {
-        eprintln!("wayland: {e}");
+        crate::warn!("wayland: {e}");
         return;
     }
     loop {
@@ -145,24 +147,24 @@ pub fn run() {
         let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), timeout) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("poll: {e}");
+                crate::warn!("poll: {e}");
                 return;
             }
         };
         if compositor == Ready::Readable {
             match d.conn.receive() {
                 Ok(0) => {
-                    eprintln!("the compositor closed the connection");
+                    crate::err!("the compositor closed the connection");
                     return;
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("wayland: {e}");
+                    crate::warn!("wayland: {e}");
                     return;
                 }
             }
             if let Err(e) = d.conn.dispatch(&mut d.window) {
-                eprintln!("wayland: {e:?}");
+                crate::warn!("wayland: {e:?}");
                 return;
             }
         }
@@ -185,7 +187,7 @@ pub fn run() {
         d.flush_reply();
         d.present();
         if let Err(e) = d.conn.flush() {
-            eprintln!("wayland: {e}");
+            crate::warn!("wayland: {e}");
             return;
         }
     }
@@ -224,7 +226,7 @@ impl Driver {
             ws_row: u16::try_from(rows).unwrap_or(u16::MAX),
         };
         if let Resized::Truncated { cols, rows } = self.term.resize(&ws) {
-            eprintln!(
+            crate::warn!(
                 "the window is larger than the grid; {}x{} of it is drawn",
                 cols.index(),
                 rows.index()
