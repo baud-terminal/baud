@@ -185,18 +185,22 @@ fn strings(value: &str) -> Vec<String> {
     out
 }
 
-/// The system mono, its colour emoji, and its symbols for the braille and
-/// box drawing Menlo lacks.
+/// The system mono, its colour emoji, its symbols for the braille and box
+/// drawing Menlo lacks, and the two faces that carry the CJK scripts --
+/// Hiragino Sans GB for Han and kana, Apple SD Gothic Neo for Hangul --
+/// which the first three do not: without them a CJK character is a box.
+#[cfg(target_os = "macos")]
+const DEFAULT_FACES: [&str; 5] = [
+    "/System/Library/Fonts/Menlo.ttc@0",
+    "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc@0",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc@0",
+];
+
 #[cfg(target_os = "macos")]
 fn default_faces() -> Vec<FaceSpec> {
-    [
-        "/System/Library/Fonts/Menlo.ttc@0",
-        "/System/Library/Fonts/Apple Color Emoji.ttc@0",
-        "/System/Library/Fonts/Apple Symbols.ttf",
-    ]
-    .iter()
-    .map(|s| FaceSpec::parse(s))
-    .collect()
+    DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect()
 }
 
 /// Linux has no one system mono, so the default is the first of the usual
@@ -226,4 +230,43 @@ fn default_faces() -> Vec<FaceSpec> {
             .map(|s| FaceSpec::parse(s))
     };
     first(MONO).into_iter().chain(first(EMOJI)).collect()
+}
+
+/// The default stack has to carry what the corpus draws, on the machine
+/// it ships on: a test uses a font that supports what it measures, and
+/// so does a default. One codepoint each of Han, kana and Hangul, plus a
+/// box-drawing glyph and an emoji, must resolve to a glyph in some face
+/// of the stack, in stack order.
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+    use baud_domain::Codepoint;
+    use baud_font::{Face, FaceIndex};
+
+    #[test]
+    fn the_default_stack_carries_han_kana_hangul_box_drawing_and_emoji() {
+        let specs: Vec<FaceSpec> = DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect();
+        let files: Vec<Vec<u8>> = specs
+            .iter()
+            .map(|f| std::fs::read(&f.path).unwrap_or_else(|e| panic!("{}: {e}", f.path)))
+            .collect();
+        let faces: Vec<Face<'_>> = files
+            .iter()
+            .zip(&specs)
+            .map(|(d, f)| Face::parse_index(d, FaceIndex::of(f.index)).expect("a face"))
+            .collect();
+        for (name, cp) in [
+            ("Han", 0x4E2D),
+            ("kana", 0x3042),
+            ("Hangul", 0xD55C),
+            ("box drawing", 0x2500),
+            ("emoji", 0x1F600),
+        ] {
+            let c = Codepoint::new(cp).expect("a codepoint");
+            assert!(
+                faces.iter().any(|f| f.glyph(c).is_some()),
+                "{name} U+{cp:04X} is in no face of the default stack"
+            );
+        }
+    }
 }
