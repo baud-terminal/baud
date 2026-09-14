@@ -120,6 +120,13 @@ impl Digest {
         words: [u64::MAX; 3],
     };
 
+    /// The digest holding one glyph.
+    pub fn of(g: GlyphId) -> Digest {
+        let mut d = Digest::EMPTY;
+        d.add(g);
+        d
+    }
+
     pub fn add(&mut self, g: GlyphId) {
         let id = u32::try_from(g.index()).unwrap_or(u32::MAX);
         for (w, shift) in self.words.iter_mut().zip(Digest::SHIFTS) {
@@ -222,6 +229,27 @@ impl<'a> Coverage<'a> {
         }
     }
 
+    /// Every glyph the coverage names, in table order.
+    pub fn glyphs(&self) -> impl Iterator<Item = GlyphId> + '_ {
+        let (list, ranges) = match self {
+            Coverage::List(a) => (Some(a), None),
+            Coverage::Ranges(r) => (None, Some(r)),
+        };
+        let listed = list.into_iter().flat_map(|a| {
+            (0..a.count().value())
+                .filter_map(move |i| a.get(Index::of(i)).map(GlyphId::from_shaper))
+        });
+        let ranged = ranges.into_iter().flat_map(|r| {
+            (0..r.count().value())
+                .filter_map(move |i| r.get(Index::of(i)))
+                .flat_map(|range| {
+                    (range.start.index()..=range.end.index())
+                        .filter_map(|g| u16::try_from(g).ok().map(GlyphId::from_shaper))
+                })
+        });
+        listed.chain(ranged)
+    }
+
     pub fn covers(&self, g: GlyphId) -> bool {
         self.index(g).is_some()
     }
@@ -286,6 +314,35 @@ impl<'a> ClassDef<'a> {
             }
             _ => None,
         }
+    }
+
+    /// Every glyph of `class`. Class zero is every glyph the table does
+    /// not name, which no rule can enumerate, so it answers nothing for it.
+    pub fn glyphs_of(&self, class: Class) -> impl Iterator<Item = GlyphId> + '_ {
+        let (run, ranges) = match self {
+            ClassDef::Run { first, classes } => (Some((*first, classes)), None),
+            ClassDef::Ranges(r) => (None, Some(r)),
+        };
+        let in_run = run.into_iter().flat_map(move |(first, classes)| {
+            (0..classes.count().value()).filter_map(move |i| {
+                let c = classes.get(Index::of(i))?;
+                (class.0 != 0 && c == class.0)
+                    .then(|| first.index().checked_add(usize::try_from(i).ok()?))
+                    .flatten()
+                    .and_then(|g| u16::try_from(g).ok())
+                    .map(GlyphId::from_shaper)
+            })
+        });
+        let in_ranges = ranges.into_iter().flat_map(move |r| {
+            (0..r.count().value())
+                .filter_map(move |i| r.get(Index::of(i)))
+                .filter(move |cr| class.0 != 0 && cr.class.0 == class.0)
+                .flat_map(|cr| {
+                    (cr.start.index()..=cr.end.index())
+                        .filter_map(|g| u16::try_from(g).ok().map(GlyphId::from_shaper))
+                })
+        });
+        in_run.chain(in_ranges)
     }
 
     pub fn class(&self, g: GlyphId) -> Class {

@@ -88,7 +88,7 @@ fn main() {
     let (w, h) = r.pixel_size();
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!(
-        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}",
+        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}",
         "recording",
         "frames",
         "us/frame",
@@ -104,7 +104,8 @@ fn main() {
         "marked",
         "start",
         "shaped",
-        "morx"
+        "morx",
+        "bigram"
     );
     /// The best rep's sums.
     struct Rep {
@@ -114,7 +115,7 @@ fn main() {
         paint: Duration,
         rows: u64,
         inst: u64,
-        exc: [u64; 6],
+        exc: [u64; 7],
     }
     let mut best: Option<Rep> = None;
     for rep in 0..reps {
@@ -130,7 +131,7 @@ fn main() {
             paint: Duration::ZERO,
             rows: 0,
             inst: 0,
-            exc: [0; 6],
+            exc: [0; 7],
         };
         let mut at = 0usize;
         let t0 = std::time::Instant::now();
@@ -148,7 +149,7 @@ fn main() {
             rep.inst += f.instances.value();
             let e = f.exceptions;
             for (slot, t) in rep.exc.iter_mut().zip([
-                e.differs, e.spanning, e.marked, e.starters, e.shaped, e.morx,
+                e.differs, e.spanning, e.marked, e.starters, e.shaped, e.morx, e.bigram,
             ]) {
                 *slot += t.value();
             }
@@ -172,7 +173,7 @@ fn main() {
     let c = r.cache_stats();
     let hit = 100.0 * c.hits.value() as f64 / (c.hits.value() + c.misses.value()).max(1) as f64;
     println!(
-        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1}",
+        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1}",
         which,
         frames,
         total.as_secs_f64() * 1e6 / frames as f64,
@@ -189,6 +190,7 @@ fn main() {
         exc[2] as f64 / frames as f64,
         exc[3] as f64 / frames as f64,
         exc[4] as f64 / frames as f64,
-        exc[5] as f64 / frames as f64
+        exc[5] as f64 / frames as f64,
+        exc[6] as f64 / frames as f64
     );
 }

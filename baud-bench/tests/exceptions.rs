@@ -16,7 +16,7 @@ const WS: WinSize = WinSize {
     ws_col: 16,
 };
 
-fn differs(text: &[u8]) -> u64 {
+fn exceptions(text: &[u8]) -> baud_render::Exceptions {
     let path = format!(
         "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
         env!("CARGO_MANIFEST_DIR")
@@ -36,10 +36,11 @@ fn differs(text: &[u8]) -> u64 {
     let mut t = Term::new(owned.storage(), &WS);
     t.write_at(BytePos::ZERO, text);
     t.feed(BytePos::ZERO, ReadLen::from_index(text.len()));
-    r.convert(&t, Rows::ZERO, Damage::Full)
-        .exceptions
-        .differs
-        .value()
+    r.convert(&t, Rows::ZERO, Damage::Full).exceptions
+}
+
+fn differs(text: &[u8]) -> u64 {
+    exceptions(text).differs.value()
 }
 
 #[test]
@@ -55,4 +56,21 @@ fn a_contextual_ligature_differs_in_both_cells_and_plain_text_in_none() {
         "both halves of an arrow are replaced in context"
     );
     assert_eq!(differs(b"a -> b"), 2, "and the letters around it are not");
+}
+
+/// The pair prefilter must admit every run that differs -- it is a
+/// necessary condition derived from the same tables the shaper reads --
+/// and it must refuse plain letters, or it is not a prefilter.
+#[test]
+fn the_pair_prefilter_admits_what_differs_and_refuses_plain_letters() {
+    let arrow = exceptions(b"a -> b");
+    assert!(
+        arrow.bigram.value() >= arrow.differs.value(),
+        "the arrow's run is admitted: {arrow:?}"
+    );
+    assert_eq!(
+        exceptions(b"ab cd ef").bigram.value(),
+        0,
+        "plain letters are refused"
+    );
 }

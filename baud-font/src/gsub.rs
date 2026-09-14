@@ -23,7 +23,8 @@
 use crate::buffer::{Buffer, Cluster, Glyph, Ignorable};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::layout::{
-    ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, MAX_LOOKUPS, Skip,
+    Class, ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, MAX_LOOKUPS,
+    Skip,
 };
 use baud_domain::GlyphId;
 
@@ -188,6 +189,196 @@ impl<'a> Gsub<'a> {
     /// The glyphs lookup `i` can act at: the union of its subtables'
     /// first-position coverages. Anything unreadable widens to everything,
     /// so an odd table is slow rather than skipped.
+    /// The glyph pairs the grid features' lookups can begin a match on,
+    /// derived from the tables and handed to `sink` as (first glyph, a
+    /// digest of what may follow it): a prefilter for a path that shapes
+    /// only where a substitution can change a run. A ligature needs its
+    /// first two components adjacent; a chained rule needs its backtrack's
+    /// last and input's first, or its first two inputs, or its input and
+    /// lookahead's first. A rule with no context is a single substitution
+    /// the codepoint map already applies, and adds nothing. `Unreadable`
+    /// means a subtable this reader could not walk, so every pair must be
+    /// admitted -- the way an unreadable lookup's digest admits every
+    /// glyph.
+    pub fn pairs(&self, features: Features, sink: &mut dyn FnMut(GlyphId, Digest)) -> Walked {
+        for i in self.layout.lookups_for(features).iter() {
+            let Some(lookup) = self.layout.lookup(i) else {
+                return Walked::Unreadable;
+            };
+            let mut k = Index::ZERO;
+            while lookup.subtable_count().holds(k) {
+                let Some((kind, sub)) = lookup.subtable(k, Kind::GSUB_EXTENSION) else {
+                    return Walked::Unreadable;
+                };
+                let read = match kind {
+                    Kind::LIGATURE => Gsub::ligature_pairs(sub, sink),
+                    Kind::CHAINED => Gsub::chained_pairs(sub, sink),
+                    _ => Some(()),
+                };
+                if read.is_none() {
+                    return Walked::Unreadable;
+                }
+                k = k.next();
+            }
+        }
+        Walked::Derived
+    }
+
+    fn ligature_pairs(sub: Bytes<'a>, sink: &mut dyn FnMut(GlyphId, Digest)) -> Option<()> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        if format != 1 {
+            return None;
+        }
+        let coverage = Gsub::coverage_at(sub, Offset::of(2u32))?;
+        let set_count: u16 = sub.read(Offset::of(4u32))?;
+        let sets: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(set_count))?;
+        for (ci, first) in coverage.glyphs().enumerate() {
+            let Some(off) = u32::try_from(ci).ok().and_then(|i| sets.get(Index::of(i))) else {
+                break;
+            };
+            let set = sub.tail(Offset::of(u32::from(off)))?;
+            let lig_count: u16 = set.read(Offset::ZERO)?;
+            let ligs: Array<'a, u16> = set.array(Offset::of(2u32), Count::of(lig_count))?;
+            let mut li = Index::ZERO;
+            while let Some(off) = ligs.get(li) {
+                li = li.next();
+                let lig = set.tail(Offset::of(u32::from(off)))?;
+                let count: u16 = lig.read(Offset::of(2u32))?;
+                if count >= 2 {
+                    let second: u16 = lig.read(Offset::of(4u32))?;
+                    sink(first, Digest::of(GlyphId::from_shaper(second)));
+                }
+            }
+        }
+        Some(())
+    }
+
+    fn chained_pairs(sub: Bytes<'a>, sink: &mut dyn FnMut(GlyphId, Digest)) -> Option<()> {
+        let format: u16 = sub.read(Offset::ZERO)?;
+        match format {
+            1 => {
+                let coverage = Gsub::coverage_at(sub, Offset::of(2u32))?;
+                let set_count: u16 = sub.read(Offset::of(4u32))?;
+                let sets: Array<'a, u16> = sub.array(Offset::of(6u32), Count::of(set_count))?;
+                for (ci, first) in coverage.glyphs().enumerate() {
+                    let Some(off) = u32::try_from(ci).ok().and_then(|i| sets.get(Index::of(i)))
+                    else {
+                        break;
+                    };
+                    if off == 0 {
+                        continue;
+                    }
+                    let set = sub.tail(Offset::of(u32::from(off)))?;
+                    Gsub::rule_set_pairs(set, &Values::Glyphs, first, sink)?;
+                }
+                Some(())
+            }
+            2 => {
+                let coverage = Gsub::coverage_at(sub, Offset::of(2u32))?;
+                let class_def = |at: Offset| -> Option<ClassDef<'a>> {
+                    let off: u16 = sub.read(at)?;
+                    ClassDef::parse(sub.tail(Offset::of(u32::from(off)))?)
+                };
+                let values = Values::Classes {
+                    back: class_def(Offset::of(4u32))?,
+                    input: class_def(Offset::of(6u32))?,
+                    ahead: class_def(Offset::of(8u32))?,
+                };
+                let set_count: u16 = sub.read(Offset::of(10u32))?;
+                let sets: Array<'a, u16> = sub.array(Offset::of(12u32), Count::of(set_count))?;
+                for first in coverage.glyphs() {
+                    let Values::Classes { input, .. } = &values else {
+                        return None;
+                    };
+                    let class = input.class(first);
+                    let Some(off) = sets.get(Index::of(class.0)) else {
+                        continue;
+                    };
+                    if off == 0 {
+                        continue;
+                    }
+                    let set = sub.tail(Offset::of(u32::from(off)))?;
+                    Gsub::rule_set_pairs(set, &values, first, sink)?;
+                }
+                Some(())
+            }
+            3 => {
+                let back_n: u16 = sub.read(Offset::of(2u32))?;
+                let back: Array<'a, u16> = sub.array(Offset::of(4u32), Count::of(back_n))?;
+                let at = Offset::of(4u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+                let input_n: u16 = sub.read(at)?;
+                let input: Array<'a, u16> = sub.array(at.plus(Len::of(2))?, Count::of(input_n))?;
+                let at = at
+                    .plus(Len::of(2))?
+                    .plus(Len::of(2).times(Count::of(input_n))?)?;
+                let ahead_n: u16 = sub.read(at)?;
+                let ahead: Array<'a, u16> = sub.array(at.plus(Len::of(2))?, Count::of(ahead_n))?;
+                let cov = |off: u16| -> Option<Coverage<'a>> {
+                    Coverage::parse(sub.tail(Offset::of(u32::from(off)))?)
+                };
+                let firsts = cov(input.get(Index::ZERO)?)?;
+                if back_n > 0 {
+                    let backs = cov(back.get(Index::ZERO)?)?;
+                    let d = firsts.digest();
+                    for b in backs.glyphs() {
+                        sink(b, d);
+                    }
+                }
+                let next = match input_n >= 2 {
+                    true => input.get(Index::of(1u32)),
+                    false => ahead.get(Index::ZERO),
+                };
+                if let Some(off) = next {
+                    let d = cov(off)?.digest();
+                    for f in firsts.glyphs() {
+                        sink(f, d);
+                    }
+                }
+                Some(())
+            }
+            _ => None,
+        }
+    }
+
+    /// Every rule of a rule set, as the pairs it can begin on.
+    fn rule_set_pairs(
+        set: Bytes<'a>,
+        values: &Values<'a>,
+        first: GlyphId,
+        sink: &mut dyn FnMut(GlyphId, Digest),
+    ) -> Option<()> {
+        let rule_count: u16 = set.read(Offset::ZERO)?;
+        let rules: Array<'a, u16> = set.array(Offset::of(2u32), Count::of(rule_count))?;
+        let mut ri = Index::ZERO;
+        while let Some(off) = rules.get(ri) {
+            ri = ri.next();
+            let rule = set.tail(Offset::of(u32::from(off)))?;
+            let back_n: u16 = rule.read(Offset::ZERO)?;
+            let back: Array<'a, u16> = rule.array(Offset::of(2u32), Count::of(back_n))?;
+            let at = Offset::of(2u32).plus(Len::of(2).times(Count::of(back_n))?)?;
+            let input_n: u16 = rule.read(at)?;
+            let rest = Count::of(input_n.checked_sub(1)?);
+            let input: Array<'a, u16> = rule.array(at.plus(Len::of(2))?, rest)?;
+            let at = at.plus(Len::of(2))?.plus(Len::of(2).times(rest)?)?;
+            let ahead_n: u16 = rule.read(at)?;
+            let ahead: Array<'a, u16> = rule.array(at.plus(Len::of(2))?, Count::of(ahead_n))?;
+            if let Some(b) = back.get(Index::ZERO) {
+                let d = Digest::of(first);
+                values.each(Which::Backtrack, Value(b), &mut |g| sink(g, d));
+            }
+            let next = match input.get(Index::ZERO) {
+                Some(v) => Some(values.digest(Which::Input, Value(v))),
+                None => ahead
+                    .get(Index::ZERO)
+                    .map(|v| values.digest(Which::Lookahead, Value(v))),
+            };
+            if let Some(d) = next {
+                sink(first, d);
+            }
+        }
+        Some(())
+    }
+
     fn lookup_digest(&self, i: Index) -> Digest {
         let Some(lookup) = self.layout.lookup(i) else {
             return Digest::ALL;
@@ -727,4 +918,64 @@ enum Which {
     Backtrack,
     Input,
     Lookahead,
+}
+
+/// Whether `Gsub::pairs` walked every subtable, or met one it could not
+/// read and the caller must admit every pair.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Walked {
+    Derived,
+    Unreadable,
+}
+
+/// A rule's value at one position: a glyph id under a glyph rule, a class
+/// number under a class rule. Which it is, `Values` knows.
+#[derive(Clone, Copy)]
+struct Value(u16);
+
+/// How a chained rule's values name glyphs: as the glyph ids themselves
+/// (format 1) or as classes of three class tables (format 2).
+enum Values<'a> {
+    Glyphs,
+    Classes {
+        back: ClassDef<'a>,
+        input: ClassDef<'a>,
+        ahead: ClassDef<'a>,
+    },
+}
+
+impl Values<'_> {
+    fn digest(&self, which: Which, v: Value) -> Digest {
+        match self {
+            Values::Glyphs => Digest::of(GlyphId::from_shaper(v.0)),
+            Values::Classes { back, input, ahead } => {
+                let def = match which {
+                    Which::Backtrack => back,
+                    Which::Input => input,
+                    Which::Lookahead => ahead,
+                };
+                let mut d = Digest::EMPTY;
+                for g in def.glyphs_of(Class(v.0)) {
+                    d.add(g);
+                }
+                d
+            }
+        }
+    }
+
+    fn each(&self, which: Which, v: Value, f: &mut dyn FnMut(GlyphId)) {
+        match self {
+            Values::Glyphs => f(GlyphId::from_shaper(v.0)),
+            Values::Classes { back, input, ahead } => {
+                let def = match which {
+                    Which::Backtrack => back,
+                    Which::Input => input,
+                    Which::Lookahead => ahead,
+                };
+                for g in def.glyphs_of(Class(v.0)) {
+                    f(g);
+                }
+            }
+        }
+    }
 }

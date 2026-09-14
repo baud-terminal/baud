@@ -50,6 +50,8 @@ pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{Overlay, OverlayStats, Scene};
-pub use renderer::{Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, Renderer};
+pub use renderer::{
+    Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, Pairs, Renderer,
+};
 pub use stack::{FaceIx, Stack};
 pub use units::{Band, Coverage, Digest, Tally};

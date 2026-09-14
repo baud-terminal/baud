@@ -12,7 +12,8 @@ use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, CursorStyle, GlyphId, PackedCell, Row, Rows};
 use baud_font::{
-    Cluster, Digest as LookupDigest, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale, Shaper,
+    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale,
+    Shaper, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -86,6 +87,50 @@ pub struct Exceptions {
     pub starters: Tally,
     pub shaped: Tally,
     pub morx: Tally,
+    /// Cells of the runs holding an adjacent glyph pair the face's rules
+    /// can begin on -- what a pair-prefiltered path would shape a frame.
+    pub bigram: Tally,
+}
+
+/// The glyph pairs a face's grid features can begin a substitution on:
+/// for a first glyph, a digest of what may follow it, derived from the
+/// tables by `Gsub::pairs`. `admits` says whether two adjacent glyphs could
+/// start a match; a run with no admitted pair shapes to what its cells
+/// shape to alone.
+#[derive(Clone, Default)]
+pub struct Pairs {
+    after: std::collections::HashMap<usize, LookupDigest>,
+    walked: Option<Walked>,
+}
+
+impl Pairs {
+    fn of(face: &Face<'_>) -> Pairs {
+        let mut after: std::collections::HashMap<usize, LookupDigest> =
+            std::collections::HashMap::new();
+        let walked = face.gsub().map(|gsub| {
+            gsub.pairs(Features::GRID, &mut |first, d| {
+                let slot = after.entry(first.index()).or_insert(LookupDigest::EMPTY);
+                *slot = slot.union(d);
+            })
+        });
+        Pairs { after, walked }
+    }
+
+    pub fn admits(&self, a: GlyphId, b: GlyphId) -> bool {
+        match self.walked {
+            None => false,
+            Some(Walked::Unreadable) => true,
+            Some(Walked::Derived) => self
+                .after
+                .get(&a.index())
+                .is_some_and(|d| d.may_have(LookupDigest::of(b))),
+        }
+    }
+
+    /// How many first glyphs the tables name.
+    pub fn firsts(&self) -> Tally {
+        Tally::of(self.after.len())
+    }
 }
 
 /// How a face's substitutions can be prefiltered.
@@ -184,6 +229,8 @@ pub struct Renderer<'f, 'a> {
     digests: Vec<Vec<LookupDigest>>,
     /// Per face, the prefilter the counts in [`Exceptions`] ask.
     starters: Vec<Starter>,
+    /// Per face, the glyph pairs its rules can begin on.
+    pairs: Vec<Pairs>,
     /// The single-codepoint resolution per codepoint, memoised for the
     /// `differs` count: the face and glyph the cell shader's map would
     /// draw, with its offsets -- not an atlas slot, which a repack moves.
@@ -264,10 +311,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 (None, None) => Starter::Plain,
             })
             .collect();
+        let pairs = stack.faces().iter().map(Pairs::of).collect();
         let mut r = Renderer {
             stack,
             scales,
             starters,
+            pairs,
             #[cfg(feature = "exceptions")]
             singles: std::collections::HashMap::new(),
             digests,
@@ -730,6 +779,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
             let prefilter = self.starters[face.index()];
             let mut starters_here = Tally::default();
+            let mut prev_glyph: Option<GlyphId> = None;
+            let mut pair_here = Tally::default();
             while c < row.len() && c - start < RUN_CELLS {
                 let cell = row[c];
                 let Some(cp) = cell.content.as_codepoint() else {
@@ -739,9 +790,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     break;
                 }
                 let width = if cell.flags.is_wide() { 2usize } else { 1usize };
+                let glyph = self.stack.face(face).glyph(cp);
+                if let (Some(p), Some(g)) = (prev_glyph, glyph) {
+                    if self.pairs[face.index()].admits(p, g) {
+                        pair_here.bump();
+                    }
+                }
+                prev_glyph = glyph;
                 match prefilter {
                     Starter::Gsub(d) => {
-                        if let Some(g) = self.stack.face(face).glyph(cp) {
+                        if let Some(g) = glyph {
                             let mut one = LookupDigest::EMPTY;
                             one.add(g);
                             if d.may_have(one) {
@@ -781,6 +839,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if starters_here.value() > 0 {
                 exc.starters.add(starters_here);
                 exc.shaped.add(Tally::of(c - start));
+            }
+            if pair_here.value() > 0 {
+                exc.bigram.add(Tally::of(c - start));
             }
             for p in shaped.glyphs() {
                 if p.last != p.cell {

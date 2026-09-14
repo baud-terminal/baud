@@ -75,7 +75,7 @@ pub use face::{
     UnitsPerEm, faces,
 };
 pub use gpos::Gpos;
-pub use gsub::Gsub;
+pub use gsub::{Gsub, Walked};
 pub use layout::{Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, MAX_LOOKUPS};
 pub use morx::Morx;
 pub use outline::{Drawn, Sink, Transform};
