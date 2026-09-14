@@ -1584,9 +1584,11 @@ impl Driver {
             ws_row: u16::try_from(rows).unwrap_or(1),
         };
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
+            let t_step = Instant::now();
             let before = self.app.term.rotation();
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
+            let t_reflow = t_step.elapsed();
             // Anchor the view to the content, not the grid. A shorter screen
             // keeps the cursor's row and retires the top into history (xterm's
             // rule); left alone the first line would scroll away on every drag
@@ -1634,7 +1636,22 @@ impl Driver {
             // each step shows a correctly sized frame. `term.resize` kept the
             // content -- the pitch is fixed, each row clipped or extended in
             // place -- and the child redraws into it on `SIGWINCH`.
+            let t_present = Instant::now();
             self.app.present(&self.view, Show::Now);
+            if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
+                let g = &self.app.gpu_stats;
+                eprintln!(
+                    "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us, gpu {}us)",
+                    self.app.grid.ws_col,
+                    self.app.grid.ws_row,
+                    t_reflow.as_micros(),
+                    t_present.elapsed().as_micros(),
+                    self.app.stats.convert.as_micros(),
+                    g.upload.as_micros(),
+                    g.submit.as_micros(),
+                    g.gpu.as_micros(),
+                );
+            }
         }
     }
 
