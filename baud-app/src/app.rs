@@ -8,7 +8,8 @@ use crate::host::{
 use crate::pty::{Pty, Stream};
 use baud_core::{Depth, Owned, Term, grid_stride};
 use baud_domain::{
-    BytePos, Codepoint, Cols, FnKey, KeyCode, KeyEvent, Modifiers, ReadLen, Rows, WinSize,
+    BytePos, Codepoint, Col, Cols, FnKey, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent,
+    MouseKind, MouseMods, MouseTracking, ReadLen, Row, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::{
@@ -20,7 +21,8 @@ use baud_render::{
     Renderer, Resolved, Scene, Stack, Tally, Target, Theme,
 };
 use macos_liquid_glass::drawable::{
-    DrawableView, Focus, Handled, KeyPress, Mouse, Rect, Responder, Scroll, Waker,
+    Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
+    MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
@@ -703,6 +705,9 @@ struct Driver {
     /// the image for the Dock on this thread, ~10 ms, and nothing on
     /// screen waits for it.
     dock_icon: Option<Retained<NSImage>>,
+    /// The button a drag reports: the one that went down, until it comes
+    /// up. AppKit's motion events name no button.
+    held: Option<MouseButton>,
 }
 
 impl Driver {
@@ -851,7 +856,45 @@ impl Responder for Driver {
 
     fn marked_text(&mut self, _text: &str) {}
 
-    fn mouse(&mut self, _event: &Mouse) {}
+    /// A press, release or motion, reported to the application when it
+    /// asked for that kind: the core keeps the tracking level and the
+    /// encoding, refuses what the level does not cover and what X10 cannot
+    /// encode, and this only turns the view's pixels into a cell.
+    fn mouse(&mut self, event: &Mouse) {
+        if self.app.term.mouse_tracking() == MouseTracking::Off {
+            return;
+        }
+        let (row, col) = self.cell_under(event.x, event.y);
+        let pressed = match event.button {
+            ViewButton::Left => MouseButton::Left,
+            ViewButton::Middle => MouseButton::Middle,
+            ViewButton::Right => MouseButton::Right,
+            ViewButton::Other(_) => MouseButton::None,
+        };
+        let (kind, button) = match event.kind {
+            ViewMouseKind::Down => {
+                self.held = Some(pressed);
+                (MouseKind::Press, pressed)
+            }
+            ViewMouseKind::Up => {
+                self.held = None;
+                (MouseKind::Release, pressed)
+            }
+            ViewMouseKind::Dragged => (MouseKind::Motion, self.held.unwrap_or(pressed)),
+            ViewMouseKind::Moved => (MouseKind::Motion, MouseButton::None),
+            ViewMouseKind::Entered | ViewMouseKind::Exited => return,
+        };
+        let e = MouseEvent {
+            button,
+            mods: mouse_mods(event.modifiers),
+            kind,
+            col,
+            row,
+        };
+        if self.app.term.mouse_report(e) {
+            self.app.flush_reply();
+        }
+    }
 
     /// The wheel moves the window over the history. A trackpad sends
     /// points and a wheel sends lines; both accumulate to whole rows of the
@@ -860,9 +903,6 @@ impl Responder for Driver {
     /// here; a pager or an editor on it will want the wheel as keys, which
     /// is a separate protocol.
     fn scroll(&mut self, event: &Scroll) {
-        if self.app.term.screen() != baud_core::Screen::Normal {
-            return;
-        }
         let (_, ch) = self.app.metrics_cell();
         let lines = match event.precise {
             true => {
@@ -877,6 +917,40 @@ impl Responder for Driver {
         // and the live screen bounds it below.
         let step = lines as i64;
         if step == 0 {
+            return;
+        }
+        // An application tracking the mouse gets the wheel as buttons 4
+        // and 5, one press a line, at the pointer; one on the alternate
+        // screen without tracking gets it as the arrow keys, which is what
+        // a pager or an editor there reads; the primary screen without
+        // tracking is the window over the history.
+        if self.app.term.mouse_tracking() != MouseTracking::Off {
+            let (row, col) = self.cell_under(event.x, event.y);
+            let button = if step > 0 {
+                MouseButton::WheelUp
+            } else {
+                MouseButton::WheelDown
+            };
+            let mut sent = false;
+            for _ in 0..step.unsigned_abs().min(WHEEL_MAX) {
+                sent |= self.app.term.mouse_report(MouseEvent {
+                    button,
+                    mods: MouseMods::NONE,
+                    kind: MouseKind::Press,
+                    col,
+                    row,
+                });
+            }
+            if sent {
+                self.app.flush_reply();
+            }
+            return;
+        }
+        if self.app.term.screen() != baud_core::Screen::Normal {
+            let code = if step > 0 { KeyCode::Up } else { KeyCode::Down };
+            for _ in 0..step.unsigned_abs().min(WHEEL_MAX) {
+                self.app.send(KeyEvent::press(code, Modifiers::default()));
+            }
             return;
         }
         let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(i64::MAX);
@@ -1160,6 +1234,7 @@ pub fn run() {
         app: probe,
         view: view.clone(),
         dock_icon: icon.clone(),
+        held: None,
     };
     // The first frame now, on this thread, before the run loop is entered:
     // the geometry the view's first resize callback would report, then one
@@ -1184,6 +1259,70 @@ pub fn run() {
     view.waker().wake();
     ns_app.activate();
     ns_app.run();
+}
+
+/// Lines a single wheel event may turn into reports or keys: a trackpad
+/// fling accumulates to many, and an application wants a bounded burst.
+const WHEEL_MAX: u64 = 64;
+
+impl Driver {
+    /// The cell under a point in the view, clamped to the grid: the view
+    /// is the terminal's area below the titlebar inset, in points, and the
+    /// grid is in pixels of the cell size.
+    fn cell_under(&self, x: f64, y: f64) -> (Row, Col) {
+        cell_under(
+            (x, y),
+            self.app.scale,
+            self.app.metrics_cell(),
+            (self.app.grid.ws_col, self.app.grid.ws_row),
+        )
+    }
+}
+
+/// `cell_under` as a pure function of the point, the scale, the cell size
+/// in pixels and the grid, so a test can pin the arithmetic.
+fn cell_under(at: (f64, f64), scale: CGFloat, cell: (f64, f64), grid: (u16, u16)) -> (Row, Col) {
+    let col = ((at.0 * scale / cell.0).floor() as i64)
+        .clamp(0, i64::from(grid.0).saturating_sub(1).max(0));
+    let row = ((at.1 * scale / cell.1).floor() as i64)
+        .clamp(0, i64::from(grid.1).saturating_sub(1).max(0));
+    (
+        Row::from_index(usize::try_from(row).unwrap_or(0)),
+        Col::at_index(usize::try_from(col).unwrap_or(0)),
+    )
+}
+
+/// The modifier bits a mouse report carries, from the view's modifiers:
+/// Option is Meta, the way xterm reads the key.
+fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
+    let mut out = MouseMods::NONE;
+    if m.shift {
+        out = out.with(MouseMods::SHIFT);
+    }
+    if m.control {
+        out = out.with(MouseMods::CONTROL);
+    }
+    if m.option {
+        out = out.with(MouseMods::META);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
+        // 2x scale, 20x40 px cells, a 200x50 grid: point (105, 21) is
+        // 210x42 px, cell (10, 1).
+        let (r, c) = cell_under((105.0, 21.0), 2.0, (20.0, 40.0), (200, 50));
+        assert_eq!((r.index(), c.index()), (1, 10));
+        let (r, c) = cell_under((-3.0, -3.0), 2.0, (20.0, 40.0), (200, 50));
+        assert_eq!((r.index(), c.index()), (0, 0));
+        let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50));
+        assert_eq!((r.index(), c.index()), (49, 199));
+    }
 }
 
 /// The grid a view of `size` points holds at `scale`, from the cell size
