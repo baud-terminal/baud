@@ -60,6 +60,11 @@ enum Pending {
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
+/// How long the window size must hold before the child is told: a live
+/// resize fires the callback continuously, and one `SIGWINCH` at the end
+/// beats dozens during, which a prompt that reprints on `WINCH` turns into
+/// a trail. 80 ms is ~5 frames, below noticing.
+const RESIZE_SETTLE: Duration = Duration::from_millis(80);
 /// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
 /// hides for this long. ~1.2 Hz, the middle of what terminals use.
 const BLINK_HALF: f64 = 0.4;
@@ -158,6 +163,14 @@ struct App {
     frame_h: Px,
     scale: CGFloat,
     grid: WinSize,
+    /// The pty size owed but not yet sent: a live drag fires the resize
+    /// callback dozens of times, so the child gets one `SIGWINCH` on the
+    /// next tick, not one per intermediate size -- a prompt that reprints on
+    /// `WINCH` would otherwise leave a trail. `None` when the pty is current.
+    pty_owed: Option<(WinSize, Px, Px)>,
+    /// When the size last changed, so the owed resize is sent only once it
+    /// settles -- a continuous drag keeps moving this forward.
+    resize_at: Option<Instant>,
     sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
@@ -420,6 +433,8 @@ impl App {
             frame_h,
             scale,
             grid: ws,
+            pty_owed: None,
+            resize_at: None,
             sizing,
             pending: Pending::Dirty,
             back: Rows::ZERO,
@@ -1115,6 +1130,21 @@ impl Responder for Driver {
                 self.app.pending = Pending::Dirty;
             }
         }
+        // Send the owed pty resize once the size has settled: a continuous
+        // drag keeps `resize_at` moving, so the child gets one `SIGWINCH`
+        // when it stops rather than one per intermediate size. The display
+        // link keeps ticking during a live resize, so a per-tick flush would
+        // still trail; the debounce is what collapses it.
+        if self
+            .app
+            .resize_at
+            .is_some_and(|t| t.elapsed() >= RESIZE_SETTLE)
+        {
+            self.app.resize_at = None;
+            if let Some((ws, w, h)) = self.app.pty_owed.take() {
+                self.app.pty.resize(&ws, w, h);
+            }
+        }
         self.pump(Trigger::Tick);
     }
 
@@ -1484,7 +1514,17 @@ impl Driver {
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
-            self.app.pty.resize(&ws, px(px_w), px(px_h));
+            // The pty resize is owed, not sent: the tick flushes one
+            // `SIGWINCH` after the drag settles rather than dozens during it.
+            self.app.pty_owed = Some((
+                WinSize {
+                    ws_col: ws.ws_col,
+                    ws_row: ws.ws_row,
+                },
+                px(px_w),
+                px(px_h),
+            ));
+            self.app.resize_at = Some(Instant::now());
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells.
