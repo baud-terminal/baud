@@ -183,6 +183,10 @@ struct App {
     wanted: Path,
     /// What the surfaces' bytes mean; the presenter tags them with it.
     space: SurfaceSpace,
+    /// The font size in points, for a rebuild at another backing scale,
+    /// and the config's, which Actual Size returns to.
+    font_size: f32,
+    font_base: f32,
     /// When the last frame was committed, and how far apart the display
     /// link's ticks are: a wake draws at once when a frame's worth of time
     /// has passed, and leaves it to the tick otherwise, so a flood draws
@@ -218,6 +222,8 @@ struct Boot {
     renderer: Renderer<'static, 'static>,
     /// What the surfaces' bytes mean, from the config.
     space: SurfaceSpace,
+    /// The font size in points; pixels are this times the backing scale.
+    font_size: f32,
 }
 
 impl Boot {
@@ -298,6 +304,7 @@ impl Boot {
             probe,
             renderer,
             space,
+            font_size: cfg.font_size,
         }
     }
 
@@ -316,6 +323,7 @@ impl App {
             probe,
             mut renderer,
             space,
+            font_size,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -425,6 +433,8 @@ impl App {
             gpu_stats: GpuFrame::default(),
             wanted,
             space,
+            font_size,
+            font_base: font_size,
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             last_tick: None,
@@ -912,6 +922,9 @@ impl Responder for Driver {
         match selector {
             "copy:" => return self.copy(),
             "paste:" => return self.paste(),
+            "zoomIn:" => return self.zoom(self.app.font_size + 1.0),
+            "zoomOut:" => return self.zoom(self.app.font_size - 1.0),
+            "zoomActual:" => return self.zoom(self.app.font_base),
             _ => {}
         }
         let code = match selector {
@@ -1055,45 +1068,22 @@ impl Responder for Driver {
     }
 
     fn resized(&mut self, size: NSSize, scale: CGFloat) {
-        let (cw, ch) = self.app.metrics_cell();
         if scale != self.app.scale {
-            // A different scale is a different pixel size for the font;
-            // the renderer is rebuilt with it.
+            // A different scale is a different pixel size for the font: the
+            // renderer's metrics, scales, run cache and atlas are rebuilt,
+            // and the cell path's map and overlay rebuild on the atlas's
+            // grow count. The comment that stood here said this happened
+            // and it did not: the glyphs stayed at the old scale, half-size
+            // on a 2x surface after a resize.
             self.app.scale = scale;
+            if let Some(px) = PxSize::of(self.app.font_size * scale as f32) {
+                if self.app.renderer.rescale(px).is_some() {
+                    self.app.next_damage = Damage::Full;
+                    self.app.pending = Pending::Dirty;
+                }
+            }
         }
-        if self.app.sizing == Sizing::Fixed {
-            return;
-        }
-        let px_w = size.width * scale;
-        let px_h = size.height * scale;
-        let cols = ((px_w / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
-        let rows = ((px_h / ch).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
-        let ws = WinSize {
-            ws_col: u16::try_from(cols).unwrap_or(2),
-            ws_row: u16::try_from(rows).unwrap_or(1),
-        };
-        if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
-            // Truncated only past MAX_GRID, which the clamp above prevents.
-            let _ = self.app.term.resize(&ws);
-            let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
-            self.app.pty.resize(&ws, px(px_w), px(px_h));
-            self.app.grid = ws;
-            // A reflow re-cuts every line, so the columns a selection named
-            // no longer name cells.
-            self.app.selection = None;
-            // A new grid is a new surface, so repaint every row of it rather
-            // than trusting the last frame, whose rows were a different width.
-            self.app.next_damage = Damage::Full;
-            self.app.pending = Pending::Dirty;
-            // Draw at the new size *now*. A live drag runs a modal resize loop
-            // in which the display link does not tick, so without a present
-            // here the layer stretches the last surface and the window looks
-            // corrupted until the drag ends. `term.resize` kept the content --
-            // the pitch is fixed, so each row was clipped or extended in place
-            // -- so this paints what is there at the new geometry, and the
-            // child redraws into it on `SIGWINCH`.
-            self.app.present(&self.view, Show::Event);
-        }
+        self.relayout(size, scale);
     }
 
     fn frame(&mut self, target: f64) {
@@ -1359,6 +1349,11 @@ pub fn run() {
     ns_app.run();
 }
 
+/// The font sizes a zoom may reach, in points: below six nothing reads,
+/// and past seventy-two a cell is most of a small window.
+const ZOOM_MIN: f32 = 6.0;
+const ZOOM_MAX: f32 = 72.0;
+
 /// Lines a single wheel event may turn into reports or keys: a trackpad
 /// fling accumulates to many, and an application wants a bounded burst.
 const WHEEL_MAX: u64 = 64;
@@ -1468,6 +1463,68 @@ impl Driver {
             self.pump(Trigger::Wake);
         }
         Took::Yes
+    }
+
+    /// The grid for a view of `size` points at `scale`, and the terminal,
+    /// the child and the frame following it -- on a resize, and on a zoom.
+    fn relayout(&mut self, size: NSSize, scale: CGFloat) {
+        let (cw, ch) = self.app.metrics_cell();
+        if self.app.sizing == Sizing::Fixed {
+            return;
+        }
+        let px_w = size.width * scale;
+        let px_h = size.height * scale;
+        let cols = ((px_w / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
+        let rows = ((px_h / ch).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
+        let ws = WinSize {
+            ws_col: u16::try_from(cols).unwrap_or(2),
+            ws_row: u16::try_from(rows).unwrap_or(1),
+        };
+        if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
+            // Truncated only past MAX_GRID, which the clamp above prevents.
+            let _ = self.app.term.resize(&ws);
+            let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
+            self.app.pty.resize(&ws, px(px_w), px(px_h));
+            self.app.grid = ws;
+            // A reflow re-cuts every line, so the columns a selection named
+            // no longer name cells.
+            self.app.selection = None;
+            // A new grid is a new surface, so repaint every row of it rather
+            // than trusting the last frame, whose rows were a different width.
+            self.app.next_damage = Damage::Full;
+            self.app.pending = Pending::Dirty;
+            // Draw at the new size *now*. A live drag runs a modal resize loop
+            // in which the display link does not tick, so without a present
+            // here the layer stretches the last surface and the window looks
+            // corrupted until the drag ends. `term.resize` kept the content --
+            // the pitch is fixed, so each row was clipped or extended in place
+            // -- so this paints what is there at the new geometry, and the
+            // child redraws into it on `SIGWINCH`.
+            self.app.present(&self.view, Show::Event);
+        }
+    }
+
+    /// The View menu's zoom: a new font size in points, bounded, the
+    /// renderer rescaled to it at the current backing scale, the grid
+    /// re-laid for the same window, and a frame drawn now. The size is not
+    /// written back to the config; Actual Size returns to what it said.
+    fn zoom(&mut self, points: f32) {
+        let points = points.clamp(ZOOM_MIN, ZOOM_MAX);
+        if points == self.app.font_size {
+            return;
+        }
+        let scale = self.app.scale;
+        let Some(px) = PxSize::of(points * scale as f32) else {
+            return;
+        };
+        if self.app.renderer.rescale(px).is_none() {
+            return;
+        }
+        self.app.font_size = points;
+        self.relayout(self.view.frame().size, scale);
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        self.app.present(&self.view, Show::Event);
     }
 
     /// Cmd-C: the selection's text to the pasteboard, if there is one.

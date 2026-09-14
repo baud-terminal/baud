@@ -444,6 +444,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Sets the blink phase the next convert or resolve draws with.
+    /// A new pixel size for the same faces -- the backing scale changed, or
+    /// the font size -- so the metrics, the per-face scales, the run cache
+    /// and the atlas are rebuilt and the next convert repaints every row.
+    /// `None` leaves the renderer as it was, when the primary face cannot
+    /// be measured at that size.
+    pub fn rescale(&mut self, size: PxSize) -> Option<()> {
+        let metrics = Metrics::of(self.stack.primary(), size)?;
+        self.scales = self
+            .stack
+            .faces()
+            .iter()
+            .map(|f| Scale::of(size.value(), f.units_per_em()))
+            .collect();
+        self.metrics = metrics;
+        self.cache.clear();
+        self.atlas.reset();
+        #[cfg(feature = "exceptions")]
+        self.singles.clear();
+        self.known = Prev::Unknown;
+        Some(())
+    }
+
     /// The selection to draw on the next frame, in the view's screen
     /// coordinates, or none. One rule on every path: a selected cell's
     /// resolved colours swap, before the block cursor's own swap.

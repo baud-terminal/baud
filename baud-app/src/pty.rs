@@ -372,16 +372,25 @@ pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
 struct DisplayId(u32);
 
 #[cfg(target_os = "macos")]
-/// A count of pixels, as `CGDisplayPixelsWide` returns one.
+/// A count of pixels, or of points, as a display mode reports a width.
 #[repr(transparent)]
 struct Pixels(usize);
+
+#[cfg(target_os = "macos")]
+/// A display mode, as CoreGraphics hands one out: an opaque reference the
+/// caller releases.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct DisplayMode(*const core::ffi::c_void);
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
 unsafe extern "C" {
     fn CGMainDisplayID() -> DisplayId;
-    fn CGDisplayPixelsWide(display: DisplayId) -> Pixels;
-    fn CGDisplayBounds(display: DisplayId) -> macos_liquid_glass::objc2_core_foundation::CGRect;
+    fn CGDisplayCopyDisplayMode(display: DisplayId) -> DisplayMode;
+    fn CGDisplayModeGetPixelWidth(mode: DisplayMode) -> Pixels;
+    fn CGDisplayModeGetWidth(mode: DisplayMode) -> Pixels;
+    fn CGDisplayModeRelease(mode: DisplayMode);
 }
 
 /// The main display's backing scale -- pixels over points -- from
@@ -391,20 +400,27 @@ unsafe extern "C" {
 /// `None` when the display reports no width, which is no display.
 #[cfg(target_os = "macos")]
 pub fn display_scale() -> Option<f64> {
-    // SAFETY: three CoreGraphics calls with no pointers and no
-    // preconditions; a display id is a plain integer and the bounds a
-    // struct returned by value.
-    let (pixels, bounds) = unsafe {
-        let id = CGMainDisplayID();
-        (
-            CGDisplayPixelsWide(DisplayId(id.0)),
-            CGDisplayBounds(DisplayId(id.0)),
-        )
+    // `CGDisplayPixelsWide` answers in points on a Retina display, so the
+    // first version of this read 1 on a 2x panel and the first frame was
+    // built at half its size. The display *mode* carries both widths.
+    // SAFETY: four CoreGraphics calls with no preconditions; the mode is a
+    // reference this function owns until it releases it, and a null one
+    // is checked before use.
+    let (pixels, points) = unsafe {
+        let mode = CGDisplayCopyDisplayMode(CGMainDisplayID());
+        if mode.0.is_null() {
+            return None;
+        }
+        let both = (
+            CGDisplayModeGetPixelWidth(mode),
+            CGDisplayModeGetWidth(mode),
+        );
+        CGDisplayModeRelease(mode);
+        both
     };
-    let points = bounds.size.width;
-    if points <= 0.0 || pixels.0 == 0 {
+    if points.0 == 0 || pixels.0 == 0 {
         return None;
     }
-    // A count of pixels a display has is exact in an f64.
-    Some(pixels.0 as f64 / points)
+    // Counts of pixels and points a display has are exact in an f64.
+    Some(pixels.0 as f64 / points.0 as f64)
 }

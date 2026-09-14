@@ -273,6 +273,17 @@ impl Atlas {
 
     /// Which version of the sheets this is; every placement and reset
     /// moves it.
+    /// Start over at the first side: every slot is gone, the sheets are
+    /// replaced whole, and the grow count moves so the glyph map and the
+    /// overlay rebuild what they kept. What a change of font size needs.
+    pub fn reset(&mut self) {
+        self.map.clear();
+        self.reset_mask(Side::FIRST);
+        self.reset_color(Side::FIRST);
+        self.generation = Generation(self.generation.0.wrapping_add(1));
+        self.stats.grown.bump();
+    }
+
     pub fn generation(&self) -> Generation {
         self.generation
     }
