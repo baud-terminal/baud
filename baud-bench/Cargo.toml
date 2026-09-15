@@ -167,5 +167,9 @@ name = "opcost"
 harness = false
 
 [[bench]]
+name = "winch"
+harness = false
+
+[[bench]]
 name = "transport"
 harness = false
