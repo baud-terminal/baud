@@ -673,6 +673,7 @@ In scope because applications assume them, not because DEC specified them.
 | `OSC 133` | semantic prompt marks | done — `A`/`P` open the prompt zone, `B` keeps it, `C` closes it; acted on by `Term::resize`, which does not re-cut the rows a shell will redraw, and counted in `semantic_marks`. `D`'s exit status is **not** parsed, because nothing here would read it |
 | `OSC 104` | reset palette | done |
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
+| `CSI ? 2048 h/l` | in-band resize notifications | done — reports `CSI 48 ; rows ; cols ; 0 ; 0 t` on enablement, on re-enablement and after every resize, carrying what the terminal **has** rather than what was asked for. Pixel fields are zero, which the specification requires of a terminal that cannot report them: this core is handed a grid and never a window, and `CSI 14 t` is not implemented either |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
 | `CSI ? 1006 h/l` | SGR mouse encoding | done — no ordinate limit; see below |

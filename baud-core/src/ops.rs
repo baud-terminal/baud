@@ -786,6 +786,18 @@ impl Paint<'_, '_> {
             PrivateMode::SynchronizedOutput => {
                 self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
             }
+            // **Enabling it reports at once.** The specification requires
+            // the current size on enablement and after every resize, so an
+            // application that has just asked never has to guess what it
+            // has, and one that re-enables an already-enabled mode gets a
+            // fresh report rather than silence.
+            PrivateMode::InbandResize => {
+                self.cold.modes.apply(ModeBit::InbandResize, on);
+                if on {
+                    let (cols, rows) = (self.cols, self.rows);
+                    self.want_reply(Report::InbandResize { rows, cols });
+                }
+            }
             PrivateMode::SmoothScroll => self.cold.modes.apply(ModeBit::SmoothScroll, on),
             PrivateMode::AutoRepeat => self.cold.modes.apply(ModeBit::AutoRepeat, on),
             // **The input-side modes.** Each decides what a *key* sends, so
@@ -1077,6 +1089,7 @@ impl Paint<'_, '_> {
             PrivateMode::SynchronizedOutput => {
                 bit_state(self.cold.modes, ModeBit::SynchronizedOutput)
             }
+            PrivateMode::InbandResize => bit_state(self.cold.modes, ModeBit::InbandResize),
             // Not a `Modes` bit -- the cursor shape is a value, and whether it
             // blinks is a property of the shape rather than a mode of its own.
             PrivateMode::CursorBlink => match self.cold.cursor_style.blinks() {

@@ -56,6 +56,20 @@ pub enum Report {
     /// enhancement is honoured -- before that the query was consumed and
     /// counted, unanswered.
     KittyFlags(KittyFlags),
+    /// The in-band resize notification of `?2048`:
+    /// `CSI 48 ; rows ; cols ; height_px ; width_px t`.
+    ///
+    /// **Character height and width come first, then pixels**, which is
+    /// the order the specification gives and the reverse of the order a
+    /// `WinSize` is usually read in -- so the two are destructured here
+    /// and nowhere else, the same rule `WinSize::geometry` carries.
+    ///
+    /// The pixel fields are zero. The specification requires exactly
+    /// that of a terminal that cannot report them, and this core cannot:
+    /// it is handed a grid, never a window, and `CSI 14 t` is not
+    /// implemented either. They go in when a caller passes a pixel size,
+    /// which is the same change that would implement `CSI 14 t`.
+    InbandResize { rows: Rows, cols: Cols },
     /// XTVERSION, the answer to `CSI > 0 q`.
     ///
     /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
@@ -246,6 +260,18 @@ impl Report {
             Report::OperatingStatus => {
                 e.push_num(0);
                 e.push(b'n');
+            }
+            Report::InbandResize { rows, cols } => {
+                e.push_num(48);
+                e.push(b';');
+                e.push_num(u16::try_from(rows.index()).unwrap_or(u16::MAX));
+                e.push(b';');
+                e.push_num(u16::try_from(cols.index()).unwrap_or(u16::MAX));
+                e.push(b';');
+                e.push_num(0);
+                e.push(b';');
+                e.push_num(0);
+                e.push(b't');
             }
             Report::KittyFlags(f) => {
                 e.push(b'?');

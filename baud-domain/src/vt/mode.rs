@@ -179,6 +179,22 @@ pub enum ModeBit {
     /// A *hint*: ignoring it is correct-but-worse, so an embedder that never
     /// reads it still renders correctly, just with tearing.
     SynchronizedOutput,
+    /// `?2048` — in-band resize notifications.
+    ///
+    /// **The point is that it is in band.** `SIGWINCH` arrives from the
+    /// kernel on its own schedule, on another thread, with no defined
+    /// position in the application's input -- so an application cannot
+    /// tell which of its own reads the new size belongs to, and
+    /// intermediate sizes coalesce. A report written into the stream has
+    /// a position, and the race is gone for anything that reads it.
+    /// Neovim asks for this and stops handling `SIGWINCH` once it is on.
+    ///
+    /// It is not the answer to a *shell's* prompt duplicating on resize,
+    /// because no shell consumes it; that is [`Zone`] and `OSC 133`.
+    /// `docs/research/notes/m-resize-and-reflow.md` keeps the two apart.
+    ///
+    /// [`Zone`]: ../../baud_core/struct.Term.html
+    InbandResize,
 }
 
 impl ModeBit {
@@ -279,6 +295,7 @@ pub enum PrivateMode {
     BracketedPaste,     // ?2004
     AltScreen,          // ?1049
     SynchronizedOutput, // ?2026
+    InbandResize,       // ?2048
     /// DECLRMM, `?69`. Left/right margin mode.
     LeftRightMargin,
     /// DECANM, `?2`. **Reset** enters VT52 mode; set returns to ANSI.
@@ -357,6 +374,7 @@ impl PrivateMode {
             2027 => PrivateMode::GraphemeClustering,
             2004 => PrivateMode::BracketedPaste,
             2026 => PrivateMode::SynchronizedOutput,
+            2048 => PrivateMode::InbandResize,
             n => PrivateMode::Other(Param(n)),
         }
     }

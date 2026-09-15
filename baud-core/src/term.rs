@@ -821,6 +821,19 @@ impl<'b> Term<'b> {
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(cols.index().saturating_sub(1));
+        // **The in-band report, after the resize is complete.** The
+        // specification is explicit that a terminal must not send one
+        // before its own resize has finished, which is why this is the
+        // last thing here: everything above has settled the geometry, the
+        // window and the cursor.
+        //
+        // It reports what the terminal *has*, not what was asked for --
+        // the clamps above are real -- for the same reason an embedder
+        // must send the child the settled size rather than the requested
+        // one.
+        if self.cold.modes.is_set(ModeBit::InbandResize) {
+            self.queue(Report::InbandResize { rows, cols });
+        }
         match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
