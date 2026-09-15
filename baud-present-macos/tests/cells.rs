@@ -24,9 +24,14 @@ use baud_render::{
     Scene, Stack, Theme, Window,
 };
 
+/// **Wide enough for the right-hand side to be a question.** It was 40x6,
+/// and a scene that never reaches a far column cannot show a path that
+/// stops short of one -- which is what the owner reported asciiquarium
+/// doing, with its waterline ending two thirds across a window whose
+/// cells the core had filled to the last column.
 const WS: WinSize = WinSize {
-    ws_col: 40,
-    ws_row: 6,
+    ws_col: 120,
+    ws_row: 10,
 };
 
 fn feed(t: &mut Term<'_>, bytes: &[u8]) {
@@ -45,8 +50,16 @@ fn scene(t: &mut Term<'_>) {
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
           box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end\r\n\
           marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed\r\n\
-          arrows a -> b => c != d <= e // f :: g <- end",
+          arrows a -> b => c != d <= e // f :: g <- end\r\n",
     );
+    // A band that runs to the very last column, and one that stops a cell
+    // short of it: asciiquarium's waterline is exactly this shape, and
+    // between them they separate "the last column is not drawn" from "the
+    // right-hand side is not drawn".
+    let full = "~".repeat(usize::from(WS.ws_col));
+    let short = "^".repeat(usize::from(WS.ws_col) - 1);
+    feed(t, format!("\x1b[36m{full}\x1b[0m").as_bytes());
+    feed(t, format!("\r\n\x1b[36m{short}\x1b[0m").as_bytes());
 }
 
 struct Arms<'f, 'a> {
@@ -303,9 +316,46 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "the instance arm drew the scene, {name}"
         );
         let diff = differing(&a, &b);
+        let (pw, _) = arms.renderer.pixel_size();
+        let m = arms.renderer.metrics();
+        let boxed = diff_box(
+            &a,
+            &b,
+            usize::try_from(pw.value()).unwrap(),
+            (
+                usize::try_from(m.cell_w.value()).unwrap(),
+                usize::try_from(m.cell_h.value()).unwrap(),
+            ),
+        );
+        if diff > 0 {
+            // Which arm is blank there decides everything: the instance
+            // path is the oracle, so if the cell arm is empty the cells
+            // were masked by the overlay and nothing drew them back.
+            let (cw, ch) = (
+                usize::try_from(m.cell_w.value()).unwrap(),
+                usize::try_from(m.cell_h.value()).unwrap(),
+            );
+            let w = usize::try_from(pw.value()).unwrap();
+            if let Some((x0, y0, x1, y1)) = boxed {
+                let mut lit = (0usize, 0usize);
+                for py in y0 * ch..(y1 + 1) * ch {
+                    for px in x0 * cw..(x1 + 1) * cw {
+                        let i = py * w + px;
+                        lit.0 += usize::from(a.get(i).is_some_and(|&p| p != 0));
+                        lit.1 += usize::from(b.get(i).is_some_and(|&p| p != 0));
+                    }
+                }
+                eprintln!(
+                    "differing region: instance arm {} lit pixels, cell arm {} lit",
+                    lit.0, lit.1
+                );
+            }
+        }
         assert_eq!(
             diff, 0,
-            "{diff} pixels differ between the arms with a {name} cursor"
+            "{diff} pixels differ between the arms with a {name} cursor, \
+             cells {boxed:?} of {}x{}",
+            WS.ws_col, WS.ws_row
         );
         // **D4's arm: the same frame read out of a copy of the window.**
         // The app binds this buffer rather than the core's grid, so that
@@ -321,7 +371,12 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     }
     // Scroll the scene so the grid is under a rotation, and compare again:
     // the cell arm reads it rotated, the instance arm turns it.
-    feed(&mut t, b"\x1b[6;1H\r\nafter one\r\nafter two");
+    // From the last row, so the two newlines scroll whatever the grid's
+    // height is -- it was six rows when this was written and is ten now.
+    feed(
+        &mut t,
+        format!("\x1b[{};1H\r\nafter one\r\nafter two", WS.ws_row).as_bytes(),
+    );
     assert_ne!(t.rotation().index(), 0, "the scene scrolled");
     let (a, b) = arms.draw(&mut t);
     let diff = differing(&a, &b);

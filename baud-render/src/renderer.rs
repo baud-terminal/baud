@@ -1,7 +1,7 @@
 //! The frame: rows that changed, converted and painted.
 
 use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
-use crate::cache::{CacheStats, CellIx, Key, Placed, RUN_CELLS, RunCache, Shaped};
+use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 use crate::cellmap::{Resolved, Shapes};
 use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
@@ -828,31 +828,66 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// offsets. A cell with no glyph of its own -- swallowed into a
     /// ligature -- answers an empty list.
     pub fn window(&mut self, face: Code, cells: &[Vec<Codepoint>]) -> Vec<Vec<ClusterGlyph>> {
-        let Some(&face) = usize::try_from(face.0).ok().and_then(|i| self.faces.get(i)) else {
+        // **Shaped in chunks, because `Shaped` holds `PLACED_MAX` glyphs
+        // and a longer run used to lose its tail in silence.** `shape`
+        // stops pushing once the buffer is full and breaks, so a window of
+        // 120 cells was shaped for 96 of them and the rest fell back to
+        // the glyph the codepoint has alone. On a band that runs the width
+        // of the screen -- asciiquarium's waterline is exactly that -- the
+        // right-hand quarter drew unshaped while the left drew shaped, and
+        // nothing said so: the pixel gate's scene was forty columns wide,
+        // which is narrower than the bug.
+        //
+        // Each chunk is shaped with `ext` cells of context on either side
+        // -- the face's longest rule, the same span the window itself is
+        // built from -- and only the middle is kept, so a substitution
+        // that straddles a chunk boundary still sees what it needs.
+        let ext = self
+            .extent(face)
+            .and_then(|e| usize::try_from(e.value()).ok())
+            .unwrap_or(1)
+            .max(1);
+        let Some(&facex) = usize::try_from(face.0).ok().and_then(|i| self.faces.get(i)) else {
             return Vec::new();
         };
-        let clusters: Vec<ClusterIn> = cells
-            .iter()
-            .enumerate()
-            .map(|(i, cps)| ClusterIn {
-                cps: cps.clone(),
-                at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
-            })
-            .collect();
-        let shaped = self.shape(face, &clusters);
-        let scale = self.scales[face.index()];
-        let f = self.stack.face(face);
+        let scale = self.scales[facex.index()];
+        let f = self.stack.face(facex);
         let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
-        for p in shaped.glyphs() {
-            let slot = self.atlas.slot(f, face, p.id, scale);
-            if let Some(cell) = out.get_mut(usize::from(p.cell.0)) {
-                cell.push(ClusterGlyph {
-                    id: p.id,
-                    slot,
-                    dx: scale.px(f32::from(p.dx)).round() as i32,
-                    dy: scale.px(f32::from(p.dy)).round() as i32,
-                });
+        // Half the glyph budget in cells, so a cell that shapes to two
+        // glyphs still fits, and the context on both sides fits with it.
+        let step = (PLACED_MAX / 2).saturating_sub(2 * ext).max(1);
+        let mut at = 0;
+        while at < cells.len() {
+            let end = (at + step).min(cells.len());
+            let lo = at.saturating_sub(ext);
+            let hi = (end + ext).min(cells.len());
+            let clusters: Vec<ClusterIn> = cells[lo..hi]
+                .iter()
+                .enumerate()
+                .map(|(i, cps)| ClusterIn {
+                    cps: cps.clone(),
+                    at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
+                })
+                .collect();
+            let shaped = self.shape(facex, &clusters);
+            for p in shaped.glyphs() {
+                let cell = lo + usize::from(p.cell.0);
+                // Only this chunk's own cells; the context either side
+                // belongs to the chunk that owns it.
+                if cell < at || cell >= end {
+                    continue;
+                }
+                let slot = self.atlas.slot(f, facex, p.id, scale);
+                if let Some(o) = out.get_mut(cell) {
+                    o.push(ClusterGlyph {
+                        id: p.id,
+                        slot,
+                        dx: scale.px(f32::from(p.dx)).round() as i32,
+                        dy: scale.px(f32::from(p.dy)).round() as i32,
+                    });
+                }
             }
+            at = end;
         }
         out
     }

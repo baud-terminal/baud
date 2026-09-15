@@ -115,6 +115,22 @@ fn main() {
     };
     let (_, rows) = t.geometry();
     let mut on_screen = 0;
+    // Where each row's content actually stops, against the grid's width:
+    // the question a truncated right-hand side is.
+    {
+        let (c, r) = t.geometry();
+        println!(
+            "--- rightmost non-blank column, grid is {} wide ---",
+            c.index()
+        );
+        for y in 0..r.index() {
+            let line = text(t.row(Row::from_index(y)));
+            let last = line.trim_end().chars().count();
+            if last > 0 {
+                println!("  row {y:3}: content to column {last}");
+            }
+        }
+    }
     println!("--- final screen ---");
     for y in 0..rows.index() {
         let line = text(t.row(Row::from_index(y)));
