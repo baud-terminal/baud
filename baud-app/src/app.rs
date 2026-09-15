@@ -2125,6 +2125,14 @@ impl Driver {
             // than leaving them blank until the drag stops -- the black gaps
             // a settle-delay left in a live resize.
             self.app.pty.resize(&ws, px(px_w), px(px_h));
+            // **`?2048`'s report goes out with the `SIGWINCH`, not a frame
+            // later.** `Term::resize` queues it, and the point of an
+            // in-band notification is that it has a position in the
+            // stream the application is reading -- leaving it in the
+            // buffer until the next pump would put it after whatever the
+            // child wrote in between, which is the ordering the mode
+            // exists to fix.
+            self.app.flush_reply();
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells.

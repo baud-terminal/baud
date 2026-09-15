@@ -137,22 +137,36 @@ addresses it again -- xterm truncates where baud hides. What is given up
 by declining to re-cut a region is that a long line in it is not visible
 past the edge until the window widens again; nothing is destroyed.
 
-## What baud does not have yet
+## Both halves are built
 
-* **`OSC 133`** is not implemented -- no prompt marks, no semantic
-  zones. It is the boundary this design needs, and it is separately
-  worth having for prompt navigation and output selection.
-* **DEC private mode 2048, in-band resize notifications**, is not
-  implemented. `CSI ? 2048 h` enables it and the terminal then emits
-  `CSI 48 ; rows ; cols ; height_px ; width_px t` after each resize
-  completes, **in the byte stream**. That removes the race for
-  applications that adopt it -- the resize has a defined position
-  relative to the application's own output, where `SIGWINCH` arrives
-  from the kernel on its own schedule and intermediate sizes coalesce.
-  Neovim 0.10+ consumes it and stops handling `SIGWINCH` once it is on.
-  It does **not** help the prompt case, because no shell consumes it
-  yet; it is the right answer for full-screen applications and should
-  be implemented on its own merits rather than as a fix for this.
+* **`OSC 133`** is implemented and is what the design above needs. `A`
+  and `P` open the prompt zone, `B` keeps it, `C` closes it, and
+  `Term::resize` re-cuts a width change only outside it. `P` is taken as
+  a prompt start and not only `A`, because the shell this was measured
+  on sends `P` and never `A` -- reading only `A` is how a terminal
+  decides a shell sends no marks at all. Measured after: the gentle
+  capture goes four copies to one and the drag two to one, with every
+  reflow, resize and scrollback test passing untouched, since a stream
+  with no marks is in the output zone and behaves exactly as before.
+* **DEC private mode 2048** is implemented, on its own merits and not as
+  a fix for this. `CSI ? 2048 h` enables it and the terminal emits
+  `CSI 48 ; rows ; cols ; height_px ; width_px t` on enablement, on
+  re-enablement, and after each resize completes. It carries what the
+  terminal *has* rather than what was asked for, because the clamps in
+  `resize` are real. The pixel fields are zero, which the specification
+  requires of a terminal that cannot report them: this core is handed a
+  grid and never a window, and `CSI 14 t` is not implemented either.
+
+What is still open from this note is the refinement rather than the
+fix: re-cutting the output *above* a prompt while leaving the prompt's
+own rows alone, rather than leaving the whole screen alone whenever a
+prompt is on it. That needs the re-cut to anchor at the prompt and grow
+upward into the history, and the in-place copy ordering argument for it
+is not the one `View::reflow` currently carries -- so it is a change to
+make deliberately, with that argument written out, rather than a flag.
+What it would buy is a long line in finished output re-wrapping while
+the user sits at a prompt; today that waits until the next command's
+output, which is in the output zone and re-cuts.
 
 ## Unmeasured, and stated rather than assumed
 
