@@ -1048,23 +1048,26 @@ struct Driver {
     icon_inset: CGFloat,
 }
 
-/// A geometry change asked for while a frame was in flight.
+/// A rescale asked for while a frame was in flight.
 ///
-/// Reflowing rewrites the ring the shader reads and rescaling replaces the
-/// atlas and clears the glyph map, and both are memory the live draw is
-/// sampling. Neither can be ringed at a price worth paying: the ring is
-/// megabytes and the atlas is two textures, against an event a keypress or
-/// a drag step produces. So the *request* waits rather than the frame, and
-/// what it waits for is the completion -- an event that arrives in about
-/// 300 microseconds, against a drag step every eight milliseconds. Nothing
-/// polls, nothing sleeps, and a burst coalesces to its last member, which
-/// is what a drag wants anyway.
+/// Rescaling replaces the atlas and clears the glyph map, and the atlas is
+/// the one thing on this path the live draw samples that has no ring: two
+/// textures, against an event a keystroke produces. So the *request*
+/// waits rather than the frame, and what it waits for is the completion --
+/// an event that arrives in about 300 microseconds. Nothing polls and
+/// nothing sleeps, and a burst coalesces to its last member.
+///
+/// A resize used to be here too and is not: the reflow it does is safe
+/// against a frame in flight now that the shader reads a copy of the
+/// window rather than the ring.
 #[derive(Clone, Copy)]
 enum Deferred {
     Nothing,
-    /// A window resize: the view's size and the backing scale it came with.
-    Layout(NSSize, CGFloat),
     /// A zoom, in points.
+    ///
+    /// A resize is no longer here. It waited while the shader read the
+    /// ring in place; since D4 it reads a copy, and what the wait cost was
+    /// the `SIGWINCH` below it -- see `relayout`.
     Zoom(f32),
 }
 
@@ -1114,9 +1117,6 @@ impl Driver {
         if !busy {
             match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
                 Deferred::Nothing => {}
-                Deferred::Layout(size, scale) => {
-                    let _ = self.relayout(size, scale);
-                }
                 Deferred::Zoom(points) => self.zoom(points),
             }
         }
@@ -1925,16 +1925,30 @@ impl Driver {
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
-        // A reflow rewrites the ring the shader reads, and the grid has no
-        // ring to move aside into, so it waits for the frame that is
-        // reading it. A drag coalesces to its last step.
-        if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
-            if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
-                eprintln!("relayout: deferred, a frame is in flight");
-            }
-            self.deferred = Deferred::Layout(size, scale);
-            return Drew::No;
-        }
+        // **A resize no longer waits for the frame in flight, and that is
+        // the freeze the owner reported.** It used to: a reflow rewrites
+        // the ring, and while the shader read the ring in place that was
+        // memory a live draw was sampling.
+        //
+        // What made the wait a freeze is what else is on this path.
+        // `pty.resize` -- the `SIGWINCH` that tells the child its new size
+        // -- is below, so a deferred step never told it. A drag delivers a
+        // step every few milliseconds and a frame is in flight for most of
+        // them, so through the whole gesture the child kept redrawing at
+        // the size it was first told, and only the last step got through:
+        // a window that grows around a screenful of stale content and
+        // catches up a moment after the pointer stops. Exactly the report.
+        //
+        // Since D4 the shader reads a *copy* of the window taken before
+        // the draw, so the reflow has nothing to collide with -- the frame
+        // in flight is reading its own buffer. The surfaces are replaced
+        // under the journal's epoch, which supersedes the frames drawn for
+        // the old ones, and Metal retains a texture until the command
+        // buffer that references it completes.
+        //
+        // The atlas is the one thing here that still has no ring, and a
+        // resize does not touch it: only a rescale does, which is why
+        // `Deferred::Zoom` still waits.
         let (cw, ch) = self.app.metrics_cell();
         let px_w = size.width * scale;
         let px_h = size.height * scale;
