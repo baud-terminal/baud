@@ -36,8 +36,9 @@ use baud_domain::{Row, RowBlock, RowRot};
 #[cfg(target_os = "macos")]
 fn main() {
     use baud_core::{Owned, Term};
-    use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+    use baud_domain::{BytePos, Cols, FrameGen, ReadLen, Rows, SwapEpoch, WinSize};
     use baud_font::Face;
+    use baud_present_macos::journal::{FrameTag, Journal};
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight};
     use baud_render::{
         Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
@@ -164,6 +165,17 @@ fn main() {
         /// before each draw: the arm that says whether reading the core's
         /// grid in place costs the GPU anything.
         Copied,
+        /// The cell path committed asynchronously with the surface set
+        /// replaced **while a frame is in flight** -- what a live resize or
+        /// a zoom does, because `relayout` reaches `present`, whose rebuild
+        /// branch fires before the busy check.
+        ///
+        /// It answers the question the other arms cannot: how many frames
+        /// reach the layer carrying an image drawn for surfaces that have
+        /// since been freed and rebuilt. Real GPU completions on real
+        /// hardware, arriving when the hardware says so; only the rebuild
+        /// is scripted, and it is scripted to the shape the app produces.
+        Present,
     }
     let arms = [
         Arm::Cpu,
@@ -172,6 +184,7 @@ fn main() {
         Arm::Cells,
         Arm::Async,
         Arm::Copied,
+        Arm::Present,
     ];
     // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
     // sweep sees one path.
@@ -187,6 +200,7 @@ fn main() {
                     Arm::Cells => "cells",
                     Arm::Async => "async",
                     Arm::Copied => "copied",
+                    Arm::Present => "present",
                 };
                 w.split(',').any(|n| n.trim() == name)
             })
@@ -210,12 +224,24 @@ fn main() {
     let mut records: Vec<Instance> = Vec::new();
     let mut candidates: Vec<Candidate> = Vec::new();
     let noop: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+    // The present arm's state. Shared with every completion, exactly as a
+    // presenter shares them with the frames it has in flight.
+    let epoch = Arc::new(SwapEpoch::new());
+    let journal = Arc::new(Journal::default());
+    let mut frame_no = FrameGen::FIRST;
+    // How often the surfaces are replaced under a frame in flight. A drag
+    // rebuilds on most steps, so every frame is the honest shape; the
+    // divisor exists so the arm can also be run at a gentler rate.
+    let rebuild_every: usize = std::env::var("FRAME_REBUILD_EVERY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
     for round in 0..rounds {
         for &arm in &arms {
             let mut r = fresh();
             // The cell arms lend the terminal its viewport from the GPU;
             // the others take the storage's own.
-            let cell_arm = matches!(arm, Arm::Cells | Arm::Async | Arm::Copied);
+            let cell_arm = matches!(arm, Arm::Cells | Arm::Async | Arm::Copied | Arm::Present);
             let (grid, shared) = if cell_arm {
                 let (g, cells) = gpu.grid(ring, stride).expect("a shared grid");
                 let (_, alt) = gpu.grid(rows, stride).expect("a shared alternate");
@@ -311,12 +337,38 @@ fn main() {
                     };
                     let done = match arm {
                         Arm::Async => Done::Notify(Arc::clone(&noop)),
+                        Arm::Present => {
+                            // The identity the frame carries, captured the
+                            // way `Presenter::on_done` captures it.
+                            frame_no = frame_no.next();
+                            let tag = FrameTag {
+                                frame: frame_no,
+                                swap: epoch.current(),
+                            };
+                            let j = Arc::clone(&journal);
+                            let e = Arc::clone(&epoch);
+                            Done::Notify(Arc::new(move || {
+                                j.land(tag, &e);
+                            }))
+                        }
                         _ => Done::Wait,
                     };
                     let Some(Drawn::Frame(g)) = gpu.draw_cells(&mut r, &input, &target, done)
                     else {
                         panic!("draw_cells");
                     };
+                    // `FRAME_REBUILD_EVERY=0` never rebuilds: the control
+                    // that says the counter can read zero. Without it a
+                    // counter that only ever reported "superseded" would be
+                    // making a claim rather than reporting one.
+                    if arm == Arm::Present && rebuild_every != 0 && s.frames % rebuild_every == 0 {
+                        // **The rebuild, taken while the frame is still in
+                        // flight.** This is one line because that is all the
+                        // app does: `Presenter::build` makes new surfaces and
+                        // bumps the generation, and every frame committed
+                        // against the old set is superseded from here.
+                        epoch.bump();
+                    }
                     s.frames += 1;
                     s.draw += g.upload + g.submit;
                     s.bind += g.upload;
@@ -344,7 +396,7 @@ fn main() {
                         s.gpu += g.gpu;
                         s.inst += g.instances.value();
                     }
-                    Arm::Cells | Arm::Async | Arm::Copied => {
+                    Arm::Cells | Arm::Async | Arm::Copied | Arm::Present => {
                         unreachable!("the cell arms continue above")
                     }
                 }
@@ -353,6 +405,14 @@ fn main() {
                 std::hint::spin_loop();
             }
             s.total = t0.elapsed();
+            if arm == Arm::Present {
+                let c = journal.counts();
+                println!(
+                    "      present: {} landed, {} shown, {} superseded  \
+(surfaces replaced under a frame in flight every {} frames)",
+                    c.landed, c.shown, c.superseded, rebuild_every
+                );
+            }
             s.miss = map.stats().misses;
             s.ptest = map.stats().pair_tests;
             let per = |d: Duration| d.as_secs_f64() * 1e6 / s.frames as f64;
@@ -366,6 +426,7 @@ fn main() {
                     Arm::Cells => "waited",
                     Arm::Async => "async",
                     Arm::Copied => "copied",
+                    Arm::Present => "present",
                 },
                 s.frames,
                 per(s.total),

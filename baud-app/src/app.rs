@@ -702,14 +702,15 @@ impl App {
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
                 Some(Mode::Gpu) => crate::info!(
-                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}, gpu {:?}",
+                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}, gpu {:?}; {}",
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
                     self.gpu_stats.instances.value(),
                     self.stats.convert,
                     self.gpu_stats.upload,
                     self.gpu_stats.submit,
-                    self.gpu_stats.gpu
+                    self.gpu_stats.gpu,
+                    self.present_counts()
                 ),
                 _ => crate::info!(
                     "{} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
@@ -722,6 +723,25 @@ impl App {
                 ),
             }
             self.last_report = std::time::Instant::now();
+        }
+    }
+}
+
+/// What the present path has done, for the five-second report and for
+/// `BAUD_FRAME_LOG`.
+///
+/// `superseded` is the one to read: a frame that reached the layer after
+/// the surfaces it drew into had been replaced. It is the doubled image on
+/// a grow and the old font size on a zoom, and until the discard lands it
+/// counts them happening rather than being prevented.
+impl App {
+    fn present_counts(&self) -> String {
+        match self.presenter.as_ref().map(Presenter::counts) {
+            Some(c) => format!(
+                "present: {} landed, {} shown, {} superseded",
+                c.landed, c.shown, c.superseded
+            ),
+            None => "present: no presenter".to_string(),
         }
     }
 }
@@ -1681,7 +1701,7 @@ impl Driver {
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
                 let g = &self.app.gpu_stats;
                 eprintln!(
-                    "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us, gpu {}us)",
+                    "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us, gpu {}us) [{}]",
                     self.app.grid.ws_col,
                     self.app.grid.ws_row,
                     t_reflow.as_micros(),
@@ -1690,6 +1710,7 @@ impl Driver {
                     g.upload.as_micros(),
                     g.submit.as_micros(),
                     g.gpu.as_micros(),
+                    self.app.present_counts(),
                 );
             }
         }
