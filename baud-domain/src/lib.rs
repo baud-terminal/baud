@@ -39,6 +39,7 @@ pub fn cluster_next(state: u8, input: u8) -> u8 {
 mod dec_graphics;
 mod decode;
 mod font;
+mod frame;
 mod grapheme;
 mod grapheme_data;
 mod grid;
@@ -66,6 +67,7 @@ pub use cell::*;
 pub use dec_graphics::*;
 pub use decode::*;
 pub use font::*;
+pub use frame::*;
 pub use grapheme::*;
 pub use grid::*;
 pub use history::*;

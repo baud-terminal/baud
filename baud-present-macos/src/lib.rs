@@ -29,6 +29,7 @@
 #![deny(unsafe_code)]
 
 pub mod clipboard;
+pub mod journal;
 pub mod metal;
 
 pub use metal::{
@@ -36,8 +37,10 @@ pub use metal::{
     StylesBuffer, Target,
 };
 
+use baud_domain::{FrameGen, SwapEpoch};
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
+use journal::{Counts, FrameTag, Journal};
 pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
 use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
 use std::sync::Arc;
@@ -76,6 +79,16 @@ pub struct Presenter {
     draw: Draw,
     /// What the surfaces' bytes mean; a resize keeps it.
     space: ColorSpace,
+    /// Which surface set these are. Shared with every frame in flight and
+    /// carried across a resize, because a frame committed against the old
+    /// set lands after the new one exists and has to be able to say so.
+    epoch: Arc<SwapEpoch>,
+    /// What the present path did, carried across a resize for the same
+    /// reason: a completion counts itself, and the presenter it was
+    /// committed by may be gone by then.
+    journal: Arc<Journal>,
+    /// Which frame the next commit is.
+    frame: FrameGen,
 }
 
 /// Whether a frame reached the screen.
@@ -91,7 +104,7 @@ impl Presenter {
     /// Surfaces of `width` by `height` pixels for the CPU path; `None`
     /// when the kernel declines.
     pub fn new(width: Px, height: Px, space: ColorSpace) -> Option<Presenter> {
-        Presenter::build(width, height, space, Draw::Cpu)
+        Presenter::build(width, height, space, Draw::Cpu, Shared::fresh())
     }
 
     /// Surfaces of `width` by `height` pixels with a Metal target over
@@ -111,10 +124,17 @@ impl Presenter {
                 gpu: Box::new(gpu),
                 targets: Vec::new(),
             },
+            Shared::fresh(),
         )
     }
 
-    fn build(width: Px, height: Px, space: ColorSpace, draw: Draw) -> Option<Presenter> {
+    fn build(
+        width: Px,
+        height: Px,
+        space: ColorSpace,
+        draw: Draw,
+        shared: Shared,
+    ) -> Option<Presenter> {
         let (w, h) = (slots(width), slots(height));
         let surfaces = (0..SURFACES)
             .map(|_| Surface::in_space(w, h, space))
@@ -129,6 +149,12 @@ impl Presenter {
                 Draw::Gpu { gpu, targets }
             }
         };
+        // **The surfaces exist, so the set they belong to is new.** Every
+        // frame committed against the previous one is superseded from here,
+        // whatever it was drawn at -- which is the case a size comparison
+        // cannot see, since a window dragged out and back leaves two
+        // different sets that are the same shape.
+        shared.epoch.bump();
         Some(Presenter {
             surfaces,
             next: Next(0),
@@ -136,6 +162,9 @@ impl Presenter {
             height,
             draw,
             space,
+            epoch: shared.epoch,
+            journal: shared.journal,
+            frame: shared.frame,
         })
     }
 
@@ -171,8 +200,29 @@ impl Presenter {
     /// are released once the layer stops showing them.
     pub fn resize(&mut self, width: Px, height: Px) -> Option<()> {
         let draw = core::mem::replace(&mut self.draw, Draw::Cpu);
-        *self = Presenter::build(width, height, self.space, draw)?;
+        let shared = Shared {
+            epoch: Arc::clone(&self.epoch),
+            journal: Arc::clone(&self.journal),
+            frame: self.frame,
+        };
+        *self = Presenter::build(width, height, self.space, draw, shared)?;
         Some(())
+    }
+
+    /// What the present path has done: frames landed, shown, and superseded.
+    /// Survives a resize, because the frames a resize supersedes are exactly
+    /// the ones worth counting.
+    pub fn counts(&self) -> Counts {
+        self.journal.counts()
+    }
+
+    /// The tag the next commit carries, and the advance of the frame number.
+    fn tag(&mut self) -> FrameTag {
+        self.frame = self.frame.next();
+        FrameTag {
+            frame: self.frame,
+            swap: self.epoch.current(),
+        }
     }
 
     /// Copies `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
@@ -229,10 +279,21 @@ impl Presenter {
     /// What the GPU does when a frame into the next surface is done: hand
     /// that surface to the main thread and wake the responder, through the
     /// view's waker, from the GPU's thread.
-    fn on_done(&self, waker: Waker) -> Done {
+    fn on_done(&mut self, waker: Waker) -> Done {
         let handle = self.surfaces[self.next.0].handle();
+        let tag = self.tag();
+        let epoch = Arc::clone(&self.epoch);
+        let journal = Arc::clone(&self.journal);
         Done::Notify(Arc::new(move || {
-            waker.present(&handle);
+            // **Recorded, and shown anyway.** The verdict is taken here and
+            // deliberately not acted on: a count of frames that reached the
+            // layer after their surfaces were replaced is only a measurement
+            // of the bug while the bug is still happening. Acting on it is a
+            // separate change, against these numbers.
+            let fate = journal.land(tag, &epoch);
+            if journal::admits(fate) == journal::Show::Now {
+                waker.present(&handle);
+            }
             waker.wake();
         }))
     }
@@ -314,6 +375,25 @@ impl Presenter {
         match &self.draw {
             Draw::Cpu => None,
             Draw::Gpu { gpu, .. } => Some(gpu),
+        }
+    }
+}
+
+/// What a presenter hands to its successor across a resize: the frames it
+/// has in flight outlive it, and they name the epoch and count themselves in
+/// the journal, so neither may be rebuilt with the surfaces.
+struct Shared {
+    epoch: Arc<SwapEpoch>,
+    journal: Arc<Journal>,
+    frame: FrameGen,
+}
+
+impl Shared {
+    fn fresh() -> Shared {
+        Shared {
+            epoch: Arc::new(SwapEpoch::new()),
+            journal: Arc::new(Journal::default()),
+            frame: FrameGen::FIRST,
         }
     }
 }

@@ -29,3 +29,16 @@ objc2-metal = { version = "0.3.2", features = ["objc2-io-surface", "objc2-core-f
 # The completion handler is a block: the frame is presented when the GPU
 # says it is done, and nothing waits for it.
 block2 = "0.6"
+
+# The pinned present tests build a real `CALayer`, give it bounds and a
+# contents scale, set an `IOSurface` on it and read back *which* surface
+# arrived -- all in a plain `cargo test` with no window, no `NSApplication`
+# and no run loop. Measured before it was designed around: a probe reported
+# `CALayer::new()` succeeding off the main thread, `setBounds` and
+# `setContentsScale` round-tripping, and `contents()` distinguishing two
+# surfaces by pointer, with and without a `CATransaction`. A dev-dependency
+# because nothing in the crate's own path touches a layer -- the owner's
+# window crate owns that -- so this is an oracle, the `ttf-parser` shape.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-quartz-core = "0.3.2"
+objc2-core-foundation = "0.3"
