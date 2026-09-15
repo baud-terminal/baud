@@ -2114,6 +2114,7 @@ impl Driver {
             // last column and the waves stopped short of the edge while
             // the fish it drew inside the grid reached it. Two reports,
             // one line.
+            let asked = (ws.ws_col, ws.ws_row);
             let (has_cols, has_rows) = self.app.term.geometry();
             let ws = WinSize {
                 ws_col: u16::try_from(has_cols.index()).unwrap_or(u16::MAX),
@@ -2158,6 +2159,20 @@ impl Driver {
             self.app.present(&self.view, Show::Event);
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
                 let g = &self.app.gpu_stats;
+                // The zone and the cursor, because which rule a resize took
+                // is not visible from the timings: a width change re-cuts
+                // in `Zone::Output` and does not in `Zone::Prompt`, and a
+                // duplicated prompt is what the wrong one looks like.
+                eprintln!(
+                    "resize asked {}x{} got {}x{} zone {:?} cursor {:?} marks {}",
+                    asked.0,
+                    asked.1,
+                    has_cols.index(),
+                    has_rows.index(),
+                    self.app.term.zone(),
+                    self.app.term.cursor(),
+                    self.app.term.semantic_marks,
+                );
                 eprintln!(
                     "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us) [{}]",
                     self.app.grid.ws_col,

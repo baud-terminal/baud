@@ -9,7 +9,7 @@
 //! See `docs/research/notes/m-resize-and-reflow.md` for the measurement
 //! and for what the alternatives cost.
 mod support;
-use baud_core::{PackedCell, Term};
+use baud_core::{PackedCell, Term, Zone};
 use baud_domain::{Row, WinSize};
 
 fn text_of(cells: &[PackedCell]) -> String {
@@ -50,6 +50,7 @@ fn a_prompt_is_not_recut_by_a_resize() {
             support::feed(t, b"\x1b]133;P;k=i\x07");
             support::feed(t, long_line(36).as_bytes());
             assert_eq!(t.semantic_marks, 1, "the mark was seen");
+            assert_eq!(t.zone(), Zone::Prompt, "the mark opened the prompt zone");
             let before = row_text(t, 1);
             let _ = t.resize(&WinSize {
                 ws_col: 20,
@@ -86,6 +87,7 @@ fn output_is_still_recut_by_a_resize() {
             support::feed(t, b"\x1b]133;C\x07");
             support::feed(t, long_line(36).as_bytes());
             assert_eq!(t.semantic_marks, 2);
+            assert_eq!(t.zone(), Zone::Output, "the output mark closed the zone");
             let _ = t.resize(&WinSize {
                 ws_col: 20,
                 ws_row: 8,
@@ -108,6 +110,11 @@ fn a_stream_with_no_marks_is_recut_as_it_always_was() {
         |t| {
             support::feed(t, long_line(36).as_bytes());
             assert_eq!(t.semantic_marks, 0, "the control: no marks were sent");
+            assert_eq!(
+                t.zone(),
+                Zone::Output,
+                "a terminal that has seen no marks is in the output zone"
+            );
             let _ = t.resize(&WinSize {
                 ws_col: 20,
                 ws_row: 8,

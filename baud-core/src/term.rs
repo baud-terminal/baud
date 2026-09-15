@@ -980,6 +980,17 @@ impl<'b> Term<'b> {
         self.cold.modes.is_set(ModeBit::SynchronizedOutput)
     }
 
+    /// Which half of the screen's life this is, from `OSC 133`.
+    ///
+    /// [`Zone::Output`] until a mark says otherwise, so a stream with no
+    /// shell integration reads as output -- which is what it is. Read by
+    /// `Term::resize` to decide whether a width change may re-cut, and
+    /// exposed so an embedder can see which rule is in force rather than
+    /// having to infer it from what the screen did.
+    pub fn zone(&self) -> Zone {
+        self.cold.zone
+    }
+
     /// `?2004`. Whether pasted text should be bracketed.
     pub fn bracketed_paste(&self) -> bool {
         self.cold.modes.is_set(ModeBit::BracketedPaste)

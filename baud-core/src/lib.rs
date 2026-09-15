@@ -106,4 +106,4 @@ pub use storage::{
     OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
-pub use term::{Resized, Screen, Term};
+pub use term::{Resized, Screen, Term, Zone};
