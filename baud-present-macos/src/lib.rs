@@ -40,7 +40,7 @@ pub use metal::{
 use baud_domain::{FrameGen, SwapEpoch};
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
-use journal::{Counts, FrameTag, Journal};
+use journal::{Counts, FrameTag, Journal, SetIx};
 pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
 use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
 use std::sync::Arc;
@@ -216,13 +216,26 @@ impl Presenter {
         self.journal.counts()
     }
 
-    /// The tag the next commit carries, and the advance of the frame number.
-    fn tag(&mut self) -> FrameTag {
+    /// The tag the next commit carries, and the advance of the frame
+    /// number. Taking a tag *is* committing, so this is where a set stops
+    /// being free: the frame that holds it is the one this mints.
+    fn tag(&mut self, set: Option<SetIx>) -> FrameTag {
         self.frame = self.frame.next();
+        if let Some(set) = set {
+            self.journal.wheel().committed(set, self.frame);
+        }
         FrameTag {
             frame: self.frame,
             swap: self.epoch.current(),
+            set,
         }
+    }
+
+    /// The set to build the next cell-path frame into, or none while every
+    /// set is held by a frame that has not landed -- in which case there
+    /// is nowhere to build that a live frame is not reading.
+    pub fn building(&self) -> Option<SetIx> {
+        self.journal.wheel().building()
     }
 
     /// Copies `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
@@ -279,9 +292,9 @@ impl Presenter {
     /// What the GPU does when a frame into the next surface is done: hand
     /// that surface to the main thread and wake the responder, through the
     /// view's waker, from the GPU's thread.
-    fn on_done(&mut self, waker: Waker) -> Done {
+    fn on_done(&mut self, waker: Waker, set: Option<SetIx>) -> Done {
         let handle = self.surfaces[self.next.0].handle();
-        let tag = self.tag();
+        let tag = self.tag(set);
         let epoch = Arc::clone(&self.epoch);
         let journal = Arc::clone(&self.journal);
         Done::Notify(Arc::new(move || {
@@ -309,7 +322,9 @@ impl Presenter {
     /// the next surface, to be shown when the GPU is done. The GPU path
     /// only; `None` otherwise, or when a Metal resource could not be made.
     pub fn draw(&mut self, waker: Waker, renderer: &mut Renderer<'_, '_>) -> Option<Drawn> {
-        let done = self.on_done(waker);
+        // The instance path converts on the main thread and builds into
+        // the presenter's own ring, so it holds none of the caller's sets.
+        let done = self.on_done(waker, None);
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };
@@ -362,7 +377,7 @@ impl Presenter {
         renderer: &mut Renderer<'_, '_>,
         input: &CellInput<'_>,
     ) -> Option<Drawn> {
-        let done = self.on_done(waker);
+        let done = self.on_done(waker, Some(input.set));
         let Draw::Gpu { gpu, targets } = &mut self.draw else {
             return None;
         };

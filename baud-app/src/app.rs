@@ -15,7 +15,7 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
-    Presented, Presenter, StylesBuffer, SurfaceSpace,
+    Presented, Presenter, StylesBuffer, SurfaceSpace, journal::Wheel,
 };
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
@@ -105,29 +105,17 @@ fn wanted() -> Request {
 
 /// The cell path's memory, all of it where the GPU reads it: the grid the
 /// core writes, the styles the renderer resolves, the map the walk fills.
-/// How many sets of the per-frame buffers there are: one a frame that can
-/// be in flight, plus room. Three, which is what the surfaces and the
-/// instance buffer already ring at.
-const SETS: usize = 3;
-
-/// Which set a frame is built into.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Set(usize);
-
-impl Set {
-    const FIRST: Set = Set(0);
-
-    fn next(self) -> Set {
-        Set((self.0 + 1) % SETS)
-    }
-}
-
-/// One of each, up to [`SETS`]. Fallible the same way the single one was,
-/// so a machine that cannot lend the memory falls back rather than
-/// half-building a ring.
+/// One of each, up to [`Wheel::SETS`]. Fallible the same way the single
+/// one was, so a machine that cannot lend the memory falls back rather
+/// than half-building a ring.
+///
+/// Which set a frame goes into is not decided here: the presenter's
+/// [`Wheel`] owns that, because it is the structure both threads hold and
+/// a set stops being free at the commit and starts again at the landing,
+/// neither of which the app can see on its own.
 fn sets<T>(mut one: impl FnMut() -> Option<T>) -> Option<Vec<T>> {
-    let mut out = Vec::with_capacity(SETS);
-    for _ in 0..SETS {
+    let mut out = Vec::with_capacity(Wheel::SETS);
+    for _ in 0..Wheel::SETS {
         out.push(one()?);
     }
     Some(out)
@@ -161,8 +149,6 @@ struct CellMemory {
     /// under insertion.
     map_buffer: MapBuffer,
     map: GlyphMap<'static>,
-    /// The set the next frame is built into, advanced when one commits.
-    set: Set,
 }
 
 /// What asked for a frame: the display link's tick, which is the vsync,
@@ -446,7 +432,6 @@ impl App {
                         styles_mem,
                         map_buffer,
                         map: GlyphMap::over(entries),
-                        set: Set::FIRST,
                     })
                 }
                 _ => {
@@ -646,7 +631,16 @@ impl App {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
                 });
-                let set = cell.set.0;
+                // Which buffers this frame may write: any set no frame in
+                // flight was committed with. `None` would mean every one is
+                // held and there is nowhere to build that a live draw is not
+                // reading -- which cannot happen while one frame is in
+                // flight and three sets exist, and is a refusal rather than
+                // a corruption if it ever does.
+                let Some(at) = self.presenter.as_ref().and_then(Presenter::building) else {
+                    return;
+                };
+                let set = at.0;
                 self.renderer
                     .resolve_styles_into(&self.term, &mut cell.styles_mem[set][..]);
                 cell.exceptions.ensure(
@@ -694,6 +688,7 @@ impl App {
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,
+                    set: at,
                 };
                 if let Some(p) = &mut self.presenter {
                     let drawn = match show {
@@ -702,9 +697,6 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
-                            // This set is the one a live draw reads now,
-                            // so the next frame is built into the next.
-                            cell.set = cell.set.next();
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
                                 startup_first("first present", &FIRST_PRESENT);
@@ -715,7 +707,7 @@ impl App {
                             self.gpu_stats = g;
                         }
                         // Still in flight: the completion wakes us. The
-                        // set stays, since nothing was committed into it.
+                        // set stays free, since nothing committed into it.
                         Some(Drawn::Busy) => return,
                         None => {}
                     }
@@ -2022,29 +2014,6 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A frame is never built into the set the last one was committed
-    /// into, which is what keeps `relayout` and `zoom` from writing the
-    /// buffer a live draw is sampling.
-    ///
-    /// **This is a weak gate and it is worth saying so.** It pins the
-    /// cycle, not the property: what would actually prove the ring is a
-    /// headless presenter that records which set a completion read, and
-    /// nothing in this repo can observe a present yet. What it does catch
-    /// is a `SETS` small enough to hand a frame the set still in flight.
-    #[test]
-    fn a_frame_is_never_built_into_the_set_the_last_one_committed() {
-        let first = Set::FIRST;
-        let second = first.next();
-        let third = second.next();
-        assert_ne!(first, second);
-        assert_ne!(second, third);
-        // Two would also be sound while one frame is in flight. Three is
-        // what the surfaces and the instance buffer already ring at, and
-        // pinning it here is what makes a change to the depth deliberate.
-        assert_ne!(first, third, "three distinct sets, not two");
-        assert_eq!(third.next(), first, "and the sets cycle rather than grow");
-    }
 
     #[test]
     fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {

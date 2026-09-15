@@ -24,7 +24,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_domain::{Fate, FrameGen, SwapEpoch};
-use baud_present_macos::journal::{FrameTag, Journal, Show, admits};
+use baud_present_macos::journal::{FrameTag, Journal, SetState, Show, admits};
 use macos_liquid_glass::drawable::Surface;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_quartz_core::CALayer;
@@ -82,6 +82,7 @@ fn a_frame_that_finished_after_a_resize_is_counted_and_pinned() {
     let a = FrameTag {
         frame: FrameGen::FIRST.next(),
         swap: epoch.current(),
+        set: None,
     };
 
     // The window grows: a new surface set, so everything in flight for the
@@ -91,6 +92,7 @@ fn a_frame_that_finished_after_a_resize_is_counted_and_pinned() {
     let b = FrameTag {
         frame: a.frame.next(),
         swap: epoch.current(),
+        set: None,
     };
 
     let l = layer(800.0, 600.0, 1.0);
@@ -142,11 +144,13 @@ fn a_steady_surface_set_shows_every_frame() {
     let mut tag = FrameTag {
         frame: FrameGen::FIRST,
         swap: epoch.current(),
+        set: None,
     };
     for _ in 0..8 {
         tag = FrameTag {
             frame: tag.frame.next(),
             swap: epoch.current(),
+            set: None,
         };
         assert_eq!(land(&j, &epoch, tag, &l, &s), Fate::Current);
         assert_eq!(showing(&l, &[&s]), Some(0));
@@ -172,6 +176,7 @@ fn a_zoom_rebuilds_the_same_size_and_the_old_frame_is_still_superseded() {
     let old = FrameTag {
         frame: FrameGen::FIRST.next(),
         swap: epoch.current(),
+        set: None,
     };
 
     // `present`'s rebuild branch fires on a font change because it keys on
@@ -188,6 +193,7 @@ fn a_zoom_rebuilds_the_same_size_and_the_old_frame_is_still_superseded() {
     let new = FrameTag {
         frame: old.frame.next(),
         swap: epoch.current(),
+        set: None,
     };
     let l = layer(800.0, 600.0, 1.0);
 
@@ -198,4 +204,102 @@ fn a_zoom_rebuilds_the_same_size_and_the_old_frame_is_still_superseded() {
         "same size, different surfaces: only the generation can tell"
     );
     assert_eq!(j.counts().superseded, 1);
+}
+
+/// **A frame is never built into a set a frame still in flight holds.**
+///
+/// That is the write race stated as an invariant, because the CPU writing
+/// a buffer the GPU is reading is exactly one set handed out twice. The
+/// per-frame buffers -- the resolved styles and the overlay mask -- are
+/// the app's, but which set a frame gets is decided here, so the rule the
+/// app runs and the rule this pins are the same code.
+///
+/// Headless and deterministic, because the interleaving is chosen rather
+/// than raced. The menu-driven check in `scripts/zoom-drive.sh` cannot
+/// reach this at all: a frame is in flight for roughly 300 microseconds
+/// of every tick, so a click cannot be aimed at the window where it
+/// matters, and twenty zooms through it deferred exactly zero times.
+#[test]
+fn a_frame_is_never_built_into_a_set_a_live_frame_holds() {
+    let j = Journal::default();
+    let w = j.wheel();
+    let epoch = SwapEpoch::new();
+    let mut seq = FrameGen::FIRST;
+    let mut commit = |set| {
+        seq = seq.next();
+        w.committed(set, seq);
+        FrameTag {
+            frame: seq,
+            swap: epoch.current(),
+            set: Some(set),
+        }
+    };
+
+    // The zoom's interleaving: a frame is built and committed, and the
+    // next is built before the first has landed.
+    let first = w.building().expect("a fresh wheel has a set free");
+    let a = commit(first);
+    assert_eq!(w.state(first), SetState::Held);
+
+    let second = w.building().expect("and one for the frame behind it");
+    assert_ne!(
+        first, second,
+        "a frame built while another flies must not write its buffers"
+    );
+    let b = commit(second);
+
+    let third = w.building().expect("and a third");
+    assert_ne!(third, first);
+    assert_ne!(third, second);
+    let c = commit(third);
+
+    // Every set spoken for: the wheel refuses rather than handing back one
+    // a live frame is reading. A refusal is a frame not drawn; handing one
+    // out would be a frame drawn over.
+    assert_eq!(w.building(), None, "nowhere to build is not somewhere");
+
+    // A landing frees exactly the set that frame held, and out of order.
+    j.land(b, &epoch);
+    assert_eq!(w.state(second), SetState::Free);
+    assert_eq!(w.state(first), SetState::Held, "b's landing is not a's");
+    assert_eq!(w.state(third), SetState::Held);
+    assert_eq!(w.building(), Some(second));
+
+    j.land(a, &epoch);
+    j.land(c, &epoch);
+    for set in [first, second, third] {
+        assert_eq!(w.state(set), SetState::Free);
+    }
+    assert!(w.building().is_some(), "and the wheel is usable again");
+}
+
+/// The control the test above needs: a path that holds no set must not
+/// free one when it lands. The instance and CPU paths convert on the main
+/// thread and tag with `None`, and a landing that freed a set it never
+/// took would hand the cell path a buffer a live frame is still reading --
+/// the same corruption, arrived at from the other side.
+#[test]
+fn a_frame_that_holds_no_set_frees_none_when_it_lands() {
+    let j = Journal::default();
+    let w = j.wheel();
+    let epoch = SwapEpoch::new();
+    let held = w.building().expect("a set");
+    let frame = FrameGen::FIRST.next();
+    w.committed(held, frame);
+
+    // An instance-path frame lands, carrying the same frame number and no
+    // set of its own.
+    j.land(
+        FrameTag {
+            frame,
+            swap: epoch.current(),
+            set: None,
+        },
+        &epoch,
+    );
+    assert_eq!(
+        w.state(held),
+        SetState::Held,
+        "a frame that took no set cannot give one back"
+    );
 }

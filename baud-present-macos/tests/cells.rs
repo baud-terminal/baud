@@ -105,6 +105,7 @@ impl Arms<'_, '_> {
         );
         self.records.extend_from_slice(self.renderer.scrollbar());
         let input = CellInput {
+            set: baud_present_macos::journal::SetIx(0),
             grid: &self.grid,
             styles: &self.styles,
             map: &self.map_buffer,

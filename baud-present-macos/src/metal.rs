@@ -435,6 +435,11 @@ struct CellUniforms {
 /// and at its stride, modulo its ring, the rendition table resolved, the
 /// glyph map, and where the cursor is.
 pub struct CellInput<'a> {
+    /// Which of the caller's per-frame buffer sets `styles` and `overlay`
+    /// come from, so the commit can mark it held until the frame lands.
+    /// The synchronous paths ignore it: they wait inline, so the buffers
+    /// are free again before they return.
+    pub set: crate::journal::SetIx,
     pub grid: &'a GridBuffer,
     pub styles: &'a StylesBuffer,
     pub map: &'a MapBuffer,
