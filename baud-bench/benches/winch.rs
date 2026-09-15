@@ -65,6 +65,7 @@ fn main() {
         ws_row: first.1,
     };
     let mut t = Term::new(owned.storage(), &ws);
+    let mut last_count = 0usize;
     for (cols, rows, bytes) in &steps {
         let _ = t.resize(&WinSize {
             ws_col: *cols,
@@ -91,6 +92,32 @@ fn main() {
                 }
             }
             println!("  -> prompt copies on screen: {on}");
+            // When the count rises, print the screen: what the bytes did
+            // is then visible rather than inferred.
+            if on > last_count {
+                println!("  === screen after the step that added one ===");
+                for y in 0..r.index() {
+                    let line: String = t
+                        .row(Row::from_index(y))
+                        .iter()
+                        .take(c.index())
+                        .map(|cl| match cl.content.as_codepoint() {
+                            Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
+                            None => ' ',
+                        })
+                        .collect();
+                    let line = line.trim_end();
+                    if !line.is_empty() {
+                        println!("    {y:3}| {}", &line[..line.len().min(60)]);
+                    }
+                }
+                println!(
+                    "  === bytes: {:?}",
+                    String::from_utf8_lossy(&bytes[..bytes.len().min(160)])
+                        .replace('\u{1b}', "<E>")
+                );
+            }
+            last_count = on;
         }
         println!(
             "after {}x{}: grid {}x{}, {} bytes, cursor {:?}, retained {}",
