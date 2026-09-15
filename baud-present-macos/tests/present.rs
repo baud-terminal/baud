@@ -74,7 +74,7 @@ fn land(j: &Journal, epoch: &SwapEpoch, tag: FrameTag, l: &CALayer, s: &Surface)
 /// The fix flips `admits` and this pin moves to 0 -- in either direction, so
 /// a regression is as visible as the repair.
 #[test]
-fn a_frame_that_finished_after_a_resize_is_counted_and_pinned() {
+fn a_frame_that_finished_after_a_resize_never_reaches_the_layer() {
     let epoch = SwapEpoch::new();
     let j = Journal::default();
 
@@ -116,15 +116,16 @@ fn a_frame_that_finished_after_a_resize_is_counted_and_pinned() {
     assert_eq!(c.landed, 2);
     assert_eq!(c.superseded, 1, "the identity sees it");
 
-    // **The pin.** Today the rule admits it and the stale image lands on
-    // top of the current one: a 640x480 frame on an 800x600 layer, which
-    // `contentsGravity` puts in the top-left corner -- the owner's "two
-    // btops, one overriding the other".
-    let stale_shown = usize::from(showing(&l, &[&old, &new]) == Some(0));
+    // **The bug, as the thing that must not happen.** A frame drawn into
+    // surfaces the resize replaced must not reach the layer: it is a
+    // 640x480 image landing on an 800x600 layer *after* the frame drawn for
+    // the new size, and `contentsGravity` puts it in the top-left corner --
+    // the owner's "two btops, one overriding the other". No frame the layer
+    // shows may be half-done or a size behind.
     assert_eq!(
-        stale_shown, 1,
-        "pinned: the superseded frame still reaches the layer. \
-         When `admits` stops admitting it this becomes 0, and that is the fix."
+        showing(&l, &[&old, &new]),
+        Some(1),
+        "the layer still shows B: a superseded frame must not overwrite a current one"
     );
 }
 

@@ -444,9 +444,17 @@ impl Atlas {
     /// replaced whole, and the grow count moves so the glyph map and the
     /// overlay rebuild what they kept. What a change of font size needs.
     pub fn reset(&mut self) {
+        // **At the side the session has reached, not back at the first.**
+        // Every bitmap is at the wrong pixel size after a rescale, so every
+        // slot has to go -- but how much room this terminal's repertoire
+        // needs is a fact the session learned, and a new font size needs
+        // about the same order of it. Starting at `Side::FIRST` guarantees
+        // growing back through every doubling, re-rastering and re-uploading
+        // the whole sheet at each one, on every step of a zoom.
+        let (mask, color) = (self.mask.side, self.color.side);
         self.map.clear();
-        self.clear_mask(Side::FIRST);
-        self.clear_color(Side::FIRST);
+        self.clear_mask(mask);
+        self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
         self.stats.grown.bump();
     }

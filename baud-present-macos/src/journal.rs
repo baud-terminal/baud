@@ -314,15 +314,24 @@ pub enum Show {
 /// The one place that decides, so the completion path and the tests that
 /// pin it cannot drift apart.
 ///
-/// **It says `Now` for everything, on purpose, and that is the whole of the
-/// observing phase.** The counters above are a measurement of the bug only
-/// while the bug still happens: a frame that outlives its surfaces is
-/// counted `superseded` *and still shown*, which is what the app does today
-/// and what the owner reported seeing. Changing this function is the fix,
-/// and the tests that pin the current behaviour are what say the fix worked.
+/// **A frame is shown exactly while the surfaces it drew into are the ones
+/// the layer shows from.** A superseded frame is dropped: it was drawn for
+/// a geometry that no longer exists, so putting it on the layer replaces a
+/// current image with an older, differently-sized one -- and
+/// `contentsGravity` pins it to the top-left rather than stretching it, so
+/// what the owner saw was two images at once. No frame the layer shows may
+/// be a size behind.
+///
+/// The discard is safe because it is a *generation* comparison rather than
+/// a size: a window dragged from A to B and back to A leaves two surface
+/// sets that compare equal by size, and one counter cannot mistake them.
+/// The failure where the two never agree and every frame is discarded --
+/// a black window -- is what `a_steady_surface_set_shows_every_frame`
+/// exists to catch, and it is why this cannot be tested by the discard
+/// alone.
 pub fn admits(fate: Fate) -> Show {
     match fate {
         Fate::Current => Show::Now,
-        Fate::Superseded { .. } => Show::Now,
+        Fate::Superseded { .. } => Show::Skip,
     }
 }
