@@ -1,16 +1,36 @@
 //! The glyph atlas: one `A8` texture of coverage masks and one `ARGB`
-//! texture of colour glyphs, each skyline-packed, grow-only, keyed by face
-//! and glyph.
+//! texture of colour glyphs, each carved into bands of uniform slots,
+//! grow-only, keyed by face and glyph.
 //!
 //! A glyph is resolved the first time it is asked for and never again
 //! while the atlas lives; a size or font change starts a new atlas. A
 //! face's bitmap strike (`sbix`, `CBDT`) is tried first at the strike
 //! nearest the cell, then its `COLR` layers painted through palette zero,
 //! then the outline as a mask -- the order Apple Color Emoji, Noto Color
-//! Emoji and Bungee Tint each need. When a skyline cannot place an image
-//! its texture doubles and empties, and every glyph on it is resolved
-//! again on demand -- simpler than repacking and it happens a handful of
-//! times in a session.
+//! Emoji and Bungee Tint each need.
+//!
+//! **A slot's position is arithmetic, and growing keeps every one of
+//! them.** The sheet is a stack of bands; a band is a strip `h` texels
+//! tall carved into slots `w` texels wide, and an image's extent is
+//! rounded up to a step so the classes stay few. So a slot is a band and
+//! an index, its texel is `(index * w, band.y)`, and a sheet that fills
+//! doubles and **copies its rows into the wider one at the same
+//! coordinates** -- every rectangle already handed out stays valid and
+//! nothing that cached one is told anything.
+//!
+//! That is the whole reason the bands are here. The skyline packer this
+//! replaced answered a full sheet by doubling and *emptying*, so one
+//! glyph that did not fit discarded every glyph in the atlas, re-rastered
+//! everything still on screen and cleared the 384 KB glyph map -- mid
+//! frame, while the GPU was sampling the texture it rewrote. A band never
+//! moves, so the only operation that voids a rectangle is [`Atlas::reset`],
+//! which a font size change asks for deliberately.
+//!
+//! Bands also admit per-slot eviction, since a freed slot is an index its
+//! class can hand out again rather than a hole a packer would have to
+//! repack around. Nothing frees a slot yet, so there is no free list to
+//! consult: adding one before something fills it would be a mechanism
+//! that cannot fire.
 
 use crate::color::Argb;
 use crate::stack::FaceIx;
@@ -92,12 +112,58 @@ struct GlyphKey {
     glyph: GlyphIx,
 }
 
-/// One skyline segment: from `x` for `w` pixels the top edge is at `y`.
+/// One band: a strip of the sheet `h` texels tall starting at row `y`,
+/// carved into `cap` slots of `w` texels each, of which `used` have been
+/// handed out. Every slot in a band is the same size, which is what makes
+/// a slot's texel arithmetic rather than a search.
 #[derive(Clone, Copy)]
-struct Node {
-    x: Px,
+struct Band {
     y: Px,
     w: Px,
+    h: Px,
+    used: SlotIx,
+    cap: SlotIx,
+}
+
+/// A band's place in the sheet's stack.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct BandIx(usize);
+
+/// A slot's place along its band. A band's slots are uniform, so this
+/// and the band are the whole of a slot's address -- which is what makes
+/// the texel arithmetic rather than a search.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct SlotIx(u32);
+
+impl SlotIx {
+    const FIRST: SlotIx = SlotIx(0);
+
+    fn next(self) -> SlotIx {
+        SlotIx(self.0.saturating_add(1))
+    }
+
+    /// The texel this slot starts at along a band of `w`-wide slots.
+    fn along(self, w: Px) -> Option<Px> {
+        Some(Px::of(self.0.checked_mul(w.value())?))
+    }
+}
+
+/// A slot: which band, and which index within it.
+#[derive(Clone, Copy)]
+struct Spot {
+    band: BandIx,
+    ix: SlotIx,
+}
+
+/// The step a slot's width and height are rounded up to, in texels. It
+/// bounds both the number of size classes and the waste: a slot is at
+/// most one step wider and one step taller than the image in it.
+const STEP: u32 = 8;
+
+fn step_up(v: Px) -> Option<Px> {
+    Some(Px::of(
+        v.value().max(1).checked_add(STEP - 1)? / STEP * STEP,
+    ))
 }
 
 /// The atlas's side, a power of two.
@@ -119,24 +185,87 @@ pub struct AtlasStats {
     pub rasterised: Tally,
     /// Bitmap strikes decoded and `COLR` glyphs painted.
     pub coloured: Tally,
+    /// Every slot voided: [`Atlas::reset`], which a font size change asks
+    /// for. What a cache of rectangles watches, and the only event that
+    /// invalidates one.
     pub grown: Tally,
+    /// A texture doubled with its rows copied across. Every rectangle
+    /// survives, so nothing that cached one is told; the GPU still learns
+    /// the texture itself was replaced, through [`Replaced`].
+    pub enlarged: Tally,
 }
 
-/// One texture and its skyline.
+/// One texture and the bands carved out of it.
 struct Sheet {
     side: Side,
-    skyline: Vec<Node>,
+    bands: Vec<Band>,
+    /// The first row no band has claimed.
+    bump: Px,
 }
 
 impl Sheet {
     fn new(side: Side) -> Sheet {
         Sheet {
             side,
-            skyline: vec![Node {
-                x: Px::of(0),
-                y: Px::of(0),
-                w: Px::of(side.0),
-            }],
+            bands: Vec::new(),
+            bump: Px::of(0),
+        }
+    }
+
+    /// The texel a slot at least `w` by `h` starts at, or `None` when the
+    /// sheet is full and the caller has to grow it.
+    fn take(&mut self, w: Px, h: Px) -> Option<(Px, Px)> {
+        let (cw, ch) = (step_up(w)?, step_up(h)?);
+        if cw.value() > self.side.value() || ch.value() > self.side.value() {
+            return None;
+        }
+        let spot = self.claim(cw, ch)?;
+        let b = self.bands.get(spot.band.0)?;
+        Some((spot.ix.along(b.w)?, b.y))
+    }
+
+    /// A slot of this class: the first band of the class with room, else
+    /// a fresh band off the bump pointer.
+    fn claim(&mut self, cw: Px, ch: Px) -> Option<Spot> {
+        for (i, b) in self.bands.iter_mut().enumerate() {
+            if b.w.value() == cw.value() && b.h.value() == ch.value() && b.used < b.cap {
+                let ix = b.used;
+                b.used = b.used.next();
+                return Some(Spot {
+                    band: BandIx(i),
+                    ix,
+                });
+            }
+        }
+        let after = self.bump.value().checked_add(ch.value())?;
+        if after > self.side.value() {
+            return None;
+        }
+        let cap = SlotIx(self.side.value() / cw.value());
+        if cap == SlotIx::FIRST {
+            return None;
+        }
+        let band = BandIx(self.bands.len());
+        self.bands.push(Band {
+            y: self.bump,
+            w: cw,
+            h: ch,
+            used: SlotIx::FIRST.next(),
+            cap,
+        });
+        self.bump = Px::of(after);
+        Some(Spot {
+            band,
+            ix: SlotIx::FIRST,
+        })
+    }
+
+    /// A wider sheet holds more slots in every band it already has, since
+    /// a band's slots run along a row that just got longer.
+    fn widened(&mut self, side: Side) {
+        self.side = side;
+        for b in &mut self.bands {
+            b.cap = SlotIx(side.value() / b.w.value());
         }
     }
 }
@@ -230,12 +359,12 @@ impl Atlas {
             rgba: Vec::new(),
             stats: AtlasStats::default(),
         };
-        a.reset_mask(Side::FIRST);
-        a.reset_color(Side::FIRST);
+        a.clear_mask(Side::FIRST);
+        a.clear_color(Side::FIRST);
         a
     }
 
-    fn reset_mask(&mut self, side: Side) {
+    fn clear_mask(&mut self, side: Side) {
         self.mask = Sheet::new(side);
         let n = slots(Px::of(side.0));
         self.pixels.clear();
@@ -253,7 +382,7 @@ impl Atlas {
         });
     }
 
-    fn reset_color(&mut self, side: Side) {
+    fn clear_color(&mut self, side: Side) {
         self.color = Sheet::new(side);
         let n = slots(Px::of(side.0));
         self.argb.clear();
@@ -271,6 +400,44 @@ impl Atlas {
         });
     }
 
+    /// A bigger mask texture with every slot still where it was. The old
+    /// rows are copied into the wider sheet at the same coordinates, so
+    /// every rectangle already handed out addresses the same texels and
+    /// the glyph map keeps every entry it holds. Only the texture is
+    /// replaced, which the GPU learns from [`Replaced`].
+    fn grow_mask(&mut self, side: Side) -> Option<()> {
+        let (old, new) = (slots(Px::of(self.mask.side.0)), slots(Px::of(side.0)));
+        let mut next = vec![0u8; new.checked_mul(new)?];
+        for row in 0..old {
+            let (from, to) = (row.checked_mul(old)?, row.checked_mul(new)?);
+            next.get_mut(to..to.checked_add(old)?)?
+                .copy_from_slice(self.pixels.get(from..from.checked_add(old)?)?);
+        }
+        self.pixels = next;
+        self.mask.widened(side);
+        self.mask_replaced = Replaced::Yes;
+        self.dirty.mask = None;
+        self.stats.enlarged.bump();
+        Some(())
+    }
+
+    /// The colour sheet's counterpart, texel for texel the same move.
+    fn grow_color(&mut self, side: Side) -> Option<()> {
+        let (old, new) = (slots(Px::of(self.color.side.0)), slots(Px::of(side.0)));
+        let mut next = vec![0u32; new.checked_mul(new)?];
+        for row in 0..old {
+            let (from, to) = (row.checked_mul(old)?, row.checked_mul(new)?);
+            next.get_mut(to..to.checked_add(old)?)?
+                .copy_from_slice(self.argb.get(from..from.checked_add(old)?)?);
+        }
+        self.argb = next;
+        self.color.widened(side);
+        self.color_replaced = Replaced::Yes;
+        self.dirty.color = None;
+        self.stats.enlarged.bump();
+        Some(())
+    }
+
     /// Which version of the sheets this is; every placement and reset
     /// moves it.
     /// Start over at the first side: every slot is gone, the sheets are
@@ -278,8 +445,8 @@ impl Atlas {
     /// overlay rebuild what they kept. What a change of font size needs.
     pub fn reset(&mut self) {
         self.map.clear();
-        self.reset_mask(Side::FIRST);
-        self.reset_color(Side::FIRST);
+        self.clear_mask(Side::FIRST);
+        self.clear_color(Side::FIRST);
         self.generation = Generation(self.generation.0.wrapping_add(1));
         self.stats.grown.bump();
     }
@@ -505,15 +672,14 @@ impl Atlas {
     /// Packs an `ARGB` image onto the colour sheet, growing it as needed.
     fn place_color(&mut self, image: &[u32], w: Px, h: Px, at: Origin) -> Option<Slot> {
         let (x, y) = loop {
-            if let Some(at) = place(&mut self.color, w, h) {
+            if let Some(at) = self.color.take(w, h) {
                 break at;
             }
             let next = Side(self.color.side.0.checked_mul(2)?);
             if next.0 > Side::LIMIT.0 {
                 return None;
             }
-            self.stats.grown.bump();
-            self.reset_color(next);
+            self.grow_color(next)?;
         };
         let side = slots(Px::of(self.color.side.0));
         let (xs, ys, ws, hs) = (slots(x), slots(y), slots(w), slots(h));
@@ -571,15 +737,14 @@ impl Atlas {
         self.stats.rasterised.bump();
         let (w, h) = (fit.extent.w, fit.extent.h);
         let (x, y) = loop {
-            if let Some(at) = place(&mut self.mask, w, h) {
+            if let Some(at) = self.mask.take(w, h) {
                 break at;
             }
             let next = Side(self.mask.side.0.checked_mul(2)?);
             if next.0 > Side::LIMIT.0 {
                 return None;
             }
-            self.stats.grown.bump();
-            self.reset_mask(next);
+            self.grow_mask(next)?;
         };
         self.blit(x, y, w, h);
         self.touched();
@@ -614,76 +779,6 @@ impl Atlas {
     }
 }
 
-/// Bottom-left skyline: the lowest top edge along which `w` fits, ties
-/// to the left. `None` when nothing fits.
-fn place(sheet: &mut Sheet, w: Px, h: Px) -> Option<(Px, Px)> {
-    let side = sheet.side.0;
-    let (w, h) = (w.value(), h.value());
-    if w > side || h > side {
-        return None;
-    }
-    let mut best: Option<(usize, u32, u32)> = None;
-    for i in 0..sheet.skyline.len() {
-        let x = sheet.skyline[i].x.value();
-        if x + w > side {
-            break;
-        }
-        // The top edge over [x, x + w) is the highest node it crosses.
-        let mut y = 0u32;
-        let mut span = 0u32;
-        let mut j = i;
-        while span < w {
-            let n = sheet.skyline.get(j)?;
-            y = y.max(n.y.value());
-            span += n.w.value();
-            j += 1;
-        }
-        if y + h > side {
-            continue;
-        }
-        if best.is_none_or(|(_, _, by)| y < by) {
-            best = Some((i, x, y));
-        }
-    }
-    let (i, x, y) = best?;
-    // Insert the new top and trim the nodes it covers.
-    sheet.skyline.insert(
-        i,
-        Node {
-            x: Px::of(x),
-            y: Px::of(y + h),
-            w: Px::of(w),
-        },
-    );
-    let j = i + 1;
-    while j < sheet.skyline.len() {
-        let n = sheet.skyline[j];
-        let end = x + w;
-        if n.x.value() < end {
-            let shrink = end - n.x.value();
-            if shrink >= n.w.value() {
-                sheet.skyline.remove(j);
-                continue;
-            }
-            sheet.skyline[j].x = Px::of(n.x.value() + shrink);
-            sheet.skyline[j].w = Px::of(n.w.value() - shrink);
-        }
-        break;
-    }
-    // Merge equal neighbours.
-    let mut k = 0;
-    while k + 1 < sheet.skyline.len() {
-        if sheet.skyline[k].y == sheet.skyline[k + 1].y {
-            let w = sheet.skyline[k].w.value() + sheet.skyline[k + 1].w.value();
-            sheet.skyline[k].w = Px::of(w);
-            sheet.skyline.remove(k + 1);
-        } else {
-            k += 1;
-        }
-    }
-    Some((Px::of(x), Px::of(y)))
-}
-
 /// `src` over `dst`, straight alpha, with `cov` scaling the source: what
 /// a `COLR` layer does to the layers below it.
 fn over_straight(src: Argb, dst: Argb, cov: Coverage) -> Argb {
@@ -703,4 +798,90 @@ fn over_straight(src: Argb, dst: Argb, cov: Coverage) -> Argb {
         mix(src.b(), dst.b()),
     )
     .with_alpha(Chan::from_u8(u8::try_from(out_a).unwrap_or(255)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slot's texel is its index times its band's width, on its band's
+    /// row. It is arithmetic, not a search, and it does not depend on
+    /// what was allocated before it.
+    #[test]
+    fn a_slot_is_its_index_times_its_width_on_its_band() {
+        let mut sheet = Sheet::new(Side::FIRST);
+        let mut at = || {
+            let (x, y) = sheet
+                .take(Px::of(10), Px::of(20))
+                .expect("a fresh sheet has room");
+            (x.value(), y.value())
+        };
+        // Ten by twenty rounds up to the sixteen by twenty-four class.
+        assert_eq!(at(), (0, 0));
+        assert_eq!(at(), (16, 0));
+        assert_eq!(at(), (32, 0));
+    }
+
+    /// A second class opens its own band, below the first and not
+    /// overlapping it.
+    #[test]
+    fn a_second_class_takes_a_band_of_its_own() {
+        let mut sheet = Sheet::new(Side::FIRST);
+        let (_, first) = sheet.take(Px::of(10), Px::of(20)).expect("room");
+        let (x, y) = sheet.take(Px::of(10), Px::of(40)).expect("room");
+        assert_eq!(first.value(), 0);
+        assert_eq!(x.value(), 0);
+        assert_eq!(
+            y.value(),
+            24,
+            "below the twenty-four tall band the first class opened"
+        );
+    }
+
+    /// **The whole reason the bands are here.** A sheet that fills grows
+    /// and keeps every rectangle it has already handed out, texel for
+    /// texel, so nothing that cached one is invalidated. `grown` -- what
+    /// the glyph map watches -- does not move, and only `enlarged` does.
+    /// The skyline packer this replaced answered a full sheet by
+    /// discarding every glyph on it, mid frame, while the GPU sampled the
+    /// texture it rewrote.
+    #[test]
+    fn growing_keeps_every_rectangle_and_every_texel() {
+        let mut a = Atlas::new();
+        let (x, y) = a
+            .mask
+            .take(Px::of(10), Px::of(20))
+            .expect("room on a fresh sheet");
+        let narrow = slots(Px::of(a.mask.side.0));
+        let was = slots(y) * narrow + slots(x);
+        a.pixels[was] = 0xAB;
+        a.pixels[was + 1] = 0xCD;
+        let before = a.stats;
+
+        let twice = Side(a.mask.side.0 * 2);
+        a.grow_mask(twice).expect("the sheet doubles");
+
+        let wide = slots(Px::of(a.mask.side.0));
+        let now = slots(y) * wide + slots(x);
+        assert_eq!(a.pixels[now], 0xAB, "the texel is where it was");
+        assert_eq!(a.pixels[now + 1], 0xCD);
+        assert_eq!(
+            a.stats.grown.value(),
+            before.grown.value(),
+            "growing voids no slot, so nothing that cached one is told"
+        );
+        assert_eq!(a.stats.enlarged.value(), before.enlarged.value() + 1);
+    }
+
+    /// And a font size change still voids everything, which is what
+    /// `grown` means now. The pair tells the two events apart, so a cache
+    /// can watch the one that concerns it rather than both.
+    #[test]
+    fn a_reset_voids_what_growing_keeps() {
+        let mut a = Atlas::new();
+        let before = a.stats;
+        a.reset();
+        assert_eq!(a.stats.grown.value(), before.grown.value() + 1);
+        assert_eq!(a.stats.enlarged.value(), before.enlarged.value());
+    }
 }
