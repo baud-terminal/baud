@@ -709,7 +709,30 @@ impl<'b> Term<'b> {
                 let k = to - from;
                 let reveal = k.min(hidden);
                 hidden -= reveal;
-                let pull = (k - reveal).min(hist);
+                // **A taller screen does not reach into the history while
+                // the shell owns it**, which is the same boundary the
+                // width's re-cut takes and for the same reason: see
+                // [`Zone`].
+                //
+                // Rows retired by an earlier shrink are real content and
+                // pulling them back is right when nothing will redraw the
+                // screen. At a prompt it is not: a drag that passes
+                // through a window too short to hold the prompt makes the
+                // shell redraw and scroll, once per step, and every one of
+                // those prompts is then revealed on the way back up. The
+                // owner's own drag -- 329 steps, down to four rows and
+                // back -- ends with **six** copies on screen that way and
+                // **one** without, the other five left in the history
+                // where scrolling reaches them. `baud-bench`'s `winch`
+                // replays it.
+                //
+                // `reveal` is untouched: those rows were hidden by a
+                // shrink rather than retired, so bringing them back is
+                // undoing this same gesture rather than reaching past it.
+                let pull = match self.cold.zone {
+                    Zone::Output => (k - reveal).min(hist),
+                    Zone::Prompt => 0,
+                };
                 self.rot = self.rot.retreat(pull, ring);
                 hist -= pull;
                 cy += pull;

@@ -171,3 +171,44 @@ fn the_prompt_zone_opens_at_a_mark_and_closes_at_the_output() {
         },
     );
 }
+
+#[test]
+fn a_taller_screen_does_not_reach_into_the_history_at_a_prompt() {
+    // The other half of the boundary, and the one the owner's own drag
+    // produced: a gesture that passes through a window too short to hold
+    // the prompt makes the shell redraw and scroll, once per step, and
+    // every one of those prompts is revealed again on the way back up.
+    // 329 of their steps end with six copies on screen when a growth
+    // reaches into the history and one when it does not.
+    support::with_room(60, |t| {
+        for i in 0..40 {
+            support::feed(t, format!("line {i:03}\r\n").as_bytes());
+        }
+        support::feed(t, b"\x1b]133;P;k=i\x07");
+        let (cols, rows) = t.geometry();
+        // Shrink hard, which retires rows the cursor needs off the top.
+        let _ = t.resize(&WinSize {
+            ws_col: u16::try_from(cols.index()).unwrap(),
+            ws_row: 4,
+        });
+        let retired = t.scrollback().len();
+        assert!(
+            retired > 4,
+            "the control: the shrink retired rows, so a growth has something to reach for"
+        );
+        let top_before = row_text(t, 0);
+        let _ = t.resize(&WinSize {
+            ws_col: u16::try_from(cols.index()).unwrap(),
+            ws_row: u16::try_from(rows.index()).unwrap(),
+        });
+        assert_eq!(
+            row_text(t, 0),
+            top_before,
+            "the growth pulled history back over the top row while the shell owned the screen"
+        );
+        assert!(
+            t.scrollback().len() >= retired,
+            "the retired rows are still retained, so scrolling still reaches them"
+        );
+    });
+}
