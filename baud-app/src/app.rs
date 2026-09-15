@@ -1048,6 +1048,113 @@ struct Driver {
     icon_inset: CGFloat,
 }
 
+/// Which way the ring moved under the window across a resize, and by how
+/// much. A shrink retires rows off the top; a growth restores them.
+#[derive(Clone, Copy)]
+enum Ring {
+    Retired(Rows),
+    Restored(Rows),
+}
+
+/// Where the scrollback window sits after a resize moved the ring under
+/// it, given how the rotation moved and how much history is retained.
+///
+/// **A window on the live screen stays on the live screen.** This is the
+/// owner's rule -- *"we should not change the scroll ever"* -- and the
+/// bug it fixes was visible as duplicated content: zooming all the way in
+/// shrinks the grid, a shorter screen retires the rows the cursor needs,
+/// and the old form added that retirement to `back` whatever `back` was.
+/// From zero that scrolls a user who was at their prompt up into the
+/// history, so the screen fills with the prompt blocks the shell had
+/// already written and the live one is somewhere below the bottom edge.
+/// Zoom out and in again and it compounds. The recording shows a banner
+/// four times that the shell printed once.
+///
+/// `pump` has always had this guard for output scrolling and `relayout`
+/// did not, which is the whole difference: one place moved the window and
+/// the other did not, for the same event.
+///
+/// What it gives up is stated rather than hidden: while a *shrink* is in
+/// progress the first visible line now scrolls away, because the rows the
+/// cursor needs come off the top. That is what every terminal does, and
+/// it is what the old code was avoiding at the cost above.
+fn anchored(back: Rows, moved: Ring, retained: Rows) -> Rows {
+    if back.index() == 0 {
+        return back;
+    }
+    let at = match moved {
+        // Rows left the top, so the window is that much further from the
+        // live screen if it is to keep showing the lines it was showing.
+        Ring::Retired(n) => back.index().saturating_add(n.index()),
+        Ring::Restored(n) => back.index().saturating_sub(n.index()),
+    };
+    Rows::of_count(at.min(retained.index()))
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::anchored;
+    use baud_domain::Rows;
+
+    use super::Ring;
+
+    // Spelled out rather than wrapped in a two-line constructor: one
+    // taking a bare count would be a raw integer in a signature, which
+    // the audit counts and whose budget is not moved to fit a change.
+    // (Nor may this comment name one -- the audit reads comments too,
+    // which is written down in CLAUDE.md and cost a run here anyway.)
+    #[test]
+    fn a_window_on_the_live_screen_stays_there_however_far_the_ring_moved() {
+        // The zoom-in case: a shorter screen retired twenty-four rows.
+        assert_eq!(
+            anchored(
+                Rows::ZERO,
+                Ring::Retired(Rows::of_count(24)),
+                Rows::of_count(400)
+            )
+            .index(),
+            0
+        );
+        // And the zoom-out case, where they came back.
+        assert_eq!(
+            anchored(
+                Rows::ZERO,
+                Ring::Restored(Rows::of_count(24)),
+                Rows::of_count(400)
+            )
+            .index(),
+            0
+        );
+    }
+
+    #[test]
+    fn a_window_looking_back_follows_the_ring_and_is_bounded_by_it() {
+        let ten = Rows::of_count(10);
+        assert_eq!(
+            anchored(ten, Ring::Retired(Rows::of_count(24)), Rows::of_count(400)).index(),
+            34
+        );
+        assert_eq!(
+            anchored(ten, Ring::Restored(Rows::of_count(24)), Rows::of_count(400)).index(),
+            0
+        );
+        // Never past what is retained, and never below the live screen.
+        assert_eq!(
+            anchored(ten, Ring::Retired(Rows::of_count(1000)), Rows::of_count(40)).index(),
+            40
+        );
+        assert_eq!(
+            anchored(
+                ten,
+                Ring::Restored(Rows::of_count(1000)),
+                Rows::of_count(40)
+            )
+            .index(),
+            0
+        );
+    }
+}
+
 /// A rescale asked for while a frame was in flight.
 ///
 /// Rescaling replaces the atlas and clears the glyph map, and the atlas is
@@ -1980,27 +2087,20 @@ impl Driver {
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
             let t_reflow = t_step.elapsed();
-            // Anchor the view to the content, not the grid. A shorter screen
-            // keeps the cursor's row and retires the top into history (xterm's
-            // rule); left alone the first line would scroll away on every drag
-            // step. So the window moves up the ring by exactly what the resize
-            // retired -- the same pin `pump` applies while output scrolls --
-            // and the first visible line stays the first visible line. A
-            // taller screen pulls rows back and the window follows down toward
-            // the live screen; typing snaps all the way back to it, where the
-            // cursor is. `scrolled` is left untouched: it numbers lines for a
-            // selection, and a resize has already cleared the selection.
+            // Anchor a window that is *already* looking back; leave one on
+            // the live screen where it is. See `anchored`. `scrolled` is
+            // left untouched: it numbers lines for a selection, and a
+            // resize has already cleared the selection.
             let ring = self.app.term.ring().index();
             let fwd = (self.app.term.rotation().index() + ring - before.index()) % ring;
-            let advanced = if fwd * 2 <= ring {
-                i64::try_from(fwd).unwrap_or(0)
-            } else {
-                i64::try_from(fwd).unwrap_or(0) - i64::try_from(ring).unwrap_or(0)
+            // A rotation is modular, so "advanced by almost a whole ring"
+            // is a retreat: the short way round is the one that happened.
+            let moved = match fwd * 2 <= ring {
+                true => Ring::Retired(Rows::of_count(fwd)),
+                false => Ring::Restored(Rows::of_count(ring - fwd)),
             };
-            let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(0);
-            let nb =
-                (i64::try_from(self.app.back.index()).unwrap_or(0) + advanced).clamp(0, retained);
-            self.app.back = Rows::of_count(usize::try_from(nb).unwrap_or(0));
+            let retained = Rows::of_count(self.app.term.scrollback().len());
+            self.app.back = anchored(self.app.back, moved, retained);
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
             // **The child is told what the terminal has, not what the
             // window asked for.** `Term::resize` clamps: columns to
