@@ -25,6 +25,7 @@
 
 use baud_domain::{Fate, FrameGen, SwapEpoch};
 use baud_present_macos::journal::{FrameTag, Journal, Reshape, SetState, Show, admits};
+use core::time::Duration;
 use macos_liquid_glass::drawable::Surface;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_quartz_core::CALayer;
@@ -55,7 +56,7 @@ fn showing(l: &CALayer, candidates: &[&Surface]) -> Option<usize> {
 /// What the completion closure does, spelled once so the test exercises the
 /// shipping rule: count it, then show it only if the rule admits it.
 fn land(j: &Journal, epoch: &SwapEpoch, tag: FrameTag, l: &CALayer, s: &Surface) -> Fate {
-    let fate = j.land(tag, epoch);
+    let fate = j.land(tag, epoch, Duration::ZERO);
     if admits(fate) == Show::Now {
         // What `DrawableView::set_surface` does, minus the transaction the
         // probe showed makes no difference to the read-back.
@@ -259,14 +260,14 @@ fn a_frame_is_never_built_into_a_set_a_live_frame_holds() {
     assert_eq!(w.building(), None, "nowhere to build is not somewhere");
 
     // A landing frees exactly the set that frame held, and out of order.
-    j.land(b, &epoch);
+    j.land(b, &epoch, Duration::ZERO);
     assert_eq!(w.state(second), SetState::Free);
     assert_eq!(w.state(first), SetState::Held, "b's landing is not a's");
     assert_eq!(w.state(third), SetState::Held);
     assert_eq!(w.building(), Some(second));
 
-    j.land(a, &epoch);
-    j.land(c, &epoch);
+    j.land(a, &epoch, Duration::ZERO);
+    j.land(c, &epoch, Duration::ZERO);
     for set in [first, second, third] {
         assert_eq!(w.state(set), SetState::Free);
     }
@@ -296,6 +297,7 @@ fn a_frame_that_holds_no_set_frees_none_when_it_lands() {
             set: None,
         },
         &epoch,
+        Duration::ZERO,
     );
     assert_eq!(
         w.state(held),
@@ -342,6 +344,7 @@ fn a_reshape_waits_while_a_frame_is_reading_and_the_wait_is_counted() {
             set: Some(set),
         },
         &epoch,
+        Duration::ZERO,
     );
     assert_eq!(j.reshape(), Reshape::Now, "the reader landed");
     assert_eq!(j.counts().deferred, 2, "and answering Now counts nothing");
@@ -388,8 +391,8 @@ fn a_reshape_waits_for_the_last_frame_not_the_first() {
         swap: epoch.current(),
         set: Some(set),
     };
-    j.land(tag(one, first), &epoch);
+    j.land(tag(one, first), &epoch, Duration::ZERO);
     assert_eq!(j.reshape(), Reshape::Wait, "one is still reading");
-    j.land(tag(two, second), &epoch);
+    j.land(tag(two, second), &epoch, Duration::ZERO);
     assert_eq!(j.reshape(), Reshape::Now);
 }

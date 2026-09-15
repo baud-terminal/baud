@@ -38,13 +38,14 @@ fn main() {
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, Cols, FrameGen, ReadLen, Rows, SwapEpoch, WinSize};
     use baud_font::Face;
-    use baud_present_macos::journal::{FrameTag, Journal};
+    use baud_present_macos::journal::{FrameTag, Journal, SetIx};
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight};
     use baud_render::{
         Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
         Tally, Target, Theme,
     };
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
 
     let mut args = baud_bench::args();
@@ -223,7 +224,21 @@ fn main() {
         .expect("a shared overlay");
     let mut records: Vec<Instance> = Vec::new();
     let mut candidates: Vec<Candidate> = Vec::new();
-    let noop: Arc<dyn Fn() + Send + Sync> = Arc::new(|| {});
+    // The asynchronous arm's GPU time arrives with the completion, so the
+    // handler is where it is taken. A no-op here would report zero for the
+    // one arm the app actually runs -- which is exactly what the app did
+    // until the completion started carrying the number.
+    let async_gpu = Arc::new(AtomicU64::new(0));
+    let sink = {
+        let acc = Arc::clone(&async_gpu);
+        let f: Arc<dyn Fn(Duration) + Send + Sync> = Arc::new(move |gpu: Duration| {
+            acc.fetch_add(
+                u64::try_from(gpu.as_nanos()).unwrap_or(u64::MAX),
+                Ordering::Relaxed,
+            );
+        });
+        f
+    };
     // The present arm's state. Shared with every completion, exactly as a
     // presenter shares them with the frames it has in flight.
     let epoch = Arc::new(SwapEpoch::new());
@@ -334,9 +349,13 @@ fn main() {
                         highlight: None,
                         overlay: &overlay,
                         records: &records,
+                        // The bench drives one frame at a time, so a set a
+                        // frame would say nothing; the presenter's wheel is
+                        // what decides in the app.
+                        set: SetIx(0),
                     };
                     let done = match arm {
-                        Arm::Async => Done::Notify(Arc::clone(&noop)),
+                        Arm::Async => Done::Notify(Arc::clone(&sink)),
                         Arm::Present => {
                             // The identity the frame carries, captured the
                             // way `Presenter::on_done` captures it.
@@ -344,11 +363,12 @@ fn main() {
                             let tag = FrameTag {
                                 frame: frame_no,
                                 swap: epoch.current(),
+                                set: None,
                             };
                             let j = Arc::clone(&journal);
                             let e = Arc::clone(&epoch);
-                            Done::Notify(Arc::new(move || {
-                                j.land(tag, &e);
+                            Done::Notify(Arc::new(move |gpu| {
+                                j.land(tag, &e, gpu);
                             }))
                         }
                         _ => Done::Wait,
@@ -372,7 +392,15 @@ fn main() {
                     s.frames += 1;
                     s.draw += g.upload + g.submit;
                     s.bind += g.upload;
-                    s.gpu += g.gpu;
+                    // A waited frame carries its own GPU time back; an
+                    // asynchronous one cannot, because it has not finished
+                    // -- its handler has the number and the arm idles until
+                    // the completion has run, so what the sink holds here is
+                    // the previous frame's. Over a round that costs the last
+                    // frame and nothing else.
+                    s.gpu += g.gpu.unwrap_or_else(|| {
+                        Duration::from_nanos(async_gpu.swap(0, Ordering::Relaxed))
+                    });
                     s.inst += g.instances.value();
                     continue;
                 }
@@ -393,7 +421,7 @@ fn main() {
                         };
                         s.draw += g.upload + g.submit;
                         s.bind += g.upload;
-                        s.gpu += g.gpu;
+                        s.gpu += g.gpu.unwrap_or_default();
                         s.inst += g.instances.value();
                     }
                     Arm::Cells | Arm::Async | Arm::Copied | Arm::Present => {

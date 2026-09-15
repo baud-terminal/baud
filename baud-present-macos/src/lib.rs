@@ -303,13 +303,13 @@ impl Presenter {
         let tag = self.tag(set);
         let epoch = Arc::clone(&self.epoch);
         let journal = Arc::clone(&self.journal);
-        Done::Notify(Arc::new(move || {
+        Done::Notify(Arc::new(move |gpu| {
             // **Recorded, and shown anyway.** The verdict is taken here and
             // deliberately not acted on: a count of frames that reached the
             // layer after their surfaces were replaced is only a measurement
             // of the bug while the bug is still happening. Acting on it is a
             // separate change, against these numbers.
-            let fate = journal.land(tag, &epoch);
+            let fate = journal.land(tag, &epoch, gpu);
             if journal::admits(fate) == journal::Show::Now {
                 waker.present(&handle);
             }

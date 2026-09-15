@@ -339,13 +339,17 @@ impl Target {
 
 /// What one GPU frame cost: building the uploads, the wall time from
 /// commit to completion or to the handler being armed, and the GPU's own
-/// start-to-end where the frame was waited for.
+/// start-to-end where the frame was waited for -- `None` when it was not,
+/// because the answer does not exist yet and arrives with the completion.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GpuFrame {
     pub instances: Tally,
     pub upload: Duration,
     pub submit: Duration,
-    pub gpu: Duration,
+    /// `None` on the asynchronous path: the frame has not finished, so
+    /// there is no GPU time to report and a zero would be a lie. It
+    /// reaches the caller through [`Done::Notify`] instead.
+    pub gpu: Option<Duration>,
 }
 
 /// Which of the ring's instance buffers is written next.
@@ -499,8 +503,19 @@ pub enum Done {
     /// Block until it has: for a bench or a test that reads the target
     /// back. Never in a frame loop.
     Wait,
-    /// Run this on the GPU's completion thread, and return at once.
-    Notify(Arc<dyn Fn() + Send + Sync>),
+    /// Run this on the GPU's completion thread, and return at once. It is
+    /// handed the frame's own GPU time, because that is when the number
+    /// exists: Metal stamps `GPUStartTime` and `GPUEndTime` on the command
+    /// buffer and they are valid once it has completed. Nothing times
+    /// anything -- the fact arrives with the event that produced it.
+    Notify(Arc<dyn Fn(Duration) + Send + Sync>),
+}
+
+/// A completed frame's own start-to-end on the GPU, from the stamps Metal
+/// puts on the command buffer. Valid only once it has completed, which is
+/// why the asynchronous path reads it in the handler rather than at commit.
+fn gpu_time(cmd: &ProtocolObject<dyn MTLCommandBuffer>) -> Duration {
+    Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0))
 }
 
 /// What a draw did.
@@ -1069,7 +1084,7 @@ impl Gpu {
         &self,
         cmd: &ProtocolObject<dyn MTLCommandBuffer>,
         done: Done,
-    ) -> (Duration, Duration) {
+    ) -> (Duration, Option<Duration>) {
         let t1 = Instant::now();
         self.in_flight.fetch_add(1, Ordering::AcqRel);
         match done {
@@ -1077,22 +1092,24 @@ impl Gpu {
                 cmd.commit();
                 cmd.waitUntilCompleted();
                 self.in_flight.fetch_sub(1, Ordering::AcqRel);
-                let gpu = Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0));
-                (t1.elapsed(), gpu)
+                (t1.elapsed(), Some(gpu_time(cmd)))
             }
             Done::Notify(then) => {
                 let flying = Arc::clone(&self.in_flight);
                 let block =
-                    RcBlock::new(move |_: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                    RcBlock::new(move |done: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
+                        // SAFETY: Metal hands the handler the command
+                        // buffer that completed, valid for the call.
+                        let gpu = gpu_time(unsafe { done.as_ref() });
                         flying.fetch_sub(1, Ordering::AcqRel);
-                        then();
+                        then(gpu);
                     });
                 // SAFETY: the block is a valid `MTLCommandBufferHandler`
                 // for the length of the call; Metal copies it, so the
                 // `RcBlock` may drop after.
                 unsafe { cmd.addCompletedHandler(RcBlock::as_ptr(&block)) };
                 cmd.commit();
-                (t1.elapsed(), Duration::ZERO)
+                (t1.elapsed(), None)
             }
         }
     }

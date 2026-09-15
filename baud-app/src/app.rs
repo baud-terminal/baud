@@ -834,14 +834,13 @@ impl App {
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
                 Some(Mode::Gpu) => crate::info!(
-                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}, gpu {:?}; {}",
+                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}; {}",
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
                     self.gpu_stats.instances.value(),
                     self.stats.convert,
                     self.gpu_stats.upload,
                     self.gpu_stats.submit,
-                    self.gpu_stats.gpu,
                     self.present_counts()
                 ),
                 _ => crate::info!(
@@ -886,12 +885,13 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded, {} deferred, {} built over a live frame",
+                "present: {} landed, {} shown, {} superseded, {} deferred, {} built over a live frame, last gpu {:?}",
                 c.landed,
                 c.shown,
                 c.superseded,
                 c.deferred,
-                self.wrote_in_flight.value()
+                self.wrote_in_flight.value(),
+                c.gpu
             ),
             None => "present: no presenter".to_string(),
         }
@@ -1938,7 +1938,7 @@ impl Driver {
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
                 let g = &self.app.gpu_stats;
                 eprintln!(
-                    "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us, gpu {}us) [{}]",
+                    "resize {}x{}: step reflow {}us, present {}us (convert {}us, upload {}us, submit {}us) [{}]",
                     self.app.grid.ws_col,
                     self.app.grid.ws_row,
                     t_reflow.as_micros(),
@@ -1946,7 +1946,6 @@ impl Driver {
                     self.app.stats.convert.as_micros(),
                     g.upload.as_micros(),
                     g.submit.as_micros(),
-                    g.gpu.as_micros(),
                     self.app.present_counts(),
                 );
             }

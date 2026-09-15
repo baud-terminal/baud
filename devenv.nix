@@ -81,7 +81,12 @@ in
     echo "=== clippy ==="
     cargo clippy --quiet ${scope} -- -D warnings || { echo "FAILED: clippy"; exit 1; }
     echo "=== check ==="
-    cargo check --quiet ${scope} || { echo "FAILED: check"; exit 1; }
+    # --all-targets, because a plain check builds neither benches nor
+    # examples and `cargo test` does not build a bench target either. Three
+    # commits landed green over a `baud-bench` bench that did not compile
+    # before this was noticed; `scripts/check-features.sh` had already been
+    # caught by the same gap and fixed only for itself.
+    cargo check --quiet --all-targets ${scope} || { echo "FAILED: check"; exit 1; }
     echo "=== test ==="
     RUSTFLAGS="-D warnings" cargo test --release --quiet ${scope} || { echo "FAILED: test"; exit 1; }
     echo "=== bare metal ==="
@@ -252,7 +257,7 @@ in
     };
 
     "test:check" = {
-      exec = "cargo check --quiet ${scope}";
+      exec = "cargo check --quiet --all-targets ${scope}";
       after = [ "test:clippy" ];
     };
 

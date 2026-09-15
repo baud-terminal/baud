@@ -18,6 +18,7 @@
 //! bug fires, and a zero is not proof that it does not.
 
 use baud_domain::{Fate, FrameGen, SwapEpoch, SwapGen};
+use core::time::Duration;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 /// One frame's identity, as it crosses to the GPU and back.
@@ -156,6 +157,8 @@ pub struct Journal {
     /// no set and still samples the atlas.
     flying: AtomicU64,
     deferred: AtomicU64,
+    /// The last completed frame's GPU nanoseconds.
+    gpu_nanos: AtomicU64,
     /// Which per-frame buffer sets are spoken for. It lives here because
     /// this is the one structure both threads already hold: the main
     /// thread takes a set, and the completion that lands a frame frees it
@@ -176,6 +179,11 @@ pub struct Counts {
     /// Reshapes -- a reflow or a rescale -- that waited for a frame to
     /// land rather than writing memory it was reading.
     pub deferred: u64,
+    /// The last completed frame's own start-to-end on the GPU, from the
+    /// stamps Metal puts on the command buffer. Recorded where it exists:
+    /// on the completion, by the handler that already runs there. Nothing
+    /// times it, and no frame reports a zero it has not earned.
+    pub gpu: Duration,
 }
 
 impl Journal {
@@ -209,8 +217,12 @@ impl Journal {
         }
     }
 
-    pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch) -> Fate {
+    pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch, gpu: Duration) -> Fate {
         let fate = baud_domain::fate(tag.swap, epoch.current());
+        self.gpu_nanos.store(
+            u64::try_from(gpu.as_nanos()).unwrap_or(u64::MAX),
+            Ordering::Relaxed,
+        );
         // Whatever became of it, the buffers it was built into are no
         // longer being read, and neither is the grid or the atlas.
         if tag.set.is_some() {
@@ -241,6 +253,7 @@ impl Journal {
             shown: self.shown.load(Ordering::Relaxed),
             superseded: self.superseded.load(Ordering::Relaxed),
             deferred: self.deferred.load(Ordering::Relaxed),
+            gpu: Duration::from_nanos(self.gpu_nanos.load(Ordering::Relaxed)),
         }
     }
 }
@@ -249,6 +262,7 @@ impl Journal {
 mod tests {
     use super::{FrameTag, Journal};
     use baud_domain::{Fate, FrameGen, SwapEpoch};
+    use core::time::Duration;
 
     #[test]
     fn a_frame_that_outlives_its_surfaces_is_counted_superseded() {
@@ -260,13 +274,16 @@ mod tests {
             set: None,
         };
         // Landing before anything moved: current, and shown.
-        assert_eq!(j.land(tag, &epoch), Fate::Current);
+        assert_eq!(j.land(tag, &epoch, Duration::ZERO), Fate::Current);
         assert_eq!(j.counts().shown, 1);
         assert_eq!(j.counts().superseded, 0);
 
         // A resize replaces the surface set while this frame is in flight.
         epoch.bump();
-        assert!(matches!(j.land(tag, &epoch), Fate::Superseded { .. }));
+        assert!(matches!(
+            j.land(tag, &epoch, Duration::ZERO),
+            Fate::Superseded { .. }
+        ));
         let c = j.counts();
         assert_eq!((c.landed, c.shown, c.superseded), (2, 1, 1));
 
@@ -279,7 +296,7 @@ mod tests {
             swap: epoch.current(),
             set: None,
         };
-        assert_eq!(j.land(fresh, &epoch), Fate::Current);
+        assert_eq!(j.land(fresh, &epoch, Duration::ZERO), Fate::Current);
         assert_eq!(j.counts().shown, 2);
     }
 }
