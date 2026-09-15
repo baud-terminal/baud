@@ -174,28 +174,27 @@ fn the_prompt_zone_opens_at_a_mark_and_closes_at_the_output() {
 
 #[test]
 fn a_taller_screen_does_not_reach_into_the_history_at_a_prompt() {
-    // The other half of the boundary, and the one the owner's own drag
-    // produced: a gesture that passes through a window too short to hold
-    // the prompt makes the shell redraw and scroll, once per step, and
-    // every one of those prompts is revealed again on the way back up.
-    // 329 of their steps end with six copies on screen when a growth
-    // reaches into the history and one when it does not.
+    // **The rows have to be retired while the screen is output's**, or
+    // there is nothing for a growth to reach for: a shrink at a prompt
+    // takes its rows off the bottom rather than the top, so it retires
+    // nothing. What does retire is a shrink during a command's output --
+    // and then the command ends, the shell draws a prompt, and a growth
+    // that reached back would slide that prompt down the screen over
+    // rows the shell is not going to redraw.
     support::with_room(60, |t| {
+        support::feed(t, b"\x1b]133;C\x07");
         for i in 0..40 {
             support::feed(t, format!("line {i:03}\r\n").as_bytes());
         }
-        support::feed(t, b"\x1b]133;P;k=i\x07");
         let (cols, rows) = t.geometry();
-        // Shrink hard, which retires rows the cursor needs off the top.
         let _ = t.resize(&WinSize {
             ws_col: u16::try_from(cols.index()).unwrap(),
-            ws_row: 4,
+            ws_row: 6,
         });
         let retired = t.scrollback().len();
-        assert!(
-            retired > 4,
-            "the control: the shrink retired rows, so a growth has something to reach for"
-        );
+        // Now the command ends and the shell owns the screen.
+        support::feed(t, b"\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
+        assert_eq!(t.zone(), Zone::Prompt);
         let top_before = row_text(t, 0);
         let _ = t.resize(&WinSize {
             ws_col: u16::try_from(cols.index()).unwrap(),

@@ -699,12 +699,20 @@ impl<'b> Term<'b> {
                 (self.store.book.hist.index(), self.store.book.hidden.index());
             if to < from {
                 let k = from - to;
-                let cut = k.min(from - 1 - cy);
+                // At a prompt the rows come off the *bottom*: the shell
+                // will redraw there, and taking them off the top would
+                // scroll the screen the user is looking at and push the
+                // prompt it is about to replace into the history.
+                let cut = match self.cold.zone {
+                    Zone::Prompt => k,
+                    Zone::Output => k.min(from - 1 - cy),
+                };
                 let retire = k - cut;
                 self.rot = self.rot.advance(retire, ring);
                 hist = (hist + retire).min(spare);
                 hidden = (hidden + cut).min(spare - hist);
                 cy -= retire;
+                cy = cy.min(to - 1);
             } else {
                 let k = to - from;
                 let reveal = k.min(hidden);
