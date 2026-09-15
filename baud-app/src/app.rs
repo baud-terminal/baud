@@ -1769,6 +1769,9 @@ impl Driver {
         // A reflow rewrites the ring the shader reads, so it waits for the
         // frame that is reading it. A drag coalesces to its last step.
         if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+            if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
+                eprintln!("relayout: deferred, a frame is in flight");
+            }
             self.deferred = Deferred::Layout(size, scale);
             return Drew::No;
         }
@@ -1881,6 +1884,13 @@ impl Driver {
     /// written back to the config; Actual Size returns to what it said.
     fn zoom(&mut self, points: f32) {
         let points = points.clamp(ZOOM_MIN, ZOOM_MAX);
+        if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
+            eprintln!(
+                "zoom: asked {points}, at {}, busy {:?}",
+                self.app.font_size,
+                self.app.presenter.as_ref().map(Presenter::in_flight)
+            );
+        }
         if points == self.app.font_size {
             return;
         }
