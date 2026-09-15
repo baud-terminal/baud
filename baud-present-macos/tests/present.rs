@@ -24,7 +24,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_domain::{Fate, FrameGen, SwapEpoch};
-use baud_present_macos::journal::{FrameTag, Journal, SetState, Show, admits};
+use baud_present_macos::journal::{FrameTag, Journal, Reshape, SetState, Show, admits};
 use macos_liquid_glass::drawable::Surface;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_quartz_core::CALayer;
@@ -302,4 +302,94 @@ fn a_frame_that_holds_no_set_frees_none_when_it_lands() {
         SetState::Held,
         "a frame that took no set cannot give one back"
     );
+}
+
+/// **The grid and the atlas have no ring, so a reshape waits.**
+///
+/// The terminal's grid is read in place by the cell shader and the atlas
+/// sheets are sampled by every GPU path, and there is one of each: a
+/// reflow or a rescale cannot move aside the way a ringed buffer can.
+/// Ringing either is the wrong price -- megabytes and two textures,
+/// against an event a keypress or a drag step produces -- so the request
+/// waits for a completion that is already coming.
+///
+/// Chosen rather than raced, which is the whole point: the live harness
+/// deferred zero times in twenty zooms because a frame is in flight for
+/// roughly 300 microseconds of every tick.
+#[test]
+fn a_reshape_waits_while_a_frame_is_reading_and_the_wait_is_counted() {
+    let j = Journal::default();
+    let epoch = SwapEpoch::new();
+    let set = j.wheel().building().expect("a set");
+    let frame = FrameGen::FIRST.next();
+
+    assert_eq!(j.reshape(), Reshape::Now, "nothing is reading it yet");
+    assert_eq!(j.counts().deferred, 0);
+
+    j.commit(Some(set), frame);
+    assert_eq!(j.reshape(), Reshape::Wait);
+    assert_eq!(j.reshape(), Reshape::Wait);
+    assert_eq!(
+        j.counts().deferred,
+        2,
+        "asking is what a caller does before reshaping, so a wait is a deferral"
+    );
+
+    j.land(
+        FrameTag {
+            frame,
+            swap: epoch.current(),
+            set: Some(set),
+        },
+        &epoch,
+    );
+    assert_eq!(j.reshape(), Reshape::Now, "the reader landed");
+    assert_eq!(j.counts().deferred, 2, "and answering Now counts nothing");
+}
+
+/// **The discriminating case, and the reason this is not built on the
+/// wheel.** An instance-path frame converts on the main thread and holds
+/// no buffer set, and it still samples the atlas. A reshape that asked
+/// "does any frame hold a set" would answer `Now` here and let a rescale
+/// replace the sheets underneath it.
+#[test]
+fn a_frame_that_holds_no_buffer_set_still_blocks_a_reshape() {
+    let j = Journal::default();
+    let frame = FrameGen::FIRST.next();
+    j.commit(None, frame);
+
+    assert_eq!(
+        j.wheel().building(),
+        Some(baud_present_macos::journal::SetIx(0)),
+        "it holds no set, so every set is free"
+    );
+    assert_eq!(
+        j.reshape(),
+        Reshape::Wait,
+        "and it is still reading the atlas"
+    );
+}
+
+/// A reshape waits for the *last* reader, not the first: two frames in
+/// flight and one landing leaves the other reading.
+#[test]
+fn a_reshape_waits_for_the_last_frame_not_the_first() {
+    let j = Journal::default();
+    let epoch = SwapEpoch::new();
+    let one = FrameGen::FIRST.next();
+    let two = one.next();
+    let first = j.wheel().building().expect("a set");
+    j.commit(Some(first), one);
+    let second = j.wheel().building().expect("another");
+    j.commit(Some(second), two);
+
+    let tag = |frame, set| FrameTag {
+        frame,
+        swap: epoch.current(),
+        set: Some(set),
+    };
+    j.land(tag(one, first), &epoch);
+    assert_eq!(j.reshape(), Reshape::Wait, "one is still reading");
+    j.land(tag(two, second), &epoch);
+    assert_eq!(j.reshape(), Reshape::Now);
 }

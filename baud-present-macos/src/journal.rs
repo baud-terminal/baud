@@ -128,12 +128,34 @@ impl Wheel {
     }
 }
 
+/// Whether the memory a frame reads that has **no ring** may be written
+/// now: the terminal's grid, which the cell shader reads in place, and the
+/// atlas sheets every GPU path samples.
+///
+/// There is one of each, so a mutation cannot move aside the way a ringed
+/// buffer can. Ringing either is the wrong price -- the grid is megabytes
+/// and the atlas is two textures, against an event a keypress or a drag
+/// step produces -- so the *request* waits instead, for a completion that
+/// is already on its way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reshape {
+    /// Nothing is reading it. Reflow, rescale, do as you like.
+    Now,
+    /// A frame in flight is reading it.
+    Wait,
+}
+
 /// How many frames reached the layer, and how many should not have.
 #[derive(Default)]
 pub struct Journal {
     shown: AtomicU64,
     superseded: AtomicU64,
     landed: AtomicU64,
+    /// Frames committed and not yet landed. Every path counts here, not
+    /// just the one that holds a buffer set: an instance-path frame holds
+    /// no set and still samples the atlas.
+    flying: AtomicU64,
+    deferred: AtomicU64,
     /// Which per-frame buffer sets are spoken for. It lives here because
     /// this is the one structure both threads already hold: the main
     /// thread takes a set, and the completion that lands a frame frees it
@@ -151,6 +173,9 @@ pub struct Counts {
     /// Frames drawn into a surface set that had been replaced. **This is
     /// the doubled image on a resize and the old font size on a zoom.**
     pub superseded: u64,
+    /// Reshapes -- a reflow or a rescale -- that waited for a frame to
+    /// land rather than writing memory it was reading.
+    pub deferred: u64,
 }
 
 impl Journal {
@@ -158,13 +183,44 @@ impl Journal {
     /// act on it. In the observing phase every caller shows the frame
     /// regardless, which is what makes the count a measurement of the bug
     /// rather than of the fix.
+    /// A frame is in flight: it holds `set` if it was built into one, and
+    /// it reads the unringed memory either way. The one place a commit is
+    /// recorded, so the rule the app runs is the rule the tests pin.
+    pub fn commit(&self, set: Option<SetIx>, frame: FrameGen) {
+        if let Some(set) = set {
+            self.wheel.committed(set, frame);
+        }
+        self.flying.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Whether the unringed memory may be written now.
+    ///
+    /// **Asking is what a caller does immediately before reshaping**, so an
+    /// answer of `Wait` is a deferral and is counted as one. That is a
+    /// query with a side effect on purpose: it makes "a resize waited"
+    /// a number in the frame report rather than a thing to believe.
+    pub fn reshape(&self) -> Reshape {
+        match self.flying.load(Ordering::Relaxed) {
+            0 => Reshape::Now,
+            _ => {
+                self.deferred.fetch_add(1, Ordering::Relaxed);
+                Reshape::Wait
+            }
+        }
+    }
+
     pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch) -> Fate {
         let fate = baud_domain::fate(tag.swap, epoch.current());
         // Whatever became of it, the buffers it was built into are no
-        // longer being read.
+        // longer being read, and neither is the grid or the atlas.
         if tag.set.is_some() {
             self.wheel.landed(tag.frame);
         }
+        self.flying
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .ok();
         self.landed.fetch_add(1, Ordering::Relaxed);
         match fate {
             Fate::Current => self.shown.fetch_add(1, Ordering::Relaxed),
@@ -184,6 +240,7 @@ impl Journal {
             landed: self.landed.load(Ordering::Relaxed),
             shown: self.shown.load(Ordering::Relaxed),
             superseded: self.superseded.load(Ordering::Relaxed),
+            deferred: self.deferred.load(Ordering::Relaxed),
         }
     }
 }

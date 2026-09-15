@@ -40,7 +40,7 @@ pub use metal::{
 use baud_domain::{FrameGen, SwapEpoch};
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
-use journal::{Counts, FrameTag, Journal, SetIx};
+use journal::{Counts, FrameTag, Journal, Reshape, SetIx};
 pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
 use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
 use std::sync::Arc;
@@ -221,9 +221,7 @@ impl Presenter {
     /// being free: the frame that holds it is the one this mints.
     fn tag(&mut self, set: Option<SetIx>) -> FrameTag {
         self.frame = self.frame.next();
-        if let Some(set) = set {
-            self.journal.wheel().committed(set, self.frame);
-        }
+        self.journal.commit(set, self.frame);
         FrameTag {
             frame: self.frame,
             swap: self.epoch.current(),
@@ -236,6 +234,14 @@ impl Presenter {
     /// is nowhere to build that a live frame is not reading.
     pub fn building(&self) -> Option<SetIx> {
         self.journal.wheel().building()
+    }
+
+    /// Whether the memory that has no ring -- the terminal's grid and the
+    /// atlas sheets -- may be written now, or a frame in flight is reading
+    /// it and the reshape has to wait for the completion. Asking counts a
+    /// `Wait` as a deferral, so the frame report carries it.
+    pub fn reshape(&self) -> Reshape {
+        self.journal.reshape()
     }
 
     /// Copies `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,

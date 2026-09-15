@@ -15,7 +15,8 @@ use baud_font::Px;
 use baud_present_macos::clipboard;
 use baud_present_macos::{
     CellInput, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Mode, OverlayBuffer,
-    Presented, Presenter, StylesBuffer, SurfaceSpace, journal::Wheel,
+    Presented, Presenter, StylesBuffer, SurfaceSpace,
+    journal::{Reshape, Wheel},
 };
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
@@ -802,10 +803,11 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded, {} built over a live frame",
+                "present: {} landed, {} shown, {} superseded, {} deferred, {} built over a live frame",
                 c.landed,
                 c.shown,
                 c.superseded,
+                c.deferred,
                 self.wrote_in_flight.value()
             ),
             None => "present: no presenter".to_string(),
@@ -1758,9 +1760,10 @@ impl Driver {
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
-        // A reflow rewrites the ring the shader reads, so it waits for the
-        // frame that is reading it. A drag coalesces to its last step.
-        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+        // A reflow rewrites the ring the shader reads, and the grid has no
+        // ring to move aside into, so it waits for the frame that is
+        // reading it. A drag coalesces to its last step.
+        if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
             if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
                 eprintln!("relayout: deferred, a frame is in flight");
             }
@@ -1886,10 +1889,10 @@ impl Driver {
         if points == self.app.font_size {
             return;
         }
-        // Rescaling replaces the atlas and clears the glyph map, which the
-        // live draw is sampling and probing, so the keypress waits for the
-        // frame rather than the frame for the keypress.
-        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+        // Rescaling replaces the atlas sheets and clears the glyph map,
+        // which the live draw is sampling and probing, so the keypress
+        // waits for the frame rather than the frame for the keypress.
+        if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
             self.deferred = Deferred::Zoom(points);
             return;
         }
