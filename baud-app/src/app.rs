@@ -1462,7 +1462,6 @@ pub fn run() {
         icon_x = left;
         icon_s = s;
     }
-    window.make_first_responder(&view);
     let mut driver = Driver {
         app: probe,
         view: view.clone(),
@@ -1493,6 +1492,23 @@ pub fn run() {
     window.set_content_view(glass.view());
     glass.set_content_view(&container);
     startup_mark("glass installed");
+    // **First responder AFTER the glass, because installing it takes the
+    // chain away.** `set_content_view` replaces the window's content view,
+    // which tears down the hierarchy the old one rooted and resigns first
+    // responder back to the window. Claimed before this line -- where it
+    // used to be -- the view is not in the responder chain afterwards, and
+    // every menu item that targets it is disabled by AppKit's automatic
+    // validation: Copy, Paste, Bigger, Smaller and Actual Size all read
+    // `enabled = false`, while Minimize and Close, which AppKit answers
+    // itself, read true. That is the whole signature of the defect.
+    //
+    // It cost copy, paste and zoom outright, because the key handler's
+    // `Cmd-C`/`Cmd-V` arms were deleted when the menu landed: a key
+    // equivalent is a menu item's, so with the item disabled nothing runs.
+    // The glass move was a launch optimisation worth ~7 ms and it took
+    // three commands with it, silently, because nothing asks a menu
+    // whether it is enabled.
+    window.make_first_responder(&view);
     // The menu after the first frame, before the run loop: key equivalents
     // need it from the first event, and nothing on screen waits for it.
     macos_liquid_glass::menu::install_main_menu(&ns_app, mtm, "baud");
