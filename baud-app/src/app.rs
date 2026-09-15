@@ -185,6 +185,9 @@ struct App {
     /// Wheel travel not yet a whole line, in points.
     scroll_accum: f64,
     frames: Tally,
+    /// Frames whose shared-buffer writes began while the GPU was still
+    /// reading the last one's. See the comment at the count site.
+    wrote_in_flight: Tally,
     last_report: std::time::Instant,
     stats: Frame,
     gpu_stats: GpuFrame,
@@ -443,6 +446,7 @@ impl App {
             last_screen: Screen::Normal,
             scroll_accum: 0.0,
             frames: Tally::default(),
+            wrote_in_flight: Tally::default(),
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
@@ -558,6 +562,23 @@ impl App {
         }
         if self.pending == Pending::Clean {
             return;
+        }
+        // **How often a frame is built over memory the GPU is still
+        // reading.** The three writes below -- the glyph map, the resolved
+        // styles and the overlay records -- all go into Metal *shared*
+        // buffers (`Gpu::styles` lends a `&mut [Resolved]` out of the same
+        // allocation it wraps in a `StylesBuffer`), and so does the grid
+        // itself, which the cell shader reads in place. Nothing checks
+        // whether a frame is in flight until `draw_cells`, which is after
+        // all of them, so `Drawn::Busy` reports the hazard rather than
+        // preventing it.
+        //
+        // `pump` does hold the barrier, so this is zero in steady state.
+        // What reaches here mid-flight is `relayout` and `zoom`, which call
+        // `present` directly -- which is to say: a resize and a font change,
+        // the two gestures the owner reported as broken.
+        if self.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+            self.wrote_in_flight.bump();
         }
         self.renderer.set_blink(self.blink);
         let damage = self.next_damage;
@@ -738,8 +759,11 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded",
-                c.landed, c.shown, c.superseded
+                "present: {} landed, {} shown, {} superseded, {} built over a live frame",
+                c.landed,
+                c.shown,
+                c.superseded,
+                self.wrote_in_flight.value()
             ),
             None => "present: no presenter".to_string(),
         }
