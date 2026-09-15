@@ -889,6 +889,9 @@ struct Driver {
     /// A drag of the scrollbar's thumb: where it was grabbed, in frame
     /// pixels, and where its top was.
     bar_drag: Option<BarDrag>,
+    /// What a resize or a zoom asked for while a frame was in flight,
+    /// applied by the next `pump` the completion wakes.
+    deferred: Deferred,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -903,10 +906,38 @@ struct Driver {
     icon_inset: CGFloat,
 }
 
+/// A geometry change asked for while a frame was in flight.
+///
+/// Reflowing rewrites the ring the shader reads and rescaling replaces the
+/// atlas and clears the glyph map, and both are memory the live draw is
+/// sampling. Neither can be ringed at a price worth paying: the ring is
+/// megabytes and the atlas is two textures, against an event a keypress or
+/// a drag step produces. So the *request* waits rather than the frame, and
+/// what it waits for is the completion -- an event that arrives in about
+/// 300 microseconds, against a drag step every eight milliseconds. Nothing
+/// polls, nothing sleeps, and a burst coalesces to its last member, which
+/// is what a drag wants anyway.
+#[derive(Clone, Copy)]
+enum Deferred {
+    Nothing,
+    /// A window resize: the view's size and the backing scale it came with.
+    Layout(NSSize, CGFloat),
+    /// A zoom, in points.
+    Zoom(f32),
+}
+
 #[derive(Clone, Copy)]
 struct BarDrag {
     grab_y: Px,
     top: Px,
+}
+
+/// Whether a relayout drew a frame of its own, so a caller that wants one
+/// can tell whether it still has to ask.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Drew {
+    Yes,
+    No,
 }
 
 /// Whether the scrollbar took a mouse event.
@@ -926,6 +957,16 @@ impl Driver {
     fn pump(&mut self, trigger: Trigger) {
         if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
             return;
+        }
+        // Past the gate, so no draw is reading the grid or the atlas: a
+        // geometry change that arrived mid-flight is applied here, before
+        // anything else touches either.
+        match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
+            Deferred::Nothing => {}
+            Deferred::Layout(size, scale) => {
+                let _ = self.relayout(size, scale);
+            }
+            Deferred::Zoom(points) => self.zoom(points),
         }
         let drained = self.app.pty.drain();
         if !drained.chunks.is_empty() {
@@ -1053,8 +1094,25 @@ impl Responder for Driver {
         match selector {
             "copy:" => return self.copy(),
             "paste:" => return self.paste(),
-            "zoomIn:" => return self.zoom(self.app.font_size + 1.0),
-            "zoomOut:" => return self.zoom(self.app.font_size - 1.0),
+            // A step is relative to the size that *will* be in force, not
+            // the one that is: while a zoom waits for a frame in flight,
+            // `font_size` still names what the renderer is built at, so
+            // stepping from it would make every click of a burst aim at
+            // the same size and twelve of them arrive as one.
+            "zoomIn:" => {
+                let at = match self.deferred {
+                    Deferred::Zoom(points) => points,
+                    _ => self.app.font_size,
+                };
+                return self.zoom(at + 1.0);
+            }
+            "zoomOut:" => {
+                let at = match self.deferred {
+                    Deferred::Zoom(points) => points,
+                    _ => self.app.font_size,
+                };
+                return self.zoom(at - 1.0);
+            }
             "zoomActual:" => return self.zoom(self.app.font_base),
             _ => {}
         }
@@ -1214,7 +1272,7 @@ impl Responder for Driver {
                 }
             }
         }
-        self.relayout(size, scale);
+        let _ = self.relayout(size, scale);
     }
 
     fn frame(&mut self, target: f64) {
@@ -1519,6 +1577,7 @@ pub fn run() {
         dock_icon: icon.clone(),
         held: None,
         bar_drag: None,
+        deferred: Deferred::Nothing,
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,
@@ -1706,7 +1765,13 @@ impl Driver {
 
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
-    fn relayout(&mut self, size: NSSize, scale: CGFloat) {
+    fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
+        // A reflow rewrites the ring the shader reads, so it waits for the
+        // frame that is reading it. A drag coalesces to its last step.
+        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+            self.deferred = Deferred::Layout(size, scale);
+            return Drew::No;
+        }
         let (cw, ch) = self.app.metrics_cell();
         let px_w = size.width * scale;
         let px_h = size.height * scale;
@@ -1721,7 +1786,7 @@ impl Driver {
         // The titlebar mark follows the window's top-left on every resize.
         self.place_icon();
         if self.app.sizing == Sizing::Fixed {
-            return;
+            return Drew::No;
         }
         let gutter = 2.0 * self.app.padding * scale;
         let cols =
@@ -1804,7 +1869,10 @@ impl Driver {
                     self.app.present_counts(),
                 );
             }
+            return Drew::Yes;
         }
+        // The window moved but the grid did not: a sub-cell drag step.
+        Drew::No
     }
 
     /// The View menu's zoom: a new font size in points, bounded, the
@@ -1816,6 +1884,13 @@ impl Driver {
         if points == self.app.font_size {
             return;
         }
+        // Rescaling replaces the atlas and clears the glyph map, which the
+        // live draw is sampling and probing, so the keypress waits for the
+        // frame rather than the frame for the keypress.
+        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
+            self.deferred = Deferred::Zoom(points);
+            return;
+        }
         let scale = self.app.scale;
         let Some(px) = PxSize::of(points * scale as f32) else {
             return;
@@ -1824,10 +1899,19 @@ impl Driver {
             return;
         }
         self.app.font_size = points;
-        self.relayout(self.view.frame().size, scale);
+        // Full damage before the relayout, so the frame it draws is the
+        // one at the new size: `zoom` used to ask for a second present
+        // afterwards, which always found the first still in flight and so
+        // drew nothing. Two renders on a font change, the first at the old
+        // size, is what that looked like from outside.
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
-        self.app.present(&self.view, Show::Event);
+        if self.relayout(self.view.frame().size, scale) == Drew::No {
+            // The grid did not change -- a fixed size, or a step too small
+            // to move the column count -- so nothing has drawn the new
+            // font yet.
+            self.app.present(&self.view, Show::Event);
+        }
     }
 
     /// Cmd-C: the selection's text to the pasteboard, if there is one.
