@@ -87,9 +87,17 @@ impl Default for Wheel {
 }
 
 impl Wheel {
-    /// One set a frame that can be in flight, plus room. Three, which is
-    /// what the surfaces and the instance buffer already ring at.
-    pub const SETS: usize = 3;
+    /// **Two, and the two are derived rather than chosen.** Research
+    /// decision D14 is one frame in flight, so at most one set is ever
+    /// held: one for the frame the GPU is reading and one for the frame
+    /// being built is the whole requirement, and a third would only ever
+    /// hold memory nothing reads.
+    ///
+    /// It was three because the surfaces ring at three, which is a fact
+    /// about the *layer* -- the compositor may hold one while another is
+    /// shown -- and not about these buffers. Copying a number across from
+    /// a structure that has a different reason for it is how it got here.
+    pub const SETS: usize = 2;
 
     /// The set to build the next frame into: the next one round, or the
     /// first free one after it. `None` while every set is held, which

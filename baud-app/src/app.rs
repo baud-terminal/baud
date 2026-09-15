@@ -9,7 +9,7 @@ use crate::pty::{Pty, Stream};
 use baud_core::{Depth, Owned, Screen, Term, grid_stride};
 use baud_domain::{
     BytePos, Codepoint, Col, Cols, FnKey, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent,
-    MouseKind, MouseMods, MouseTracking, ReadLen, Row, Rows, WinSize,
+    MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -136,10 +136,46 @@ struct CellMemory {
     exceptions: Overlay,
     records: Vec<Instance>,
     candidates: Vec<Candidate>,
-    /// The primary ring.
+    /// **The core's own grid, held and no longer bound.**
+    ///
+    /// The core's storage is lent out of these two Metal allocations
+    /// (`Owned::storage_over`), so dropping either would free memory the
+    /// parser is writing into -- they are an ownership role now rather
+    /// than a binding. Nothing reads them on the GPU since D4: the shader
+    /// reads [`CellMemory::copies`], and which surface is up is resolved
+    /// when the window is copied rather than by rebinding.
+    #[expect(
+        dead_code,
+        reason = "keeps alive the allocation the core's grid is lent from"
+    )]
     grid: GridBuffer,
-    /// The alternate screen's surface, bound while `Term::screen` says so.
+    #[expect(
+        dead_code,
+        reason = "keeps alive the allocation the alternate screen is lent from"
+    )]
     alt: GridBuffer,
+    /// **The window, copied, one per set -- research decision D4.**
+    ///
+    /// The shader used to read `grid` and `alt` where the core writes
+    /// them, which D4 names for what it is: *"`bytesNoCopy` over the live
+    /// grid is not zero-copy, it is a race"*. The only thing that made it
+    /// safe was refusing to feed the parser while a frame was in flight,
+    /// and that barrier is the freeze -- a resize or a burst of output
+    /// stops the terminal reading its child for the whole of the GPU's
+    /// round trip, every frame.
+    ///
+    /// So the frame gets its own copy of the *screen* -- not the ring, and
+    /// not the scrollback behind it -- laid out flat in screen order, which
+    /// is why the shader reads it at [`RowRot::NONE`] with a ring of
+    /// `rows`. D4 prices the copy at 1.2 us against a 16,667 us frame, and
+    /// `frame_gpu`'s `copied` arm measured it *faster* end to end than the
+    /// in-place read: 30-60 us less GPU time for about one microsecond of
+    /// CPU.
+    ///
+    /// One per set, for the reason the overlay and the styles are: the
+    /// frame in flight is reading its own.
+    copies: Vec<GridBuffer>,
+    copies_mem: Vec<&'static mut [PackedCell]>,
     styles: Vec<StylesBuffer>,
     styles_mem: Vec<&'static mut [Resolved]>,
     /// **Two, ping-ponged on a rescale, and not a set a frame.** Rotating
@@ -483,6 +519,14 @@ impl App {
                     // The second map buffer, so a rescale never allocates
                     // and never fills the one being probed.
                     let (second_map, spare) = gpu.map().expect("a second glyph map");
+                    // The window's own memory, at the provisioned height and
+                    // the same pitch the core lays rows at, so a copy is one
+                    // `copy_from_slice` a row and no arithmetic changes when
+                    // the grid is resized under it.
+                    let copied =
+                        sets(|| gpu.grid(Rows::of_index(usize::from(MAX_GRID.ws_row)), pitch))
+                            .expect("a shared window copy a frame in flight");
+                    let (copies, copies_mem): (Vec<_>, Vec<_>) = copied.into_iter().unzip();
                     Some(CellMemory {
                         overlay,
                         overlay_mem,
@@ -491,6 +535,8 @@ impl App {
                         candidates: Vec::new(),
                         grid,
                         alt,
+                        copies,
+                        copies_mem,
                         styles,
                         styles_mem,
                         maps: Maps {
@@ -709,6 +755,23 @@ impl App {
                     return;
                 };
                 let set = at.0;
+                // **D4: the window, copied into this frame's slot.** The
+                // rows the view names, in screen order, so what the shader
+                // reads is a still image of the screen rather than a grid
+                // the parser is still writing -- which is what lets `pump`
+                // keep feeding while this frame is in flight.
+                //
+                // `Viewport::row` resolves a row through the rotation and
+                // the ring, so the wrap at the ring's end costs nothing
+                // here: it is two slices either side of it, and this walks
+                // rows rather than one span.
+                let stride = self.term.stride().index();
+                let (vcols, vrows) = (view.cols().index(), view.rows().index());
+                for y in 0..vrows {
+                    let src = view.row(Row::from_index(y));
+                    let at = y * stride;
+                    cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
+                }
                 self.renderer
                     .resolve_styles_into(&self.term, &mut cell.styles_mem[set][..]);
                 cell.exceptions.ensure(
@@ -743,15 +806,17 @@ impl App {
                     ));
                 }
                 let input = CellInput {
-                    grid: match self.term.screen() {
-                        baud_core::Screen::Normal => &cell.grid,
-                        baud_core::Screen::Alternate => &cell.alt,
-                    },
+                    // The copy, not the core's grid: flat, in screen order,
+                    // so the shader's rotation is the identity and its ring
+                    // is the screen. Nothing here depends on which surface
+                    // is up or how far back the window is -- the view
+                    // resolved both when it was copied.
+                    grid: &cell.copies[set],
                     styles: &cell.styles[set],
                     map: cell.maps.buffer(),
                     stride: self.term.stride(),
-                    rotation: view.rotation(),
-                    ring: self.term.ring(),
+                    rotation: RowRot::NONE,
+                    ring: Rows::of_index(vrows),
                     cursor,
                     highlight,
                     overlay: &cell.overlay[set],
@@ -1032,18 +1097,28 @@ impl Driver {
     /// on a wake only if a frame's worth of time has passed since the last
     /// commit, so a flood draws once a vsync and a keystroke draws now.
     fn pump(&mut self, trigger: Trigger) {
-        if self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy) {
-            return;
-        }
-        // Past the gate, so no draw is reading the grid or the atlas: a
-        // geometry change that arrived mid-flight is applied here, before
-        // anything else touches either.
-        match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
-            Deferred::Nothing => {}
-            Deferred::Layout(size, scale) => {
-                let _ = self.relayout(size, scale);
+        // **The parser is not held here, and that is research decision D4
+        // arriving.** This used to return while a frame was in flight,
+        // because the shader read the core's grid where the core writes it,
+        // so feeding would have mutated the memory the GPU was sampling.
+        // The frame takes its own copy of the window now, so there is
+        // nothing for a feed to corrupt -- and the terminal no longer stops
+        // reading its child for the length of a GPU round trip, which is
+        // the freeze.
+        //
+        // What still waits for the gate is a *geometry* change, and it has
+        // to: `relayout` and `zoom` replace the surfaces and re-raster the
+        // atlas, neither of which is ringed. Those are rare and bounded;
+        // feeding is neither.
+        let busy = self.app.presenter.as_ref().map(Presenter::in_flight) == Some(InFlight::Busy);
+        if !busy {
+            match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
+                Deferred::Nothing => {}
+                Deferred::Layout(size, scale) => {
+                    let _ = self.relayout(size, scale);
+                }
+                Deferred::Zoom(points) => self.zoom(points),
             }
-            Deferred::Zoom(points) => self.zoom(points),
         }
         let drained = self.app.pty.drain();
         if !drained.chunks.is_empty() {
@@ -1110,8 +1185,15 @@ impl Driver {
         } else {
             self.app.sync_since = None;
         }
+        // **One frame in flight -- D14 -- and now that is all the gate
+        // says.** Before the copy landed, `busy` also meant "do not feed";
+        // it means only "do not build a second frame" now. Building one
+        // would copy the window, resolve the styles and walk the overlay
+        // into a set, and `draw_cells` would refuse it and throw the lot
+        // away. The completion wakes us and this runs again with the bytes
+        // that arrived meanwhile already fed.
         let due = trigger == Trigger::Tick || self.app.last_commit.elapsed() >= self.app.interval;
-        if due {
+        if due && !busy {
             let view = self.view.clone();
             self.app.present(&view, Show::Event);
         }

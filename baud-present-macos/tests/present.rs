@@ -24,7 +24,7 @@
 #![cfg(target_os = "macos")]
 
 use baud_domain::{Fate, FrameGen, SwapEpoch};
-use baud_present_macos::journal::{FrameTag, Journal, Reshape, SetState, Show, admits};
+use baud_present_macos::journal::{FrameTag, Journal, Reshape, SetState, Show, Wheel, admits};
 use core::time::Duration;
 use macos_liquid_glass::drawable::Surface;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
@@ -237,40 +237,49 @@ fn a_frame_is_never_built_into_a_set_a_live_frame_holds() {
         }
     };
 
-    // The zoom's interleaving: a frame is built and committed, and the
-    // next is built before the first has landed.
-    let first = w.building().expect("a fresh wheel has a set free");
-    let a = commit(first);
-    assert_eq!(w.state(first), SetState::Held);
-
-    let second = w.building().expect("and one for the frame behind it");
-    assert_ne!(
-        first, second,
-        "a frame built while another flies must not write its buffers"
-    );
-    let b = commit(second);
-
-    let third = w.building().expect("and a third");
-    assert_ne!(third, first);
-    assert_ne!(third, second);
-    let c = commit(third);
+    // **Derived from `Wheel::SETS`, not from a number written here.** The
+    // depth is a consequence of D14 -- one frame in flight -- and it moved
+    // from three to two when that was noticed; a test that spelled three
+    // failed for the depth rather than for the property, which is the one
+    // thing it must not do.
+    let mut held = Vec::new();
+    for n in 0..Wheel::SETS {
+        let set = w
+            .building()
+            .unwrap_or_else(|| panic!("a set for frame {n} of {}", Wheel::SETS));
+        assert!(
+            !held.iter().any(|(s, _)| *s == set),
+            "a frame built while another flies must not write its buffers"
+        );
+        let tag = commit(set);
+        assert_eq!(w.state(set), SetState::Held);
+        held.push((set, tag));
+    }
 
     // Every set spoken for: the wheel refuses rather than handing back one
     // a live frame is reading. A refusal is a frame not drawn; handing one
     // out would be a frame drawn over.
     assert_eq!(w.building(), None, "nowhere to build is not somewhere");
 
-    // A landing frees exactly the set that frame held, and out of order.
-    j.land(b, &epoch, Duration::ZERO);
-    assert_eq!(w.state(second), SetState::Free);
-    assert_eq!(w.state(first), SetState::Held, "b's landing is not a's");
-    assert_eq!(w.state(third), SetState::Held);
-    assert_eq!(w.building(), Some(second));
+    // A landing frees exactly the set that frame held, and out of order:
+    // the last one committed is landed first.
+    let (last, last_tag) = *held.last().expect("at least one set");
+    j.land(last_tag, &epoch, Duration::ZERO);
+    assert_eq!(w.state(last), SetState::Free);
+    for (set, _) in held.iter().take(held.len() - 1) {
+        assert_eq!(
+            w.state(*set),
+            SetState::Held,
+            "one frame's landing is not another's"
+        );
+    }
+    assert_eq!(w.building(), Some(last));
 
-    j.land(a, &epoch, Duration::ZERO);
-    j.land(c, &epoch, Duration::ZERO);
-    for set in [first, second, third] {
-        assert_eq!(w.state(set), SetState::Free);
+    for (_, tag) in held.iter().take(held.len() - 1) {
+        j.land(*tag, &epoch, Duration::ZERO);
+    }
+    for (set, _) in &held {
+        assert_eq!(w.state(*set), SetState::Free);
     }
     assert!(w.building().is_some(), "and the wheel is usable again");
 }

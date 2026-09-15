@@ -14,7 +14,7 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
-use baud_domain::{BytePos, Col, Cols, Depth, ReadLen, Row, Rows, WinSize};
+use baud_domain::{BytePos, Col, Cols, Depth, PackedCell, ReadLen, Row, RowRot, Rows, WinSize};
 use baud_font::Face;
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
@@ -68,6 +68,11 @@ struct Arms<'f, 'a> {
     highlight: Option<Highlight>,
     /// Where the window sits, for the scrollbar both arms draw.
     window: Option<Window>,
+    /// The window copied flat, in screen order -- research decision D4's
+    /// buffer, and what the app binds. Held here so a third arm can draw
+    /// from it and be compared against the two that read the live grid.
+    copy: GridBuffer,
+    copy_mem: &'static mut [PackedCell],
 }
 
 impl Arms<'_, '_> {
@@ -137,6 +142,53 @@ impl Arms<'_, '_> {
         );
         (a, b)
     }
+
+    /// The cell path again, reading **a copy of the window** rather than
+    /// the core's grid: D4's buffer, laid out flat in screen order, so the
+    /// shader's rotation is the identity and its ring is the screen.
+    ///
+    /// Everything else is the frame `draw` just built -- the same styles,
+    /// the same map, the same overlay and records -- so a difference in
+    /// the pixels can only be the grid it read.
+    fn draw_copied(&mut self, t: &mut Term<'_>) -> Vec<u32> {
+        let (w, h) = self.renderer.pixel_size();
+        let n = usize::try_from(w.value() * h.value()).unwrap();
+        let target = self.gpu.offscreen(w, h).expect("target");
+        let view = t.view(self.back);
+        let stride = t.stride().index();
+        let (cols, rows) = (view.cols().index(), view.rows().index());
+        for y in 0..rows {
+            let src = view.row(Row::from_index(y));
+            let at = y * stride;
+            self.copy_mem[at..at + cols].copy_from_slice(&src[..cols]);
+        }
+        let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
+            let (r, c) = t.cursor();
+            (r, c, t.cursor_style())
+        });
+        let input = CellInput {
+            set: baud_present_macos::journal::SetIx(0),
+            grid: &self.copy,
+            styles: &self.styles,
+            map: &self.map_buffer,
+            stride: t.stride(),
+            rotation: RowRot::NONE,
+            ring: Rows::of_index(rows),
+            cursor,
+            highlight: self.highlight,
+            overlay: &self.overlay,
+            records: &self.records,
+        };
+        let Some(Drawn::Frame(_)) =
+            self.gpu
+                .draw_cells(&mut self.renderer, &input, &target, Done::Wait)
+        else {
+            panic!("draw_cells over the copy");
+        };
+        let mut out = vec![0u32; n];
+        self.gpu.read(&target, &mut out).expect("read");
+        out
+    }
 }
 
 fn differing(a: &[u32], b: &[u32]) -> usize {
@@ -189,6 +241,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let (_, alt) = gpu
         .grid(owned.rows(), owned.stride())
         .expect("a shared alternate");
+    let owned_stride = owned.stride();
     let mut t = Term::new(owned.storage_over(cells, alt), &WS);
     let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
@@ -198,6 +251,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             Rows::of_index(usize::from(WS.ws_row)),
         )
         .expect("a shared overlay");
+    // The window's own buffer: the screen's height at the core's pitch,
+    // which is what the app provisions.
+    let (copy, copy_mem) = gpu
+        .grid(Rows::of_index(usize::from(WS.ws_row)), owned_stride)
+        .expect("a shared window copy");
     let mut arms = Arms {
         gpu,
         renderer,
@@ -214,6 +272,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         back: Rows::ZERO,
         highlight: None,
         window: None,
+        copy,
+        copy_mem,
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -247,6 +307,17 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             diff, 0,
             "{diff} pixels differ between the arms with a {name} cursor"
         );
+        // **D4's arm: the same frame read out of a copy of the window.**
+        // The app binds this buffer rather than the core's grid, so that
+        // the parser may keep feeding while the GPU reads. If the copy
+        // and the live grid ever drew different pixels, every frame the
+        // app shows would be wrong in a way no other gate here can see.
+        let c = arms.draw_copied(&mut t);
+        let diff = differing(&b, &c);
+        assert_eq!(
+            diff, 0,
+            "{diff} pixels differ between the live grid and its copy, {name} cursor"
+        );
     }
     // Scroll the scene so the grid is under a rotation, and compare again:
     // the cell arm reads it rotated, the instance arm turns it.
@@ -260,6 +331,16 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "{diff} pixels differ under a rotation of {}",
         t.rotation().index()
     );
+    // The rotation is the case the copy has to resolve for itself: it is
+    // flat, so a wrong walk would show as rows in the wrong order rather
+    // than as anything subtle.
+    let c = arms.draw_copied(&mut t);
+    assert_eq!(
+        differing(&b, &c),
+        0,
+        "the copy disagrees under a rotation of {}",
+        t.rotation().index()
+    );
     // Looking back into the history: both arms draw the window three lines
     // up the ring, the cell arm by a retreated rotation and the instance
     // arm by the same view, and they agree -- and differ from the live
@@ -271,6 +352,14 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert!(
         differing(&a, &live) > 0,
         "three lines back is not the live screen"
+    );
+    // And three lines up the ring, where the window wraps rows the copy
+    // has to gather from two places.
+    let c = arms.draw_copied(&mut t);
+    assert_eq!(differing(&b, &c), 0, "the copy disagrees three lines back");
+    assert!(
+        differing(&c, &live) > 0,
+        "the copy three lines back is not the live screen"
     );
     // The scrollbar's thumb, three lines up a ring with history behind
     // it: one solid on the instance list and on the cell path's records,
