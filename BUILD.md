@@ -21,14 +21,14 @@ above proves it.
 # One payload, in memory, no fork and no pty: the instrument every number in
 # CLAUDE.md is measured with. A recording name, or a ladder rung
 # (flat/wrap/lines/sgr), or a synthetic payload (cjk/streaming), or `mix`.
-cargo run --release -p baud-bench --bin ingest2 -- cat-cjk 250
+cargo bench -p baud-bench --bench ingest2 -- cat-cjk 250
 
 # The transport with no parser behind it -- the ceiling a PTY row is measured
 # against, and the reason a PTY row is a claim about the tty rather than the
 # parser.
-cargo run --release -p baud-bench --bin transport -- utf8/btop.raw 48
-cargo run --release -p baud-bench --bin ceiling    # the reference ceilings, on mains
-cargo run --release -p baud-bench --bin opcost     # what one character shape costs
+cargo bench -p baud-bench --bench transport -- utf8/btop.raw 48
+cargo bench -p baud-bench --bench ceiling    # the reference ceilings, on mains
+cargo bench -p baud-bench --bench opcost     # what one character shape costs
 
 cargo run --release -p baud-difftest   # cell-by-cell diff against alacritty
 ```

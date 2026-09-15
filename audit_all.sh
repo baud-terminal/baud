@@ -245,23 +245,38 @@ crate_audit "baud-app" 0 1 baud-app/src
 # formatter disabled, but note the cost: 12 permits more genuinely untyped
 # sites than 4 did. The real fix is to teach impl_audit.py the difference
 # between a field and a parameter.
-bench=0
-files=$(find baud-bench/src -name '*.rs' 2>/dev/null | sort)
-if [ -z "$files" ]; then
-  echo "  FAIL baud-bench/src: no sources found -- this gate audited nothing"
-  fail=1
-fi
-for f in $(find baud-bench/src -name '*.rs' | sort); do
-  n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
-  bench=$((bench + n))
-  [ "$n" -gt 0 ] && echo "  ..   $f: $n"
-done
-if [ "$bench" -gt 14 ]; then
-  echo "  FAIL baud-bench/src: $bench raw-integer sites (limit 14)"
-  fail=1
-else
-  echo "  ok   baud-bench/src: $bench (limit 14)"
-fi
+# **Two trees since the measurement programs became `[[bench]]` targets.**
+# They were `baud-bench/src/bin/*.rs` and are `baud-bench/benches/*.rs`, so one
+# `find` over `src` went from auditing eleven raw sites to auditing none while
+# still reporting "ok (limit 14)" -- a budget four times its count, which this
+# file's own rule calls not measuring anything. Each tree carries its own, and
+# each is set at the count: `src` is the shared lib alone, `benches` the seven
+# programs. Both are floors and neither moves to fit a change.
+audit_tree() {
+  label=$1
+  dir=$2
+  limit=$3
+  tot=0
+  files=$(find "$dir" -name '*.rs' 2>/dev/null | sort)
+  if [ -z "$files" ]; then
+    echo "  FAIL $label: no sources found -- this gate audited nothing"
+    fail=1
+    return
+  fi
+  for f in $files; do
+    n=$(python3 impl_audit.py "$f" | tail -1 | awk '{print $2}')
+    tot=$((tot + n))
+    [ "$n" -gt 0 ] && echo "  ..   $f: $n"
+  done
+  if [ "$tot" -gt "$limit" ]; then
+    echo "  FAIL $label: $tot raw-integer sites (limit $limit)"
+    fail=1
+  else
+    echo "  ok   $label: $tot (limit $limit)"
+  fi
+}
+audit_tree "baud-bench/src" baud-bench/src 0
+audit_tree "baud-bench/benches" baud-bench/benches 11
 
 # **The glob is flat, and most of the test tree is behind it.**
 # `baud-core/tests/*.rs` matches the loose files and **none** of the suites in

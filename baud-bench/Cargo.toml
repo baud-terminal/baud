@@ -39,7 +39,7 @@ baud-isa-x86-64 = { path = "../baud-isa-x86-64", features = ["std"] }
 
 [features]
 default = ["neon-scan"]
-# Forwarded so `cargo run -p baud-bench --features diag --bin ingest` prints
+# Forwarded so `cargo bench -p baud-bench --features diag --bench ingest2` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
 # Byte-level attribution: which path consumed which bytes. Never on for a
@@ -127,3 +127,45 @@ probe-double-parse = ["baud-core/probe-double-parse"]
 # arm that runs at thousands of MB/s is measuring it as much as the loop.
 harness-only = []
 new-double-put = ["baud-core/probe-double-put"]
+
+# The benches are `[[bench]]` targets with `harness = false`, so `cargo bench`
+# runs each one's own `main` and `baud` stays the only `[[bin]]` in the
+# workspace -- the owner's call.
+#
+# **Not criterion, deliberately.** This repo's protocol is interleaved arms,
+# the first round discarded, an A/A control *in the same sweep*, and ranges
+# quoted with "if ranges overlap there is no result". Criterion's model does
+# not express an interleaved A/A arm, so adopting it would replace a
+# discipline that has caught real phantoms here with one that has not -- and
+# it would add a dependency to a workspace that has none at runtime.
+#
+# `harness = false` also means cargo appends `--bench` to argv; every bench
+# reads its positionals through `baud_bench::args`, which drops it.
+
+[[bench]]
+name = "ceiling"
+harness = false
+
+[[bench]]
+name = "frame"
+harness = false
+
+[[bench]]
+name = "frame_gpu"
+harness = false
+
+[[bench]]
+name = "glyphs"
+harness = false
+
+[[bench]]
+name = "ingest2"
+harness = false
+
+[[bench]]
+name = "opcost"
+harness = false
+
+[[bench]]
+name = "transport"
+harness = false

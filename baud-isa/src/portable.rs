@@ -12,8 +12,8 @@ impl Scan for Portable {
     /// Vectorised, and re-measured.
     ///
     /// This was scalar with a comment saying a `core::simd` version "measured a
-    /// 12% regression on the streaming payload". That measurement predates
-    /// `baud-bench/src/bin/ingest.rs` and was taken on a harness now known to
+    /// 12% regression on the streaming payload". That measurement predates the
+    /// in-memory ingest harness and was taken on one now known to
     /// report the same ~230 MB/s for builds that differ by 2.5x, so it is worth
     /// nothing and the question was reopened. The profile is what reopened it:
     /// this loop is **38.7%** of the streaming cells path, the largest single

@@ -11,7 +11,7 @@
 //! both are built from this tree and interleaved -- the portable accumulate
 //! against an ISA one, when one exists.
 //!
-//!     cargo run --release -p baud-bench --bin glyphs -- [rounds] [px] [probe]
+//!     cargo bench -p baud-bench --bench glyphs -- [rounds] [px] [probe]
 //!
 //! `probe` prices one component additively by doing it twice: `bounds` (the
 //! outline walk that sizes the mask), `raster` (the outline walk that
@@ -45,7 +45,7 @@ const FACES: [&str; 4] = [
 ];
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let mut args = baud_bench::args();
     let rounds: usize = args.next().and_then(|a| a.parse().ok()).unwrap_or(7);
     let px: f32 = args.next().and_then(|a| a.parse().ok()).unwrap_or(14.0);
     let probe = args.next().unwrap_or_default();

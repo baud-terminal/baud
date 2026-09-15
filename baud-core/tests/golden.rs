@@ -12,8 +12,8 @@
 //! finds one only on the bytes somebody wrote down. What it still does is stop
 //! a regression on all of them, which is the half that survives having one core.
 //!
-//! The data is core2's output, captured by `baud-bench/src/bin/golden.rs` in the
-//! commit that deleted it. Nothing here re-derives it: if a value looks wrong,
+//! The data is core2's output, captured by a one-off capture bin in the commit that
+//! deleted it, which went with it. Nothing here re-derives it: if a value looks wrong,
 //! it is what a mature implementation actually did, and that is the point.
 
 #[path = "support/mod.rs"]

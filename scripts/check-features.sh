@@ -53,7 +53,15 @@ for entry in $CRATES; do
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     total=$((total + 1))
-    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q -p "$crate" --features "$f" 2>&1); then
+    # **`--all-targets`, because a bare `cargo check` covers lib and bins
+    # only.** When `baud-bench`'s measurement programs were `src/bin/*.rs` a
+    # bare check compiled them; they are `[[bench]]` targets now, and a bare
+    # check compiled *nothing but the lib* -- measured: a deliberate syntax
+    # error in `benches/transport.rs` gave 0 errors without this flag and 2
+    # with it. So the move would have silently turned ~50 arm checks into ~50
+    # checks of an almost-empty library, which is this repo's
+    # gate-scoped-to-the-wrong-thing failure with a fresh carrier.
+    if ! out=$(RUSTFLAGS="-D warnings" cargo check --release -q -p "$crate" --all-targets --features "$f" 2>&1); then
       fail=1
       echo "  BROKEN  $crate/$f"
       printf '%s\n' "$out" | grep -E "^error" | head -2 | sed 's/^/      /'

@@ -260,11 +260,11 @@ GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory cargo run --releas
 # baud alone, one payload, no fork and no PTY -- the instrument every number
 # in CLAUDE.md is measured with. A recording, a ladder rung
 # (flat/wrap/lines/sgr), a synthetic payload (cjk/streaming), or `mix`.
-cargo run --release -p baud-bench --bin ingest2 -- cat-cjk 200
+cargo bench -p baud-bench --bench ingest2 -- cat-cjk 200
 
 # the transport with no parser behind it: the ceiling a PTY row is measured
 # against, and why a PTY row is a claim about the tty rather than the parser
-cargo run --release -p baud-bench --bin transport -- utf8/btop.raw 48
+cargo bench -p baud-bench --bench transport -- utf8/btop.raw 48
 ```
 
 `multibench` takes two recordings at a time. Without `GHOSTTY_LIB_DIR` the

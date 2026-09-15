@@ -4,7 +4,7 @@ Real escape streams, captured once from real programs through a real PTY, and
 committed as fixed input.
 
 Every payload baud had been tested and measured against before these was
-written by the same people who wrote baud. `baud-bench/src/bin/ingest2.rs` says so
+written by the same people who wrote baud. `baud-bench/benches/ingest2.rs` says so
 in its own header: the synthetic payloads want validating against real capture
 "before it is designed around". These are that capture.
 

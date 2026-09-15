@@ -16,7 +16,7 @@ an explanation from memory:
 * eBPF "cannot skip the `queue_work()` hop".
 
 The measurements are sound and are kept in `MEASUREMENTS.md` and
-`baud-bench/src/bin/transport.rs`. What this note adds is the mechanism, read
+`baud-bench/benches/transport.rs`. What this note adds is the mechanism, read
 from the two kernels at a pinned commit each -- and the first thing reading
 them did was **correct the mechanism this repo would have named for Darwin**.
 

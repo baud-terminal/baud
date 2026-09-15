@@ -95,9 +95,12 @@ in
     echo "=== ALL PASSED ==="
   '';
 
-  scripts.dev-run.exec = ''
-    echo "Running the PTY benchmark..."
-    cargo run --release -p baud-bench
+  # `cargo run -p baud-bench` named no target from the commit that deleted
+  # `baud-core2` (its default bin was the span-model PTY harness), and the
+  # measurement programs are `[[bench]]` targets now, so this names one.
+  scripts.dev-bench.exec = ''
+    echo "Ingest throughput, in memory, on the recording named or cat-cjk..."
+    cargo bench -p baud-bench --bench ingest2 -- "$@"
   '';
 
   scripts.dev-build.exec = ''
@@ -136,7 +139,7 @@ in
       echo "  dev-check     - Check compilation"
       echo "  dev-bare      - Build baud-core for ${bareTarget} (no_std gate)"
       echo "  dev-audit     - Run the type-system audit gate"
-      echo "  dev-run       - Run the PTY benchmark (warns off Linux)"
+      echo "  dev-bench     - Ingest throughput in memory (cargo bench, ingest2)"
       echo "  dev-build     - Build the workspace"
       echo ""
     } >&2

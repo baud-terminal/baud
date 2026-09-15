@@ -16,7 +16,7 @@ use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "btop".to_string());
     let reps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
     let damage = match args.next().as_deref() {

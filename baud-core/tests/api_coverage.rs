@@ -92,9 +92,17 @@ fn every_public_function_in_the_new_core_is_called_by_a_test() {
         pubs.len()
     );
 
+    // `baud-bench/benches` is where the measurement programs live: they were
+    // `baud-bench/src/bin/*.rs` until they became `[[bench]]` targets, and
+    // this list is what noticed -- `amplification`, `named_acts` and
+    // `named_nodes` are called by a bench and by nothing else, so the move
+    // made three entry points read as uncovered. A path list is the thing
+    // that goes stale when files move, which this repo has recorded for
+    // `docs.rs`'s ROOTS and for `audit_all.sh`'s budgets.
     let tests = read_all(&[
         "baud-core/tests",
         "baud-bench/tests",
+        "baud-bench/benches",
         "baud-bench/src",
         "baud-domain/tests",
     ]);

@@ -102,8 +102,8 @@ fn main() {
         ws_row: 50,
         ws_col: 200,
     };
-    let reps: usize = std::env::args()
-        .nth(1)
+    let reps: usize = baud_bench::args()
+        .next()
         .and_then(|s| s.parse().ok())
         .unwrap_or(40);
 

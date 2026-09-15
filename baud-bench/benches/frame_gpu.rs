@@ -46,7 +46,7 @@ fn main() {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    let mut args = std::env::args().skip(1);
+    let mut args = baud_bench::args();
     let which = args.next().unwrap_or_else(|| "btop".to_string());
     let rounds: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
     let damage = match args.next().as_deref() {

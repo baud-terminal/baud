@@ -112,7 +112,7 @@ jobs:
         run: |
           echo "### transport ceiling: read and discard, no parser" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          devenv shell -- cargo run --release -q -p baud-bench --bin transport -- utf8/btop.raw 48 \
+          devenv shell -- cargo bench -q -p baud-bench --bench transport -- utf8/btop.raw 48 \
             | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
@@ -148,11 +148,24 @@ jobs:
           # The liveness assertion below is what caught it, on its first run,
           # reporting zero 32-byte movemasks in the arm it had just built.
           RF="-C target-feature=+avx2"
-          devenv shell -- sh -c "RUSTFLAGS='$RF' cargo build --release -q -p baud-bench --bin ingest2"
-          cp target/release/ingest2 /tmp/ingest2-base
-          cp target/release/ingest2 /tmp/ingest2-aa
-          devenv shell -- sh -c "RUSTFLAGS='$RF' cargo build --release -q -p baud-bench --bin ingest2 --features avx2-scan"
-          cp target/release/ingest2 /tmp/ingest2-avx2
+
+          # **A `[[bench]]` target lands in `deps/` under a feature-dependent
+          # hash, not at `target/release/<name>`**, so the path is asked for
+          # rather than assumed. `--message-format=json` reports it even on a
+          # cached build, where the human-readable "Executable ..." line does
+          # not print -- and a glob plus "newest" would race the two arms,
+          # which differ only by a feature and so coexist in `deps/`.
+          bench_exe() {
+            devenv shell -- sh -c "RUSTFLAGS='$RF' cargo bench --no-run -q -p baud-bench --bench ingest2 $1 --message-format=json" \
+              | grep -o '"executable":"[^"]*ingest2[^"]*"' | tail -1 | cut -d'"' -f4
+          }
+          base=$(bench_exe "")
+          avx2=$(bench_exe "--features avx2-scan")
+          test -x "$base" || { echo "no base bench binary"; exit 1; }
+          test -x "$avx2" || { echo "no avx2 bench binary"; exit 1; }
+          cp "$base" /tmp/ingest2-base
+          cp "$base" /tmp/ingest2-aa
+          cp "$avx2" /tmp/ingest2-avx2
 
           # **The positive control for exactly that failure.** If the flag is
           # eaten again the builds still succeed, so the only thing that says so
