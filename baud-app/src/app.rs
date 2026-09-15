@@ -105,11 +105,45 @@ fn wanted() -> Request {
 
 /// The cell path's memory, all of it where the GPU reads it: the grid the
 /// core writes, the styles the renderer resolves, the map the walk fills.
+/// How many sets of the per-frame buffers there are: one a frame that can
+/// be in flight, plus room. Three, which is what the surfaces and the
+/// instance buffer already ring at.
+const SETS: usize = 3;
+
+/// Which set a frame is built into.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Set(usize);
+
+impl Set {
+    const FIRST: Set = Set(0);
+
+    fn next(self) -> Set {
+        Set((self.0 + 1) % SETS)
+    }
+}
+
+/// One of each, up to [`SETS`]. Fallible the same way the single one was,
+/// so a machine that cannot lend the memory falls back rather than
+/// half-building a ring.
+fn sets<T>(mut one: impl FnMut() -> Option<T>) -> Option<Vec<T>> {
+    let mut out = Vec::with_capacity(SETS);
+    for _ in 0..SETS {
+        out.push(one()?);
+    }
+    Some(out)
+}
+
 struct CellMemory {
     /// The overlay and the records that draw the cells it masks, and the
     /// cluster map the walk fills them from.
-    overlay: OverlayBuffer,
-    overlay_mem: &'static mut [u8],
+    /// **Ringed, because a frame is built into the set the GPU is not
+    /// reading.** `relayout` and `zoom` present without waiting for the
+    /// frame in flight, so the write would otherwise land in the buffer a
+    /// live draw is sampling. Writer and reader touch different memory
+    /// instead, which is the property a ring has and a barrier buys by
+    /// waiting.
+    overlay: Vec<OverlayBuffer>,
+    overlay_mem: Vec<&'static mut [u8]>,
     exceptions: Overlay,
     records: Vec<Instance>,
     candidates: Vec<Candidate>,
@@ -117,10 +151,18 @@ struct CellMemory {
     grid: GridBuffer,
     /// The alternate screen's surface, bound while `Term::screen` says so.
     alt: GridBuffer,
-    styles: StylesBuffer,
-    styles_mem: &'static mut [Resolved],
+    styles: Vec<StylesBuffer>,
+    styles_mem: Vec<&'static mut [Resolved]>,
+    /// **Not ringed.** The map is a cache that carries across frames, so
+    /// a ring would be three caches each seeing every third frame and the
+    /// miss rate would roughly triple. It is safe unringed for a
+    /// different reason: `ensure` only ever writes an entry for a
+    /// codepoint no committed frame draws, and linear probing is sound
+    /// under insertion.
     map_buffer: MapBuffer,
     map: GlyphMap<'static>,
+    /// The set the next frame is built into, advanced when one commits.
+    set: Set,
 }
 
 /// What asked for a frame: the display link's tick, which is the vsync,
@@ -381,14 +423,17 @@ impl App {
         renderer.fit(&term);
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
-            (Some(gpu), Some((grid, alt))) => match (gpu.styles(&term), gpu.map()) {
-                (Some((styles, styles_mem)), Some((map_buffer, entries))) => {
-                    let (overlay, overlay_mem) = gpu
-                        .overlay(
+            (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
+                (Some(styled), Some((map_buffer, entries))) => {
+                    let overlaid = sets(|| {
+                        gpu.overlay(
                             Cols::of_index(usize::from(MAX_GRID.ws_col)),
                             Rows::of_index(usize::from(MAX_GRID.ws_row)),
                         )
-                        .expect("a shared overlay");
+                    })
+                    .expect("a shared overlay a frame in flight");
+                    let (styles, styles_mem): (Vec<_>, Vec<_>) = styled.into_iter().unzip();
+                    let (overlay, overlay_mem): (Vec<_>, Vec<_>) = overlaid.into_iter().unzip();
                     Some(CellMemory {
                         overlay,
                         overlay_mem,
@@ -401,6 +446,7 @@ impl App {
                         styles_mem,
                         map_buffer,
                         map: GlyphMap::over(entries),
+                        set: Set::FIRST,
                     })
                 }
                 _ => {
@@ -600,20 +646,21 @@ impl App {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
                 });
+                let set = cell.set.0;
                 self.renderer
-                    .resolve_styles_into(&self.term, cell.styles_mem);
+                    .resolve_styles_into(&self.term, &mut cell.styles_mem[set][..]);
                 cell.exceptions.ensure(
                     &Scene {
                         term: &self.term,
                         view,
-                        styles: cell.styles_mem,
+                        styles: &cell.styles_mem[set][..],
                         cursor,
                         highlight,
                         map: &cell.map,
                         candidates: &cell.candidates,
                     },
                     &mut self.renderer,
-                    cell.overlay_mem,
+                    &mut cell.overlay_mem[set][..],
                     &mut cell.records,
                 );
                 // The thumb rides with the records, drawn after the cell passes.
@@ -638,14 +685,14 @@ impl App {
                         baud_core::Screen::Normal => &cell.grid,
                         baud_core::Screen::Alternate => &cell.alt,
                     },
-                    styles: &cell.styles,
+                    styles: &cell.styles[set],
                     map: &cell.map_buffer,
                     stride: self.term.stride(),
                     rotation: view.rotation(),
                     ring: self.term.ring(),
                     cursor,
                     highlight,
-                    overlay: &cell.overlay,
+                    overlay: &cell.overlay[set],
                     records: &cell.records,
                 };
                 if let Some(p) = &mut self.presenter {
@@ -655,6 +702,9 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
+                            // This set is the one a live draw reads now,
+                            // so the next frame is built into the next.
+                            cell.set = cell.set.next();
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
                                 startup_first("first present", &FIRST_PRESENT);
@@ -664,7 +714,8 @@ impl App {
                             }
                             self.gpu_stats = g;
                         }
-                        // Still in flight: the completion wakes us.
+                        // Still in flight: the completion wakes us. The
+                        // set stays, since nothing was committed into it.
                         Some(Drawn::Busy) => return,
                         None => {}
                     }
@@ -1877,6 +1928,29 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A frame is never built into the set the last one was committed
+    /// into, which is what keeps `relayout` and `zoom` from writing the
+    /// buffer a live draw is sampling.
+    ///
+    /// **This is a weak gate and it is worth saying so.** It pins the
+    /// cycle, not the property: what would actually prove the ring is a
+    /// headless presenter that records which set a completion read, and
+    /// nothing in this repo can observe a present yet. What it does catch
+    /// is a `SETS` small enough to hand a frame the set still in flight.
+    #[test]
+    fn a_frame_is_never_built_into_the_set_the_last_one_committed() {
+        let first = Set::FIRST;
+        let second = first.next();
+        let third = second.next();
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        // Two would also be sound while one frame is in flight. Three is
+        // what the surfaces and the instance buffer already ring at, and
+        // pinning it here is what makes a change to the depth deliberate.
+        assert_ne!(first, third, "three distinct sets, not two");
+        assert_eq!(third.next(), first, "and the sets cycle rather than grow");
+    }
 
     #[test]
     fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {
