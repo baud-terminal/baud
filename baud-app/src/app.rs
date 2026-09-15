@@ -2002,6 +2002,23 @@ impl Driver {
                 (i64::try_from(self.app.back.index()).unwrap_or(0) + advanced).clamp(0, retained);
             self.app.back = Rows::of_count(usize::try_from(nb).unwrap_or(0));
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
+            // **The child is told what the terminal has, not what the
+            // window asked for.** `Term::resize` clamps: columns to
+            // `MAX_COLS` and to the pitch the rows are laid at, rows to
+            // `MAX_ROWS` and to the ring's row capacity. Sending the
+            // *request* told a full-screen program about a grid that does
+            // not exist -- and a program believes it. btop drew more rows
+            // than the screen has, so its own output scrolled and three
+            // copies of its lower panels stacked down the window at three
+            // different sizes; asciiquarium drew its waterline past the
+            // last column and the waves stopped short of the edge while
+            // the fish it drew inside the grid reached it. Two reports,
+            // one line.
+            let (has_cols, has_rows) = self.app.term.geometry();
+            let ws = WinSize {
+                ws_col: u16::try_from(has_cols.index()).unwrap_or(u16::MAX),
+                ws_row: u16::try_from(has_rows.index()).unwrap_or(u16::MAX),
+            };
             // The `SIGWINCH` is sent on the drag event itself, not deferred:
             // a full-screen program redraws into the new geometry as the
             // window moves, so it fills the rows the reflow opened rather
