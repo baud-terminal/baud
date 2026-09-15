@@ -127,6 +127,7 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) string_truncations: usize,
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
+    pub(crate) semantic_marks: usize,
     pub(crate) clipboard_writes_dropped: usize,
     /// The screen that is not live: the other surface's cells, marks, ring
     /// and rotation, reached **once per alt-screen transition** and never by
@@ -350,6 +351,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
+            semantic_marks: 0,
             clipboard_writes_dropped: 0,
             other,
             book,

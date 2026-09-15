@@ -147,6 +147,25 @@ impl Paint<'_, '_> {
             // find OSC codes it might want to implement, and
             // `unsupported_total` is the one the conformance inventory asks.
             // They answer different questions and the second was missing.
+            // **The one thing these marks are acted on for.** A shell
+            // redraws its prompt after a resize by counting the rows it
+            // occupies and erasing that many; re-cutting those rows to a
+            // new width changes the count behind its back, so the erase
+            // begins below the prompt's first line and that line
+            // survives. Output has no such reader, and re-cutting it is
+            // the part of a reflow worth keeping. `Term::resize` is what
+            // reads this, and the note in `Zone` is why.
+            Osc::Semantic(mark) => {
+                self.cold.zone = match mark {
+                    Semantic::PromptStart | Semantic::CommandStart => crate::term::Zone::Prompt,
+                    Semantic::OutputStart => crate::term::Zone::Output,
+                    // `D` says the command finished; the shell's next act
+                    // is a prompt, which sends its own mark. Nothing is
+                    // assumed here in between.
+                    Semantic::CommandDone | Semantic::Other => self.cold.zone,
+                };
+                self.semantic_marks += 1;
+            }
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;

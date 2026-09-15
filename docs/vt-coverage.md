@@ -670,6 +670,7 @@ In scope because applications assume them, not because DEC specified them.
 | `OSC 4` | set colour palette | done — including the `?` query |
 | `OSC 8` | hyperlinks | done — bounded, evicting link table |
 | `OSC 52` | clipboard | done — **read deliberately refused**, and both halves counted in `clipboard_reads_refused` / `clipboard_writes_dropped`; see security note |
+| `OSC 133` | semantic prompt marks | done — `A`/`P` open the prompt zone, `B` keeps it, `C` closes it; acted on by `Term::resize`, which does not re-cut the rows a shell will redraw, and counted in `semantic_marks`. `D`'s exit status is **not** parsed, because nothing here would read it |
 | `OSC 104` | reset palette | done |
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |

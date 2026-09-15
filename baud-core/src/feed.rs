@@ -253,6 +253,7 @@ impl Term<'_> {
         self.string_truncations += p.string_truncations;
         self.strings_ignored += p.strings_ignored;
         self.clipboard_reads_refused += p.clipboard_reads_refused;
+        self.semantic_marks += p.semantic_marks;
         self.clipboard_writes_dropped += p.clipboard_writes_dropped;
         self.marks_dropped = p.clusters.refused;
         self.cells_written += p.cells.index();

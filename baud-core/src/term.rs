@@ -66,6 +66,36 @@ pub struct Saved {
 #[cfg(feature = "sgr-table")]
 pub const NSGR: usize = 256;
 
+/// Which half of the screen's life the terminal is in, from `OSC 133`.
+///
+/// **The one thing a resize needs to know.** A shell redraws its prompt
+/// after a resize by counting the rows it occupies, moving the cursor up
+/// by that many and erasing from there -- so re-cutting those rows to a
+/// new width changes the count behind its back, the erase starts below
+/// the prompt's first line, and that line survives. Every resize leaves
+/// another. Re-cutting *output* has no such reader: nothing will redraw
+/// it, which is exactly why re-cutting it is worth doing.
+///
+/// So the boundary is not a row, it is a state: the shell owns the
+/// screen from prompt start until the command's output begins, and the
+/// application owns it after. `docs/research/notes/m-resize-and-reflow.md`
+/// carries the measurement -- four copies against one on a capture of a
+/// real shell replayed with real resizes -- and what the alternatives
+/// cost.
+///
+/// A terminal that has seen no marks is in [`Zone::Output`], which is
+/// the behaviour that shipped before them: a stream with no shell
+/// integration re-cuts as it always did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Zone {
+    /// From `OSC 133 ; A` or `; P` until `; C`: the shell is drawing or
+    /// the user is typing, and the shell will redraw this on a resize.
+    Prompt,
+    /// Everywhere else, and where a stream sends no marks at all.
+    #[default]
+    Output,
+}
+
 /// The state a control sequence changes that the write loop does not read.
 #[derive(Clone, Copy)]
 pub struct Cold {
@@ -194,6 +224,10 @@ pub struct Cold {
     /// support is claimed while the flags are merely tracked.
     pub(crate) kitty: KittyStack,
     pub(crate) kitty_alt: KittyStack,
+    /// Which half of the screen's life this is, from `OSC 133`; see
+    /// [`Zone`]. Read by [`Term::resize`] and by nothing else, which is
+    /// the whole of what these marks are acted on for here.
+    pub(crate) zone: Zone,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -212,6 +246,7 @@ impl Cold {
             sgr: [SgrSlot::EMPTY; NSGR],
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
+            zone: Zone::Output,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             highlight: HighlightTracking::Off,
@@ -415,6 +450,10 @@ pub struct Term<'b> {
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
     pub clipboard_writes_dropped: usize,
+    /// `OSC 133` marks seen. An embedder can tell whether the shell on the
+    /// other end sends them at all, which decides whether a resize can be
+    /// scoped to what the application will redraw -- see [`Zone`].
+    pub semantic_marks: usize,
     /// Zero-width codepoints received and **not stored**: a continuation with
     /// no base on the line, a cluster past `ClusterSlot::CAPACITY`, or a
     /// [`ClusterStore`] with no free slot for it.
@@ -713,7 +752,18 @@ impl<'b> Term<'b> {
         // when it was last this wide, under the incoming one, is two images
         // at once. Blanking also raises the mark, so a fill taken while
         // narrow is not trusted past the edge it stopped at.
-        if cols.index() != old_cols.index() {
+        // **The shell's half of the screen is not re-cut.** See [`Zone`]:
+        // between a prompt mark and the output that follows it, the rows
+        // on screen are ones the shell will redraw, and it redraws them by
+        // counting how many they are. Re-cutting them to a new width
+        // changes that count behind its back and leaves the top of the old
+        // prompt behind -- once per resize. Output is re-cut as it always
+        // was, because nothing will redraw it and a long line is worth
+        // re-wrapping.
+        //
+        // A stream that sends no marks is `Zone::Output` and reaches this
+        // exactly as before.
+        if cols.index() != old_cols.index() && self.cold.zone == Zone::Output {
             let live = self.cold.screen == Screen::Normal;
             let cursor = match live {
                 true => (self.cy, self.cx),
@@ -849,6 +899,7 @@ impl<'b> Term<'b> {
             string_truncations: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
+            semantic_marks: 0,
             clipboard_writes_dropped: 0,
             marks_dropped: 0,
             mouse_unencodable: 0,

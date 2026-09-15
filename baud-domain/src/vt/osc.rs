@@ -37,8 +37,48 @@ pub enum Osc<'a> {
     /// deliberately rather than by omission; see the note on
     /// [`ClipboardOp::Read`].
     Clipboard(ClipboardOp<'a>),
+    /// `OSC 133 ; <kind> ...` -- FinalTerm's semantic prompt marks, as
+    /// every shell that ships integration emits them.
+    ///
+    /// **What baud wants them for is not what everyone else wants them
+    /// for.** The usual uses are navigation and selection; here the
+    /// load-bearing one is [`Semantic::PromptStart`], because it is the
+    /// boundary between the rows an application will redraw and the rows
+    /// nobody will. A resize may re-cut the second and must not re-cut
+    /// the first: a shell redraws its prompt by counting the rows it
+    /// occupies and erasing that many, so changing the count behind its
+    /// back leaves the top of the old prompt on screen. See
+    /// `docs/research/notes/m-resize-and-reflow.md`.
+    Semantic(Semantic),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// The mark an `OSC 133` carries.
+///
+/// The four FinalTerm letters, plus the `P` form iTerm2 and the shells
+/// that follow it emit for a prompt with a kind attached (`OSC 133 ; P ;
+/// k=i`). `P` is a prompt start like `A` is, and reading it as anything
+/// else is how a terminal ends up thinking a shell sends no marks at
+/// all -- the owner's own `zsh` sends `P` and not `A`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Semantic {
+    /// `A`, or `P` with a kind: the prompt begins here.
+    PromptStart,
+    /// `B`: the prompt has ended and what follows is what the user typed.
+    CommandStart,
+    /// `C`: the command's output begins here.
+    OutputStart,
+    /// `D`: the command is done.
+    ///
+    /// The exit status `D` may carry is **not** kept. Nothing here acts
+    /// on it, and `docs/vt-coverage.md`'s rule is that a value recorded
+    /// and never read is worse than one not parsed -- it reads as a
+    /// capability. It goes in beside whatever first needs it.
+    CommandDone,
+    /// A mark this terminal does not act on, kept so it is counted rather
+    /// than silently dropped.
+    Other,
 }
 
 /// The two halves of `OSC 52`, kept apart because they have very different
@@ -237,6 +277,16 @@ impl<'a> Osc<'a> {
                     Some(b"?") => Osc::Clipboard(ClipboardOp::Read),
                     Some(d) => Osc::Clipboard(ClipboardOp::Write(d)),
                     None => Osc::Unsupported,
+                }
+            }
+            b"133" => {
+                let mut p = Split::new(rest, b';');
+                match p.next() {
+                    Some(b"A") | Some(b"P") => Osc::Semantic(Semantic::PromptStart),
+                    Some(b"B") => Osc::Semantic(Semantic::CommandStart),
+                    Some(b"C") => Osc::Semantic(Semantic::OutputStart),
+                    Some(b"D") => Osc::Semantic(Semantic::CommandDone),
+                    _ => Osc::Semantic(Semantic::Other),
                 }
             }
             _ => Osc::Unsupported,
