@@ -230,7 +230,12 @@ impl<'m> GlyphMap<'m> {
         vec![MapEntry::EMPTY; MAP_SLOTS]
     }
 
-    /// Gives the entries back, for a map made afresh over the same memory.
+    /// Gives the entries back, for a map made afresh over the same memory
+    /// -- or, since a rescale invalidates every entry and `over` fills all
+    /// 16,384 slots, for a caller holding a *second* buffer to build the
+    /// next map over that one instead. Filling the buffer the shader is
+    /// probing is the write race; ping-ponging two costs a pointer and no
+    /// allocation.
     pub fn into_entries(self) -> &'m mut [MapEntry] {
         self.entries
     }

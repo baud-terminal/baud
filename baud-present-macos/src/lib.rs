@@ -236,10 +236,10 @@ impl Presenter {
         self.journal.wheel().building()
     }
 
-    /// Whether the memory that has no ring -- the terminal's grid and the
-    /// atlas sheets -- may be written now, or a frame in flight is reading
-    /// it and the reshape has to wait for the completion. Asking counts a
-    /// `Wait` as a deferral, so the frame report carries it.
+    /// Whether the memory that has no ring -- the terminal's grid -- may be
+    /// written now, or a frame in flight is reading it and the reshape has
+    /// to wait for the completion. Asking counts a `Wait` as a deferral, so
+    /// the frame report carries it.
     pub fn reshape(&self) -> Reshape {
         self.journal.reshape()
     }

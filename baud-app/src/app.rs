@@ -19,9 +19,9 @@ use baud_present_macos::{
     journal::{Reshape, Wheel},
 };
 use baud_render::{
-    Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, Overlay,
-    PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target, Theme,
-    Window, back_for,
+    Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, MapEntry,
+    Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target,
+    Theme, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -142,14 +142,73 @@ struct CellMemory {
     alt: GridBuffer,
     styles: Vec<StylesBuffer>,
     styles_mem: Vec<&'static mut [Resolved]>,
-    /// **Not ringed.** The map is a cache that carries across frames, so
-    /// a ring would be three caches each seeing every third frame and the
-    /// miss rate would roughly triple. It is safe unringed for a
-    /// different reason: `ensure` only ever writes an entry for a
-    /// codepoint no committed frame draws, and linear probing is sound
-    /// under insertion.
-    map_buffer: MapBuffer,
-    map: GlyphMap<'static>,
+    /// **Two, ping-ponged on a rescale, and not a set a frame.** Rotating
+    /// per frame would be three caches each seeing every third frame and
+    /// the miss rate would roughly triple. Per frame it needs no ring
+    /// anyway: `ensure` only ever writes an entry for a codepoint no
+    /// committed frame draws, and linear probing is sound under insertion.
+    ///
+    /// What is not sound is the *clear*. A rescale invalidates every entry
+    /// and `GlyphMap::over` fills all 16,384 slots, which is 384 KB written
+    /// into the buffer the shader is probing for the frame in flight. So
+    /// the next map is built over the other buffer and the binding moves --
+    /// a pointer, no copy, no allocation and no wait.
+    maps: Maps,
+}
+
+/// The glyph map and the buffer it is built over, which cannot be told
+/// apart.
+///
+/// They are one thing because binding one while the map is over the other
+/// would have the shader probe a map nothing filled -- every cell a miss,
+/// every glyph absent -- and nothing in a frame would say so. Only
+/// [`Maps::rescaled`] moves either, and it moves both, so the pair cannot
+/// come apart the way two fields can. The same reason [`baud_core`] parks
+/// a surface's cells, marks, ring and rotation in one struct rather than
+/// four.
+struct Maps {
+    /// Two, ping-ponged on a rescale. Allocated once: a rescale is a
+    /// keypress, and allocating 384 KB on one is not realtime.
+    buffers: [MapBuffer; 2],
+    at: MapSide,
+    live: GlyphMap<'static>,
+    /// The buffer the live map is *not* over, waiting to become the next.
+    spare: Option<&'static mut [MapEntry]>,
+}
+
+impl Maps {
+    /// The buffer the shader must bind: the one the live map is over.
+    fn buffer(&self) -> &MapBuffer {
+        &self.buffers[self.at.0]
+    }
+
+    /// The next map, built over the other buffer.
+    ///
+    /// A rescale invalidates every entry, because each names an atlas
+    /// rectangle at the old size, and `GlyphMap::over` fills all 16,384
+    /// slots. Filling them in the buffer the shader is probing for the
+    /// frame in flight is the write race; filling the other one and moving
+    /// the binding is a pointer.
+    fn rescaled(&mut self) {
+        let Some(spare) = self.spare.take() else {
+            return;
+        };
+        let live = core::mem::replace(&mut self.live, GlyphMap::over(spare));
+        self.spare = Some(live.into_entries());
+        self.at = self.at.other();
+    }
+}
+
+/// Which of the two glyph-map buffers the live map is built over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct MapSide(usize);
+
+impl MapSide {
+    const FIRST: MapSide = MapSide(0);
+
+    fn other(self) -> MapSide {
+        MapSide(1 - self.0)
+    }
 }
 
 /// What asked for a frame: the display link's tick, which is the vsync,
@@ -411,7 +470,7 @@ impl App {
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
-                (Some(styled), Some((map_buffer, entries))) => {
+                (Some(styled), Some((first_map, entries))) => {
                     let overlaid = sets(|| {
                         gpu.overlay(
                             Cols::of_index(usize::from(MAX_GRID.ws_col)),
@@ -421,6 +480,9 @@ impl App {
                     .expect("a shared overlay a frame in flight");
                     let (styles, styles_mem): (Vec<_>, Vec<_>) = styled.into_iter().unzip();
                     let (overlay, overlay_mem): (Vec<_>, Vec<_>) = overlaid.into_iter().unzip();
+                    // The second map buffer, so a rescale never allocates
+                    // and never fills the one being probed.
+                    let (second_map, spare) = gpu.map().expect("a second glyph map");
                     Some(CellMemory {
                         overlay,
                         overlay_mem,
@@ -431,8 +493,12 @@ impl App {
                         alt,
                         styles,
                         styles_mem,
-                        map_buffer,
-                        map: GlyphMap::over(entries),
+                        maps: Maps {
+                            buffers: [first_map, second_map],
+                            at: MapSide::FIRST,
+                            live: GlyphMap::over(entries),
+                            spare: Some(spare),
+                        },
                     })
                 }
                 _ => {
@@ -626,7 +692,8 @@ impl App {
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
                 let view = self.term.view(self.back);
-                cell.map
+                cell.maps
+                    .live
                     .ensure(view, &mut self.renderer, &mut cell.candidates);
                 let cursor = (self.term.cursor_visible() && self.back.index() == 0).then(|| {
                     let (r, c) = self.term.cursor();
@@ -651,7 +718,7 @@ impl App {
                         styles: &cell.styles_mem[set][..],
                         cursor,
                         highlight,
-                        map: &cell.map,
+                        map: &cell.maps.live,
                         candidates: &cell.candidates,
                     },
                     &mut self.renderer,
@@ -670,7 +737,7 @@ impl App {
                 {
                     startup_note(&format!(
                         "walk: {} map misses, {} window misses, {:.1} ms",
-                        cell.map.stats().misses.value(),
+                        cell.maps.live.stats().misses.value(),
                         cell.exceptions.stats().window_misses.value(),
                         self.stats.convert.as_secs_f64() * 1e3
                     ));
@@ -681,7 +748,7 @@ impl App {
                         baud_core::Screen::Alternate => &cell.alt,
                     },
                     styles: &cell.styles[set],
-                    map: &cell.map_buffer,
+                    map: cell.maps.buffer(),
                     stride: self.term.stride(),
                     rotation: view.rotation(),
                     ring: self.term.ring(),
@@ -800,6 +867,22 @@ impl App {
 /// a grow and the old font size on a zoom, and until the discard lands it
 /// counts them happening rather than being prevented.
 impl App {
+    /// A new pixel size for the faces, and the glyph map that goes with
+    /// it.
+    ///
+    /// Every entry names an atlas rectangle at the old size, so a rescale
+    /// invalidates the map whole -- and filling it in place is 384 KB
+    /// written into the buffer the shader is probing for the frame in
+    /// flight. The next map is built over the other buffer and the binding
+    /// moves: a pointer, no copy, no allocation, and nothing waits.
+    fn rescale(&mut self, px: PxSize) -> Option<()> {
+        self.renderer.rescale(px)?;
+        if let Some(cell) = self.cell.as_mut() {
+            cell.maps.rescaled();
+        }
+        Some(())
+    }
+
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
@@ -1260,7 +1343,7 @@ impl Responder for Driver {
             // on a 2x surface after a resize.
             self.app.scale = scale;
             if let Some(px) = PxSize::of(self.app.font_size * scale as f32) {
-                if self.app.renderer.rescale(px).is_some() {
+                if self.app.rescale(px).is_some() {
                     self.app.next_damage = Damage::Full;
                     self.app.pending = Pending::Dirty;
                 }
@@ -1889,9 +1972,13 @@ impl Driver {
         if points == self.app.font_size {
             return;
         }
-        // Rescaling replaces the atlas sheets and clears the glyph map,
-        // which the live draw is sampling and probing, so the keypress
-        // waits for the frame rather than the frame for the keypress.
+        // The rescale itself is safe mid-flight now: the glyph map is built
+        // over the other buffer and the atlas builds a replaced sheet
+        // afresh, so neither writes what a live draw is reading. What still
+        // waits is that a zoom *re-lays the grid*, and a reflow rewrites the
+        // ring the shader reads. The two have to land together -- a frame
+        // drawn at the new cell size against the old column count is neither
+        // size -- so the whole step waits for the frame that is reading.
         if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
             self.deferred = Deferred::Zoom(points);
             return;
@@ -1900,7 +1987,7 @@ impl Driver {
         let Some(px) = PxSize::of(points * scale as f32) else {
             return;
         };
-        if self.app.renderer.rescale(px).is_none() {
+        if self.app.rescale(px).is_none() {
             return;
         }
         self.app.font_size = points;
