@@ -699,14 +699,24 @@ impl<'b> Term<'b> {
                 (self.store.book.hist.index(), self.store.book.hidden.index());
             if to < from {
                 let k = from - to;
-                // At a prompt the rows come off the *bottom*: the shell
-                // will redraw there, and taking them off the top would
-                // scroll the screen the user is looking at and push the
-                // prompt it is about to replace into the history.
-                let cut = match self.cold.zone {
-                    Zone::Prompt => k,
-                    Zone::Output => k.min(from - 1 - cy),
-                };
+                // **The anchor is the bottom, and rows come off the top.**
+                //
+                // Taking them off the bottom instead kept the first line
+                // still -- which is what it was for -- and moved the
+                // cursor to a row that was not the one it was on. The
+                // shell's next redraw then landed *there*, over output,
+                // and no later growth can restore a cell that was
+                // overwritten rather than hidden: the owner's `ls`
+                // deleted, ten of twelve lines, and
+                // `a_shrink_does_not_let_the_prompt_overwrite_output`
+                // reproduces it.
+                //
+                // A shrink means the content no longer fits, and content
+                // that no longer fits pushes into the history -- which
+                // is the owner's own refinement of the invariant. So the
+                // cursor keeps its row, the prompt stays the last line,
+                // and the growth below brings the rows back.
+                let cut = k.min(from - 1 - cy);
                 let retire = k - cut;
                 self.rot = self.rot.advance(retire, ring);
                 hist = (hist + retire).min(spare);
@@ -717,30 +727,19 @@ impl<'b> Term<'b> {
                 let k = to - from;
                 let reveal = k.min(hidden);
                 hidden -= reveal;
-                // **A taller screen does not reach into the history while
-                // the shell owns it**, which is the same boundary the
-                // width's re-cut takes and for the same reason: see
-                // [`Zone`].
+                // **And a growth brings them back**, which is the other
+                // half of a bottom anchor: the window sits at the end of
+                // the content, so a taller one shows more of it above.
                 //
-                // Rows retired by an earlier shrink are real content and
-                // pulling them back is right when nothing will redraw the
-                // screen. At a prompt it is not: a drag that passes
-                // through a window too short to hold the prompt makes the
-                // shell redraw and scroll, once per step, and every one of
-                // those prompts is then revealed on the way back up. The
-                // owner's own drag -- 329 steps, down to four rows and
-                // back -- ends with **six** copies on screen that way and
-                // **one** without, the other five left in the history
-                // where scrolling reaches them. `baud-bench`'s `winch`
-                // replays it.
-                //
-                // `reveal` is untouched: those rows were hidden by a
-                // shrink rather than retired, so bringing them back is
-                // undoing this same gesture rather than reaching past it.
-                let pull = match self.cold.zone {
-                    Zone::Output => (k - reveal).min(hist),
-                    Zone::Prompt => 0,
-                };
+                // Refusing to here was tried, to stop a drag through a
+                // very short window revealing the prompts the shell drew
+                // and scrolled away at that size. It cost the `ls`: rows
+                // a shrink retired are the reader's content far more
+                // often than they are a stray prompt, and leaving them
+                // behind is a loss where showing them is at worst a
+                // duplicate. The duplicate is pinned in
+                // `resize_recorded.rs` as the open bug it is.
+                let pull = (k - reveal).min(hist);
                 self.rot = self.rot.retreat(pull, ring);
                 hist -= pull;
                 cy += pull;

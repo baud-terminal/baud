@@ -101,16 +101,24 @@ fn first_line(t: &Term<'_>) -> Option<String> {
         .find(|l| !l.is_empty())
 }
 
-/// The same, to at most `n` columns.
+/// The last row of the screen that holds anything, and what it holds.
+fn last_line(t: &Term<'_>) -> Option<String> {
+    (0..t.geometry().1.index())
+        .rev()
+        .map(|y| row_text(t, y))
+        .find(|l| !l.is_empty())
+}
+
+/// The last line, to at most `n` columns.
 ///
 /// **Comparing whole rows across a width change compares the wrong
 /// thing.** A narrower window shows less of the same line, so the text
 /// differs while the line has not moved -- which is what the first
-/// version of the invariant test read as a failure. Bounded by the
-/// narrower of the two widths, it asks what the invariant actually says:
-/// *which* line is at the top, not how much of it fits.
-fn first_line_within(t: &Term<'_>, n: usize) -> Option<String> {
-    first_line(t).map(|l| l.chars().take(n).collect::<String>().trim_end().to_string())
+/// version of this read as a failure. Bounded by the narrower of the two
+/// widths, it asks what the invariant actually says: *which* line is at
+/// the anchor, not how much of it fits.
+fn last_line_within(t: &Term<'_>, n: usize) -> Option<String> {
+    last_line(t).map(|l| l.chars().take(n).collect::<String>().trim_end().to_string())
 }
 
 /// Replays `f`, calling `each` after every step with the terminal and
@@ -266,11 +274,21 @@ fn every_fixture_is_a_gesture_with_marks_in_it() {
 }
 
 #[test]
-fn a_resize_never_changes_the_top_line() {
-    // **The invariant, and the owner's own words.** Checked around the
-    // `resize` call alone -- nothing is fed between the two reads -- so
-    // output scrolling, which may and must move the top line, cannot
-    // make it pass or fail.
+fn a_resize_holds_the_bottom_line() {
+    // **The anchor is the bottom**, which is the owner's call after a
+    // shrink-then-grow was found deleting their `ls`: holding the *top*
+    // still means rows come off the bottom, the cursor lands on a row it
+    // was not on, and the shell's next redraw overwrites output that no
+    // growth can restore. Holding the bottom means rows come off the top
+    // into the history, which is where content that no longer fits
+    // belongs -- the owner's own refinement, "what the first line is
+    // changes when the content starts to push up and exceed the visible
+    // side at the current window size".
+    //
+    // So the line that must not move is the last one. Checked around the
+    // `resize` call alone -- nothing fed between the two reads -- so
+    // output scrolling, which may and must move things, cannot make it
+    // pass or fail.
     for name in FIXTURES {
         let f = load(name);
         controls(&f);
@@ -285,13 +303,13 @@ fn a_resize_never_changes_the_top_line() {
         let mut checked = 0;
         for (i, (ws, len)) in f.steps.iter().enumerate() {
             let narrower = t.geometry().0.index().min(usize::from(ws.ws_col));
-            let before = first_line_within(&t, narrower);
+            let before = last_line_within(&t, narrower);
             assert_eq!(t.resize(ws), Resized::Ok, "{name}: step {i} truncated");
-            let after = first_line_within(&t, narrower);
+            let after = last_line_within(&t, narrower);
             if before.is_some() {
                 assert_eq!(
                     before, after,
-                    "{name}: step {i} to {}x{} changed the top line with nothing fed",
+                    "{name}: step {i} to {}x{} moved the bottom line with nothing fed",
                     ws.ws_col, ws.ws_row
                 );
                 checked += 1;
@@ -329,9 +347,22 @@ fn a_gesture_leaves_one_prompt_on_screen() {
         // passes by being blind. It has to find the prompt at least
         // once, on at least one step, or it is not counting prompts.
         let mut ever = 0;
+        // **Pinned at what it is, and what it is got worse on purpose.**
+        // Holding the *top* still took `drag` to 1 and `zoom` to 2, and
+        // it did that by letting the shell overwrite output a growth
+        // could never restore -- the owner's `ls`, ten of twelve lines
+        // gone. The bottom anchor gives those back and reveals the
+        // prompts the shell drew and scrolled away while the window was
+        // too short to hold one.
+        //
+        // That is the trade taken deliberately: a duplicate is a
+        // nuisance and a deletion is a loss. These numbers are the open
+        // bug, pinned as a ceiling *and* a floor so that fixing it fails
+        // here and says to move the pin -- and so does trading it back
+        // for data loss.
         let worst_seen = match name {
-            "zoom" => 2,
-            _ => 1,
+            "drag" => 5,
+            _ => 2,
         };
         replay(&f, |t, i| {
             let rows = t.geometry().1.index();

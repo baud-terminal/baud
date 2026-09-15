@@ -173,14 +173,14 @@ fn the_prompt_zone_opens_at_a_mark_and_closes_at_the_output() {
 }
 
 #[test]
-fn a_taller_screen_does_not_reach_into_the_history_at_a_prompt() {
-    // **The rows have to be retired while the screen is output's**, or
-    // there is nothing for a growth to reach for: a shrink at a prompt
-    // takes its rows off the bottom rather than the top, so it retires
-    // nothing. What does retire is a shrink during a command's output --
-    // and then the command ends, the shell draws a prompt, and a growth
-    // that reached back would slide that prompt down the screen over
-    // rows the shell is not going to redraw.
+fn a_taller_screen_reaches_into_the_history_and_that_is_the_anchor() {
+    // **This pinned the opposite once**, and the reversal is the design
+    // rather than a regression. Refusing to reach into the history on a
+    // growth stopped a drag revealing prompts the shell had scrolled
+    // away -- and it left the rows a shrink retired behind, which is the
+    // owner's `ls` deleted. The anchor is the bottom: the window sits at
+    // the end of the content, so a taller one shows more of it above,
+    // and what a shrink pushed up comes back down.
     support::with_room(60, |t| {
         support::feed(t, b"\x1b]133;C\x07");
         for i in 0..40 {
@@ -192,22 +192,20 @@ fn a_taller_screen_does_not_reach_into_the_history_at_a_prompt() {
             ws_row: 6,
         });
         let retired = t.scrollback().len();
-        // Now the command ends and the shell owns the screen.
+        assert!(
+            retired > 6,
+            "the control: the shrink retired rows, so a growth has something to reach for"
+        );
         support::feed(t, b"\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
         assert_eq!(t.zone(), Zone::Prompt);
-        let top_before = row_text(t, 0);
         let _ = t.resize(&WinSize {
             ws_col: u16::try_from(cols.index()).unwrap(),
             ws_row: u16::try_from(rows.index()).unwrap(),
         });
-        assert_eq!(
-            row_text(t, 0),
-            top_before,
-            "the growth pulled history back over the top row while the shell owned the screen"
-        );
         assert!(
-            t.scrollback().len() >= retired,
-            "the retired rows are still retained, so scrolling still reaches them"
+            t.scrollback().len() < retired,
+            "the growth left the retired rows in the history: {} of {retired}",
+            t.scrollback().len()
         );
     });
 }

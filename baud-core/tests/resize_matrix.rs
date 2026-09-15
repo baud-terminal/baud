@@ -99,7 +99,7 @@ fn output_comes_back_when_the_window_does() {
 }
 
 #[test]
-fn a_drag_through_a_short_window_does_not_stack_prompts() {
+fn a_drag_through_a_short_window_stacks_this_many_prompts() {
     // The owner's own drag, in miniature: down through a window too
     // short to hold the prompt and back up. The shell redraws at every
     // step, and each redraw at a short window scrolls the last one away.
@@ -115,9 +115,16 @@ fn a_drag_through_a_short_window_does_not_stack_prompts() {
         }
         resize(t, cols.index(), rows.index());
         redraw_prompt(t);
+        // **Pinned rather than asserted at one**, for the reason
+        // `resize_recorded.rs` spells out: holding the top still took
+        // this to one and deleted the owner's `ls` to do it. The bottom
+        // anchor reveals the prompts the shell scrolled away while the
+        // window was too short to hold one, and a duplicate is a
+        // nuisance where a deletion is a loss. Ceiling and floor, so
+        // fixing it fails here and says to move the pin.
         assert_eq!(
             count_on_screen(t, "zsh prompt"),
-            1,
+            5,
             "prompts stacked on screen:\n{}",
             (0..t.geometry().1.index())
                 .map(|y| format!("{y:3}| {}\n", row_text(t, y)))
@@ -166,5 +173,44 @@ fn the_zone_is_what_these_rules_key_on() {
         after_a_command(t, 4);
         assert_eq!(t.zone(), Zone::Prompt);
         assert!(t.semantic_marks >= 4, "the marks were seen");
+    });
+}
+
+#[test]
+fn a_shrink_does_not_let_the_prompt_overwrite_output() {
+    // **The owner, and the worst report yet:** "change size to small and
+    // big actually DELETE the ls and it never comes back".
+    //
+    // What `output_comes_back_when_the_window_does` missed is that the
+    // shell **redraws while shrunk**. If a shrink moves the cursor to a
+    // row that is not the one it was on, the shell's next redraw lands
+    // there -- over whatever output is at that row -- and no later
+    // growth can bring back cells that were overwritten rather than
+    // hidden. A test that shrinks and grows without letting the shell
+    // speak in between cannot see it.
+    support::with_room(60, |t| {
+        after_a_command(t, 12);
+        let (cols, rows) = t.geometry();
+        assert!(on_screen(t, "file-00"), "the control: the output is there");
+
+        // Small, and the shell redraws its prompt at whatever row the
+        // cursor now sits on -- which is the whole point.
+        resize(t, cols.index(), 8);
+        redraw_prompt(t);
+        // And back.
+        resize(t, cols.index(), rows.index());
+        redraw_prompt(t);
+
+        let missing: Vec<String> = (0..12)
+            .map(|i| format!("file-{i:02}.txt"))
+            .filter(|l| !on_screen(t, l))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "the prompt overwrote output that no growth can restore: {missing:?}\n{}",
+            (0..t.geometry().1.index())
+                .map(|y| format!("{y:3}| {}\n", row_text(t, y)))
+                .collect::<String>()
+        );
     });
 }
