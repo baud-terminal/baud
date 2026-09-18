@@ -313,3 +313,25 @@ times the sweep's**, so the probe validates the bounds and does not replace the
 sweep. Typeahead at a 2 ms cadence: 76 of 80 keys shared a frame, one commit per
 8.33 ms period. `docs/research/notes/o-keystroke-latency.md` has the rest.
 
+## The shader cache at launch
+
+Apple M5 Max, macOS 27.0, on AC. `scripts/shader-cache-bench.py 7`: the same
+binary launched with the system's Metal shader caches in place (warm) and moved
+aside (cold), interleaved, the first launch of each arm discarded; medians of
+six launches an arm, milliseconds, from the app's own `gpu build:` line under
+`BAUD_STARTUP=1` and the wall from spawn to the first present.
+
+| step | warm | cold (both caches aside) | cold - warm |
+|---|---|---|---|
+| device | 9.3 [8.7-11.2] | 11.1 [9.5-11.5] | +1.8 |
+| library (`newLibraryWithSource`) | 0.6 [0.5-0.9] | **301.9 [285.3-305.2]** | **+301.3** |
+| pipelines (five) | 1.1 [0.7-1.3] | **50.7 [48.0-56.5]** | **+49.6** |
+| warm pass | 0.7 | 0.5 | -0.2 |
+| **wall to first present** | **104.0 [97.0-108.3]** | **409.5 [393.1-420.1]** | **+305.5** |
+
+With only `com.apple.metalfe` (the front end) aside: no change. With only
+`com.apple.metal` (the per-GPU binaries) aside: library 81.8, pipelines 48.3,
+wall 193.1 -- the proxy for a shipped `.metallib`. A one-line comment in the
+shader source: the next launch's library 76.2, pipelines 0.8, then warm; the
+cache keys on the source and survives rebuilds. `docs/research/notes/p-shader-cache.md`.
+

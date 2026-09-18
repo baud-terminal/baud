@@ -401,12 +401,27 @@ impl Boot {
         // this box, and AppKit's initialisation on the main thread is what
         // it overlaps -- the probe is joined once the window exists.
         let probe = std::thread::spawn(move || {
+            let t0 = Instant::now();
             let g = match request {
                 Request::Force(Path::Cpu) => None,
                 _ => Gpu::new(),
             };
             if let Some(g) = &g {
+                let b = g.build();
+                let t1 = Instant::now();
                 g.warm();
+                // The shader-cache question of note N's row 1, as numbers:
+                // the library compile and the five pipelines are what a
+                // cold cache makes expensive, and the device and the warm
+                // pass are the same on every launch.
+                startup_note(&format!(
+                    "gpu build: device {:.1} ms, library {:.1}, pipelines {:.1}, warm pass {:.1}, probe {:.1}",
+                    b.device.as_secs_f64() * 1e3,
+                    b.library.as_secs_f64() * 1e3,
+                    b.pipelines.as_secs_f64() * 1e3,
+                    t1.elapsed().as_secs_f64() * 1e3,
+                    t0.elapsed().as_secs_f64() * 1e3,
+                ));
             }
             g
         });

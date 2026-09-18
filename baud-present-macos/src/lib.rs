@@ -34,8 +34,8 @@ pub mod metal;
 
 pub use journal::Landing;
 pub use metal::{
-    CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory, OverlayBuffer,
-    StylesBuffer, Target,
+    Build, CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory,
+    OverlayBuffer, StylesBuffer, Target,
 };
 
 use baud_domain::{FrameGen, HostTime, SwapEpoch};

@@ -27,6 +27,7 @@
 #   I  instruction-set dispatch and how per-ISA code is organised
 #   J  rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation
 #   O  keystroke to pixel: the clocks on the path, and how typing latency has been measured
+#   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
 
 [sources.simdjson]
 key    = "simdjson"
@@ -5817,3 +5818,622 @@ sha256 = "ba60a1b3cb761f3434ceeeaf59f12ebaa2b5267ed710be54c89d80220687b21f"
 bytes  = 8825
 status = "retrieved"
 group  = "O"
+
+# Group P -- row 1 of note N, docs/research/notes/p-shader-cache.md: what Apple
+# documents about MTLBinaryArchive, precompiled libraries, the Metal Toolchain
+# download and the system shader cache, and the two third-party measurements
+# that exist. The 37 retrieved files are Apple documentation JSON, two WWDC
+# transcripts and the pages named; the 7 external entries pin SDK headers and
+# man pages by hash.
+
+[sources.apple-mtlbinaryarchive]
+key    = "apple-mtlbinaryarchive"
+title  = "MTLBinaryArchive -- 'A container for pipeline state descriptors and their associated compiled shader code' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive.json"
+file   = "apple-mtlbinaryarchive.json"
+sha256 = "9a5d60ae564f82cf9366aa17694fb4d2d76b45c2d676640c686d0ced1f486e3b"
+bytes  = 31797
+status = "retrieved"
+group  = "P"
+# The page is the abstract and a link list; the substantive text is the SDK
+# header's @discussion (macos-sdk-mtlbinaryarchive-h), which the page does not
+# reproduce.
+
+[sources.apple-mtlbinaryarchivedescriptor]
+key    = "apple-mtlbinaryarchivedescriptor"
+title  = "MTLBinaryArchiveDescriptor -- 'A description of a binary shader archive that you want to create' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchivedescriptor.json"
+file   = "apple-mtlbinaryarchivedescriptor.json"
+sha256 = "d893e20643c49cdba09391499039e38206b6489f115496aedb90ac3ce5b508a4"
+bytes  = 19679
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtlbinaryarchivedescriptor-url]
+key    = "apple-mtlbinaryarchivedescriptor-url"
+title  = "MTLBinaryArchiveDescriptor.url -- 'A URL to a Metal binary archive file ... load a binary archive you created with ... serialize(to:)' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchivedescriptor/url.json"
+file   = "apple-mtlbinaryarchivedescriptor-url.json"
+sha256 = "c5290040c85669ae0288c10889075c3f4086df5f9d4c25192c7367525f47d3db"
+bytes  = 12708
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtldevice-makebinaryarchive]
+key    = "apple-mtldevice-makebinaryarchive"
+title  = "MTLDevice.makeBinaryArchive(descriptor:) / newBinaryArchiveWithDescriptor:error: -- 'Creates a Metal binary archive instance' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makebinaryarchive(descriptor:).json"
+file   = "apple-mtldevice-makebinaryarchive.json"
+sha256 = "a7cd1c44c6e36518d3be3b934e9b4fac5e309c5330b6f0936c7a0d9b2692a709"
+bytes  = 17700
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtlbinaryarchive-addrenderpipelinefunctions]
+key    = "apple-mtlbinaryarchive-addrenderpipelinefunctions"
+title  = "MTLBinaryArchive.addRenderPipelineFunctions(descriptor:) -- 'Adds a description of a render pipeline to the archive' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive/addrenderpipelinefunctions(descriptor:).json"
+file   = "apple-mtlbinaryarchive-addrenderpipelinefunctions.json"
+sha256 = "cf6d762569d6508c959616b6e3210549dafa90f87239c6c86988271587e29419"
+bytes  = 17693
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtlbinaryarchive-serialize]
+key    = "apple-mtlbinaryarchive-serialize"
+title  = "MTLBinaryArchive.serialize(to:) / serializeToURL:error: -- 'Writes the contents of the archive to a file. The destination folder needs to exist' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlbinaryarchive/serialize(to:).json"
+file   = "apple-mtlbinaryarchive-serialize.json"
+sha256 = "eb626929182e2e977dff413111b8ed1b5d96c3dd1659489e4f0274cbf2986631"
+bytes  = 11618
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtlrenderpipelinedescriptor-binaryarchives]
+key    = "apple-mtlrenderpipelinedescriptor-binaryarchives"
+title  = "MTLRenderPipelineDescriptor.binaryArchives -- 'An array of binary archives to search for precompiled versions of the shader' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlrenderpipelinedescriptor/binaryarchives.json"
+file   = "apple-mtlrenderpipelinedescriptor-binaryarchives.json"
+sha256 = "e7b4cfd00ae9afc846e1d903751cbca8b5ab06da6c017d315196aba7a002e8ac"
+bytes  = 13517
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtlpipelineoption-failonbinaryarchivemiss]
+key    = "apple-mtlpipelineoption-failonbinaryarchivemiss"
+title  = "MTLPipelineOption.failOnBinaryArchiveMiss -- 'By default, Metal compiles the functions for a pipeline state if they aren't in a binary archive' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlpipelineoption/failonbinaryarchivemiss.json"
+file   = "apple-mtlpipelineoption-failonbinaryarchivemiss.json"
+sha256 = "1d3a257d905dba04181df218ec186afa9ef9174696886a0bd5660c382b6dba03"
+bytes  = 12561
+status = "retrieved"
+group  = "P"
+# The one Apple sentence that states the miss behaviour directly; the header's
+# @discussion says the same in more words.
+
+[sources.apple-metal-binary-archives]
+key    = "apple-metal-binary-archives"
+title  = "Metal binary archives (topic) -- 'Distribute precompiled GPU-specific binaries as part of your app to avoid runtime compilation'; 'increase the size of your application bundle in exchange for avoiding runtime compilation' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/metal-binary-archives.json"
+file   = "apple-metal-binary-archives.json"
+sha256 = "e0b15574784b3a2da35c3432499eee59c0b6e6633ee884b06d2b467077560e25"
+bytes  = 19980
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-creating-binary-archives]
+key    = "apple-metal-creating-binary-archives"
+title  = "Creating binary archives from device-built pipeline state objects -- serialize on device, metal-source / metal-tt / metal-lipo, Copy Bundle Resources; 'Metal may invalidate binaries when upgrading a device's operating system, and shaders recompile from the Metal IR in the archive'; 'Failing to load a binary archive isn't a fatal error' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/creating-binary-archives-from-device-built-pipeline-state-objects.json"
+file   = "apple-metal-creating-binary-archives.json"
+sha256 = "f57ee541b2f1d6a43c42e3f88cd516b243e1621439ead12ae14a1cdad0228ab4"
+bytes  = 38316
+status = "retrieved"
+group  = "P"
+# Also the only Apple statement of where an app-serialized archive lands on
+# macOS in its example: ${HOME}/Library/Application
+# Support/${BUNDLE_ID}/${LIBRARY_NAME}.binary.metallib -- the URL the sample
+# chose, not a system location.
+
+[sources.apple-metal-compiling-binary-archives-from-a-script]
+key    = "apple-metal-compiling-binary-archives-from-a-script"
+title  = "Compiling binary archives from a custom configuration script -- hand-authored mtlp-json for metal-tt, 'By default, metal-tt compiles for all GPU architectures the target triple supports' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/compiling-binary-archives-from-a-custom-configuration-script.json"
+file   = "apple-metal-compiling-binary-archives-from-a-script.json"
+sha256 = "73601254fd835b4786babc0a86eb22ff435865f30dac67e863745620f41dde04"
+bytes  = 41208
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-building-a-shader-library]
+key    = "apple-metal-building-a-shader-library"
+title  = "Building a shader library by precompiling source files -- 'xcrun -sdk macosx metal -o X.ir -c X.metal', metal-ar, 'xcrun -sdk macosx metal -o X.metallib ...'; load with makeLibrary(URL:) (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/building-a-shader-library-by-precompiling-source-files.json"
+file   = "apple-metal-building-a-shader-library.json"
+sha256 = "13e64cfdcbd14aa0154b0512bada14e7e4599ee6859ead70e9a99d0706ee5430"
+bytes  = 14890
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-libraries]
+key    = "apple-metal-libraries"
+title  = "Metal libraries (topic) -- 'By default, your Metal shaders compile as ... Metal IR ... At your app's runtime, Metal compiles this bytecode to a GPU-specific binary'; 'If you provide your shader functions as strings, they first compile to Metal IR on device, and then go through a secondary compilation for GPU' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/metal-libraries.json"
+file   = "apple-metal-libraries.json"
+sha256 = "d8e251a69fe89736e22f82fc4e2430aba7ab89c7351476b8398975167cf56e7d"
+bytes  = 22673
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-shader-libraries]
+key    = "apple-metal-shader-libraries"
+title  = "Shader libraries (topic) -- 'Because Metal automatically builds and caches shaders on the device running an app, use binary archives as part of your distributed app, or deliver them through content updates' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/shader-libraries.json"
+file   = "apple-metal-shader-libraries.json"
+sha256 = "892c3a059ad36919049c1a82a966e30a2f54e9b42ee173173257da4dbecec7cd"
+bytes  = 137760
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtldevice-makelibrary-data]
+key    = "apple-mtldevice-makelibrary-data"
+title  = "MTLDevice.makeLibrary(data:) / newLibraryWithData:error: -- 'from a dispatch-data instance that contains the functions in a precompiled Metal library' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(data:).json"
+file   = "apple-mtldevice-makelibrary-data.json"
+sha256 = "69136b877e3f9fecd09fa617b2a2becc7b20b8c0f87df7981132f871dad532b8"
+bytes  = 31865
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtldevice-makelibrary-url]
+key    = "apple-mtldevice-makelibrary-url"
+title  = "MTLDevice.makeLibrary(URL:) / newLibraryWithURL:error: -- 'A URL to a Metal library file (ending in .metallib)' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(url:).json"
+file   = "apple-mtldevice-makelibrary-url.json"
+sha256 = "ecf3f78e843ed2fe9a9b08d2b9651b509a4e614b3acf6a21d9b96cae2a32cf92"
+bytes  = 31716
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtldevice-makelibrary-source]
+key    = "apple-mtldevice-makelibrary-source"
+title  = "MTLDevice.makeLibrary(source:options:) / newLibraryWithSource:options:error: -- 'Synchronously creates a Metal library instance by compiling the functions in a source string' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makelibrary(source:options:).json"
+file   = "apple-mtldevice-makelibrary-source.json"
+sha256 = "d7ad77fabad26962cad0a640067c76ccaec3cfd2ebe5870f2dac42b09145815f"
+bytes  = 35196
+status = "retrieved"
+group  = "P"
+# Says nothing about caching. Whether the source-to-IR step is cached by the
+# system is answered by no fetched Apple page; see the note.
+
+[sources.apple-mtldevice-makedefaultlibrary]
+key    = "apple-mtldevice-makedefaultlibrary"
+title  = "MTLDevice.makeDefaultLibrary() -- 'Xcode compiles all the Metal source files (ending in .metal) in an Xcode project into a single default library' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtldevice/makedefaultlibrary().json"
+file   = "apple-mtldevice-makedefaultlibrary.json"
+sha256 = "ae0af7d30a5965af1c701cd8d4a6c0433af06d8af1fb3de286fd16b847d4478a"
+bytes  = 27206
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-minimizing-binary-size]
+key    = "apple-metal-minimizing-binary-size"
+title  = "Minimizing the binary size of a shader library -- runtime compilation 'may take noticeably longer to load on initial launches'; -Os on the command line and MTLLibraryOptimizationLevel.size at runtime (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/minimizing-the-binary-size-of-a-shader-library.json"
+file   = "apple-metal-minimizing-binary-size.json"
+sha256 = "eb0b989275e84f4a0763034c0f3bf974ea5fa4dfff733caebbd4a5747898aefe"
+bytes  = 20682
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-using-the-metal-4-compilation-api]
+key    = "apple-metal-using-the-metal-4-compilation-api"
+title  = "Using the Metal 4 compilation API -- harvesting: 'serialize a harvesting set into a binary archive, or to a pipeline script which you can precompile to a binary archive during development'; 'both Metal 3 and 4 can load binary archives' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/using-the-metal-4-compilation-api.json"
+file   = "apple-metal-using-the-metal-4-compilation-api.json"
+sha256 = "453a2ebf036f5ef29fae78fe56f39225fb4426f177cba88ad27e3ea742c74bae"
+bytes  = 32209
+status = "retrieved"
+group  = "P"
+
+[sources.apple-mtl4archive]
+key    = "apple-mtl4archive"
+title  = "MTL4Archive -- 'A read-only container that stores pipeline states from a shader compiler ... IR binaries, GPU- and system-specific binaries, or a combination' (macOS 26) (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtl4archive.json"
+file   = "apple-mtl4archive.json"
+sha256 = "ec0b24b2ba750ee2cfdf53635edfab1bc1c1fa8e96e16e72fec1465302398525"
+bytes  = 32247
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-variables]
+key    = "apple-metal-variables"
+title  = "Metal variables (topic) -- the page a search for 'Metal environment variables' lands on; it lists global variables (MTLResourceCPUCacheModeMask ...) and no environment variable (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/metal-variables.json"
+file   = "apple-metal-variables.json"
+sha256 = "57ca61487a93fb8e945c3e966f6f99d35b5ca9e8b511c123657443afdb46b54f"
+bytes  = 16484
+status = "retrieved"
+group  = "P"
+# Negative evidence: no fetched Apple documentation page names an environment
+# variable that disables or sizes the Metal shader cache.
+
+[sources.apple-xcode-additional-components]
+key    = "apple-xcode-additional-components"
+title  = "Downloading and installing additional Xcode components -- 'To build your Metal apps, download and install the optional Metal Toolchain'; 'xcodebuild -downloadComponent metalToolchain' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/xcode"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/downloading-and-installing-additional-xcode-components.json"
+file   = "apple-xcode-additional-components.json"
+sha256 = "2f5e835d9dce04e9fc4e81159a313f5692ed4c35bb549f634c6077a7d8b04d53"
+bytes  = 14864
+status = "retrieved"
+group  = "P"
+
+[sources.apple-xcode-26-release-notes]
+key    = "apple-xcode-26-release-notes"
+title  = "Xcode 26 Release Notes -- four resolved issues about 'the downloaded Metal Toolchain' and 'the xcrun cache not refreshing after the metal toolchain is downloaded when running xcrun -f metal' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/xcode-release-notes"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-26-release-notes.json"
+file   = "apple-xcode-26-release-notes.json"
+sha256 = "c964a0bdc15b8397a507e74a11115ba99f83952ea00b8f9d9563bb4e45e2c817"
+bytes  = 127211
+status = "retrieved"
+group  = "P"
+# The notes reference the downloaded toolchain as a fact and never announce
+# the unbundling; the announcement is the components article and the stub
+# binary's own error text (xcode-27-metal-toolchain-component).
+
+[sources.apple-xcode-16-release-notes]
+key    = "apple-xcode-16-release-notes"
+title  = "Xcode 16 Release Notes -- 'Building GPU binaries using metal-tt with deployment targets prior to iOS 18 and macOS 15 has undefined behavior' (fixed) (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/xcode-release-notes"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-16-release-notes.json"
+file   = "apple-xcode-16-release-notes.json"
+sha256 = "24356f8241994c50e504c5f6a190792b5486c2ad87063cc729131a7affc4502e"
+bytes  = 205206
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-best-practices-functions-libraries]
+key    = "apple-metal-best-practices-functions-libraries"
+title  = "Metal Best Practices Guide: Functions and Libraries -- 'Compiling Metal shading language source code is one of the most expensive stages in the lifetime of a Metal app'; 'Building your library at runtime incurs a significant performance cost' (archive HTML)"
+author = "Apple"
+year   = 2017
+venue  = "developer.apple.com/library/archive"
+url    = "https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/FunctionsandLibraries.html"
+file   = "apple-metal-best-practices-functions-libraries.html"
+sha256 = "1a8ca036ec885cd21c2074a3f9f84ce0e00978677ed4e09215ecde0d682d1278"
+bytes  = 18841
+status = "retrieved"
+group  = "P"
+
+[sources.apple-metal-best-practices-pipelines]
+key    = "apple-metal-best-practices-pipelines"
+title  = "Metal Best Practices Guide: Pipelines -- 'Build your render and compute pipelines asynchronously ... Build all known pipelines up front and avoid lazy loading' (archive HTML)"
+author = "Apple"
+year   = 2017
+venue  = "developer.apple.com/library/archive"
+url    = "https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/MTLBestPracticesGuide/Pipelines.html"
+file   = "apple-metal-best-practices-pipelines.html"
+sha256 = "e597c9099aa25a681de641b2f36a972ef5dee602ce729ef6f4c186fc89b67b82"
+bytes  = 22174
+status = "retrieved"
+group  = "P"
+
+[sources.apple-wwdc20-10615]
+key    = "apple-wwdc20-10615"
+title  = "Build GPU binaries with Metal (WWDC20 10615) -- the system-wide shader cache, archives memory-mapped, 'same GPU, and ... the same operating system build' else 'fall back on runtime compilation', Fortnite: 1,700 PSOs 1 min 26 s to 3 s (page with transcript)"
+author = "Apple Inc."
+year   = 2020
+venue  = "developer.apple.com/videos (page with transcript)"
+url    = "https://developer.apple.com/videos/play/wwdc2020/10615/"
+file   = "apple-wwdc20-10615-build-gpu-binaries.html"
+sha256 = "f83ff6ebaee120a0bc9da4050132317404c479d5a848b642ed023bda2c1ef235"
+bytes  = 176534
+status = "retrieved"
+group  = "P"
+
+[sources.apple-wwdc20-10615-transcript]
+key    = "apple-wwdc20-10615-transcript"
+title  = "Build GPU binaries with Metal (WWDC20 10615) -- the transcript rendered from the page's sentence spans, one line per span with its start time (rendered text)"
+author = "Apple Inc."
+year   = 2020
+venue  = "developer.apple.com/videos, transcript rendered from apple-wwdc20-10615"
+url    = "https://developer.apple.com/videos/play/wwdc2020/10615/"
+file   = "apple-wwdc20-10615-transcript.txt"
+sha256 = "f3803a75871e69b7d24c5ab79582ee2a86c4bd5ce34dcde6929540698c42af10"
+bytes  = 35789
+status = "retrieved"
+group  = "P"
+# Rendered by this lane from the HTML pinned above so a quote can be located
+# by time; nothing added, nothing removed.
+
+[sources.apple-wwdc22-10102]
+key    = "apple-wwdc22-10102"
+title  = "Target and optimize GPU binaries with Metal 3 (WWDC22 10102) -- 'Metal stores your GPU binaries in its file system cache'; 'Metal gracefully upgrades your binary archives during OS updates or at app install time ... asynchronously, and in the background' (page with transcript)"
+author = "Apple Inc."
+year   = 2022
+venue  = "developer.apple.com/videos (page with transcript)"
+url    = "https://developer.apple.com/videos/play/wwdc2022/10102/"
+file   = "apple-wwdc22-10102-target-optimize-gpu-binaries.html"
+sha256 = "d746c8aa5fa869049e4ef9afe04cf20980777807eb4925d30eea5fd0c8532699"
+bytes  = 150627
+status = "retrieved"
+group  = "P"
+
+[sources.apple-wwdc22-10102-transcript]
+key    = "apple-wwdc22-10102-transcript"
+title  = "Target and optimize GPU binaries with Metal 3 (WWDC22 10102) -- the transcript rendered from the page's sentence spans (rendered text)"
+author = "Apple Inc."
+year   = 2022
+venue  = "developer.apple.com/videos, transcript rendered from apple-wwdc22-10102"
+url    = "https://developer.apple.com/videos/play/wwdc2022/10102/"
+file   = "apple-wwdc22-10102-transcript.txt"
+sha256 = "054bfab076533b9e1c1c7b4d2c3cd37e685a92456c52beb861a716ab3d625479"
+bytes  = 16037
+status = "retrieved"
+group  = "P"
+
+[sources.macos-sdk-mtlbinaryarchive-h]
+key    = "macos-sdk-mtlbinaryarchive-h"
+title  = "MTLBinaryArchive.h -- the @discussion is the fullest Apple statement: archives 'persist compiled pipeline state objects for a device'; miss -> 'compiling the code as usual'; 'software updates of the OS or device drivers may cause the archive to become outdated'; 'Metal maintains a separate cache of pipeline states on behalf of each app'; 'populated during development time and shipped as an asset'; lipo for multiple devices"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLBinaryArchive.h"
+file   = ""
+sha256 = "c6c3d47c2642865b657157b319c4f8ce8f0adc4bee8f312218c1bdbd2dd4d5e0"
+bytes  = 8333
+status = "external"
+group  = "P"
+
+[sources.macos-sdk-mtldevice-h]
+key    = "macos-sdk-mtldevice-h"
+title  = "MTLDevice.h -- newBinaryArchiveWithDescriptor:error:, newLibraryWithURL:/WithData:/WithSource:options:error: ('Load a MTLLibrary from a metallib file'), MTLPipelineOptionFailOnBinaryArchiveMiss = 1 << 2"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLDevice.h"
+file   = ""
+sha256 = "bb4222866870a4a703cd1581fe55cf4fee4769fbee5efc795af51fbff95f2989"
+bytes  = 75420
+status = "external"
+group  = "P"
+
+[sources.macos-sdk-mtllibrary-h]
+key    = "macos-sdk-mtllibrary-h"
+title  = "MTLLibrary.h -- MTLCompileOptions (languageVersion, optimizationLevel, libraryType, installName); nothing about a cache"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLLibrary.h"
+file   = ""
+sha256 = "476081df0bf347bb66397578427692ef9ee94551eb070b7f6358823731937323"
+bytes  = 25084
+status = "external"
+group  = "P"
+
+[sources.macos-sdk-mtlrenderpipeline-h]
+key    = "macos-sdk-mtlrenderpipeline-h"
+title  = "MTLRenderPipeline.h -- binaryArchives: 'The set of MTLBinaryArchive to search for compiled code when creating the pipeline state ... such that no compilation needs to happen on the fast path'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLRenderPipeline.h"
+file   = ""
+sha256 = "91f18ca45e0f571eacd6b832340d68065fd39a490ecf6192b8c6277329d81956"
+bytes  = 43789
+status = "external"
+group  = "P"
+
+[sources.macos-sdk-mtl4pipelinedatasetserializer-h]
+key    = "macos-sdk-mtl4pipelinedatasetserializer-h"
+title  = "MTL4PipelineDataSetSerializer.h -- the Metal 4 harvesting container: serializeAsArchiveAndFlushToURL:, serializeAsPipelinesScriptWithError: 'for the offline Metal binary generator (metal-tt)'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTL4PipelineDataSetSerializer.h"
+file   = ""
+sha256 = "6d82158c53b3ceec5526844013e2c66e7a23f06efa23fca98211e89bca46adfe"
+bytes  = 4129
+status = "external"
+group  = "P"
+
+[sources.xcode-27-metal-toolchain-component]
+key    = "xcode-27-metal-toolchain-component"
+title  = "Xcode 27.0 (27A266a) on this box: 'xcodebuild -downloadComponent NAME ... Supported component: MetalToolchain.'; the metal stub 'cannot execute tool metal due to missing Metal Toolchain; use: xcodebuild -downloadComponent MetalToolchain'; -showComponent MetalToolchain says uninstalled; the system shader cache directory listing (captured text)"
+author = "captured on this box"
+year   = 2026
+venue  = "local capture, Xcode 27.0 build 27A266a, macOS 27"
+url    = "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-09-18"
+file   = "xcode-27-metal-toolchain-component.txt"
+sha256 = "d16ec942f58b4646aa335bde73e7ad3fa436b1a9c448f1b126bdf1fd07b9ebc7"
+bytes  = 3788
+status = "retrieved"
+group  = "P"
+# Facts about this machine on that date. The cache listing shows $(getconf
+# DARWIN_USER_CACHE_DIR)/com.apple.metal/<id>/functions*.data|list and
+# libraries*.data|list, opaque binary; which id is which app is not derivable
+# from the files.
+
+[sources.gfx-rs-3716-comment-816575736]
+key    = "gfx-rs-3716-comment-816575736"
+title  = "gfx-rs/gfx #3716, comment by expenses, 2021-04-09 -- 8,866 pipelines: 'wiped system cache, no pipeline cache: 683.82s'; 'hot system cache: 24.39s'; 'wiped system cache, hot pipeline cache [MTLBinaryArchive]: 442.45s'; 'macOS has a system shader cache at $(getconf DARWIN_USER_CACHE_DIR)/com.apple.metal' (GitHub API JSON)"
+author = "expenses (Ashley Ruglys), gfx-rs contributors"
+year   = 2021
+venue  = "github.com/gfx-rs/gfx issue 3716"
+url    = "https://api.github.com/repos/gfx-rs/gfx/issues/comments/816575736"
+file   = "gfx-rs-3716-comment-816575736.json"
+sha256 = "d8bca7ec4a027fc7107131b972beb35d2404dfbe41aa0ce656d314d744b5fad7"
+bytes  = 2876
+status = "retrieved"
+group  = "P"
+# The one third-party measurement found with cold, warm and archive arms on
+# macOS; each pipeline also translated SPIR-V to MSL and compiled MSL from
+# source, which an archive cannot skip -- the 450 s arm is that, not the
+# archive failing. Hardware not stated.
+
+[sources.aras-metal-shader-cache-gist]
+key    = "aras-metal-shader-cache-gist"
+title  = "Aras Pranckevicius, gist 'Apple Metal Shader Compiler Cache location' -- the cache is at $(getconf DARWIN_USER_CACHE_DIR)/com.apple.metal, per-app folders beside it; 'Delete all the folders in there to clear the cache' (Markdown)"
+author = "Aras Pranckevicius"
+year   = 2021
+venue  = "gist.github.com/aras-p"
+url    = "https://gist.githubusercontent.com/aras-p/5a9ae8f1f7d9998f732aff26dfa62617/raw"
+file   = "aras-metal-shader-cache-gist.md"
+sha256 = "a6ee4afc9a83fc15af89de8d94236792e40df759c5279b1065f22d3f90172599"
+bytes  = 474
+status = "retrieved"
+group  = "P"
+
+[sources.ghostty-metallib-step]
+key    = "ghostty-metallib-step"
+title  = "ghostty: src/build/MetallibStep.zig -- the build step: '/usr/bin/xcrun -sdk macosx metal -o X.ir -c ...' then '/usr/bin/xcrun -sdk macosx metallib -o X.metallib X.ir', with -mmacos-version-min; the product is @embedFile'd and loaded with newLibraryWithData:error: (see ghostty-renderer-metal-shaders)"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ b32f20f3"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b32f20f3e8d25bb925ec545c54498e93518e7ced/src/build/MetallibStep.zig"
+file   = "ghostty-MetallibStep.zig"
+sha256 = "231861faa7759fda638f62f1ba0addaabe85ba86a54021b82967721d8ab9409e"
+bytes  = 2043
+status = "retrieved"
+group  = "P"
+# ghostty precompiles to a .metallib and never uses MTLBinaryArchive; its
+# custom user shaders are compiled from source with
+# newLibraryWithSource:options:error: at startup (ghostty-renderer-metal-
+# shaders lines 333-414 at 9bbb9b24, unchanged at b32f20f3).
+
+[sources.zolotukhin-2026-04-20-pso-tax]
+key    = "zolotukhin-2026-04-20-pso-tax"
+title  = "Stepan Zolotukhin, 'Why cold-start Metal LLMs pay a pipeline-state tax nobody budgets for', 2026-04-20 -- 'Tens of milliseconds per kernel is common on M-series hardware'; warmup 'hundreds of milliseconds for dense models and over a second for MoE' (HTML)"
+author = "Stepan Zolotukhin"
+year   = 2026
+venue  = "zolotukhin.ai"
+url    = "https://zolotukhin.ai/blog/2026-04-20-why-cold-metal-llms-pay-a-pipeline-state-tax/"
+file   = "zolotukhin-2026-04-20-metal-pipeline-state-tax.html"
+sha256 = "bd0be4bf15fb017fd4468ddc3015911edba5c112aecc4495fc6abb1753ff7de7"
+bytes  = 30652
+status = "retrieved"
+group  = "P"
+# Qualitative; no controlled measurement, no hardware or OS version stated for
+# the per-kernel figure.
+
+[sources.zolotukhin-2026-04-21-binary-archive]
+key    = "zolotukhin-2026-04-21-binary-archive"
+title  = "Stepan Zolotukhin, 'MTLBinaryArchive is the missing half of the Metal LLM cold-start fix', 2026-04-21 -- a cache-tier table for an M1 Pro whose numbers 'are estimates rather than measured millisecond counts'; restates the WWDC20 86 s to 3 s figure; keys an archive on '(device, macOS major)' (HTML)"
+author = "Stepan Zolotukhin"
+year   = 2026
+venue  = "zolotukhin.ai"
+url    = "https://zolotukhin.ai/blog/2026-04-21-metal-binary-archive-is-the-missing-cold-start-fix/"
+file   = "zolotukhin-2026-04-21-metal-binary-archive.html"
+sha256 = "f3566c6ff915998871e4efc8539a830446ce825e7f117a7bf66176f75505385b"
+bytes  = 35462
+status = "retrieved"
+group  = "P"
+# Kept for the design argument and its citations; its numbers are the author's
+# estimates and are not quotable as measurements.
+
+[sources.macos-sdk-man-metalperformancehud-1]
+key    = "macos-sdk-man-metalperformancehud-1"
+title  = "MetalPerformanceHUD.1 -- MTL_HUD_ENABLED=1 and the 'shaders' element: 'Shader compiler activity: number of pipeline states, cached shaders, and compiled shaders, plus a graph of compilation time over the past 120 frames'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK man page (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man1/MetalPerformanceHUD.1"
+file   = ""
+sha256 = "4c975df13a8f98ce94e88b135bbe14b3c214cfbd565f2b974d19007a3832f743"
+bytes  = 17376
+status = "external"
+group  = "P"
+# The one Apple-documented instrument that reports cached against compiled
+# shaders for a running app; every MTL_HUD_* variable it lists is a HUD
+# control, none touches the cache.
+
+[sources.macos-sdk-man-metalvalidation-1]
+key    = "macos-sdk-man-metalvalidation-1"
+title  = "MetalValidation.1 -- every documented MTL_DEBUG_LAYER* and MTL_SHADER_VALIDATION* variable; no variable disables, sizes or clears the shader cache"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK man page (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man1/MetalValidation.1"
+file   = ""
+sha256 = "7e331b655dcd60feca004abca0b06512ad9838a751683a105fc1e093fe6549b0"
+bytes  = 12783
+status = "external"
+group  = "P"
+# Negative evidence for the 'documented switch to clear the cache' question,
+# alongside gpucapture.1 (MTL_CAPTURE_ENABLED only): the three SDK man pages
+# that name MTL_ variables name no cache variable.

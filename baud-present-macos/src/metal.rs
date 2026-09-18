@@ -579,6 +579,8 @@ pub struct Gpu {
     uploaded: Option<Generation>,
     /// Frames committed and not yet completed: zero or one.
     in_flight: Arc<AtomicUsize>,
+    /// What `Gpu::new` cost, step by step.
+    build: Build,
 }
 
 /// Whether a pass blends over what is under it, or replaces it. The
@@ -749,12 +751,29 @@ unsafe fn lend<T>(buffer: &Buffer, n: Elems) -> Option<&'static mut [T]> {
 // that built it is joined, and nothing touches it on two threads at once.
 unsafe impl Send for Gpu {}
 
+/// What creating the device, compiling the shader library and building the
+/// five pipelines cost, in that order -- the three steps whose price the
+/// Metal shader cache decides. `newLibraryWithSource` and each pipeline
+/// state are served from the system's cache on a warm launch and compiled
+/// on a cold one (the first launch after an install or an OS update), and
+/// row 1 of note N is the question of what that costs and whether a binary
+/// archive the app keeps would change it. Printed under `BAUD_STARTUP`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Build {
+    pub device: Duration,
+    pub library: Duration,
+    pub pipelines: Duration,
+}
+
 impl Gpu {
     /// The system default device with every pipeline compiled; `None` when
     /// there is no Metal device or the shaders fail to compile.
     pub fn new() -> Option<Gpu> {
+        let t0 = Instant::now();
         let device = MTLCreateSystemDefaultDevice()?;
         let queue = device.newCommandQueue()?;
+        let device_made = t0.elapsed();
+        let t1 = Instant::now();
         let library =
             match device.newLibraryWithSource_options_error(&NSString::from_str(SHADERS), None) {
                 Ok(l) => l,
@@ -763,6 +782,8 @@ impl Gpu {
                     return None;
                 }
             };
+        let library_made = t1.elapsed();
+        let t2 = Instant::now();
         let bg_pipe = pipeline(
             &device,
             &library,
@@ -798,6 +819,11 @@ impl Gpu {
             "glyph_fragment",
             Blend::Over,
         )?;
+        let build = Build {
+            device: device_made,
+            library: library_made,
+            pipelines: t2.elapsed(),
+        };
         let sd = MTLSamplerDescriptor::new();
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);
         sd.setMagFilter(MTLSamplerMinMagFilter::Nearest);
@@ -826,7 +852,14 @@ impl Gpu {
             color: None,
             uploaded: None,
             in_flight: Arc::new(AtomicUsize::new(0)),
+            build,
         })
+    }
+
+    /// What building this device cost, for the launch report: the three
+    /// steps the shader cache decides the price of.
+    pub fn build(&self) -> Build {
+        self.build
     }
 
     /// Whether the device shares memory with the CPU, which is what makes
