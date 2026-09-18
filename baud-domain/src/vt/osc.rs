@@ -63,8 +63,9 @@ pub enum Osc<'a> {
 /// all -- the owner's own `zsh` sends `P` and not `A`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Semantic {
-    /// `A`, or `P` with a kind: the prompt begins here.
-    PromptStart,
+    /// `A`, or `P` with a kind: a prompt line begins here, and the kind
+    /// says which. Only [`PromptKind::Initial`] begins a *block*.
+    PromptStart(PromptKind),
     /// `B`: the prompt has ended and what follows is what the user typed.
     CommandStart,
     /// `C`: the command's output begins here.
@@ -79,6 +80,48 @@ pub enum Semantic {
     /// A mark this terminal does not act on, kept so it is counted rather
     /// than silently dropped.
     Other,
+}
+
+/// Which line of a prompt an `A` or `P` mark opens: the `k=` option.
+///
+/// A shell with a multi-line prompt marks *each* line -- kitty's own
+/// zsh integration sends `OSC 133 ; A ; k=s` "just before starting to
+/// draw the PS2 prompt", and fish marks its continuation lines the same
+/// way -- so a terminal that took every mark as the start of a new block
+/// would measure a block from its last line. Ghostty's parser accepts
+/// exactly these four values; the default when `k=` is absent is the
+/// initial line, which is what a bare `A` has always meant.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PromptKind {
+    /// `k=i`, or no `k=` at all: the first line of a prompt.
+    #[default]
+    Initial,
+    /// `k=s`: a secondary prompt (`PS2`), drawn on a later line of the
+    /// same block.
+    Secondary,
+    /// `k=r`: a right prompt, on the same line as the one before it.
+    Right,
+    /// `k=c`: a continuation line of the primary prompt.
+    Continuation,
+}
+
+impl PromptKind {
+    /// The kind named by the `key=value` fields after the mark letter,
+    /// separated by `;`. Only `k=` is read; `cl=`, `aid=`, `redraw=` and
+    /// `click_events=` pass through unread until something acts on them.
+    fn of(fields: &mut Split<'_>) -> PromptKind {
+        for kv in fields {
+            if let Some(v) = strip(kv, b"k=") {
+                return match v {
+                    b"s" => PromptKind::Secondary,
+                    b"r" => PromptKind::Right,
+                    b"c" => PromptKind::Continuation,
+                    _ => PromptKind::Initial,
+                };
+            }
+        }
+        PromptKind::Initial
+    }
 }
 
 /// The two halves of `OSC 52`, kept apart because they have very different
@@ -282,7 +325,9 @@ impl<'a> Osc<'a> {
             b"133" => {
                 let mut p = Split::new(rest, b';');
                 match p.next() {
-                    Some(b"A") | Some(b"P") => Osc::Semantic(Semantic::PromptStart),
+                    Some(b"A") | Some(b"P") => {
+                        Osc::Semantic(Semantic::PromptStart(PromptKind::of(&mut p)))
+                    }
                     Some(b"B") => Osc::Semantic(Semantic::CommandStart),
                     Some(b"C") => Osc::Semantic(Semantic::OutputStart),
                     Some(b"D") => Osc::Semantic(Semantic::CommandDone),

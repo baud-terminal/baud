@@ -31,3 +31,6 @@ result-*
 /todo.md
 /TODO.md
 /config.toml
+
+# rustc ICE reports from this nightly's incremental-cache crashes
+rustc-ice-*.txt

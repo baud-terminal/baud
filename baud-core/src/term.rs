@@ -88,12 +88,21 @@ pub const NSGR: usize = 256;
 /// integration re-cuts as it always did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Zone {
-    /// From `OSC 133 ; A` or `; P` until `; C`: the shell is drawing or
-    /// the user is typing, and the shell will redraw this on a resize.
+    /// From `OSC 133 ; A` or `; P` until `; C` or `; D`: the shell is
+    /// drawing or the user is typing, and the shell will redraw this on a
+    /// resize. `D` closes it as `C` does, because a command that ran
+    /// nothing -- Enter on an empty line -- sends no `C`.
     Prompt,
     /// Everywhere else, and where a stream sends no marks at all.
     #[default]
     Output,
+}
+
+/// How the window moved between two rotations; see [`Term::moved_since`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Moved {
+    Retired(Rows),
+    Restored(Rows),
 }
 
 /// The state a control sequence changes that the write loop does not read.
@@ -228,6 +237,8 @@ pub struct Cold {
     /// [`Zone`]. Read by [`Term::resize`] and by nothing else, which is
     /// the whole of what these marks are acted on for here.
     pub(crate) zone: Zone,
+    /// The prompt block the shell is at; see `prompt.rs`.
+    pub(crate) prompt: crate::prompt::PromptBlock,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -235,9 +246,12 @@ pub struct Cold {
 // forced the number to be acknowledged. This does, and it grew to 256 when the
 // two per-screen kitty stacks landed -- which is free on the write path,
 // because `Cold` is carried by reference and the loop never reads them.
+// And to 264 for `prompt`, the prompt block's ring row: written once per
+// `OSC 133 ; P` and read by `Term::prompt_row`, which is a resize-time and
+// embedder-side question the per-byte loop never asks.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 256);
+const _: () = assert!(core::mem::size_of::<Cold>() == 264);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -247,6 +261,7 @@ impl Cold {
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
             zone: Zone::Output,
+            prompt: crate::prompt::PromptBlock::NONE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             highlight: HighlightTracking::Off,
@@ -454,6 +469,11 @@ pub struct Term<'b> {
     /// other end sends them at all, which decides whether a resize can be
     /// scoped to what the application will redraw -- see [`Zone`].
     pub semantic_marks: usize,
+    /// How many redraw marks erased the prompt block they replace -- the
+    /// stale-width redraw a burst of resizes produces. Exposed so an
+    /// embedder can see the terminal acting on the shell's behalf, and so
+    /// a test can require it to have happened rather than infer it.
+    pub prompt_erases: usize,
     /// Zero-width codepoints received and **not stored**: a continuation with
     /// no base on the line, a cluster past `ClusterSlot::CAPACITY`, or a
     /// [`ClusterStore`] with no free slot for it.
@@ -725,7 +745,25 @@ impl<'b> Term<'b> {
                 cy = cy.min(to - 1);
             } else {
                 let k = to - from;
-                let reveal = k.min(hidden);
+                // **Content first, blanks last.** xterm reveals the rows a
+                // shrink cut below the cursor before it pulls anything
+                // back from above, whatever those rows hold; here a cut
+                // row that is blank is not content, and a growth that
+                // showed blank rows under the prompt while the line the
+                // shrink pushed into the history stayed there changed the
+                // first line for no reason -- the owner's rule is the
+                // other way: pull down to the bottom, and blank-fill only
+                // when nothing is left to pull. So the cut rows come back
+                // as far as the last one that holds anything, the history
+                // is pulled next, and the blank cut rows last -- which are
+                // what a fresh blank would be anyway.
+                let ring_i = ring.index();
+                let used = &self.store.used;
+                let content = (0..hidden)
+                    .rev()
+                    .find(|i| used[(self.rot.index() + from + i) % ring_i].index() != 0)
+                    .map_or(0, |i| i + 1);
+                let reveal = k.min(content);
                 hidden -= reveal;
                 // **And a growth brings them back**, which is the other
                 // half of a bottom anchor: the window sits at the end of
@@ -743,6 +781,10 @@ impl<'b> Term<'b> {
                 self.rot = self.rot.retreat(pull, ring);
                 hist -= pull;
                 cy += pull;
+                // The blank cut rows, after the history: revealed rather
+                // than counted as hidden, and blanked below all the same.
+                let rest = (k - reveal - pull).min(hidden);
+                hidden -= rest;
                 let mut v = View::new(
                     self.store.vp,
                     self.store.used,
@@ -943,6 +985,7 @@ impl<'b> Term<'b> {
             strings_ignored: 0,
             clipboard_reads_refused: 0,
             semantic_marks: 0,
+            prompt_erases: 0,
             clipboard_writes_dropped: 0,
             marks_dropped: 0,
             mouse_unencodable: 0,
@@ -1019,6 +1062,31 @@ impl<'b> Term<'b> {
     /// having to infer it from what the screen did.
     pub fn zone(&self) -> Zone {
         self.cold.zone
+    }
+
+    /// The screen row the current prompt block begins on, while the shell
+    /// is at a prompt; `None` in [`Zone::Output`] or if the block's first
+    /// row has scrolled off the screen.
+    ///
+    /// **This is the row a resize must keep at a fixed distance below the
+    /// cursor.** zsh redraws its prompt by counting rows from where it
+    /// started to where the cursor is, moving up that many and erasing
+    /// from there (Schaefer, zsh-workers); a terminal that changes that
+    /// distance behind its back orphans the prompt's top. The block start
+    /// is kept as a ring row on `Cold`, so this answers under the live
+    /// rotation rather than from a number that went stale at the first
+    /// scroll.
+    pub fn prompt_row(&self) -> Option<Row> {
+        if self.cold.zone != Zone::Prompt {
+            return None;
+        }
+        let y = self
+            .cold
+            .prompt
+            .start()
+            .retreat(self.rotation().index(), self.ring())
+            .index();
+        (y < self.rows.index()).then(|| Row::from_index(y))
     }
 
     /// `?2004`. Whether pasted text should be bracketed.
@@ -1190,9 +1258,34 @@ impl<'b> Term<'b> {
         RowBlock::leading(ring, self.stride).of(cells)
     }
 
+    /// How the window moved since a rotation a caller noted: rows retired
+    /// off the top, or rows restored -- a resize pulling history back, or
+    /// a redraw mark moving the window over its block. A rotation is
+    /// modular, so the short way round is the one that happened; an
+    /// embedder anchoring a scrolled-back window needs this and must not
+    /// guess it from two rotations.
+    pub fn moved_since(&self, before: RowRot) -> Moved {
+        let ring = self.ring().index();
+        let fwd = (self.rotation().index() + ring - before.index()) % ring;
+        match fwd * 2 <= ring {
+            true => Moved::Retired(Rows::of_count(fwd)),
+            false => Moved::Restored(Rows::of_count(ring - fwd)),
+        }
+    }
+
     /// The rotation [`Term::cells`] is under.
     pub fn rotation(&self) -> RowRot {
         self.surface().3
+    }
+
+    /// Rows a shorter screen cut from below the cursor and a taller one
+    /// reveals first, before it pulls anything back from the history. Zero
+    /// unless a shrink left some; a redraw of a prompt block taller than
+    /// the screen adds the blank rows the window gave up moving back over
+    /// the block. Exposed so a test can hold the bookkeeping to its
+    /// contract rather than infer it from what a growth shows.
+    pub fn hidden(&self) -> Rows {
+        self.store.book.hidden
     }
 
     /// The modulus of that rotation: physical rows in the live surface's

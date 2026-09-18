@@ -554,6 +554,11 @@ impl<'a> View<'a> {
         core::mem::swap(&mut self.rot, &mut other.rot);
     }
 
+    /// The rotation this view is under: screen row `y` is physical row
+    /// `(y + rotation) % ring`. Live across a read -- a scroll advances it.
+    pub fn rotation(&self) -> RowRot {
+        self.rot
+    }
     /// The ring's depth: physical rows in the buffer.
     pub fn ring(&self) -> Rows {
         self.ring
@@ -1520,6 +1525,51 @@ impl<'a> View<'a> {
             true => RowExtent::ZERO,
             false => RowExtent::of(cols),
         };
+        RowExtent::of(to)
+    }
+
+    /// Whether a screen row holds nothing within the live width: every
+    /// cell's content is [`Content::EMPTY`]. Content, not the mark: a row
+    /// written wide and then narrowed keeps a mark past the live edge,
+    /// and the mark a blanking fill leaves there is about what lies past
+    /// the edge, not about whether the row shows anything. The question
+    /// a retreat asks -- may this row leave the screen -- is about what
+    /// it shows.
+    pub fn row_is_blank(&self, r: Row) -> bool {
+        r.index() < self.rows.index()
+            && self
+                .row_slice(r)
+                .iter()
+                .all(|c| c.content == Content::EMPTY)
+    }
+
+    /// Blank the row `back` lines behind the window -- a retained line --
+    /// to its mark, and mark it empty. The caller says the row is retained
+    /// (`back` is below the history's length); this addresses it the way
+    /// `Scrollback::line` does, `rot - 1 - back` modulo the ring.
+    ///
+    /// For the prompt block a redraw replaces when it was taller than the
+    /// screen: its rows above the window are the newest retained lines,
+    /// and they are the shell's stale prompt, not content.
+    pub fn fill_behind(&mut self, back: crate::Back, cell: PackedCell) -> RowExtent {
+        self.fill_at(self.rot.retreat(back.index() + 1, self.ring), cell)
+    }
+
+    /// Blank one physical row of the ring -- wherever the window is -- to
+    /// its mark, and mark it empty. `at` is the ring row as [`RowRot`]
+    /// spells it: `phys(y)` for a screen row is `rot.advance(y, ring)`,
+    /// and a row behind the window is `rot.retreat(1 + back, ring)`.
+    ///
+    /// For a block of rows the terminal knows the ring extent of and must
+    /// erase whether they are on the screen, behind it or, after the
+    /// window moved, hidden past it.
+    pub fn fill_at(&mut self, at: RowRot, cell: PackedCell) -> RowExtent {
+        let p = at.index();
+        let base = p * self.stride.index();
+        let to = self.used[p].index();
+        #[cfg(not(feature = "ceiling-no-rowfill"))]
+        self.cells[base..base + to].fill(cell);
+        self.used[p] = RowExtent::ZERO;
         RowExtent::of(to)
     }
 

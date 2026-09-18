@@ -325,3 +325,44 @@ fn a_wrapped_row_continues_and_a_newline_ends_it() {
         assert_eq!(seen, 2, "the two full rows of the long line");
     });
 }
+
+#[test]
+fn moved_since_reads_a_rotation_the_short_way_round() {
+    // Twelve lines onto an eight-row screen retire four; a growth of two
+    // pulls two back. Both are the short way round a ring of thousands of
+    // rows, which is what an embedder anchoring a scrolled-back window
+    // must not compute for itself.
+    // Provisioned at ten rows and started at eight, so the growth is real:
+    // a storage sized to the short screen answers it with `Truncated`.
+    let mut owned = Owned::new(&WinSize {
+        ws_col: 40,
+        ws_row: 10,
+    });
+    let mut t = Term::new(
+        owned.storage(),
+        &WinSize {
+            ws_col: 40,
+            ws_row: 8,
+        },
+    );
+    {
+        let t = &mut t;
+        {
+            let before = t.rotation();
+            for i in 0..12 {
+                support::feed(t, format!("line {i}\r\n").as_bytes());
+            }
+            assert_eq!(t.moved_since(before), Moved::Retired(Rows::of_count(5)));
+            let before = t.rotation();
+            let _ = t.resize(&WinSize {
+                ws_col: 40,
+                ws_row: 10,
+            });
+            assert_eq!(t.moved_since(before), Moved::Restored(Rows::of_count(2)));
+            assert_eq!(
+                t.moved_since(t.rotation()),
+                Moved::Retired(Rows::of_count(0))
+            );
+        }
+    }
+}

@@ -140,6 +140,16 @@ fn replay(f: &Fixture, mut each: impl FnMut(&Term<'_>, usize)) {
         // Asserted rather than discarded: `winch` drops the `Resized`,
         // and a step silently truncated would make every assertion after
         // it a statement about a grid nobody asked for.
+        // A zero size is not a resize, it is a broken capture: the
+        // `rows >= 1 / cols >= 2` floor lives in the app's `relayout`,
+        // not in `Term::resize`, whose arithmetic underflows on it.
+        assert!(
+            ws.ws_col >= 2 && ws.ws_row >= 1,
+            "{}: step {i} is {}x{}, which no resize can be",
+            f.name,
+            ws.ws_col,
+            ws.ws_row
+        );
         assert_eq!(
             t.resize(ws),
             Resized::Ok,
@@ -148,11 +158,17 @@ fn replay(f: &Fixture, mut each: impl FnMut(&Term<'_>, usize)) {
             ws.ws_col,
             ws.ws_row
         );
+        // **Fed whole.** A step is one chunk the core was handed --
+        // `Pty::drain` returns one `Vec` per `read(2)` and the app feeds
+        // each on its own -- so re-chunking here at 4096 was a guess at
+        // boundaries the trace now records. `BAUD_TRACE` never writes a
+        // step longer than a read, and a pty-captured fixture's steps
+        // are one drain each, which is the same thing.
         let bytes = &f.raw[at..at + len];
         at += len;
-        for chunk in bytes.chunks(4096) {
-            t.write_at(BytePos::ZERO, chunk);
-            t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+        if !bytes.is_empty() {
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         }
         each(&t, i);
     }
@@ -264,7 +280,65 @@ fn controls(f: &Fixture) {
     );
 }
 
-const FIXTURES: [&str; 3] = ["drag", "zoom", "short"];
+/// The recorded gestures. `drag`, `zoom` and `short` begin with a full
+/// screen -- the devenv banner -- so on them a gesture legitimately
+/// pushes content into the history. `fresh-drag` and `fresh-zoom` are
+/// the same size sequences with the shell started in `/tmp`, where
+/// nothing prints before the prompt: a fresh terminal, which is the
+/// owner's recording and the case the first three cannot show.
+/// `fresh-burst` is the owner's recording of 2026-09-18 09:09 in shape:
+/// Enter twice, a drag in and out delivered as the app delivers it --
+/// the sizes a display-link tick apart with nothing read between them,
+/// so the shell redraws once per size and every redraw but the last is
+/// computed for a width the screen has left -- then Enter again.
+/// `live-drag` is the owner's own session, recorded by the app
+/// (`BAUD_TRACE`): every resize and every chunk in the order the core
+/// saw them, 767 steps -- a fresh terminal, Enter four times, a drag in
+/// and out three times to as small as 21x3. Not a reconstruction.
+const FIXTURES: [&str; 7] = [
+    "drag",
+    "zoom",
+    "short",
+    "fresh-drag",
+    "fresh-zoom",
+    "fresh-burst",
+    "live-drag",
+];
+const FRESH: [&str; 2] = ["fresh-drag", "fresh-zoom"];
+
+/// The steps at least `rows` tall, counted off the step list rather than
+/// off the replay: the control every fresh-terminal test holds its
+/// `checked` count to, so a replay that skipped a step fails rather than
+/// checking less than it appears to. At least three, or the fixture never
+/// returned to a height worth checking.
+fn tall_steps(f: &Fixture, rows: usize) -> usize {
+    // From the second step: the first is the fixture's startup, which the
+    // tests read their expectations from rather than check.
+    let n = f
+        .steps
+        .iter()
+        .skip(1)
+        .filter(|(ws, _)| usize::from(ws.ws_row) >= rows)
+        .count();
+    assert!(
+        n >= 3,
+        "{}: only {n} steps are {rows} rows or taller",
+        f.name
+    );
+    n
+}
+
+/// Every row of the screen, trimmed, for comparing whole screens.
+fn screen_text(t: &Term<'_>) -> Vec<String> {
+    (0..t.geometry().1.index())
+        .map(|y| row_text(t, y))
+        .collect()
+}
+
+/// The row of the first line that holds anything.
+fn first_row(t: &Term<'_>) -> Option<usize> {
+    (0..t.geometry().1.index()).find(|y| !row_text(t, *y).is_empty())
+}
 
 #[test]
 fn every_fixture_is_a_gesture_with_marks_in_it() {
@@ -347,24 +421,27 @@ fn a_gesture_leaves_one_prompt_on_screen() {
         // passes by being blind. It has to find the prompt at least
         // once, on at least one step, or it is not counting prompts.
         let mut ever = 0;
-        // **Pinned at what it is, and what it is got worse on purpose.**
-        // Holding the *top* still took `drag` to 1 and `zoom` to 2, and
-        // it did that by letting the shell overwrite output a growth
-        // could never restore -- the owner's `ls`, ten of twelve lines
-        // gone. The bottom anchor gives those back and reveals the
-        // prompts the shell drew and scrolled away while the window was
-        // too short to hold one.
-        //
-        // That is the trade taken deliberately: a duplicate is a
-        // nuisance and a deletion is a loss. These numbers are the open
-        // bug, pinned as a ceiling *and* a floor so that fixing it fails
-        // here and says to move the pin -- and so does trading it back
-        // for data loss.
-        let worst_seen = match name {
-            "drag" => 5,
-            _ => 2,
-        };
+        // One block, plus one for every command that finished: a fixture
+        // that presses Enter has that many prompts on screen by right,
+        // and only a copy beyond that is a duplicate. Counted off the
+        // bytes fed so far, `D` marks being what Enter produces.
+        let mut fed = 0;
+        let mut done = 0;
+        // **One.** The mechanism is in `zoom`'s own bytes: two resizes
+        // with nothing fed between them, then two of the shell's redraws
+        // landing together -- the first padded to the width the shell
+        // had at the first `SIGWINCH`, so on the narrower screen its
+        // lines wrap and the block grows, and the second's `CUU n` lands
+        // below where the first began. The erase on the redraw mark is
+        // what takes this to one, and a pin above one is the bug kept.
         replay(&f, |t, i| {
+            let len = f.steps[i].1;
+            done += f.raw[fed..fed + len]
+                .windows(7)
+                .filter(|w| w == b"\x1b]133;D")
+                .count();
+            fed += len;
+            let allowed = 1 + done;
             let rows = t.geometry().1.index();
             let starts = (0..rows)
                 .filter(|y| row_text(t, *y).trim_start().starts_with(sig.trim()))
@@ -379,9 +456,8 @@ fn a_gesture_leaves_one_prompt_on_screen() {
             // `zoom` to 1; breaking either of the others shows up here
             // too, in the other direction.
             assert!(
-                starts <= worst_seen,
-                "{name}: {starts} prompts ({sig:?}) on screen after step {i}, \
-                 pinned at {worst_seen}:\n{}",
+                starts <= allowed,
+                "{name}: {starts} prompts ({sig:?}) on screen after step {i}, {allowed} allowed:\n{}",
                 (0..rows)
                     .map(|y| format!("{y:3}| {}\n", row_text(t, y)))
                     .collect::<String>()
@@ -391,14 +467,6 @@ fn a_gesture_leaves_one_prompt_on_screen() {
             ever >= 1,
             "{name}: the signature {sig:?} never matched a row, so nothing was counted"
         );
-        // The pin is a ceiling and a floor: a fixture that quietly stops
-        // stranding anything has had its bug fixed, and that is a result
-        // to notice rather than to absorb.
-        assert_eq!(
-            ever, worst_seen,
-            "{name}: the worst step stranded {ever} prompts against a pin of {worst_seen} -- \
-             if this improved, move the pin"
-        );
     }
 }
 
@@ -407,28 +475,420 @@ fn output_written_before_a_gesture_survives_it() {
     // The owner: "did ls, then made window smaller then bigger and the
     // ls disappear". The fixture's own startup is the output -- a
     // shell's banner, written before the first resize -- so this asks
-    // whether a real gesture loses real output.
+    // whether a real gesture loses real output: at every step back at
+    // the starting height, the first line is either on the screen or
+    // retained in the history, and never gone.
+    //
+    // The first version asserted the history was *non-empty* after the
+    // gesture, which is true of a screen that started full and false of
+    // a fresh one -- a fresh terminal has nothing to retain, and a test
+    // that demanded it retain something was demanding the bug.
+    let mut with_output = 0;
     for name in FIXTURES {
         let f = load(name);
         controls(&f);
-        let first = (f.steps[0].0.ws_col, f.steps[0].0.ws_row);
-        let mut before = None;
-        let mut after = None;
+        let sig = prompt_signature(&f);
+        let start_rows = usize::from(f.steps[0].0.ws_row);
+        let mut first = None;
+        let mut checked = 0;
+        // The first line is taken from the first step that draws one: a
+        // trace the app records begins before the shell has said
+        // anything, where a pty capture's first step is the settle.
         replay(&f, |t, i| {
-            if i == 0 {
-                before = first_line(t);
+            if first.is_none() {
+                first = first_line(t);
+                return;
             }
-            if t.geometry().0.index() == usize::from(first.0)
-                && t.geometry().1.index() == usize::from(first.1)
-            {
-                after = Some((first_line(t), t.scrollback().len()));
+            if t.geometry().1.index() >= start_rows {
+                // A fixture whose first line is the prompt itself has no
+                // output to lose: the prompt is redrawn at every width,
+                // with its right prompt wherever that width puts it, and
+                // this test is about output. Left uncounted rather than
+                // passed: the sum below says how many fixtures it reached.
+                let want = first.as_deref().expect("a step drew something");
+                if want.trim_start().starts_with(sig.trim()) {
+                    return;
+                }
+                // Compared with runs of spaces collapsed: a line's padding
+                // is the width it was drawn at.
+                let squash = |l: &str| l.split_whitespace().collect::<Vec<_>>().join(" ");
+                let want = squash(want);
+                let on_screen = screen_text(t).iter().any(|l| squash(l) == want);
+                let sb = t.scrollback();
+                let retained = (0..sb.len()).any(|n| {
+                    sb.line(baud_domain::Back::of(n))
+                        .is_some_and(|(c, _)| squash(&text_of(c)) == want)
+                });
+                assert!(
+                    on_screen || retained,
+                    "{name}: step {i} at {}x{}: the first line {want:?} is neither on screen nor retained",
+                    t.geometry().0.index(),
+                    t.geometry().1.index()
+                );
+                checked += 1;
             }
         });
-        let before = before.expect("the first step drew something");
-        let (_, retained) = after.expect("the gesture returned to its starting size");
+        with_output += usize::from(checked > 0);
+    }
+    // The fresh fixtures begin with a banner or with the prompt itself; the
+    // three full-screen ones begin with output, and those are the ones
+    // this test is for.
+    assert!(
+        with_output >= 3,
+        "only {with_output} fixtures had output before the gesture"
+    );
+}
+
+#[test]
+fn the_prompt_to_cursor_distance_holds_across_every_resize() {
+    // **The shell's own contract.** zsh keeps one number about the screen:
+    // how many rows above the cursor its prompt starts, computed from its
+    // own text and `COLUMNS`. On `SIGWINCH` it moves up that many, erases
+    // to the end of the screen and redraws; "the rest of the screen
+    // contents are unknown" (Schaefer, zsh-workers). So a terminal that
+    // changes that distance behind its back -- by moving the cursor and
+    // not the prompt, or the prompt and not the cursor -- leaves the top
+    // of the old prompt for the erase to miss, and that is the orphan.
+    //
+    // Checked around the `resize` call alone, with nothing fed, on every
+    // step where the shell is at a prompt whose block still fits the new
+    // height. A block taller than the screen cannot keep its first row and
+    // is not the contract's case: the shell cannot redraw it either.
+    for name in FIXTURES {
+        let f = load(name);
+        controls(&f);
+        let widest = f.steps.iter().map(|(w, _)| w.ws_col).max().unwrap();
+        let tallest = f.steps.iter().map(|(w, _)| w.ws_row).max().unwrap();
+        let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&WinSize {
+            ws_col: widest,
+            ws_row: tallest,
+        })));
+        let mut t = Term::new(owned.storage(), &f.steps[0].0);
+        let mut at = 0;
+        let mut checked = 0;
+        for (i, (ws, len)) in f.steps.iter().enumerate() {
+            let before = t.prompt_row().map(|p| (p.index(), t.cursor().0.index()));
+            assert_eq!(t.resize(ws), Resized::Ok, "{name}: step {i} truncated");
+            if let Some((p, cy)) = before {
+                assert!(
+                    cy >= p,
+                    "{name}: step {i}: the cursor at row {cy} sits above its prompt at row {p}"
+                );
+                let rows = t.geometry().1.index();
+                if cy - p < rows {
+                    let dump = || {
+                        (0..rows)
+                            .map(|y| format!("{y:3}| {}\n", row_text(&t, y)))
+                            .collect::<String>()
+                    };
+                    let cy2 = t.cursor().0.index();
+                    let p2 = t.prompt_row().unwrap_or_else(|| {
+                        panic!(
+                            "{name}: step {i} to {}x{} lost the prompt's first row with nothing fed \
+                             (it was {p}, the cursor {cy}, now the cursor is {cy2}):\n{}",
+                            ws.ws_col,
+                            ws.ws_row,
+                            dump()
+                        )
+                    });
+                    let p2 = p2.index();
+                    assert!(
+                        cy2 >= p2 && cy2 - p2 == cy - p,
+                        "{name}: step {i} to {}x{} changed the prompt-to-cursor distance \
+                         from {} to {} with nothing fed (prompt {p}->{p2}, cursor {cy}->{cy2}):\n{}",
+                        ws.ws_col,
+                        ws.ws_row,
+                        cy - p,
+                        cy2.saturating_sub(p2),
+                        dump()
+                    );
+                    checked += 1;
+                }
+            }
+            let bytes = &f.raw[at..at + len];
+            at += len;
+            if !bytes.is_empty() {
+                t.write_at(BytePos::ZERO, bytes);
+                t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            }
+        }
+        // **The control is against a `prompt_row` that never answers.** Ten
+        // mirrors the fixture control's own floor on size transitions;
+        // `short` has 19 prompt-time resizes and a threshold copied from
+        // `drag` called that "nothing", which is a control measuring the
+        // fixture's length rather than the accessor's silence.
         assert!(
-            retained > 0 || before.is_empty(),
-            "{name}: nothing retained and nothing on screen -- the output went nowhere"
+            checked > 10,
+            "{name}: only {checked} resizes happened at a prompt, so this checked nothing"
+        );
+    }
+}
+
+#[test]
+fn a_fresh_terminal_keeps_its_first_line_wherever_the_window_is_tall_enough() {
+    // The owner's invariant, stated as they stated it: the size of the
+    // window does not change what the first line at the top is; what
+    // changes it is content pushing up into the history when it exceeds
+    // the visible size. A fresh terminal has a banner line and a prompt,
+    // and nothing else ever pushes -- so at every step where the window
+    // is at least as tall as it started, the first line is the one it
+    // started with, on the row it started on. The recording of
+    // 2026-09-18 02:18 shows the prompt at the bottom of a same-sized
+    // window with blank rows above it after one resize.
+    for name in FRESH {
+        let f = load(name);
+        controls(&f);
+        let start_rows = usize::from(f.steps[0].0.ws_row);
+        let mut first = None;
+        let mut checked = 0;
+        replay(&f, |t, i| {
+            if i == 0 {
+                first = Some((first_row(t), first_line(t)));
+                assert_eq!(
+                    first_row(t),
+                    Some(0),
+                    "{name}: the fresh screen starts at row 0"
+                );
+                return;
+            }
+            if t.geometry().1.index() >= start_rows {
+                let want = first.clone().expect("step 0 recorded the first line");
+                let got = (first_row(t), first_line(t));
+                assert_eq!(
+                    got,
+                    want,
+                    "{name}: step {i} at {}x{} moved the first line with nothing pushed up:\n{}",
+                    t.geometry().0.index(),
+                    t.geometry().1.index(),
+                    screen_text(t)
+                        .iter()
+                        .enumerate()
+                        .map(|(y, l)| format!("{y:3}| {l}\n"))
+                        .collect::<String>()
+                );
+                checked += 1;
+            }
+        });
+        assert_eq!(
+            checked,
+            tall_steps(&f, start_rows),
+            "{name}: not every tall step was checked"
+        );
+    }
+}
+
+#[test]
+fn a_gesture_on_a_fresh_terminal_creates_no_history() {
+    // Nothing in a fresh terminal is content that exceeds the screen once
+    // the screen is back at its size, so nothing belongs in the history:
+    // a retained line here is one the terminal manufactured -- a row of
+    // the shell's own prompt that a redraw at a too-short window scrolled
+    // off, or the blank the erase left in its place. Those are what a
+    // growth pulled back above the prompt in the recording.
+    for name in FRESH {
+        let f = load(name);
+        controls(&f);
+        let start_rows = usize::from(f.steps[0].0.ws_row);
+        let mut checked = 0;
+        replay(&f, |t, i| {
+            if t.geometry().1.index() >= start_rows {
+                assert_eq!(
+                    t.scrollback().len(),
+                    0,
+                    "{name}: step {i} at {}x{} holds {} manufactured lines in the history",
+                    t.geometry().0.index(),
+                    t.geometry().1.index(),
+                    t.scrollback().len()
+                );
+                checked += usize::from(i > 0);
+            }
+        });
+        assert_eq!(
+            checked,
+            tall_steps(&f, start_rows),
+            "{name}: not every tall step was checked"
+        );
+    }
+}
+
+#[test]
+fn a_fresh_terminal_returns_to_its_first_screen() {
+    // The strongest form: at every step at least as tall as the start,
+    // the whole starting screen reads as it did at step 0. Not only the
+    // first line and not only the count of prompts -- every row.
+    for name in FRESH {
+        let f = load(name);
+        controls(&f);
+        let start = (f.steps[0].0.ws_col, f.steps[0].0.ws_row);
+        let mut want = None;
+        let mut checked = 0;
+        replay(&f, |t, i| {
+            if i == 0 {
+                want = Some(screen_text(t));
+                return;
+            }
+            // At least as tall as it started: the starting screen's rows
+            // must read the same, and whatever the taller window adds
+            // below them is blank, because nothing was ever written there.
+            // Rows are compared trimmed, so a wider or narrower window is
+            // the same rows -- the recorded prompt's lines are short.
+            // And at the starting width: the recorded prompt has a right
+            // prompt, whose row is padded to the width it was drawn at.
+            let (cols, rows) = (t.geometry().0.index(), t.geometry().1.index());
+            if cols == usize::from(start.0) && rows >= usize::from(start.1) {
+                let got = screen_text(t);
+                let want = want.as_ref().expect("step 0");
+                assert_eq!(
+                    &got[..want.len()],
+                    &want[..],
+                    "{name}: step {i} at {}x{} does not read as the starting screen",
+                    t.geometry().0.index(),
+                    rows
+                );
+                assert!(
+                    got[want.len()..].iter().all(String::is_empty),
+                    "{name}: step {i} has content below the starting screen's rows:\n{}",
+                    got.iter()
+                        .enumerate()
+                        .map(|(y, l)| format!("{y:3}| {l}\n"))
+                        .collect::<String>()
+                );
+                checked += 1;
+            }
+        });
+        // Its own control: eligible is the starting width *and* at least
+        // the starting height, counted off the step list.
+        let eligible = f
+            .steps
+            .iter()
+            .skip(1)
+            .filter(|(ws, _)| ws.ws_col == start.0 && ws.ws_row >= start.1)
+            .count();
+        assert!(
+            eligible >= 3,
+            "{name}: only {eligible} steps are at the starting width and tall"
+        );
+        assert_eq!(
+            checked, eligible,
+            "{name}: not every eligible step was checked"
+        );
+    }
+}
+
+#[test]
+fn a_block_never_moves_once_it_is_drawn() {
+    // The owner's recording of 2026-09-18 09:09, frames f12 to f14: the
+    // current prompt block sits right under the one before it, the
+    // window is resized, and the block is four rows lower with blank
+    // rows above it. Each stale redraw's `CUU n` lands below the block's
+    // first row -- the block it is counting grew by a wrapped row when
+    // its padded line met a narrower screen -- and the new block is
+    // drawn where the cursor landed. So: at every step at the starting
+    // size, every row up to the cursor of the previous such step reads
+    // exactly as it did then. Enter adds a block below; nothing moves
+    // what is above.
+    for name in ["fresh-drag", "fresh-zoom", "fresh-burst"] {
+        let f = load(name);
+        controls(&f);
+        let start = (f.steps[0].0.ws_col, f.steps[0].0.ws_row);
+        let mut last: Option<(usize, Vec<String>)> = None;
+        let mut checked = 0;
+        // At the starting width and at least the starting height: rows
+        // are what a block's position is, and the recorded prompt's first
+        // line is padded to the width it was drawn at, so only the same
+        // width reads the same.
+        replay(&f, |t, i| {
+            let (c, r) = t.geometry();
+            if c.index() != usize::from(start.0) || r.index() < usize::from(start.1) {
+                return;
+            }
+            let now = screen_text(t);
+            let cy = t.cursor().0.index();
+            if let Some((was_cy, was)) = &last {
+                assert_eq!(
+                    &now[..=*was_cy],
+                    &was[..=*was_cy],
+                    "{name}: step {i}: a block drawn by an earlier step moved:\n{}",
+                    now.iter()
+                        .enumerate()
+                        .map(|(y, l)| format!("{y:3}| {l}\n"))
+                        .collect::<String>()
+                );
+                checked += 1;
+            }
+            last = Some((cy, now));
+        });
+        let eligible = f
+            .steps
+            .iter()
+            .filter(|(ws, _)| ws.ws_col == start.0 && ws.ws_row >= start.1)
+            .count();
+        assert!(
+            eligible >= 2,
+            "{name}: only {eligible} steps are at the starting width and tall"
+        );
+        assert_eq!(
+            checked,
+            eligible - 1,
+            "{name}: not every eligible step was checked"
+        );
+    }
+}
+
+/// The rows holding the prompt's first text, top to bottom.
+fn prompt_rows(t: &Term<'_>, sig: &str) -> Vec<usize> {
+    (0..t.geometry().1.index())
+        .filter(|y| row_text(t, *y).trim_start().starts_with(sig))
+        .collect()
+}
+
+#[test]
+fn no_more_than_two_blank_rows_come_between_consecutive_prompts() {
+    // The owner's screenshot of 2026-09-18 09:31, from the live trace:
+    // four blocks at rows 1-19, then twelve blank rows, then the fifth.
+    // Between one prompt block and the next there is the `$` row, the
+    // mark's blank row and the next block's first text: one blank row,
+    // two when a padded line wraps into a row of spaces. More than two
+    // is rows the terminal left behind -- a block's own rows scrolled
+    // off by a stale redraw and never taken back. Checked at every
+    // step at least as tall as the start, whatever the width, so a
+    // drag that never returns to its exact starting size is checked
+    // too; `live-drag` returns to none of its sizes.
+    for name in FIXTURES {
+        let f = load(name);
+        controls(&f);
+        let sig = prompt_signature(&f);
+        let start_rows = usize::from(f.steps[0].0.ws_row);
+        let mut checked = 0;
+        replay(&f, |t, i| {
+            if i == 0 || t.geometry().1.index() < start_rows {
+                return;
+            }
+            let rows = prompt_rows(t, sig.trim());
+            for pair in rows.windows(2) {
+                let blank = (pair[0] + 1..pair[1])
+                    .filter(|y| row_text(t, *y).is_empty())
+                    .count();
+                assert!(
+                    blank <= 2,
+                    "{name}: step {i} at {}x{}: {blank} blank rows between the prompts at rows {} and {}:\n{}",
+                    t.geometry().0.index(),
+                    t.geometry().1.index(),
+                    pair[0],
+                    pair[1],
+                    screen_text(t)
+                        .iter()
+                        .enumerate()
+                        .map(|(y, l)| format!("{y:3}| {l}\n"))
+                        .collect::<String>()
+                );
+            }
+            checked += 1;
+        });
+        assert_eq!(
+            checked,
+            tall_steps(&f, start_rows),
+            "{name}: not every tall step was checked"
         );
     }
 }

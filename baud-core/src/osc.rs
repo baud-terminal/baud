@@ -147,22 +147,26 @@ impl Paint<'_, '_> {
             // find OSC codes it might want to implement, and
             // `unsupported_total` is the one the conformance inventory asks.
             // They answer different questions and the second was missing.
-            // **The one thing these marks are acted on for.** A shell
-            // redraws its prompt after a resize by counting the rows it
-            // occupies and erasing that many; re-cutting those rows to a
-            // new width changes the count behind its back, so the erase
-            // begins below the prompt's first line and that line
-            // survives. Output has no such reader, and re-cutting it is
-            // the part of a reflow worth keeping. `Term::resize` is what
-            // reads this, and the note in `Zone` is why.
+            // What the marks are acted on for: the prompt block, tracked so
+            // a redraw replaces exactly it (`prompt.rs`), and the zone,
+            // which `Term::resize` reads to leave the block's rows un-cut.
             Osc::Semantic(mark) => {
+                // Only an initial line begins a block: `k=s`, `k=c` and `k=r`
+                // are later lines of the same one. A mark in the prompt zone
+                // is the shell redrawing the block it has.
+                if matches!(mark, Semantic::PromptStart(PromptKind::Initial)) {
+                    if self.cold.zone == crate::term::Zone::Prompt {
+                        self.replace_prompt_block();
+                    }
+                    self.open_prompt_block();
+                }
                 self.cold.zone = match mark {
-                    Semantic::PromptStart | Semantic::CommandStart => crate::term::Zone::Prompt,
-                    Semantic::OutputStart => crate::term::Zone::Output,
-                    // `D` says the command finished; the shell's next act
-                    // is a prompt, which sends its own mark. Nothing is
-                    // assumed here in between.
-                    Semantic::CommandDone | Semantic::Other => self.cold.zone,
+                    Semantic::PromptStart(_) | Semantic::CommandStart => crate::term::Zone::Prompt,
+                    // `D` closes it as `C` does: Enter on an empty line sends
+                    // no `C`, and the `P` after `D` is a fresh prompt, not a
+                    // redraw -- and so is anything a `precmd` prints first.
+                    Semantic::OutputStart | Semantic::CommandDone => crate::term::Zone::Output,
+                    Semantic::Other => self.cold.zone,
                 };
                 self.semantic_marks += 1;
             }

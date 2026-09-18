@@ -55,6 +55,7 @@ pub use graph::Hist;
 mod ops;
 mod osc;
 mod paint;
+mod prompt;
 mod storage;
 mod term;
 mod vt52;
@@ -106,4 +107,4 @@ pub use storage::{
     OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
-pub use term::{Resized, Screen, Term, Zone};
+pub use term::{Moved, Resized, Screen, Term, Zone};

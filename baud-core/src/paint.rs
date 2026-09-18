@@ -128,6 +128,8 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) strings_ignored: usize,
     pub(crate) clipboard_reads_refused: usize,
     pub(crate) semantic_marks: usize,
+    /// Redraw marks that erased the block they replace; see `osc.rs`.
+    pub(crate) prompt_erases: usize,
     pub(crate) clipboard_writes_dropped: usize,
     /// The screen that is not live: the other surface's cells, marks, ring
     /// and rotation, reached **once per alt-screen transition** and never by
@@ -352,6 +354,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             strings_ignored: 0,
             clipboard_reads_refused: 0,
             semantic_marks: 0,
+            prompt_erases: 0,
             clipboard_writes_dropped: 0,
             other,
             book,

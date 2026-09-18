@@ -23,7 +23,9 @@ already in.
 
 The sizes come from a file of `COLSxROWS` lines, which is what
 `BAUD_DEBUG_RESIZE=1` already prints -- so a real session's gesture can
-be replayed verbatim:
+be replayed verbatim. Several sizes on one line are a burst -- applied
+with nothing drained between them, the shape the app produces -- and a
+line reading `enter` presses Enter:
 
     grep '^resize asked' baud-resize.log | awk '{print $5}' > drag.sizes
     python3 scripts/capture-resize.py --sizes drag.sizes \\
@@ -75,22 +77,43 @@ def drain(fd: int, seconds: float) -> bytes:
     return bytes(out)
 
 
-def read_sizes(path: str) -> list[tuple[int, int]]:
-    sizes = []
+# One line of the sizes file: a burst of sizes applied with nothing drained
+# between them, or a key the child is sent.
+#
+# **A burst is the shape the app produces and a per-size drain cannot.**
+# AppKit delivers several `setFrameSize:` callbacks between two display-link
+# ticks; each is a `TIOCSWINSZ` with nothing fed, and the shell's redraws
+# for all of them land together afterwards -- the first computed for a
+# width the screen has already left. `COLS x ROWS COLS x ROWS ...` on one
+# line is that: every size set back to back, then one drain, recorded as
+# zero-byte steps and one step with the bytes. `enter` writes a carriage
+# return and drains, so a fixture can carry what the owner does between
+# resizes.
+Line = tuple[str, list[tuple[int, int]]]
+
+
+def read_sizes(path: str) -> list[Line]:
+    lines: list[Line] = []
     for n, line in enumerate(open(path, encoding="utf-8"), 1):
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        if "x" not in line:
-            sys.exit(f"{path}:{n}: expected COLSxROWS, got {line!r}")
-        c, _, r = line.partition("x")
-        try:
-            sizes.append((int(c), int(r)))
-        except ValueError:
-            sys.exit(f"{path}:{n}: expected COLSxROWS, got {line!r}")
-    if not sizes:
+        if line == "enter":
+            lines.append(("enter", []))
+            continue
+        burst = []
+        for word in line.split():
+            if "x" not in word:
+                sys.exit(f"{path}:{n}: expected COLSxROWS or `enter`, got {line!r}")
+            c, _, r = word.partition("x")
+            try:
+                burst.append((int(c), int(r)))
+            except ValueError:
+                sys.exit(f"{path}:{n}: expected COLSxROWS, got {word!r}")
+        lines.append(("sizes", burst))
+    if not any(kind == "sizes" for kind, _ in lines):
         sys.exit(f"{path}: no sizes, so there is nothing to capture")
-    return sizes
+    return lines
 
 
 def main() -> None:
@@ -100,27 +123,48 @@ def main() -> None:
     ap.add_argument("--settle", type=float, default=2.5, help="seconds before the first resize")
     ap.add_argument("--step", type=float, default=0.05, help="seconds a step gives the shell")
     ap.add_argument("--tail", type=float, default=2.0, help="seconds after the last resize")
+    ap.add_argument(
+        "--gap",
+        type=float,
+        default=0.02,
+        help="seconds between the sizes of a burst, with nothing drained: a display-link "
+        "tick apart, so the shell redraws once per size and every redraw but the last is "
+        "computed for a width the screen has left. Zero coalesces them into one redraw.",
+    )
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     args = ap.parse_args()
     cmd = [a for a in args.cmd if a != "--"]
     if not cmd:
         sys.exit("give a command after --, e.g. -- /bin/zsh -i")
 
-    sizes = read_sizes(args.sizes)
+    lines = read_sizes(args.sizes)
+    first = next(burst[0] for kind, burst in lines if kind == "sizes")
     pid, fd = pty.fork()
     if pid == 0:
         os.environ.setdefault("TERM", "xterm-256color")
         os.execvp(cmd[0], cmd)
 
     steps: list[tuple[int, int, bytes]] = []
-    set_size(fd, *sizes[0])
+    set_size(fd, *first)
     # The shell's own startup, at the first size: a fixture that began
     # mid-prompt would be a recording of a terminal nobody has.
-    steps.append((sizes[0][0], sizes[0][1], drain(fd, args.settle)))
-    for cols, rows in sizes:
-        set_size(fd, cols, rows)
-        steps.append((cols, rows, drain(fd, args.step)))
-    steps.append((sizes[-1][0], sizes[-1][1], drain(fd, args.tail)))
+    steps.append((first[0], first[1], drain(fd, args.settle)))
+    at = first
+    for kind, burst in lines:
+        if kind == "enter":
+            os.write(fd, b"\r")
+            steps.append((at[0], at[1], drain(fd, args.step)))
+            continue
+        # Every size of the burst before any drain: the sizes but the last
+        # are steps with no bytes, which is what the app's trace records.
+        for cols, rows in burst[:-1]:
+            set_size(fd, cols, rows)
+            steps.append((cols, rows, b""))
+            time.sleep(args.gap)
+        at = burst[-1]
+        set_size(fd, *at)
+        steps.append((at[0], at[1], drain(fd, args.step)))
+    steps.append((at[0], at[1], drain(fd, args.tail)))
 
     try:
         os.kill(pid, signal.SIGTERM)

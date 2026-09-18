@@ -312,6 +312,8 @@ struct App {
     /// Frames whose shared-buffer writes began while the GPU was still
     /// reading the last one's. See the comment at the count site.
     wrote_in_flight: Tally,
+    /// See [`Trace`].
+    trace: Option<Trace>,
     last_report: std::time::Instant,
     stats: Frame,
     gpu_stats: GpuFrame,
@@ -566,6 +568,21 @@ impl App {
                 Request::Force(_) => " (requested)",
             }
         );
+        let trace = Trace::open(&ws);
+        // Said at startup, because the one time it mattered the variable
+        // was spelled `AUD_TRACE` and nothing said the files were not
+        // being written.
+        match (&trace, std::env::var_os("BAUD_TRACE")) {
+            (Some(_), Some(p)) => {
+                eprintln!("trace: writing {}.raw and .steps", p.to_string_lossy())
+            }
+            (None, Some(p)) => eprintln!(
+                "trace: BAUD_TRACE={} but the files could not be created",
+                p.to_string_lossy()
+            ),
+            (None, None) => eprintln!("trace: off (set BAUD_TRACE=<prefix> to record the session)"),
+            (Some(_), None) => {}
+        }
         App {
             term,
             renderer,
@@ -591,6 +608,7 @@ impl App {
             scroll_accum: 0.0,
             frames: Tally::default(),
             wrote_in_flight: Tally::default(),
+            trace,
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
             gpu_stats: GpuFrame::default(),
@@ -1048,13 +1066,7 @@ struct Driver {
     icon_inset: CGFloat,
 }
 
-/// Which way the ring moved under the window across a resize, and by how
-/// much. A shrink retires rows off the top; a growth restores them.
-#[derive(Clone, Copy)]
-enum Ring {
-    Retired(Rows),
-    Restored(Rows),
-}
+use baud_core::Moved as Ring;
 
 /// Where the scrollback window sits after a resize moved the ring under
 /// it, given how the rotation moved and how much history is retained.
@@ -1155,6 +1167,80 @@ mod anchor_tests {
     }
 }
 
+/// `BAUD_TRACE=<prefix>`: every `Term::resize` and every chunk fed to
+/// `Term::feed`, in the order the core received them, as `<prefix>.raw`
+/// and `<prefix>.steps` -- the two-file form `tests/resize/` already
+/// uses, one line per *event*.
+///
+/// **This exists because a reconstruction is not a recording.** The
+/// resize fixtures were captured by running a shell through a separate
+/// pty at recorded sizes, feeding after every resize. The app does not
+/// do that: AppKit delivers a burst of `setFrameSize:` callbacks between
+/// two display-link ticks, each a `term.resize` with nothing fed, while
+/// the shell's redraws queue in the pty channel and land together
+/// afterwards -- and `Pty::drain` hands the core one chunk per `read(2)`
+/// at boundaries no reconstruction can guess. On those fixtures the
+/// worst case was one stray prompt; the owner's screen showed five. A
+/// trace *is* the session, so a test replaying it is a test of what
+/// happened.
+///
+/// A resize with no bytes before the next event is a step of length 0;
+/// consecutive chunks at one size are consecutive lines at that size.
+/// Replaying a resize to an unchanged size is a no-op, so the format
+/// round-trips through `Term` exactly.
+struct Trace {
+    raw: std::fs::File,
+    steps: std::fs::File,
+    at: WinSize,
+}
+
+impl Trace {
+    /// Opens at `ws`, the grid the core starts with, and records it as
+    /// the first step: a feed before any resize is at *that* size, and
+    /// a step of `0x0` -- which the first draft wrote -- replays as a
+    /// `Term::resize` that underflows `rows - 1`.
+    fn open(ws: &WinSize) -> Option<Trace> {
+        let prefix = std::path::PathBuf::from(std::env::var_os("BAUD_TRACE")?);
+        let mut raw_path = prefix.clone();
+        raw_path.set_extension("raw");
+        let mut steps_path = prefix;
+        steps_path.set_extension("steps");
+        let raw = std::fs::File::create(&raw_path).ok()?;
+        let mut steps = std::fs::File::create(&steps_path).ok()?;
+        use std::io::Write as _;
+        let _ = writeln!(
+            steps,
+            "# COLSxROWS <bytes fed at that size>; a resize alone is 0"
+        );
+        let at = WinSize {
+            ws_col: ws.ws_col,
+            ws_row: ws.ws_row,
+        };
+        let _ = writeln!(steps, "{}x{} 0", at.ws_col, at.ws_row);
+        Some(Trace { raw, steps, at })
+    }
+
+    /// A resize the core just took: a zero-length step at the new size.
+    fn resized(&mut self, ws: WinSize) {
+        use std::io::Write as _;
+        self.at = ws;
+        let _ = writeln!(self.steps, "{}x{} 0", self.at.ws_col, self.at.ws_row);
+    }
+
+    /// A chunk the core was just fed, at the size in force.
+    fn fed(&mut self, chunk: &[u8]) {
+        use std::io::Write as _;
+        let _ = self.raw.write_all(chunk);
+        let _ = writeln!(
+            self.steps,
+            "{}x{} {}",
+            self.at.ws_col,
+            self.at.ws_row,
+            chunk.len()
+        );
+    }
+}
+
 /// A rescale asked for while a frame was in flight.
 ///
 /// Rescaling replaces the atlas and clears the glyph map, and the atlas is
@@ -1233,6 +1319,9 @@ impl Driver {
         }
         let before = self.app.term.rotation();
         for chunk in &drained.chunks {
+            if let Some(t) = self.app.trace.as_mut() {
+                t.fed(chunk);
+            }
             self.app.term.write_at(BytePos::ZERO, chunk);
             self.app
                 .term
@@ -1243,22 +1332,27 @@ impl Driver {
         // it was showing, which means it moves up the ring by however many
         // rows the screen scrolled -- the rotation's advance -- and no
         // further than what is retained.
-        let ring = self.app.term.ring().index();
-        let advanced = (self.app.term.rotation().index() + ring - before.index()) % ring;
-        let retained = self.app.term.scrollback().len();
-        if self.app.back.index() > 0 {
-            self.app.back = Rows::of_count((self.app.back.index() + advanced).min(retained));
-        }
+        // A read can move the window backwards: a redraw mark moving the
+        // window over its block (`prompt.rs`).
+        let moved = self.app.term.moved_since(before);
+        let retained = Rows::of_count(self.app.term.scrollback().len());
+        self.app.back = anchored(self.app.back, moved, retained);
         // The selection names absolute lines; the count that numbers them
         // advances with the screen. A surface switch is another ring, and a
-        // line the ring recycled is clipped away.
-        self.app.scrolled = self.app.scrolled.advanced(Rows::of_count(advanced));
+        // line the ring recycled is clipped away. A window moved *back* has
+        // un-retired lines the count already numbered, so the selection is
+        // dropped rather than renumbered: it names rows a redraw is about
+        // to replace.
         let screen = self.app.term.screen();
+        match moved {
+            Ring::Retired(n) => self.app.scrolled = self.app.scrolled.advanced(n),
+            Ring::Restored(_) => self.app.selection = None,
+        }
         if screen != self.app.last_screen {
             self.app.last_screen = screen;
             self.app.selection = None;
         }
-        let oldest = self.app.scrolled.oldest(Rows::of_count(retained));
+        let oldest = self.app.scrolled.oldest(retained);
         let gone = self
             .app
             .selection
@@ -2086,19 +2180,21 @@ impl Driver {
             let before = self.app.term.rotation();
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
+            if let Some(t) = self.app.trace.as_mut() {
+                // What the core *has*, post-clamp, which is what a replay
+                // must ask it for.
+                let (c, r) = self.app.term.geometry();
+                t.resized(WinSize {
+                    ws_col: u16::try_from(c.index()).unwrap_or(u16::MAX),
+                    ws_row: u16::try_from(r.index()).unwrap_or(u16::MAX),
+                });
+            }
             let t_reflow = t_step.elapsed();
             // Anchor a window that is *already* looking back; leave one on
             // the live screen where it is. See `anchored`. `scrolled` is
             // left untouched: it numbers lines for a selection, and a
             // resize has already cleared the selection.
-            let ring = self.app.term.ring().index();
-            let fwd = (self.app.term.rotation().index() + ring - before.index()) % ring;
-            // A rotation is modular, so "advanced by almost a whole ring"
-            // is a retreat: the short way round is the one that happened.
-            let moved = match fwd * 2 <= ring {
-                true => Ring::Retired(Rows::of_count(fwd)),
-                false => Ring::Restored(Rows::of_count(ring - fwd)),
-            };
+            let moved = self.app.term.moved_since(before);
             let retained = Rows::of_count(self.app.term.scrollback().len());
             self.app.back = anchored(self.app.back, moved, retained);
             let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
@@ -2164,12 +2260,13 @@ impl Driver {
                 // in `Zone::Output` and does not in `Zone::Prompt`, and a
                 // duplicated prompt is what the wrong one looks like.
                 eprintln!(
-                    "resize asked {}x{} got {}x{} zone {:?} cursor {:?} marks {}",
+                    "resize asked {}x{} got {}x{} zone {:?} prompt {:?} cursor {:?} marks {}",
                     asked.0,
                     asked.1,
                     has_cols.index(),
                     has_rows.index(),
                     self.app.term.zone(),
+                    self.app.term.prompt_row(),
                     self.app.term.cursor(),
                     self.app.term.semantic_marks,
                 );

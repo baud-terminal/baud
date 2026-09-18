@@ -44,7 +44,8 @@ fn resize(t: &mut Term<'_>, cols: usize, rows: usize) {
 /// A command's output, then the prompt that follows it -- the state a
 /// user is in after running `ls`.
 fn after_a_command(t: &mut Term<'_>, lines: usize) {
-    support::feed(t, b"\x1b]133;C\x07");
+    // Enter: the input line ends before the output starts.
+    support::feed(t, b"\r\n\x1b]133;C\x07");
     for i in 0..lines {
         support::feed(t, format!("file-{i:02}.txt\r\n").as_bytes());
     }
@@ -52,13 +53,16 @@ fn after_a_command(t: &mut Term<'_>, lines: usize) {
     prompt(t);
 }
 
-/// A five-line prompt drawn for the first time.
+/// The owner's zsh, as the fixtures record it: the mark, then a newline
+/// that is part of the prompt, then four lines with the cursor on the
+/// last -- a block of five rows whose first, the mark's, is blank. The
+/// redraw moves up four from the cursor to that row. An earlier version
+/// of this model sent the newline on the redraw and not on the first
+/// prompt, so its `CUU 4` landed one row low and every redraw drifted
+/// the block down a row: a model wrong in a way the recordings are not.
 fn prompt(t: &mut Term<'_>) {
     support::feed(t, b"\x1b]133;P;k=i\x07");
-    support::feed(
-        t,
-        b"zsh prompt\r\n line two\r\n line three\r\n line four\r\n$ ",
-    );
+    support::feed(t, b"\r\nzsh prompt\r\n line two\r\n line three\r\n$ ");
     support::feed(t, b"\x1b]133;B\x07");
 }
 
@@ -72,12 +76,7 @@ fn prompt(t: &mut Term<'_>) {
 /// pass, which is how the first version of this file read.
 fn redraw_prompt(t: &mut Term<'_>) {
     support::feed(t, b"\r\x1b[4A\x1b[J");
-    support::feed(t, b"\x1b]133;P;k=i\x07");
-    support::feed(
-        t,
-        b"\r\nzsh prompt\r\n line two\r\n line three\r\n line four\r\n$ ",
-    );
-    support::feed(t, b"\x1b]133;B\x07");
+    prompt(t);
 }
 
 #[test]
@@ -115,16 +114,17 @@ fn a_drag_through_a_short_window_stacks_this_many_prompts() {
         }
         resize(t, cols.index(), rows.index());
         redraw_prompt(t);
-        // **Pinned rather than asserted at one**, for the reason
-        // `resize_recorded.rs` spells out: holding the top still took
-        // this to one and deleted the owner's `ls` to do it. The bottom
-        // anchor reveals the prompts the shell scrolled away while the
-        // window was too short to hold one, and a duplicate is a
-        // nuisance where a deletion is a loss. Ceiling and floor, so
-        // fixing it fails here and says to move the pin.
+        // **One.** This sat pinned at five while the bottom anchor
+        // revealed the prompts the shell scrolled away in a window too
+        // short to hold one -- a duplicate being a nuisance where the
+        // top anchor's deletion was a loss. The redraw mark's erase
+        // reaches through the history to the block's recorded first
+        // row and forgets those rows, so the growth blanks instead of
+        // pulling them back; `a_block_taller_than_the_screen_is_erased_
+        // through_the_history_on_a_redraw` is the mechanism alone.
         assert_eq!(
             count_on_screen(t, "zsh prompt"),
-            5,
+            1,
             "prompts stacked on screen:\n{}",
             (0..t.geometry().1.index())
                 .map(|y| format!("{y:3}| {}\n", row_text(t, y)))
@@ -212,5 +212,154 @@ fn a_shrink_does_not_let_the_prompt_overwrite_output() {
                 .map(|y| format!("{y:3}| {}\n", row_text(t, y)))
                 .collect::<String>()
         );
+    });
+}
+
+/// A fresh terminal: nothing before the prompt.
+fn fresh(t: &mut Term<'_>) {
+    prompt(t);
+}
+
+/// The whole screen, trimmed rows.
+fn screen(t: &Term<'_>) -> Vec<String> {
+    (0..t.geometry().1.index())
+        .map(|y| row_text(t, y))
+        .collect()
+}
+
+#[test]
+fn a_fresh_terminal_dragged_through_a_tiny_window_comes_back_as_it_was() {
+    // The owner's recording of 2026-09-18 02:18: a fresh terminal, the
+    // prompt at the top, the window dragged small and back -- and the
+    // prompt sits at the bottom of the same-sized window with a screen
+    // of blank rows above it. Every row must read as it did, and the
+    // history must hold nothing, because nothing exceeded the screen at
+    // this size.
+    support::with_room(60, |t| {
+        resize(t, 100, 28);
+        fresh(t);
+        let want = screen(t);
+        assert_eq!(
+            &want[..2],
+            ["", "zsh prompt"],
+            "the control: the prompt is at the top"
+        );
+        for h in [20, 12, 6, 4, 3, 2, 3, 4, 6, 12, 20, 28] {
+            resize(t, 100, h);
+            redraw_prompt(t);
+        }
+        assert_eq!(
+            t.scrollback().len(),
+            0,
+            "a fresh terminal has nothing to retain, and holds {} lines",
+            t.scrollback().len()
+        );
+        assert_eq!(screen(t), want, "the screen is not what it was");
+    });
+}
+
+#[test]
+fn a_fresh_terminal_dragged_through_a_tiny_window_and_back_by_bare_resizes() {
+    // The same, with the shell silent for the way back: the growth alone
+    // must not pull manufactured rows above the prompt.
+    support::with_room(60, |t| {
+        resize(t, 100, 28);
+        fresh(t);
+        let want = screen(t);
+        for h in [12, 4, 2] {
+            resize(t, 100, h);
+            redraw_prompt(t);
+        }
+        for h in [4, 12, 28] {
+            resize(t, 100, h);
+        }
+        assert_eq!(t.scrollback().len(), 0);
+        assert_eq!(
+            screen(t)[..6],
+            want[..6],
+            "the prompt is not where it was after a silent growth"
+        );
+    });
+}
+
+#[test]
+fn output_and_the_prompt_stay_where_they_were_through_a_drag() {
+    // The recording's second half: an `ls`, then the drag. The output
+    // and the prompt below it come back exactly, with no blank rows
+    // above the output that were not there.
+    support::with_room(60, |t| {
+        resize(t, 100, 28);
+        fresh(t);
+        after_a_command(t, 8);
+        let want = screen(t);
+        assert_eq!(want[1], "zsh prompt");
+        assert!(
+            want.iter().any(|l| l == "file-00.txt"),
+            "the control: the output is there"
+        );
+        for h in [20, 12, 6, 3, 2, 3, 6, 12, 20, 28] {
+            resize(t, 100, h);
+            redraw_prompt(t);
+        }
+        assert_eq!(screen(t), want, "the screen is not what it was");
+    });
+}
+
+#[test]
+fn a_shell_that_sends_no_marks_is_left_exactly_as_before() {
+    // The control for every rule keyed on the marks: without them the
+    // terminal knows nothing about prompts and does what it did.
+    support::with_room(60, |t| {
+        resize(t, 100, 28);
+        support::feed(t, b"plain prompt\r\n$ ");
+        assert_eq!(t.zone(), Zone::Output);
+        for h in [12, 4, 2, 4, 12, 28] {
+            resize(t, 100, h);
+            support::feed(t, b"\r\x1b[1A\x1b[J\r\nplain prompt\r\n$ ");
+        }
+        assert_eq!(t.prompt_erases, 0, "no mark, no erase");
+        assert_eq!(count_on_screen(t, "plain prompt"), 1);
+    });
+}
+
+/// The prompt as the shell draws it for a screen `width` wide: the first
+/// line padded to that width, which is what the owner's zsh does for its
+/// right prompt. Drawn on a narrower screen it wraps, and the block is a
+/// row taller than the shell believes.
+fn prompt_for_width(t: &mut Term<'_>, width: usize) {
+    support::feed(t, b"\x1b]133;P;k=i\x07\r\n");
+    let mut first = b"zsh prompt".to_vec();
+    first.resize(width, b' ');
+    support::feed(t, &first);
+    support::feed(t, b"\r\n line two\r\n line three\r\n$ ");
+    support::feed(t, b"\x1b]133;B\x07");
+}
+
+fn stale_redraw(t: &mut Term<'_>, width: usize) {
+    support::feed(t, b"\r\x1b[4A\x1b[J");
+    prompt_for_width(t, width);
+}
+
+#[test]
+fn a_redraw_computed_for_a_wider_screen_does_not_move_the_block_down() {
+    // A burst: the screen narrows twice before the shell's first redraw
+    // arrives, so that redraw is padded to the wider width, wraps, and its
+    // `CUU 4` counted a block one row shorter than it drew. Then the
+    // redraw for the real width. The block is where it was.
+    support::with_room(60, |t| {
+        resize(t, 100, 28);
+        support::feed(t, b"out\r\n");
+        prompt_for_width(t, 100);
+        let want = screen(t);
+        assert_eq!(want[0], "out");
+        assert_eq!(want[2], "zsh prompt");
+        resize(t, 80, 28);
+        resize(t, 60, 28);
+        stale_redraw(t, 100);
+        stale_redraw(t, 80);
+        stale_redraw(t, 60);
+        assert_eq!(t.prompt_erases, 3);
+        assert_eq!(screen(t), want, "the block moved");
+        assert_eq!(t.scrollback().len(), 0);
     });
 }
