@@ -376,3 +376,24 @@ Under the row's 20 ms floor on every metric; reverted. The `scale` mark shows
 the display-scale query at 23.6 ms (the first CoreGraphics call), the inset at
 1.2 -- what precedes the spawn.
 
+## Overlapping sharedApplication with the CoreGraphics connection (row 4, reverted)
+
+Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 7 --arm
+base=<HEAD bundle> --arm overlap=<the arm's bundle> --aa`, to the first present,
+and again with `BAUD_CMD=shell BAUD_BENCH_STAGE="first content"`. Medians of six
+settled launches, milliseconds; the A/A column is |aa - base| on that stage.
+
+| stage | base | overlap | A/A |
+|---|---|---|---|
+| nsapp | 50.5 | 44.6 | 3.6 |
+| scale | 17.7 | 45.4 | 1.3 |
+| pty spawned | 25.0 | 48.6 | 1.2 |
+| glass window | 72.2 | 73.6 | 1.6 |
+| first present | 89.5 [88.1-101.3] | 90.7 [84.6-112.9] | 1.7 |
+| first bytes, through the shell | 195.1 | 213.9 | 4.7 |
+| wall to first content | 210.7 [202.1-214.0] | 227.4 [199.1-241.8] | 212.5 [201.9-230.7] |
+
+`sharedApplication` alone went from ~25 to ~41 ms with the CoreGraphics query
+running beside it: the two window-server connections serialise. No gain on the
+first present; the prompt 19 ms later. Reverted.
+

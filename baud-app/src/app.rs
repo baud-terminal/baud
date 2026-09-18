@@ -1866,26 +1866,15 @@ pub fn run() {
     // of note N spawned the shell on a predicted scale ahead of it and
     // gained 8 ms on the prompt, under the 20 ms floor; the arm is the
     // commit this one reverts.
-    // Row 4 of note N: the display-scale query is the first CoreGraphics
-    // call, the window server connection, 23.6 ms on this box, and it
-    // needs no main thread -- so it runs on its own while the main thread
-    // does the one thing that must be the main thread's and needs no
-    // scale, AppKit's own initialisation. At most one of the two hides
-    // behind the other: if the two connections serialise inside the
-    // window server, the join below waits and the sweep says so.
-    let scale_query = std::thread::spawn(crate::pty::display_scale);
+    let early_scale = crate::pty::display_scale();
+    startup_mark("scale");
     let inset = {
         let content = NSRect::new(NSPoint::new(0.0, 0.0), size);
         let frame =
             NSWindow::frameRectForContentRect_styleMask(content, NSWindowStyleMask::Titled, mtm);
         (frame.size.height - size.height).max(0.0)
     };
-    startup_mark("inset");
-    let ns_app = NSApplication::sharedApplication(mtm);
-    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
-    startup_mark("nsapp");
-    let early_scale = scale_query.join().unwrap_or(None);
-    startup_mark("scale");
+    startup_mark("screen");
     let scale = match early_scale {
         Some(s) => s,
         None => {
@@ -1940,6 +1929,9 @@ pub fn run() {
     })
     .expect("pty");
     startup_mark("pty");
+    let ns_app = NSApplication::sharedApplication(mtm);
+    ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    startup_mark("nsapp");
     let icon = icon();
     startup_mark("icon");
     // The Dock icon comes from the bundle when there is one: `CFBundleIconFile`
