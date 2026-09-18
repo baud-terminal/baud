@@ -354,3 +354,25 @@ Wall: bundled - base +4.1 ms against an A/A spread of 14.9 -- not a result.
 The first present is before the first tick and is unmoved. What moved is 9 ms
 of main-thread work on the first tick, which nothing a user sees waits for.
 
+## Spawning the shell earlier (row 3, reverted)
+
+Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
+content" scripts/startup-bench.py --rounds 7 --arm base=<HEAD bundle> --arm
+early=<the arm's bundle> --aa`, two `.app` bundles, seven rounds with the first
+discarded, the arm order rotated, an A/A copy of the base. Medians of six
+launches, milliseconds; the A/A column is |aa - base| on that stage.
+
+| stage | base | early | A/A |
+|---|---|---|---|
+| pty spawned | 24.5 | **9.8** | 0.2 |
+| nsapp | 48.4 | 43.2 | 0.3 |
+| glass window | 72.5 | 67.0 | 0.1 |
+| shown | 84.9 | 79.1 | 0.9 |
+| first present | 87.9 | 82.7 | 0.7 |
+| first bytes (the shell's prompt) | 195.8 | **187.8** | 2.3 |
+| wall to first content | 210.3 [201.8-214.6] | 198.4 [195.7-203.6] | 207.6 [202.0-213.8] |
+
+Under the row's 20 ms floor on every metric; reverted. The `scale` mark shows
+the display-scale query at 23.6 ms (the first CoreGraphics call), the inset at
+1.2 -- what precedes the spawn.
+
