@@ -32,12 +32,13 @@ pub mod clipboard;
 pub mod journal;
 pub mod metal;
 
+pub use journal::Landing;
 pub use metal::{
     CellInput, Done, Drawn, Gpu, GpuFrame, GridBuffer, InFlight, MapBuffer, Memory, OverlayBuffer,
     StylesBuffer, Target,
 };
 
-use baud_domain::{FrameGen, SwapEpoch};
+use baud_domain::{FrameGen, HostTime, SwapEpoch};
 use baud_font::Px;
 use baud_render::{Argb, Renderer};
 use journal::{Counts, FrameTag, Journal, Reshape, SetIx};
@@ -216,6 +217,12 @@ impl Presenter {
         self.journal.counts()
     }
 
+    /// The GPU end of the frame whose surface the view is presenting now,
+    /// taken once per present; see [`journal::Journal::presented_end`].
+    pub fn presented_end(&self) -> Option<HostTime> {
+        self.journal.presented_end()
+    }
+
     /// The tag the next commit carries, and the advance of the frame
     /// number. Taking a tag *is* committing, so this is where a set stops
     /// being free: the frame that holds it is the one this mints.
@@ -303,13 +310,13 @@ impl Presenter {
         let tag = self.tag(set);
         let epoch = Arc::clone(&self.epoch);
         let journal = Arc::clone(&self.journal);
-        Done::Notify(Arc::new(move |gpu| {
+        Done::Notify(Arc::new(move |landing| {
             // **Recorded, and shown anyway.** The verdict is taken here and
             // deliberately not acted on: a count of frames that reached the
             // layer after their surfaces were replaced is only a measurement
             // of the bug while the bug is still happening. Acting on it is a
             // separate change, against these numbers.
-            let fate = journal.land(tag, &epoch, gpu);
+            let fate = journal.land(tag, &epoch, landing);
             if journal::admits(fate) == journal::Show::Now {
                 waker.present(&handle);
             }

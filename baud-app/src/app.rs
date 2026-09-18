@@ -5,11 +5,13 @@ use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK, MAX_GRID,
     describe, host_geometry, load_faces, startup_first, startup_mark, startup_note,
 };
-use crate::pty::{Pty, Stream};
+use crate::latency::{Ended, Latency, Switch};
+use crate::pty::{Pty, Stream, Wrote, host_now};
 use baud_core::{Depth, Owned, Screen, Term, grid_stride};
 use baud_domain::{
-    BytePos, Codepoint, Col, Cols, FnKey, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent,
-    MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+    BytePos, Codepoint, Col, Cols, FnKey, HostTime, KeyCode, KeyEvent, Modifiers, MouseButton,
+    MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen, Row, RowRot, Rows,
+    WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -345,6 +347,9 @@ struct App {
     /// The damage the next frame draws with -- `Full` for the frame after a
     /// blink flip, since a blink changes no cell and row damage would miss it.
     next_damage: Damage,
+    /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
+    /// test per hook otherwise; see `latency.rs`.
+    latency: Latency,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -623,6 +628,7 @@ impl App {
             blink: Blink::default(),
             blink_present: Blinking::default(),
             next_damage: Damage::Incremental,
+            latency: Latency::from_env(),
         }
     }
 
@@ -631,10 +637,12 @@ impl App {
         (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()))
     }
 
-    /// Sends a key to the core and whatever it answers to the shell.
-    fn send(&mut self, e: KeyEvent) {
+    /// Sends a key to the core and whatever it answers to the shell, and
+    /// says whether anything did: a key the core encodes to nothing asks
+    /// for no echo, and the instrument must not wait for one.
+    fn send(&mut self, e: KeyEvent) -> Sent {
         self.term.key(e);
-        self.flush_reply();
+        self.flush_reply()
     }
 
     /// Where the window sits in the ring, for the scrollbar.
@@ -646,11 +654,16 @@ impl App {
         }
     }
 
-    fn flush_reply(&mut self) {
+    fn flush_reply(&mut self) -> Sent {
         let reply = self.term.reply().to_vec();
-        if !reply.is_empty() {
-            self.pty.write(&reply);
-            self.term.clear_reply();
+        if reply.is_empty() {
+            return Sent::Nothing;
+        }
+        let wrote = self.pty.write(&reply);
+        self.term.clear_reply();
+        match wrote {
+            Wrote::All => Sent::Bytes,
+            Wrote::Short => Sent::Nothing,
         }
     }
 
@@ -842,12 +855,14 @@ impl App {
                     set: at,
                 };
                 if let Some(p) = &mut self.presenter {
+                    let before = self.latency.stamp(host_now);
                     let drawn = match show {
                         Show::Event => p.draw_cells(waker, &mut self.renderer, &input),
                         Show::Now => p.draw_cells_now(screen, &mut self.renderer, &input),
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
+                            self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
                                 startup_first("first present", &FIRST_PRESENT);
@@ -873,12 +888,14 @@ impl App {
                     ..Frame::default()
                 };
                 if let Some(p) = &mut self.presenter {
+                    let before = self.latency.stamp(host_now);
                     let drawn = match show {
                         Show::Event => p.draw(waker, &mut self.renderer),
                         Show::Now => p.draw_now(screen, &mut self.renderer),
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
+                            self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
                                 startup_first("first present", &FIRST_PRESENT);
@@ -902,6 +919,7 @@ impl App {
                 let clear = self.renderer.clear_color();
                 if let Some(p) = &mut self.presenter {
                     if p.present(screen, &self.frame, w, clear) == Presented::Yes {
+                        self.latency.shown_cpu(host_now);
                         startup_first("first present", &FIRST_PRESENT);
                         if FIRST_BYTES.load(Ordering::Relaxed) {
                             startup_first("first content", &FIRST_CONTENT);
@@ -936,6 +954,9 @@ impl App {
                     self.stats.cache
                 ),
             }
+            if let Some(line) = self.latency.report() {
+                eprintln!("{line}");
+            }
             self.last_report = std::time::Instant::now();
         }
     }
@@ -965,6 +986,34 @@ impl App {
         Some(())
     }
 
+    /// The instrument's `landed` and `shown` legs, from the view's
+    /// `presented` -- fired where the `CATransaction` that set the surface
+    /// as the layer's contents committed, so `shown` is that moment and not
+    /// the wake that follows it, which the pty reader can also send and
+    /// which a pump can run ahead of the present. `landed` is the GPU end
+    /// the journal recorded for the frame the completion handed over; a
+    /// stamp that is not a landing on this clock is refused, printed once
+    /// per refusal, and the key still completes without it.
+    fn presented(&mut self) {
+        if self.latency.on() == Switch::Off {
+            return;
+        }
+        let Some(ended) = self.presenter.as_ref().map(Presenter::presented_end) else {
+            return;
+        };
+        let now = host_now();
+        // A present with no landing queued behind it is not a frame this
+        // instrument can pair; `ZERO` is what `presented` refuses.
+        let ended = ended.unwrap_or(HostTime::ZERO);
+        if self.latency.presented(ended, now) == Ended::Refused {
+            eprintln!(
+                "keylat: landing refused ended={} now={}",
+                ended.nanos(),
+                now.nanos()
+            );
+        }
+    }
+
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
@@ -979,6 +1028,19 @@ impl App {
             None => "present: no presenter".to_string(),
         }
     }
+}
+
+/// When the key event being dispatched was generated, on the host clock:
+/// `NSEvent.timestamp` of `NSApplication`'s `currentEvent`, which inside
+/// `keyDown:` -- and inside the `insertText:` and `doCommandBySelector:` the
+/// input manager runs from it -- is that key event. `None` off the main
+/// thread, with no event being dispatched, or for a stamp that is not a
+/// time; the instrument then takes the moment the responder ran. The one
+/// place an `NSTimeInterval` crosses into the instrument's type.
+fn current_event_time() -> Option<HostTime> {
+    let mtm = MainThreadMarker::new()?;
+    let event = NSApplication::sharedApplication(mtm).currentEvent()?;
+    HostTime::of_secs(event.timestamp())
 }
 
 fn slots(p: Px) -> usize {
@@ -1278,6 +1340,16 @@ enum Drew {
     No,
 }
 
+/// Whether a key sent anything to the child. The core answers a key with
+/// the bytes its encoding produces, and some chords produce none; the
+/// instrument opens a record on every key and closes the `written` leg
+/// only on the ones that asked the child for an echo.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Sent {
+    Nothing,
+    Bytes,
+}
+
 /// Whether the scrollbar took a mouse event.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Took {
@@ -1286,6 +1358,19 @@ enum Took {
 }
 
 impl Driver {
+    /// A key the user pressed: sent to the core and on to the child, with
+    /// the instrument's first two stamps around it -- the key event's own
+    /// timestamp and this responder running, then the `write(2)` having
+    /// returned. The wheel on the alternate screen sends arrow keys through
+    /// `App::send` directly: it is not a keystroke and is not stamped.
+    fn typed(&mut self, e: KeyEvent) {
+        self.app.latency.key(current_event_time, host_now);
+        match self.app.send(e) {
+            Sent::Bytes => self.app.latency.written(host_now),
+            Sent::Nothing => self.app.latency.unsent(),
+        }
+    }
+
     /// One turn of the loop, on any event: while a frame is in flight the
     /// bytes stay in the channel, because the grid they would write is
     /// the grid the GPU is reading, and the completion wakes us. Otherwise
@@ -1316,17 +1401,25 @@ impl Driver {
         let drained = self.app.pty.drain();
         if !drained.chunks.is_empty() {
             startup_first("first bytes", &FIRST_BYTES);
+            // The reader stamped each read as it returned: the first one
+            // after a key's write is that key's echo.
+            self.app
+                .latency
+                .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
         let before = self.app.term.rotation();
         for chunk in &drained.chunks {
             if let Some(t) = self.app.trace.as_mut() {
-                t.fed(chunk);
+                t.fed(&chunk.bytes);
             }
-            self.app.term.write_at(BytePos::ZERO, chunk);
+            self.app.term.write_at(BytePos::ZERO, &chunk.bytes);
             self.app
                 .term
-                .feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+                .feed(BytePos::ZERO, ReadLen::from_index(chunk.bytes.len()));
             self.app.pending = Pending::Dirty;
+        }
+        if !drained.chunks.is_empty() {
+            self.app.latency.fed(host_now);
         }
         // Looking back while output scrolls: the window stays on the lines
         // it was showing, which means it moves up the ring by however many
@@ -1410,11 +1503,9 @@ impl Responder for Driver {
         }
         self.snap_to_live();
         let m = mods(key.modifiers);
-        if let Some(code) = special(key) {
-            self.app.send(KeyEvent::press(code, m));
-            return Handled::Consumed;
-        }
-        if key.modifiers.control || key.modifiers.option {
+        let e = if let Some(code) = special(key) {
+            KeyEvent::press(code, m)
+        } else if key.modifiers.control || key.modifiers.option {
             // A control or alt chord: the key's identity, folded by the core.
             let Some(c) = key
                 .unmodified
@@ -1431,10 +1522,15 @@ impl Responder for Driver {
                 .next()
                 .filter(|ch| !ch.is_control())
                 .and_then(|ch| Codepoint::new(u32::from(ch)));
-            self.app.send(e);
-            return Handled::Consumed;
-        }
-        Handled::Interpret
+            e
+        } else {
+            // The input manager will call `text` or `command`, which stamp
+            // the keystroke themselves; a record opened here as well would
+            // be one no write ever completes.
+            return Handled::Interpret;
+        };
+        self.typed(e);
+        Handled::Consumed
     }
 
     fn text(&mut self, text: &str) {
@@ -1446,7 +1542,9 @@ impl Responder for Driver {
             let identity = Codepoint::new(u32::from(lower)).unwrap_or(c);
             let mut e = KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE);
             e.text = Some(c);
-            self.app.send(e);
+            // One record per character: a paste through the input manager
+            // is one `text` and as many keys as it has characters.
+            self.typed(e);
         }
     }
 
@@ -1496,7 +1594,7 @@ impl Responder for Driver {
         } else {
             Modifiers::NONE
         };
-        self.app.send(KeyEvent::press(code, m));
+        self.typed(KeyEvent::press(code, m));
     }
 
     fn marked_text(&mut self, _text: &str) {}
@@ -1636,6 +1734,9 @@ impl Responder for Driver {
     }
 
     fn frame(&mut self, target: f64) {
+        // The vsync this tick's work is due at, announced before anything
+        // this tick presents so a surface set from here on is bounded by it.
+        self.app.latency.announced(|| HostTime::of_secs(target));
         startup_first("first tick", &FIRST_TICK);
         if let (Some(img), Some(mtm)) = (self.dock_icon.take(), MainThreadMarker::new()) {
             macos_liquid_glass::set_application_icon(&NSApplication::sharedApplication(mtm), &img);
@@ -1665,6 +1766,14 @@ impl Responder for Driver {
             }
         }
         self.pump(Trigger::Tick);
+        // After the pump: a record shown since the last announcement takes
+        // this target as its early bound, and one that already has its
+        // early bound takes it as the late one.
+        self.app.latency.tick(|| HostTime::of_secs(target));
+    }
+
+    fn presented(&mut self) {
+        self.app.presented();
     }
 
     fn wake(&mut self) {

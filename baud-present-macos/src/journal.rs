@@ -17,7 +17,7 @@
 //! sound in the direction that matters: a non-zero `superseded` is proof the
 //! bug fires, and a zero is not proof that it does not.
 
-use baud_domain::{Fate, FrameGen, SwapEpoch, SwapGen};
+use baud_domain::{Fate, FrameGen, HostTime, SwapEpoch, SwapGen};
 use core::time::Duration;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
@@ -36,6 +36,30 @@ pub struct FrameTag {
     /// builds into nothing the caller owns -- the instance and CPU paths
     /// convert on the main thread and hold no set.
     pub set: Option<SetIx>,
+}
+
+/// What a completed frame reports: taken in the completion handler, where
+/// both numbers exist, and nowhere else.
+///
+/// `Copy` plain data, like [`FrameTag`]: it crosses from the GPU's thread
+/// to whatever the [`Journal`] hands it on to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Landing {
+    /// The frame's own start-to-end on the GPU, `GPUEndTime - GPUStartTime`
+    /// -- what the frame report prints as its GPU time. Zero for a stamp
+    /// pair that is not ordered, never a negative.
+    pub gpu: Duration,
+    /// When the GPU finished it, on the host clock. `GPUEndTime` is "the
+    /// host time in seconds that GPU finishes executing this command
+    /// buffer" (`MTLCommandBuffer.h`), so as a [`HostTime`] it is on the
+    /// same clock as the key event that asked for the frame and the
+    /// display-link target it is shown at -- which is what lets the
+    /// keystroke instrument subtract one from the other. [`HostTime::ZERO`]
+    /// when the stamp is not a time: the header says the property "returns
+    /// zero if CPU has not received completion notification", which a
+    /// completion handler never observes, so a zero here is the conversion
+    /// refusing rather than Metal.
+    pub ended: HostTime,
 }
 
 /// Which of the per-frame buffer sets a frame is built into.
@@ -154,6 +178,9 @@ pub enum Reshape {
     Wait,
 }
 
+/// The ring of presented frames' GPU ends, see [`Journal`].
+const ENDS: usize = 8;
+
 /// How many frames reached the layer, and how many should not have.
 #[derive(Default)]
 pub struct Journal {
@@ -167,6 +194,21 @@ pub struct Journal {
     deferred: AtomicU64,
     /// The last completed frame's GPU nanoseconds.
     gpu_nanos: AtomicU64,
+    /// The GPU end of every frame handed to the layer, in landing order,
+    /// for the main thread to take one per `presentSurface:` -- so a
+    /// present is paired with its own frame's end rather than with the
+    /// journal's last, which under typeahead can already be a later
+    /// frame's when two complete before one present is processed. A ring
+    /// of [`ENDS`]: one frame in flight (D14) means at most one is ever
+    /// waiting, and eight is a bound rather than a budget.
+    ends: [AtomicU64; ENDS],
+    ends_in: AtomicUsize,
+    ends_out: AtomicUsize,
+    /// When the last completed frame ended on the GPU, as host nanoseconds.
+    /// Beside `gpu_nanos` because it arrives with it: one landing stores
+    /// both, and a reader on the main thread takes them on the wake the
+    /// completion sends.
+    ended_nanos: AtomicU64,
     /// Which per-frame buffer sets are spoken for. It lives here because
     /// this is the one structure both threads already hold: the main
     /// thread takes a set, and the completion that lands a frame frees it
@@ -192,6 +234,12 @@ pub struct Counts {
     /// on the completion, by the handler that already runs there. Nothing
     /// times it, and no frame reports a zero it has not earned.
     pub gpu: Duration,
+    /// When the last landed frame finished on the GPU, on the host clock;
+    /// [`HostTime::ZERO`] before any has. The keystroke instrument reads it
+    /// on the wake the completion sends -- the same run-loop turn that set
+    /// the surface on the layer -- so the frame's end can be paired with the
+    /// key that asked for it and with the display-link target after it.
+    pub ended: HostTime,
 }
 
 impl Journal {
@@ -225,12 +273,20 @@ impl Journal {
         }
     }
 
-    pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch, gpu: Duration) -> Fate {
+    pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch, landing: Landing) -> Fate {
         let fate = baud_domain::fate(tag.swap, epoch.current());
         self.gpu_nanos.store(
-            u64::try_from(gpu.as_nanos()).unwrap_or(u64::MAX),
+            u64::try_from(landing.gpu.as_nanos()).unwrap_or(u64::MAX),
             Ordering::Relaxed,
         );
+        // `Release`, against the `Acquire` in `counts`: a reader that sees
+        // the landing count this store precedes is guaranteed this end
+        // stamp and not the previous frame's. The count itself stays the
+        // module's `Relaxed` -- it publishes nothing -- and the surface it
+        // names travels by `performSelectorOnMainThread`, which orders the
+        // present after the landing on its own.
+        self.ended_nanos
+            .store(landing.ended.nanos(), Ordering::Release);
         // Whatever became of it, the buffers it was built into are no
         // longer being read, and neither is the grid or the atlas.
         if tag.set.is_some() {
@@ -246,7 +302,33 @@ impl Journal {
             Fate::Current => self.shown.fetch_add(1, Ordering::Relaxed),
             Fate::Superseded { .. } => self.superseded.fetch_add(1, Ordering::Relaxed),
         };
+        if admits(fate) == Show::Now {
+            // Queued before the present that carries the surface is posted,
+            // so the main thread that takes it finds it: the slot first,
+            // then the count with `Release`, against `presented_end`'s
+            // `Acquire`.
+            let at = self.ends_in.load(Ordering::Relaxed);
+            if let Some(slot) = self.ends.get(at % ENDS) {
+                slot.store(landing.ended.nanos(), Ordering::Relaxed);
+            }
+            self.ends_in.store(at.wrapping_add(1), Ordering::Release);
+        }
         fate
+    }
+
+    /// The GPU end of the frame the main thread is presenting: the oldest
+    /// queued by [`Journal::land`] and not yet taken. `None` when nothing
+    /// is queued -- a present with no landing behind it, which the caller
+    /// reports rather than pairs.
+    pub fn presented_end(&self) -> Option<HostTime> {
+        let out = self.ends_out.load(Ordering::Relaxed);
+        let queued = self.ends_in.load(Ordering::Acquire);
+        if out == queued {
+            return None;
+        }
+        let nanos = self.ends.get(out % ENDS)?.load(Ordering::Relaxed);
+        self.ends_out.store(out.wrapping_add(1), Ordering::Relaxed);
+        Some(HostTime::of_nanos(nanos))
     }
 
     /// The sets, for a caller about to build a frame.
@@ -262,15 +344,91 @@ impl Journal {
             superseded: self.superseded.load(Ordering::Relaxed),
             deferred: self.deferred.load(Ordering::Relaxed),
             gpu: Duration::from_nanos(self.gpu_nanos.load(Ordering::Relaxed)),
+            ended: HostTime::of_nanos(self.ended_nanos.load(Ordering::Acquire)),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameTag, Journal};
-    use baud_domain::{Fate, FrameGen, SwapEpoch};
+    use super::{FrameTag, Journal, Landing};
+    use baud_domain::{Fate, FrameGen, HostTime, SwapEpoch};
     use core::time::Duration;
+
+    /// A landing whose timing the test does not examine.
+    fn quiet() -> Landing {
+        Landing {
+            gpu: Duration::ZERO,
+            ended: HostTime::ZERO,
+        }
+    }
+
+    #[test]
+    fn a_present_takes_its_own_frame_s_end_in_landing_order() {
+        let epoch = SwapEpoch::new();
+        let j = Journal::default();
+        assert_eq!(j.presented_end(), None, "nothing has landed");
+        let tag = FrameTag {
+            frame: FrameGen::FIRST.next(),
+            swap: epoch.current(),
+            set: None,
+        };
+        for end in [100, 200] {
+            j.land(
+                tag,
+                &epoch,
+                Landing {
+                    gpu: Duration::from_micros(50),
+                    ended: HostTime::of_nanos(end),
+                },
+            );
+        }
+        // A superseded frame is never presented, so it queues no end.
+        epoch.bump();
+        j.land(
+            tag,
+            &epoch,
+            Landing {
+                gpu: Duration::from_micros(50),
+                ended: HostTime::of_nanos(300),
+            },
+        );
+        assert_eq!(j.presented_end(), Some(HostTime::of_nanos(100)));
+        assert_eq!(j.presented_end(), Some(HostTime::of_nanos(200)));
+        assert_eq!(j.presented_end(), None);
+        // The last-value slot still reports the last landing, superseded
+        // or not: it is the report's, not the pairing's.
+        assert_eq!(j.counts().ended, HostTime::of_nanos(300));
+    }
+
+    #[test]
+    fn a_landing_reports_when_the_gpu_finished() {
+        let epoch = SwapEpoch::new();
+        let j = Journal::default();
+        assert_eq!(j.counts().ended, HostTime::ZERO, "nothing has landed");
+        let tag = FrameTag {
+            frame: FrameGen::FIRST.next(),
+            swap: epoch.current(),
+            set: None,
+        };
+        let landing = Landing {
+            gpu: Duration::from_micros(90),
+            ended: HostTime::of_nanos(1_234_567_890),
+        };
+        assert_eq!(j.land(tag, &epoch, landing), Fate::Current);
+        let c = j.counts();
+        assert_eq!(c.gpu, Duration::from_micros(90));
+        assert_eq!(c.ended, HostTime::of_nanos(1_234_567_890));
+        // The next landing replaces both, and the end never moves backwards
+        // on its own: it is the last frame's, whatever the previous read.
+        let later = Landing {
+            gpu: Duration::from_micros(40),
+            ended: HostTime::of_nanos(1_234_900_000),
+        };
+        j.land(tag, &epoch, later);
+        assert_eq!(j.counts().ended, HostTime::of_nanos(1_234_900_000));
+        assert_eq!(j.counts().gpu, Duration::from_micros(40));
+    }
 
     #[test]
     fn a_frame_that_outlives_its_surfaces_is_counted_superseded() {
@@ -282,14 +440,14 @@ mod tests {
             set: None,
         };
         // Landing before anything moved: current, and shown.
-        assert_eq!(j.land(tag, &epoch, Duration::ZERO), Fate::Current);
+        assert_eq!(j.land(tag, &epoch, quiet()), Fate::Current);
         assert_eq!(j.counts().shown, 1);
         assert_eq!(j.counts().superseded, 0);
 
         // A resize replaces the surface set while this frame is in flight.
         epoch.bump();
         assert!(matches!(
-            j.land(tag, &epoch, Duration::ZERO),
+            j.land(tag, &epoch, quiet()),
             Fate::Superseded { .. }
         ));
         let c = j.counts();
@@ -304,7 +462,7 @@ mod tests {
             swap: epoch.current(),
             set: None,
         };
-        assert_eq!(j.land(fresh, &epoch, Duration::ZERO), Fate::Current);
+        assert_eq!(j.land(fresh, &epoch, quiet()), Fate::Current);
         assert_eq!(j.counts().shown, 2);
     }
 }

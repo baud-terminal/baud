@@ -455,8 +455,8 @@ mod swar {
                             want_n += 1;
                         }
                         let mut want_v = 0u16;
-                        for k in 0..want_n {
-                            want_v = want_v * 10 + (bytes[k] - b'0') as u16;
+                        for &digit in bytes.iter().take(want_n) {
+                            want_v = want_v * 10 + u16::from(digit - b'0');
                         }
                         assert_eq!(n, want_n, "count for {bytes:?}");
                         assert_eq!(v, want_v, "value for {bytes:?}");

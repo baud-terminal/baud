@@ -1,0 +1,15 @@
+startup: first present        101.234 ms
+startup: first content        260.500 ms
+some unrelated app line that is not keylat
+keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0 vsync_hi=+416.7
+keylat: seq=2 event=1000010000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+410.0 vsync_hi=+426.7
+keylat: seq=3 event=1000500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+420.0 vsync_hi=+436.7
+keylat: seq=4 event=1001000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+430.0 vsync_hi=+446.7
+keylat: seq=5 event=1001500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+440.0 vsync_hi=+456.7
+keylat: seq=6 event=1001999000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+450.0 vsync_hi=+466.7
+keylat: seq=7 event=1202500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+450.0 vsync_hi=+466.7
+keylat: seq=88 event=1003000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+450.0 vsync_hi=+466.7
+keylat: seq=9 event=1003500000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=- shown=+385.0 vsync=+450.0 vsync_hi=+466.7 extra=tolerated
+keylat: landing refused ended=1003500390000 now=1003500385000
+keylat: seq=10 event=1004000000 handled=+300.0 written=+350.0 echo=+360.0 fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0
+keylat: 3 keys open

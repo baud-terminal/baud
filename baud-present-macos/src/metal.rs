@@ -49,9 +49,10 @@
 #![allow(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+use crate::journal::Landing;
 use crate::slots;
 use baud_core::Term;
-use baud_domain::{Col, Cols, CursorStyle, PackedCell, Row, RowRot, Rows, Stride};
+use baud_domain::{Col, Cols, CursorStyle, HostTime, PackedCell, Row, RowRot, Rows, Stride};
 use baud_font::Px;
 use baud_render::{
     Argb, Atlas, Dirty, Generation, Highlight, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer,
@@ -504,18 +505,29 @@ pub enum Done {
     /// back. Never in a frame loop.
     Wait,
     /// Run this on the GPU's completion thread, and return at once. It is
-    /// handed the frame's own GPU time, because that is when the number
-    /// exists: Metal stamps `GPUStartTime` and `GPUEndTime` on the command
-    /// buffer and they are valid once it has completed. Nothing times
-    /// anything -- the fact arrives with the event that produced it.
-    Notify(Arc<dyn Fn(Duration) + Send + Sync>),
+    /// handed the frame's [`Landing`] -- its own GPU time and when it ended
+    /// on the host clock -- because that is when both numbers exist: Metal
+    /// stamps `GPUStartTime` and `GPUEndTime` on the command buffer and
+    /// they are valid once it has completed. Nothing times anything -- the
+    /// fact arrives with the event that produced it.
+    Notify(Arc<dyn Fn(Landing) + Send + Sync>),
 }
 
-/// A completed frame's own start-to-end on the GPU, from the stamps Metal
-/// puts on the command buffer. Valid only once it has completed, which is
-/// why the asynchronous path reads it in the handler rather than at commit.
-fn gpu_time(cmd: &ProtocolObject<dyn MTLCommandBuffer>) -> Duration {
-    Duration::from_secs_f64((cmd.GPUEndTime() - cmd.GPUStartTime()).max(0.0))
+/// A completed frame's landing, from the stamps Metal puts on the command
+/// buffer: its own start-to-end, and its end as a host time. Valid only
+/// once it has completed, which is why the asynchronous path reads it in
+/// the handler rather than at commit.
+///
+/// Both stamps are `CFTimeInterval` seconds of "the host time"
+/// (`MTLCommandBuffer.h`), so the end converts to a [`HostTime`] as it is;
+/// a value the conversion refuses lands as [`HostTime::ZERO`], which is the
+/// header's own "has not completed" reading rather than a time.
+fn landing(cmd: &ProtocolObject<dyn MTLCommandBuffer>) -> Landing {
+    let (start, end) = (cmd.GPUStartTime(), cmd.GPUEndTime());
+    Landing {
+        gpu: Duration::try_from_secs_f64((end - start).max(0.0)).unwrap_or(Duration::ZERO),
+        ended: HostTime::of_secs(end).unwrap_or(HostTime::ZERO),
+    }
 }
 
 /// What a draw did.
@@ -1092,7 +1104,7 @@ impl Gpu {
                 cmd.commit();
                 cmd.waitUntilCompleted();
                 self.in_flight.fetch_sub(1, Ordering::AcqRel);
-                (t1.elapsed(), Some(gpu_time(cmd)))
+                (t1.elapsed(), Some(landing(cmd).gpu))
             }
             Done::Notify(then) => {
                 let flying = Arc::clone(&self.in_flight);
@@ -1100,9 +1112,9 @@ impl Gpu {
                     RcBlock::new(move |done: NonNull<ProtocolObject<dyn MTLCommandBuffer>>| {
                         // SAFETY: Metal hands the handler the command
                         // buffer that completed, valid for the call.
-                        let gpu = gpu_time(unsafe { done.as_ref() });
+                        let landed = landing(unsafe { done.as_ref() });
                         flying.fetch_sub(1, Ordering::AcqRel);
-                        then(gpu);
+                        then(landed);
                     });
                 // SAFETY: the block is a valid `MTLCommandBufferHandler`
                 // for the length of the call; Metal copies it, so the

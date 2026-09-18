@@ -23,8 +23,10 @@
 //! written, not assumed.
 #![cfg(target_os = "macos")]
 
-use baud_domain::{Fate, FrameGen, SwapEpoch};
-use baud_present_macos::journal::{FrameTag, Journal, Reshape, SetState, Show, Wheel, admits};
+use baud_domain::{Fate, FrameGen, HostTime, SwapEpoch};
+use baud_present_macos::journal::{
+    FrameTag, Journal, Landing, Reshape, SetState, Show, Wheel, admits,
+};
 use core::time::Duration;
 use macos_liquid_glass::drawable::Surface;
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
@@ -53,10 +55,20 @@ fn showing(l: &CALayer, candidates: &[&Surface]) -> Option<usize> {
     })
 }
 
+/// A landing whose timing these tests do not examine: the question here
+/// is which frame reaches the layer and which set it frees, and a frame's
+/// GPU time and end stamp bear on neither.
+fn quiet() -> Landing {
+    Landing {
+        gpu: Duration::ZERO,
+        ended: HostTime::ZERO,
+    }
+}
+
 /// What the completion closure does, spelled once so the test exercises the
 /// shipping rule: count it, then show it only if the rule admits it.
 fn land(j: &Journal, epoch: &SwapEpoch, tag: FrameTag, l: &CALayer, s: &Surface) -> Fate {
-    let fate = j.land(tag, epoch, Duration::ZERO);
+    let fate = j.land(tag, epoch, quiet());
     if admits(fate) == Show::Now {
         // What `DrawableView::set_surface` does, minus the transaction the
         // probe showed makes no difference to the read-back.
@@ -264,7 +276,7 @@ fn a_frame_is_never_built_into_a_set_a_live_frame_holds() {
     // A landing frees exactly the set that frame held, and out of order:
     // the last one committed is landed first.
     let (last, last_tag) = *held.last().expect("at least one set");
-    j.land(last_tag, &epoch, Duration::ZERO);
+    j.land(last_tag, &epoch, quiet());
     assert_eq!(w.state(last), SetState::Free);
     for (set, _) in held.iter().take(held.len() - 1) {
         assert_eq!(
@@ -276,7 +288,7 @@ fn a_frame_is_never_built_into_a_set_a_live_frame_holds() {
     assert_eq!(w.building(), Some(last));
 
     for (_, tag) in held.iter().take(held.len() - 1) {
-        j.land(*tag, &epoch, Duration::ZERO);
+        j.land(*tag, &epoch, quiet());
     }
     for (set, _) in &held {
         assert_eq!(w.state(*set), SetState::Free);
@@ -307,7 +319,7 @@ fn a_frame_that_holds_no_set_frees_none_when_it_lands() {
             set: None,
         },
         &epoch,
-        Duration::ZERO,
+        quiet(),
     );
     assert_eq!(
         w.state(held),
@@ -354,7 +366,7 @@ fn a_reshape_waits_while_a_frame_is_reading_and_the_wait_is_counted() {
             set: Some(set),
         },
         &epoch,
-        Duration::ZERO,
+        quiet(),
     );
     assert_eq!(j.reshape(), Reshape::Now, "the reader landed");
     assert_eq!(j.counts().deferred, 2, "and answering Now counts nothing");
@@ -401,8 +413,8 @@ fn a_reshape_waits_for_the_last_frame_not_the_first() {
         swap: epoch.current(),
         set: Some(set),
     };
-    j.land(tag(one, first), &epoch, Duration::ZERO);
+    j.land(tag(one, first), &epoch, quiet());
     assert_eq!(j.reshape(), Reshape::Wait, "one is still reading");
-    j.land(tag(two, second), &epoch, Duration::ZERO);
+    j.land(tag(two, second), &epoch, quiet());
     assert_eq!(j.reshape(), Reshape::Now);
 }

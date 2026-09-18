@@ -24,6 +24,8 @@ mod app;
 mod config;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
+#[cfg(target_os = "macos")]
+mod latency;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;

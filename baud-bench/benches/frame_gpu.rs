@@ -39,7 +39,7 @@ fn main() {
     use baud_domain::{BytePos, Cols, FrameGen, ReadLen, Rows, SwapEpoch, WinSize};
     use baud_font::Face;
     use baud_present_macos::journal::{FrameTag, Journal, SetIx};
-    use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight};
+    use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
     use baud_render::{
         Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
         Tally, Target, Theme,
@@ -227,13 +227,16 @@ fn main() {
     // The asynchronous arm's GPU time arrives with the completion, so the
     // handler is where it is taken. A no-op here would report zero for the
     // one arm the app actually runs -- which is exactly what the app did
-    // until the completion started carrying the number.
+    // until the completion started carrying the number. The landing also
+    // carries *when* the frame ended on the host clock; that is the
+    // keystroke instrument's business and this bench, which times frames
+    // and not keys, reads only the duration.
     let async_gpu = Arc::new(AtomicU64::new(0));
     let sink = {
         let acc = Arc::clone(&async_gpu);
-        let f: Arc<dyn Fn(Duration) + Send + Sync> = Arc::new(move |gpu: Duration| {
+        let f: Arc<dyn Fn(Landing) + Send + Sync> = Arc::new(move |landed: Landing| {
             acc.fetch_add(
-                u64::try_from(gpu.as_nanos()).unwrap_or(u64::MAX),
+                u64::try_from(landed.gpu.as_nanos()).unwrap_or(u64::MAX),
                 Ordering::Relaxed,
             );
         });
@@ -367,8 +370,8 @@ fn main() {
                             };
                             let j = Arc::clone(&journal);
                             let e = Arc::clone(&epoch);
-                            Done::Notify(Arc::new(move |gpu| {
-                                j.land(tag, &e, gpu);
+                            Done::Notify(Arc::new(move |landed| {
+                                j.land(tag, &e, landed);
                             }))
                         }
                         _ => Done::Wait,

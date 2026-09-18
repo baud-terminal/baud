@@ -101,6 +101,44 @@ pub fn fate(drawn: SwapGen, wanted: SwapGen) -> Fate {
     }
 }
 
+/// Which surface set a presenter draws into now, shared with the frames it
+/// has in flight.
+///
+/// It lives here rather than beside the presenter so that [`SwapGen`]'s
+/// field stays private: a generation can be read and advanced, and cannot be
+/// invented from an integer by a caller that happens to have one.
+///
+/// `Relaxed` throughout, and that is the whole of the ordering argument.
+/// Nothing is published *through* this value -- it guards no memory, and the
+/// surfaces it names are reached by other means. What a reader needs is the
+/// value itself, and every write is a single `fetch_add` from the thread
+/// that owns the geometry.
+pub struct SwapEpoch(core::sync::atomic::AtomicU64);
+
+impl SwapEpoch {
+    /// An epoch on its first surface set.
+    pub fn new() -> SwapEpoch {
+        SwapEpoch(core::sync::atomic::AtomicU64::new(SwapGen::FIRST.0))
+    }
+
+    /// What a frame drawn now would be drawn for.
+    pub fn current(&self) -> SwapGen {
+        SwapGen(self.0.load(core::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// A new surface set exists; every frame in flight for the old one is
+    /// now superseded. Returns what the new generation is.
+    pub fn bump(&self) -> SwapGen {
+        SwapGen(self.0.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1)
+    }
+}
+
+impl Default for SwapEpoch {
+    fn default() -> SwapEpoch {
+        SwapEpoch::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Fate, FrameGen, SwapGen, fate};
@@ -157,43 +195,5 @@ mod tests {
         assert_eq!(SwapGen::FIRST.next().value(), 1);
         assert!(FrameGen::FIRST < FrameGen::FIRST.next());
         assert!(SwapGen::FIRST < SwapGen::FIRST.next());
-    }
-}
-
-/// Which surface set a presenter draws into now, shared with the frames it
-/// has in flight.
-///
-/// It lives here rather than beside the presenter so that [`SwapGen`]'s
-/// field stays private: a generation can be read and advanced, and cannot be
-/// invented from an integer by a caller that happens to have one.
-///
-/// `Relaxed` throughout, and that is the whole of the ordering argument.
-/// Nothing is published *through* this value -- it guards no memory, and the
-/// surfaces it names are reached by other means. What a reader needs is the
-/// value itself, and every write is a single `fetch_add` from the thread
-/// that owns the geometry.
-pub struct SwapEpoch(core::sync::atomic::AtomicU64);
-
-impl SwapEpoch {
-    /// An epoch on its first surface set.
-    pub fn new() -> SwapEpoch {
-        SwapEpoch(core::sync::atomic::AtomicU64::new(SwapGen::FIRST.0))
-    }
-
-    /// What a frame drawn now would be drawn for.
-    pub fn current(&self) -> SwapGen {
-        SwapGen(self.0.load(core::sync::atomic::Ordering::Relaxed))
-    }
-
-    /// A new surface set exists; every frame in flight for the old one is
-    /// now superseded. Returns what the new generation is.
-    pub fn bump(&self) -> SwapGen {
-        SwapGen(self.0.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1)
-    }
-}
-
-impl Default for SwapEpoch {
-    fn default() -> SwapEpoch {
-        SwapEpoch::new()
     }
 }

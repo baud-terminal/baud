@@ -273,3 +273,43 @@ ghostty row reports `n/a` rather than being silently dropped.
 **Discard the first round of any `ingest2` A/B.** A cold arm has read 47% below
 its settled rate, which is larger than most effects being measured. Interleave
 arms, run at least four rounds, and quote the settled ones.
+
+## Keystroke to pixel
+
+Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the app's default
+cell path at 120x40 under the owner's config. `scripts/key-latency.py --rounds 5
+--keys 30 --gap 150 --child <cat|shell> --aa`: five rounds, the first discarded,
+the arm order rotated, an A/A copy of the same binary in the sweep; **medians
+of 120 keys an arm, microseconds**; the floor is the A/A copy's per leg (the
+larger of the median delta and either arm's IQR). `cat` is the tty's own echo
+with no program in the loop; the shell is the login zsh. Every key paired,
+`stamp = 0` on all 480, no landing refused.
+
+| leg | `cat` | shell | floor, cat / shell |
+|---|---|---|---|
+| deliver (post to the responder) | 1652 | 1664 | 613 / 584 |
+| write | 38 | 37 | 13 / 12 |
+| **child** (write to the echo read) | **14.5** | **2551** | 4.7 / 628 |
+| wake (read to fed) | 46 | 29 | 22 / 14 |
+| build (fed to committed) | 91 | 188 | 44 / 44 |
+| gpu (committed to `GPUEndTime`) | 1004 | 615 | 451 / 399 |
+| show (GPU end to the surface set) | 218 | 229 | 46 / 51 |
+| **to_shown** (post to the surface set; the A/B number) | **3041** | **5422** | 731 / 1163 |
+| vsync (surface set to the announced target) | 2827 | 4499 | 2896 / 5172 |
+| total, early bound (post to the announced target) | 7097 | 11286 | 4182 / 4915 |
+| total, late bound (post to the target after) | 15431 | 19620 | 4182 / 4915 |
+
+Disjoint between the two children, above both floors: `child` +2536,
+`build` +97, `to_shown` +2381. Everything else overlaps its floor.
+
+`scripts/key-pixel.swift`, 20 keys through `cat`, the cell right of the cursor
+watched through ScreenCaptureKit: the window server's display time of the
+changed frame is **3.5-6.0 ms after the display-link target before it (median
+4.1)** in every run, inside `[vsync, vsync_hi)` in 16 and one period earlier in
+the 4 where the surface was set within 1.1 ms of its tick; never after the late
+bound. The median key of the sweep above is 5.5 ms after its tick, so its panel
+time is the late bound. **Under the probe's capture `to_shown` reads 13 ms, four
+times the sweep's**, so the probe validates the bounds and does not replace the
+sweep. Typeahead at a 2 ms cadence: 76 of 80 keys shared a frame, one commit per
+8.33 ms period. `docs/research/notes/o-keystroke-latency.md` has the rest.
+

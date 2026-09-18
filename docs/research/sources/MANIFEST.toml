@@ -26,6 +26,7 @@
 #   H  terminal input: key encoding and the extensions to it
 #   I  instruction-set dispatch and how per-ISA code is organised
 #   J  rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation
+#   O  keystroke to pixel: the clocks on the path, and how typing latency has been measured
 
 [sources.simdjson]
 key    = "simdjson"
@@ -4306,36 +4307,6 @@ group  = "J"
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
 
-[sources.lkhrs-terminal-latency]
-key    = "lkhrs-terminal-latency"
-title  = "Measuring terminal latency -- Typometer figures for xterm, alacritty, kitty and others"
-author = "lkhrs"
-year   = 2024
-venue  = "lkhrs.com"
-url    = "https://www.lkhrs.com/blog/terminal-latency/"
-file   = ""
-sha256 = "0c01879c8fd390f17829a5298105a4fec898294a91f08629f7993f1d2a7065bd"
-bytes  = 22263
-status = "external"
-group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
-
-[sources.danluu-term-latency]
-key    = "danluu-term-latency"
-title  = "Terminal latency"
-author = "Dan Luu"
-year   = 2017
-venue  = "danluu.com"
-url    = "https://danluu.com/term-latency/"
-file   = ""
-sha256 = "f5a183672bad713a079ffe3ea61e67f361c8707711921a90f5b3f8ab5a2915ce"
-bytes  = 22232
-status = "external"
-group  = "J"
-# Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
-# source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
-
 [sources.ghostty-renderer-metal-target]
 key    = "ghostty-renderer-metal-target"
 title  = "renderer/metal/Target.zig -- the IOSurface-backed MTLTexture ghostty renders into"
@@ -4853,3 +4824,996 @@ group  = "J"
 # client in wl_keyboard.keymap, and the library that defines it, read as the
 # specification for baud's own XKB compiler and linked nowhere.
 
+# Group O -- row 0 of note N, docs/research/notes/o-keystroke-latency.md: the
+# clocks behind every timestamp on the keystroke-to-pixel path (Apple
+# documentation JSON and the SDK headers), and how typing latency has been
+# defined and measured before (typometer, Dan Luu, Hume, and the terminals
+# that quote them). Two keys here, danluu-term-latency and
+# lkhrs-terminal-latency, replace group-J `external` entries: the pages are
+# committed now.
+
+[sources.apple-nsevent-timestamp]
+key    = "apple-nsevent-timestamp"
+title  = "NSEvent.timestamp -- 'The time when the event occurred in seconds since system startup' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json"
+file   = "apple-nsevent-timestamp.json"
+sha256 = "ae1016dae72393411e5bb4ba8f3a3cad58cca0543c96ea516b235097c7e97c6f"
+bytes  = 15749
+status = "retrieved"
+group  = "O"
+# The only Apple statement of NSEvent.timestamp's unit and base: the SDK's
+# NSEvent.h (macos-sdk-nsevent-h) declares the property with no comment at
+# all.
+
+[sources.apple-nsevent]
+key    = "apple-nsevent"
+title  = "NSEvent -- class overview: the system generates events, enqueues them, dequeues when ready (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json"
+file   = "apple-nsevent.json"
+sha256 = "3cfee4239c637b183721020f8cea4fc43cfe2c14cdfa1ddcc287544af1882691"
+bytes  = 157395
+status = "retrieved"
+group  = "O"
+
+[sources.apple-nsapplication-currentevent]
+key    = "apple-nsapplication-currentevent"
+title  = "NSApplication.currentEvent -- 'the last event object that the app retrieved from the event queue' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/currentevent.json"
+file   = "apple-nsapplication-currentevent.json"
+sha256 = "9fa1bf37f79c5b4bf76d339286871d7197d1ece9508dc049dc1f8bfe37e25e57"
+bytes  = 21653
+status = "retrieved"
+group  = "O"
+# How the app reaches the NSEvent behind a KeyPress the owner's crate hands it
+# without a timestamp.
+
+[sources.apple-cgeventtimestamp]
+key    = "apple-cgeventtimestamp"
+title  = "CGEventTimestamp -- 'the elapsed time in nanoseconds since startup that a Quartz event occurred' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtimestamp.json"
+file   = "apple-cgeventtimestamp.json"
+sha256 = "fe500177e068a4e15f33e05def60e14966e7cd3d5bd20024801d9c4ff348b31c"
+bytes  = 28559
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cgevent-timestamp]
+key    = "apple-cgevent-timestamp"
+title  = "CGEvent.timestamp -- get and set the timestamp of a Quartz event (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/timestamp.json"
+file   = "apple-cgevent-timestamp.json"
+sha256 = "6d5c02249e76f809f2e5358028c90a0140a2f0d61ac0114e96db2bf04fa537db"
+bytes  = 35194
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cgeventsettimestamp]
+key    = "apple-cgeventsettimestamp"
+title  = "CGEventSetTimestamp -- the C function the key-post helper uses to stamp a posted event (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventsettimestamp.json"
+file   = "apple-cgeventsettimestamp.json"
+sha256 = "5d5f4d750b5c95bdf9ab3b2315542a42b87837fa184a8da0512a9ed436683666"
+bytes  = 28707
+status = "retrieved"
+group  = "O"
+# Says only "Sets the timestamp of a Quartz event"; whether the window server
+# preserves a poster's stamp into the NSEvent is not documented anywhere
+# fetched here -- unresolved, left to the empirical lane.
+
+[sources.apple-cgevent-post]
+key    = "apple-cgevent-post"
+title  = "CGEvent.post(tap:) / CGEventPost -- 'posts the specified event immediately before any event taps instantiated for that location' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/post(tap:).json"
+file   = "apple-cgevent-post.json"
+sha256 = "d4e8d9616c8673ada8d4d9a4495b79202a79e038d75e8dc9021b8ffc1910b8b1"
+bytes  = 36216
+status = "retrieved"
+group  = "O"
+# The Swift page; the C symbol path coregraphics/cgeventpost(_:_:).json
+# answers 404 on the data endpoint. Its Discussion is the SDK's CGEvent.h
+# comment verbatim.
+
+[sources.apple-cgeventtaplocation]
+key    = "apple-cgeventtaplocation"
+title  = "CGEventTapLocation -- the three tapping points (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtaplocation.json"
+file   = "apple-cgeventtaplocation.json"
+sha256 = "1812a183d17f0a05bdfb09f03d1821680877cec579ac99387819210c1230266b"
+bytes  = 39680
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cghideventtap]
+key    = "apple-cghideventtap"
+title  = "CGEventTapLocation.cghidEventTap -- 'the point where HID system events enter the window server' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgeventtaplocation/cghideventtap.json"
+file   = "apple-cghideventtap.json"
+sha256 = "3c45538e18708eb8a690cb6891250dc319a32085ccddfbfea79dd1f633d54339"
+bytes  = 9233
+status = "retrieved"
+group  = "O"
+# Where scripts/key-post.swift posts, so a posted key takes the path a
+# hardware key takes from the window server onward.
+
+[sources.apple-cgevent-init-keyboard]
+key    = "apple-cgevent-init-keyboard"
+title  = "CGEvent.init(keyboardEventSource:virtualKey:keyDown:) / CGEventCreateKeyboardEvent (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgevent/init(keyboardeventsource:virtualkey:keydown:).json"
+file   = "apple-cgevent-init-keyboard.json"
+sha256 = "43277413fbff6b684f152e5c7050070512959b5ed1fec9e88f9df5e6bc95a4d2"
+bytes  = 42989
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cadisplaylink-targettimestamp]
+key    = "apple-cadisplaylink-targettimestamp"
+title  = "CADisplayLink.targetTimestamp -- 'the time interval that represents when the next frame displays' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/targettimestamp.json"
+file   = "apple-cadisplaylink-targettimestamp.json"
+sha256 = "33f6162d0f10c175acbfb677b9504a3c1e60890b3e4d2927e57ac3b6109890ac"
+bytes  = 20842
+status = "retrieved"
+group  = "O"
+# Its example compares the target against CACurrentMediaTime(), which is the
+# documentation's own statement that the two are one clock.
+
+[sources.apple-cadisplaylink-timestamp]
+key    = "apple-cadisplaylink-timestamp"
+title  = "CADisplayLink.timestamp -- 'the time interval that represents when the last frame displayed' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/timestamp.json"
+file   = "apple-cadisplaylink-timestamp.json"
+sha256 = "62b5f20fca449ef71ec6905d40886d1bccb512341bcc689681dd0dab28cb17b8"
+bytes  = 17686
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cadisplaylink-duration]
+key    = "apple-cadisplaylink-duration"
+title  = "CADisplayLink.duration -- 'use targetTimestamp - CACurrentMediaTime() to calculate the actual amount of time' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/duration.json"
+file   = "apple-cadisplaylink-duration.json"
+sha256 = "f25ea30d2cfc4a5017143c5bc634a1ec26c88b0ead087374a3483463289e2e60"
+bytes  = 18623
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cadisplaylink]
+key    = "apple-cadisplaylink"
+title  = "CADisplayLink -- class overview: the selector runs when the screen's contents need to update; timestamp is when the previous frame displayed (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink.json"
+file   = "apple-cadisplaylink.json"
+sha256 = "1b3c8edd3bfd7011c416ded7e7125ec26251a15118d9b1a9375efe8b5f35cb15"
+bytes  = 48157
+status = "retrieved"
+group  = "O"
+
+[sources.apple-mtlcommandbuffer-gpustarttime]
+key    = "apple-mtlcommandbuffer-gpustarttime"
+title  = "MTLCommandBuffer.gpuStartTime -- 'the host time, in seconds, when the GPU starts command buffer execution ... relative to system mach time' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/gpustarttime.json"
+file   = "apple-mtlcommandbuffer-gpustarttime.json"
+sha256 = "ab26d2429cb1bf2ad7330e8f544bac9b236d7e43465dceb85cce41734dcfb16a"
+bytes  = 13424
+status = "retrieved"
+group  = "O"
+
+[sources.apple-mtlcommandbuffer-gpuendtime]
+key    = "apple-mtlcommandbuffer-gpuendtime"
+title  = "MTLCommandBuffer.gpuEndTime -- 'the host time, in seconds, when the GPU finishes execution ... relative to system mach time'; 0.0 until then (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/gpuendtime.json"
+file   = "apple-mtlcommandbuffer-gpuendtime.json"
+sha256 = "8a050d2162807769454aa9730dd65afe3c4e39528650d3b4921e1925e3f00c82"
+bytes  = 13417
+status = "retrieved"
+group  = "O"
+
+[sources.apple-mtlcommandbuffer-kernelstarttime]
+key    = "apple-mtlcommandbuffer-kernelstarttime"
+title  = "MTLCommandBuffer.kernelStartTime -- 'the host time, in seconds, when the CPU begins to schedule the command buffer' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/metal"
+url    = "https://developer.apple.com/tutorials/data/documentation/metal/mtlcommandbuffer/kernelstarttime.json"
+file   = "apple-mtlcommandbuffer-kernelstarttime.json"
+sha256 = "b73bac725b882f0bd85ad958274d844d5206e958a7bc3094bf59ea7ecc2fcc56"
+bytes  = 14970
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cacurrentmediatime]
+key    = "apple-cacurrentmediatime"
+title  = "CACurrentMediaTime() -- 'a CFTimeInterval derived by calling mach_absolute_time() and converting the result to seconds' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cacurrentmediatime().json"
+file   = "apple-cacurrentmediatime.json"
+sha256 = "f9a7ff29b05ccc86bd546a97022e76f058f9aee8c968b03e4972d819231a6784"
+bytes  = 16746
+status = "retrieved"
+group  = "O"
+
+[sources.apple-mach-absolute-time]
+key    = "apple-mach-absolute-time"
+title  = "mach_absolute_time -- 'does not increment while the system is asleep ... Prefer to use the equivalent clock_gettime_nsec_np(CLOCK_UPTIME_RAW) in nanoseconds' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/kernel"
+url    = "https://developer.apple.com/tutorials/data/documentation/kernel/1462446-mach_absolute_time.json"
+file   = "apple-mach_absolute_time.json"
+sha256 = "00d352e6587bf431b8ead2f6981fa637e75829a99b54add685b9834ceac2ab33"
+bytes  = 19197
+status = "retrieved"
+group  = "O"
+# Apple's own statement that the two calls are equivalent, which is what lets
+# every stamp on the path be one type.
+
+[sources.apple-cftimeinterval]
+key    = "apple-cftimeinterval"
+title  = "CFTimeInterval -- 'type used to represent elapsed time in seconds', a Double (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/corefoundation"
+url    = "https://developer.apple.com/tutorials/data/documentation/corefoundation/cftimeinterval.json"
+file   = "apple-cftimeinterval.json"
+sha256 = "659c11a9ccd5b20cbeb7507e6563b3af6052d0dec302dfdacc2a5c3f20571bfe"
+bytes  = 10832
+status = "retrieved"
+group  = "O"
+
+[sources.apple-timeinterval]
+key    = "apple-timeinterval"
+title  = "TimeInterval / NSTimeInterval -- 'always specified in seconds; it yields sub-millisecond precision over a range of 10,000 years' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/foundation"
+url    = "https://developer.apple.com/tutorials/data/documentation/foundation/timeinterval.json"
+file   = "apple-timeinterval.json"
+sha256 = "a121d284b35698c6f176f595d4e935f4fe94c3899c69a74863012bdfa190049c"
+bytes  = 11324
+status = "retrieved"
+group  = "O"
+# The only precision statement Apple makes for any of these stamps; none of
+# the display-link, event or Metal pages state a precision of their own.
+
+[sources.apple-scstreamframeinfo-displaytime]
+key    = "apple-scstreamframeinfo-displaytime"
+title  = "SCStreamFrameInfo.displayTime -- 'the time the window server displays the frame' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/screencapturekit"
+url    = "https://developer.apple.com/tutorials/data/documentation/screencapturekit/scstreamframeinfo/displaytime.json"
+file   = "apple-scstreamframeinfo-displaytime.json"
+sha256 = "ec0d167f803298a473659c469d843c72e1ad0759320c04e1abedc9150da247d5"
+bytes  = 20199
+status = "retrieved"
+group  = "O"
+# The SDK's SCStream.h (macos-sdk-scstream-h) adds the unit the page omits:
+# "the mach absolute time when the event occurred". The external pixel probe's
+# timestamp.
+
+[sources.apple-scstreamframeinfo]
+key    = "apple-scstreamframeinfo"
+title  = "SCStreamFrameInfo -- the attachment keys on a captured frame; displayTime read as a UInt64 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/screencapturekit"
+url    = "https://developer.apple.com/tutorials/data/documentation/screencapturekit/scstreamframeinfo.json"
+file   = "apple-scstreamframeinfo.json"
+sha256 = "8afd34714fb7b2681e2dd3b7441448278749bf074309104c8155575d6005e650"
+bytes  = 31590
+status = "retrieved"
+group  = "O"
+
+[sources.apple-catransaction]
+key    = "apple-catransaction"
+title  = "CATransaction -- implicit transactions 'are committed automatically when the thread's runloop next iterates' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction.json"
+file   = "apple-catransaction.json"
+sha256 = "1a23b84bffb8574a5eb1035110573fd835a1d1a5d51a2ef2bc0ba4cfbeade07a"
+bytes  = 40462
+status = "retrieved"
+group  = "O"
+
+[sources.apple-catransaction-commit]
+key    = "apple-catransaction-commit"
+title  = "CATransaction.commit() -- 'Commit all changes made during the current transaction' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction/commit().json"
+file   = "apple-catransaction-commit.json"
+sha256 = "c18386d72814a643c89f2f6e119db38b26f6d2121edab650dbf2e9338cb0034e"
+bytes  = 10026
+status = "retrieved"
+group  = "O"
+
+[sources.apple-catransaction-flush]
+key    = "apple-catransaction-flush"
+title  = "CATransaction.flush() -- 'typically called automatically at the end of the current runloop, regardless of the runloop mode' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/catransaction/flush().json"
+file   = "apple-catransaction-flush.json"
+sha256 = "ce71c919e464aa97e32a323873a9109c5a70991ab9255465f6557c47b5eeef14"
+bytes  = 10756
+status = "retrieved"
+group  = "O"
+# What Apple says about when a main-thread commit is handed to the render
+# server; nothing fetched says which vsync it then lands on relative to a
+# display link's target -- unresolved.
+
+[sources.apple-cametaldisplaylink-targettimestamp]
+key    = "apple-cametaldisplaylink-targettimestamp"
+title  = "CAMetalDisplayLink.Update.targetTimestamp -- 'a deadline that indicates when your app needs to finish rendering to the drawable' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cametaldisplaylink/update/targettimestamp.json"
+file   = "apple-cametaldisplaylink-targettimestamp.json"
+sha256 = "5aa3c5c5778f591bd9778b7c16e6f172cd3a335ea6279c55c97747007d9d9369"
+bytes  = 16653
+status = "retrieved"
+group  = "O"
+
+[sources.apple-cametaldisplaylink-targetpresentation]
+key    = "apple-cametaldisplaylink-targetpresentation"
+title  = "CAMetalDisplayLink.Update.targetPresentationTimestamp -- 'the time the system estimates until the display of the next frame' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/cametaldisplaylink/update/targetpresentationtimestamp.json"
+file   = "apple-cametaldisplaylink-targetpresentation.json"
+sha256 = "ecb07d453979536f46773f21490381c32dbae581ddddae5d868b93768e487130"
+bytes  = 10571
+status = "retrieved"
+group  = "O"
+# The Metal display link separates the render deadline from the estimated
+# display time; CADisplayLink's one targetTimestamp is documented as the
+# latter.
+
+[sources.apple-promotion-displays]
+key    = "apple-promotion-displays"
+title  = "Optimizing iPhone and iPad apps to support ProMotion displays -- 'the refresh rate ... is the rate that Core Animation renders the content for the entire display' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/quartzcore"
+url    = "https://developer.apple.com/tutorials/data/documentation/quartzcore/optimizing-iphone-and-ipad-apps-to-support-promotion-displays.json"
+file   = "apple-promotion-displays.json"
+sha256 = "168ab82b9b59c8753462b5fc64a3bc614df7000fec061bc046d6696d739d6781"
+bytes  = 46835
+status = "retrieved"
+group  = "O"
+# iOS article; kept for its general statement that the display link cadence is
+# Core Animation's render cadence, synchronised to but not driven by the
+# panel.
+
+[sources.apple-event-architecture]
+key    = "apple-event-architecture"
+title  = "Cocoa Event Handling Guide, 'Event Architecture' -- 'Before it dispatches an event to an application, the window server processes it in various ways; it time-stamps it' (archive HTML)"
+author = "Apple"
+year   = 2016
+venue  = "developer.apple.com/library/archive"
+url    = "https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/EventArchitecture/EventArchitecture.html"
+file   = "apple-event-architecture.html"
+sha256 = "94862311ba1008451b3a6276497df3b698c9c320f297b630cda7404ab7ae2d08"
+bytes  = 71764
+status = "retrieved"
+group  = "O"
+# The answer to whether NSEvent.timestamp is the HID arrival or the window
+# server's stamp: the guide says the window server stamps. It is the OS X-era
+# archive, dated 2016; no current page restates it.
+
+[sources.macos-man-clock_gettime]
+key    = "macos-man-clock_gettime"
+title  = "clock_gettime(3) -- CLOCK_UPTIME_RAW 'is identical to the result of mach_absolute_time() after the appropriate mach_timebase conversion'; clock_gettime_nsec_np returns 64-bit nanoseconds (rendered text)"
+author = "Apple Inc."
+year   = 2016
+venue  = "macOS 27.0 SDK man page, dated January 26, 2016"
+url    = "$SDKROOT/usr/share/man/man3/clock_gettime.3"
+file   = "macos-man-clock_gettime.txt"
+sha256 = "42f29ba67a909986f817927bb707bced0cbe504ba1f2ff51b2a2820a9c298b5a"
+bytes  = 4458
+status = "retrieved"
+group  = "O"
+# Rendered with /usr/bin/mandoc -T utf8 | col -b from the SDK's roff source,
+# pinned below as macos-sdk-man-clock_gettime-3. The nix `man` on this box has
+# no manpath for it.
+
+[sources.macos-sdk-man-clock_gettime-3]
+key    = "macos-sdk-man-clock_gettime-3"
+title  = "clock_gettime.3 -- the roff source of macos-man-clock_gettime"
+author = "Apple Inc."
+year   = 2016
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man3/clock_gettime.3"
+file   = ""
+sha256 = "d09d561f8939fa9c8ebb67733b81034747ffd7ab504049920d08e8b36c7242fc"
+bytes  = 5998
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-time-h]
+key    = "macos-sdk-time-h"
+title  = "time.h -- includes <_time.h>, which is where the clock ids live"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/time.h"
+file   = ""
+sha256 = "cf4912303943c5bda8404f5fd7a2a8219153353a49df2aeaddbb2dcd4b35c0bf"
+bytes  = 3275
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-_time-h]
+key    = "macos-sdk-_time-h"
+title  = "_time.h -- clockid_t: CLOCK_UPTIME_RAW = 8, CLOCK_MONOTONIC_RAW = 4; clock_gettime and clock_gettime_nsec_np declared (Darwin-only, under !_POSIX_C_SOURCE || _DARWIN_C_SOURCE)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/_time.h"
+file   = ""
+sha256 = "a3dceadf2c95133018af363187829ca072d85a93d69f9682a2e4fb993902f28d"
+bytes  = 8243
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-mach-time-h]
+key    = "macos-sdk-mach-time-h"
+title  = "mach/mach_time.h -- mach_absolute_time, mach_timebase_info; mach_continuous_time 'like mach_absolute_time, but advances during sleep'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/mach/mach_time.h"
+file   = ""
+sha256 = "d690e304ea595ca216ed51e20aa9747e0b3bcb07446d996abe0080a231c7065f"
+bytes  = 2590
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-nsevent-h]
+key    = "macos-sdk-nsevent-h"
+title  = "NSEvent.h -- @property (readonly) NSTimeInterval timestamp; declared with NO comment on unit or base"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSEvent.h"
+file   = ""
+sha256 = "fe7611bf49295ba80ba7bd88ca8abc6af490a0d1fb73ed59853b7a45f6e56bdb"
+bytes  = 48599
+status = "external"
+group  = "O"
+# Read for the comment the spec's clock table cites; there is none. The unit
+# comes from apple-nsevent-timestamp only.
+
+[sources.macos-sdk-cgeventtypes-h]
+key    = "macos-sdk-cgeventtypes-h"
+title  = "CGEventTypes.h -- '/* Event timestamp; roughly, nanoseconds since startup. */ typedef uint64_t CGEventTimestamp;'; kCGHIDEventTap"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGEventTypes.h"
+file   = ""
+sha256 = "0eb5b0aca9a77730d7c1b0449113b18419765771ae02a596708281f56f6c45b4"
+bytes  = 19140
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-cgevent-h]
+key    = "macos-sdk-cgevent-h"
+title  = "CGEvent.h -- CGEventGetTimestamp/CGEventSetTimestamp ('Return/Set the timestamp of an event'), CGEventPost ('immediately before any event taps instantiated for that location')"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework/Headers/CGEvent.h"
+file   = ""
+sha256 = "82c0ad9eb7c2f1ccfe8483fe96f5d71493ee1f5b4a6a68458ba9c07dd728f8bb"
+bytes  = 16961
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-cadisplaylink-h]
+key    = "macos-sdk-cadisplaylink-h"
+title  = "CADisplayLink.h -- timestamp/duration: 'Time is represented using the normal Core Animation conventions, i.e. Mach host time converted to seconds'; targetTimestamp: 'The next timestamp that the client should target their render for'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CADisplayLink.h"
+file   = ""
+sha256 = "2635ee47f7d5d80a7525de009c819c89076e95f603e07213edc007e41674c9a4"
+bytes  = 4041
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-mtlcommandbuffer-h]
+key    = "macos-sdk-mtlcommandbuffer-h"
+title  = "MTLCommandBuffer.h -- GPUStartTime/GPUEndTime: 'The host time in seconds that GPU starts/finishes executing this command buffer'; kernelStartTime/kernelEndTime uncommented"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Metal.framework/Headers/MTLCommandBuffer.h"
+file   = ""
+sha256 = "d84dda866f07ffc37ce68e3c635177373cdefa419fc1f64c766442ed81966895"
+bytes  = 19270
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-cabase-h]
+key    = "macos-sdk-cabase-h"
+title  = "CABase.h -- CACurrentMediaTime: 'the result of calling mach_absolute_time () and converting the units to seconds'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/QuartzCore.framework/Headers/CABase.h"
+file   = ""
+sha256 = "ee22f9f63506b4fd384d7f504706afefb683af6ebd1aedc649856127033b0a5c"
+bytes  = 2754
+status = "external"
+group  = "O"
+
+[sources.macos-sdk-scstream-h]
+key    = "macos-sdk-scstream-h"
+title  = "SCStream.h -- SCStreamFrameInfoDisplayTime: 'the mach absolute time when the event occurred. For a frame event, this is when the frame was displayed by the window server'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/ScreenCaptureKit.framework/Headers/SCStream.h"
+file   = ""
+sha256 = "11633abf2df86bd6c92345a9c4804a0746e18d4db39994ae29243671f332825b"
+bytes  = 45681
+status = "external"
+group  = "O"
+
+[sources.rust-std-sys-time-unix]
+key    = "rust-std-sys-time-unix"
+title  = "library/std/src/sys/time/unix.rs at bcded3316 (rustc 1.96.0-nightly 2026-04-06, this box's toolchain) -- Instant::CLOCK_ID is CLOCK_UPTIME_RAW on target_vendor = 'apple'"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/rust (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/sys/time/unix.rs"
+file   = "rust-std-sys-time-unix.rs"
+sha256 = "2250ca181d117737d32734c50156a7a9e74852251a17bf70b2a002b8d6fbac43"
+bytes  = 4999
+status = "retrieved"
+group  = "O"
+# Byte-identical to the copy the nix store carries for this toolchain (rust-
+# lib-src and rust-src-1.97.1). The comment above CLOCK_ID quotes the man
+# page's CLOCK_UPTIME_RAW paragraph and says why: "the clock that all timeouts
+# and deadlines are measured against inside the kernel".
+
+[sources.rust-std-pal-unix-time]
+key    = "rust-std-pal-unix-time"
+title  = "library/std/src/sys/pal/unix/time.rs at bcded3316 -- Timespec::now(clock) is one libc::clock_gettime(clock, &mut timespec)"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/rust (MIT/Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/sys/pal/unix/time.rs"
+file   = "rust-std-pal-unix-time.rs"
+sha256 = "cf1a487f16db0c317ddef14d71ba3d0c523cda7ddf79e6e161a1cebea50a0839"
+bytes  = 8279
+status = "retrieved"
+group  = "O"
+# So std::time::Instant on macOS is clock_gettime(CLOCK_UPTIME_RAW): the same
+# clock as mach_absolute_time and every Apple stamp on the path, read through
+# the two-field timespec rather than the nanosecond call.
+
+[sources.fatin-typing-with-pleasure]
+key    = "fatin-typing-with-pleasure"
+title  = "Typing with pleasure -- human and machine aspects of typing latency, and Typometer measurements of nine editors"
+author = "Pavel Fatin"
+year   = 2015
+venue  = "pavelfatin.com"
+url    = "https://pavelfatin.com/typing-with-pleasure/"
+file   = "fatin-2015-typing-with-pleasure.html"
+sha256 = "c11e39b8ee9960bb7b9c009110eaea8956b5103405e858aa5bf5e5136bf64b5d"
+bytes  = 160631
+status = "retrieved"
+group  = "O"
+
+[sources.fatin-typometer]
+key    = "fatin-typometer"
+title  = "Typometer -- a tool to measure and analyze visual latency of text / code editors (principle, modes, usage)"
+author = "Pavel Fatin"
+year   = 2015
+venue  = "pavelfatin.com"
+url    = "https://pavelfatin.com/typometer/"
+file   = "fatin-2015-typometer.html"
+sha256 = "0ab953d3a7ac2df1c9df580b33d23c417ad186144530904b3cd60805317ca420"
+bytes  = 25176
+status = "retrieved"
+group  = "O"
+
+[sources.typometer-readme]
+key    = "typometer-readme"
+title  = "Typometer README at 2084acf -- synthetic key press via OS API, one pixel polled until it changes"
+author = "Pavel Fatin"
+year   = 2017
+venue  = "github.com/pavelfatin/typometer @ 2084acf"
+url    = "https://raw.githubusercontent.com/pavelfatin/typometer/2084acfec845fdb3042f0155adffd88f14117c00/README.md"
+file   = "typometer-readme.md"
+sha256 = "f31f29e68976b5de3d65d86a9dbab159a21610cd400d69d5673f40c6640386b2"
+bytes  = 9052
+status = "retrieved"
+group  = "O"
+
+[sources.typometer-benchmark-impl]
+key    = "typometer-benchmark-impl"
+title  = "Typometer BenchmarkImpl.java -- the clock starts after Robot.keyPress and stops when the polled pixel differs from the background"
+author = "Pavel Fatin"
+year   = 2017
+venue  = "github.com/pavelfatin/typometer @ 2084acf"
+url    = "https://raw.githubusercontent.com/pavelfatin/typometer/2084acfec845fdb3042f0155adffd88f14117c00/src/main/java/com/pavelfatin/typometer/benchmark/BenchmarkImpl.java"
+file   = "typometer-BenchmarkImpl.java"
+sha256 = "57e0f83eda9e7941614387559bbfea2f2f75710124b7dbb000cbc37c858c314a"
+bytes  = 9488
+status = "retrieved"
+group  = "O"
+
+[sources.typometer-change-detector]
+key    = "typometer-change-detector"
+title  = "Typometer ChangeDetector.java -- a busy poll of one pixel with a 3 s timeout"
+author = "Pavel Fatin"
+year   = 2017
+venue  = "github.com/pavelfatin/typometer @ 2084acf"
+url    = "https://raw.githubusercontent.com/pavelfatin/typometer/2084acfec845fdb3042f0155adffd88f14117c00/src/main/java/com/pavelfatin/typometer/benchmark/ChangeDetector.java"
+file   = "typometer-ChangeDetector.java"
+sha256 = "de57b435c0cea34aee63e9bdda55b91399ce03428ab57cd1dcc10c055d0d9ab3"
+bytes  = 1525
+status = "retrieved"
+group  = "O"
+
+[sources.typometer-screen-accessor]
+key    = "typometer-screen-accessor"
+title  = "Typometer ScreenAccessor.java -- native pixel access on Windows and Linux only; macOS falls back to java.awt.Robot"
+author = "Pavel Fatin"
+year   = 2017
+venue  = "github.com/pavelfatin/typometer @ 2084acf"
+url    = "https://raw.githubusercontent.com/pavelfatin/typometer/2084acfec845fdb3042f0155adffd88f14117c00/src/main/java/com/pavelfatin/typometer/screen/ScreenAccessor.java"
+file   = "typometer-ScreenAccessor.java"
+sha256 = "3744f0a5c37b257620c2a2466bd6bb2bad4382c7b15318f27e48bdb622b0cea0"
+bytes  = 1261
+status = "retrieved"
+group  = "O"
+
+# REPLACES the existing group-J `external` entry of the same key (same sha256, same bytes); the file is now committed. Cited by docs/research/notes/j-rendering-evidence.md.
+[sources.danluu-term-latency]
+key    = "danluu-term-latency"
+title  = "Terminal latency"
+author = "Dan Luu"
+year   = 2017
+venue  = "danluu.com"
+url    = "https://danluu.com/term-latency/"
+file   = "danluu-2017-terminal-latency.html"
+sha256 = "f5a183672bad713a079ffe3ea61e67f361c8707711921a90f5b3f8ab5a2915ce"
+bytes  = 22232
+status = "retrieved"
+group  = "O"
+
+[sources.danluu-keyboard-latency]
+key    = "danluu-keyboard-latency"
+title  = "Keyboard latency -- keypress-to-USB-packet measured with a logic analyzer"
+author = "Dan Luu"
+year   = 2017
+venue  = "danluu.com"
+url    = "https://danluu.com/keyboard-latency/"
+file   = "danluu-2017-keyboard-latency.html"
+sha256 = "4cf134ba1c5d2dfef852653d3ac2375ebe1e58368f8c82807f346e4bf8f37212"
+bytes  = 34405
+status = "retrieved"
+group  = "O"
+
+[sources.danluu-input-lag]
+key    = "danluu-input-lag"
+title  = "Computer latency: 1977-2017 -- keypress to finished screen update in the default terminal, 240/1000 fps camera"
+author = "Dan Luu"
+year   = 2017
+venue  = "danluu.com"
+url    = "https://danluu.com/input-lag/"
+file   = "danluu-2017-computer-latency-1977-2017.html"
+sha256 = "7c8d1cdff949fed0e3b827634b139e925c80d7e3324a71b65f2b7ac2d1bfaf1e"
+bytes  = 53466
+status = "retrieved"
+group  = "O"
+
+[sources.hume-latency-tester]
+key    = "hume-latency-tester"
+title  = "Measuring keyboard-to-photon latency with a light sensor -- a Teensy that presses a key and times the screen change; macOS terminal figures"
+author = "Tristan Hume"
+year   = 2020
+venue  = "thume.ca"
+url    = "https://thume.ca/2020/05/20/making-a-latency-tester/"
+file   = "hume-2020-keyboard-to-photon-latency-tester.html"
+sha256 = "7a60a41a805e5ebbd6d3074bbd02ba339b81ec38563989281e5b5b5fd8eec86b"
+bytes  = 25431
+status = "retrieved"
+group  = "O"
+
+# REPLACES the existing group-J `external` entry of the same key. Same bytes (22263) but a different sha256: the page embeds per-build asset tokens (`?v=...`), so its hash moves with the site build while the text does not. The old title said "Typometer figures"; the method is a camera, not Typometer. Cited by docs/research/notes/j-rendering-evidence.md.
+[sources.lkhrs-terminal-latency]
+key    = "lkhrs-terminal-latency"
+title  = "Measuring terminal latency -- Is It Snappy? (240 fps iPhone camera) figures for six macOS terminals"
+author = "Luke Harris (lkhrs)"
+year   = 2022
+venue  = "lkhrs.com"
+url    = "https://www.lkhrs.com/blog/terminal-latency/"
+file   = "lkhrs-2022-measuring-terminal-latency.html"
+sha256 = "c905f185779c746fa1736a001769321971d8c92beffbae4117301fdf4d45eb02"
+bytes  = 22263
+status = "retrieved"
+group  = "O"
+
+[sources.beuke-terminal-latency]
+key    = "beuke-terminal-latency"
+title  = "Measuring Terminal Latency with Typometer -- fourteen Linux/X11 terminals, min/max/avg/stddev"
+author = "madnight (beuke.org)"
+year   = 2024
+venue  = "beuke.org"
+url    = "https://beuke.org/terminal-latency/"
+file   = "beuke-2024-terminal-latency-typometer.html"
+sha256 = "0993d63bec010710356819b17843e32db112d46a3f4a29302f06ab4fe0138464"
+bytes  = 22166
+status = "retrieved"
+group  = "O"
+
+[sources.chadaustin-windows-terminal-latency]
+key    = "chadaustin-windows-terminal-latency"
+title  = "Terminal Latency on Windows -- Is It Snappy? at 240 fps, median of five, clock ends when pixels start changing"
+author = "Chad Austin"
+year   = 2024
+venue  = "chadaustin.me"
+url    = "https://chadaustin.me/2024/02/windows-terminal-latency/"
+file   = "chadaustin-2024-windows-terminal-latency.html"
+sha256 = "9de36e57d9361ed57e318b9625686acc15a3775a0d7a753485d8b413fd1afe1b"
+bytes  = 21505
+status = "retrieved"
+group  = "O"
+
+[sources.kitty-performance]
+key    = "kitty-performance"
+title  = "kitty docs/performance.rst -- keyboard-to-screen latency measured with hardware or Typometer; input_delay/repaint_delay/sync_to_monitor"
+author = "Kovid Goyal"
+year   = 2024
+venue  = "github.com/kovidgoyal/kitty @ f5ae245"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/f5ae245f65a7c30f7cf1a2b17ab4eae1d60181d1/docs/performance.rst"
+file   = "kitty-docs-performance.rst"
+sha256 = "fec97b9d4b1d70eed958301606464eab854ff2343d01429f8b658faa4682ea98"
+bytes  = 6611
+status = "retrieved"
+group  = "O"
+
+[sources.kitty-conf]
+key    = "kitty-conf"
+title  = "kitty.conf reference -- the Performance tuning section: repaint_delay 10, input_delay 3, sync_to_monitor yes"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "sw.kovidgoyal.net"
+url    = "https://sw.kovidgoyal.net/kitty/conf/"
+file   = "kitty-docs-conf.html"
+sha256 = "4c9eab40da7c0f2e2dede04450988988e5694c448c59e74195a50fa440848b9b"
+bytes  = 550570
+status = "retrieved"
+group  = "O"
+
+[sources.kitty-2701-hardware-latency]
+key    = "kitty-2701-hardware-latency"
+title  = "kitty issue #2701, comment 636497270 -- the author citing Hume's hardware tester: kitty 35 ms vs alacritty 50 ms, input_delay adds a few ms"
+author = "Kovid Goyal"
+year   = 2020
+venue  = "github.com/kovidgoyal/kitty (issue comment, API JSON)"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/issues/comments/636497270"
+file   = "kitty-issue-2701-comment-636497270.json"
+sha256 = "7b0df3a1562f3f1673631295da770145e022f2580acc7bd1ce13a0775edf4bd6"
+bytes  = 2868
+status = "retrieved"
+group  = "O"
+
+[sources.kitty-2701-typometer]
+key    = "kitty-2701-typometer"
+title  = "kitty issue #2701, comment 911089374 -- Typometer on Linux: kitty, alacritty, gnome-terminal (screenshot only)"
+author = "dlipovetsky"
+year   = 2021
+venue  = "github.com/kovidgoyal/kitty (issue comment, API JSON)"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/issues/comments/911089374"
+file   = "kitty-issue-2701-comment-911089374.json"
+sha256 = "e23c75cc57a9c7e545cfb7d9c85a42d752ad0fd7f0d2e2d977277b1c3cd1e8a6"
+bytes  = 2296
+status = "retrieved"
+group  = "O"
+
+[sources.kitty-2701-typometer-input-delay-0]
+key    = "kitty-2701-typometer-input-delay-0"
+title  = "kitty issue #2701, comment 912704201 -- the same Typometer run with input_delay 0 (screenshot only)"
+author = "dlipovetsky"
+year   = 2021
+venue  = "github.com/kovidgoyal/kitty (issue comment, API JSON)"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/issues/comments/912704201"
+file   = "kitty-issue-2701-comment-912704201.json"
+sha256 = "8a59f6731ba603a537cbe56843d9583a5456f6f744749646ab9fc13144c0c138"
+bytes  = 2203
+status = "retrieved"
+group  = "O"
+
+[sources.alacritty-673]
+key    = "alacritty-673"
+title  = "alacritty issue #673 \"Improve input latency\" -- the 3 x VBI worst-case model, opened in reply to Dan Luu"
+author = "Joe Wilm (jwilm)"
+year   = 2017
+venue  = "github.com/alacritty/alacritty (issue, API JSON)"
+url    = "https://api.github.com/repos/alacritty/alacritty/issues/673"
+file   = "alacritty-issue-673.json"
+sha256 = "4d9789c9e1868c4b493f696484caca751c88fe047363434de10fea2307a80a5d"
+bytes  = 5773
+status = "retrieved"
+group  = "O"
+
+[sources.alacritty-673-comments]
+key    = "alacritty-673-comments"
+title  = "alacritty issue #673 comments -- mstoeckl's 187 Hz camera output-latency table, vsync/present-mode discussion, closed for #3972"
+author = "alacritty contributors"
+year   = 2020
+venue  = "github.com/alacritty/alacritty (issue comments, API JSON)"
+url    = "https://api.github.com/repos/alacritty/alacritty/issues/673/comments?per_page=100"
+file   = "alacritty-issue-673-comments.json"
+sha256 = "e42717a0a69ab4d17c5c7068cad78c212ac19b5d483249e82fe3e9ab4a825322"
+bytes  = 98998
+status = "retrieved"
+group  = "O"
+
+[sources.wezterm-pr-7470]
+key    = "wezterm-pr-7470"
+title  = "wezterm PR #7470 -- configurable WebGPU present mode; Typometer on Windows 11: wezterm ~32 ms (2 frames) vs alacritty ~15 ms (1 frame)"
+author = "tfriedel"
+year   = 2026
+venue  = "github.com/wezterm/wezterm (pull request, API JSON)"
+url    = "https://api.github.com/repos/wezterm/wezterm/pulls/7470"
+file   = "wezterm-pr-7470-webgpu-present-mode.json"
+sha256 = "4429ede7b95987a8349aa05eba96b78d454dce879c09417202ddd4d2df037604"
+bytes  = 20190
+status = "retrieved"
+group  = "O"
+
+# Fetched at branch master, which resolved to 9f5c70ea6eed64706471ea3ca349181a77f21c66 on 2026-09-18 (codeberg API). The README has no latency table; the task premise that it does is wrong.
+[sources.foot-readme]
+key    = "foot-readme"
+title  = "foot README at 9f5c70e -- carries no latency measurement; points at doc/benchmark.md (vtebench) and the Performance wiki"
+author = "Daniel Eklof"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot @ 9f5c70e"
+url    = "https://codeberg.org/dnkl/foot/raw/branch/master/README.md"
+file   = "foot-readme.md"
+sha256 = "874e192a7f322421e6c762c18dadd47239f7a5366bc47b966d12b516fd6f626d"
+bytes  = 24450
+status = "retrieved"
+group  = "O"
+
+# Wiki page, unpinned (codeberg wiki raw has no commit form). The render timer measures how long the last frame took to render, not keystroke-to-pixel.
+[sources.foot-wiki-performance]
+key    = "foot-wiki-performance"
+title  = "foot wiki: When is foot fast, and when is it not? -- the on-screen render timer ([tweak] render-timer=osd) and damage tracking"
+author = "Daniel Eklof"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot/wiki"
+url    = "https://codeberg.org/dnkl/foot/wiki/raw/Performance.md"
+file   = "foot-wiki-performance.md"
+sha256 = "b30d678ff0acf5df8b264fc4edff77913fa91a0a409fe3c989a71306b9d72e91"
+bytes  = 6836
+status = "retrieved"
+group  = "O"
+
+[sources.apple-understanding-hitches]
+key    = "apple-understanding-hitches"
+title  = "Understanding hitches in your app -- the render loop: begin time, commit deadline, presentation time; double buffering is three vsync intervals begin-to-last-pixel"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/understanding-hitches-in-your-app.json"
+file   = "apple-xcode-understanding-hitches.json"
+sha256 = "c53115374259d3b85c36a6324115331e38a9b578964cb3ed5b6950ba43f4022c"
+bytes  = 49720
+status = "retrieved"
+group  = "O"
+
+[sources.apple-improving-app-responsiveness]
+key    = "apple-improving-app-responsiveness"
+title  = "Improving app responsiveness -- the event-handling and rendering loop, hang and hitch thresholds (100 ms discrete, one refresh interval continuous)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/improving-app-responsiveness.json"
+file   = "apple-xcode-improving-app-responsiveness.json"
+sha256 = "cc7918c884a8420e2611a15b47d16411d60ef11383d16954f0cbddf71c2251d8"
+bytes  = 67766
+status = "retrieved"
+group  = "O"
+
+[sources.apple-techtalk-render-loop]
+key    = "apple-techtalk-render-loop"
+title  = "Explore UI animation hitches and the render loop (Tech Talk 10855) -- event, commit, render prepare, render execute, display; hitch time ratio"
+author = "Apple Inc."
+year   = 2020
+venue  = "developer.apple.com/videos (page with transcript)"
+url    = "https://developer.apple.com/videos/play/tech-talks/10855/"
+file   = "apple-techtalk-10855-render-loop-hitches.html"
+sha256 = "aed959988a1bd5ef05248fdb6049c844465490dca2d32234c29d3f33ef0b840a"
+bytes  = 136061
+status = "retrieved"
+group  = "O"
+
+[sources.apple-wwdc23-analyze-hangs]
+key    = "apple-wwdc23-analyze-hangs"
+title  = "Analyze hangs with Instruments (WWDC23 10248) -- how user input travels hardware -> OS -> main thread -> render server -> display driver; the Hangs instrument measures main-thread work, not input-to-display"
+author = "Apple Inc."
+year   = 2023
+venue  = "developer.apple.com/videos (page with transcript)"
+url    = "https://developer.apple.com/videos/play/wwdc2023/10248/"
+file   = "apple-wwdc23-10248-analyze-hangs.html"
+sha256 = "de83ab390eb1c04d3ba463fed3c964c6589b78b55b4c8887f9c242e91a1e0539"
+bytes  = 228896
+status = "retrieved"
+group  = "O"
+
+[sources.hn-mitchellh-latency-benchmarks]
+key    = "hn-mitchellh-latency-benchmarks"
+title  = "Hacker News 42526221 -- ghostty's author: input latency cannot be measured properly without a camera or pixel access to the screen"
+author = "Mitchell Hashimoto (mitchellh)"
+year   = 2024
+venue  = "news.ycombinator.com"
+url    = "https://news.ycombinator.com/item?id=42526221"
+file   = "hn-42526221-mitchellh-on-latency-benchmarks.html"
+sha256 = "ba60a1b3cb761f3434ceeeaf59f12ebaa2b5267ed710be54c89d80220687b21f"
+bytes  = 8825
+status = "retrieved"
+group  = "O"

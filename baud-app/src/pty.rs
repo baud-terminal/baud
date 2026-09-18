@@ -11,6 +11,8 @@
 //! each read where it is polled.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(target_os = "macos")]
+use baud_domain::HostTime;
 use baud_domain::WinSize;
 use baud_font::Px;
 use std::ffi::CString;
@@ -29,7 +31,7 @@ use std::time::Duration;
 pub struct Pty {
     master: libc::c_int,
     #[cfg(target_os = "macos")]
-    rx: Receiver<Vec<u8>>,
+    rx: Receiver<Read>,
     /// Set by the reader when it has woken the main thread and not yet
     /// been drained, so a flood of reads sends one wake, not one a read.
     #[cfg(target_os = "macos")]
@@ -45,15 +47,38 @@ pub enum Stream {
     Closed,
 }
 
+/// One `read(2)` of the master, and when it returned.
+///
+/// The stamp is taken on the reader thread the moment the read returns,
+/// before the bytes are copied or the main thread is woken, so it is the
+/// earliest moment this process knows the child answered -- the `echo` leg
+/// of the keystroke instrument (`latency.rs`), which is why it rides in the
+/// channel beside the bytes rather than being read on the main thread when
+/// the chunk is drained. Named `Read` rather than `Chunk`, which is the Linux
+/// loop's enum for the same read without the stamp.
+#[cfg(target_os = "macos")]
+pub struct Read {
+    pub at: HostTime,
+    pub bytes: Vec<u8>,
+}
+
 /// What a drain found: the chunks that arrived, and whether more can.
 #[cfg(target_os = "macos")]
 pub struct Drained {
-    pub chunks: Vec<Vec<u8>>,
+    pub chunks: Vec<Read>,
     pub stream: Stream,
 }
 
 /// What `read(2)` delivers at most per call, the tty's own quantum.
 const READ_CHUNK: usize = 4096;
+
+/// Whether a write reached the child whole.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Wrote {
+    All,
+    /// The kernel took none of it, or not all of it, and the rest is lost.
+    Short,
+}
 
 /// The shell when `$SHELL` is unset: the system's.
 #[cfg(target_os = "macos")]
@@ -203,18 +228,22 @@ impl Pty {
         Drained { chunks, stream }
     }
 
-    /// Writes `bytes` to the shell, all of them.
-    pub fn write(&self, bytes: &[u8]) {
+    /// Writes `bytes` to the shell, all of them, and says whether they
+    /// all went: a write the kernel refuses -- the slave's input queue full
+    /// because the child stopped reading, or the child gone -- asks for no
+    /// echo, and the keystroke instrument must not wait for one.
+    pub fn write(&self, bytes: &[u8]) -> Wrote {
         let mut at = 0usize;
         while at < bytes.len() {
             // SAFETY: the slice is valid for its length and the fd is ours.
             let n =
                 unsafe { libc::write(self.master, bytes[at..].as_ptr().cast(), bytes.len() - at) };
             if n <= 0 {
-                return;
+                return Wrote::Short;
             }
             at += usize::try_from(n).unwrap_or(0);
         }
+        Wrote::All
     }
 
     /// Tells the kernel, and through it the shell, the new geometry in
@@ -234,16 +263,25 @@ impl Pty {
 }
 
 #[cfg(target_os = "macos")]
-fn reader(fd: libc::c_int, tx: Sender<Vec<u8>>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+fn reader(fd: libc::c_int, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let mut buf = vec![0u8; READ_CHUNK];
     loop {
         // SAFETY: the buffer is valid for READ_CHUNK bytes.
         let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), READ_CHUNK) };
+        // Stamped before anything else happens to the bytes: this is the
+        // moment the child's answer reached the process.
+        let at = host_now();
         if n <= 0 {
             return;
         }
         let n = usize::try_from(n).unwrap_or(0);
-        if tx.send(buf[..n].to_vec()).is_err() {
+        if tx
+            .send(Read {
+                at,
+                bytes: buf[..n].to_vec(),
+            })
+            .is_err()
+        {
             return;
         }
         // The chunk is in the channel; wake the main thread once for
@@ -423,4 +461,30 @@ pub fn display_scale() -> Option<f64> {
     }
     // Counts of pixels and points a display has are exact in an f64.
     Some(pixels.0 as f64 / points.0 as f64)
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    /// libSystem's `clock_gettime_nsec_np`, which libc 0.2 does not bind
+    /// (it binds the `CLOCK_UPTIME_RAW` constant and `clock_gettime`, whose
+    /// `timespec` would need a multiply and an add to become nanoseconds).
+    /// It answers a `uint64_t`, and [`HostTime`] is `repr(transparent)`
+    /// over that width, so the return crosses the ABI as the type the
+    /// instrument uses rather than as a bare integer -- the same shape as
+    /// the CoreGraphics declarations above.
+    fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> HostTime;
+}
+
+/// Now, on the clock every stamp in the keystroke instrument shares:
+/// `CLOCK_UPTIME_RAW`, which is `mach_absolute_time` in nanoseconds -- the
+/// base `NSEvent.timestamp`, `CADisplayLink.targetTimestamp` and Metal's
+/// `GPUEndTime` are expressed in (see `baud_domain::time`). The one place
+/// this binary reads it, so every caller agrees on the clock by
+/// construction. Zero if the call fails, which it does not for a valid
+/// clock id.
+#[cfg(target_os = "macos")]
+pub fn host_now() -> HostTime {
+    // SAFETY: a libSystem call with no preconditions beyond a valid clock
+    // id, which `CLOCK_UPTIME_RAW` is.
+    unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) }
 }
