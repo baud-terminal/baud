@@ -416,3 +416,38 @@ present; medians of eight settled launches, milliseconds; the A/A column is
 No launch result. What changed is the binary: 15 load commands to 8, the nix
 store's `libiconv.2.dylib` among the seven gone.
 
+
+## Pacing a keystroke's frame by completion (row 6)
+
+Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
+cell path at 120x40. `scripts/key-latency.py --rounds 5 --keys 30 --gap 150
+--child stream --arm base=<HEAD> --arm new=<row 6> --aa`: the child prints a
+line every 2 ms under the tty's echo, so a key's echo always lands inside
+the frame loop's frame's-time gate. Five rounds, the first discarded, the
+arm order rotated, an A/A copy in the sweep; medians of ~120 keys an arm,
+microseconds; the floor is the A/A copy's per leg. This is the second of
+four sweeps, the quiet one whose posts were phase-locked (see `CLAUDE.md`);
+the uniform-phase sweep read the same `build` and lost `to_shown` to a
+noisier box.
+
+| leg | base | new | floor | verdict |
+|---|---|---|---|---|
+| deliver | 942 | 972 | 288 | within |
+| **build** (fed to committed) | **3184** [2317-3469] | **41** [31-59] | 1629 | **result** |
+| gpu | 661 | 675 | 396 | within |
+| show | 151 | 149 | 25 | within |
+| **to_shown** (the A/B number) | **4905** [4220-5327] | **2109** [1749-2600] | 1681 | **result, -2795** |
+| vsync (surface set to the announced target) | 7435 | 1887 | 422 | result |
+| total, early bound | 12426 | 4277 | 1683 | result |
+| total, late bound | 20760 | 12610 | 1683 | result |
+
+Sweep 4, posts at a uniform phase, box noisier (`deliver` 1781 [1471-3386]):
+`build` 2938 [1826-3695] -> 47 [39-64], floor 2175, result; `to_shown`
+5972 -> 3428, -2544, floor 4364, not a result. Isolated keys through `cat`
+in the same session: every leg inside its floor (`build` 65 -> 63, floor
+38; `to_shown` 2657 -> 2528, floor 998).
+
+Kept on the layer. The panel is not measured for this row: by the row-0
+probe's rule both arms' frames make the same compositor pass except in the
+base's tail, where its tick-paced frame reached the layer more than
+1.05 ms after its tick on 8-12 % of keys.

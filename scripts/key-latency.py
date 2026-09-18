@@ -132,7 +132,15 @@ HOW TO READ IT
     shell, what a user feels. `--child none` runs `stty -echo; sleep 60`,
     the no-echo control: every key is posted and none completes, and the
     sweep exits 1 to say so. (`sleep` alone is NOT a no-echo control --
-    the line discipline echoes whatever the child does.)
+    the line discipline echoes whatever the child does.) `--child stream`
+    is `cat`'s echo under a child that prints a line every STREAM_MS
+    milliseconds and never reads: a build log scrolling while the user
+    types. It is the workload row 6 of note N is about -- with output
+    arriving several times a display period, the frame loop's "draw now
+    on a wake only if a frame's time has passed" gate is never open, so
+    a key's echo is paced by the tick, and `build` (fed to commit) carries
+    the wait. With an isolated key the gate is always open (row 0 read
+    `build` at 91 us), which is why `--child cat` cannot show row 6.
 
 EXIT CODES
     0  every run had completed keys (or --selftest passed)
@@ -144,7 +152,7 @@ EXIT CODES
        are printed and the sweep is aborted
 
     scripts/key-latency.py [--rounds 5] [--keys 30] [--gap 150] \\
-        [--child cat|shell|none] [--arm name=path] [--aa] [--grid 120x40]
+        [--child cat|shell|none|stream] [--arm name=path] [--aa] [--grid 120x40]
     scripts/key-latency.py --selftest        # no app, no posting: unit tests
 """
 import argparse
@@ -674,13 +682,27 @@ def refused_runs(per_arm_diag):
     return out
 
 
+# `--child stream` prints a line every this many milliseconds: two to three
+# lines a display period at 120 Hz, so a key's echo always lands inside the
+# frame's-time gate. `python3 -u` so every line is its own write(2).
+STREAM_MS = 2
+STREAM_CMD = (
+    "python3 -u -c 'import time,itertools; "
+    f"[(print(i), time.sleep({STREAM_MS / 1000})) for i in itertools.count()]'"
+)
+
+
 def child_env(child):
     """What BAUD_CMD the child mode sets: `cat` the tty's own echo, `shell`
-    the login shell (unset), `none` a tty with echo off -- the control."""
+    the login shell (unset), `none` a tty with echo off -- the control,
+    `stream` a child printing a line every STREAM_MS ms under the tty's
+    echo -- the row-6 workload."""
     if child == "cat":
         return {"BAUD_CMD": "cat"}
     if child == "none":
         return {"BAUD_CMD": "stty -echo; sleep 60"}
+    if child == "stream":
+        return {"BAUD_CMD": STREAM_CMD}
     return {}
 
 
@@ -1344,6 +1366,8 @@ def selftest():
         failures.append(f"--child none must set the no-echo control: {child_env('none')}")
     if child_env("cat").get("BAUD_CMD") != "cat" or child_env("shell") != {}:
         failures.append("cat/shell child env wrong")
+    if "python3 -u" not in child_env("stream").get("BAUD_CMD", "") or "0.002" not in child_env("stream")["BAUD_CMD"]:
+        failures.append(f"--child stream must print every {STREAM_MS} ms unbuffered: {child_env('stream')}")
 
     # The helper's --front line.
     fr = parse_front_line("front 1390 Safari app 1390 Safari")
@@ -1389,9 +1413,11 @@ def main():
     ap.add_argument("--gap", type=int, default=150,
                     help="MEAN ms between keys; the helper jitters each gap uniformly "
                          "by +-25%% (0 stays 0: typeahead, the guard bounds the rate)")
-    ap.add_argument("--child", choices=["cat", "shell", "none"], default="cat",
+    ap.add_argument("--child", choices=["cat", "shell", "none", "stream"], default="cat",
                     help="cat: the tty's own echo; shell: the login shell; "
-                         "none: `stty -echo; sleep 60`, the no-echo control")
+                         "none: `stty -echo; sleep 60`, the no-echo control; "
+                         f"stream: a line printed every {STREAM_MS} ms under the tty's "
+                         "echo, the row-6 workload")
     ap.add_argument("--arm", action="append", default=None,
                     help="name=path/to/baud (repeatable)")
     ap.add_argument("--aa", action="store_true",

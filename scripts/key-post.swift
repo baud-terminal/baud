@@ -90,6 +90,24 @@ func die(_ msg: String, _ code: Int32) -> Never {
 
 func hostNow() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
+// Sleep to a deadline on the host clock, spinning the last stretch. A plain
+// `Thread.sleep` wakes when the kernel's timer does, and the kernel coalesces
+// a sleep's wakeup with other timers inside its leeway -- under a display-paced
+// load that pinned every post to one phase of the refresh: with a child
+// printing a line every 2 ms the posts' phase spread 1.6 ms of an 8.3 ms
+// period where the idle `cat` child gave the whole period, so the jittered
+// gap was a fixed one in the workload where the phase decides the number.
+// Sleeping to 3 ms short and spinning the rest lands the post at the schedule
+// rather than at the nearest timer.
+func sleepUntil(_ deadline: UInt64) {
+    let slack: UInt64 = 3_000_000
+    let now = hostNow()
+    if deadline > now + slack {
+        Thread.sleep(forTimeInterval: Double(deadline - now - slack) / 1e9)
+    }
+    while hostNow() < deadline {}
+}
+
 // A seedable generator (SplitMix64) so the gap schedule is a pure function
 // of the seed: the same pid gives the same schedule. Swift's
 // SystemRandomNumberGenerator cannot be seeded, and a run could not be
@@ -221,6 +239,8 @@ if let app = NSRunningApplication(processIdentifier: pid) {
 }
 Thread.sleep(forTimeInterval: 0.3)
 
+var deadline: UInt64? = nil
+
 for i in 0..<count {
     guardFront()  // refuse before building or posting anything
     let ch = chars[i % chars.count]
@@ -229,6 +249,14 @@ for i in 0..<count {
     let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)!
     down.keyboardSetUnicodeString(stringLength: u.count, unicodeString: &u)
     down.flags = []  // a plain letter: no modifier of the event's own
+    // The wait to the schedule is the LAST thing before the stamp: the guard
+    // and the event's creation are round trips to the window server, and
+    // under a compositing load they return in phase with its passes -- a
+    // wait placed before them landed every post at one phase of the
+    // refresh, whatever the schedule said.
+    if let d = deadline {
+        sleepUntil(d)
+    }
     let stamp = hostNow()
     down.timestamp = CGEventTimestamp(stamp)
     print("post \(i + 1) \(stamp) \(ch)")
@@ -242,8 +270,8 @@ for i in 0..<count {
     up.flags = []
     up.post(tap: .cghidEventTap)
 
-    if i + 1 < count && gaps[i] > 0 {
-        Thread.sleep(forTimeInterval: gaps[i] / 1000.0)  // the jittered gap
-    }
+    // The next post's moment on the schedule: this stamp plus the jittered
+    // gap, waited for at the top of the next iteration.
+    deadline = (i + 1 < count && gaps[i] > 0) ? stamp + UInt64(gaps[i] * 1_000_000.0) : nil
 }
 exit(0)

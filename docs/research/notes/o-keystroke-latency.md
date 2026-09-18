@@ -296,3 +296,40 @@ the next target (`a_dropped_tick_voids_the_vsync_bounds`), and the
 fixture the driver's self-test parses is rebuilt from its own numbers by
 the emitter (`the_fixture_s_first_record_is_what_the_line_emits`), so the
 two halves cannot drift apart while both suites stay green.
+
+## Row 6 read through it, and the helper's posts were phase-locked under load
+
+Row 6 -- pace a keystroke's frame by completion rather than by the display
+link -- is measured, and the workload that shows it is `--child stream`: a
+child printing a line every 2 ms under the tty's echo, so output is
+flowing when the key lands and the frame loop's "draw now on a wake only
+if a frame's time has passed" gate is never open. There the base waited
+2.7-3.2 ms for the tick (`build`, fed to committed, against 65 us through
+`cat`), and drawing the echo on the read that brings it puts `to_shown`
+2.5-2.8 ms lower in each of four sweeps, past the floor in the two quiet
+ones; the figures are in `MEASUREMENTS.md` and the mechanism in `CLAUDE.md`.
+
+**What the sweeps found about this instrument.** The first two had every
+arm's `vsync` leg tight -- 7.4-7.6 ms on the tick-paced base, 1.9-2.0 ms
+on the change -- which means the posts sat at one phase of the refresh:
+the raw rows put 63 % of them in two octiles of the period, where the same
+helper under `cat` fills all eight. The jitter was drawn and applied; what
+undid it was the order of the helper's loop. The front-window guard and
+the event's creation are round trips to the window server, and under a
+compositing load the server answers in phase with its passes, so a wait
+placed before them -- a plain sleep, or a spin to the deadline, which
+changed nothing -- landed every post at the server's rhythm. The wait is
+the last instruction before the stamp now, and the posts fill every octile.
+The lesson is the driver's own warning about a fixed gap, arriving through
+a side door: a schedule is only as good as the last thing that runs before
+the stamp, and on a busy window server that thing was the server.
+
+**What the row leaves the panel.** The probe's rule from above -- a
+surface makes the pass of the tick it follows only when it is on the layer
+within about a millisecond of that tick -- says the base's tick-paced
+frame (on the layer 0.6-0.8 ms after its tick) and the immediate frame
+(on the layer about a millisecond after the echo, mid-period) make the
+same pass at every phase but the first 0.1 ms after a tick; the difference
+is the base's tail, 8-12 % of keys whose frame reached the layer past that
+millisecond. Adjudicating that needs the probe under a stream that writes
+away from the cursor, which is not built.

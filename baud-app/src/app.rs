@@ -335,6 +335,14 @@ struct App {
     /// once a vsync and a keystroke draws now.
     last_commit: Instant,
     interval: Duration,
+    /// Where the last key sent to the child stands: its echo not yet read,
+    /// read but not yet drawn, or drawn. A wake draws at once only when a
+    /// frame's time has passed since the last commit, so a flood draws
+    /// once a vsync -- and a keystroke landing inside that time waited for
+    /// the tick. Row 6 of note N: the read that brings a key's echo is
+    /// drawn as soon as no frame is in flight, whatever the clock says,
+    /// and only that read; floods still coalesce.
+    echo: Echo,
     last_tick: Option<f64>,
     /// When the terminal opened a synchronised update (`?2026`) that has not
     /// closed. A frame is held while one is open, so a half-drawn screen --
@@ -641,6 +649,7 @@ impl App {
             font_base: font_size,
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
+            echo: Echo::Drawn,
             last_tick: None,
             sync_since: None,
             blink: Blink::default(),
@@ -949,6 +958,7 @@ impl App {
         self.blink_present = self.renderer.blink_seen();
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
+        self.echo = Echo::Drawn;
         self.frames.bump();
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
@@ -1358,6 +1368,18 @@ enum Drew {
     No,
 }
 
+/// Where the echo of the last key sent stands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Echo {
+    /// A key went to the child and no read has come back since.
+    Wanted,
+    /// The read after the key was fed and no frame has been committed
+    /// since: a frame is owed now.
+    Fed,
+    /// Drawn, or no key outstanding.
+    Drawn,
+}
+
 /// Whether a key sent anything to the child. The core answers a key with
 /// the bytes its encoding produces, and some chords produce none; the
 /// instrument opens a record on every key and closes the `written` leg
@@ -1384,7 +1406,10 @@ impl Driver {
     fn typed(&mut self, e: KeyEvent) {
         self.app.latency.key(current_event_time, host_now);
         match self.app.send(e) {
-            Sent::Bytes => self.app.latency.written(host_now),
+            Sent::Bytes => {
+                self.app.latency.written(host_now);
+                self.app.echo = Echo::Wanted;
+            }
             Sent::Nothing => self.app.latency.unsent(),
         }
     }
@@ -1438,6 +1463,11 @@ impl Driver {
         }
         if !drained.chunks.is_empty() {
             self.app.latency.fed(host_now);
+            // The first read after a key's write is that key's echo -- the
+            // instrument's rule, and the loop's: it is owed a frame now.
+            if self.app.echo == Echo::Wanted {
+                self.app.echo = Echo::Fed;
+            }
         }
         // Looking back while output scrolls: the window stays on the lines
         // it was showing, which means it moves up the ring by however many
@@ -1504,7 +1534,16 @@ impl Driver {
         // into a set, and `draw_cells` would refuse it and throw the lot
         // away. The completion wakes us and this runs again with the bytes
         // that arrived meanwhile already fed.
-        let due = trigger == Trigger::Tick || self.app.last_commit.elapsed() >= self.app.interval;
+        // A key's echo is due the moment it is fed: waiting for the tick
+        // here was the one place a keystroke waited for the display link,
+        // and it did so exactly when output was already flowing -- a build
+        // log scrolling under the typing -- because that is when the last
+        // commit is under a frame's time old. A read with no key behind it
+        // keeps the gate. With a frame in flight the echo stays owed, and
+        // the completion wake draws it: paced by the GPU, not the tick.
+        let due = trigger == Trigger::Tick
+            || self.app.echo == Echo::Fed
+            || self.app.last_commit.elapsed() >= self.app.interval;
         if due && !busy {
             let view = self.view.clone();
             self.app.present(&view, Show::Event);
