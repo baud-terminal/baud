@@ -1819,6 +1819,13 @@ impl Responder for Driver {
     }
 }
 
+/// The backing scale the shell is spawned on before CoreGraphics has
+/// answered: 2, every Apple panel's and every Retina display's. The answer
+/// arrives ~20 ms later and a miss corrects the renderer and the shell's
+/// grid once, before the shell has printed anything. A prediction and not a
+/// fit: `run()` checks it against the display and says when it missed.
+const PREDICTED_SCALE: CGFloat = 2.0;
+
 /// Where the Dock's icon comes from: the bundle's `CFBundleIconFile` when
 /// the binary runs inside an `.app`, else set from the embedded image.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1854,31 +1861,27 @@ fn icon_titlebar() -> Option<Retained<NSImage>> {
 pub fn run() {
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
     let size = NSSize::new(960.0, 600.0);
-    // What the grid needs before a window exists: the display's scale, and
-    // the titlebar's height -- the window is FullSizeContentView, so its
-    // content spans the frame behind the transparent titlebar and the
-    // traffic lights, and the terminal leaves that strip so row 0 clears
-    // the lights. Both are class-level answers, so the child shell can be
-    // spawned at its real grid before AppKit starts, and its own startup
-    // overlaps AppKit's rather than following it.
-    let early_scale = crate::pty::display_scale();
+    // What the grid needs before a window exists: the titlebar's height --
+    // the window is FullSizeContentView, so its content spans the frame
+    // behind the transparent titlebar and the traffic lights, and the
+    // terminal leaves that strip so row 0 clears the lights -- and the
+    // display's scale, for the cell size in pixels. The inset is a
+    // class-level answer at 1.2 ms. **The scale is not**: the first
+    // CoreGraphics call is the window server connection, 23.6 ms on this
+    // box, and the shell used to be spawned behind it. So the shell is
+    // spawned on a *predicted* scale, and the answer is checked when it
+    // arrives -- 20 ms later and 130 ms before the shell has printed
+    // anything, the shape the inset already takes against the window. A
+    // display the prediction misses gets its grid corrected once, by a
+    // resize the shell has not read past.
     let inset = {
         let content = NSRect::new(NSPoint::new(0.0, 0.0), size);
         let frame =
             NSWindow::frameRectForContentRect_styleMask(content, NSWindowStyleMask::Titled, mtm);
         (frame.size.height - size.height).max(0.0)
     };
-    startup_mark("screen");
-    let scale = match early_scale {
-        Some(s) => s,
-        None => {
-            // No display CoreGraphics will name: AppKit's answer, at
-            // AppKit's price.
-            NSApplication::sharedApplication(mtm);
-            NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
-        }
-    };
-    let boot = Boot::prepare(scale);
+    startup_mark("inset");
+    let mut boot = Boot::prepare(PREDICTED_SCALE);
     // The gutter in points: the grid floats inset from all four sides -- below
     // the titlebar and in from the left, right and bottom -- with the glass in
     // the margin. The pty and the renderer follow the inset area.
@@ -1894,23 +1897,25 @@ pub fn run() {
             ws_row: r.parse().ok()?,
         })
     });
-    let (cw, ch) = boot.metrics_cell();
-    let ws = grid.as_ref().map_or_else(
-        || {
-            grid_for(
-                NSSize::new(
-                    (size.width - 2.0 * padding).max(0.0),
-                    (size.height - inset - 2.0 * padding).max(0.0),
-                ),
-                scale,
-                (cw, ch),
-            )
-        },
-        |ws| WinSize {
-            ws_col: ws.ws_col,
-            ws_row: ws.ws_row,
-        },
-    );
+    let grid_at = |scale: CGFloat, cell: (f64, f64)| {
+        grid.as_ref().map_or_else(
+            || {
+                grid_for(
+                    NSSize::new(
+                        (size.width - 2.0 * padding).max(0.0),
+                        (size.height - inset - 2.0 * padding).max(0.0),
+                    ),
+                    scale,
+                    cell,
+                )
+            },
+            |ws| WinSize {
+                ws_col: ws.ws_col,
+                ws_row: ws.ws_row,
+            },
+        )
+    };
+    let ws = grid_at(PREDICTED_SCALE, boot.metrics_cell());
     // The reader wakes the main thread through the view, which does not
     // exist yet; bytes that arrive before it does wait in the channel and
     // the first wake after the window is shown drains them.
@@ -1923,6 +1928,44 @@ pub fn run() {
     })
     .expect("pty");
     startup_mark("pty");
+    let early_scale = crate::pty::display_scale();
+    startup_mark("scale");
+    let scale = match early_scale {
+        Some(s) => s,
+        None => {
+            // No display CoreGraphics will name: AppKit's answer, at
+            // AppKit's price.
+            NSApplication::sharedApplication(mtm);
+            NSScreen::mainScreen(mtm).map_or(1.0, |s| s.backingScaleFactor())
+        }
+    };
+    // The prediction, checked against the display. A miss rebuilds the
+    // renderer's metrics at the real pixel size and tells the shell the
+    // grid it actually has; a hit costs nothing, and this box is a hit.
+    let (ws, cw, ch) = if (scale - PREDICTED_SCALE).abs() < 1e-9 {
+        let (cw, ch) = boot.metrics_cell();
+        (ws, cw, ch)
+    } else {
+        if let Some(px) = PxSize::of(boot.font_size * scale as f32) {
+            let _ = boot.renderer.rescale(px);
+        }
+        let (cw, ch) = boot.metrics_cell();
+        let corrected = grid_at(scale, (cw, ch));
+        if (corrected.ws_col, corrected.ws_row) != (ws.ws_col, ws.ws_row) {
+            let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
+            pty.resize(
+                &corrected,
+                px(f64::from(corrected.ws_col) * cw),
+                px(f64::from(corrected.ws_row) * ch),
+            );
+        }
+        startup_note(&format!(
+            "scale: predicted {PREDICTED_SCALE}, measured {scale}; the shell was spawned at {}x{} and has {}x{}",
+            ws.ws_col, ws.ws_row, corrected.ws_col, corrected.ws_row
+        ));
+        (corrected, cw, ch)
+    };
+    startup_mark("screen");
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     startup_mark("nsapp");
