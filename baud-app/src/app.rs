@@ -1932,6 +1932,9 @@ pub fn run() {
     let ns_app = NSApplication::sharedApplication(mtm);
     ns_app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     startup_mark("nsapp");
+    // Which AppKit these numbers were taken against -- and the reference
+    // that keeps AppKit linked under the dead-strip `build.rs` asks for.
+    startup_note(&format!("appkit {}", macos_liquid_glass::appkit_version()));
     let icon = icon();
     startup_mark("icon");
     // The Dock icon comes from the bundle when there is one: `CFBundleIconFile`

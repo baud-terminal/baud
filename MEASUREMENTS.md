@@ -397,3 +397,22 @@ settled launches, milliseconds; the A/A column is |aa - base| on that stage.
 running beside it: the two window-server connections serialise. No gain on the
 first present; the prompt 19 ms later. Reverted.
 
+## Dead-stripping the dylibs (row 5)
+
+Apple M5 Max, macOS 27.0, on AC. `scripts/startup-bench.py --rounds 9 --arm
+base=<HEAD bundle> --arm stripped=<bundle with build.rs> --aa`, to the first
+present; medians of eight settled launches, milliseconds; the A/A column is
+|aa - base| on that stage.
+
+| stage | base | stripped | A/A |
+|---|---|---|---|
+| scale | 17.2 | 16.7 | 0.2 |
+| nsapp | 50.1 | 48.6 | 1.4 |
+| glass window | 75.9 | 75.4 | 1.8 |
+| shown | 89.6 | 89.7 | 0.5 |
+| first present | 93.2 [85.0-118.8] | 93.4 [84.4-121.3] | 0.6 |
+| wall to first present | 106.0 [97.2-132.8] | 104.4 [92.4-131.5] | 107.0 [99.3-114.0] |
+
+No launch result. What changed is the binary: 15 load commands to 8, the nix
+store's `libiconv.2.dylib` among the seven gone.
+
