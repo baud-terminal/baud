@@ -153,4 +153,8 @@ pub static FIRST_CONTENT: AtomicBool = AtomicBool::new(false);
 pub static FIRST_DONE: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
+/// The first display-link tick returned: what the tick's own work cost
+/// the main thread, which is where the Dock icon used to be set.
+#[cfg(target_os = "macos")]
+pub static FIRST_TICK_DONE: AtomicBool = AtomicBool::new(false);
 pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);

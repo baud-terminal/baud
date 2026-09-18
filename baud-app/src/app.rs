@@ -2,8 +2,9 @@
 #![forbid(unsafe_code)]
 
 use crate::host::{
-    FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK, MAX_GRID,
-    describe, host_geometry, load_faces, startup_first, startup_mark, startup_note,
+    FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
+    FIRST_TICK_DONE, MAX_GRID, describe, host_geometry, load_faces, startup_first, startup_mark,
+    startup_note,
 };
 use crate::latency::{Ended, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
@@ -37,7 +38,9 @@ use macos_liquid_glass::objc2_app_kit::{
     NSScreen, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
-use macos_liquid_glass::objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+use macos_liquid_glass::objc2_foundation::{
+    MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize, NSString,
+};
 use macos_liquid_glass::window::GlassWindow;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -1785,6 +1788,7 @@ impl Responder for Driver {
         // this target as its early bound, and one that already has its
         // early bound takes it as the late one.
         self.app.latency.tick(|| HostTime::of_secs(target));
+        startup_first("first tick done", &FIRST_TICK_DONE);
     }
 
     fn presented(&mut self) {
@@ -1813,6 +1817,14 @@ impl Responder for Driver {
             h: ch / s,
         }
     }
+}
+
+/// Where the Dock's icon comes from: the bundle's `CFBundleIconFile` when
+/// the binary runs inside an `.app`, else set from the embedded image.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DockIcon {
+    Bundled,
+    Ours,
 }
 
 /// baud's icon, rasterised from `assets/logo/` and embedded, so it needs no
@@ -1916,6 +1928,21 @@ pub fn run() {
     startup_mark("nsapp");
     let icon = icon();
     startup_mark("icon");
+    // The Dock icon comes from the bundle when there is one: `CFBundleIconFile`
+    // in the main bundle's Info.plist is the Dock's own source, and setting
+    // an image on top of it was 10-13 ms of vImage on the main thread at the
+    // first tick for a picture the Dock already had. A bare binary has no
+    // bundle and keeps setting it, or the Dock would show a blank tile.
+    let dock = match NSBundle::mainBundle()
+        .objectForInfoDictionaryKey(&NSString::from_str("CFBundleIconFile"))
+    {
+        Some(_) => DockIcon::Bundled,
+        None => DockIcon::Ours,
+    };
+    startup_note(match dock {
+        DockIcon::Bundled => "dock icon: the bundle's",
+        DockIcon::Ours => "dock icon: set from the binary",
+    });
     let window = GlassWindow::new(mtm, size, "baud");
     startup_mark("glass window");
     // The inset predicted above, checked against the window that exists
@@ -2058,7 +2085,10 @@ pub fn run() {
     let mut driver = Driver {
         app: probe,
         view: view.clone(),
-        dock_icon: icon.clone(),
+        dock_icon: match dock {
+            DockIcon::Bundled => None,
+            DockIcon::Ours => icon.clone(),
+        },
         held: None,
         bar_drag: None,
         deferred: Deferred::Nothing,

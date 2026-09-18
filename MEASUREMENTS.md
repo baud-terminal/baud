@@ -335,3 +335,22 @@ wall 193.1 -- the proxy for a shipped `.metallib`. A one-line comment in the
 shader source: the next launch's library 76.2, pipelines 0.8, then warm; the
 cache keys on the source and survives rebuilds. `docs/research/notes/p-shader-cache.md`.
 
+## The Dock icon from the bundle
+
+Apple M5 Max, macOS 27.0, on AC. `BAUD_CMD=shell BAUD_BENCH_STAGE="first
+content" scripts/startup-bench.py --rounds 7 --arm base=<HEAD bundle> --arm
+bundled=<bundle with the change> --aa`: two `.app` bundles, the login shell as
+the child, seven rounds with the first discarded, the arm order rotated, an A/A
+copy of the base binary in the sweep. Medians of six launches, milliseconds.
+
+| | base | bundled | A/A |
+|---|---|---|---|
+| first tick | 134.6 | 139.4 | 133.3 |
+| the tick's cost (`dock icon` / `first tick done` minus `first tick`) | **9.0** | **0.0** | 9.0 |
+| first content (in-app) | 191.8 | 193.3 | 199.7 |
+| wall to first content | 203.7 [196.3-211.2] | 207.9 [205.2-216.3] | 211.2 [204.1-211.9] |
+
+Wall: bundled - base +4.1 ms against an A/A spread of 14.9 -- not a result.
+The first present is before the first tick and is unmoved. What moved is 9 ms
+of main-thread work on the first tick, which nothing a user sees waits for.
+
