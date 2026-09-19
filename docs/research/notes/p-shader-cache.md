@@ -165,3 +165,87 @@ on, and the documentation supplies the reasons.
 
 The keep rule is 20 ms; the cost is 306. The row stays open on the
 toolchain, with its number.
+
+## Re-measured on Xcode 27, and the block verified rather than quoted
+
+**2026-09-19, macOS 27.0, Xcode 27.0 (27A266a).** The figures above were
+taken on an earlier Xcode, and a shader-cache cost is exactly the kind of
+number an OS update moves, so it was re-taken with the same instrument --
+seven launches an arm, the first of each discarded:
+
+| field | warm median | cold median | cold - warm | as recorded before |
+|---|---|---|---|---|
+| library | 0.6 ms | 277.6 | **+277.0** | +302 |
+| pipelines | 1.1 | 45.1 | **+44.0** | +51 |
+| probe, whole | 13.8 | 335.5 | +321.7 | -- |
+| **wall to the first present** | **102.9** | **389.9** | **+287.0** | +306 |
+| device (control) | 11.7 | 11.7 | **+0.0** | -- |
+| warm pass (control) | 0.6 | 0.5 | **-0.1** | -- |
+
+**The row's number holds and the two controls say the arms are what they
+claim.** `device` and the warm pass do not touch the cache and do not
+move; everything that does moves by two orders of magnitude. The cost is
+6 % lower than it was, which is inside what this file would call drift
+across an OS version rather than a finding.
+
+**The toolchain is still absent, and it is verified three ways rather
+than by one error string.** The `metal` binary *exists* --
+`/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/metal`
+-- and is a stub that answers *"cannot execute tool 'metal' due to
+missing Metal Toolchain"*; no toolchain directory exists under
+`/Library/Developer/Toolchains` or `~/Library/Developer/Toolchains`; and
+`~/Library/Developer/Xcode/XcodeToMetalToolchainIndexMapping.plist` lists
+every `metalToolchain` asset with affinity **`available`**, which is the
+word for downloadable rather than installed.
+
+**And the error this note quotes is not the one `xcrun` gives here, which
+is a second masking worth writing down.** `DEVELOPER_DIR` on this box is
+a nix `apple-sdk-14.4`, so `xcrun metal` answers **"tool 'metal' not
+found"** and `xcodebuild` answers "tool 'xcodebuild' not found" -- the
+same `xcode-select` shim this repo already records for `xctrace`. A
+reader who retries the command in this note gets an error that reads like
+*no Xcode at all* and would be wrong twice over: Xcode 27 is installed and
+the missing thing is one component. **Reach the real tool by its full
+path before concluding anything about it**, which is this repo's
+positive-control rule applied to a toolchain instead of a search.
+
+## The two remedies that need no toolchain, sized and both refused
+
+The verdict above leaves "not to wait" as the remedy available without a
+download. It is **not contained**, and the code says why rather than the
+note asserting it.
+
+* **A live terminal cannot change which memory it lives in.** `Term` is
+  constructed *over* its storage exactly once, and the choice is the path:
+  `Owned::storage_over(cells, alt_cells)` hands it the GPU's two shared
+  buffers on the cell path, `Owned::storage()` hands it ordinary memory on
+  the CPU and instance paths (`baud-app/src/app.rs`, the `match (request,
+  probe)`). Presenting on the CPU and adopting the GPU later therefore
+  means re-homing a live `Term` -- its ring, its alternate surface, its
+  cursor, modes, book and cluster store -- and `baud-core` has no such
+  operation. Adding one is a core API change in service of a launch that
+  happens once per install.
+* **It cannot be narrowed to "switch before anything is fed" either**, which
+  would have avoided the re-homing. The probe lands at **335 ms** cold,
+  measured above. The shell's first bytes are **not** measured cold and
+  are derived: the pty is spawned at 19 ms, before AppKit and independent
+  of the probe, and `zsh -l -i -c exit` on this box is 150-160 ms, so the
+  bytes arrive around 170-180 ms whatever the GPU is doing. Both halves of
+  that derivation are recorded launch figures; what is not taken is a cold
+  launch printing the two marks together, and it is one run of the
+  instrument above with `BAUD_CMD=shell` if anyone wants it pinned.
+* **Splitting the library so the first frame's pipelines compile first is
+  refused on the ratio.** The whole source is **226 lines, 9.3 KB, eight
+  entry points**, and it takes 277 ms: that is the Metal front end's fixed
+  cost rather than anything proportional to the text, so two libraries
+  would pay it twice. **This is an inference from the ratio and not a
+  measurement** -- what would settle it is a ceiling arm compiling a
+  deliberately trimmed source and reading the cold `library` field, which
+  needs no toolchain and has not been run.
+
+**So the row is open on one command.** `xcodebuild -downloadComponent
+MetalToolchain` is a change to the owner's Xcode; with it, the remedy is
+the contained one this note already describes -- a generated
+`baud.metallib` beside the source, hash-gated, with `newLibraryWithData`
+and the source as the fallback -- and it is worth ~197 ms of the 287.
+Without it there is no remedy here that is smaller than the problem.
