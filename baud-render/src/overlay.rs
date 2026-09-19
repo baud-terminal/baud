@@ -205,7 +205,12 @@ impl Overlay {
         // The windows: around each admitted pair, as wide as the face's
         // longest rule, merged where they touch, shaped as one run and
         // cached by content.
-        let mut i = 0;
+        // `ceiling-no-windows` prices the ligature half by not walking it.
+        let mut i = if cfg!(feature = "ceiling-no-windows") {
+            scene.candidates.len()
+        } else {
+            0
+        };
         while i < scene.candidates.len() {
             let y = scene.candidates[i].row.index();
             let mut ranges: Vec<(usize, usize)> = Vec::new();
@@ -333,7 +338,13 @@ impl Overlay {
                 block,
                 highlight: scene.highlight,
             };
-            if let Some(drawn) = this.windows.get(&key) {
+            // `ceiling-no-window-cache` prices the miss: nothing is found.
+            let hit = if cfg!(feature = "ceiling-no-window-cache") {
+                None
+            } else {
+                this.windows.get(&key)
+            };
+            if let Some(drawn) = hit {
                 Overlay::paint_window(
                     piece,
                     drawn,

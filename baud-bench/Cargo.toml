@@ -63,6 +63,8 @@ stride-env = []
 # The new core's arms, named apart from core2's so one `--features` cannot
 # silently arm the wrong crate.
 new-no-write = ["baud-core/ceiling-no-write"]
+render-no-window-cache = ["baud-render/ceiling-no-window-cache"]
+render-no-windows = ["baud-render/ceiling-no-windows"]
 new-no-classify = ["baud-core/ceiling-no-classify"]
 new-no-decode = ["baud-core/ceiling-no-decode"]
 new-no-scroll = ["baud-core/ceiling-no-scroll"]

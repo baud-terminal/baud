@@ -451,3 +451,30 @@ Kept on the layer. The panel is not measured for this row: by the row-0
 probe's rule both arms' frames make the same compositor pass except in the
 base's tail, where its tick-paced frame reached the layer more than
 1.05 ms after its tick on 8-12 % of keys.
+
+## The ligature window's miss (row 7, measured, no change)
+
+Apple M5 Max, macOS 27.0, on AC. `FRAME_ARMS=async cargo bench -p baud-bench
+--bench frame_gpu -- <recording> 2 incremental`, one binary per arm from one
+source -- the base, `render-no-window-cache` (every window shaped) and
+`render-no-windows` (no window walk) -- plus a byte-identical copy of the
+base as the A/A control, four launches a binary in separate processes with
+the order rotated, each launch's in-process warm-up round discarded (one
+short of the rule's five); 200x50 at 14 px.
+Convert in microseconds a frame, medians of four:
+
+| recording, face | base | A/A | every window a miss | no windows | windows a frame | misses a frame | a miss, us |
+|---|---|---|---|---|---|---|---|
+| btop, JetBrains Mono | 37.9 [37.4-39.6] | 38.7 | 193.0 | 30.1 | 59.7 | 0.4 | 2.6 |
+| cat-scroll, JetBrains Mono | 110.3 [109.3-113.3] | 110.8 | 233.1 | 23.2 | 60.6 | 17.8 | 2.9 |
+| git-log, JetBrains Mono | 190.6 [187.8-193.7] | 192.0 | 233.2 | 26.2 | 26.7 | 14.9 | 3.6 |
+| less-pager, JetBrains Mono | 171.3 [156.4-179.5] | 164.2 | 271.4 | 53.8 | 55.8 | 22.9 | 3.0 |
+| asciiquarium, JetBrains Mono | 332.3 [318.0-376.5] | 329.0 | 773.7 | 20.8 | 73.7 | 16.0 | 7.6 |
+| cat-scroll, FiraCode | 287.9 [278.5-293.2] | 284.5 | 350.1 | 24.0 | 54.3 | 37.4 | 3.7 |
+| git-log, FiraCode | 350.6 [347.6-354.9] | 355.6 | 432.7 | 26.9 | 48.6 | 36.7 | 6.9 |
+
+A miss is the extra convert of the every-miss arm over the base, divided by
+the windows it added to the misses; that arm still writes the cache, so a
+miss here is a shape plus a replace less the get the base pays. No change
+shipped: the frame's keep floor is one 120 Hz frame, the largest base
+convert in the table is 0.35 ms and the largest of any arm 0.77.
