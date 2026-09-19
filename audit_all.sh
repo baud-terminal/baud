@@ -230,7 +230,16 @@ crate_audit "baud-xkb" 10 6 baud-xkb/src
 # the externs they are) and the pool's byte arithmetic -- a stride in words,
 # an offset into the file -- which the wire carries as `int`. Set at the count.
 crate_audit "baud-present-wayland" 6 14 baud-present-wayland/src
-crate_audit "baud-app" 0 1 baud-app/src
+# baud-app: 1 raw site and 4 signature primitives. One is `slots(Px) ->
+# usize` in the presenter edge, as above; the other four are the kernel ABI
+# in `sys.rs`, which declares the pty, the ioctl, the poll, the mapping and
+# Darwin's raw clock as the externs they are rather than through a `libc`
+# crate -- the way `baud-present-wayland` declares `mmap` and the ISA crates
+# declare `sysctlbyname`. The three parameters are `size_t` byte counts on
+# `read`, `write` and `mmap`, and the field is the window size's own `u16`:
+# the platform's widths, which a newtype would misrepresent rather than
+# document. Set at the count, and it does not move to fit a change.
+crate_audit "baud-app" 1 4 baud-app/src
 
 # baud-bench is an aggregate for the same reason baud-core is: after the SRP
 # split its 12 permitted sites live across main.rs, harness.rs and drive.rs, and

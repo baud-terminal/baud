@@ -16,8 +16,9 @@ use baud_domain::HostTime;
 use baud_domain::WinSize;
 use baud_font::Px;
 use std::ffi::CString;
+use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
-use std::os::fd::{AsRawFd, BorrowedFd};
+use std::os::fd::BorrowedFd;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
@@ -29,7 +30,7 @@ use std::time::Duration;
 
 /// The master's file descriptor, owned here.
 pub struct Pty {
-    master: libc::c_int,
+    master: crate::sys::Fd,
     #[cfg(target_os = "macos")]
     rx: Receiver<Read>,
     /// Set by the reader when it has woken the main thread and not yet
@@ -91,7 +92,7 @@ impl Pty {
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
     /// `/bin/sh -c "$BAUD_CMD"` instead, which is how a benchmark drives
     /// the terminal: the window closes when the command ends.
-    fn fork(size: &WinSize) -> Option<libc::c_int> {
+    fn fork(size: &WinSize) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
         let shell = match &cmd {
             Some(_) => "/bin/sh".to_string(),
@@ -106,20 +107,25 @@ impl Pty {
         let cmd_c = cmd.and_then(|c| CString::new(c).ok());
         let term = CString::new("TERM=xterm-256color").ok()?;
         let colorterm = CString::new("COLORTERM=truecolor").ok()?;
-        let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
-        ws.ws_col = size.ws_col;
-        ws.ws_row = size.ws_row;
-        let mut master: libc::c_int = -1;
+        // Darwin's `forkpty` takes the size by mutable pointer and
+        // glibc's by const, so the binding is only mutated on one.
+        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        let mut ws = crate::sys::Winsize {
+            ws_row: size.ws_row,
+            ws_col: size.ws_col,
+            ..crate::sys::Winsize::default()
+        };
+        let mut master: crate::sys::Fd = -1;
         // Linux's forkpty takes the window size by const pointer and
         // Darwin's by mutable pointer; the size is the same struct.
         #[cfg(target_os = "linux")]
-        let ws_arg: *const libc::winsize = &raw const ws;
+        let ws_arg: *const crate::sys::Winsize = &raw const ws;
         #[cfg(not(target_os = "linux"))]
-        let ws_arg: *mut libc::winsize = &raw mut ws;
+        let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
         // SAFETY: forkpty is given a valid out-pointer and window size; in
         // the child only async-signal-safe calls run before exec.
         let pid = unsafe {
-            libc::forkpty(
+            crate::sys::forkpty(
                 &mut master,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -131,8 +137,8 @@ impl Pty {
         }
         if pid == 0 {
             unsafe {
-                libc::putenv(term.into_raw());
-                libc::putenv(colorterm.into_raw());
+                crate::sys::putenv(term.into_raw());
+                crate::sys::putenv(colorterm.into_raw());
                 let argv = match &cmd_c {
                     Some(c) => [
                         argv0.as_ptr(),
@@ -147,8 +153,8 @@ impl Pty {
                         std::ptr::null(),
                     ],
                 };
-                libc::execvp(shell_c.as_ptr(), argv.as_ptr());
-                libc::_exit(127);
+                crate::sys::execvp(shell_c.as_ptr(), argv.as_ptr());
+                crate::sys::_exit(127);
             }
         }
         Some(master)
@@ -200,7 +206,7 @@ impl Pty {
     pub fn read_chunk(&self) -> Chunk {
         let mut buf = vec![0u8; READ_CHUNK];
         // SAFETY: an open descriptor and a buffer of the length named.
-        let n = unsafe { libc::read(self.master, buf.as_mut_ptr().cast(), READ_CHUNK) };
+        let n = unsafe { crate::sys::read(self.master, buf.as_mut_ptr().cast(), READ_CHUNK) };
         if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
             return Chunk::Bytes(Vec::new());
         }
@@ -236,8 +242,9 @@ impl Pty {
         let mut at = 0usize;
         while at < bytes.len() {
             // SAFETY: the slice is valid for its length and the fd is ours.
-            let n =
-                unsafe { libc::write(self.master, bytes[at..].as_ptr().cast(), bytes.len() - at) };
+            let n = unsafe {
+                crate::sys::write(self.master, bytes[at..].as_ptr().cast(), bytes.len() - at)
+            };
             if n <= 0 {
                 return Wrote::Short;
             }
@@ -249,7 +256,7 @@ impl Pty {
     /// Tells the kernel, and through it the shell, the new geometry in
     /// cells and in pixels.
     pub fn resize(&self, size: &WinSize, px_w: Px, px_h: Px) {
-        let ws = libc::winsize {
+        let ws = crate::sys::Winsize {
             ws_col: size.ws_col,
             ws_row: size.ws_row,
             ws_xpixel: u16::try_from(px_w.value()).unwrap_or(u16::MAX),
@@ -257,17 +264,17 @@ impl Pty {
         };
         // SAFETY: TIOCSWINSZ takes a pointer to a winsize.
         unsafe {
-            libc::ioctl(self.master, libc::TIOCSWINSZ, &ws);
+            crate::sys::ioctl(self.master, crate::sys::TIOCSWINSZ, &ws);
         }
     }
 }
 
 #[cfg(target_os = "macos")]
-fn reader(fd: libc::c_int, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
+fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let mut buf = vec![0u8; READ_CHUNK];
     loop {
         // SAFETY: the buffer is valid for READ_CHUNK bytes.
-        let n = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), READ_CHUNK) };
+        let n = unsafe { crate::sys::read(fd, buf.as_mut_ptr().cast(), READ_CHUNK) };
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
@@ -318,14 +325,14 @@ pub fn wait(
     timeout: Option<Duration>,
 ) -> std::io::Result<(Ready, Ready)> {
     let mut fds = [
-        libc::pollfd {
+        crate::sys::PollFd {
             fd: a.as_raw_fd(),
-            events: libc::POLLIN,
+            events: crate::sys::POLLIN,
             revents: 0,
         },
-        libc::pollfd {
+        crate::sys::PollFd {
             fd: b.as_raw_fd(),
-            events: libc::POLLIN,
+            events: crate::sys::POLLIN,
             revents: 0,
         },
     ];
@@ -335,7 +342,7 @@ pub fn wait(
     };
     // SAFETY: two initialised records and their count; the kernel writes
     // only `revents`, and the array outlives the call.
-    let n = unsafe { libc::poll(fds.as_mut_ptr(), 2, ms) };
+    let n = unsafe { crate::sys::poll(fds.as_mut_ptr(), 2, ms) };
     if n < 0 {
         let e = std::io::Error::last_os_error();
         return match e.kind() {
@@ -343,7 +350,7 @@ pub fn wait(
             _ => Err(e),
         };
     }
-    let ready = |p: &libc::pollfd| match p.revents {
+    let ready = |p: &crate::sys::PollFd| match p.revents {
         0 => Ready::Idle,
         _ => Ready::Readable,
     };
@@ -357,46 +364,32 @@ pub fn wait(
 /// launch for the few strikes a screen uses. The pages a face touches are
 /// the pages that get paged in.
 pub fn map_readonly(path: &str) -> std::io::Result<&'static [u8]> {
-    let c = CString::new(path).map_err(|_| std::io::Error::other("a NUL in a font path"))?;
-    // SAFETY: a NUL-terminated path and flags; the descriptor returned is
-    // ours until `close` below.
-    let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
-    if fd < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // SAFETY: `st` is a zeroed stat buffer the kernel fills for an open fd.
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    // SAFETY: an open descriptor and a pointer to a stat buffer of the
-    // right layout.
-    if unsafe { libc::fstat(fd, &mut st) } < 0 {
-        let e = std::io::Error::last_os_error();
-        // SAFETY: the descriptor is ours and open.
-        unsafe { libc::close(fd) };
-        return Err(e);
-    }
-    let len = usize::try_from(st.st_size).unwrap_or(0);
+    // **`File` is `open`, `fstat` and `close`**, and it opens
+    // close-on-exec, so none of those and none of their flags has to be
+    // declared in `sys`. That is most of what used to make this function
+    // the largest consumer of a `libc` dependency.
+    let file = std::fs::File::open(path)?;
+    let len = usize::try_from(file.metadata()?.len()).unwrap_or(0);
     if len == 0 {
-        // SAFETY: as above.
-        unsafe { libc::close(fd) };
         return Err(std::io::Error::other("an empty font file"));
     }
     // SAFETY: a private read-only mapping of the whole file at offset
     // zero; the kernel validates the length against the file. The mapping
     // is never unmapped, so the slice below lives as long as the process.
     let ptr = unsafe {
-        libc::mmap(
+        crate::sys::mmap(
             std::ptr::null_mut(),
             len,
-            libc::PROT_READ,
-            libc::MAP_PRIVATE,
-            fd,
+            crate::sys::PROT_READ,
+            crate::sys::MAP_PRIVATE,
+            file.as_raw_fd(),
             0,
         )
     };
-    // SAFETY: the mapping holds its own reference to the file; the
-    // descriptor is no longer needed.
-    unsafe { libc::close(fd) };
-    if ptr == libc::MAP_FAILED {
+    // The mapping holds its own reference to the file, so closing the
+    // descriptor -- which dropping `file` does -- leaves the pages.
+    drop(file);
+    if ptr == crate::sys::MAP_FAILED {
         return Err(std::io::Error::last_os_error());
     }
     // SAFETY: `ptr` is a live, page-aligned, read-only mapping of exactly
@@ -472,7 +465,7 @@ unsafe extern "C" {
     /// over that width, so the return crosses the ABI as the type the
     /// instrument uses rather than as a bare integer -- the same shape as
     /// the CoreGraphics declarations above.
-    fn clock_gettime_nsec_np(clock_id: libc::clockid_t) -> HostTime;
+    fn clock_gettime_nsec_np(clock_id: core::ffi::c_uint) -> HostTime;
 }
 
 /// Now, on the clock every stamp in the keystroke instrument shares:
@@ -486,5 +479,5 @@ unsafe extern "C" {
 pub fn host_now() -> HostTime {
     // SAFETY: a libSystem call with no preconditions beyond a valid clock
     // id, which `CLOCK_UPTIME_RAW` is.
-    unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) }
+    unsafe { clock_gettime_nsec_np(crate::sys::CLOCK_UPTIME_RAW) }
 }

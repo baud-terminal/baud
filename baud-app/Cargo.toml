@@ -14,7 +14,6 @@ baud-core = { path = "../baud-core", features = ["alloc"] }
 baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render" }
-libc = "0.2"
 
 # The cache probe, for `host_geometry`: the per-arch crate with `std` on, so
 # it may ask the kernel. Target-gated the way `baud-core` gates its scans.

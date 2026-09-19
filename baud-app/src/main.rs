@@ -31,6 +31,8 @@ mod linux;
 mod log;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod sys;
 
 fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
