@@ -171,6 +171,16 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-wayland/",
         "baud-xkb/",
         "baud-present-wayland/",
+        // **The four that were missing**, and the cost of missing them was
+        // not a stale path but a false claim: SECURITY.md cited
+        // `baud-isa/src/avx2.rs` -- a file that has never existed under
+        // that name here -- to support "unsafe appears in exactly one
+        // place", and neither half could be checked because the root was
+        // not in this list.
+        "baud-isa/",
+        "baud-isa-aarch64/",
+        "baud-isa-x86-64/",
+        "baud-difftest/",
         "bench-others/",
         "docs/",
         "scripts/",

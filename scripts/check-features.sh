@@ -29,7 +29,47 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-CRATES="baud-bench:30 baud-core:1 baud-font:0 baud-render:0 baud-present-macos:0 baud-app:0 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+# **Every crate with a [features] block, and the list is the gate.** It
+# omitted baud-domain, whose eight arms were therefore built by nothing --
+# and `ceiling-no-rowfill`, the one no other crate forwards, was broken by
+# exactly the stubbed-body-leaves-a-variable-unused rot this script's own
+# header says it exists to catch. A list that names fewer crates than have
+# features is the scoped-to-what-it-was-written-beside failure, and the
+# control below is what stops it recurring silently -- and on its first
+# run it found three more the audit had not named, the ISA crates, each
+# with an arm nothing was building either.
+# **Each floor is the crate's actual arm count, not a round number under
+# it.** `:N` is a minimum, checked against what the manifest parse yields,
+# and it existed to catch a parse that read nothing -- but `baud-core:1`
+# against 54 real arms, and `baud-render:0` against 3, cannot fire: the
+# gate would announce "checking 0 feature arms" and pass. That is this
+# repo's own rule -- a budget that is not equal to the count is not
+# measuring anything -- so the floors sit at the counts and a dropped arm
+# fails here. Adding a feature means changing the number beside it.
+CRATES="baud-bench:55 baud-core:54 baud-domain:8 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+
+# **The control on the list itself.** Every crate carrying a `[features]`
+# block must be named above, or the gate silently checks fewer crates than
+# the workspace has -- which is how baud-domain's eight arms went unbuilt
+# and one of them stayed broken. This compares the workspace's manifests
+# against the list rather than trusting the list, so the next crate to
+# grow a feature fails here instead of being skipped in silence.
+missing=""
+names=" $(printf '%s' "$CRATES" | sed 's/:[0-9]*//g') "
+for m in */Cargo.toml; do
+  grep -q '^\[features\]' "$m" || continue
+  c="${m%/Cargo.toml}"
+  case "$names" in
+  *" $c "*) ;;
+  *) missing="$missing $c" ;;
+  esac
+done
+if [ -n "$missing" ]; then
+  echo "FAIL: these crates have [features] and are not in CRATES:"
+  for c in $missing; do echo "  $c"; done
+  echo "  -- the gate would check fewer crates than the workspace has"
+  exit 1
+fi
 
 fail=0
 total=0

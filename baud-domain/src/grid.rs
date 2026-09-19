@@ -1569,6 +1569,11 @@ impl<'a> View<'a> {
         let to = self.used[p].index();
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
+        // The arm stops writing and the mark still moves, so the two
+        // operands the store read are otherwise unused and `-D warnings`
+        // refuses the build. Gated, so the default is byte-identical.
+        #[cfg(feature = "ceiling-no-rowfill")]
+        let _ = (base, cell);
         self.used[p] = RowExtent::ZERO;
         RowExtent::of(to)
     }

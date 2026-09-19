@@ -11,9 +11,41 @@ must terminate, stay in bounds, and never execute a payload, for any byte
 sequence at all — which is why `the_screen_does_not_depend_on_where_the_reads_fell` and the
 chunk-invariance properties exist.
 
-**`unsafe` appears in exactly one place**: `scan_avx2` in
-`baud-isa/src/avx2.rs`, which takes a shared slice and returns before any
-`&mut self` call. `baud-domain` is `#![forbid(unsafe_code)]`.
+**Five crates forbid `unsafe` outright.** `baud-core`, `baud-domain`,
+`baud-font`, `baud-render` and `baud-xkb` carry `#![forbid(unsafe_code)]`
+as a crate attribute, so the parser, the grid, the font stack, the
+compositor's conversion and the keymap compiler cannot contain an
+`unsafe` block at all -- `forbid` cannot be relaxed by an `allow` further
+down.
+
+**Three more deny it at the root and name the single module that may.**
+`baud-present-macos` denies and allows in `metal.rs`; `baud-wayland` and
+`baud-present-wayland` deny and allow in their `sys.rs`. There the
+compiler holds the boundary: a second module that wanted `unsafe` would
+have to say so in the diff.
+
+**What is left carries no such attribute, and this is where to look.**
+`baud-app` is a binary whose `app.rs` forbids for itself, with the
+platform calls confined to `pty.rs` and `sys.rs` -- the pty, the
+read-only mapping, `poll`, and two `unsafe extern "C"` blocks holding ten
+declarations between them. `baud-isa`, `baud-isa-aarch64` and
+`baud-isa-x86-64` are the vector and cache-probe crates, where `unsafe`
+is the subject rather than an exception: `Scan`'s methods are `unsafe fn`
+because on x86-64 a caller can invoke AVX2 on a machine that cannot
+execute it. `baud-bench` has two, in harnesses that are not in the
+shipped binary. Six crates carry no attribute in all -- those five and
+`baud-difftest`, which contains no `unsafe` at all -- so the confinement
+there is a convention this paragraph asserts and nothing enforces.
+
+**This paragraph previously said `unsafe` appeared in exactly one place,
+`scan_avx2` in an avx2.rs under the baud-isa crate** -- named without
+backticks on purpose, because the gate below reads a backticked path as a
+citation and cannot tell one from an explanation of a dead one. That file
+does not exist, the function went with `baud-core2`, and the claim was
+false besides. It survived because
+`every_repository_path_named_in_the_docs_exists` did not list
+`baud-isa/` among its roots, so neither the dead path nor the claim
+resting on it could be checked. The root is listed now.
 
 **Attacker-controlled data is stored in bounded, evicting tables.** OSC payloads
 (`OSC_MAX`), hyperlink URIs (`NLINK` × `LINK_MAX`) and style interning
