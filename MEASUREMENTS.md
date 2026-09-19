@@ -617,3 +617,35 @@ four orders under it, and the whole of live-drag is under 2% of one frame. In
 redraws would reach either -- a re-cut follows the resize, not the redraw
 -- the control puts a width change at 1.5-7.0 us, three orders under a
 frame. Frames are per resize step and per display period, not per redraw.
+
+## Idle CPU (row 11, measured, no change)
+
+Apple M5 Max, macOS 27.0, on AC, nothing else running.
+`scripts/idle-cpu.py --arm base=<bin> --aa --rounds 5`: the binary
+launched with a child that writes nothing, its CPU read twice from the
+**live** process -- `proc_pid_rusage`, whose time fields are mach ticks
+and not nanoseconds -- so the launch's ~0.13 s is outside both samples.
+The first round is discarded and the arms rotate. `ps -o time` needs an
+entitlement on this box and `top` refuses to sample, which is why the
+source is neither.
+
+| arm | idle CPU | range | a tick at 120 Hz |
+|---|---|---|---|
+| base | **0.464%** of one core | 0.428-0.477 | 38.7 us |
+| `ceiling-idle-skip`, the whole `present` preamble skipped | 0.472% | 0.460-0.480 | 39.3 us |
+| a byte-identical copy of base | 0.474% | 0.449-0.508 | 39.5 us |
+
+**The floor is the A/A copy's own spread, 0.044-0.060% of a core** --
+9-13% of the metric, where the keep rule asks for 5%, so this instrument
+cannot resolve a keep-sized change here. Sixty-second windows did not
+tighten it over twenty-second ones. What it does establish is a bound: an
+arm that removes every candidate operation still lands inside the floor.
+
+**And an idle screen builds nothing, which is the row's own claim.** The
+app counts display-link ticks beside frames: five consecutive
+five-second reports read **601 ticks and 0 frames** each -- 120 Hz
+exactly -- against 77 frames in 21 s when a child prints every 250 ms.
+The one frame an idle run ever builds is the launch frame.
+
+No change shipped. `present` already returns on `Pending::Clean` before
+the glyph-map walk, the style resolve, the overlay walk and the draw.

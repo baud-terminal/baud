@@ -314,6 +314,11 @@ struct App {
     /// Wheel travel not yet a whole line, in points.
     scroll_accum: f64,
     frames: Tally,
+    /// Display-link ticks, which `frames` is not: a tick that finds
+    /// nothing pending returns from `present` before a frame is built,
+    /// so on an idle screen `frames` stops and this does not. Row 11's
+    /// metric is what those ticks cost, and it needs both numbers.
+    ticks: Tally,
     /// Frames whose shared-buffer writes began while the GPU was still
     /// reading the last one's. See the comment at the count site.
     wrote_in_flight: Tally,
@@ -646,6 +651,7 @@ impl App {
             last_screen: Screen::Normal,
             scroll_accum: 0.0,
             frames: Tally::default(),
+            ticks: Tally::default(),
             wrote_in_flight: Tally::default(),
             trace,
             last_report: std::time::Instant::now(),
@@ -707,6 +713,14 @@ impl App {
     }
 
     fn present(&mut self, screen: &DrawableView, show: Show) {
+        // Row 11's ceiling arm: what an idle tick would cost if the
+        // preamble below were free. Incorrect by construction -- the
+        // preamble is where a geometry change is noticed -- so it is a
+        // bound on the saving rather than a change.
+        #[cfg(feature = "ceiling-idle-skip")]
+        if self.pending == Pending::Clean {
+            return;
+        }
         // The surface is the renderer's size, so the renderer follows the
         // terminal first; the cell path never converts and would otherwise
         // keep the grid it started with.
@@ -1022,10 +1036,19 @@ impl App {
         }
         self.guess = Guess::None;
         self.frames.bump();
+    }
+
+    /// The five-second report. **It is called from the tick and not from
+    /// `present`, because an idle screen never reaches the end of
+    /// `present`** -- the `Pending::Clean` gate returns first -- so the
+    /// report this lived inside could not fire in exactly the state row
+    /// 11 is about, and its silence read the same as a broken probe.
+    fn report(&mut self) {
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
                 Some(Mode::Gpu) => crate::info!(
-                    "{} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}; {}",
+                    "{} ticks, {} frames; last: {} rows, {} instances, convert {:?}, bind {:?}, commit {:?}; {}",
+                    self.ticks.value(),
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
                     self.gpu_stats.instances.value(),
@@ -1035,7 +1058,8 @@ impl App {
                     self.present_counts()
                 ),
                 _ => crate::info!(
-                    "{} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
+                    "{} ticks, {} frames; last: {} rows, {} instances, convert {:?}, paint {:?}, cache {:?}",
+                    self.ticks.value(),
                     self.frames.value(),
                     self.stats.rows_dirty.value(),
                     self.stats.instances.value(),
@@ -2116,7 +2140,11 @@ impl Responder for Driver {
                 self.app.pending = Pending::Dirty;
             }
         }
+        self.app.ticks.bump();
         self.pump(Trigger::Tick);
+        // Every tick, not every frame: an idle screen builds no frame and
+        // is the one this has to be able to report on.
+        self.app.report();
         // After the pump: a record shown since the last announcement takes
         // this target as its early bound, and one that already has its
         // early bound takes it as the late one.

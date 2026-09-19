@@ -34,6 +34,17 @@ baud-wayland = { path = "../baud-wayland" }
 baud-present-macos = { path = "../baud-present-macos" }
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
 
+[features]
+# **A ceiling arm for row 11, off.** `present` returns early when nothing
+# is pending, but only after resolving the renderer to the terminal, the
+# selection's share of the view, the scrollbar's thumb and the surface's
+# size -- and that preamble is what an idle tick pays. This arm returns
+# at the top instead. Incorrect by construction: the preamble is also
+# where a geometry change is noticed and the presenter rebuilt, so an
+# arm that skips it cannot resize. Exact on an idle screen, which is the
+# only thing it is for.
+ceiling-idle-skip = []
+
 # The binary is `baud`; the crate keeps its name so the workspace reads
 # the same way as `baud-present-macos` beside it.
 [[bin]]

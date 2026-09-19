@@ -110,7 +110,13 @@ measurement before it is a change. Keystroke-to-pixel had no baseline at
 all. The five-terminal comparison measures CPU seconds, not latency, and
 says nothing about what a person feels while typing.
 
-**Since:** rows 6, 9 and 10 have their numbers, and row 1's research
-figure is replaced by one taken here (`docs/research/notes/p-shader-cache.md`).
-Row 4 is the one still standing on reasoning alone. Keystroke-to-pixel has
-its baseline: `BAUD_KEYLAT=1` and `scripts/key-latency.py`, row 0.
+**Since:** every row has its number. Rows 6, 9 and 10 were measured on
+baud; row 1's research figure is replaced by one taken here
+(`docs/research/notes/p-shader-cache.md`); row 4 was measured and
+reverted. Keystroke-to-pixel has its baseline (`BAUD_KEYLAT=1` and
+`scripts/key-latency.py`, row 0) and idle CPU has one
+(`scripts/idle-cpu.py`, row 11). **Row 1 is the only row still open, and
+it is open on the owner's Xcode rather than on a measurement**: a cold
+Metal shader cache costs 306 ms to the first present and the remedy is a
+build-time `.metallib`, which needs
+`xcodebuild -downloadComponent MetalToolchain`.
