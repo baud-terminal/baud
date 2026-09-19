@@ -72,6 +72,32 @@ impl Theme {
         }
     }
 
+    /// Dark text on near-white, **the same xterm palette**.
+    ///
+    /// The two greys are [`Theme::dark`]'s mirrored channel for channel --
+    /// `0xFF - 0xD8` is `0x27` and `0xFF - 0x10` is `0xEF` -- so the pair
+    /// carries the same contrast rather than a second opinion about what
+    /// "near-black" should be. Neither end is pure: `dark` does not use
+    /// `0xFF` because white on black glares, and the mirror inherits that.
+    ///
+    /// **The sixteen ANSI entries are unchanged, and that is a known
+    /// legibility gap rather than an oversight.** xterm keeps one palette
+    /// under either background, so `SGR 33` is the same yellow on white as
+    /// on black and reads poorly there; every light theme that fixes it --
+    /// Solarized, Apple's Basic -- does so by redefining those sixteen,
+    /// which is a palette *opinion* this crate does not hold. An
+    /// application can already repaint them with `OSC 4`, and the core
+    /// records that, so the mechanism exists. Choosing the numbers is the
+    /// owner's call and is not made here.
+    pub fn light() -> Theme {
+        Theme {
+            fg: grey(0x27),
+            bg: grey(0xEF),
+            bg_alpha: Chan::from_u8(0xFF),
+            palette: xterm_palette(),
+        }
+    }
+
     /// The foreground and background a rendition draws with, after the
     /// attribute rules: reverse swaps, bold brightens the first eight
     /// palette entries, dim halves, hidden hides.

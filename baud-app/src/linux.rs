@@ -95,7 +95,14 @@ pub fn run() {
     crate::info!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
     let term = Term::new(owned.storage(), &FIRST);
-    let mut theme = Theme::dark();
+    // **No appearance signal is wired here, so `Auto` resolves to dark.**
+    // The desktop's preference lives behind `org.freedesktop.appearance`
+    // on the portal's settings interface, which this driver does not speak
+    // yet; naming the key is how a reader gets light until it does.
+    let mut theme = match cfg.theme {
+        crate::config::ThemeChoice::Light => Theme::light(),
+        _ => Theme::dark(),
+    };
     theme.bg_alpha = Chan::from_u8(cfg.background_alpha);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(

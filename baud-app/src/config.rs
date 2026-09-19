@@ -41,6 +41,21 @@ pub struct Config {
     /// wants the theme's numbers read as the wider gamut on purpose. The
     /// compositor converts to each display from there.
     pub colorspace: Space,
+    /// Which palette a rendition resolves against, and whether the system
+    /// decides. `Auto` follows the effective appearance -- the macOS
+    /// driver re-reads it on every style change; the Linux driver has no
+    /// signal wired yet and resolves it to dark.
+    pub theme: ThemeChoice,
+}
+
+/// The palette, or the instruction to follow the system's appearance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ThemeChoice {
+    /// Follow the effective appearance, and change with it.
+    #[default]
+    Auto,
+    Dark,
+    Light,
 }
 
 /// The colour space the surface is tagged with.
@@ -61,6 +76,7 @@ impl Config {
             background_alpha: 0xD8,
             padding: 8.0,
             colorspace: Space::Srgb,
+            theme: ThemeChoice::Auto,
             source: None,
         }
     }
@@ -93,6 +109,19 @@ impl Config {
                     if let Ok(v) = value.trim().parse::<f32>() {
                         self.padding = v.max(0.0);
                     }
+                }
+                "theme" => {
+                    self.theme = match value.trim().trim_matches('"') {
+                        "auto" => ThemeChoice::Auto,
+                        "dark" => ThemeChoice::Dark,
+                        "light" => ThemeChoice::Light,
+                        other => {
+                            crate::warn!(
+                                "config: theme {other:?} is not auto, dark or light; using auto"
+                            );
+                            ThemeChoice::Auto
+                        }
+                    };
                 }
                 "colorspace" => {
                     self.colorspace = match value.trim().trim_matches('"') {

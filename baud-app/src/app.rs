@@ -27,7 +27,7 @@ use baud_render::{
     Theme, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
-    Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
+    Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
     MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
@@ -392,6 +392,10 @@ struct Boot {
     font_size: f32,
     /// The gutter in points around the grid, from the config.
     padding: f64,
+    /// Whether the palette follows the appearance, from the config.
+    theme: crate::config::ThemeChoice,
+    /// The background's opacity, from the config.
+    bg_alpha: baud_domain::Chan,
 }
 
 impl Boot {
@@ -462,7 +466,13 @@ impl Boot {
         }
         let faces = load_faces(&cfg);
         startup_mark("faces");
-        let mut theme = Theme::dark();
+        // An explicit choice is the palette; `Auto` starts dark and is
+        // corrected from the window's own appearance before the first
+        // frame, because no window exists here to ask.
+        let mut theme = match cfg.theme {
+            crate::config::ThemeChoice::Light => Theme::light(),
+            _ => Theme::dark(),
+        };
         theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
         let space = match cfg.colorspace {
             crate::config::Space::Srgb => SurfaceSpace::Srgb,
@@ -490,6 +500,8 @@ impl Boot {
             space,
             font_size: cfg.font_size,
             padding: f64::from(cfg.padding),
+            theme: cfg.theme,
+            bg_alpha: baud_domain::Chan::from_u8(cfg.background_alpha),
         }
     }
 
@@ -510,6 +522,10 @@ impl App {
             space,
             font_size,
             padding,
+            // Both were consumed in `prepare`, which built the renderer's
+            // palette; `run` reads them off `boot` for the driver.
+            theme: _,
+            bg_alpha: _,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -1213,6 +1229,28 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 }
 
 /// The view's responder, with the view it reports to.
+/// A style change the system has announced and the loop has not applied.
+///
+/// **The observer cannot touch the driver, which is why this is a cell.**
+/// `StyleObserver`'s callback runs on the main thread and can land while a
+/// responder callback holds the view's `RefCell` borrow -- the same
+/// re-entrancy that made moving the glass container inside a tick panic
+/// with "already borrowed". So the callback records what the system said
+/// and `pump` applies it, which is the shape `Deferred` already has for a
+/// resize that arrives mid-flight.
+#[derive(Clone, Default)]
+struct PendingStyle(std::rc::Rc<std::cell::Cell<Option<Appearance>>>);
+
+/// The palette an appearance resolves to, at the configured opacity.
+fn theme_for(appearance: Appearance, alpha: baud_domain::Chan) -> Theme {
+    let mut theme = match appearance {
+        Appearance::Dark => Theme::dark(),
+        Appearance::Light => Theme::light(),
+    };
+    theme.bg_alpha = alpha;
+    theme
+}
+
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
@@ -1229,6 +1267,16 @@ struct Driver {
     /// What a resize or a zoom asked for while a frame was in flight,
     /// applied by the next `pump` the completion wakes.
     deferred: Deferred,
+    /// What the style observer last saw, for `pump` to apply.
+    style: PendingStyle,
+    /// Whether the palette follows the appearance at all: a config that
+    /// names `dark` or `light` pins it, and the observer still moves the
+    /// window's material -- the glass is the window's, the palette is the
+    /// terminal's, and only the second is the reader's choice.
+    theme_choice: crate::config::ThemeChoice,
+    /// The opacity the palette is painted at, kept so a theme swap can
+    /// rebuild one without re-reading the config.
+    bg_alpha: baud_domain::Chan,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -1755,6 +1803,7 @@ impl Driver {
                 Deferred::Zoom(points) => self.zoom(points),
             }
         }
+        self.apply_style();
         let drained = self.app.pty.drain();
         if !drained.chunks.is_empty() {
             startup_first("first bytes", &FIRST_BYTES);
@@ -2153,6 +2202,13 @@ impl Responder for Driver {
         startup_first("first tick done", &FIRST_TICK_DONE);
     }
 
+    /// The system's light/dark flipped, or the window moved under a
+    /// different appearance. Recorded rather than applied: this lands with
+    /// the view's borrow held, and swapping the palette repaints.
+    fn appearance(&mut self, appearance: Appearance) {
+        self.style.0.set(Some(appearance));
+    }
+
     fn presented(&mut self) {
         self.app.presented();
     }
@@ -2251,6 +2307,8 @@ pub fn run() {
     // the titlebar and in from the left, right and bottom -- with the glass in
     // the margin. The pty and the renderer follow the inset area.
     let padding = boot.padding;
+    let theme_choice = boot.theme;
+    let bg_alpha = boot.bg_alpha;
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -2453,6 +2511,8 @@ pub fn run() {
         icon_x = left;
         icon_s = s;
     }
+    // The cell the observer writes and `pump` reads; cloned into both.
+    let style = PendingStyle::default();
     let mut driver = Driver {
         app: probe,
         view: view.clone(),
@@ -2463,6 +2523,9 @@ pub fn run() {
         held: None,
         bar_drag: None,
         deferred: Deferred::Nothing,
+        style: style.clone(),
+        theme_choice,
+        bg_alpha,
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,
@@ -2473,6 +2536,22 @@ pub fn run() {
     // the geometry the view's first resize callback would report, then one
     // draw. Its completion wakes the responder through the run loop, which
     // is where the surface reaches the layer.
+    // **The palette for the first frame, from the window rather than the
+    // observer.** The observer below fires once the moment it is built and
+    // would set this -- but it is built after the glass, which is after
+    // this frame, so a light-mode launch would draw one dark frame and
+    // correct it. The window knows its own appearance already.
+    if theme_choice == crate::config::ThemeChoice::Auto {
+        let appearance = if window.is_dark() {
+            Appearance::Dark
+        } else {
+            Appearance::Light
+        };
+        driver
+            .app
+            .renderer
+            .set_theme(theme_for(appearance, bg_alpha));
+    }
     Responder::resized(&mut driver, view.frame().size, scale);
     let v = driver.view.clone();
     driver.app.present(&v, Show::Now);
@@ -2487,6 +2566,36 @@ pub fn run() {
     window.set_content_view(glass.view());
     glass.set_content_view(&container);
     startup_mark("glass installed");
+    // **Follow the system's appearance and tint, which nothing did.** The
+    // titlebar changed on a light/dark flip and the body did not, because
+    // AppKit repaints the titlebar itself while the material and the
+    // palette were both set once at launch and never again. The crate's
+    // own example installs this observer and re-applies all three; the
+    // callback fires once immediately, so building it is also what applies
+    // the current style.
+    //
+    // It cannot be built before `show()` the way the example builds it:
+    // the glass it tints does not exist until the line above, which is
+    // after the first frame by design (ordering a window whose content is
+    // a glass effect view costs 10-20 ms). The frame drawn in the gap gets
+    // its palette from `window.is_dark()` above instead.
+    //
+    // The callback touches the window and the glass directly -- they are
+    // AppKit objects, not the driver -- and leaves the palette in a cell
+    // for `pump`, because it can land while a responder callback holds the
+    // view's borrow.
+    {
+        let glass_cb = glass.clone();
+        let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |s| {
+            glass_cb.set_tint_color(s.tint());
+        });
+        // The window is never torn down before the process ends, so the
+        // observer outlives every reference by outliving the process --
+        // the alternative is a field on a driver that is about to be boxed
+        // into the view, which buys nothing a leak does not.
+        core::mem::forget(observer);
+        startup_mark("style observer");
+    }
     // **First responder AFTER the glass, because installing it takes the
     // chain away.** `set_content_view` replaces the window's content view,
     // which tears down the hierarchy the old one rooted and resigns first
@@ -2873,6 +2982,28 @@ impl Driver {
             // font yet.
             self.app.present(&self.view, Show::Event);
         }
+    }
+
+    /// Take what the style observer left and repaint in the new palette.
+    ///
+    /// **A theme swap moves no cell word and no `StyleId`**, which is what
+    /// row damage compares, so the full damage below is what makes the
+    /// screen change at all -- the same reason a blink phase flip forces
+    /// one. `Renderer::set_theme` drops the renderer's own damage cache;
+    /// these two lines are the frame the driver owes on top of it.
+    fn apply_style(&mut self) {
+        let Some(appearance) = self.style.0.take() else {
+            return;
+        };
+        if self.theme_choice != crate::config::ThemeChoice::Auto {
+            return;
+        }
+        self.app
+            .renderer
+            .set_theme(theme_for(appearance, self.bg_alpha));
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        self.app.present(&self.view, Show::Event);
     }
 
     /// Cmd-C: the selection's text to the pasteboard, if there is one.

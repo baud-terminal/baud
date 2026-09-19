@@ -21,6 +21,15 @@ padding = 8
 # What the surface's bytes mean, converted to each display by the compositor:
 # "srgb", which every colour a terminal receives is specified as, or
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
+# The palette. "auto" follows the system appearance and changes with it;
+# "dark" and "light" pin it. On Linux "auto" resolves to dark, because no
+# appearance signal is wired there yet.
+#
+# The sixteen ANSI colours are xterm's under either palette, so SGR yellow
+# on the light background reads poorly -- the same wart xterm has. An
+# application can repaint them with OSC 4.
+theme = "auto"
+
 colorspace = "srgb"
 
 # The fallback stack, first face first: a face supplies the glyphs the faces

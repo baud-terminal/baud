@@ -512,6 +512,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.blink = blink;
     }
 
+    /// Replace the palette every rendition resolves against.
+    ///
+    /// **Every cell's colour changes, so the damage cache has to go**: row
+    /// damage compares a row's cell words and the digest of the renditions
+    /// they resolve to, and a theme swap moves neither -- the words are the
+    /// same and a `StyleId` still indexes the same slot. Without
+    /// [`Prev::Unknown`] a light/dark flip would repaint nothing at all,
+    /// which is the same shape as the blink phase needing a forced repaint
+    /// because a blink changes no cell content either.
+    ///
+    /// The scrollbar's instance caches [`Theme::fg`] at the moment
+    /// [`Renderer::set_scrollbar`] ran, so it is rebuilt here rather than
+    /// left drawing the old foreground until the window next scrolls.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+        self.known = Prev::Unknown;
+        self.bar_inst.clear();
+        if let Some(t) = self.bar {
+            self.bar_inst.push(scrollbar::instance(t, self.theme.fg));
+        }
+    }
+
     /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`,
     /// so a driver repaints on a phase flip only when something blinks.
     pub fn blink_seen(&self) -> Blinking {
