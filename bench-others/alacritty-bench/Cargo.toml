@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alacritty_terminal = { path = "../../../alacritty/alacritty_terminal" }
+# **The registry, not a sibling checkout.** This named
+# `../../../alacritty/alacritty_terminal` -- a directory no checkout here has --
+# so the crate could not resolve, and `bench-others` is outside the workspace,
+# so nothing ever tried. Same defect as `baud-difftest`'s absolute path, which
+# left the only external oracle unbuildable for months and is fixed the same
+# way: the version `multibench` and `baud-difftest` already pin, so all three
+# measure the same alacritty and a reader can quote it beside the numbers.
+alacritty_terminal = "0.26"
 libc = "0.2"
 
 [profile.release]

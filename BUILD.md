@@ -69,6 +69,16 @@ normalisation that starts firing somewhere new has to come and change them.
 The cross-implementation comparison (`multibench`) and the with/without-PTY
 split (`alacritty-bench`) ship separately, in `bench-others/`.
 
+**And `alacritty-bench` carried the same defect as the paragraph above, found
+by looking for it.** It pinned alacritty at `../../../alacritty/alacritty_terminal`,
+a sibling checkout this one does not have, and `bench-others` is outside the
+workspace, so nothing ever tried to build it and nothing reported that it could
+not. `bench-others/README.md` listed that path as a requirement rather than as a
+bug. It takes the registry version its two siblings already pin, and it now
+builds and produces output on a single run -- which is a liveness check and not
+a measurement: those are alacritty's own synthetic payloads, one launch, no
+interleaving and no control, so no number from it belongs in a table.
+
 ## The source gate
 
 `scripts/check-sources.sh`, run by `tasks."test:sources"`, fails if the research

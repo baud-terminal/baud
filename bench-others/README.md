@@ -4,7 +4,7 @@
 |---|---|---|
 | `multibench/` | baud vs ghostty, alacritty, wezterm, termwiz, vt100 | a ghostty checkout, for ghostty only |
 | `kitty-bench/` | kitty's parser, through Python | a built kitty |
-| `alacritty-bench/` | alacritty with and without a PTY | `../../../alacritty` |
+| `alacritty-bench/` | alacritty with and without a PTY | nothing -- crates.io |
 | `ghostty-bench/` | **superseded — see below** | — |
 
 `multibench` no longer needs sibling checkouts for its Rust cores: alacritty,

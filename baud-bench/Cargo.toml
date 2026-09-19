@@ -19,7 +19,6 @@ baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render", features = ["exceptions"] }
 libc = "0.2"
-zerocopy = "0.8"
 
 # `frame_gpu` draws the same frames through Metal; the crate compiles to
 # nothing elsewhere and the bin says so.
