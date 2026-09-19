@@ -435,6 +435,60 @@ impl Overlay {
         }
     }
 
+    /// A predicted echo (row 9 of note N): one cell the app draws before
+    /// the pty answers, as a record over a masked cell, in the rendition
+    /// `cell` names -- the same paint the windows and the marks use, so a
+    /// prediction is coloured as the shader would colour the cell once the
+    /// echo lands, with `block` the cursor the frame will draw. Shapes the
+    /// codepoint alone through the same cluster path a marked cell takes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn predicted(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        at: (Row, Col),
+        cell: PackedCell,
+        styles: &[Resolved],
+        block: Option<(Row, Col, CursorStyle)>,
+        highlight: Option<Highlight>,
+        cols: Cols,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        let Some(cp) = cell.content.as_codepoint() else {
+            return;
+        };
+        let (y, x) = (at.0.index(), at.1.index());
+        let Some(slot) = mask.get_mut(y * cols.index() + x) else {
+            return;
+        };
+        // The walk already drew this cell with a record of its own -- a
+        // mark, or a glyph inside a ligature window. `emit` appends, it
+        // does not replace, so drawing here would put two glyphs in one
+        // cell; the prediction gives way and the echo draws it a frame
+        // later.
+        if *slot == 1 {
+            return;
+        }
+        *slot = 1;
+        let glyphs = r.cluster(&[cp]);
+        let geom = Geom {
+            m: r.metrics(),
+            cols,
+        };
+        Overlay::emit(
+            records,
+            (x, y),
+            &glyphs,
+            cell,
+            &Paint {
+                styles,
+                block,
+                highlight,
+            },
+            &geom,
+        );
+    }
+
     /// A window's cells that the map does not draw: masked, counted and
     /// drawn by records.
     #[allow(clippy::too_many_arguments)]

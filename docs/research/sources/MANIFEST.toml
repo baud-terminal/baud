@@ -6437,3 +6437,53 @@ group  = "P"
 # Negative evidence for the 'documented switch to clear the cache' question,
 # alongside gpucapture.1 (MTL_CAPTURE_ENABLED only): the three SDK man pages
 # that name MTL_ variables name no cache variable.
+
+# Group Q: local echo prediction -- row 9 of note N, docs/research/notes/q-local-echo.md.
+[sources.mosh-terminaloverlay-cc]
+key    = "mosh-terminaloverlay-cc"
+title  = "Mosh 1.4.0, src/frontend/terminaloverlay.cc -- the prediction engine: what a keystroke predicts, how a prediction is confirmed, expired or flagged, and the display and glitch triggers"
+author = "Keith Winstein and the Mosh contributors"
+year   = 2022
+venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
+url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.cc"
+file   = "mosh-1.4.0-terminaloverlay.cc"
+sha256 = "cbd55fdf3fff12ef889474bd2b91e90e769e0651ae9871f9458d4b5344085c94"
+bytes  = 26276
+status = "retrieved"
+group  = "Q"
+[sources.mosh-terminaloverlay-h]
+key    = "mosh-terminaloverlay-h"
+title  = "Mosh 1.4.0, src/frontend/terminaloverlay.h -- the prediction engine's types and its thresholds: SRTT_TRIGGER_LOW/HIGH (20/30 ms), FLAG_TRIGGER_LOW/HIGH (50/80 ms), GLITCH_THRESHOLD (250 ms), GLITCH_FLAG_THRESHOLD (5 s), the display preferences"
+author = "Keith Winstein and the Mosh contributors"
+year   = 2022
+venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
+url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/terminaloverlay.h"
+file   = "mosh-1.4.0-terminaloverlay.h"
+sha256 = "37f1742d544ee919e5dc1130cc928512d139cef626a6d681efe1b219332d048e"
+bytes  = 10994
+status = "retrieved"
+group  = "Q"
+[sources.mosh-stmclient-cc]
+key    = "mosh-stmclient-cc"
+title  = "Mosh 1.4.0, src/frontend/stmclient.cc -- the client loop: where a keystroke is handed to the prediction engine and where the overlay is applied to the framebuffer before display"
+author = "Keith Winstein and the Mosh contributors"
+year   = 2022
+venue  = "github.com/mobile-shell/mosh, tag mosh-1.4.0"
+url    = "https://raw.githubusercontent.com/mobile-shell/mosh/mosh-1.4.0/src/frontend/stmclient.cc"
+file   = "mosh-1.4.0-stmclient.cc"
+sha256 = "3ca6137227a90ae0d92ef57dce196b9a1cccf162ef9b7b40af819d527255590e"
+bytes  = 18327
+status = "retrieved"
+group  = "Q"
+[sources.mosh-paper]
+key    = "mosh-paper"
+title  = "Mosh: An Interactive Remote Shell for Mobile Clients -- the USENIX ATC 2012 paper; section 3.2 is speculative local echo: what is predicted, the epoch and confirmation scheme, the underline for unconfirmed predictions, and the measured 70 % of keystrokes predicted"
+author = "Keith Winstein and Hari Balakrishnan"
+year   = 2012
+venue  = "USENIX ATC 2012"
+url    = "https://mosh.org/mosh-paper.pdf"
+file   = "mosh-usenix-atc-2012.pdf"
+sha256 = "6286b16b2798935c4908130c5f355858894a1444c6e61f75dfa4f61e8c38ab0d"
+bytes  = 173280
+status = "retrieved"
+group  = "Q"

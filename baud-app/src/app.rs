@@ -6,13 +6,13 @@ use crate::host::{
     FIRST_TICK_DONE, MAX_GRID, describe, host_geometry, load_faces, startup_first, startup_mark,
     startup_note,
 };
-use crate::latency::{Ended, Latency, Switch};
+use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
-use baud_core::{Depth, Owned, Screen, Term, grid_stride};
+use baud_core::{Depth, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
-    BytePos, Codepoint, Col, Cols, FnKey, HostTime, KeyCode, KeyEvent, Modifiers, MouseButton,
-    MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen, Row, RowRot, Rows,
-    WinSize,
+    BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
+    Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen,
+    Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -343,6 +343,14 @@ struct App {
     /// drawn as soon as no frame is in flight, whatever the clock says,
     /// and only that read; floods still coalesce.
     echo: Echo,
+    /// Row 9: the echoes drawn before the pty answered, oldest first; the
+    /// frame they are owed; whether a contradiction has closed prediction
+    /// until the next prompt; and the zone the last read left the core in,
+    /// so the next prompt is seen opening.
+    predictions: Vec<Prediction>,
+    guess: Guess,
+    hold: Hold,
+    last_zone: Zone,
     last_tick: Option<f64>,
     /// When the terminal opened a synchronised update (`?2026`) that has not
     /// closed. A frame is held while one is open, so a half-drawn screen --
@@ -650,6 +658,10 @@ impl App {
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             echo: Echo::Drawn,
+            predictions: Vec::new(),
+            guess: Guess::None,
+            hold: Hold::Open,
+            last_zone: Zone::Output,
             last_tick: None,
             sync_since: None,
             blink: Blink::default(),
@@ -803,6 +815,12 @@ impl App {
                     let (r, c) = self.term.cursor();
                     (r, c, self.term.cursor_style())
                 });
+                // Row 9: the drawn cursor sits after the last predicted
+                // glyph, for the shader and for the overlay's own paint.
+                let cursor = match (cursor, self.predictions.last()) {
+                    (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
+                    (c, _) => c,
+                };
                 // Which buffers this frame may write: any set no frame in
                 // flight was committed with. `None` would mean every one is
                 // held and there is nowhere to build that a live draw is not
@@ -846,6 +864,45 @@ impl App {
                     &mut cell.overlay_mem[set][..],
                     &mut cell.records,
                 );
+                // Row 9: the predicted echoes, each a masked cell and a
+                // record in the rendition of the cell to its left, on the
+                // live view only. A cell the walk above already drew a
+                // record for -- a mark, or a glyph inside a ligature
+                // window -- is left to that record: two records for one
+                // cell would draw two glyphs on top of each other, and the
+                // echo is a frame away.
+                if self.back.index() == 0 {
+                    for p in &self.predictions {
+                        // The rendition is the cell to the left's, Mosh's
+                        // heuristic: what was typed before this is what
+                        // this will look like, where the cell under the
+                        // cursor may hold the shell's own dimmed guess.
+                        let at = if p.col.index() > 0 {
+                            p.col.index() - 1
+                        } else {
+                            p.col.index()
+                        };
+                        let style = view
+                            .row(p.row)
+                            .get(at)
+                            .map_or(PackedCell::EMPTY.style, |c| c.style);
+                        cell.exceptions.predicted(
+                            &mut self.renderer,
+                            (p.row, p.col),
+                            PackedCell {
+                                content: Content::codepoint(p.cp),
+                                style,
+                                flags: CellFlags::NONE,
+                            },
+                            &cell.styles_mem[set][..],
+                            cursor,
+                            highlight,
+                            view.cols(),
+                            &mut cell.overlay_mem[set][..],
+                            &mut cell.records,
+                        );
+                    }
+                }
                 // The thumb rides with the records, drawn after the cell passes.
                 cell.records.extend_from_slice(self.renderer.scrollbar());
                 self.stats = Frame {
@@ -958,7 +1015,12 @@ impl App {
         self.blink_present = self.renderer.blink_seen();
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
-        self.echo = Echo::Drawn;
+        // A fed echo is drawn by this commit; a wanted one is still owed,
+        // whatever frame this was -- a tick's, or a prediction's.
+        if self.echo == Echo::Fed {
+            self.echo = Echo::Drawn;
+        }
+        self.guess = Guess::None;
         self.frames.bump();
         if self.last_report.elapsed().as_secs() >= 5 {
             match self.presenter.as_ref().map(Presenter::mode) {
@@ -1368,6 +1430,46 @@ enum Drew {
     No,
 }
 
+/// A key's echo drawn before the pty answered (row 9 of note N,
+/// `docs/research/notes/q-local-echo.md`): the cell it stands in on the
+/// live screen, the codepoint it shows, the latency record it belongs to
+/// when the instrument is on, and when it was made.
+struct Prediction {
+    row: Row,
+    col: Col,
+    cp: Codepoint,
+    seq: Option<Tally>,
+    at: Instant,
+    /// The ring's rotation when the cell was chosen. `row` is a *screen*
+    /// row, so a read that scrolls moves the cell out from under it: the
+    /// judge would then read whatever now sits there, and the draw would
+    /// put the glyph on a line the user did not type it on. Only a read
+    /// rotates the ring and every read judges, so comparing this against
+    /// the rotation the read left is enough to catch it.
+    rot: RowRot,
+}
+
+/// Whether a predicted echo is owed a frame: the reason a frame is due
+/// now, beside a fed echo and the tick.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Guess {
+    Owed,
+    None,
+}
+
+/// Whether the app may predict: open, or held until the shell's next
+/// prompt after a prediction the echo contradicted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hold {
+    Open,
+    UntilNextPrompt,
+}
+
+/// A prediction outstanding this long is dropped as contradicted: a shell
+/// that did not echo a printable at its prompt in this time is a shell
+/// whose widgets are eating keys, and the glyph must not outlive that.
+const PREDICT_MAX: Duration = Duration::from_millis(150);
+
 /// Where the echo of the last key sent stands.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Echo {
@@ -1405,12 +1507,199 @@ impl Driver {
     /// `App::send` directly: it is not a keystroke and is not stamped.
     fn typed(&mut self, e: KeyEvent) {
         self.app.latency.key(current_event_time, host_now);
+        let (text, held) = (e.text, e.mods);
         match self.app.send(e) {
             Sent::Bytes => {
                 self.app.latency.written(host_now);
                 self.app.echo = Echo::Wanted;
+                if let Some(c) = text {
+                    self.predict(c, held);
+                }
             }
             Sent::Nothing => self.app.latency.unsent(),
+        }
+        // A prediction is owed its frame now, not at the next wake: the
+        // keystroke is the event, and nothing else pumps the loop for it.
+        if self.app.guess == Guess::Owed {
+            self.pump(Trigger::Wake);
+        }
+    }
+
+    /// Row 9: a printable typed at the shell's prompt is drawn before the
+    /// pty answers, as an overlay the next read judges. The gates are the
+    /// design's (`docs/research/notes/q-local-echo.md`): the core's prompt
+    /// zone, the primary screen, the live view, no synchronised update, a
+    /// visible cursor that is not in the last column, an ASCII printable,
+    /// and no contradiction since the prompt opened. A second key before
+    /// the first echo is predicted after the first. An occupied cell is
+    /// predicted over, the way Mosh inserts over one: at a prompt the
+    /// occupant is the shell's own suggestion of what comes next, and
+    /// refusing it refused a third of a sweep's keys.
+    fn predict(&mut self, c: Codepoint, held: Modifiers) {
+        // Only the cell path draws a prediction. Predicting on the
+        // instance or CPU path would stamp a record and commit it on a
+        // frame that never drew the glyph -- an instrument reporting a
+        // gain nobody can see, which is the probe-that-lies failure this
+        // repo keeps finding.
+        let draws = matches!(
+            (
+                self.app.presenter.as_ref().map(Presenter::mode),
+                self.app.cell.as_ref()
+            ),
+            (Some(Mode::Gpu), Some(_))
+        );
+        if !draws {
+            self.app.latency.refused("path");
+            return;
+        }
+        let app = &mut self.app;
+        let printable =
+            char::from_u32(c.value()).is_some_and(|ch| ch == ' ' || ch.is_ascii_graphic());
+        let refused = if held != Modifiers::NONE {
+            // A control or option chord carries text -- the unmodified
+            // character -- and `send` writes the *chord*, so the glyph
+            // would not be the byte. Only the input manager's `text` path,
+            // which builds its events at `Modifiers::NONE`, predicts.
+            Some("mods")
+        } else if app.hold != Hold::Open {
+            Some("hold")
+        } else if app.term.zone() != Zone::Prompt {
+            Some("zone")
+        } else if app.term.screen() != Screen::Normal {
+            Some("screen")
+        } else if app.back.index() != 0 {
+            Some("back")
+        } else if app.term.synchronized_output() {
+            Some("sync")
+        } else if !app.term.cursor_visible() {
+            Some("cursor")
+        } else if !printable {
+            Some("printable")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            app.latency.refused(why);
+            return;
+        }
+        let view = app.term.view(Rows::ZERO);
+        let (row, col) = match app.predictions.last() {
+            Some(p) => (p.row, p.col.after()),
+            None => app.term.cursor(),
+        };
+        if col.index() + 1 >= view.cols().index() {
+            app.latency.refused("edge");
+            return;
+        }
+        let Some(cell) = view.row(row).get(col.index()) else {
+            app.latency.refused("edge");
+            return;
+        };
+        if !cell.content.is_empty() {
+            app.latency.noted("over-occupied");
+        }
+        let seq = app.latency.predicted(host_now);
+        app.predictions.push(Prediction {
+            row,
+            col,
+            cp: c,
+            seq,
+            at: Instant::now(),
+            rot: app.term.rotation(),
+        });
+        app.pending = Pending::Dirty;
+        app.guess = Guess::Owed;
+    }
+
+    /// Row 9: the read that came is the echo. Predictions are held
+    /// against the live grid oldest first: confirmed while each cell holds
+    /// its codepoint, and dropped, because the grid draws them now; still
+    /// pending at a cell the echo has not reached, which stays empty until
+    /// the next read or the expiry; contradicted at a cell that holds
+    /// anything else, with every prediction after it, because the chain
+    /// stood on it. A contradiction holds prediction until the next prompt
+    /// opens.
+    fn judge(&mut self) {
+        let app = &mut self.app;
+        if !app.predictions.is_empty() {
+            // A read that scrolled moved every predicted cell out from
+            // under its screen row, so nothing here can be judged against
+            // the grid any more: drop the lot as contradicted rather than
+            // read a line the user did not type on.
+            let rot = app.term.rotation();
+            if app.predictions.iter().any(|p| p.rot != rot) {
+                for p in app.predictions.drain(..) {
+                    if let Some(seq) = p.seq {
+                        app.latency.judged(seq, Judged::Contradicted);
+                    }
+                }
+                app.hold = Hold::UntilNextPrompt;
+                app.guess = Guess::None;
+                app.latency.noted("scrolled-away");
+            }
+        }
+        if !app.predictions.is_empty() {
+            let view = app.term.view(Rows::ZERO);
+            let mut confirmed = 0;
+            let mut wrong = false;
+            for p in &app.predictions {
+                let content = view.row(p.row).get(p.col.index()).map(|c| c.content);
+                match content {
+                    Some(c) if c == Content::codepoint(p.cp) => confirmed += 1,
+                    Some(c) if c.is_empty() => break,
+                    _ => {
+                        wrong = true;
+                        break;
+                    }
+                }
+            }
+            let settled = if wrong {
+                app.predictions.len()
+            } else {
+                confirmed
+            };
+            for (i, p) in app.predictions.drain(..settled).enumerate() {
+                if let Some(seq) = p.seq {
+                    let verdict = if i < confirmed {
+                        Judged::Confirmed
+                    } else {
+                        Judged::Contradicted
+                    };
+                    app.latency.judged(seq, verdict);
+                }
+            }
+            if wrong {
+                app.hold = Hold::UntilNextPrompt;
+            }
+            if app.predictions.is_empty() {
+                app.guess = Guess::None;
+            }
+        }
+        let zone = app.term.zone();
+        if zone == Zone::Prompt && app.last_zone != Zone::Prompt {
+            app.hold = Hold::Open;
+        }
+        app.last_zone = zone;
+    }
+
+    /// Row 9: predictions outstanding past `PREDICT_MAX` are dropped as
+    /// contradicted, and the frame is owed again to draw the grid without
+    /// them.
+    fn expire_predictions(&mut self) {
+        let app = &mut self.app;
+        if app
+            .predictions
+            .first()
+            .is_some_and(|p| p.at.elapsed() > PREDICT_MAX)
+        {
+            for p in app.predictions.drain(..) {
+                if let Some(seq) = p.seq {
+                    app.latency.judged(seq, Judged::Contradicted);
+                }
+            }
+            app.hold = Hold::UntilNextPrompt;
+            app.guess = Guess::None;
+            app.pending = Pending::Dirty;
         }
     }
 
@@ -1468,6 +1757,7 @@ impl Driver {
             if self.app.echo == Echo::Wanted {
                 self.app.echo = Echo::Fed;
             }
+            self.judge();
         }
         // Looking back while output scrolls: the window stays on the lines
         // it was showing, which means it moves up the ring by however many
@@ -1492,6 +1782,8 @@ impl Driver {
         if screen != self.app.last_screen {
             self.app.last_screen = screen;
             self.app.selection = None;
+            self.app.predictions.clear();
+            self.app.guess = Guess::None;
         }
         let oldest = self.app.scrolled.oldest(retained);
         let gone = self
@@ -1543,6 +1835,7 @@ impl Driver {
         // the completion wake draws it: paced by the GPU, not the tick.
         let due = trigger == Trigger::Tick
             || self.app.echo == Echo::Fed
+            || self.app.guess == Guess::Owed
             || self.app.last_commit.elapsed() >= self.app.interval;
         if due && !busy {
             let view = self.view.clone();
@@ -1791,6 +2084,7 @@ impl Responder for Driver {
     }
 
     fn frame(&mut self, target: f64) {
+        self.expire_predictions();
         // The vsync this tick's work is due at, announced before anything
         // this tick presents so a surface set from here on is bounded by it.
         self.app.latency.announced(|| HostTime::of_secs(target));
@@ -2380,6 +2674,18 @@ impl Driver {
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
             let before = self.app.term.rotation();
+            // Row 9: a prediction names a cell of the screen about to be
+            // re-cut, and a reflow moves every one of them. The clear
+            // belongs *here*, at the one place the grid changes shape,
+            // rather than in `resized`: `zoom` re-lays through this
+            // function too, and a prediction that survived it was drawn
+            // and judged at whatever cell its old row and column now
+            // name -- `Viewport::row` takes the row modulo the ring, so
+            // a stale row is a wrong cell rather than a panic, and the
+            // glyph would sit somewhere else until the next read
+            // contradicted it.
+            self.app.predictions.clear();
+            self.app.guess = Guess::None;
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
             if let Some(t) = self.app.trace.as_mut() {

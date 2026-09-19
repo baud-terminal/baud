@@ -501,3 +501,76 @@ A miss is about 4.3 us (the first frame's convert less the walk, over its
 misses). No change shipped: the first frame is 3 ms against a frame floor of
 8, and warming the map at load moves the same shaping and rasterising to
 launch rather than removing it.
+
+## A key's echo drawn before the pty answers (row 9)
+
+Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the default
+cell path at 120x40. `scripts/key-latency.py --rounds 5 --keys 30 --gap
+150 --child shell --arm base=<row 8> --arm new=<row 9> --aa`: the login
+zsh, whose prompt carries the OSC 133 marks the predictor keys on. Five
+rounds, the first discarded, the arm order rotated, an A/A copy in the
+sweep; medians of 120 keys an arm, microseconds, quartiles in brackets;
+the floor is the larger of the A/A pair's median gap and either arm's
+IQR. Every key predicted and confirmed, none contradicted, 44 of 120
+drawn over a cell the shell's autosuggestion had filled.
+
+Six sweeps in the order taken. Sweeps 1-4 ran the branch before its last
+change, a gate refusing a prediction for a key held with a modifier; 5 and
+6 ran the shipped binary:
+
+| sweep | `to_shown` base -> new | delta | floor | `app` delta | floor | verdict |
+|---|---|---|---|---|---|---|
+| 1 | 5633 -> 3636 | -1997 | 3618 | -2017 | 2629 | **no result** |
+| 2 | 7094 -> 3963 | **-3131** | 1054 | -3127 | 776 | result |
+| 3 | 7020 -> 4019 | **-3002** | 966 | -3019 | 808 | result |
+| 4 | 7068 -> 3994 | **-3074** | 875 | -3060 | 723 | result |
+| **5**, shipped | 7005 -> 3960 | **-3045** | 1339 | -3047 | 1076 | result |
+| **6**, shipped | 7096 -> 3990 | **-3106** | 1018 | -3125 | 751 | result |
+
+Sweep 1 could not resolve: its `gpu` leg read 986-1162 us against
+1247-1307 in the three that follow, its `write` 27.4 us against 35.0-37.5
+and its `build` 128.3 against 227.0-233.2, with an A/A spread on `app` of
+2.6 ms against 0.7-0.8. Why the box was in that state is unexplained. It
+is reported because it was taken.
+
+Sweep 6, the last on the shipped binary:
+
+| leg | base | new | aa | floor | verdict |
+|---|---|---|---|---|---|
+| deliver | 2021 [1794-2116] | 2078 [1912-2161] | 2017 [1873-2123] | 322 | within |
+| write | 34.4 | 37.3 | 35.7 | 7.5 | within |
+| predict | -- | 1.8 [1.5-3.0] | -- | -- | -- |
+| child | 3154 [2744-3361] | 3289 [2890-3613] | 3083 [2632-3286] | 655 | within |
+| wake | 35.3 | 32.3 | 35.3 | 9.9 | within |
+| build (base: fed to commit; new: the prediction to commit) | 238 [211-258] | 295 [204-306] | 226 [201-248] | 47.3 | IQRs overlap |
+| gpu | 1266 [1213-1320] | 1293 [1254-1339] | 1261 [1218-1305] | 107 | within |
+| show | 307 [282-322] | 315 [258-359] | 310 [283-329] | 46.7 | within |
+| **app** (handled to shown) | **5079** [4720-5352] | **1954** [1789-2027] | 4989 [4495-5246] | 751 | **result, -3125** |
+| **to_shown** (the post to shown) | **7096** [6421-7439] | **3990** [3664-4159] | 7032 [6469-7281] | 1018 | **result, -3106** |
+
+Controls on the shipped binary, same session. `--child cat`:
+`refused: zone=120`, `child` 15.6 -> 15.3 (floor 3.1), `build` 110.9 ->
+112.5 (29.5), `app` 1964 -> 1964 (212), `to_shown` 3899 -> 3954 (441),
+every leg within. `--child stream`: `refused: zone=120`, `child` 8.4 ->
+8.1 (4.3), `build` 54.5 -> 56.5 (37.9), `app` 1201 -> 1392 (644),
+`to_shown` 3522 -> 3623 (1902), every leg within. `--child mute --rounds
+3 --keys 10 --gap 300`, one arm: `predict refused: hold=9` in each of the
+three rounds and `predicted=2 confirmed=0 contradicted=2` over the two
+settled ones.
+
+Kept on `to_shown`, the leg note Q named before the row began: -3.0 ms
+with the arms' quartiles disjoint, five sweeps running, against note Q's
+expected -2.5 ms and the input floor of 1 ms. `app` (`handled` to
+`shown`) is `to_shown` less the HID tap's delivery, was added to the
+driver during this row rather than before it, and moves the same -3.0 ms
+because that leg is unchanged (2021/2078/2017 us across the three arms).
+
+The three milliseconds are the child's turn leaving the path to the first
+frame: `child` is 3154/3289/3083 across the arms and inside its floor.
+That leg is not stable -- 2.55 ms in row 0's baseline, 1.6 ms in this
+row's earlier session, 2.1-2.6 ms in sweep 1 and 3.1-3.4 ms in sweeps 2-6
+-- so it moves within a session as well as between two. That is why the
+row is a paired A/B inside one sweep, why no figure here is read across
+from another session, and why the gain is bounded by the shell's turn on
+the day: the same change would read about 1.7 ms on a 1.6 ms turn. The
+observed -3.0 ms exceeds note Q's expected -2.5.

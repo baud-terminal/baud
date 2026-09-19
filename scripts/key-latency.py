@@ -25,7 +25,9 @@ WHAT IT MEASURES
     expired record is emitted with the legs it has). The parser is STRICT
     about the known tokens -- a record missing any of them is a parse
     failure, counted and printed, never a silent `-` -- and tolerant of
-    extra tokens a newer app may add. The helper prints one `jitter seed
+    extra tokens a newer app may add, and of the absence of `pred`, which
+    an app before row 9 never prints (it reads as `-`, so a baseline arm
+    from before the row pairs and reduces). The helper prints one `jitter seed
     <pid> ...` line, then `post <seq> <ns> <char>` per key. Pairing the
     posts to the records by order recovers, per key, the legs:
 
@@ -35,7 +37,12 @@ WHAT IT MEASURES
         write    = written  - handled  (Term::key + Pty::write)
         child    = echo     - written  (the pty round trip: kernel + child)
         wake     = fed      - echo     (reader thread wake to core fed)
-        build    = commit   - fed      (present: convert, encode, commit)
+        predict  = pred     - written  (row 9: the key's echo drawn before
+                                        the pty answered; `-` when it was
+                                        not predicted)
+        build    = commit   - fed      (present: convert, encode, commit --
+                                        from `pred` instead on a predicted
+                                        key, whose frame precedes its fed)
         gpu      = landed   - commit   (GPU start to end; - on the CPU path)
         show     = shown    - landed   (completion to surface on the layer)
         vsync    = vsync    - shown    (surface set to the EARLY vsync bound)
@@ -135,7 +142,12 @@ HOW TO READ IT
     the line discipline echoes whatever the child does.) `--child stream`
     is `cat`'s echo under a child that prints a line every STREAM_MS
     milliseconds and never reads: a build log scrolling while the user
-    types. It is the workload row 6 of note N is about -- with output
+    types. `--child mute` is a prompt that never answers: the OSC 133
+    marks a shell sends around its prompt, then echo off and sleep -- so
+    the row-9 predictor draws the first key, its echo never comes, the
+    prediction expires as contradicted and the keys after it are refused
+    on the hold; the positive control for that path, run on one arm.
+    It is the workload row 6 of note N is about -- with output
     arriving several times a display period, the frame loop's "draw now
     on a wake only if a frame's time has passed" gate is never open, so
     a key's echo is paced by the tick, and `build` (fed to commit) carries
@@ -171,10 +183,26 @@ import time
 # Every token a record MUST carry, in emission order. A record lacking one
 # is a parse failure, not a `-`: a renamed leg in the app must fail loudly
 # here rather than read as "never happened".
-KNOWN = ["seq", "event", "handled", "written", "echo", "fed", "commit",
+KNOWN = ["seq", "event", "handled", "written", "pred", "echo", "fed", "commit",
          "landed", "shown", "vsync", "vsync_hi"]
+# The tokens a record MAY omit: `pred` (row 9) is printed by every app from
+# the row on and by no app before it, and a baseline arm is the app before
+# it. A missing optional token reads as `-`, a leg that never happened.
+OPTIONAL = ["pred"]
 # The offset fields (everything but the two absolutes).
 OFFSETS = KNOWN[2:]
+# A predicted key (row 9 of note N) also says whether its prediction was
+# confirmed by the echo (`predok=yes`), contradicted (`no`) or never judged
+# before the record closed (`-`). Not an offset, and optional: a line
+# without it reads as never judged.
+PREDOK = "predok"
+# A key the predictor declined (row 9): `keylat: refused <gate>`, one line
+# a key, no record. Counted per run so a sweep says how many keys the
+# predictor never touched and why.
+PREDICT_REFUSED = "keylat: refused "
+# A prediction made under a condition worth counting -- `keylat: noted
+# over-occupied`, a glyph drawn over a cell that held something.
+PREDICT_NOTED = "keylat: noted "
 
 # The legs, in report order, as (name, start_stage, end_stage). "post" is the
 # helper's stamp; the rest are keylat stages.
@@ -182,11 +210,20 @@ LEGS = [
     ("stamp", "post", "event"),
     ("deliver", "post", "handled"),
     ("write", "handled", "written"),
+    ("predict", "written", "pred"),
     ("child", "written", "echo"),
     ("wake", "echo", "fed"),
-    ("build", "fed", "commit"),
+    # `build` starts where the frame's work started: at `pred` for a key
+    # whose echo was predicted -- its frame was committed before the echo
+    # was fed, so `commit - fed` would be negative and mean nothing -- and
+    # at `fed` otherwise. `_stages` supplies `build_from`.
+    ("build", "build_from", "commit"),
     ("gpu", "commit", "landed"),
     ("show", "landed", "shown"),
+    # The app's own share: the responder's stamp to the surface on the
+    # layer -- to_shown less the HID tap's delivery, which is the system's
+    # and the noisiest leg under load. Row 9's A/B number beside to_shown.
+    ("app", "handled", "shown"),
     ("vsync", "shown", "vsync"),
     ("vsync_hi", "shown", "vsync_hi"),
     ("to_shown", "post", "shown"),
@@ -256,8 +293,9 @@ def parse_keylat_line(line):
     Returns None for any line that is not a per-key record: the `N keys
     open` report line, the `landing refused` line, and all non-keylat
     output. Raises KeylatParseError for a record that IS a per-key line
-    (it carries `seq=`) but lacks a KNOWN token or carries a value that is
-    neither `+<us>` nor `-`. Tokens outside KNOWN are ignored."""
+    (it carries `seq=`) but lacks a KNOWN token that is not OPTIONAL, or
+    carries a value that is neither `+<us>` nor `-`. Tokens outside KNOWN
+    are ignored; an OPTIONAL token that is absent reads as `-`."""
     line = line.strip()
     if not line.startswith("keylat:"):
         return None
@@ -269,7 +307,7 @@ def parse_keylat_line(line):
         toks[k] = v
     if "seq" not in toks:
         return None
-    missing = [k for k in KNOWN if k not in toks]
+    missing = [k for k in KNOWN if k not in toks and k not in OPTIONAL]
     if missing:
         raise KeylatParseError(f"missing {','.join(missing)}: {line}")
     try:
@@ -277,7 +315,7 @@ def parse_keylat_line(line):
     except ValueError:
         raise KeylatParseError(f"seq/event not integers: {line}")
     for name in OFFSETS:
-        v = toks[name]
+        v = toks.get(name, "-")
         if v == "-":
             rec[name] = None  # a leg that never happened
             continue
@@ -286,6 +324,10 @@ def parse_keylat_line(line):
             raise KeylatParseError(f"{name}={v} is neither +<us> nor -: {line}")
         # `+<us>`: microseconds from event, one decimal.
         rec[name] = rec["event"] + int(round(float(m.group(1)) * 1000.0))
+    ok = toks.get(PREDOK, "-")
+    if ok not in ("yes", "no", "-"):
+        raise KeylatParseError(f"{PREDOK}={ok} is not yes, no or -: {line}")
+    rec[PREDOK] = ok
     return rec
 
 
@@ -308,6 +350,10 @@ def parse_keylat_lines(lines):
         if rec is not None:
             records.append(rec)
         elif s.startswith("keylat:") and s.endswith("keys open"):
+            reports.append(s)
+        elif s.startswith(PREDICT_REFUSED) or s.startswith(PREDICT_NOTED):
+            # Row 9: a key the predictor declined, with the gate that did,
+            # or one it predicted under a condition worth counting.
             reports.append(s)
     return records, failures, refusals, reports
 
@@ -335,6 +381,7 @@ def _stages(row):
     stage = {"post": row["post"], "event": row["event"]}
     for name in OFFSETS:
         stage[name] = row.get(name)
+    stage["build_from"] = stage["pred"] if stage.get("pred") is not None else stage.get("fed")
     return stage
 
 
@@ -376,6 +423,7 @@ def pair_by_order(posts, keylats, window_ns=DEFAULT_WINDOW_MS * 1_000_000):
                "post": post_ns, "event": event}
         for name in OFFSETS:
             row[name] = rec[name]
+        row[PREDOK] = rec.get(PREDOK, "-")
         reason = None
         if rec["seq"] != pseq:
             reason = "seq-mismatch"
@@ -490,6 +538,10 @@ def summarize(rows, diag=None):
         for name in LEG_NAMES:
             if legs[name] is not None:
                 leg_vals[name].append(legs[name])
+    # The predicted keys among the rows that were not excluded, and how
+    # the echo judged them.
+    kept = [r for r in rows if not r["excluded"]]
+    predicted = [r for r in kept if r.get("pred") is not None]
     return {
         "posted": diag["posted"] if diag else len(rows),
         "paired": len(rows),
@@ -497,15 +549,30 @@ def summarize(rows, diag=None):
         "excluded": len(excluded),
         "reasons": dict(reasons),
         "shared": shared_frame_count(rows),
+        "predicted": len(predicted),
+        "confirmed": sum(1 for r in predicted if r.get(PREDOK) == "yes"),
+        "contradicted": sum(1 for r in predicted if r.get(PREDOK) == "no"),
         "legs": {name: leg_stats(leg_vals[name]) for name in LEG_NAMES},
     }
 
 
 def merge_diags(diags):
+    """Sum the runs' counters; the predictor's refusals are a counter of
+    their own (by gate) and are summed by gate."""
     out = collections.Counter()
+    refused = collections.Counter()
+    noted = collections.Counter()
     for d in diags:
-        out.update(d)
-    return dict(out)
+        refused.update(d.get("predict_refused", {}))
+        noted.update(d.get("predict_noted", {}))
+        out.update({k: v for k, v in d.items()
+                    if k not in ("predict_refused", "predict_noted")})
+    merged = dict(out)
+    if refused:
+        merged["predict_refused"] = dict(refused)
+    if noted:
+        merged["predict_noted"] = dict(noted)
+    return merged
 
 
 def _fmt_med(st):
@@ -531,6 +598,16 @@ def print_summary(name, summ, diag=None):
     print(f"posted={summ['posted']} paired={summ['paired']} "
           f"completed={summ['completed']} excluded={summ['excluded']} "
           f"shared_a_frame={summ['shared']}")
+    if summ.get("predicted"):
+        unjudged = summ["predicted"] - summ["confirmed"] - summ["contradicted"]
+        print(f"predicted={summ['predicted']} confirmed={summ['confirmed']} "
+              f"contradicted={summ['contradicted']} unjudged={unjudged}")
+    if diag and diag.get("predict_refused"):
+        print("predict refused: " + ", ".join(
+            f"{k}={v}" for k, v in sorted(diag["predict_refused"].items())))
+    if diag and diag.get("predict_noted"):
+        print("predict noted: " + ", ".join(
+            f"{k}={v}" for k, v in sorted(diag["predict_noted"].items())))
     if summ["reasons"]:
         print("excluded by reason: " + ", ".join(
             f"{k}={v}" for k, v in sorted(summ["reasons"].items())))
@@ -686,6 +763,10 @@ def refused_runs(per_arm_diag):
 # lines a display period at 120 Hz, so a key's echo always lands inside the
 # frame's-time gate. `python3 -u` so every line is its own write(2).
 STREAM_MS = 2
+# A prompt that never echoes: the marks zsh sends (`A`, then `B` where the
+# input starts), echo off, and nothing that reads. `\033` and `\007` are
+# what `sh`'s printf spells ESC and BEL as.
+MUTE_CMD = "printf '\\033]133;A\\007\\033]133;B\\007'; stty -echo; sleep 60"
 STREAM_CMD = (
     "python3 -u -c 'import time,itertools; "
     f"[(print(i), time.sleep({STREAM_MS / 1000})) for i in itertools.count()]'"
@@ -703,6 +784,8 @@ def child_env(child):
         return {"BAUD_CMD": "stty -echo; sleep 60"}
     if child == "stream":
         return {"BAUD_CMD": STREAM_CMD}
+    if child == "mute":
+        return {"BAUD_CMD": MUTE_CMD}
     return {}
 
 
@@ -887,7 +970,11 @@ def run_arm(binary, args, scratch, round_idx, arm_name, window_ns):
     time.sleep(DRAIN_S)
     stop_app()
 
-    keylats, failures, refusals, _reports = parse_keylat_lines(stderr_lines[keylat_start:])
+    keylats, failures, refusals, reports = parse_keylat_lines(stderr_lines[keylat_start:])
+    predict_refused = collections.Counter(
+        r[len(PREDICT_REFUSED):].strip() for r in reports if r.startswith(PREDICT_REFUSED))
+    predict_noted = collections.Counter(
+        r[len(PREDICT_NOTED):].strip() for r in reports if r.startswith(PREDICT_NOTED))
     if posts and not keylats:
         print(f"  round {round_idx} arm {arm_name}: keys posted, none reached "
               f"the app (Accessibility? wrong target?)")
@@ -896,6 +983,14 @@ def run_arm(binary, args, scratch, round_idx, arm_name, window_ns):
     rows, diag = pair_by_order(posts, keylats, window_ns)
     diag["parse_failures"] = len(failures)
     diag["landing_refused"] = refusals
+    diag["predict_refused"] = dict(predict_refused)
+    diag["predict_noted"] = dict(predict_noted)
+    if predict_refused:
+        print(f"  round {round_idx} arm {arm_name}: predict refused: " + ", ".join(
+            f"{k}={v}" for k, v in sorted(predict_refused.items())))
+    if predict_noted:
+        print(f"  round {round_idx} arm {arm_name}: predict noted: " + ", ".join(
+            f"{k}={v}" for k, v in sorted(predict_noted.items())))
     diag["refused_landing_rows"] = exclude_refused_landings(rows, refusals)
     if refusals:
         print(f"  round {round_idx} arm {arm_name}: NOT QUOTABLE -- {refusals} "
@@ -911,7 +1006,7 @@ def run_arm(binary, args, scratch, round_idx, arm_name, window_ns):
     tsv = os.path.join(scratch, f"keylat-{arm_name}-{round_idx}.tsv")
     with open(tsv, "w") as f:
         cols = ["seq", "app_seq", "char", "post", "event", "excluded",
-                "exclude_reason"] + OFFSETS
+                "exclude_reason"] + OFFSETS + [PREDOK]
         f.write("\t".join(cols) + "\n")
         for r in rows:
             f.write("\t".join(str(r.get(c, "")) for c in cols) + "\n")
@@ -1077,12 +1172,14 @@ def _approx(a, b, eps=1e-6):
 
 def _rec(seq, event, **over):
     """A well-formed record line with every known token, overridable."""
-    f = {"handled": "+300.0", "written": "+350.0", "echo": "+360.0",
+    f = {"handled": "+300.0", "written": "+350.0", "pred": "-", "echo": "+360.0",
          "fed": "+365.0", "commit": "+370.0", "landed": "+380.0",
          "shown": "+385.0", "vsync": "+400.0", "vsync_hi": "+416.7"}
+    predok = over.pop(PREDOK, None)
     f.update(over)
     return (f"keylat: seq={seq} event={event} " +
-            " ".join(f"{k}={f[k]}" for k in OFFSETS))
+            " ".join(f"{k}={f[k]}" for k in OFFSETS) +
+            (f" {PREDOK}={predok}" if predok is not None else ""))
 
 
 def selftest():
@@ -1115,8 +1212,32 @@ def selftest():
         failures.append(f"expected one parse failure naming vsync_hi on seq=10, got {pfail}")
     if refusals != 1:
         failures.append(f"expected 1 landing-refused line, got {refusals}")
-    if reports != ["keylat: 3 keys open"]:
-        failures.append(f"expected the one report line, got {reports}")
+    # The three classes of non-record line, told apart the way `run_arm`
+    # tells them apart: the open-keys report, the predictor's refusals by
+    # gate, and what it noted about a prediction it made anyway.
+    refused_seen = collections.Counter(
+        r[len(PREDICT_REFUSED):].strip() for r in reports if r.startswith(PREDICT_REFUSED))
+    noted_seen = collections.Counter(
+        r[len(PREDICT_NOTED):].strip() for r in reports if r.startswith(PREDICT_NOTED))
+    opens = [r for r in reports
+             if not r.startswith(PREDICT_REFUSED) and not r.startswith(PREDICT_NOTED)]
+    if opens != ["keylat: 3 keys open"]:
+        failures.append(f"expected the one open-keys line, got {opens}")
+    if dict(refused_seen) != {"zone": 1, "occupied": 1}:
+        failures.append(f"the fixture's refusals must be counted by gate: {refused_seen}")
+    if dict(noted_seen) != {"over-occupied": 1}:
+        failures.append(f"the fixture's noted line must be counted: {noted_seen}")
+    # And the per-round counters are summed by gate rather than overwritten.
+    pooled = merge_diags([
+        {"paired": 1, "predict_refused": {"zone": 2, "hold": 1},
+         "predict_noted": {"over-occupied": 3}},
+        {"paired": 1, "predict_refused": {"zone": 5},
+         "predict_noted": {"over-occupied": 4}},
+    ])
+    if pooled.get("predict_refused") != {"zone": 7, "hold": 1}:
+        failures.append(f"refusals must pool by gate: {pooled.get('predict_refused')}")
+    if pooled.get("predict_noted") != {"over-occupied": 7} or pooled.get("paired") != 2:
+        failures.append(f"noted/paired must pool: {pooled}")
 
     rows, diag = pair_by_order(posts, keylats)
     if diag["paired"] != 9 or diag["unpaired_posts"] != 1 or diag["unpaired_keylats"] != 0:
@@ -1159,7 +1280,7 @@ def selftest():
     expected = {
         "stamp": (0.0, 5), "deliver": (300.0, 5), "write": (50.0, 5),
         "child": (10.0, 5), "wake": (5.0, 5), "build": (5.0, 5),
-        "gpu": (10.0, 5), "show": (5.0, 5), "vsync": (35.0, 5),
+        "gpu": (10.0, 5), "show": (5.0, 5), "app": (85.0, 5), "vsync": (35.0, 5),
         "vsync_hi": (51.7, 5), "to_shown": (385.0, 5), "total": (420.0, 5),
         "total_hi": (436.7, 5),
     }
@@ -1202,6 +1323,47 @@ def selftest():
     tol = parse_keylat_line(_rec(4, 4000000000) + " future=+1.0 note=x")
     if tol is None or tol["seq"] != 4 or "future" in tol:
         failures.append(f"unknown tokens must be tolerated and dropped: {tol}")
+    # A record from before row 9 carries no `pred` at all, and a baseline
+    # arm is such an app: it parses, with the leg never happened.
+    old = parse_keylat_line(
+        "keylat: seq=5 event=5000000000 handled=+300.0 written=+350.0 echo=+360.0 "
+        "fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+400.0 vsync_hi=+416.7")
+    if old is None or old.get("pred", 0) is not None or old[PREDOK] != "-":
+        failures.append(f"a pre-row-9 record must parse with pred=-: {old}")
+
+    # Row 9: a predicted key's frame precedes its fed, so `build` runs from
+    # `pred`, `predict` is written->pred, and the row is NOT excluded as a
+    # negative leg; the same stamps without `pred` are the negative-build
+    # exclusion (the positive control). The verdict rides as predok.
+    prow, _ = pair_by_order(
+        [(11, 11000000000, "q")],
+        [parse_keylat_line(_rec(11, 11000000000, pred="+352.0", commit="+355.0",
+                                landed="+365.0", shown="+370.0", predok="yes"))])
+    if prow[0]["excluded"]:
+        failures.append(f"a predicted row must not be excluded: {prow[0]['exclude_reason']}")
+    plegs = legs_of(prow[0])
+    if not (_approx(plegs["build"], 3.0) and _approx(plegs["predict"], 2.0)
+            and _approx(plegs["child"], 10.0) and _approx(plegs["wake"], 5.0)):
+        failures.append(f"predicted row legs: build {plegs['build']} predict {plegs['predict']} "
+                        f"child {plegs['child']} wake {plegs['wake']}")
+    if prow[0].get(PREDOK) != "yes":
+        failures.append(f"predok must ride on the row: {prow[0].get(PREDOK)}")
+    nrow, _ = pair_by_order(
+        [(12, 12000000000, "q")],
+        [parse_keylat_line(_rec(12, 12000000000, commit="+355.0", landed="+365.0", shown="+370.0"))])
+    if not nrow[0]["excluded"] or "build" not in nrow[0]["exclude_reason"]:
+        failures.append(f"commit before fed without pred must be a negative build: {nrow[0]['exclude_reason']}")
+    psumm = summarize(prow + nrow)
+    if (psumm["predicted"], psumm["confirmed"], psumm["contradicted"]) != (1, 1, 0):
+        failures.append(f"prediction counts: {psumm['predicted']} {psumm['confirmed']} {psumm['contradicted']}")
+    unj = parse_keylat_line(_rec(13, 13000000000, pred="+352.0", commit="+355.0"))
+    if unj is None or unj.get(PREDOK) != "-":
+        failures.append(f"a predicted row without predok reads as unjudged: {unj}")
+    try:
+        parse_keylat_line(_rec(14, 14000000000, predok="maybe"))
+        failures.append("predok=maybe must be a parse failure")
+    except KeylatParseError:
+        pass
 
     # The `N keys open` report line, the refusal line and unrelated lines
     # are not records.
@@ -1368,6 +1530,9 @@ def selftest():
         failures.append("cat/shell child env wrong")
     if "python3 -u" not in child_env("stream").get("BAUD_CMD", "") or "0.002" not in child_env("stream")["BAUD_CMD"]:
         failures.append(f"--child stream must print every {STREAM_MS} ms unbuffered: {child_env('stream')}")
+    mute = child_env("mute").get("BAUD_CMD", "")
+    if "133;A" not in mute or "133;B" not in mute or "stty -echo" not in mute:
+        failures.append(f"--child mute must open a prompt and never echo: {mute}")
 
     # The helper's --front line.
     fr = parse_front_line("front 1390 Safari app 1390 Safari")
@@ -1413,9 +1578,11 @@ def main():
     ap.add_argument("--gap", type=int, default=150,
                     help="MEAN ms between keys; the helper jitters each gap uniformly "
                          "by +-25%% (0 stays 0: typeahead, the guard bounds the rate)")
-    ap.add_argument("--child", choices=["cat", "shell", "none", "stream"], default="cat",
+    ap.add_argument("--child", choices=["cat", "shell", "none", "stream", "mute"], default="cat",
                     help="cat: the tty's own echo; shell: the login shell; "
                          "none: `stty -echo; sleep 60`, the no-echo control; "
+                         "mute: a prompt (OSC 133 A and B) that never echoes, the row-9 "
+                         "expiry-and-hold control; "
                          f"stream: a line printed every {STREAM_MS} ms under the tty's "
                          "echo, the row-6 workload")
     ap.add_argument("--arm", action="append", default=None,

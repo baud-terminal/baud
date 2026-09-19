@@ -135,12 +135,28 @@ struct Open {
     period: Option<Duration>,
 }
 
+/// How the echo judged a key's predicted glyph (row 9 of note N): not
+/// yet, or not at all if the record closed first; confirmed, the read
+/// that came put that codepoint where the prediction stood; contradicted,
+/// it put something else there, or nothing came in time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Judged {
+    Unjudged,
+    Confirmed,
+    Contradicted,
+}
+
 /// One key, from its event to the vsync bounds after it was shown.
 struct Record {
     seq: Tally,
     event: HostTime,
     handled: HostTime,
     written: Written,
+    /// The key's echo was drawn before the pty answered: the moment the
+    /// prediction was made, after the write. A record with `pred` is
+    /// committed on the frame that follows it, before `fed`.
+    pred: Option<HostTime>,
+    judged: Judged,
     echo: Option<HostTime>,
     fed: Option<HostTime>,
     committed: Option<HostTime>,
@@ -170,6 +186,8 @@ impl Record {
             event,
             handled,
             written: Written::Pending,
+            pred: None,
+            judged: Judged::Unjudged,
             echo: None,
             fed: None,
             committed: None,
@@ -203,11 +221,12 @@ impl Record {
     /// can align the stamp it posted; every other field an offset.
     fn line(&self) -> String {
         format!(
-            "keylat: seq={} event={} handled={} written={} echo={} fed={} commit={} landed={} shown={} vsync={} vsync_hi={}",
+            "keylat: seq={} event={} handled={} written={} pred={} echo={} fed={} commit={} landed={} shown={} vsync={} vsync_hi={} predok={}",
             self.seq.value(),
             self.event.nanos(),
             self.offset(Some(self.handled)),
             self.offset(self.written_at()),
+            self.offset(self.pred),
             self.offset(self.echo),
             self.offset(self.fed),
             self.offset(self.committed),
@@ -215,6 +234,11 @@ impl Record {
             self.offset(self.shown),
             self.offset(self.vsync),
             self.offset(self.vsync_hi),
+            match self.judged {
+                Judged::Unjudged => "-",
+                Judged::Confirmed => "yes",
+                Judged::Contradicted => "no",
+            },
         )
     }
 
@@ -255,6 +279,24 @@ impl Latency {
         match self.on {
             Some(_) => Switch::On,
             None => Switch::Off,
+        }
+    }
+
+    /// Row 9: a key the app declined to predict, and which gate declined
+    /// it. Not a record and not a stamp -- one line beside the records,
+    /// so a sweep can say how many keys the predictor never touched and
+    /// why, which a per-key `pred=-` alone cannot.
+    pub fn refused(&mut self, why: &'static str) {
+        if let Some(j) = self.on.as_mut() {
+            j.lines.push(format!("keylat: refused {why}"));
+        }
+    }
+
+    /// Row 9: a prediction made under a condition worth counting -- over
+    /// an occupied cell, say -- as one line beside the records.
+    pub fn noted(&mut self, what: &'static str) {
+        if let Some(j) = self.on.as_mut() {
+            j.lines.push(format!("keylat: noted {what}"));
         }
     }
 
@@ -333,6 +375,34 @@ impl Latency {
         }
     }
 
+    /// The key just written had its echo predicted and drawn before the
+    /// pty answered: the record opened last takes the stamp, and its
+    /// commit, landing and showing are the prediction frame's. Answers the
+    /// record's seq so the caller can bring the echo's verdict back to it
+    /// through [`Latency::judged`]; `None` when off or when no record is
+    /// waiting on a write.
+    pub fn predicted(&mut self, at: impl FnOnce() -> HostTime) -> Option<Tally> {
+        let j = self.on.as_mut()?;
+        let r = j.records.last_mut()?;
+        if r.written_at().is_none() || r.pred.is_some() {
+            return None;
+        }
+        r.pred = Some(at());
+        Some(r.seq)
+    }
+
+    /// The echo judged the prediction the record with `seq` carried. A
+    /// record already closed and printed is not found, and the line said
+    /// `predok=-`.
+    pub fn judged(&mut self, seq: Tally, verdict: Judged) {
+        let Some(j) = self.on.as_mut() else {
+            return;
+        };
+        if let Some(r) = j.records.iter_mut().find(|r| r.seq == seq) {
+            r.judged = verdict;
+        }
+    }
+
     /// The core has been fed the reads: every record with `echo` and no
     /// `fed`.
     pub fn fed(&mut self, at: impl FnOnce() -> HostTime) {
@@ -360,8 +430,9 @@ impl Latency {
         }
     }
 
-    /// A frame was committed to the GPU: every record with `fed` and no
-    /// `commit`. `at` is read *before* the draw call, so it is provably
+    /// A frame was committed to the GPU: every record with `fed` -- or a
+    /// prediction, whose frame precedes its `fed` -- and no `commit`. `at`
+    /// is read *before* the draw call, so it is provably
     /// before the GPU could have finished the frame -- a stamp taken after
     /// the call, under a preemption longer than the GPU's ~100 us of work,
     /// would read later than the frame's own end and be paired with the
@@ -374,7 +445,7 @@ impl Latency {
         for r in j
             .records
             .iter_mut()
-            .filter(|r| r.fed.is_some() && r.committed.is_none())
+            .filter(|r| (r.fed.is_some() || r.pred.is_some()) && r.committed.is_none())
         {
             r.committed = Some(at);
         }
@@ -419,7 +490,7 @@ impl Latency {
         for r in j
             .records
             .iter_mut()
-            .filter(|r| r.fed.is_some() && r.committed.is_none())
+            .filter(|r| (r.fed.is_some() || r.pred.is_some()) && r.committed.is_none())
         {
             r.committed = Some(at);
             r.shown_at(at, announced);
@@ -501,7 +572,11 @@ impl Latency {
                 return false;
             }
             let expired = target.since(r.event).is_some_and(|age| age > EXPIRE);
-            if r.vsync_hi.is_some() || expired {
+            // Row 9: a predicted key is shown before its echo, so its
+            // bounds close before the verdict; it waits for the echo, or
+            // for the app's own expiry to call it contradicted.
+            let awaiting_verdict = r.pred.is_some() && r.judged == Judged::Unjudged;
+            if (r.vsync_hi.is_some() && !awaiting_verdict) || expired {
                 out.push(r.line());
                 return false;
             }
@@ -527,7 +602,7 @@ impl Latency {
 
 #[cfg(test)]
 mod tests {
-    use super::{Ended, Latency, Record, Switch, Written};
+    use super::{Ended, Judged, Latency, Record, Switch, Written};
     use baud_domain::HostTime;
     use baud_render::Tally;
     use std::time::Duration;
@@ -563,9 +638,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 echo=+360.0 \
+                "keylat: seq=1 event=1000000000 handled=+300.0 written=+350.0 pred=- echo=+360.0 \
                  fed=+365.0 commit=+370.0 landed=+380.0 shown=+385.0 vsync=+8333.0 \
-                 vsync_hi=+16666.0"
+                 vsync_hi=+16666.0 predok=-"
             ]
         );
         assert_eq!(l.open().value(), 0);
@@ -583,8 +658,8 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 echo=- fed=- \
-                 commit=- landed=- shown=- vsync=- vsync_hi=-"
+                "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 pred=- echo=- fed=- \
+                 commit=- landed=- shown=- vsync=- vsync_hi=- predok=-"
             ]
         );
         assert_eq!(l.open().value(), 0);
@@ -606,17 +681,17 @@ mod tests {
         assert_eq!(lines.len(), 2);
         assert_eq!(
             lines[0],
-            "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 echo=+400.0 \
+            "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 pred=- echo=+400.0 \
              fed=+410.0 commit=+420.0 landed=+700.0 shown=+710.0 vsync=+1000.0 \
-             vsync_hi=+9333.0"
+             vsync_hi=+9333.0 predok=-"
         );
         // The second key's offsets are from its own, later event; the
         // stamps it shares are the same absolute moments.
         assert_eq!(
             lines[1],
-            "keylat: seq=2 event=1000010000 handled=+120.0 written=+140.0 echo=+390.0 \
+            "keylat: seq=2 event=1000010000 handled=+120.0 written=+140.0 pred=- echo=+390.0 \
              fed=+400.0 commit=+410.0 landed=+690.0 shown=+700.0 vsync=+990.0 \
-             vsync_hi=+9323.0"
+             vsync_hi=+9323.0 predok=-"
         );
     }
 
@@ -637,9 +712,9 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "keylat: seq=1 event=1000100000 handled=+0.0 written=+20.0 echo=+200.0 \
+                "keylat: seq=1 event=1000100000 handled=+0.0 written=+20.0 pred=- echo=+200.0 \
                  fed=+210.0 commit=+400.0 landed=- shown=+400.0 vsync=+7900.0 \
-                 vsync_hi=+16233.0"
+                 vsync_hi=+16233.0 predok=-"
             ]
         );
     }
@@ -702,7 +777,7 @@ mod tests {
         l.fed(|| t(us!(410)));
         let lines = l.settle(t(Duration::from_millis(2_500)));
         assert!(
-            lines[0].contains(" written=- echo=- fed=- "),
+            lines[0].contains(" written=- pred=- echo=- fed=- "),
             "{}",
             lines[0]
         );
@@ -727,7 +802,7 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("keylat: seq=2 "), "{}", lines[0]);
         assert!(
-            lines[0].contains(" written=+130.0 echo=+150.0 "),
+            lines[0].contains(" written=+130.0 pred=- echo=+150.0 "),
             "{}",
             lines[0]
         );
@@ -735,7 +810,7 @@ mod tests {
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(lines[0].starts_with("keylat: seq=1 "), "{}", lines[0]);
         assert!(
-            lines[0].contains(" written=- echo=- fed=- commit=- "),
+            lines[0].contains(" written=- pred=- echo=- fed=- commit=- "),
             "{}",
             lines[0]
         );
@@ -759,7 +834,7 @@ mod tests {
         let lines = l.settle(t(us!(33_332)));
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(
-            lines[0].ends_with(" shown=+17100.0 vsync=- vsync_hi=-"),
+            lines[0].ends_with(" shown=+17100.0 vsync=- vsync_hi=- predok=-"),
             "{}",
             lines[0]
         );
@@ -775,7 +850,7 @@ mod tests {
         l.announced(|| Some(t(us!(49_998))));
         let lines = l.settle(t(us!(49_998)));
         assert!(
-            lines[0].ends_with(" vsync=+1665.0 vsync_hi=+9998.0"),
+            lines[0].ends_with(" vsync=+1665.0 vsync_hi=+9998.0 predok=-"),
             "{}",
             lines[0]
         );
@@ -856,7 +931,7 @@ mod tests {
         assert!(l.settle(t(us!(8_333))).is_empty());
         let lines = l.settle(t(us!(16_666)));
         assert!(
-            lines[0].ends_with(" vsync=+8333.0 vsync_hi=+16666.0"),
+            lines[0].ends_with(" vsync=+8333.0 vsync_hi=+16666.0 predok=-"),
             "{}",
             lines[0]
         );
@@ -873,7 +948,7 @@ mod tests {
         assert!(l.settle(t(us!(12_333))).is_empty());
         let lines = l.settle(t(us!(20_666)));
         assert!(
-            lines[0].ends_with(" vsync=+12333.0 vsync_hi=+20666.0"),
+            lines[0].ends_with(" vsync=+12333.0 vsync_hi=+20666.0 predok=-"),
             "{}",
             lines[0]
         );
@@ -892,6 +967,115 @@ mod tests {
         let lines = l.settle(t(us!(3)));
         assert_eq!(lines.len(), 1);
         assert!(lines[0].starts_with("keylat: seq=1 "), "{}", lines[0]);
+    }
+
+    /// Row 9: a key whose echo was predicted is committed on the frame
+    /// that follows the prediction, before its echo is fed, and the line
+    /// carries the prediction's stamp and the echo's verdict; a key with
+    /// no prediction is not committed by that frame -- the control.
+    #[test]
+    fn a_predicted_key_is_committed_before_its_echo_and_carries_the_verdict() {
+        let mut l = Latency::new(Switch::On);
+        l.announced(|| Some(t(us!(8_333))));
+        l.key(|| Some(t(Duration::ZERO)), || t(us!(100)));
+        l.written(|| t(us!(120)));
+        let seq = l
+            .predicted(|| t(us!(125)))
+            .expect("the record just written takes the stamp");
+        assert_eq!(seq.value(), 1);
+        // A second key, not predicted, is written before the frame.
+        l.key(|| Some(t(us!(50))), || t(us!(150)));
+        l.written(|| t(us!(170)));
+        let seq2 = l.predicted(|| t(us!(175))).expect("the second key's stamp");
+        assert_eq!(seq2.value(), 2);
+        // ... and then the stamp is refused a second time on the same key.
+        assert!(l.predicted(|| t(us!(176))).is_none());
+        l.committed(|| t(us!(200)));
+        assert_eq!(l.presented(t(us!(300)), t(us!(310))), Ended::OnClock);
+        // The echo of both lands after the frame.
+        l.echoed([t(us!(2_600))]);
+        l.fed(|| t(us!(2_650)));
+        l.judged(seq, Judged::Confirmed);
+        assert!(l.settle(t(us!(8_333))).is_empty());
+        // The judged key is emitted at its late bound; the second, still
+        // unjudged, is held for its verdict.
+        let lines = l.settle(t(us!(16_666)));
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert_eq!(
+            lines[0],
+            "keylat: seq=1 event=1000000000 handled=+100.0 written=+120.0 pred=+125.0 \
+             echo=+2600.0 fed=+2650.0 commit=+200.0 landed=+300.0 shown=+310.0 vsync=+8333.0 \
+             vsync_hi=+16666.0 predok=yes"
+        );
+        assert_eq!(l.open().value(), 1);
+        l.judged(seq2, Judged::Contradicted);
+        let lines = l.settle(t(us!(25_000)));
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains(" pred=+125.0 ") && lines[0].ends_with(" predok=no"),
+            "{}",
+            lines[0]
+        );
+        // The control: with no prediction the same frame commits nothing,
+        // and the key is committed only once fed.
+        let mut c = Latency::new(Switch::On);
+        c.announced(|| Some(t(us!(8_333))));
+        c.key(|| Some(t(Duration::ZERO)), || t(us!(100)));
+        c.written(|| t(us!(120)));
+        c.committed(|| t(us!(200)));
+        c.echoed([t(us!(2_600))]);
+        c.fed(|| t(us!(2_650)));
+        c.committed(|| t(us!(2_700)));
+        assert_eq!(c.presented(t(us!(2_800)), t(us!(2_810))), Ended::OnClock);
+        assert!(c.settle(t(us!(8_333))).is_empty());
+        let lines = c.settle(t(us!(16_666)));
+        assert!(
+            lines[0].contains(" pred=- ") && lines[0].contains(" commit=+2700.0 "),
+            "{}",
+            lines[0]
+        );
+    }
+
+    /// Row 9: a predicted key's bounds close two ticks after its frame,
+    /// which is before a slow echo; the record waits for its verdict, and
+    /// the echo's stamp lands in it when it comes. The control: an
+    /// unpredicted key with the same bounds is emitted on the second
+    /// tick as it always was.
+    #[test]
+    fn a_predicted_record_waits_for_its_verdict_past_its_bounds() {
+        let mut l = Latency::new(Switch::On);
+        l.announced(|| Some(t(us!(8_333))));
+        l.key(|| Some(t(Duration::ZERO)), || t(us!(100)));
+        l.written(|| t(us!(120)));
+        let seq = l.predicted(|| t(us!(125))).expect("stamped");
+        l.committed(|| t(us!(200)));
+        assert_eq!(l.presented(t(us!(300)), t(us!(310))), Ended::OnClock);
+        assert!(l.settle(t(us!(8_333))).is_empty());
+        // Both bounds are known now and it is still held.
+        assert!(l.settle(t(us!(16_666))).is_empty(), "held for the verdict");
+        assert_eq!(l.open().value(), 1);
+        // The echo arrives a tick later, is fed, and judges it.
+        l.echoed([t(us!(20_000))]);
+        l.fed(|| t(us!(20_050)));
+        l.judged(seq, Judged::Confirmed);
+        let lines = l.settle(t(us!(25_000)));
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].contains(" fed=+20050.0 ") && lines[0].ends_with(" predok=yes"),
+            "{}",
+            lines[0]
+        );
+        // The control.
+        let mut c = Latency::new(Switch::On);
+        c.announced(|| Some(t(us!(8_333))));
+        c.key(|| Some(t(Duration::ZERO)), || t(us!(100)));
+        c.written(|| t(us!(120)));
+        c.echoed([t(us!(150))]);
+        c.fed(|| t(us!(160)));
+        c.committed(|| t(us!(200)));
+        assert_eq!(c.presented(t(us!(300)), t(us!(310))), Ended::OnClock);
+        assert!(c.settle(t(us!(8_333))).is_empty());
+        assert_eq!(c.settle(t(us!(16_666))).len(), 1);
     }
 
     /// The driver's self-test fixture is parsed by `scripts/key-latency.py`
@@ -937,6 +1121,12 @@ mod tests {
         let handled = leg("handled").expect("handled is never -");
         let mut r = Record::open(seq, event, handled);
         r.written = leg("written").map_or(Written::Never, Written::At);
+        r.pred = leg("pred");
+        r.judged = match field("predok") {
+            "yes" => Judged::Confirmed,
+            "no" => Judged::Contradicted,
+            _ => Judged::Unjudged,
+        };
         r.echo = leg("echo");
         r.fed = leg("fed");
         r.committed = leg("commit");
