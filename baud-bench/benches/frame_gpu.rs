@@ -138,6 +138,13 @@ fn main() {
     #[derive(Default)]
     struct Sums {
         frames: usize,
+        /// The first `FRAME_FIRST` frames of a replay on their own: their
+        /// convert, and the map's misses when they ended -- row 8 of note N
+        /// is about the first frames of a page, and a replay's median hides
+        /// them.
+        first_frames: Tally,
+        first_convert: Duration,
+        first_miss: Tally,
         total: Duration,
         convert: Duration,
         /// The paint on the CPU arm; bind plus commit on the GPU arms.
@@ -190,6 +197,12 @@ fn main() {
     // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
     // sweep sees one path.
     let wanted = std::env::var("FRAME_ARMS").ok();
+    // `FRAME_FIRST=n` reports the first n frames of every replay apart:
+    // their convert a frame and the map misses they took, beside the rest.
+    let first_n: usize = std::env::var("FRAME_FIRST")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let arms: Vec<Arm> = arms
         .into_iter()
         .filter(|a| {
@@ -332,7 +345,13 @@ fn main() {
                                 .copy_from_slice(vp.row(Row::from_index(y)));
                         }
                     }
-                    s.convert += tc.elapsed();
+                    let dt = tc.elapsed();
+                    s.convert += dt;
+                    if s.frames < first_n {
+                        s.first_frames.bump();
+                        s.first_convert += dt;
+                        s.first_miss = map.stats().misses;
+                    }
                     let (rotation, ring) = match arm == Arm::Copied {
                         true => (RowRot::NONE, rows),
                         false => (t.rotation(), t.ring()),
@@ -476,6 +495,32 @@ fn main() {
                 s.rec.value() as f64 / s.frames as f64,
                 per(s.wait),
             );
+            let first_frames = usize::try_from(s.first_frames.value()).unwrap_or(usize::MAX);
+            if first_n > 0 && first_frames > 0 && s.frames > first_frames {
+                // Ratios without a cast: a `Duration` divides by a `u32`, and a
+                // `u32` widens to `f64` by `From`; a count past `u32::MAX` is
+                // saturated, which no replay here approaches.
+                let n32 = |n| u32::try_from(n).unwrap_or(u32::MAX);
+                let us_per = |d: Duration, n| (d / n32(n)).as_secs_f64() * 1e6;
+                let per = |a, n| f64::from(n32(a)) / f64::from(n32(n));
+                let rest = s.frames - first_frames;
+                let first_miss = usize::try_from(s.first_miss.value()).unwrap_or(usize::MAX);
+                let rest_miss = usize::try_from(s.miss.value())
+                    .unwrap_or(usize::MAX)
+                    .saturating_sub(first_miss);
+                println!(
+                    "      first {} frames: convert {:.1} us/frame, {} map misses ({:.1} a frame); \
+the other {}: {:.1} us/frame, {} misses ({:.2} a frame)",
+                    first_frames,
+                    us_per(s.first_convert, first_frames),
+                    first_miss,
+                    per(first_miss, first_frames),
+                    rest,
+                    us_per(s.convert - s.first_convert, rest),
+                    rest_miss,
+                    per(rest_miss, rest),
+                );
+            }
         }
     }
 }

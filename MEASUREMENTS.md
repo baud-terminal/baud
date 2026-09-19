@@ -478,3 +478,26 @@ the windows it added to the misses; that arm still writes the cache, so a
 miss here is a shape plus a replace less the get the base pays. No change
 shipped: the frame's keep floor is one 120 Hz frame, the largest base
 convert in the table is 0.35 ms and the largest of any arm 0.77.
+
+## The glyph map's first-frame misses (row 8, measured, no change)
+
+Apple M5 Max, macOS 27.0, on AC. `FRAME_FACES=<the app's default CJK stack>
+FRAME_FIRST=<n> FRAME_ARMS=async cargo bench -p baud-bench --bench frame_gpu
+-- <recording> 3 incremental`, 200x50 at 14 px; the first n frames of a
+replay reported apart from the rest, three rounds, the spread across rounds
+under 5 % on every row. Convert in microseconds a frame, and map misses:
+
+| recording | n | first n: convert, misses a frame | the rest: convert, misses a frame |
+|---|---|---|---|
+| cat-cjk | 1 | 2869-3087, 663 | 157-163, 32 |
+| cat-cjk | 3 | 1924-2048, 454 | 126-127, 24 |
+| cat-cjk | 10 | 1135-1188, 255 | 65-68, 9.2 |
+| cat-cjk | 30 | 481-486, 106 | 25.0-25.5, 0.18 |
+| less-cjk | 10 | 884-970, 201 | 44-48, 6.0 |
+| vim-unicode | 10 | 50-56, 9.7 | 16.5-17.1, 0 |
+| btop | 10 | 32-40, 10.4 | 20.5-20.8, 0.19 |
+
+A miss is about 4.3 us (the first frame's convert less the walk, over its
+misses). No change shipped: the first frame is 3 ms against a frame floor of
+8, and warming the map at load moves the same shaping and rasterising to
+launch rather than removing it.
