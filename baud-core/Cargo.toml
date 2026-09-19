@@ -55,8 +55,6 @@ ceiling-no-write = []
 # The single-character decode stubbed: with `ceiling-no-write` it brackets
 # what the per-character path costs on a recording whose runs are one long.
 ceiling-no-decode = []
-# Runs stop at the block edge instead of being extended past it.
-no-extend = []
 ceiling-no-classify = []
 # **The three components of the cluster machine, priced one at a time.**
 # The machine cost a third of `cat-cjk` and the first explanation offered for
@@ -78,12 +76,6 @@ probe-double-attach = []
 ceiling-no-run-gate = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
-# The block classification itself, priced by doing it twice.
-probe-double-classify-block = []
-# The six lane-mask extractions, priced by doing them twice.
-probe-double-masks = []
-# The walk stubbed: the block is classified and then discarded.
-ceiling-no-walk = []
 # The blank behind a scroll, with the ring still advancing.
 ceiling-no-blank = []
 # The whole of `Paint::index`: no row change, no rotation, no blank.

@@ -42,10 +42,6 @@ default = ["neon-scan"]
 # Forwarded so `cargo bench -p baud-bench --features diag --bench ingest2` prints
 # the cost map. Never on for a throughput figure -- see baud-core/Cargo.toml.
 diag = ["baud-core/diag"]
-# Byte-level attribution: which path consumed which bytes. Never on for a
-# throughput figure, same as `diag`.
-# Build `ingest` against the aarch64 `shrn` scanner instead of the portable one.
-scan-neon = []
 # The grid's row pitch, for `ingest2`'s stride arms. Off, the pitch is what
 # ships: `grid_stride`, from the cache geometry. `stride-live` lays
 # the grid out at the live column count, the layout this core had before and

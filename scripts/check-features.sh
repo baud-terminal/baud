@@ -46,7 +46,7 @@ cd "$(dirname "$0")/.." || exit 1
 # repo's own rule -- a budget that is not equal to the count is not
 # measuring anything -- so the floors sit at the counts and a dropped arm
 # fails here. Adding a feature means changing the number beside it.
-CRATES="baud-bench:55 baud-core:54 baud-domain:8 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+CRATES="baud-bench:54 baud-core:50 baud-domain:8 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
 
 # **The control on the list itself.** Every crate carrying a `[features]`
 # block must be named above, or the gate silently checks fewer crates than
@@ -68,6 +68,80 @@ if [ -n "$missing" ]; then
   echo "FAIL: these crates have [features] and are not in CRATES:"
   for c in $missing; do echo "  $c"; done
   echo "  -- the gate would check fewer crates than the workspace has"
+  exit 1
+fi
+
+# **A feature that nothing reads is worse than one that does not build.**
+# A broken arm fails this gate loudly; a *declared* arm with no `#[cfg]`
+# behind it builds, runs, and silently measures the base program -- so
+# someone re-measuring with `--features ceiling-no-run-gate` reads the
+# ceiling as zero and believes it. That is the probe-that-cannot-fire
+# failure this repo records four times, arriving in the one script built
+# to stop it.
+#
+# **Comments are stripped before the search, and that is load-bearing.**
+# `write.rs` names `ceiling-no-run-gate` in a comment recording what the
+# arm once priced, so a search for the bare name calls a dead arm live --
+# the same flaw `impl_audit.py` carries, and the one that published "six
+# crates forbid unsafe" from a doc comment. What counts as a reader is
+# `feature = "name"` on a line with `//` removed.
+#
+# A feature that forwards (`dep/feat`) needs no reader of its own: the
+# arm lives in the crate it names, and that leaf is checked when the loop
+# reaches it. Anything else must be named here with a reason.
+#
+# **Two are declared and inert, and both are about live code.**
+# `ceiling-no-run-gate` had a `#[cfg]` until 08abfb1, the commit that took
+# `routes()` off the hot path, and CLAUDE.md prices it at 33.7% of
+# cat-cjk; `probe-const-stride` was *declared* in that same commit and
+# has never had a reader in any commit, so the table calling it one of
+# "three compiled arms" describes a measurement taken with a patch that
+# was never committed. Both price code that still exists, so both are
+# restorable -- and a restore is a re-derivation against code that has
+# moved since, verifiable per arm by its recorded cell count, which is
+# the owner's call to spend. Exempting keeps them visible; deleting would
+# make the record's "kept as a compiled arm" false in silence.
+#
+# Four others went with `scan-neon` rather than onto this list, because
+# their subject is deleted code and no restore is possible: `no-extend`,
+# `ceiling-no-walk`, `probe-double-classify-block` and
+# `probe-double-masks` priced the block walk -- run extension past a
+# block edge, the walk itself, the block classification, the six lane
+# mask extractions -- and all four lost their `#[cfg]` in 08abfb1 when
+# the one-line graph loop replaced it. None is cited anywhere.
+DEAD_OK="baud-core/ceiling-no-run-gate baud-domain/probe-const-stride"
+
+unexplained=""
+for m in */Cargo.toml; do
+  c="${m%/Cargo.toml}"
+  # Every feature this crate's own code reads, gathered once.
+  read_names=$(find "$c/src" "$c/tests" "$c/benches" "$c/examples" "$c/build.rs" \
+    -name '*.rs' 2>/dev/null | while IFS= read -r f; do sed 's|//.*||' "$f"; done |
+    grep -o 'feature[[:space:]]*=[[:space:]]*"[^"]*"' |
+    sed 's/.*"\([^"]*\)"/ \1 /' | sort -u | tr -d '\n')
+  declared=$(awk '/^\[features\]/{f=1;next} /^\[/{f=0} f && /=/ && $1!="#" {print $1}' "$m" |
+    grep -vx default)
+  # Word-splitting is the intent: a feature name carries no whitespace.
+  # shellcheck disable=SC2086
+  for name in $declared; do
+    line=$(grep -m1 "^${name}[[:space:]]*=" "$m")
+    case "$line" in *'/'*) continue ;; esac
+    case "$read_names" in *" $name "*) continue ;; esac
+    case " $DEAD_OK " in *" $c/$name "*) continue ;; esac
+    unexplained="$unexplained $c/$name"
+  done
+done
+if [ -n "$unexplained" ]; then
+  echo "FAIL: these features are declared and no #[cfg] reads them:"
+  for d in $unexplained; do
+    echo "  $d"
+    leaf="${d##*/}"
+    for m in */Cargo.toml; do
+      grep -n "\"[^\"]*/$leaf\"" "$m" 2>/dev/null |
+        sed "s|^|      forwarded from ${m%/Cargo.toml}: |"
+    done
+  done
+  echo "  -- enabling one builds the base program and measures nothing"
   exit 1
 fi
 
