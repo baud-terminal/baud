@@ -439,9 +439,10 @@ impl Boot {
                 // cold cache makes expensive, and the device and the warm
                 // pass are the same on every launch.
                 startup_note(&format!(
-                    "gpu build: device {:.1} ms, library {:.1}, pipelines {:.1}, warm pass {:.1}, probe {:.1}",
+                    "gpu build: device {:.1} ms, library {:.1} ({:?}), pipelines {:.1}, warm pass {:.1}, probe {:.1}",
                     b.device.as_secs_f64() * 1e3,
                     b.library.as_secs_f64() * 1e3,
+                    b.library_from,
                     b.pipelines.as_secs_f64() * 1e3,
                     t1.elapsed().as_secs_f64() * 1e3,
                     t0.elapsed().as_secs_f64() * 1e3,

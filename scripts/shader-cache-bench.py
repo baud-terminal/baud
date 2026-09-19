@@ -8,7 +8,13 @@ Row 1 of `docs/research/notes/n-make-faster.md` rests on a research figure
 OS update" -- that nothing had measured on baud. This is the measurement.
 The app, under `BAUD_STARTUP=1`, prints one line from its GPU probe:
 
-    startup: gpu build: device D ms, library L, pipelines P, warm pass W, probe T
+    startup: gpu build: device D ms, library L (S), pipelines P, warm pass W, probe T
+
+`S` is where the library came from -- `Library` for the committed
+`baud.metallib`, `Compiled` when it would not load and the source was
+compiled instead. A cold arm that reads `Library` and a cold library time
+is the whole of what row 1 shipped, and an arm that reads `Compiled` is
+measuring the old program.
 
 `library` is `newLibraryWithSource` (the shader source to a library) and
 `pipelines` the five `newRenderPipelineState` calls; both are served from
@@ -70,11 +76,13 @@ CACHES = [os.path.join(CACHE_ROOT, d) for d in CACHE_NAMES]
 ASIDE = [c + ".shader-cache-bench-aside" for c in CACHES]
 
 BUILD = re.compile(
-    r"^startup: gpu build: device ([\d.]+) ms, library ([\d.]+), pipelines ([\d.]+), "
+    r"^startup: gpu build: device ([\d.]+) ms, library ([\d.]+) \((\w+)\), "
+    r"pipelines ([\d.]+), "
     r"warm pass ([\d.]+), probe ([\d.]+)"
 )
 FIRST = re.compile(r"^startup: (first completion|first present)\s")
 FIELDS = ["device", "library", "pipelines", "warm", "probe", "wall"]
+SOURCE_GROUP = 3  # the `(Library|Compiled)` capture, read as a string not a float
 
 
 def move_aside():
@@ -107,7 +115,9 @@ def launch():
     for line in p.stderr:
         m = BUILD.match(line)
         if m:
-            for name, v in zip(FIELDS[:5], m.groups()):
+            g = list(m.groups())
+            got["source"] = g.pop(SOURCE_GROUP - 1)
+            for name, v in zip(FIELDS[:5], g):
                 got[name] = float(v)
         if FIRST.match(line):
             wall = (time.perf_counter() - t0) * 1e3
@@ -146,7 +156,8 @@ try:
                 sys.exit(1)
             results[arm].append(got)
             print(
-                f"launch {i} {arm:4s}: library {got['library']:6.1f} ms, pipelines {got['pipelines']:6.1f}, "
+                f"launch {i} {arm:4s}: library {got['library']:6.1f} ms ({got.get('source', '?')}), "
+                f"pipelines {got['pipelines']:6.1f}, "
                 f"device {got['device']:5.1f}, warm pass {got['warm']:5.1f}, probe {got['probe']:6.1f}, "
                 f"wall to first present {got['wall']:6.1f}" + ("  (discarded)" if i == 0 else "")
             )
@@ -167,3 +178,24 @@ print(
     f"\n{len(results['warm']) - 1} settled launches an arm; the first of each arm is discarded; "
     f"the cold arm moved aside: {', '.join(CACHE_NAMES)}."
 )
+
+# **Where the library came from, asserted and not merely printed.** A field
+# that is shown per launch and never read is the counter this repo keeps
+# recording: an arm whose launches disagree with each other -- a fallback
+# firing on some and not others -- would average two programs and read as
+# one result. Comparing a source-only binary against a `.metallib` one is
+# the whole point of this script, so the arms are allowed to differ from
+# each other; what is refused is an arm that differs from itself.
+mixed = False
+for arm in ("warm", "cold"):
+    seen = sorted({r.get("source", "?") for r in results[arm][1:]})
+    print(f"{arm:5s} library from: {', '.join(seen)}")
+    if len(seen) > 1:
+        mixed = True
+if mixed:
+    print(
+        "an arm's launches did not all take the same library, so its median "
+        "is two programs averaged; discard this run",
+        file=sys.stderr,
+    )
+    sys.exit(1)

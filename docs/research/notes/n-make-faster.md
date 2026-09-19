@@ -115,8 +115,8 @@ baud; row 1's research figure is replaced by one taken here
 (`docs/research/notes/p-shader-cache.md`); row 4 was measured and
 reverted. Keystroke-to-pixel has its baseline (`BAUD_KEYLAT=1` and
 `scripts/key-latency.py`, row 0) and idle CPU has one
-(`scripts/idle-cpu.py`, row 11). **Row 1 is the only row still open, and
-it is open on the owner's Xcode rather than on a measurement**: a cold
-Metal shader cache costs 306 ms to the first present and the remedy is a
-build-time `.metallib`, which needs
-`xcodebuild -downloadComponent MetalToolchain`.
+(`scripts/idle-cpu.py`, row 11). **Row 1 closed on 2026-09-19**, when the owner
+installed the Metal toolchain: the shaders are compiled at build time to a
+committed `baud.metallib` and a cold launch went 389.9 ms to 133.5, the
+cold-cache penalty from +287 ms to +34. **Every row of this checklist is
+finished.**

@@ -18,6 +18,9 @@ baud-render = { path = "../baud-render" }
 # The owner's window crate, extended in place on its `feat/drawable-view`
 # branch for the drawable view and the surface; a path until it is released.
 [target.'cfg(target_os = "macos")'.dependencies]
+# `newLibraryWithData` takes a `dispatch_data_t`, and
+# `DispatchData::from_static_bytes` wraps `include_bytes!` without a copy.
+dispatch2 = "0.3"
 macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
 # Metal, and the two crates the surface-to-texture bridge names. The same
 # `objc2` family and versions the window crate pins, so the `IOSurface` it

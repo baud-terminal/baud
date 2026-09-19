@@ -61,6 +61,7 @@ use baud_render::{
 use block2::RcBlock;
 use core::ffi::c_void;
 use core::ptr::NonNull;
+use dispatch2::DispatchData;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSString;
@@ -92,233 +93,18 @@ const UNIFORM_FLOATS: usize = 12;
 /// How many shapes a cell may draw in the cell path's shape pass.
 const SHAPES_PER_CELL: usize = 4;
 
-const SHADERS: &str = r#"
-#include <metal_stdlib>
-using namespace metal;
+/// The shaders, as the compiler and the runtime both read them.
+/// `scripts/build-metallib.sh` compiles this file to `baud.metallib`;
+/// the fallback below compiles this same text at launch when that
+/// library will not load. One source, so the two cannot disagree.
+const SHADERS: &str = include_str!("shaders.metal");
 
-struct U { float2 viewport; float2 cell; float2 grid; float2 mask; float2 color; float2 pad; };
-struct Inst { short2 xy; ushort2 wh; ushort2 uv; uint color; uint kind; };
-
-struct BgOut { float4 pos [[position]]; };
-
-vertex BgOut bg_vertex(uint vid [[vertex_id]]) {
-    float2 c = float2(vid & 1u, vid >> 1u);
-    BgOut o;
-    o.pos = float4(c * 2.0 - 1.0, 0.0, 1.0);
-    return o;
-}
-
-fragment float4 bg_fragment(BgOut in [[stage_in]],
-                            constant U& u [[buffer(0)]],
-                            texture2d<float, access::read> bg [[texture(0)]]) {
-    float2 cf = (in.pos.xy - u.pad) / u.cell;
-    if (cf.x >= u.grid.x || cf.y >= u.grid.y) return float4(0.0);
-    float4 c = bg.read(uint2(cf));
-    return float4(c.rgb * c.a, c.a);
-}
-
-struct GOut { float4 pos [[position]]; float2 uv; float4 color; uint kind [[flat]]; };
-
-vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
-                         device const Inst* insts [[buffer(0)]],
-                         constant U& u [[buffer(1)]]) {
-    Inst i = insts[iid];
-    float2 c = float2(vid & 1u, vid >> 1u);
-    float2 p = float2(i.xy) + c * float2(i.wh);
-    float2 n = p / u.viewport;
-    GOut o;
-    o.pos = float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
-    float2 side = i.kind == 1u ? u.color : u.mask;
-    o.uv = (float2(i.uv) + c * float2(i.wh)) / side;
-    uint col = i.color;
-    o.color = float4(float((col >> 16) & 0xffu), float((col >> 8) & 0xffu),
-                     float(col & 0xffu), float(col >> 24)) / 255.0;
-    o.kind = i.kind;
-    return o;
-}
-
-fragment float4 glyph_fragment(GOut in [[stage_in]],
-                               texture2d<float> mask [[texture(0)]],
-                               texture2d<float> color [[texture(1)]],
-                               sampler s [[sampler(0)]]) {
-    if (in.kind == 0u) {
-        float a = in.color.a * mask.sample(s, in.uv).r;
-        return float4(in.color.rgb * a, a);
-    }
-    if (in.kind == 1u) {
-        float4 c = color.sample(s, in.uv);
-        return float4(c.rgb * c.a, c.a);
-    }
-    return float4(in.color.rgb * in.color.a, in.color.a);
-}
-
-// ---- The cell path: the raw grid, resolved per cell in the vertex stage.
-
-struct CU {
-    uint2 viewport; uint2 cell; uint2 grid; uint2 sides; uint2 cursor;
-    uint cursor_kind; uint baseline; uint underline; uint strike;
-    uint thickness; uint map_slots; uint map_shift; uint stride; uint rot;
-    uint ring;
-    uint sel_on; uint sel_from_col; uint sel_from_row; uint sel_to_col;
-    uint sel_to_row;
-};
-struct Style { uint fg; uint bg; uint ul; uint shapes; };
-struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
-
-struct FlatOut { float4 pos [[position]]; float4 color; };
-
-static float4 unpack(uint c) {
-    return float4(float((c >> 16) & 0xffu), float((c >> 8) & 0xffu),
-                  float(c & 0xffu), float(c >> 24)) / 255.0;
-}
-
-static float4 clip(float2 p, constant CU& u) {
-    float2 n = p / float2(u.viewport);
-    return float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
-}
-
-// The cell at screen row `row`, column `col`: the grid is read in place,
-// under the core's rotation, at its live stride, modulo the ring -- the
-// buffer's rows, which on the primary screen are the screen plus the
-// scrollback behind it.
-static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint row) {
-    uint prow = (row + u.rot) % u.ring;
-    return cells[prow * u.stride + col];
-}
-
-// Whether the cell is inside the selection: row-major, both ends inclusive.
-static bool selected(constant CU& u, uint col, uint row) {
-    if (u.sel_on == 0u) return false;
-    bool after_from = row > u.sel_from_row || (row == u.sel_from_row && col >= u.sel_from_col);
-    bool before_to = row < u.sel_to_row || (row == u.sel_to_row && col <= u.sel_to_col);
-    return after_from && before_to;
-}
-
-// The cell's colours after the selection's swap and then the block
-// cursor's, which the CPU path applies in the same order after the
-// rendition rules and before anything is drawn.
-static void colors(constant CU& u, device const Style* styles, uint2 cell,
-                   uint col, uint row, thread uint& fgw, thread uint& bgw) {
-    Style s = styles[cell.y & 0xffffu];
-    fgw = s.fg; bgw = s.bg;
-    if (selected(u, col, row)) {
-        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
-    }
-    if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
-        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
-    }
-}
-
-vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
-                              device const uint2* cells [[buffer(0)]],
-                              device const Style* styles [[buffer(1)]],
-                              constant CU& u [[buffer(2)]]) {
-    uint col = iid % u.grid.x, row = iid / u.grid.x;
-    uint fgw, bgw;
-    colors(u, styles, cell_at(u, cells, col, row), col, row, fgw, bgw);
-    float2 c = float2(vid & 1u, vid >> 1u);
-    float2 p = (float2(col, row) + c) * float2(u.cell);
-    FlatOut o;
-    o.pos = clip(p, u);
-    float4 bg = unpack(bgw);
-    o.color = float4(bg.rgb * bg.a, bg.a);
-    return o;
-}
-
-fragment float4 flat_fragment(FlatOut in [[stage_in]]) { return in.color; }
-
-vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
-                              device const uint2* cells [[buffer(0)]],
-                              device const Style* styles [[buffer(1)]],
-                              constant CU& u [[buffer(2)]],
-                              device const Entry* entries [[buffer(3)]],
-                              device const uchar* overlay [[buffer(4)]]) {
-    GOut o;
-    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
-    if (overlay[iid] != 0) return o;
-    uint col = iid % u.grid.x, row = iid / u.grid.x;
-    uint2 cell = cell_at(u, cells, col, row);
-    uint content = cell.x;
-    if (content > 0x10FFFFu) return o;
-    uint mask = u.map_slots - 1u;
-    uint i = (content * 0x9E3779B1u) >> u.map_shift;
-    Entry e; bool found = false;
-    for (uint n = 0u; n < u.map_slots; n++) {
-        e = entries[i];
-        if (e.key == 0xFFFFFFFFu) break;
-        if (e.key == content) { found = true; break; }
-        i = (i + 1u) & mask;
-    }
-    if (!found || e.kind > 2u) return o;
-    uint fgw, bgw;
-    colors(u, styles, cell, col, row, fgw, bgw);
-    float2 c = float2(vid & 1u, vid >> 1u);
-    float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
-                           float(row * u.cell.y + u.baseline) + float(e.at.y));
-    float2 wh = float2(e.rect.zw);
-    o.pos = clip(origin + c * wh, u);
-    float side = e.kind == 1u ? float(u.sides.y) : float(u.sides.x);
-    o.uv = (float2(e.rect.xy) + c * wh) / side;
-    o.color = unpack(fgw);
-    o.kind = e.kind;
-    return o;
-}
-
-// Four shapes a cell: its underline, its strike, a second underline line for
-// a double underline, and the cursor when it is an underline or a bar. A shape
-// not drawn is a zero-area quad.
-vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
-                              device const uint2* cells [[buffer(0)]],
-                              device const Style* styles [[buffer(1)]],
-                              constant CU& u [[buffer(2)]]) {
-    GOut o;
-    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
-    uint which = iid % 4u, ci = iid / 4u;
-    uint col = ci % u.grid.x, row = ci / u.grid.x;
-    uint2 cell = cell_at(u, cells, col, row);
-    Style s = styles[cell.y & 0xffffu];
-    uint fgw, bgw;
-    colors(u, styles, cell, col, row, fgw, bgw);
-    float2 at; float2 wh; uint colw;
-    float thick = float(max(u.thickness, 2u));
-    if (which == 0u) {
-        if ((s.shapes & 1u) == 0u) return o;
-        at = float2(col * u.cell.x, row * u.cell.y + u.underline);
-        wh = float2(u.cell.x, u.thickness);
-        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
-    } else if (which == 1u) {
-        if ((s.shapes & 2u) == 0u) return o;
-        at = float2(col * u.cell.x, row * u.cell.y + u.strike);
-        wh = float2(u.cell.x, u.thickness);
-        colw = fgw;
-    } else if (which == 2u) {
-        // The second line of a double underline, below the first by a gap and
-        // clamped inside the cell.
-        if ((s.shapes & 8u) == 0u) return o;
-        float th = float(u.thickness);
-        float gap = max(th, 1.0) + 1.0;
-        float low = float(u.cell.y) - th;
-        float y = min(float(u.underline) + gap, max(low, float(u.underline)));
-        at = float2(col * u.cell.x, float(row * u.cell.y) + y);
-        wh = float2(u.cell.x, u.thickness);
-        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
-    } else {
-        if (col != u.cursor.x || row != u.cursor.y || u.cursor_kind < 2u) return o;
-        if (u.cursor_kind == 2u) {
-            at = float2(col * u.cell.x, float(row * u.cell.y + u.cell.y) - thick);
-            wh = float2(u.cell.x, thick);
-        } else {
-            at = float2(col * u.cell.x, row * u.cell.y);
-            wh = float2(thick, u.cell.y);
-        }
-        colw = fgw;
-    }
-    float2 c = float2(vid & 1u, vid >> 1u);
-    o.pos = clip(at + c * wh, u);
-    o.color = unpack(colw);
-    return o;
-}
-"#;
+/// The same shaders compiled to AIR, generated and committed by
+/// `scripts/build-metallib.sh`. Loading it skips the source-to-AIR front
+/// end, which a cold shader cache prices at 277 of the 287 ms a cold
+/// launch costs (note P). AIR is portable and a GPU binary is not, so
+/// the pipelines below still build per GPU either way.
+const METALLIB: &[u8] = include_bytes!("baud.metallib");
 
 type Texture = Retained<ProtocolObject<dyn MTLTexture>>;
 type Buffer = Retained<ProtocolObject<dyn MTLBuffer>>;
@@ -763,6 +549,22 @@ pub struct Build {
     pub device: Duration,
     pub library: Duration,
     pub pipelines: Duration,
+    /// Which of the two the library came from. A measurement that cannot
+    /// say this cannot tell a shipped library from a cold compile that
+    /// happened to be fast, and the whole of row 1 is the difference.
+    pub library_from: Source,
+}
+
+/// Where the shader library came from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Source {
+    /// `newLibraryWithData` over the committed `baud.metallib`.
+    #[default]
+    Library,
+    /// `newLibraryWithSource` over [`SHADERS`], because the library would
+    /// not load -- a Metal too old for the toolchain that built it, or a
+    /// file that is not a library at all.
+    Compiled,
 }
 
 impl Gpu {
@@ -774,14 +576,28 @@ impl Gpu {
         let queue = device.newCommandQueue()?;
         let device_made = t0.elapsed();
         let t1 = Instant::now();
-        let library =
-            match device.newLibraryWithSource_options_error(&NSString::from_str(SHADERS), None) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("baud-present-macos: shaders: {e:?}");
-                    return None;
+        // **The committed library first, the source as the fallback.** A
+        // `.metallib` is AIR built by one toolchain, and a Metal runtime
+        // older than that toolchain refuses it -- so this cannot be the
+        // only route, and a refusal has to cost a compile rather than a
+        // launch. Both arms end in the same `MTLLibrary`.
+        let data = DispatchData::from_static_bytes(METALLIB);
+        let (library, library_from) = match device.newLibraryWithData_error(&data) {
+            Ok(l) => (l, Source::Library),
+            Err(e) => {
+                eprintln!(
+                    "baud-present-macos: baud.metallib will not load ({e:?}); compiling the source"
+                );
+                match device.newLibraryWithSource_options_error(&NSString::from_str(SHADERS), None)
+                {
+                    Ok(l) => (l, Source::Compiled),
+                    Err(e) => {
+                        eprintln!("baud-present-macos: shaders: {e:?}");
+                        return None;
+                    }
                 }
-            };
+            }
+        };
         let library_made = t1.elapsed();
         let t2 = Instant::now();
         let bg_pipe = pipeline(
@@ -823,6 +639,7 @@ impl Gpu {
             device: device_made,
             library: library_made,
             pipelines: t2.elapsed(),
+            library_from,
         };
         let sd = MTLSamplerDescriptor::new();
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);

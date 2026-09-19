@@ -134,7 +134,8 @@ on, and the documentation supplies the reasons.
 
 ## What that decides about the row
 
-* **A shipped `.metallib` is worth ~220 ms of the 306, and the proxy for
+* **A shipped `.metallib` is worth ~220 ms of the 306** -- an estimate,
+  superseded by the measurement in "Built, and the row is closed" -- **and the proxy for
   it is measured** (and it is the form Apple's own guidance and ghostty
   take): the arm with the front end cached and the GPU binaries
   cold is exactly the launch a precompiled library gives -- 193 ms to the
@@ -249,3 +250,44 @@ the contained one this note already describes -- a generated
 `baud.metallib` beside the source, hash-gated, with `newLibraryWithData`
 and the source as the fallback -- and it is worth ~197 ms of the 287.
 Without it there is no remedy here that is smaller than the problem.
+(**The ~197 is this section's estimate and the row is closed**: it shipped
+and the measured saving is **253 ms** of the 287. See "Built, and the row
+is closed".)
+
+## Built, and the row is closed
+
+**2026-09-19, after the owner installed the toolchain.** The shape this
+note specified is what shipped, and the measurement is in `MEASUREMENTS.md`
+under "The shipped `.metallib`": the cold-cache penalty went from
+**+287 ms to +34**, a cold launch from 389.9 ms to 133.5, with the device
+and warm-pass controls flat in both arms.
+
+**Three corrections this note owes itself.**
+
+* **The proxy was a bound, not a forecast -- and it was measured on the
+  previous Xcode, so it had to be re-taken before the margin meant
+  anything.** This note measured the front-end cache in place with the GPU
+  binaries cold at **193 ms** and called it *"exactly the launch a
+  precompiled library gives"*. Re-taken on Xcode 27 the same arm reads
+  **173.0 ms [162.2-176.3]**, against the shipped library's 133.5. So the
+  proxy was conservative by **39.5 ms**, the saving is **256.4** where
+  today's proxy predicted 216.9, and the earlier "~220" was against a
+  409.5 ms cold wall that no longer exists. Quoting 133.5 against the old
+  193 would have been the one cross-Xcode comparison in a table this note
+  re-took precisely because these numbers move.
+* **The pipelines are dearer from a shipped library**, 45.1 ms cold from a
+  source-built one against 73.6 from `baud.metallib`, reproduced in every
+  settled launch. Nothing here explains it; the arm that would is one
+  timing each of the five `newRenderPipelineState` calls under both.
+* **"This box does not have it: `xcrun metal` answers ..." was two errors
+  wearing one sentence**, and the correction is in the section above:
+  `xcrun` cannot reach the compiler on this box at all, and Xcode's `metal`
+  is a stub that reports the toolchain missing *even when it is installed*
+  in a cryptex. `xcodebuild -showComponent MetalToolchain` is the only
+  thing that answers truthfully, and the build script asks it.
+
+**What is left is the 34 ms**, which is the per-GPU pipeline build that a
+portable AIR library cannot skip. The `MTLBinaryArchive` this note already
+prices would reach it and is worth nothing to anyone but this machine
+until its next OS update, so it stays unbuilt -- and the row closes with
+its number rather than on an argument.
