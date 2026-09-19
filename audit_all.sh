@@ -287,6 +287,31 @@ audit_tree() {
 audit_tree "baud-bench/src" baud-bench/src 0
 audit_tree "baud-bench/benches" baud-bench/benches 11
 
+# **Every other crate's `tests/` was audited by nothing.** `tree_audit` below
+# covers `baud-core/tests` and the flat glob after it covers that crate's loose
+# files; the other eleven test trees were reached by neither, carrying **100**
+# raw-integer sites between them -- 43 in `baud-domain/tests`, 49 in
+# `baud-font/tests`, 6 in `baud-render/tests` and one each in
+# `baud-present-macos` and `baud-xkb`. That is the same scoped-to-what-it-was-
+# written-beside failure as `docs.rs`'s `ROOTS` and `check-features.sh`'s crate
+# list, a third time: the gate was green and auditing a fraction of the tree.
+#
+# Each is set at its count and every one is a floor. The six that read zero are
+# listed rather than omitted -- a tree absent from this list is a tree nothing
+# checks, which is exactly how the eleven got here, and `audit_tree` fails when
+# a named directory holds no sources so a rename cannot silently empty one.
+audit_tree "baud-domain/tests" baud-domain/tests 43
+audit_tree "baud-font/tests" baud-font/tests 49
+audit_tree "baud-render/tests" baud-render/tests 6
+audit_tree "baud-present-macos/tests" baud-present-macos/tests 1
+audit_tree "baud-xkb/tests" baud-xkb/tests 1
+audit_tree "baud-bench/tests" baud-bench/tests 0
+audit_tree "baud-isa/tests" baud-isa/tests 0
+audit_tree "baud-isa-aarch64/tests" baud-isa-aarch64/tests 0
+audit_tree "baud-isa-x86-64/tests" baud-isa-x86-64/tests 0
+audit_tree "baud-wayland/tests" baud-wayland/tests 0
+audit_tree "baud-present-wayland/tests" baud-present-wayland/tests 0
+
 # **The glob is flat, and most of the test tree is behind it.**
 # `baud-core/tests/*.rs` matches the loose files and **none** of the suites in
 # `conformance/`, `vt100/`, `xterm/` and the rest, which were audited by nothing
