@@ -574,3 +574,46 @@ row is a paired A/B inside one sweep, why no figure here is read across
 from another session, and why the gain is bounded by the shell's turn on
 the day: the same change would read about 1.7 ms on a 1.6 ms turn. The
 observed -3.0 ms exceeds note Q's expected -2.5.
+
+## A drag step's core work (row 10, measured, no change)
+
+Apple M5 Max, macOS 27.0, on AC. `cargo bench -p baud-bench --bench winch
+-- ../tests/resize/<fixture> cost 20`: each fixture's recorded steps -- a
+size and the bytes that arrived at it -- replayed through the core twenty
+times, the first round discarded, the resize and the feed timed apart and
+the median taken. A **fresh storage per round**, because `Term::new`
+resets the cursor and not the grid, so a round on a reused one starts on
+the last round's screen and writes up to 21% more cells (`short` 15,219
+against 12,612); the parser-cell column is one value across all nineteen
+settled rounds on every fixture, which is the check. Three runs of each fixture, the spans across those runs. No window
+and no GPU.
+
+| gesture | steps | bytes | width changes | a step: resize + feed | gesture | parser cells | lines held |
+|---|---|---|---|---|---|---|---|
+| live-drag | 767 | 99,018 | 438 | 0.01-0.02 + 0.17-0.19 us | 0.14-0.16 ms | 115,010 | 0 |
+| drag | 331 | 140,050 | 156 | 0.02 + 0.45-0.47 us | 0.16 ms | 164,605 | 0 |
+| fresh-drag | 331 | 132,732 | 156 | 0.02 + 0.35-0.39 us | 0.12-0.13 ms | 196,746 | 0 |
+| zoom | 26 | 13,603 | 23 | 0.01-0.02 + 0.53-0.54 us | 0.01 ms | 13,584 | 15 |
+| fresh-zoom | 26 | 8,148 | 23 | 0.02 + 0.32-0.35 us | 0.01 ms | 10,399 | 0 |
+| fresh-burst | 43 | 9,495 | 30 | 0.01-0.02 + 0.28-0.30 us | 0.01 ms | 10,682 | 0 |
+| short | 26 | 13,116 | 23 | 0.01-0.02 + 0.53-0.55 us | 0.01 ms | 12,612 | 19 |
+
+**The resize column is the clock, not the resize.** A null arm -- an
+empty timed region per step -- reads the same 0.01-0.02 us a step beside
+it, so what the column says is that a width change at a prompt costs less
+than a clock pair, not that it costs 20 ns.
+
+The control, in the same run, looped the way the gesture is and on the
+screen the gesture left: one width change costs **0 [0-42] ns** in
+`Zone::Prompt`, where the core leaves the shell's rows for the shell to
+redraw, and **1.5-7.0 us** in `Zone::Output`, where it re-cuts -- the
+span of the seven fixtures' medians, each a median of 19 settled rounds. **0 of
+every fixture's width changes are in `Zone::Output`**, counted at the
+call, which is why the resize column is at the floor.
+
+No change shipped. A step averages 0.19-0.56 us against a frame's 8.33 ms,
+four orders under it, and the whole of live-drag is under 2% of one frame. In
+`Zone::Output`, which no fixture reaches and which no coalescing of
+redraws would reach either -- a re-cut follows the resize, not the redraw
+-- the control puts a width change at 1.5-7.0 us, three orders under a
+frame. Frames are per resize step and per display period, not per redraw.

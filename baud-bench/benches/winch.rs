@@ -18,9 +18,19 @@
 //! Usage: `winch <prefix>` for `<prefix>.raw` + `<prefix>.steps` -- the
 //! `tests/resize/` and `BAUD_TRACE` format -- or `winch <captured.json>`
 //! for the older flat-array capture.
+//!
+//! `winch <prefix> cost [reps]` answers a different question, the one row
+//! 10 of note N says is owed before anything coalesces the shell's
+//! stale-width redraws: **what a drag step costs the core**. It replays
+//! the same steps with nothing printed per step and reports, per step and
+//! over the gesture, the resize and the feed apart, with a null arm
+//! beside them so the smaller of the two is read against what a clock
+//! pair costs. No window and no GPU: this is the core's half, and a
+//! frame is the renderer's.
 
-use baud_core::{Owned, PackedCell, Resized, Term};
+use baud_core::{Owned, PackedCell, Resized, Term, Zone};
 use baud_domain::{Back, BytePos, ReadLen, Row, WinSize};
+use std::time::{Duration, Instant};
 
 /// One step: the size in force, and the bytes that arrived at it.
 type Step = (WinSize, Vec<u8>);
@@ -201,11 +211,253 @@ fn dump(t: &Term<'_>) {
     }
 }
 
+/// Row 10's number: what one step of a resize gesture costs the core.
+/// Each step is a size and the bytes that arrived at it, so the step's
+/// work is a `resize` -- which re-cuts the lines when the width changes
+/// in `Zone::Output` -- and a `feed` of whatever the shell sent for the
+/// size it thought it had. Both are timed apart.
+///
+/// `reps` whole replays, the first discarded as warm-up, and the
+/// per-step figures are the median round divided by the step count --
+/// an average over the gesture's steps, not a per-step median, which
+/// this arm does not collect.
+///
+/// Three things here exist because a number that looks like a
+/// measurement is not one:
+///
+/// * **A fresh [`Owned`] per round.** `Term::new` resets the cursor and
+///   the counters and not the grid, the marks or the book, which live in
+///   `Storage` -- so a round on a reused one starts on the last round's
+///   screen and does different work. Measured: `short` writes 12,612
+///   parser cells from clean and 15,219 from dirty, +21%.
+/// * **A null arm.** An empty timed region per step, accumulated beside
+///   the resize, so the resize column is read against what a clock pair
+///   costs rather than against zero.
+/// * **The zone counts.** A width change re-cuts the primary only in
+///   `Zone::Output`, so the claim that a drag at a prompt does not
+///   reflow is counted at the call rather than asserted in prose.
+fn cost(path: &str, steps: &[Step], reps: usize) {
+    let geom = baud_bench::host_geometry();
+    let max = WinSize {
+        ws_col: steps
+            .iter()
+            .map(|(w, _)| w.ws_col)
+            .max()
+            .unwrap_or(0)
+            .max(400),
+        ws_row: steps
+            .iter()
+            .map(|(w, _)| w.ws_row)
+            .max()
+            .unwrap_or(0)
+            .max(150),
+    };
+    let first = &steps.first().expect("a first step").0;
+
+    /// A count taken over one replay: cells, steps or lines. `usize`
+    /// rather than [`baud_domain::Count`]'s `u16`, because a gesture
+    /// writes up to 200,000 parser cells and a bounded type on an
+    /// unbounded quantity does not fail loudly -- it returns a
+    /// plausible number, which is the `ByteLen`-as-a-read-length
+    /// failure this repo already records.
+    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+    struct Tally(usize);
+    impl Tally {
+        fn of(n: usize) -> Tally {
+            Tally(n)
+        }
+        fn index(self) -> usize {
+            self.0
+        }
+        fn plus(self, n: usize) -> Tally {
+            Tally(self.0 + n)
+        }
+    }
+    struct Round {
+        resize: Duration,
+        feed: Duration,
+        null: Duration,
+        cells: Tally,
+        wide: Tally,
+        wide_in_output: Tally,
+        lines: Tally,
+    }
+    let mut rounds: Vec<Round> = Vec::new();
+    for _ in 0..reps.max(2) {
+        let mut owned = Owned::with_geometry(&max, &geom);
+        let mut t = Term::new(owned.storage(), first);
+        let (mut resize, mut feed, mut null) = (Duration::ZERO, Duration::ZERO, Duration::ZERO);
+        let (mut cells, mut wide, mut wide_in_output) =
+            (Tally::default(), Tally::default(), Tally::default());
+        for (ws, bytes) in steps {
+            let changes_width = t.geometry().0.index() != usize::from(ws.ws_col);
+            if changes_width {
+                wide = wide.plus(1);
+                if t.zone() == Zone::Output {
+                    wide_in_output = wide_in_output.plus(1);
+                }
+            }
+            let z = Instant::now();
+            null += z.elapsed();
+            let a = Instant::now();
+            let r = t.resize(ws);
+            resize += a.elapsed();
+            assert_eq!(r, Resized::Ok, "{path}: a step was clamped by the storage");
+            let before = t.amplification().1;
+            let b = Instant::now();
+            t.write_at(BytePos::ZERO, bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            feed += b.elapsed();
+            cells = cells.plus(t.amplification().1 - before);
+        }
+        let lines = Tally::of(t.scrollback().len());
+        rounds.push(Round {
+            resize,
+            feed,
+            null,
+            cells,
+            wide,
+            wide_in_output,
+            lines,
+        });
+    }
+    rounds.remove(0);
+    let med = |mut v: Vec<u128>| {
+        v.sort_unstable();
+        v[v.len() / 2]
+    };
+    let span = |v: &[Tally]| {
+        let lo = v.iter().min().copied().unwrap_or_default();
+        let hi = v.iter().max().copied().unwrap_or_default();
+        (lo.index(), hi.index())
+    };
+    let resize = med(rounds.iter().map(|r| r.resize.as_nanos()).collect());
+    let feed = med(rounds.iter().map(|r| r.feed.as_nanos()).collect());
+    let null = med(rounds.iter().map(|r| r.null.as_nanos()).collect());
+    let together = med(rounds
+        .iter()
+        .map(|r| (r.resize + r.feed).as_nanos())
+        .collect());
+    let n = steps.len().max(1) as u128;
+    let bytes: usize = steps.iter().map(|(_, b)| b.len()).sum();
+    let (cmin, cmax) = span(&rounds.iter().map(|r| r.cells).collect::<Vec<_>>());
+    let (lmin, lmax) = span(&rounds.iter().map(|r| r.lines).collect::<Vec<_>>());
+    let wide = rounds[0].wide.index();
+    let in_output = rounds
+        .iter()
+        .map(|r| r.wide_in_output)
+        .max()
+        .unwrap_or_default()
+        .index();
+    println!(
+        "{path}: {} steps, {bytes} bytes, {wide} width changes, {} settled rounds",
+        steps.len(),
+        rounds.len()
+    );
+    println!(
+        "  a gesture: resize {:.2} ms, feed {:.2} ms, together {:.2} ms (null {:.2} ms)",
+        resize as f64 / 1e6,
+        feed as f64 / 1e6,
+        together as f64 / 1e6,
+        null as f64 / 1e6
+    );
+    println!(
+        "  a step:    resize {:6.2} us, feed {:6.2} us, together {:6.2} us (null {:5.2} us)",
+        resize as f64 / n as f64 / 1e3,
+        feed as f64 / n as f64 / 1e3,
+        together as f64 / n as f64 / 1e3,
+        null as f64 / n as f64 / 1e3
+    );
+    // The parser's cells, and only those. `cells_written` is bumped by
+    // `feed`, the write paths, and `Term::resize`'s own blank-fill of the
+    // rows a *height* growth reveals -- and by nothing in `View::reflow`,
+    // which lives in `baud-domain` and cannot see the counter. So a
+    // column around `resize` would not separate a re-cut from a no-op: it
+    // would report the blanking instead. What separates them is the
+    // control below. The span is across the settled rounds, so a round
+    // that did different work from its neighbours is visible rather than
+    // averaged away.
+    println!("  cells:     parser {cmin}-{cmax} over the gesture, {lmin}-{lmax} lines retained");
+    println!(
+        "  zone:      {} of the {wide} width changes are in Zone::Output, where a re-cut runs",
+        in_output
+    );
+
+    // **The control, because a resize that costs 20 ns looks exactly like
+    // a resize that did not happen.** A width change re-cuts the primary
+    // only in `Zone::Output`; between a prompt mark and the output that
+    // follows it the shell will redraw those rows itself, so the core
+    // leaves them (see `Zone` in `baud-core`). Here the same call is
+    // timed in each zone, on the screen the gesture left -- the replay
+    // resizes as well as feeds, so the terminal ends at the geometry the
+    // gesture ends at -- and looped the way the gesture is, first round
+    // discarded, so the figure is a median rather than one cold sample.
+    let mut owned = Owned::with_geometry(&max, &geom);
+    let mut t = Term::new(owned.storage(), first);
+    for (ws, bytes) in steps {
+        let r = t.resize(ws);
+        assert_eq!(r, Resized::Ok, "{path}: the control clamped a step");
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+    let (c, r) = t.geometry();
+    let narrow = WinSize {
+        ws_col: u16::try_from(c.index().saturating_sub(1)).unwrap_or(1),
+        ws_row: u16::try_from(r.index()).unwrap_or(1),
+    };
+    let wide_ws = WinSize {
+        ws_col: u16::try_from(c.index()).unwrap_or(1),
+        ws_row: u16::try_from(r.index()).unwrap_or(1),
+    };
+    // The zone each arm is timed in, asserted rather than assumed: the
+    // terminal is already in `Zone::Prompt` when the gesture ends, so an
+    // `A` mark that did nothing at all would leave the prompt arm
+    // reading the same number.
+    let mut one = |mark: &[u8], to: &WinSize, want: Zone| -> u128 {
+        t.write_at(BytePos::ZERO, mark);
+        t.feed(BytePos::ZERO, ReadLen::from_index(mark.len()));
+        assert_eq!(t.zone(), want, "{path}: the control's zone");
+        let a = Instant::now();
+        let got = t.resize(to);
+        let took = a.elapsed().as_nanos();
+        assert_eq!(got, Resized::Ok, "{path}: the control clamped");
+        took
+    };
+    let (mut prompt, mut output) = (Vec::new(), Vec::new());
+    for _ in 0..reps.max(2) {
+        prompt.push(one(b"\x1b]133;C\x07\x1b]133;A\x07", &narrow, Zone::Prompt));
+        let _ = one(b"", &wide_ws, Zone::Prompt);
+        output.push(one(b"\x1b]133;C\x07", &narrow, Zone::Output));
+        let _ = one(b"", &wide_ws, Zone::Output);
+    }
+    prompt.remove(0);
+    output.remove(0);
+    let bounds = |mut v: Vec<u128>| {
+        v.sort_unstable();
+        (v[v.len() / 2], v[0], v[v.len() - 1])
+    };
+    let (pm, plo, phi) = bounds(prompt);
+    let settled = output.len();
+    let (om, olo, ohi) = bounds(output);
+    println!(
+        "  control:   one width change costs {pm} [{plo}-{phi}] ns in Zone::Prompt (no re-cut) \
+         and {om} [{olo}-{ohi}] ns in Zone::Output (the re-cut), on the screen the gesture \
+         left, median of {settled} settled rounds"
+    );
+}
+
 fn main() {
-    let path = baud_bench::args()
+    let mut argv = baud_bench::args();
+    let path = argv
         .next()
-        .expect("usage: winch <prefix> | winch <captured.json>");
+        .expect("usage: winch <prefix> [cost [reps]] | winch <captured.json>");
+    let mode = argv.next().unwrap_or_default();
+    let reps: usize = argv.next().and_then(|s| s.parse().ok()).unwrap_or(20);
     let steps = load(&path);
+    if mode == "cost" {
+        cost(&path, &steps, reps);
+        return;
+    }
     let all: Vec<u8> = steps.iter().flat_map(|(_, b)| b.iter().copied()).collect();
     let sig = signature(&all);
     match &sig {

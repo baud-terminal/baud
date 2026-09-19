@@ -104,8 +104,13 @@ extras are whatever the instrument from row 0 says, once it exists.
 
 ## Unmeasured, stated
 
-Rows 1, 4, 6, 9 and 10 rest on research figures or design reasoning,
-not on a number taken on baud; each is a measurement before it is a
-change. Keystroke-to-pixel has no baseline at all. The five-terminal
-comparison measures CPU seconds, not latency, and says nothing about
-what a person feels while typing.
+**As written, 2026-09-13.** Rows 1, 4, 6, 9 and 10 rested on research
+figures or design reasoning, not on a number taken on baud; each is a
+measurement before it is a change. Keystroke-to-pixel had no baseline at
+all. The five-terminal comparison measures CPU seconds, not latency, and
+says nothing about what a person feels while typing.
+
+**Since:** rows 6, 9 and 10 have their numbers, and row 1's research
+figure is replaced by one taken here (`docs/research/notes/p-shader-cache.md`).
+Row 4 is the one still standing on reasoning alone. Keystroke-to-pixel has
+its baseline: `BAUD_KEYLAT=1` and `scripts/key-latency.py`, row 0.
