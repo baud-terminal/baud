@@ -60,6 +60,13 @@ fonts = [
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
+# Whether a cursor move leaves a fading trail sweeping from the cell it left
+# to the cell it reached. Off by default -- it is opt-in polish, and an idle
+# terminal pays nothing for it, so the low-latency default is unchanged.
+[cursor]
+trail = false
+
+
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
 # content both its examples draw, and what was built as "glassterm" -- and the

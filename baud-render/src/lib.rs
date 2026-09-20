@@ -38,6 +38,7 @@ mod renderer;
 mod scrollbar;
 mod select;
 mod stack;
+mod trail;
 mod units;
 
 pub use atlas::{
@@ -60,4 +61,5 @@ pub use renderer::{
 pub use scrollbar::{Thumb, Window, back_for, thumb};
 pub use select::{AbsLine, Clip, Grain, Highlight, Point, Scrolled, Selection, Span};
 pub use stack::{FaceIx, Stack};
+pub use trail::Trail;
 pub use units::{Band, Coverage, Digest, Tally};

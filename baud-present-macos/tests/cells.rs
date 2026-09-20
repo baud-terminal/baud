@@ -21,7 +21,7 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Renderer, Resolved,
-    Scene, Stack, Theme, Window,
+    Scene, Stack, Theme, Trail, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -86,6 +86,8 @@ struct Arms<'f, 'a> {
     highlight: Option<Highlight>,
     /// Where the window sits, for the scrollbar both arms draw.
     window: Option<Window>,
+    /// The cursor trail both arms draw, or none.
+    trail: Option<Trail>,
     /// The window copied flat, in screen order -- research decision D4's
     /// buffer, and what the app binds. Held here so a third arm can draw
     /// from it and be compared against the two that read the live grid.
@@ -105,6 +107,7 @@ impl Arms<'_, '_> {
         let view = t.view(self.back);
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_scrollbar(self.window);
+        self.renderer.set_trail(self.trail);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
@@ -126,6 +129,7 @@ impl Arms<'_, '_> {
             self.overlay_mem,
             &mut self.records,
         );
+        self.records.extend_from_slice(self.renderer.trail());
         self.records.extend_from_slice(self.renderer.scrollbar());
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
@@ -299,6 +303,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         back: Rows::ZERO,
         highlight: None,
         window: None,
+        trail: None,
         copy,
         copy_mem,
     };
@@ -477,6 +482,40 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the selection changed the pixels"
     );
     arms.highlight = None;
+    // The cursor trail: a fading ghost mid-sweep between two cells, drawn
+    // by both arms -- one translucent solid on the instance list and on the
+    // cell path's records -- and a change to the pixels. `plain` has the
+    // same cursor and no trail, so the difference is the ghost alone.
+    arms.trail = Some(Trail {
+        from: (Row::from_index(1), Col::at_index(2)),
+        to: (Row::from_index(4), Col::at_index(20)),
+        progress: 0.5,
+    });
+    let (trail_a, trail_b) = arms.draw(&mut t);
+    {
+        let (w, _) = arms.renderer.pixel_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let bx = diff_box(
+            &trail_a,
+            &trail_b,
+            usize::try_from(w.value()).unwrap(),
+            cell,
+        );
+        assert_eq!(
+            differing(&trail_a, &trail_b),
+            0,
+            "the arms disagree under a cursor trail, in cells {bx:?}"
+        );
+    }
+    assert!(
+        differing(&trail_a, &plain) > 0,
+        "the trail reached the pixels"
+    );
+    arms.trail = None;
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

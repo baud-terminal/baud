@@ -52,6 +52,12 @@ pub struct Config {
     /// driver re-reads it on every style change; the Linux driver has no
     /// signal wired yet and resolves it to dark.
     pub theme: ThemeChoice,
+    /// `[cursor] trail`: whether a cursor move leaves a fading ghost
+    /// sweeping to the new cell. Off by default -- sfte ships its own
+    /// `SFTE_CURSOR_TRAIL` off too, and it is opt-in polish, so an idle
+    /// terminal pays nothing for it and the low-latency default is
+    /// unchanged.
+    pub cursor_trail: CursorTrail,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
 }
@@ -156,6 +162,16 @@ pub enum ThemeChoice {
     Light,
 }
 
+/// Whether a cursor move leaves a fading trail. A two-state enum rather
+/// than a `bool`, which the audit counts as a missing one -- and which the
+/// other config choices (`Shadow`, `Material`) already are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorTrail {
+    #[default]
+    Off,
+    On,
+}
+
 /// The colour space the surface is tagged with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Space {
@@ -174,6 +190,7 @@ impl Config {
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
+            cursor_trail: CursorTrail::Off,
             glass: Glass::defaults(),
             source: None,
         }
@@ -236,6 +253,19 @@ impl Config {
                                 "config: colorspace {other:?} is not srgb or display-p3; using srgb"
                             );
                             Space::Srgb
+                        }
+                    };
+                }
+                ("cursor", "trail") => {
+                    self.cursor_trail = match value.trim() {
+                        "true" => CursorTrail::On,
+                        "false" => CursorTrail::Off,
+                        other => {
+                            crate::warn!(
+                                "config: [cursor] trail {other:?} is not true or false; \
+                                 using false"
+                            );
+                            CursorTrail::Off
                         }
                     };
                 }
@@ -567,6 +597,26 @@ mod reader {
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
     }
 
+    /// The cursor trail is off unless `[cursor] trail = true`, and a value
+    /// that is neither `true` nor `false` leaves it off with a warning
+    /// rather than being read as truthy.
+    #[test]
+    fn the_cursor_trail_is_off_unless_asked_for() {
+        assert_eq!(Config::defaults().cursor_trail, CursorTrail::Off);
+        assert_eq!(
+            read("[cursor]\ntrail = true\n").cursor_trail,
+            CursorTrail::On
+        );
+        assert_eq!(
+            read("[cursor]\ntrail = false\n").cursor_trail,
+            CursorTrail::Off
+        );
+        assert_eq!(
+            read("[cursor]\ntrail = yes\n").cursor_trail,
+            CursorTrail::Off
+        );
+    }
+
     #[test]
     fn a_glass_section_sets_every_one_of_its_keys() {
         let c = read(
@@ -672,6 +722,14 @@ shadow     = "never"
             c.faces[0].path.ends_with("Menlo.ttc"),
             "{}",
             c.faces[0].path
+        );
+        // The `[cursor]` section lands, and it sits after `fonts` so the
+        // namespace does not swallow the stack -- which the face assert
+        // above would catch.
+        assert_eq!(
+            c.cursor_trail,
+            CursorTrail::Off,
+            "the [cursor] section did not land"
         );
         // And every `[glass]` key reached the glass rather than nothing.
         assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");

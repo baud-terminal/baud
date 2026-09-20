@@ -24,7 +24,7 @@ use baud_present_macos::{
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, MapEntry,
     Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target,
-    Theme, Window, back_for,
+    Theme, Trail, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -70,6 +70,21 @@ const SYNC_MAX: Duration = Duration::from_millis(33);
 /// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
 /// hides for this long. ~1.2 Hz, the middle of what terminals use.
 const BLINK_HALF: f64 = 0.4;
+/// How long a cursor trail's ghost takes to sweep from the old cell to the
+/// new, seconds -- short and snappy, and only paid when the trail is on.
+const TRAIL_S: f64 = 0.1;
+
+/// A cursor move being animated: the cell the cursor left, the cell it
+/// reached, and the display-link timestamp the sweep began at. `progress`
+/// is `(now - start) / TRAIL_S`, computed off the tick's own clock the way
+/// the blink phase is, so the renderer only interpolates.
+#[derive(Clone, Copy)]
+struct TrailState {
+    from: (Row, Col),
+    to: (Row, Col),
+    start: f64,
+}
+
 /// Which path draws: the CPU compositor, Metal over the converted
 /// instances, or Metal over the raw grid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -383,6 +398,17 @@ struct App {
     /// The damage the next frame draws with -- `Full` for the frame after a
     /// blink flip, since a blink changes no cell and row damage would miss it.
     next_damage: Damage,
+    /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`;
+    /// the trail being animated, if any; the cursor cell the last frame
+    /// drew, so a move can be detected; and the display link's timestamp
+    /// this tick, so the ghost's progress is off the same clock as the
+    /// blink. The trail being `Some` forces a frame the way a blink flip
+    /// does, so an idle terminal with a steady cursor builds nothing --
+    /// the `blink_seen` equivalent for this animation.
+    cursor_trail: crate::config::CursorTrail,
+    trail: Option<TrailState>,
+    last_cursor_cell: Option<(Row, Col)>,
+    tick_target: f64,
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
     latency: Latency,
@@ -408,6 +434,8 @@ struct Boot {
     theme: crate::config::ThemeChoice,
     /// The material and its dimming, from the config's `[glass]`.
     glass: crate::config::Glass,
+    /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`.
+    cursor_trail: crate::config::CursorTrail,
 }
 
 impl Boot {
@@ -536,6 +564,7 @@ impl Boot {
             padding: f64::from(cfg.padding),
             theme: cfg.theme,
             glass: cfg.glass,
+            cursor_trail: cfg.cursor_trail,
         }
     }
 
@@ -560,6 +589,7 @@ impl App {
             // palette; `run` reads them off `boot` for the driver.
             theme: _,
             glass: _,
+            cursor_trail,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -727,6 +757,10 @@ impl App {
             blink: Blink::default(),
             blink_present: Blinking::default(),
             next_damage: Damage::Incremental,
+            cursor_trail,
+            trail: None,
+            last_cursor_cell: None,
+            tick_target: 0.0,
             latency: Latency::from_env(),
         }
     }
@@ -790,6 +824,46 @@ impl App {
         // The scrollbar's thumb, where the window sits in the ring; none on
         // the live screen.
         self.renderer.set_scrollbar(Some(self.window()));
+        // The cursor trail: a fading ghost sweeping from the cell the
+        // cursor left to the cell it reached. Spawned here, where the
+        // post-feed cursor is known and before any path converts; advanced
+        // and cleared off `tick_target`, the display link's own clock, so
+        // the renderer only interpolates and the frame is a pure function
+        // of the progress. Off unless `[cursor] trail`.
+        let cursor_cell =
+            (self.term.cursor_visible() && self.back.index() == 0).then(|| self.term.cursor());
+        if self.cursor_trail == crate::config::CursorTrail::On {
+            if let (Some(from), Some(to)) = (self.last_cursor_cell, cursor_cell) {
+                if from != to {
+                    self.trail = Some(TrailState {
+                        from,
+                        to,
+                        start: self.tick_target,
+                    });
+                }
+            }
+        }
+        self.last_cursor_cell = cursor_cell;
+        let ghost = match self.trail {
+            Some(st) => {
+                let p = ((self.tick_target - st.start) / TRAIL_S) as f32;
+                if p >= 1.0 {
+                    // Landed: this frame draws `set_trail(None)`, whose
+                    // `trail_moved` dirties the ghost's last rows to clear it,
+                    // and the tick stops forcing frames.
+                    self.trail = None;
+                    None
+                } else {
+                    Some(Trail {
+                        from: st.from,
+                        to: st.to,
+                        progress: p.max(0.0),
+                    })
+                }
+            }
+            None => None,
+        };
+        self.renderer.set_trail(ghost);
         // The grid, and the whole surface it is centred in; the letterbox
         // margin between them is the gap.
         let (w, h) = self.renderer.pixel_size();
@@ -971,7 +1045,10 @@ impl App {
                         );
                     }
                 }
-                // The thumb rides with the records, drawn after the cell passes.
+                // The trail and thumb ride with the records, drawn after the
+                // cell passes: the trail under the thumb, so a scrollbar over
+                // a moving cursor stays on top.
+                cell.records.extend_from_slice(self.renderer.trail());
                 cell.records.extend_from_slice(self.renderer.scrollbar());
                 self.stats = Frame {
                     convert: t0.elapsed(),
@@ -2375,6 +2452,7 @@ impl Responder for Driver {
             }
         }
         self.app.last_tick = Some(target);
+        self.app.tick_target = target;
         // Blink is driven off the display link's timestamp -- the hardware
         // vsync clock -- so the phase is accurate without a timer of its own.
         // A full cycle is two BLINK_HALF periods; the phase flips a repaint
@@ -2390,6 +2468,14 @@ impl Responder for Driver {
                 self.app.next_damage = Damage::Full;
                 self.app.pending = Pending::Dirty;
             }
+        }
+        // A trail keeps building frames while it sweeps, the way a blink
+        // flip does -- but incrementally: the ghost's bounded damage is the
+        // renderer's `trail_moved`, so this does not force `Damage::Full`.
+        // When the sweep lands the trail clears itself and this stops
+        // firing, so an idle screen returns to no frames.
+        if self.app.trail.is_some() {
+            self.app.pending = Pending::Dirty;
         }
         self.app.ticks.bump();
         self.pump(Trigger::Tick);

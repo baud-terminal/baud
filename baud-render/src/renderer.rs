@@ -10,6 +10,7 @@ use crate::metrics::{Metrics, PxSize};
 use crate::scrollbar::{self, Thumb, Window};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
+use crate::trail::{self, Ghost, Trail};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{
@@ -344,6 +345,13 @@ pub struct Renderer<'f, 'a> {
     bar: Option<Thumb>,
     last_bar: Option<Thumb>,
     bar_inst: Vec<Instance>,
+    /// The cursor trail's ghost on this frame and the last, and its one
+    /// solid instance: a row the ghost is over or was over is dirty, the
+    /// scrollbar's rule, so the trail's damage stays bounded to the rows it
+    /// sweeps rather than wiping the frame the way sfte's does.
+    trail: Option<Ghost>,
+    last_trail: Option<Ghost>,
+    trail_inst: Vec<Instance>,
     /// This frame's blink phase, set by [`Renderer::set_blink`] before a
     /// convert or resolve, and whether any blinking cell was seen -- so the
     /// driver repaints on a phase flip only when something actually blinks.
@@ -440,6 +448,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bar: None,
             last_bar: None,
             bar_inst: Vec::new(),
+            trail: None,
+            last_trail: None,
+            trail_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
             dirty: Vec::new(),
@@ -517,6 +528,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The scrollbar's instances, for a path that draws records of its own.
     pub fn scrollbar(&self) -> &[Instance] {
         &self.bar_inst
+    }
+
+    /// The cursor trail for the next frame, or none: a fading ghost
+    /// sweeping from where the cursor was to where it is. Like the
+    /// scrollbar its instance is one translucent solid in the theme's
+    /// foreground that every path draws -- the CPU and instance paths from
+    /// the instance list, the cell path from [`Renderer::trail`] appended
+    /// to its records. The driver hands a `progress` it computed from the
+    /// display link's timestamp and this only interpolates, so the frame is
+    /// a pure function of the value and the pixel oracle can compare two
+    /// GPU arms on it.
+    pub fn set_trail(&mut self, trail: Option<Trail>) {
+        self.trail = trail.map(|t| trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h));
+        self.trail_inst.clear();
+        if let Some(g) = self.trail {
+            self.trail_inst.push(trail::instance(g, self.theme.fg));
+        }
+    }
+
+    /// The cursor trail's instances, for a path that draws records of its
+    /// own -- drawn after the cells and under the scrollbar.
+    pub fn trail(&self) -> &[Instance] {
+        &self.trail_inst
     }
 
     pub fn set_blink(&mut self, blink: Blink) {
@@ -700,7 +734,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let under_bar = |b: Option<Thumb>| b.is_some_and(|t| t.overlaps(band.top, band.bottom));
             let bar_moved = under_bar(self.bar) != under_bar(self.last_bar)
                 || (under_bar(self.bar) && self.bar != self.last_bar);
-            self.dirty[r] = full || changed || cursor_moved || selection_moved || bar_moved;
+            let under_trail =
+                |g: Option<Ghost>| g.is_some_and(|g| g.overlaps(band.top, band.bottom));
+            let trail_moved = under_trail(self.trail) != under_trail(self.last_trail)
+                || (under_trail(self.trail) && self.trail != self.last_trail);
+            self.dirty[r] =
+                full || changed || cursor_moved || selection_moved || bar_moved || trail_moved;
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -714,6 +753,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_cursor = cursor;
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
+        self.last_trail = self.trail;
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),
@@ -764,7 +804,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Every instance of the current frame, row by row: what a GPU path
     /// uploads whole (D2: nobody uploads partial ranges).
     pub fn instances(&self) -> impl Iterator<Item = &Instance> + '_ {
-        self.per_row.iter().flatten().chain(self.bar_inst.iter())
+        self.per_row
+            .iter()
+            .flatten()
+            .chain(self.trail_inst.iter())
+            .chain(self.bar_inst.iter())
     }
 
     /// The background word of every cell, row-major, `cols` by `rows`.
