@@ -16,15 +16,28 @@ cd "$(dirname "$0")/.." || exit 1
 
 SRC="docs/research/sources"
 MANIFEST="$SRC/MANIFEST.toml"
-# Every doc, not just the notes: docs/vt-coverage.md cites sources too, and a
-# gate that only scanned notes/ would have let those citations rot unchecked.
-DOCS="docs"
-# **And the code.** Doc comments in baud-core/ and baud-domain/ cite sources
-# exactly as the notes do, and for most of this project's life nothing checked
-# them -- `vt510-decscpp` was cited from a doc comment and had no manifest entry
-# at all. A citation an engineer reads while changing the code is the one most
-# likely to be acted on, so it is the last one that should go unverified.
-CODE="baud-core baud-domain baud-font baud-render baud-present-macos baud-app baud-wayland baud-xkb baud-present-wayland"
+# **No list of what to scan, because every list here has gone stale.**
+#
+# This gate has carried two, and both were narrower than the sentence above
+# them. `DOCS="docs"` sat under a comment reading "Every doc, not just the
+# notes ... a gate that only scanned notes/ would have let those citations rot
+# unchecked" -- and left **CLAUDE.md's 39 citations** out, along with
+# README.md's and MEASUREMENTS.md's, because those are at the repository root
+# rather than under docs/. `CODE` named nine crates and omitted the three ISA
+# ones, where `baud-isa-aarch64` cites `arm-neon-bitmask` in the doc comment
+# this project's NEON work was reasoned from.
+#
+# That is the fourth list in this repository to be scoped narrower than its
+# own claim, after `docs.rs`'s ROOTS, `audit_all.sh`'s trees and
+# `check-features.sh`'s crates -- and unlike those three, widening it finds
+# **nothing**: all twenty out-of-scope keys resolve and none is gated. It was
+# latent, which is the only reason to remove the mechanism rather than patch
+# the entries: a list cannot go stale if there is no list.
+#
+# So: every markdown file and every Rust file in the working tree, minus the
+# build and VCS directories. A new crate, a new document at any depth, and a
+# crate the workspace excludes are all covered without anyone remembering to
+# add them.
 fail=0
 
 [ -f "$MANIFEST" ] || {
@@ -114,14 +127,26 @@ done
 # ── 4: every citation resolves to a readable source ──────────────────────────
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
-if [ -d "$DOCS" ]; then
-  {
-    grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.md' "$DOCS" 2>/dev/null
-    for d in $CODE; do
-      [ -d "$d" ] || continue
-      grep -rohE '\[\[source: [a-z0-9_-]+\]\]' --include='*.rs' "$d" 2>/dev/null
-    done
-  } | sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
+{
+  find . \( -path ./target -o -path ./.git -o -path ./.devenv -o -path ./node_modules \) -prune \
+    -o -type f \( -name '*.md' -o -name '*.rs' \) -print0 |
+    xargs -0 grep -ohE '\[\[source: [a-z0-9_-]+\]\]' 2>/dev/null
+} | sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
+
+# **A gate that scanned nothing read as a gate that passed.** The count below
+# was printed and never asserted, so a broken `find`, a renamed directory or a
+# changed citation syntax would have reported "ok 0 citations resolve" and
+# exited 0 -- the failure this repository records under `inf x amplification`,
+# the stale `scan path: AVX2` flag and `fast_hit`, in the gate written to stop
+# design documents resting on unreadable sources. The floor is well under the
+# real count and exists to catch a scan that found nothing, not to pin a
+# number that grows with every note.
+cited_n=$(wc -l <"$tmp/cited" | tr -d ' ')
+if [ "$cited_n" -lt 50 ]; then
+  echo "  FAIL only $cited_n citations found; this gate scans the whole tree and should see far more"
+  exit 1
+fi
+if true; then
   while read -r c; do
     [ -n "$c" ] || continue
     grep -qxF "$c" "$tmp/keys" || {
