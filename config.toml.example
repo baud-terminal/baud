@@ -80,9 +80,12 @@ fonts = [
 # terminal body is. "regular" is the standard frosted material.
 style = "clear"
 
-# The body dim: the opacity the palette's background is painted at, 0 clear to
-# 1 opaque, so the desktop shows through it. This is the key to turn up if the
-# text is hard to read, and down for more glass.
+# The body dim: the opacity EVERY background is painted at, 0 clear to 1
+# opaque, so the desktop shows through it. Not just the default background --
+# a colour an application sets is translucent too, so btop and anything else
+# that paints its own panels is glass rather than a slab. This is the key to
+# turn up if the text over those panels is hard to read, and down for more
+# glass.
 dim_dark = 0.22
 dim_light = 0.12
 

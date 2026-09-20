@@ -928,9 +928,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
             let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
             let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
-            if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
-                bg = bg.with_alpha(self.theme.bg_alpha);
-            }
+            bg = bg.with_alpha(self.theme.bg_alpha);
             let attrs = style.attrs();
             let blink_hidden = if attrs.has(Attrs::BLINK) {
                 self.blink_seen = Blinking::Seen;
@@ -985,26 +983,34 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
             let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
-            // **Only the default background lets the glass through**, and
-            // that is the open question rather than a decision: the
-            // rendering register's unresolved item 6 asks whether alpha is
-            // a *window* property (the default background only, which is
-            // this) or a *rendition* property (an SGR background may be
-            // translucent too). This is one answer shipped before the
-            // question was settled, and it is visible: 72% of `btop.raw`'s
-            // final screen and 100% of `asciiquarium.raw`'s carry a
-            // background the application set, so those screens are opaque
-            // where a plain shell is not. Every other recording in the
-            // corpus is 0%.
-            if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
-                bg = bg.with_alpha(self.theme.bg_alpha);
-            }
+            // **Every background is translucent, not only the default
+            // one.** The rendering register's item 6 asked whether alpha is
+            // a *window* property (the default background only) or a
+            // *rendition* property (any SGR background too), and the owner
+            // chose the second on 2026-09-20. It is visible rather than
+            // theoretical: 72% of `btop.raw`'s final screen and 100% of
+            // `asciiquarium.raw`'s carry a background the application set,
+            // so under the other answer those screens were opaque where a
+            // shell was not. Every other recording in the corpus is 0%.
+            //
+            // The margin keeps the same alpha through `clear_color`, and
+            // both background passes *replace* rather than blend -- the CPU
+            // one fills, the GPU one has blending disabled -- so a cell's
+            // alpha reaches the compositor once rather than compounding
+            // with the clear under it.
+            bg = bg.with_alpha(self.theme.bg_alpha);
             if self
                 .highlight
                 .is_some_and(|h| h.contains(r, Col::at_index(c)))
             {
+                // Opaque on both sides of the swap. `bg` becomes the old
+                // foreground, which is the block a reader has to see; `fg`
+                // becomes the old *background*, which now carries the dim,
+                // and a glyph drawn at 0.22 alpha over its own selection
+                // block is barely there. A foreground is never translucent.
                 core::mem::swap(&mut fg, &mut bg);
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
+                fg = fg.with_alpha(Chan::from_u8(0xFF));
             }
             let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == Col::at_index(c));
             if matches!(
@@ -1013,6 +1019,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ) {
                 core::mem::swap(&mut fg, &mut bg);
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
+                fg = fg.with_alpha(Chan::from_u8(0xFF));
             }
             let attrs = style.attrs();
             // Blink hides the whole foreground -- glyph, underline, strike --

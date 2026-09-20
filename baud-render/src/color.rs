@@ -49,8 +49,11 @@ impl Argb {
 pub struct Theme {
     pub fg: Argb,
     pub bg: Argb,
-    /// The alpha the default background is painted with: opaque unless a
-    /// window wants the glass through (D14, default-background only).
+    /// The alpha **every** background is painted with -- the default one
+    /// and any an application sets -- so a window's translucency is not a
+    /// property only the unstyled cells have. Opaque unless a window wants
+    /// the glass through; `baud-render/tests/translucent.rs` is the gate,
+    /// and it is the only one in the workspace that renders below `0xFF`.
     pub bg_alpha: Chan,
     pub palette: [Argb; 256],
 }

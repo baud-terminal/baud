@@ -235,10 +235,19 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     ))
     .expect("face");
     let faces = [Face::parse(&data).expect("parse")];
+    // **Translucent on purpose.** At `Theme::dark()`'s `0xFF` the window
+    // dim is a no-op, so the two arms would agree about a rule neither
+    // executes -- and the swap rule this compares (an opaque foreground
+    // handed back by a cursor or a selection) is only visible when a
+    // background carries an alpha below one.
+    let theme = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        ..Theme::dark()
+    };
     let renderer = Renderer::new(
         Stack::new(&faces).unwrap(),
         PxSize::of(14.0).unwrap(),
-        Theme::dark(),
+        theme,
         Blend::Native,
         Cols::of_index(usize::from(WS.ws_col)),
         Rows::of_index(usize::from(WS.ws_row)),

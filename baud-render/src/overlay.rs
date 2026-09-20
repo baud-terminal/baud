@@ -23,7 +23,7 @@ use crate::renderer::{ClusterGlyph, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
-use baud_domain::{Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
+use baud_domain::{Chan, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
 use std::collections::HashMap;
 
 /// What one frame's walk found and what the store holds.
@@ -533,9 +533,15 @@ impl Overlay {
         let selected = paint
             .highlight
             .is_some_and(|h| h.contains(Row::from_index(y), Col::at_index(x)));
-        // The selection swaps, then the cursor swaps again: both is neither.
+        // The selection swaps, then the cursor swaps again: both is
+        // neither. **Opaque either way**: `resolved.bg` carries the
+        // window's dim, and a mark or a ligature drawn at 0.22 over its
+        // own selection block is barely there -- the same rule
+        // `Renderer::convert_row` and the cell shader's `colors()` apply
+        // to a swapped foreground, and the pixel gate compares the two
+        // arms at a translucent alpha to say all three agree.
         let color = if selected != under_cursor {
-            resolved.bg
+            resolved.bg.with_alpha(Chan::from_u8(0xFF))
         } else {
             resolved.fg
         };

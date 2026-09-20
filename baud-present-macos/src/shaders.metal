@@ -107,11 +107,16 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
                    uint col, uint row, thread uint& fgw, thread uint& bgw) {
     Style s = styles[cell.y & 0xffffu];
     fgw = s.fg; bgw = s.bg;
+    // Opaque on BOTH sides of a swap. Every background carries the
+    // window's dim now, so the foreground a swap hands back would be
+    // drawn at that alpha -- a glyph at 0.22 over its own cursor block.
+    // This must match `Renderer::convert_row`, and the pixel gate
+    // compares the two arms to say so.
     if (selected(u, col, row)) {
-        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
+        uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
-        uint t = fgw; fgw = bgw; bgw = t | 0xff000000u;
+        uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
     }
 }
 
