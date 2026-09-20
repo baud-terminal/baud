@@ -10,7 +10,7 @@
 
 use crate::keys;
 use crate::shm::{Pool, Px};
-use baud_domain::KeyEvent;
+use baud_domain::{Focus, KeyEvent};
 use baud_wayland::{
     Arg, Connection, Event as Wire, Handler, Interface, ObjectId, Opcode, Read, Sender, protocol,
 };
@@ -29,6 +29,10 @@ pub enum Event {
     /// The last frame reached the screen; the next may be presented.
     Frame,
     Key(KeyEvent),
+    /// `wl_keyboard.enter` and `leave`: the surface gained or lost keyboard
+    /// focus. The driver hands it to `Term::focus`, which reports it to the
+    /// child only if it asked with `?1004`.
+    Focus(Focus),
     Closed,
 }
 
@@ -413,6 +417,10 @@ impl Handler for Window {
                     }
                 }
             }
+            // The keymap's `enter` carries the keys already down as an array;
+            // neither event's payload beyond its meaning is needed here.
+            ("wl_keyboard", "enter", _) => self.events.push_back(Event::Focus(Focus::Gained)),
+            ("wl_keyboard", "leave", _) => self.events.push_back(Event::Focus(Focus::Lost)),
             ("wl_buffer", "release", _) => {
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);

@@ -783,6 +783,7 @@ impl Paint<'_, '_> {
                 }
             }
             PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),
+            PrivateMode::FocusReporting => self.cold.modes.apply(ModeBit::FocusReporting, on),
             PrivateMode::SynchronizedOutput => {
                 self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
             }
@@ -858,7 +859,12 @@ impl Paint<'_, '_> {
                 };
             }
             PrivateMode::AltScreen => self.set_alt_screen(change),
-            _ => {}
+            // **Counted, as the ANSI table's wildcard is.** This was a bare
+            // `{}` while `?1004` was named nowhere in the code, so the request
+            // `vim-unicode.raw` sends on its first line arrived and vanished
+            // with nothing to say it had; a mode dropped uncounted is the
+            // failure `docs/vt-coverage.md` rates worst.
+            _ => self.unsupported_param += 1,
         }
     }
 
@@ -1086,6 +1092,7 @@ impl Paint<'_, '_> {
             PrivateMode::ReverseWrap => bit_state(self.cold.modes, ModeBit::ReverseWrap),
             PrivateMode::LeftRightMargin => bit_state(self.cold.modes, ModeBit::SideMargins),
             PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
+            PrivateMode::FocusReporting => bit_state(self.cold.modes, ModeBit::FocusReporting),
             PrivateMode::SynchronizedOutput => {
                 bit_state(self.cold.modes, ModeBit::SynchronizedOutput)
             }

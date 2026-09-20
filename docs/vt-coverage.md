@@ -675,6 +675,7 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2048 h/l` | in-band resize notifications | done — reports `CSI 48 ; rows ; cols ; 0 ; 0 t` on enablement, on re-enablement and after every resize, carrying what the terminal **has** rather than what was asked for. Pixel fields are zero, which the specification requires of a terminal that cannot report them: this core is handed a grid and never a window, and `CSI 14 t` is not implemented either |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
+| `CSI ? 1004 h/l` | focus reporting | done — `Term::focus` queues `CSI I` on gain and `CSI O` on loss only while the mode is set, and nothing otherwise, because an application that did not ask reads `CSI I` as a keypress. Both apps call it from their platform's focus hook. **Dropped uncounted until 2026-09-20**: `1004` was named nowhere in the code and had no row here, while `vim-unicode.raw` sends it on its first line; `set_private_mode`'s wildcard counts now, as the ANSI table's always did. `gain_sends_csi_i_and_loss_sends_csi_o`, `nothing_is_sent_unless_the_application_asked`, `the_vim_recording_enables_it` |
 | `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
 | `CSI ? 1006 h/l` | SGR mouse encoding | done — no ordinate limit; see below |
 | X10 mouse encoding (`ESC [ M Cb Cx Cy`) | the default, what `?1000` gives without `?1006` | done — positions past 223 refused and counted, not truncated |

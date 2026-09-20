@@ -123,6 +123,7 @@ created the demand.
 | DECKPAM / DECKPNM | `keypad` | keypad: `1` vs `SS3 F`. **Not DECCKM** — the keypad's application column is fixed per row, and routing it through the cursor keys' introducer sent `CSI F` for a key the table spells `SS3 F` |
 | `?2004` bracketed paste | `bracketed_paste` | wraps pasted text in `CSI 200 ~` / `CSI 201 ~` |
 | `?1000`-`?1003`, `?1006` | `mouse_tracking` | **done** — the only input baud already generates |
+| `?1004` focus reporting | `Term::focus` | **done** — `CSI I` / `CSI O`, sent only while the mode is set; the second input baud generates on its own |
 | `?1001` highlight tracking | `highlight_tracking`, `highlight_region` | recorded, and needs a selection model to answer |
 
 ## Not in scope yet, and why

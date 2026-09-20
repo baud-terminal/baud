@@ -16,6 +16,16 @@ pub enum StringTerm {
     Bel,
 }
 
+/// Whether the terminal's window gained or lost keyboard focus. The two
+/// states have names so a call site cannot pass a `bool` that reads as
+/// nothing in particular; the platform layers (`macos-liquid-glass`'s
+/// `Focus`, Wayland's `wl_keyboard.enter`/`leave`) each map onto it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Focus {
+    Gained,
+    Lost,
+}
+
 /// What a terminal sends *back*, named by the report rather than by its bytes.
 ///
 /// The mirror of [`Csi`]. Parsing has had a type since the beginning; replying
@@ -31,6 +41,11 @@ pub enum StringTerm {
 /// spelling of "reply" that does not name the report being sent.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Report {
+    /// `CSI I` or `CSI O`: the terminal gained or lost focus, sent only while
+    /// `?1004` is set. `[[source: ctlseqs]]`, "FocusIn/FocusOut": "it causes
+    /// xterm to send CSI I when the terminal gains focus, and CSI O when it
+    /// loses it".
+    Focus(Focus),
     /// CPR — Cursor Position Report, `CSI r ; c R`. `[[source: ctlseqs]]`:
     /// "Report Cursor Position (CPR) [row;column]. Result is CSI r ; c R".
     ///
@@ -261,6 +276,10 @@ impl Report {
                 e.push_num(0);
                 e.push(b'n');
             }
+            Report::Focus(f) => e.push(match f {
+                Focus::Gained => b'I',
+                Focus::Lost => b'O',
+            }),
             Report::InbandResize { rows, cols } => {
                 e.push_num(48);
                 e.push(b';');

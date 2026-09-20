@@ -2384,7 +2384,20 @@ impl Responder for Driver {
         self.pump(Trigger::Wake);
     }
 
-    fn focus(&mut self, _focus: Focus) {}
+    /// The window gained or lost focus. Reported to the child only if it
+    /// asked with `?1004` -- `Term::focus` decides, the same way
+    /// `mouse_report` does -- and vim, which asks on its first line, uses it
+    /// to redraw its status line. This was an empty body, and the request the
+    /// corpus sends was dropped uncounted, until the sfte survey named it.
+    fn focus(&mut self, focus: Focus) {
+        let f = match focus {
+            Focus::Gained => baud_core::Focus::Gained,
+            Focus::Lost => baud_core::Focus::Lost,
+        };
+        if self.app.term.focus(f) {
+            self.app.flush_reply();
+        }
+    }
 
     fn cursor_rect(&self) -> Rect {
         let (r, c) = self.app.term.cursor();

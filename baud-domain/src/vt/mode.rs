@@ -154,6 +154,12 @@ pub enum ModeBit {
     AutoRepeat,
     /// ?45. Reverse wraparound: backspace at the left margin moves up a line.
     ReverseWrap,
+    /// `?1004` focus reporting. When set, the terminal sends `CSI I` on
+    /// gaining focus and `CSI O` on losing it (`[[source: ctlseqs]]`,
+    /// "FocusIn/FocusOut"). Input-side, acted on by `Term::focus`; before it
+    /// existed the request was dropped **uncounted**, and `vim-unicode.raw`
+    /// sends it on its first line.
+    FocusReporting,
     /// `?1036` metaSendsEscape. Whether the Meta modifier prefixes `ESC`.
     /// Input-side, read by `Term::key`.
     MetaSendsEscape,
@@ -342,6 +348,8 @@ pub enum PrivateMode {
     MouseAnyEvent,
     /// `?1006` SGR encoding.
     MouseSgr,
+    /// `?1004` FocusIn/FocusOut reporting.
+    FocusReporting,
     Other(Param),
 }
 
@@ -368,6 +376,7 @@ impl PrivateMode {
             1002 => PrivateMode::MouseButtonEvent,
             1003 => PrivateMode::MouseAnyEvent,
             1006 => PrivateMode::MouseSgr,
+            1004 => PrivateMode::FocusReporting,
             1049 => PrivateMode::AltScreen,
             1001 => PrivateMode::HighlightTracking,
             1020 => PrivateMode::Utf8Resource,

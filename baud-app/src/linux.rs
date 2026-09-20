@@ -193,6 +193,11 @@ pub fn run() {
                 Event::Key(k) => {
                     d.term.key(k);
                 }
+                // Reported to the child only if it asked with `?1004`; the
+                // reply is flushed with the keys' below.
+                Event::Focus(f) => {
+                    d.term.focus(f);
+                }
                 Event::Closed => return,
             }
         }

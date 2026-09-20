@@ -1454,6 +1454,22 @@ impl<'b> Term<'b> {
         true
     }
 
+    /// Queue a focus report, if the application asked for them with `?1004`.
+    ///
+    /// Returns whether anything was queued, the way [`Term::mouse_report`]
+    /// does, so an embedder can tell "the application does not want this"
+    /// from "it was sent". `CSI I` on gain, `CSI O` on loss
+    /// (`[[source: ctlseqs]]`, "FocusIn/FocusOut"); nothing when the mode is
+    /// reset, because an application that did not ask reads `CSI I` as a
+    /// keypress.
+    pub fn focus(&mut self, f: Focus) -> bool {
+        if !self.cold.modes.is_set(ModeBit::FocusReporting) {
+            return false;
+        }
+        self.queue(Report::Focus(f));
+        true
+    }
+
     /// Put a report in the reply buffer.
     ///
     /// The same rule `Paint::want_reply` follows: a truncated reply is a wrong

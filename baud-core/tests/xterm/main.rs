@@ -10,6 +10,7 @@ mod support;
 
 mod alt_screen;
 mod embedder_modes;
+mod focus;
 mod hyperlinks;
 mod keypad_version;
 mod mouse;

@@ -69,6 +69,9 @@ pub use baud_domain::{
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument
 // type is unreachable is the same failure as a mode recorded and never read.
+/// Focus reporting's vocabulary, for the same reason: an embedder that cannot
+/// name a [`Focus`] cannot call [`Term::focus`].
+pub use baud_domain::Focus;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
 /// The clustering and width vocabulary the encoding suites name. All of it is
