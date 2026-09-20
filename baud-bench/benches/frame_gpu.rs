@@ -31,12 +31,15 @@
 //!
 //! Usage: `frame_gpu <recording> [rounds] [full|incremental]`. macOS only.
 
-use baud_core::{Depth, grid_stride};
-use baud_domain::{Row, RowBlock, RowRot};
 #[cfg(target_os = "macos")]
 fn main() {
-    use baud_core::{Owned, Term};
-    use baud_domain::{BytePos, Cols, FrameGen, ReadLen, Rows, SwapEpoch, WinSize};
+    // Imported here rather than at the top of the file: this bench is macOS
+    // only, so a top-level `use` is unused on every other target and `-D
+    // warnings` makes that an error. CI lints on ubuntu; a Mac cannot see it.
+    use baud_core::{Depth, Owned, Term, grid_stride};
+    use baud_domain::{
+        BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
+    };
     use baud_font::Face;
     use baud_present_macos::journal::{FrameTag, Journal, SetIx};
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
