@@ -350,7 +350,7 @@ tree_audit() {
 }
 tree_audit "baud-core/tests suites" 34 baud-core/tests
 
-for f in baud-core/tests/*.rs baud-difftest/src/main.rs; do
+for f in baud-core/tests/*.rs baud-difftest/src/main.rs baud-sfte-difftest/src/main.rs baud-sfte-difftest/src/lib.rs baud-sfte-difftest/src/ffi.rs; do
   # **A gate that cannot find its input must fail, not pass.** An unmatched
   # glob passes through literally in bash, so a renamed or removed directory
   # would have this loop run `impl_audit.py` on the pattern itself, `n` would

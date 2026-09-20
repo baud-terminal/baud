@@ -25,6 +25,12 @@ const CORES: &[&str] = &[
     "vt100 crate",
     "wezterm (full terminal)",
     "termwiz (wezterm) parse only",
+    // **Index 7, and adding it re-took the whole table.** The sweep rotates
+    // the starting core by the rep number, so an eighth entry changes every
+    // core's position distribution -- measured at 16% for baud when a row
+    // was inserted above it -- and no sfte row is ever printed beside a baud
+    // row from a previous run.
+    "sfte (C11, via baud-sfte-difftest)",
 ];
 
 fn main() {
@@ -132,6 +138,25 @@ fn main() {
 
     const REPS: usize = 9;
 
+    // **sfte's locale is process-global and asserted once.** Its width is
+    // libc `wcwidth`, and `Sfte::new` does not set the locale itself because
+    // `setlocale` is not per-context; a wrong table here is a different
+    // program on every UTF-8 row, silently.
+    let locale = baud_sfte_difftest::set_locale();
+
+    // **The admissibility gate, before a single timing.** One full rep of the
+    // same replay through baud-core and sfte, and their screen digests must
+    // agree for the sfte row to be like-for-like on that payload. It is run
+    // first and printed in the row, so a reader cannot take a ratio off a row
+    // whose two arms drew different screens.
+    let admissible: Vec<bool> = [&stream, &tui]
+        .iter()
+        .map(|p| {
+            let (a, b) = sfte_admissible(p, total);
+            a == b
+        })
+        .collect();
+
     // Interleaved and rotated, not blocked. Rep-major order means thermal drift
     // reaches every core equally; rotating the starting index by the rep number
     // means no core keeps a fixed position across the run. Blocked ordering is
@@ -148,12 +173,16 @@ fn main() {
     }
 
     println!(
-        "  same payloads, {}, {CHUNK}-byte reads, median of {REPS}, interleaved and rotated\n",
+        "  same payloads, {}, {CHUNK}-byte reads, median of {REPS}, interleaved and rotated",
         if from_memory() {
             "FROM MEMORY (no PTY, no syscalls)"
         } else {
             "through a real PTY"
         }
+    );
+    println!(
+        "  scrollback: 10,000 lines on every core but sfte, which is compiled at {}; sfte locale {locale}\n",
+        SFTE_SCROLLBACK
     );
     println!(
         "  {:<28} {:>21}  {:>21}",
@@ -172,5 +201,23 @@ fn main() {
         let st = summarize(&mut samples[ci][0]);
         let tu = summarize(&mut samples[ci][1]);
         row(label, st, tu);
+        if ci == 7 {
+            // The gate's verdict, under the row it governs: a payload on
+            // which the two arms drew different screens is named, and its
+            // sfte figure is a figure for a different program.
+            let verdict = |ok: bool, name: &str| {
+                if ok {
+                    format!("{name}: same screen as baud-core")
+                } else {
+                    format!("{name}: DIFFERENT SCREEN -- not like-for-like")
+                }
+            };
+            println!(
+                "  {:<28} {}; {}",
+                "",
+                verdict(admissible[0], &labels[0]),
+                verdict(admissible[1], &labels[1])
+            );
+        }
     }
 }

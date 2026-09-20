@@ -135,17 +135,23 @@ Full tables, other hosts, and every caveat in
 
 | recording | baud-core | ghostty | alacritty | **vs ghostty** |
 |---|---|---|---|---|
-| `ascii/git-log.raw` | **1837.1** | 497.0 | 192.0 | **3.70x** |
-| `ascii/cat-scroll.raw` | **1766.9** | 394.7 | 173.2 | **4.48x** |
-| `ascii/less-pager.raw` | **1734.1** | 291.3 | 239.0 | **5.95x** |
-| `utf8/btop.raw` | **893.1** | 502.8 | 328.8 | **1.78x** |
-| `utf8/vim-unicode.raw` | **655.6** | 353.3 | 279.1 | **1.86x** |
-| `utf8/cava.raw` | **573.0** | 319.4 | 355.3 | **1.79x** |
-| `ascii/asciiquarium.raw` | **555.7** | 199.0 | 240.1 | **2.79x** |
-| `utf8/less-cjk.raw` | **500.8** | 250.5 | 275.6 | **2.00x** |
-| `utf8/cat-cjk.raw` | **493.4** | 383.7 | 197.3 | **1.29x** |
+| `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** |
+| `ascii/cat-scroll.raw` | **1425.1** | 424.3 | 203.3 | **3.36x** |
+| `ascii/git-log.raw` | **1637.9** | 516.9 | 211.5 | **3.17x** |
+| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** |
+| `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** |
+| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** |
+| `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** |
+| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** |
+| `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** |
 
-Ahead on all nine, **1.29x to 5.95x**.
+Ahead on all nine, **1.19x to 5.80x**.
+
+**Re-taken 2026-09-20 with baud at the same 10,000 lines as every other core.**
+The table before this one gave baud 2,000 -- the sentence above it said
+otherwise -- and the two scroll-heavy ASCII rows read 11% and 19% higher for
+it. The correction and the mechanism are in
+[MEASUREMENTS.md](MEASUREMENTS.md).
 
 **The two CJK rows moved +4% and +3% since the last table, and that is the NEON
 run scan now on by default.** `baud-isa-aarch64::Neon` extracts a lane mask with

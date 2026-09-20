@@ -14,6 +14,11 @@ termwiz = { version = "0.23", default-features = false }
 # The new core. No `alloc` feature: it owns nothing, so the harness provides
 # every buffer -- which is the point of it and has to be visible here too.
 baud-core = { path = "../../baud-core", features = ["alloc"] }
+# sfte, through the oracle crate's shim: one description of how sfte is
+# configured and driven -- the compile-time geometry, the locale assert, the
+# build-time patch -- rather than a second one here that could drift. The
+# crate is a lib as well as a bin for exactly this dependency.
+baud-sfte-difftest = { path = "../../baud-sfte-difftest" }
 libc = "0.2"
 tattoy-wezterm-term = "0.1.0-fork.5"
 

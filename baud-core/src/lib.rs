@@ -95,6 +95,10 @@ pub use baud_domain::{
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 pub use graph::Node;
 
+/// What `Owned::with_history` takes beside a depth. Re-exported so a caller
+/// that chooses its scrollback -- which `multibench` must, to hand every core
+/// the same number -- can name the argument without a second crate.
+pub use baud_domain::CacheGeometry;
 /// Scrollback: the lines behind the screen's window onto the ring.
 pub use baud_domain::{Back, Depth, Scrollback, Wrap};
 /// The sixteen allocations a `Storage` borrows, for a caller that has an

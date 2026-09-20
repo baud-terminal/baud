@@ -70,12 +70,56 @@ pub(crate) fn baud_rep(p: &[u8], total: usize) -> f64 {
         ws_row: crate::ROWS as u16,
         ws_col: crate::COLS as u16,
     };
-    let mut owned = nb::Owned::new(&ws);
+    // **10,000 lines, the number every other core here is handed.** This arm
+    // used `Owned::new`, which is `Depth::DEFAULT` = 2,000, while alacritty,
+    // ghostty and vt100 each get 10,000 below and `MEASUREMENTS.md` states
+    // that every core is configured alike. The ghostty comment beside it
+    // still said "baud carries `SB = 10_000`" -- `baud-core2`'s constant,
+    // which went with that crate -- so the harness had the ghostty trap
+    // again with a different carrier: a dimension nobody set, in baud's own
+    // favour this time. `CLAUDE.md` measures the ring at ~7% on scrolling
+    // payloads at 2,000; at 10,000 the ring is 16 MB at this pitch, and the
+    // published table is re-taken with it rather than inherited.
+    let mut owned =
+        nb::Owned::with_history(&ws, &nb::CacheGeometry::UNKNOWN, nb::Depth::of(10_000));
     let mut t = nb::Term::new(owned.storage(), &ws);
     drive(p, total, |chunk| {
         t.write_at(nb::BytePos::ZERO, chunk);
         t.feed(nb::BytePos::ZERO, nb::ReadLen::from_index(chunk.len()));
     })
+}
+
+/// **sfte is measured at 2,000 lines of scrollback, and every other core at
+/// 10,000, and that is stated rather than hidden.** sfte's depth is a
+/// compile-time macro in the oracle's shim, where 2,000 is what makes the
+/// differential like-for-like with `baud-core`'s `Depth::DEFAULT`; this
+/// harness cannot change it per arm without a second shim, which would be a
+/// second description of how sfte is driven. The unfairness runs toward sfte
+/// on the scroll-heavy rows -- a smaller ring stays closer to cache -- and
+/// the table says so in the row label.
+pub(crate) const SFTE_SCROLLBACK: usize = 2_000;
+
+/// The admissibility gate for the sfte row: after one rep of the same replay,
+/// do baud-core and sfte hold the same screen? sfte has no `cells_written`,
+/// so a screen digest is the only cross-implementation counter there is,
+/// and a throughput row whose arms drew different screens is the failure
+/// this repository has recorded three times. Returns the two digests.
+pub(crate) fn sfte_admissible(p: &[u8], total: usize) -> (u64, u64) {
+    use baud_core as nb;
+    use baud_sfte_difftest as sd;
+    let mut owned = nb::Owned::with_history(
+        &sd::WS,
+        &nb::CacheGeometry::UNKNOWN,
+        nb::Depth::of(SFTE_SCROLLBACK),
+    );
+    let mut ours = sd::Ours::new(&mut owned);
+    let mut theirs = sd::Sfte::new();
+    let mut norm = sd::Normalised::new();
+    drive(p, total, |chunk| {
+        ours.feed(chunk);
+        theirs.feed(chunk);
+    });
+    (ours.screen().digest(), theirs.screen(&mut norm).digest())
 }
 
 /// One rep of one core, with state built fresh exactly as before.
@@ -94,8 +138,10 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
         }),
         1 => baud_rep(p, total),
         2 => {
-            let mut cfg = Config::default();
-            cfg.scrolling_history = 10_000;
+            let cfg = Config {
+                scrolling_history: 10_000,
+                ..Default::default()
+            };
             let mut term = ATerm::new(cfg, &Dim, Noop);
             let mut proc = Processor::<alacritty_terminal::vte::ansi::StdSyncHandler>::default();
             drive(p, total, |chunk| proc.advance(&mut term, chunk))
@@ -116,9 +162,9 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                 // **Match the scrollback every other core is given.** ghostty's
                 // defaults are unlimited lines and 10,000 *bytes*, which at its
                 // documented ~400 KB page granularity keeps no history at all.
-                // alacritty and vt100 get 10,000 lines above and baud carries
-                // `SB = 10_000`; without this ghostty was the only core not
-                // retaining what it scrolled.
+                // alacritty and vt100 get 10,000 lines and so does baud, through
+                // `Owned::with_history`; without this ghostty was the only core
+                // not retaining what it scrolled.
                 const OPT_SCROLLBACK_MAX_BYTES: i32 = 27;
                 const OPT_SCROLLBACK_MAX_LINES: i32 = 28;
                 let lines: usize = 10_000;
@@ -179,6 +225,18 @@ pub(crate) fn run_one(core: usize, p: &[u8], total: usize) -> f64 {
                     std::hint::black_box(a);
                 });
             })
+        }
+        // sfte, exactly as `baud-sfte-difftest` drives it: 200x50 at compile
+        // time (its pixel resize divides by a fontless cell width of zero),
+        // the locale asserted to be `C.UTF-8` (its width is libc `wcwidth`,
+        // and a headless build never sets one), scrollback 2,000 -- see
+        // `SFTE_SCROLLBACK` below -- and the BEL-terminated-OSC patch applied
+        // by that crate's build.rs. `sfte_parse` is byte-at-a-time and writes
+        // one 36-byte cell per character; the comparison is what those cost
+        // against a run path, and the shim adds one call per chunk to it.
+        7 => {
+            let mut t = baud_sfte_difftest::Sfte::new();
+            drive(p, total, |chunk| t.feed(chunk))
         }
         _ => unreachable!(),
     }

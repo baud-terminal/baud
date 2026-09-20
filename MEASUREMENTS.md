@@ -30,21 +30,40 @@ it only to the extent that they carry little non-ASCII -- `vim-unicode` and
 
 `bench-others/multibench`, `TRANSPORT=memory`, medians of 9, interleaved and
 rotated. Every core is driven with the same bytes through the same 4096-byte
-reads, and every core is configured with **10,000 lines of scrollback**.
+reads, and every core is configured with **10,000 lines of scrollback** --
+**baud included, since 2026-09-20.** The sentence before this one was false
+for baud until then: its arm used `Owned::new`, which is `Depth::DEFAULT` =
+2,000 lines, while alacritty, ghostty and vt100 were each handed 10,000, and
+the ghostty comment beside it still cited `baud-core2`'s `SB = 10_000`. That
+is the ghostty-scrollback trap this file records below, with a different
+carrier and in baud's own favour. The table is re-taken at 10,000 for all
+four; the previous one is kept beside it because the difference is the
+finding.
 
-| recording | baud-core | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|
-| `ascii/git-log.raw` | **1837.1** | 497.0 | 192.0 | **3.70x** |
-| `ascii/cat-scroll.raw` | **1766.9** | 394.7 | 173.2 | **4.48x** |
-| `ascii/less-pager.raw` | **1734.1** | 291.3 | 239.0 | **5.95x** |
-| `utf8/btop.raw` | **893.1** | 502.8 | 328.8 | **1.78x** |
-| `utf8/vim-unicode.raw` | **655.6** | 353.3 | 279.1 | **1.86x** |
-| `utf8/cava.raw` | **573.0** | 319.4 | 355.3 | **1.79x** |
-| `ascii/asciiquarium.raw` | **555.7** | 199.0 | 240.1 | **2.79x** |
-| `utf8/less-cjk.raw` | **500.8** | 250.5 | 275.6 | **2.00x** |
-| `utf8/cat-cjk.raw` | **493.4** | 383.7 | 197.3 | **1.29x** |
+| recording | baud-core | ghostty | alacritty | **vs ghostty** | baud at 2,000 (previous) |
+|---|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** | 1734.1 |
+| `ascii/cat-scroll.raw` | **1425.1** [1295-1626] | 424.3 | 203.3 | **3.36x** | 1766.9 |
+| `ascii/git-log.raw` | **1637.9** [1106-1670] | 516.9 | 211.5 | **3.17x** | 1837.1 |
+| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** | 555.7 |
+| `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** | 500.8 |
+| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** | 655.6 |
+| `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** | 573.0 |
+| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** | 893.1 |
+| `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** | 493.4 |
 
-Ahead on all nine, **1.29x to 5.95x**.
+Ahead on all nine, **1.19x to 5.80x** -- from 1.29x to 5.95x on the
+asymmetric table.
+
+**The two scroll-heavy ASCII rows moved 11% and 19%; nothing else moved past
+the machine's spread.** That is the mechanism the scrollback section of
+`CLAUDE.md` names: at 10,000 lines the ring is 16 MB at this pitch, past L2,
+so the row a scroll advances into misses further out than at 2,000. The
+seven rows that scroll little or not at all moved 0.6-6.9% while ghostty and
+alacritty moved by similar amounts in both directions, which is the drift
+this file records between sweeps. `git-log`'s and `cat-scroll`'s wide baud
+ranges are the ~25% within-arm spread `CLAUDE.md` already says those two
+carry; `git-log` was taken twice in this sweep, 1637.9 and 1600.7.
 
 **The two CJK rows moved +4% and +3% since the last table, and that is the NEON
 run scan now on by default.** `baud-isa-aarch64::Neon` extracts a lane mask with
@@ -92,6 +111,76 @@ cat-scroll 1107.2, git-log 1275.9, less-pager 1219.5, btop 792.6, vim 508.8,
 less-cjk 478.8, cat-cjk 467.5, cava 457.7, asciiquarium 372.9 -- a 1.16x-to-1.71x
 margin against the implementation this one replaced, and nothing can re-measure
 it.
+
+## sfte, and the row a screen gate is for
+
+`nihiL7331/sfte` -- a 10.2k-line single-file C11 terminal, pinned at
+`5d7ac25`, driven through `baud-sfte-difftest`'s shim -- is `multibench`'s
+eighth core since 2026-09-20. Same sweep as the table above: `TRANSPORT=
+memory`, 4096-byte reads, medians of 9, interleaved and rotated, every core
+at 10,000 lines **except sfte, which is compiled at 2,000** and says so in
+the header (its depth is a macro in the oracle's shim, where 2,000 is what
+makes the differential like-for-like with `Depth::DEFAULT`; the unfairness
+runs toward sfte on the scrolling rows). Locale `C.UTF-8`, asserted.
+
+**The row carries its own admissibility verdict, and four of nine rows fail
+it.** sfte has no `cells_written`, so after one full rep of the same replay
+the harness digests both screens and prints whether they match under the
+row. A row whose two arms drew different screens is a figure for a different
+program and is not quoted as a ratio.
+
+| recording | baud-core | sfte | sfte, damage marking removed | same screen? |
+|---|---|---|---|---|
+| `utf8/btop.raw` | 864.5 | **359.1** [354-362] | 359.3 | yes |
+| `utf8/cava.raw` | 553.7 | **347.6** [344-355] | 364.0 | yes |
+| `ascii/asciiquarium.raw` | 527.7 | **341.4** [336-344] | 344.3 | yes |
+| `ascii/git-log.raw` | 1645.4 | **17.2** [17-17] | **110.1** [104-111] | yes |
+| `ascii/cat-scroll.raw` | 1423.6 | **11.2** [11-12] | **82.9** [78-84] | yes |
+| `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry |
+| `utf8/vim-unicode.raw` | 651.7 | 162.3 | -- | **no** -- clustering |
+| `utf8/less-cjk.raw` | 505.1 | 22.5 | -- | **no** -- clustering |
+| `utf8/cat-cjk.raw` | 474.1 | 20.9 | -- | **no** -- clustering |
+
+**Two mechanisms, and the split between them is the finding.** On the three
+like-for-like rows that never scroll, sfte sits at 341-359 -- in ghostty's
+band, above alacritty -- and that is its per-character path: one 36-byte
+cell a character, a libc `wcwidth` call, no run path. On the two
+like-for-like rows that scroll every line it reads 11 and 17, **30x
+slower than on btop**, and `sample` puts 95% of that in one function:
+sfte's grid-scroll routine ends by marking every cell of the whole scrolling
+region dirty -- 10,000 byte stores at stride 36, 360 KB, on every newline
+that reaches the bottom row. That is a render-side damage model paid on
+the ingest path; baud computes row damage at frame time and its ingest
+pays nothing for it.
+
+**The fourth column is the ceiling arm that separates the two.**
+`SFTE_CEILING=no-dirty-rows` builds sfte with that one call removed --
+every cell byte-identical, which the oracle's five tests prove by passing
+under the arm, and only the render damage sfte would report is wrong. The
+scrolling rows go **6.4x and 7.4x** (8.1x on less-pager); the three that
+never scroll are unmoved, which is the control. So of sfte's scroll-heavy
+throughput, **85-88% is damage marking** and 80-116 MB/s is its parser and
+cell write, against baud's 1400-1700.
+
+**Which corrects the prediction the plan was written with.** It said baud
+would lead on ASCII by per-character against per-run write bookkeeping,
+amplified by a cell 4.5x as wide, and its second refutation condition was
+that the scroll-heavy rows must show a *larger* gap than a non-scrolling
+one. They do -- by a factor that no bookkeeping story reaches, because the
+dominant term on those rows is not the write at all. The per-character
+mechanism is real and is the 341-359 against 528-865; it is second-order
+on the rows where the plan expected it to be the story.
+
+**The gate's fourth `no` is a defect found by replay, not by the oracle.**
+`less-pager.raw` agrees with baud at every one of its read boundaries and
+after any number of *whole* passes; what differs is the harness's 32 MiB
+total cutting the 1,114th pass 1,934 bytes in. The recording never leaves
+the alternate screen, so every pass after the first re-enters it, and sfte
+clears the screen on re-entry where baud and alacritty both treat it as a
+no-op. By the end of a whole pass the pager has redrawn what the clear
+removed; at the cut it has not, and 155 cells differ. That is pinned twice
+in `baud-sfte-difftest` -- as an isolated five-cell control and as the cut
+-- and it is the case a single pass structurally cannot see.
 
 ## cava, and every implementation on it
 
@@ -256,6 +345,12 @@ GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory \
 
 # cross-implementation, generated payloads
 GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory cargo run --release
+
+# the sfte row with its damage marking removed -- the ceiling column above.
+# The arm is applied by baud-sfte-difftest's build.rs only when named here,
+# and the oracle's own tests pass under it (cells byte-identical):
+SFTE_CEILING=no-dirty-rows GHOSTTY_LIB_DIR=../../../ghostty/zig-out/lib TRANSPORT=memory \
+  RECORDINGS="ascii/git-log.raw,ascii/cat-scroll.raw" cargo run --release
 
 # baud alone, one payload, no fork and no PTY -- the instrument every number
 # in CLAUDE.md is measured with. A recording, a ladder rung

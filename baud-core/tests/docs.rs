@@ -181,6 +181,9 @@ fn every_repository_path_named_in_the_docs_exists() {
         "baud-isa-aarch64/",
         "baud-isa-x86-64/",
         "baud-difftest/",
+        // The second external oracle, added with the crate: a path under it
+        // named in a document is checked, which the root's absence would not.
+        "baud-sfte-difftest/",
         "bench-others/",
         "docs/",
         "scripts/",

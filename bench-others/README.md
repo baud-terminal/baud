@@ -2,7 +2,7 @@
 
 | harness | measures | needs |
 |---|---|---|
-| `multibench/` | baud vs ghostty, alacritty, wezterm, termwiz, vt100 | a ghostty checkout, for ghostty only |
+| `multibench/` | baud vs ghostty, alacritty, wezterm, termwiz, vt100, **sfte** | a ghostty checkout, for ghostty only; sfte comes through `baud-sfte-difftest`'s lib and needs nothing |
 | `kitty-bench/` | kitty's parser, through Python | a built kitty |
 | `alacritty-bench/` | alacritty with and without a PTY | nothing -- crates.io |
 | `ghostty-bench/` | **superseded — see below** | — |

@@ -212,6 +212,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "baud-sfte-difftest"
+version = "0.1.0"
+dependencies = [
+ "baud-core",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1119,6 +1126,7 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "baud-core",
+ "baud-sfte-difftest",
  "libc",
  "tattoy-wezterm-term",
  "termwiz",

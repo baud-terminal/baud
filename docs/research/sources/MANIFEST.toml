@@ -28,6 +28,7 @@
 #   J  rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation
 #   O  keystroke to pixel: the clocks on the path, and how typing latency has been measured
 #   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
+#   R  sfte: a second external implementation, as an oracle and a feature catalogue
 
 [sources.simdjson]
 key    = "simdjson"
@@ -6487,3 +6488,28 @@ sha256 = "6286b16b2798935c4908130c5f355858894a1444c6e61f75dfa4f61e8c38ab0d"
 bytes  = 173280
 status = "retrieved"
 group  = "Q"
+
+# Group R -- sfte, docs/research/notes/r-sfte.md: a single-file C11 terminal
+# emulator, vendored whole as the second implementation `baud-sfte-difftest`
+# drives over the same bytes as `baud-core`. **The amalgamation is pinned, not
+# the readable source**, because `sfte.h` is what compiles and it is
+# CI-generated and force-pushed upstream on every push to `main` -- so a
+# floating checkout is not a reproducible arm, and the hash plus the upstream
+# commit is what makes a comparison re-runnable. The zlib notice is inside the
+# file (line 149) and travels with it. Line numbers in the notes cite
+# `sfte_dev.h`, the 10,221-line source the amalgamation is generated from at
+# the same commit; the parser region is byte-identical between the two, which
+# the note records rather than assumes.
+
+[sources.sfte]
+key    = "sfte"
+title  = "sfte -- single-file terminal emulator written in C11 (amalgamated header, upstream commit 5d7ac25a4180a4adbb049ec228dc89e03dae2690)"
+author = "nihiL7331"
+year   = 2026
+venue  = "GitHub"
+url    = "https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h"
+file   = "sfte.h"
+sha256 = "23b3314dff301e25977197ec402f688708a69d3366c9c613d99b268a46d9f23c"
+bytes  = 1462190
+status = "retrieved"
+group  = "R"

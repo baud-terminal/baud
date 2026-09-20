@@ -1,0 +1,686 @@
+//! The differential's driver: fixtures, recordings, pins and the verdict.
+//! The shim, the two drivers and the comparison types are in `lib.rs`, so
+//! `multibench` can reuse one description of how sfte is driven.
+use baud_core::{Col, Owned, READ_CHUNK, Row};
+use baud_sfte_difftest::*;
+
+/// Where the first divergence at a boundary is, in a form a reader can act
+/// on: which boundary, how many cells, and a bounding box in cells -- the
+/// `diff_box` the pixel oracle grew because its first failure was unreadable
+/// without one.
+#[derive(Debug, Clone)]
+struct Divergence {
+    boundary: Boundary,
+    cells: Cells,
+    rows: (Row, Row),
+    cols: (Col, Col),
+    first: String,
+    cursor: Option<((Row, Col), (Row, Col))>,
+    reply: Option<(Vec<u8>, Vec<u8>)>,
+}
+
+fn diff(boundary: Boundary, a: &Screen, b: &Screen) -> Option<Divergence> {
+    let mut n = Cells::NONE;
+    let (mut r0, mut r1, mut c0, mut c1) = (usize::MAX, 0, usize::MAX, 0);
+    let mut first = None;
+    for (i, (x, y)) in a.cells.iter().zip(b.cells.iter()).enumerate() {
+        if x != y {
+            n.bump();
+            let (r, c) = (i / cols(), i % cols());
+            r0 = r0.min(r);
+            r1 = r1.max(r);
+            c0 = c0.min(c);
+            c1 = c1.max(c);
+            if first.is_none() {
+                first = Some(format!("row {r} col {c}: ours {x:?} sfte {y:?}"));
+            }
+        }
+    }
+    let cursor = (a.cursor != b.cursor).then_some((a.cursor, b.cursor));
+    let reply = (a.reply != b.reply).then(|| (a.reply.clone(), b.reply.clone()));
+    if !n.any() && cursor.is_none() && reply.is_none() {
+        return None;
+    }
+    Some(Divergence {
+        boundary,
+        cells: n,
+        rows: (Row::from_index(r0), Row::from_index(r1)),
+        cols: (Col::at_index(c0), Col::at_index(c1)),
+        first: first.unwrap_or_default(),
+        cursor,
+        reply,
+    })
+}
+
+/// One run's verdict: how many boundaries were compared, how many diverged,
+/// and the first divergence in full.
+struct Verdict {
+    name: String,
+    boundaries: Boundary,
+    diverging: Boundary,
+    cells_total: Cells,
+    first: Option<Divergence>,
+}
+
+/// Drive both sides over `bytes` in `READ_CHUNK` pieces, comparing after each.
+fn run(name: &str, bytes: &[u8], norm: &mut Normalised) -> Verdict {
+    let mut owned = Owned::new(&WS);
+    let mut ours = Ours::new(&mut owned);
+    let mut theirs = Sfte::new();
+    let mut boundaries = Boundary::NONE;
+    let mut diverging = Boundary::NONE;
+    let mut cells_total = Cells::NONE;
+    let mut first = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = READ_CHUNK.min(bytes.len() - i);
+        let chunk = &bytes[i..i + n];
+        ours.feed(chunk);
+        theirs.feed(chunk);
+        i += n;
+        boundaries.bump();
+        let a = ours.screen();
+        let b = theirs.screen(norm);
+        if let Some(d) = diff(boundaries, &a, &b) {
+            diverging.bump();
+            cells_total = Cells::of(cells_total.get() + d.cells.get());
+            if first.is_none() {
+                first = Some(d);
+            }
+        }
+    }
+    Verdict {
+        name: name.to_string(),
+        boundaries,
+        diverging,
+        cells_total,
+        first,
+    }
+}
+
+/// The hand-written fixtures. Every case must either agree, or be listed in
+/// `MUST_DIFFER` with the exact cells that differ and the reason.
+fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
+    vec![
+        ("plain text", b"hello world".to_vec()),
+        ("newline + cr", b"one\r\ntwo\r\nthree".to_vec()),
+        ("SGR colour", b"\x1b[31mred\x1b[0m plain".to_vec()),
+        ("cursor address", b"\x1b[5;10Hplaced".to_vec()),
+        ("erase to EOL", b"abcdefgh\x1b[4G\x1b[K".to_vec()),
+        ("erase screen", b"junk\x1b[2Jclean".to_vec()),
+        ("erase chars", b"abcdefgh\x1b[3G\x1b[2X".to_vec()),
+        ("cursor motion", b"abc\x1b[2D\x1b[Bx".to_vec()),
+        ("wrap at margin", vec![b'x'; cols() + 10]),
+        ("wrapped background", {
+            let mut v = b"\x1b[48;2;255;0;0m".to_vec();
+            v.extend(vec![b' '; cols() + 44]);
+            v.extend(b"\x1b[0m\r\nnext");
+            v
+        }),
+        (
+            "erase-line bg",
+            b"\x1b[48;2;0;0;255m\x1b[2K\x1b[0m\r\nafter".to_vec(),
+        ),
+        ("backspace", b"abc\x08\x08X".to_vec()),
+        ("UTF-8 CJK", "日本語".as_bytes().to_vec()),
+        ("wide at margin", {
+            let mut v = vec![b'x'; cols() - 1];
+            v.extend("日".as_bytes());
+            v
+        }),
+        ("save/restore cur", b"\x1b7moved\x1b8back".to_vec()),
+        ("reverse index", b"a\r\nb\x1bMx".to_vec()),
+        ("DA reply", b"\x1b[c".to_vec()),
+        ("DSR cursor reply", b"\x1b[3;7H\x1b[6n".to_vec()),
+        (
+            "alt screen in/out",
+            b"main\x1b[?1049halt\x1b[?1049l".to_vec(),
+        ),
+        ("BEL-terminated OSC", b"\x1b]0;title\x07AFTER".to_vec()),
+        // `?1049 h` while already on the alternate screen. xterm's own text
+        // says nothing about re-entry; both of baud's oracles answer it the
+        // same way -- baud matches on `(Set, Screen::Normal)` and alacritty
+        // gates `swap_alt` on `!ALT_SCREEN`, so a second enter is a no-op and
+        // the screen survives. sfte clears it. No recording re-enters, which
+        // is why this is a fixture: it was found by `multibench` replaying
+        // `less-pager.raw`, which never leaves the alternate screen, so its
+        // second pass re-entered.
+        (
+            "alt screen re-entry",
+            b"\x1b[?1049hHELLO\x1b[?1049h".to_vec(),
+        ),
+        // The two that MUST differ -- see `MUST_DIFFER`.
+        ("tab", b"a\tb\tc".to_vec()),
+        ("tab at a stop", b"01234567\tX".to_vec()),
+    ]
+}
+
+/// Fixtures whose disagreement is the positive control, each pinned at the
+/// exact values rather than at a count. A dead harness returning zeros cannot
+/// produce these specific values on both sides, which is what makes them a
+/// control rather than a known difference: they say the comparison is reading
+/// both grids, both cursors and both reply buffers.
+///
+/// * **`tab`, `tab at a stop` -- sfte's HT lands one column past every stop**
+///   and is a no-op at the last column: its HT handler
+///   (sfte_dev.h:6005-6008) post-increments inside its test, so from column 0
+///   it stops at 1, from 1-7 at 9, from 8 at 9 -- where baud stops at 8 and 16
+///   (`baud-core/src/ops.rs`).
+/// * **`DA reply` -- sfte answers `CSI ? 62 c`, a VT220; baud answers
+///   `CSI ? 6 c`.** baud under-claims as a VT102 on purpose
+///   (`docs/vt-coverage.md:542`): an application parses whatever arrives as
+///   the report it asked for, and claiming a VT220's feature set would be a
+///   lie it then acts on. Both replies are pinned byte for byte.
+/// * **`alt screen re-entry` -- sfte clears the alternate screen on a second
+///   `?1049 h`.** baud and alacritty both treat entering it while already in
+///   it as a no-op, so `HELLO` survives on both of baud's oracles and not on
+///   sfte. Found by replay: `less-pager.raw` never leaves the alternate
+///   screen, so `multibench`'s second pass over it re-enters, and the harness
+///   gate read "different screen" on a recording the boundary differential
+///   had passed at every read.
+/// * **`alt screen in/out` -- sfte does not restore the cursor on
+///   `?1049 l`.** baud's `?1049` saves and restores it (`docs/vt-coverage.md:
+///   675`; `?47` at `:573` is the variant that does not), so after `main`,
+///   enter, `alt`, leave, baud is back at (0, 4) and sfte is at (1, 0) -- the
+///   row the alternate screen's `alt` plus its blank left it on.
+enum Control {
+    Cells(&'static [(usize, usize, char, char)]),
+    Cursor((usize, usize), (usize, usize)), // (row, col) indices; a const table cannot call Row::from_index
+    Reply(&'static [u8], &'static [u8]),
+}
+
+const MUST_DIFFER: &[(&str, Control)] = &[
+    (
+        "tab",
+        Control::Cells(&[
+            (0, 8, 'b', ' '),
+            (0, 9, ' ', 'b'),
+            (0, 16, 'c', ' '),
+            (0, 17, ' ', 'c'),
+        ]),
+    ),
+    (
+        "tab at a stop",
+        Control::Cells(&[(0, 9, ' ', 'X'), (0, 16, 'X', ' ')]),
+    ),
+    ("DA reply", Control::Reply(b"\x1b[?6c", b"\x1b[?62c")),
+    ("alt screen in/out", Control::Cursor((0, 4), (1, 0))),
+    (
+        "alt screen re-entry",
+        Control::Cells(&[
+            (0, 0, 'H', ' '),
+            (0, 1, 'E', ' '),
+            (0, 2, 'L', ' '),
+            (0, 3, 'L', ' '),
+            (0, 4, 'O', ' '),
+        ]),
+    ),
+];
+
+/// A cursor as the `(row, col)` index pair a `const` control can spell.
+fn at((r, c): (Row, Col)) -> (usize, usize) {
+    (r.index(), c.index())
+}
+
+/// Whether one fixture's result matches its control exactly. `None` means it
+/// does; `Some` carries what was wrong. Shared by `main` and the test so the
+/// binary's verdict is as strong as the test's.
+fn check_control(name: &str, want: &Control, a: &Screen, b: &Screen) -> Option<String> {
+    let got: Vec<(usize, usize, char, char)> = a
+        .cells
+        .iter()
+        .zip(b.cells.iter())
+        .enumerate()
+        .filter(|(_, (x, y))| x != y)
+        .map(|(i, (x, y))| (i / cols(), i % cols(), x.ch, y.ch))
+        .collect();
+    match want {
+        Control::Cells(w) if got.as_slice() != *w => {
+            Some(format!("{name}: cells {got:?}, pinned {w:?}"))
+        }
+        Control::Cells(_) => None,
+        Control::Cursor(oc, sc) => {
+            if !got.is_empty() {
+                Some(format!(
+                    "{name}: cells differ and only the cursor was pinned: {got:?}"
+                ))
+            } else if (at(a.cursor), at(b.cursor)) != (*oc, *sc) {
+                Some(format!(
+                    "{name}: cursor ours {:?} sfte {:?}, pinned {oc:?} / {sc:?}",
+                    at(a.cursor),
+                    at(b.cursor)
+                ))
+            } else {
+                None
+            }
+        }
+        Control::Reply(or, sr) => {
+            if !got.is_empty() {
+                Some(format!(
+                    "{name}: cells differ and only the reply was pinned: {got:?}"
+                ))
+            } else if (a.reply.as_slice(), b.reply.as_slice()) != (*or, *sr) {
+                Some(format!(
+                    "{name}: reply ours {:?} sfte {:?}, pinned {or:?} / {sr:?}",
+                    a.reply, b.reply
+                ))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Run one fixture whole (one boundary) and return both screens.
+fn once(bytes: &[u8], norm: &mut Normalised) -> (Screen, Screen) {
+    let mut owned = Owned::new(&WS);
+    let mut ours = Ours::new(&mut owned);
+    let mut theirs = Sfte::new();
+    ours.feed(bytes);
+    theirs.feed(bytes);
+    (ours.screen(), theirs.screen(norm))
+}
+
+/// The recordings, each pinned. Zero means asserted-zero; a non-zero pin is
+/// the divergence's **cell count at its first diverging boundary** together
+/// with the number of diverging boundaries, with the reason beside it -- so a
+/// count that moves in either direction has to come and edit this table.
+struct Pin {
+    path: &'static str,
+    diverging_boundaries: Boundary,
+    first_cells: Cells,
+    reason: &'static str,
+}
+
+fn pins() -> Vec<Pin> {
+    // Six of nine agree at every boundary, cava included -- the recording the
+    // survey had excluded on OSC 4, which this comparison never resolves, and
+    // on a BEL-terminated OSC that sfte now handles through patch 0001. The
+    // three that diverge do so for ONE reason, read off the differing cells
+    // rather than assumed: sfte has no UAX #29 grapheme clustering. A ZWJ
+    // family is one cluster in two cells for baud and four separate people in
+    // eight cells for sfte; a regional-indicator pair is one flag against two;
+    // a Devanagari combining mark attaches to its base in baud and takes its
+    // own cell in sfte, shifting everything after it on the row by one. That
+    // is a feature baud has and sfte does not, not a defect in either, and the
+    // pin holds the count so the day it moves somebody reads why.
+    const CLUSTERING: &str = "sfte has no UAX #29: ZWJ families, flags and \
+                              combining marks each take their own cells";
+    vec![
+        Pin {
+            path: "ascii/asciiquarium.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "pure ASCII",
+        },
+        Pin {
+            path: "ascii/cat-scroll.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "",
+        },
+        Pin {
+            path: "ascii/git-log.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "",
+        },
+        Pin {
+            path: "ascii/less-pager.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "",
+        },
+        Pin {
+            path: "utf8/btop.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "",
+        },
+        Pin {
+            path: "utf8/cat-cjk.raw",
+            diverging_boundaries: Boundary::of(80),
+            first_cells: Cells::of(173),
+            reason: CLUSTERING,
+        },
+        Pin {
+            path: "utf8/cava.raw",
+            diverging_boundaries: Boundary::of(0),
+            first_cells: Cells::of(0),
+            reason: "",
+        },
+        Pin {
+            path: "utf8/less-cjk.raw",
+            diverging_boundaries: Boundary::of(21),
+            first_cells: Cells::of(173),
+            reason: CLUSTERING,
+        },
+        Pin {
+            path: "utf8/vim-unicode.raw",
+            diverging_boundaries: Boundary::of(33),
+            first_cells: Cells::of(137),
+            reason: CLUSTERING,
+        },
+    ]
+}
+
+fn recording(path: &str) -> Vec<u8> {
+    let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/recordings")
+        .join(path);
+    std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+}
+
+fn describe(d: &Divergence) -> String {
+    let mut s = if d.cells.any() {
+        format!(
+            "boundary {}: {} cells, rows {}..={} cols {}..={}; first {}",
+            d.boundary.get(),
+            d.cells.get(),
+            d.rows.0.index(),
+            d.rows.1.index(),
+            d.cols.0.index(),
+            d.cols.1.index(),
+            d.first
+        )
+    } else {
+        format!("boundary {}: cells agree", d.boundary.get())
+    };
+    if let Some((a, b)) = d.cursor {
+        s.push_str(&format!("; cursor ours {:?} sfte {:?}", at(a), at(b)));
+    }
+    if let Some((a, b)) = &d.reply {
+        s.push_str(&format!("; reply ours {a:?} sfte {b:?}"));
+    }
+    s
+}
+
+/// Every run, so `main` and the test cannot drive different ones.
+fn compare() -> (Vec<Verdict>, Vec<Verdict>, Normalised) {
+    let mut norm = Normalised::new();
+    let fx: Vec<Verdict> = fixtures()
+        .into_iter()
+        .map(|(name, bytes)| run(name, &bytes, &mut norm))
+        .collect();
+    let rec: Vec<Verdict> = pins()
+        .iter()
+        .map(|p| run(p.path, &recording(p.path), &mut norm))
+        .collect();
+    (fx, rec, norm)
+}
+
+fn main() {
+    let locale = set_locale();
+    let cell_bytes = unsafe { ffi::sfte_shim_cell_bytes() };
+    println!(
+        "  sfte: locale {locale}, cell {cell_bytes} bytes, chunk {READ_CHUNK}, {}x{}",
+        cols(),
+        rows()
+    );
+    let (fx, rec, norm) = compare();
+    let mut fail = 0;
+    println!(
+        "\n  {:<24} {:>6} {:>6}  first divergence",
+        "fixture", "bounds", "diverg"
+    );
+    for v in &fx {
+        let must = MUST_DIFFER.iter().any(|(n, _)| *n == v.name);
+        match &v.first {
+            None if !must => println!("  {:<24} {:>6} {:>6}  ok", v.name, v.boundaries.get(), 0),
+            None => {
+                fail += 1;
+                println!(
+                    "  {:<24} {:>6} {:>6}  MUST DIFFER and did not",
+                    v.name,
+                    v.boundaries.get(),
+                    0
+                )
+            }
+            Some(d) if must => println!(
+                "  {:<24} {:>6} {:>6}  differs as pinned: {}",
+                v.name,
+                v.boundaries.get(),
+                v.diverging.get(),
+                describe(d)
+            ),
+            Some(d) => {
+                fail += 1;
+                println!(
+                    "  {:<24} {:>6} {:>6}  {}",
+                    v.name,
+                    v.boundaries.get(),
+                    v.diverging.get(),
+                    describe(d)
+                )
+            }
+        }
+    }
+    // The controls' exact values, not only that they differ.
+    let mut cnorm = Normalised::new();
+    for (name, want) in MUST_DIFFER {
+        let bytes = fixtures().into_iter().find(|(n, _)| n == name).unwrap().1;
+        let (a, b) = once(&bytes, &mut cnorm);
+        if let Some(why) = check_control(name, want, &a, &b) {
+            fail += 1;
+            println!("  CONTROL OFF ITS PIN: {why}");
+        }
+    }
+    println!(
+        "\n  {:<24} {:>6} {:>6} {:>8}  first divergence",
+        "recording", "bounds", "diverg", "cells"
+    );
+    for (v, p) in rec.iter().zip(pins()) {
+        let first_cells = v.first.as_ref().map_or(Cells::NONE, |d| d.cells);
+        let pinned = v.diverging == p.diverging_boundaries && first_cells == p.first_cells;
+        if !pinned {
+            fail += 1;
+        }
+        match &v.first {
+            None => println!(
+                "  {:<24} {:>6} {:>6} {:>8}  ok{}",
+                v.name,
+                v.boundaries.get(),
+                0,
+                0,
+                if pinned { "" } else { "  (pin says otherwise)" }
+            ),
+            Some(d) => println!(
+                "  {:<24} {:>6} {:>6} {:>8}  {}{}",
+                v.name,
+                v.boundaries.get(),
+                v.diverging.get(),
+                v.cells_total.get(),
+                describe(d),
+                if pinned {
+                    format!("  [pinned: {}]", p.reason)
+                } else {
+                    "  UNPINNED".to_string()
+                }
+            ),
+        }
+    }
+    println!(
+        "\n  normalised: {} wide tails, {} zero-rune blanks",
+        norm.tails.get(),
+        norm.blanks.get()
+    );
+    // **An oracle that only prints cannot fail.**
+    if fail != 0 {
+        println!("\n  {fail} unpinned");
+        std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Being a workspace member makes `cargo test --workspace` *build* this
+    /// crate; this test is what makes it *run*.
+    #[test]
+    fn every_fixture_agrees_with_sfte_except_the_pinned_controls() {
+        set_locale();
+        let (fx, _, _) = compare();
+        let mut bad = Vec::new();
+        for v in &fx {
+            let must = MUST_DIFFER.iter().find(|(n, _)| *n == v.name);
+            match (must, &v.first) {
+                (None, None) => {}
+                (None, Some(d)) => bad.push(format!("{}: {}", v.name, describe(d))),
+                (Some(_), None) => bad.push(format!("{}: MUST DIFFER and did not", v.name)),
+                (Some(_), Some(_)) => {}
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "baud-core and sfte disagree:\n  {}",
+            bad.join("\n  ")
+        );
+    }
+
+    /// **The positive control asserts exact values, not a count.** A count
+    /// could be met by a dead harness that happened to differ somewhere; four
+    /// named cells with the right characters on each side, a byte-exact reply
+    /// pair, or a cursor pair can only come from reading both implementations.
+    #[test]
+    fn the_must_differ_fixtures_differ_at_exactly_the_pinned_values() {
+        set_locale();
+        let mut norm = Normalised::new();
+        for (name, want) in MUST_DIFFER {
+            let bytes = fixtures().into_iter().find(|(n, _)| n == name).unwrap().1;
+            let (a, b) = once(&bytes, &mut norm);
+            if let Some(why) = check_control(name, want, &a, &b) {
+                panic!("{why}");
+            }
+        }
+    }
+
+    /// The recordings, every one, pinned.
+    #[test]
+    fn every_recording_matches_its_pin() {
+        set_locale();
+        let (_, rec, norm) = compare();
+        let mut bad = Vec::new();
+        for (v, p) in rec.iter().zip(pins()) {
+            let first_cells = v.first.as_ref().map_or(Cells::NONE, |d| d.cells);
+            if v.diverging != p.diverging_boundaries || first_cells != p.first_cells {
+                bad.push(format!(
+                    "{}: {} of {} boundaries diverge, first has {} cells (pin: {} boundaries, {} cells){}",
+                    v.name,
+                    v.diverging.get(),
+                    v.boundaries.get(),
+                    first_cells.get(),
+                    p.diverging_boundaries.get(),
+                    p.first_cells.get(),
+                    v.first.as_ref().map_or(String::new(), |d| format!("\n      {}", describe(d)))
+                ));
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "recordings off their pins:\n  {}",
+            bad.join("\n  ")
+        );
+        // **The normalisations are pinned exactly, not bounded**, so one that
+        // starts firing somewhere new has to come and change these numbers.
+        // Over every fixture and every boundary of every recording: 84,557
+        // wide tails (every second cell of a double-width character, on both
+        // sides, keyed on sfte's DUMMY flag) and 230,317 zero-rune blanks
+        // (cells sfte has never written, read as blank -- the blindness the
+        // `Normalised` doc records).
+        assert_eq!(norm.tails.get(), 84_557, "wide tails normalised");
+        assert_eq!(norm.blanks.get(), 230_317, "zero-rune blanks normalised");
+    }
+
+    /// The geometry assert can fire: the shim refuses a context at any other
+    /// size, and this checks the Rust side would notice a lie about the size.
+    #[test]
+    fn the_shim_reports_the_corpus_geometry() {
+        let s = Sfte::new();
+        let (c, r) = unsafe { (ffi::sfte_shim_cols(s.s), ffi::sfte_shim_rows(s.s)) };
+        assert_eq!((c, r), (200, 50));
+    }
+}
+
+#[cfg(test)]
+mod replay {
+    use super::*;
+
+    /// **A recording played twice is a case no single pass can reach.** Every
+    /// recording here is truncated mid-session, so a second pass opens where
+    /// the first left off -- inside whatever mode, screen or region the
+    /// program was in. `less-pager.raw` never leaves the alternate screen, so
+    /// its second pass re-enters it, and sfte clears on re-entry where baud
+    /// and alacritty do not (the `alt screen re-entry` control pins that in
+    /// isolation).
+    ///
+    /// **And the screen consequence is only visible mid-pass.** Two *whole*
+    /// passes agree on all six non-clustering recordings, less-pager
+    /// included -- the pager redraws everything the clear removed before the
+    /// pass ends. What `multibench` saw was its 32 MiB total cutting the last
+    /// pass at byte 1,934, where 155 cells of the cleared screen had not yet
+    /// been redrawn. So this test pins two things: whole second passes at
+    /// zero, and less-pager cut 1,934 bytes into its second pass at 155.
+    #[test]
+    fn a_second_pass_over_every_recording_is_pinned() {
+        set_locale();
+        let whole: &[&str] = &[
+            "ascii/asciiquarium.raw",
+            "ascii/cat-scroll.raw",
+            "ascii/git-log.raw",
+            "ascii/less-pager.raw",
+            "utf8/btop.raw",
+            "utf8/cava.raw",
+        ];
+        let mut bad = Vec::new();
+        for path in whole {
+            let got = replayed(path, 2, None);
+            if got != 0 {
+                bad.push(format!(
+                    "{path}: {got} cells differ after two whole passes (pin 0)"
+                ));
+            }
+        }
+        // The cut multibench's replay lands on: 1,113 whole passes and then
+        // 1,934 bytes. One whole pass plus the cut reproduces it exactly, and
+        // the count was stable from 1 to 1,113 passes when bisected.
+        let cut = replayed("ascii/less-pager.raw", 1, Some(1_934));
+        if cut != 155 {
+            bad.push(format!(
+                "ascii/less-pager.raw: {cut} cells differ one pass plus 1,934 bytes in (pin 155)"
+            ));
+        }
+        assert!(bad.is_empty(), "second-pass pins:\n  {}", bad.join("\n  "));
+    }
+
+    /// Feed `passes` whole passes of a recording, then `extra` bytes of the
+    /// next, and count the cells that differ.
+    fn replayed(path: &str, passes: usize, extra: Option<usize>) -> usize {
+        let bytes = recording(path);
+        let mut owned = Owned::new(&WS);
+        let mut ours = Ours::new(&mut owned);
+        let mut theirs = Sfte::new();
+        let mut norm = Normalised::new();
+        let mut feed = |b: &[u8]| {
+            let mut i = 0;
+            while i < b.len() {
+                let n = READ_CHUNK.min(b.len() - i);
+                ours.feed(&b[i..i + n]);
+                theirs.feed(&b[i..i + n]);
+                i += n;
+            }
+        };
+        for _ in 0..passes {
+            feed(&bytes);
+        }
+        if let Some(e) = extra {
+            feed(&bytes[..e]);
+        }
+        let (a, b) = (ours.screen(), theirs.screen(&mut norm));
+        a.cells
+            .iter()
+            .zip(b.cells.iter())
+            .filter(|(x, y)| x != y)
+            .count()
+    }
+}
