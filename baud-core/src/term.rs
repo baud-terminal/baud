@@ -480,6 +480,15 @@ pub struct Term<'b> {
     pub unsupported_param: usize,
     pub replacements: usize,
     pub string_truncations: usize,
+    /// `OSC 8` links refused because their slot already held a different
+    /// URI. A slot is taken once for the storage's life, so a cell never
+    /// resolves to a target other than the one written under its index;
+    /// past 127 distinct targets every new link is refused and this says so.
+    pub links_refused: usize,
+    /// `OSC 8` links refused because the URI may have been cut -- past
+    /// `LINK_MAX`, or a body that filled `OSC_MAX` -- and a cut URL is a
+    /// different URL.
+    pub links_clipped: usize,
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
     pub clipboard_writes_dropped: usize,
@@ -1000,6 +1009,8 @@ impl<'b> Term<'b> {
             unsupported_param: 0,
             replacements: 0,
             string_truncations: 0,
+            links_refused: 0,
+            links_clipped: 0,
             strings_ignored: 0,
             clipboard_reads_refused: 0,
             semantic_marks: 0,
@@ -1562,9 +1573,12 @@ impl<'b> Term<'b> {
     ///
     /// The index comes off the cell -- `CellFlags::link` -- rather than from a
     /// position, which is what makes it survive a scroll: the grid rotates and
-    /// the cell carries its link with it. The table evicts on collision, so a
-    /// live index can resolve to nothing; that renders as an ordinary cell,
-    /// the same tolerable degradation an evicted style has.
+    /// the cell carries its link with it. **A cell never resolves to a URI
+    /// other than the one written under its index**: a slot is taken once for
+    /// the storage's life and a colliding link is refused rather than written
+    /// over it (`links_refused`), because a click opens what the slot holds
+    /// and a wrong destination is not a wrong colour. `LinkId::NONE` and a
+    /// slot nothing took resolve to `None`.
     pub fn link_uri(&self, l: LinkId) -> Option<&[u8]> {
         if l.is_none() {
             return None;

@@ -251,6 +251,8 @@ impl Term<'_> {
         self.unsupported_param += p.unsupported_param;
         self.replacements += p.replacements;
         self.string_truncations += p.string_truncations;
+        self.links_refused += p.links_refused;
+        self.links_clipped += p.links_clipped;
         self.strings_ignored += p.strings_ignored;
         self.clipboard_reads_refused += p.clipboard_reads_refused;
         self.semantic_marks += p.semantic_marks;

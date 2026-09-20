@@ -503,11 +503,15 @@ pub const OSC_MAX: usize = 512;
 /// Distinct `OSC 8` hyperlinks live at once.
 ///
 /// **128 because the cell says so.** The link index rides in `CellFlags`,
-/// which has seven bits for it, and seven bits is 128. The table evicts on
-/// collision like the style table: a URI is attacker-supplied content used as
-/// a key, and a growable table keyed on that is the content-addressing failure
-/// mode this repo already records. An evicted link renders as an ordinary
-/// cell.
+/// which has seven bits for it, and seven bits is 128 -- 127 usable, since
+/// zero is "no link". Bounded because a URI is attacker-supplied content used
+/// as a key, and a growable table keyed on that is the content-addressing
+/// failure mode this repo already records. **It refuses on collision rather
+/// than evicting**, unlike the style table: an evicted style is a wrong colour
+/// on the next frame, an evicted link is a wrong *destination* under a cell
+/// whose text did not change -- and a later `OSC 8` run that writes no cell
+/// at all could have retargeted it. A refused link is counted
+/// (`Term::links_refused`) and its cells are plain text.
 pub const NLINK: usize = 128;
 
 /// The longest URI kept, and the stride of the flat `links` slice.

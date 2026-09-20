@@ -162,7 +162,7 @@ payload over `OSC_MAX` is truncated and the truncation is *counted*
 (`osc_truncations`), because dropping the sequence instead would leave the
 previous title showing with nothing to say why.
 
-Three OSC decisions are refusals, and each is deliberate rather than a gap:
+Four OSC decisions are refusals, and each is deliberate rather than a gap:
 
 * **`OSC 52` clipboard reads get no answer.** A hostile program on the far end
   of an ssh session could otherwise read back whatever the user last copied,
@@ -174,6 +174,14 @@ Three OSC decisions are refusals, and each is deliberate rather than a gap:
 * **A query for a colour nothing overrode says nothing.** The core holds no
   built-in palette, because index-to-pixels belongs to the renderer, and a
   second copy here would be one to keep in step.
+* **A hyperlink is never re-pointed, and a click opens four schemes.** The
+  `OSC 8` table refuses a colliding link rather than evicting the occupant,
+  because a later run that writes no cell could otherwise retarget a link
+  already on screen while nothing on screen changed; a clipped address is
+  refused for the same reason. And `baud-app` opens `http`, `https` and
+  `mailto` only, reveals a local `file` link in Finder, and refuses the rest
+  -- every other scheme is a registered application the opener would launch,
+  on output an attacker controls.
 
 **Two modes are recorded for an embedder rather than acted on internally.**
 Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that

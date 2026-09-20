@@ -30,6 +30,7 @@
 
 pub mod clipboard;
 pub mod journal;
+pub mod link;
 pub mod metal;
 
 pub use journal::Landing;

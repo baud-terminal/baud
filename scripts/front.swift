@@ -1,6 +1,7 @@
 // The owner pid, name and bounds of the frontmost ordinary window (layer
 // 0), so an input-posting check can refuse to act unless baud owns it.
 // Build or run the way scripts/winid.swift documents.
+import CoreGraphics
 import Foundation
 let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
 for w in list where (w["kCGWindowLayer"] as? Int) == 0 {

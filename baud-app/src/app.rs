@@ -273,6 +273,16 @@ enum Sizing {
     Fixed,
 }
 
+/// `OSC 8` activation, for the five-second report: links opened, revealed
+/// in Finder, and refused -- each refusal also a `warn!` naming the rule,
+/// the `mouse_unencodable` shape of refusing and saying how often.
+#[derive(Clone, Copy, Default, Debug)]
+struct Links {
+    opened: Tally,
+    revealed: Tally,
+    refused: Tally,
+}
+
 struct App {
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
@@ -323,6 +333,7 @@ struct App {
     /// Frames whose shared-buffer writes began while the GPU was still
     /// reading the last one's. See the comment at the count site.
     wrote_in_flight: Tally,
+    links: Links,
     /// See [`Trace`].
     trace: Option<Trace>,
     last_report: std::time::Instant,
@@ -695,6 +706,7 @@ impl App {
             frames: Tally::default(),
             ticks: Tally::default(),
             wrote_in_flight: Tally::default(),
+            links: Links::default(),
             trace,
             last_report: std::time::Instant::now(),
             stats: Frame::default(),
@@ -1113,6 +1125,15 @@ impl App {
             if let Some(line) = self.latency.report() {
                 eprintln!("{line}");
             }
+            let l = self.links;
+            if l.opened.value() + l.revealed.value() + l.refused.value() > 0 {
+                crate::info!(
+                    "links: {} opened, {} revealed, {} refused",
+                    l.opened.value(),
+                    l.revealed.value(),
+                    l.refused.value()
+                );
+            }
             self.last_report = std::time::Instant::now();
         }
     }
@@ -1413,6 +1434,12 @@ struct Driver {
     /// The button a drag reports: the one that went down, until it comes
     /// up. AppKit's motion events name no button.
     held: Option<MouseButton>,
+    /// A Cmd press over a link, until its release: the gesture is the
+    /// terminal's, and `crate::link::gesture` says what each event means.
+    armed: Option<crate::link::Armed>,
+    /// Whether the window is key, as the last focus callback said. A press
+    /// into a background window arms nothing.
+    focused: baud_core::Focus,
     /// A drag of the scrollbar's thumb: where it was grabbed, in frame
     /// pixels, and where its top was.
     bar_drag: Option<BarDrag>,
@@ -1947,6 +1974,9 @@ impl Driver {
     /// on a wake only if a frame's worth of time has passed since the last
     /// commit, so a flood draws once a vsync and a keystroke draws now.
     fn pump(&mut self, trigger: Trigger) {
+        if let Trigger::Tick = trigger {
+            self.poll_focus();
+        }
         // **The parser is not held here, and that is research decision D4
         // arriving.** This used to return while a frame was in flight,
         // because the shader read the core's grid where the core writes it,
@@ -2192,7 +2222,14 @@ impl Responder for Driver {
     /// encoding, refuses what the level does not cover and what X10 cannot
     /// encode, and this only turns the view's pixels into a cell.
     fn mouse(&mut self, event: &Mouse) {
+        self.poll_focus();
         if self.scrollbar(event) == Took::Yes {
+            return;
+        }
+        // A Cmd press over an `OSC 8` link is the terminal's, the whole
+        // gesture -- before the child's tracking, like Shift below, so a
+        // child never sees a release without its press.
+        if self.links(event) == Took::Yes {
             return;
         }
         // The child's, when it tracks the mouse -- unless Shift is held,
@@ -2392,13 +2429,14 @@ impl Responder for Driver {
     /// to redraw its status line. This was an empty body, and the request the
     /// corpus sends was dropped uncounted, until the sfte survey named it.
     fn focus(&mut self, focus: Focus) {
-        let f = match focus {
+        // The crate reports the *view's* first-responder status, which
+        // changes once -- at `show()`, before this driver is installed --
+        // and never on an app switch. `poll_focus` is the source that
+        // reaches the driver; this arm keeps the two in agreement.
+        self.set_focus(match focus {
             Focus::Gained => baud_core::Focus::Gained,
             Focus::Lost => baud_core::Focus::Lost,
-        };
-        if self.app.term.focus(f) {
-            self.app.flush_reply();
-        }
+        });
     }
 
     fn cursor_rect(&self) -> Rect {
@@ -2721,6 +2759,8 @@ pub fn run() {
             DockIcon::Ours => icon.clone(),
         },
         held: None,
+        armed: None,
+        focused: baud_core::Focus::Lost,
         bar_drag: None,
         deferred: Deferred::Nothing,
         style: style.clone(),
@@ -2853,6 +2893,139 @@ impl Driver {
             self.app.back = Rows::ZERO;
             self.app.scroll_accum = 0.0;
             self.app.pending = Pending::Dirty;
+        }
+    }
+
+    /// `OSC 8` activation: a Cmd press over a link takes the whole gesture
+    /// for the terminal, and its release over the same link opens it. The
+    /// rules are `crate::link::gesture`'s; this maps the view's event onto
+    /// them and the answer onto the driver's state.
+    /// Whether this window is the key window, read from AppKit now.
+    ///
+    /// **The live check found the focus gate dead.** `GlassWindow::show`
+    /// makes the view first responder, so the crate's `Focus::Gained`
+    /// fired before `set_responder`, into no one; the driver started at
+    /// `Lost` and stayed there, a Cmd-click on a link never armed, and
+    /// `?1004` never reported. The crate's hook is the view's
+    /// first-responder status, which a single-view window changes once;
+    /// what a terminal reports is whether its *window* is key, and the
+    /// window knows. One message send, on the tick and before a mouse
+    /// event, so a transition is seen within a frame and never after a
+    /// click that depends on it.
+    fn poll_focus(&mut self) {
+        let key = self.view.window().is_some_and(|w| w.isKeyWindow());
+        self.set_focus(if key {
+            baud_core::Focus::Gained
+        } else {
+            baud_core::Focus::Lost
+        });
+    }
+
+    /// Record a focus transition and report it if the application asked.
+    /// Only a *change* reaches the core, so polling cannot repeat `CSI I`.
+    fn set_focus(&mut self, f: baud_core::Focus) {
+        if self.focused == f {
+            return;
+        }
+        self.focused = f;
+        if self.app.term.focus(f) {
+            self.app.flush_reply();
+        }
+    }
+
+    fn links(&mut self, event: &Mouse) -> Took {
+        use crate::link::{Chord, Clicks, Gesture, Press};
+        let press = match (event.kind, event.button) {
+            (ViewMouseKind::Down, ViewButton::Left) => Press::Down,
+            (ViewMouseKind::Up, ViewButton::Left) => Press::Up,
+            (ViewMouseKind::Dragged, _) => Press::Dragged,
+            (ViewMouseKind::Exited, _) => Press::Exited,
+            _ => Press::Other,
+        };
+        let chord = if event.modifiers.command && !event.modifiers.shift {
+            Chord::Cmd
+        } else {
+            Chord::Other
+        };
+        let clicks = if event.clicks <= 1 {
+            Clicks::Single
+        } else {
+            Clicks::Repeat
+        };
+        let (row, col) = self.cell_under(event.x, event.y);
+        let under = {
+            // The cell the pointer is over in the *view* -- scrolled back
+            // included -- read the way `select` reads it; a wide tail
+            // carries its lead's link, so either half resolves.
+            let view = self.app.term.view(self.app.back);
+            let id = view.row(row)[col.index()].flags.link();
+            self.app.term.link_uri(id).map(|_| id)
+        };
+        match crate::link::gesture(press, chord, clicks, self.focused, self.armed, under) {
+            Gesture::Pass => Took::No,
+            Gesture::Arm(a) => {
+                self.armed = Some(a);
+                Took::Yes
+            }
+            Gesture::Hold => Took::Yes,
+            Gesture::Drop => {
+                self.armed = None;
+                Took::Yes
+            }
+            Gesture::Open(id) => {
+                self.armed = None;
+                self.open_link(id);
+                Took::Yes
+            }
+        }
+    }
+
+    /// Hand a link to the OS, or refuse it and say why. The one call site
+    /// of the opener, and it holds a `Target` the policy built rather than
+    /// a string, so a URI the policy did not admit cannot reach it.
+    fn open_link(&mut self, id: baud_domain::LinkId) {
+        use crate::link::{Action, Host};
+        use baud_present_macos::link::{self as opener, Opened};
+        let Some(uri) = self.app.term.link_uri(id) else {
+            // The table never frees a slot, so a link that resolved at the
+            // press resolves at the release; counted rather than trusted.
+            self.app.links.refused.bump();
+            crate::warn!("link refused (gone)");
+            return;
+        };
+        let shown = uri
+            .iter()
+            .take(80)
+            .copied()
+            .collect::<Vec<u8>>()
+            .escape_ascii()
+            .to_string();
+        let host = opener::host_name();
+        match crate::link::admit(uri, Host(&host)) {
+            Err(why) => {
+                self.app.links.refused.bump();
+                crate::warn!("link refused ({why:?}): {shown}");
+            }
+            Ok(t) => {
+                let done = match t.action() {
+                    Action::Open => opener::open(t.as_str()),
+                    Action::Reveal => opener::reveal(t.as_str()),
+                };
+                match (t.action(), done) {
+                    (Action::Open, Opened::Taken) => {
+                        self.app.links.opened.bump();
+                        crate::info!("link opened ({:?}): {shown}", t.scheme());
+                    }
+                    (Action::Reveal, Opened::Taken) => {
+                        self.app.links.revealed.bump();
+                        crate::info!("link revealed: {shown}");
+                    }
+                    (_, other) => {
+                        self.app.links.refused.bump();
+                        crate::warn!("link refused ({other:?}): {shown}");
+                    }
+                }
+            }
         }
     }
 

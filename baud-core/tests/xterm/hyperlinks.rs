@@ -4,10 +4,16 @@
 //! carry it. The form is `OSC 8 ; params ; URI ST`, and a run is **closed** by
 //! `OSC 8 ; ; ST` — an empty URI, not a link to nowhere.
 //!
-//! The link table is bounded at `NLINK` and evicts on collision, like the style
-//! table. A URI is attacker-supplied content used as a key, which `CLAUDE.md`
-//! names as the content-addressing failure mode: a page cycling through
-//! thousands of links must cost the same as one with four.
+//! The link table is bounded at `NLINK` -- a URI is attacker-supplied content
+//! used as a key, which `CLAUDE.md` names as the content-addressing failure
+//! mode: a page cycling through thousands of links must cost the same as one
+//! with four -- and **it refuses a colliding link rather than evicting the
+//! occupant**. It evicted like the style table until activation was designed
+//! and a review showed what that lets a program do: an `OSC 8` run that writes
+//! no cell lands in the slot an honest link already on screen resolves
+//! through, and a click on unchanged text opens the newcomer's target. A
+//! refused link is counted and renders as plain text; a clipped one is
+//! refused too, because a cut URL is a different URL.
 //!
 //! [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
 
@@ -30,6 +36,25 @@ fn run(bytes: &[u8]) -> Snap {
         .map(|c| t.link_uri(c.flags.link()).map(|u| u.to_vec()))
         .collect();
     Snap { cells, uris }
+}
+
+/// A URI that lands in the same slot as `target` under `id`, without being
+/// `target`: the collision the table has to refuse.
+fn colliding_with(id: &[u8], target: &[u8]) -> Vec<u8> {
+    let want = LinkId::bucket(id, target, NLINK);
+    (0u32..)
+        .map(|i| format!("http://example.com/{i}").into_bytes())
+        .find(|u| u.as_slice() != target && LinkId::bucket(id, u, NLINK) == want)
+        .expect("127 slots: a collision turns up in a few hundred tries")
+}
+
+/// The stream `bytes` fed to a fresh term, for a test that reads counters.
+fn term_after(bytes: &[u8]) -> (Vec<PackedCell>, usize, usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, bytes);
+    (support::screen(&t), t.links_refused, t.links_clipped)
 }
 
 /// A linked run carries its URI; text outside it does not.
@@ -128,34 +153,131 @@ fn a_link_survives_a_wrap() {
     );
 }
 
-/// An overlong URI is truncated rather than dropped or grown.
+/// **A URI that may have been cut is refused, not clipped.** Past `LINK_MAX`
+/// it used to be stored as its first 256 bytes in silence, and a click would
+/// have opened a URL nobody sent; the same for a body that filled `OSC_MAX`
+/// before the URI was split out of it, where a long `id=` leaves a URI
+/// *under* the cap that still ends mid-path. Both count in `links_clipped`,
+/// and a URI under both caps is the control.
 #[test]
-fn an_overlong_uri_is_bounded() {
+fn a_link_whose_uri_may_have_been_cut_is_refused_and_counted() {
+    // Past LINK_MAX.
     let mut v = b"\x1b]8;;http://".to_vec();
-    v.extend(std::iter::repeat_n(b'a', LINK_MAX * 2));
-    v.extend_from_slice(b"\x1b\\x");
-    let s = run(&v);
-    let uri = s.uris[0].as_deref().expect("still a link");
-    assert!(uri.len() <= LINK_MAX, "bounded at LINK_MAX");
+    v.extend(std::iter::repeat_n(b'a', LINK_MAX));
+    v.extend_from_slice(b"\x1b\\x\x1b]8;;\x1b\\");
+    let (cells, refused, clipped) = term_after(&v);
+    assert!(cells[0].flags.link().is_none(), "the run is plain text");
+    assert_eq!((refused, clipped), (0, 1));
+
+    // Under LINK_MAX after the body was clipped at OSC_MAX by a long id:
+    // 5 + 300 + 1 + 19 + 300 bytes of body, cut at 512, leaves a URI of
+    // 187 printable bytes ending mid-path.
+    let mut v = b"\x1b]8;id=".to_vec();
+    v.extend(std::iter::repeat_n(b'i', 300));
+    v.extend_from_slice(b";http://example.com/");
+    v.extend(std::iter::repeat_n(b'p', 300));
+    v.extend_from_slice(b"\x1b\\y\x1b]8;;\x1b\\");
+    let (cells, refused, clipped) = term_after(&v);
+    assert!(cells[0].flags.link().is_none(), "the cut run is plain text");
+    assert_eq!((refused, clipped), (0, 1));
+
+    // The control: a 200-byte URI is a link and nothing is counted.
+    let mut v = b"\x1b]8;;http://".to_vec();
+    v.extend(std::iter::repeat_n(b'a', 193));
+    v.extend_from_slice(b"\x1b\\z\x1b]8;;\x1b\\");
+    let (cells, refused, clipped) = term_after(&v);
+    assert!(
+        !cells[0].flags.link().is_none(),
+        "under both caps it is a link"
+    );
+    assert_eq!((refused, clipped), (0, 0));
+}
+
+/// **A cell never resolves to a URI other than the one written under its
+/// index.** A later link that hashes to an occupied slot is refused and
+/// counted, never written over the occupant. The table evicted until
+/// activation was designed, and the review that changed it named the
+/// consequence: an `OSC 8` run that writes no cell could retarget every cell
+/// already on screen whose index it took, with nothing on screen changing.
+#[test]
+fn a_cell_never_resolves_to_a_uri_other_than_the_one_written_under_its_index() {
+    let first = b"http://a".to_vec();
+    let second = colliding_with(b"", &first);
+    let mut v = Vec::new();
+    for (uri, text) in [(&first, &b"x"[..]), (&second, &b"y"[..])] {
+        v.extend_from_slice(b"\x1b]8;;");
+        v.extend_from_slice(uri);
+        v.extend_from_slice(b"\x1b\\");
+        v.extend_from_slice(text);
+        v.extend_from_slice(b"\x1b]8;;\x1b\\");
+    }
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, &v);
+    let cells = support::screen(&t);
+    assert_eq!(
+        t.link_uri(cells[0].flags.link()),
+        Some(first.as_slice()),
+        "the first link keeps its URI"
+    );
+    assert_eq!(
+        t.link_uri(cells[1].flags.link()),
+        None,
+        "the colliding link is plain text, not the other target"
+    );
+    assert_eq!((t.links_refused, t.links_clipped), (1, 0));
+}
+
+/// The one collision that is not a collision: the same URI under an `id` that
+/// hashes to the same slot shares it, because one slot for one target is
+/// exactly right, and it is not counted as a refusal.
+#[test]
+fn a_colliding_link_with_the_same_uri_shares_the_slot() {
+    let uri = b"http://example.com/";
+    let want = LinkId::bucket(b"1", uri, NLINK);
+    let other = (2u32..)
+        .map(|k| k.to_string().into_bytes())
+        .find(|k| LinkId::bucket(k, uri, NLINK) == want)
+        .expect("some id shares slot 1's bucket");
+    let mut v = b"\x1b]8;id=1;http://example.com/\x1b\\x\x1b]8;;\x1b\\\x1b]8;id=".to_vec();
+    v.extend_from_slice(&other);
+    v.extend_from_slice(b";http://example.com/\x1b\\y\x1b]8;;\x1b\\");
+    let (cells, refused, clipped) = term_after(&v);
+    assert_eq!(cells[0].flags.link(), cells[1].flags.link(), "one slot");
+    assert!(!cells[1].flags.link().is_none(), "and it is a link");
+    assert_eq!((refused, clipped), (0, 0));
 }
 
 /// Cycling through far more links than the table holds does not grow it and
-/// does not panic.
-///
-/// The table evicts; an evicted link renders as an ordinary cell, which is the
-/// same tolerable degradation an evicted style has.
+/// does not panic: past 127 distinct targets every new link is refused, the
+/// refusals are counted, and the links that took a slot keep it.
 #[test]
-fn the_link_table_is_bounded_and_evicts() {
+fn the_link_table_is_bounded_and_refuses_rather_than_grows() {
     let mut v = Vec::new();
     for i in 0..(NLINK * 8) {
         v.extend_from_slice(format!("\x1b]8;;http://example.com/{i}\x1b\\x").as_bytes());
     }
-    let s = run(&v);
-    // The last write is still linked: eviction costs old links, not new ones.
+    let (cells, refused, clipped) = term_after(&v);
     assert!(
-        s.cells[..40].iter().any(|c| !c.flags.link().is_none()),
-        "links still work after the table has turned over"
+        !cells[0].flags.link().is_none(),
+        "the first link took a slot and keeps it"
     );
+    assert!(
+        refused >= NLINK * 8 - (NLINK - 1),
+        "at most 127 slots taken, the rest refused: {refused}"
+    );
+    assert_eq!(clipped, 0);
+}
+
+/// A wide character's tail carries its lead's link, so a click on either
+/// half of it resolves -- which activation depends on and nothing asserted.
+#[test]
+fn a_wide_tail_carries_its_leads_link() {
+    let s = run(b"\x1b]8;;http://a\x1b\\\xe4\xb8\xad\x1b]8;;\x1b\\");
+    assert_eq!(s.cells[1].content, Content::WIDE_TAIL, "the tail of U+4E2D");
+    assert_eq!(s.cells[1].flags.link(), s.cells[0].flags.link());
+    assert_eq!(s.uris[1].as_deref(), Some(&b"http://a"[..]));
 }
 
 /// RIS closes any open link, so a crashed program cannot leave the next one's

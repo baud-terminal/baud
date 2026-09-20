@@ -131,18 +131,56 @@ impl Paint<'_, '_> {
             // live in `strs`, so resolving the slot and the length first is
             // what lets the write happen at all -- the same borrow split
             // `baud-core2` makes here for the same reason.
+            //
+            // **A slot is never overwritten and a clipped URI is never
+            // interned**, because a click opens what the slot holds. The
+            // table used to evict on collision like the style table, and
+            // that is wrong for a link: a later `OSC 8` from *any* program
+            // -- an empty run that writes no cell -- landed in the slot an
+            // honest link already on screen resolves through, and the screen
+            // did not change while its target did. The style table's
+            // degradation is a wrong colour; this one is a wrong destination.
             Osc::Hyperlink { id, uri } => {
-                let n = uri.len().min(LINK_MAX);
-                if n == 0 {
+                let len = uri.len();
+                if len == 0 {
                     self.link = LinkId::NONE;
+                } else if len > LINK_MAX || n >= OSC_MAX {
+                    // A link whose URI may be cut is not a link. The body is
+                    // clipped at `OSC_MAX` *before* the URI is split out of
+                    // it, so a long `id=` leaves a URI under `LINK_MAX` that
+                    // still ends mid-path; and a URI past `LINK_MAX` used to
+                    // be clipped here in silence. Either is a different URL
+                    // from the one sent. Refused and counted; the run renders
+                    // as text.
+                    self.link = LinkId::NONE;
+                    self.links_clipped += 1;
                 } else {
                     let slot = LinkId::bucket(id, uri, NLINK);
                     let at = slot.index() * LINK_MAX;
-                    let mut tmp = [0u8; LINK_MAX];
-                    tmp[..n].copy_from_slice(&uri[..n]);
-                    self.strs.links[at..at + n].copy_from_slice(&tmp[..n]);
-                    self.strs.link_len[slot.index()] = ByteLen::from_index(n);
-                    self.link = slot;
+                    let have = self.strs.link_len[slot.index()].index();
+                    if have == 0 {
+                        let mut tmp = [0u8; LINK_MAX];
+                        tmp[..len].copy_from_slice(uri);
+                        self.strs.links[at..at + len].copy_from_slice(&tmp[..len]);
+                        self.strs.link_len[slot.index()] = ByteLen::from_index(len);
+                        self.link = slot;
+                    } else if self.strs.links[at..at + have] == *uri {
+                        // The same URI is already here -- resent, or a second
+                        // `id` hashing to the same slot -- and one slot for
+                        // one target is exactly right.
+                        self.link = slot;
+                    } else {
+                        // Occupied by a different URI: refused, and the cells
+                        // that follow are plain text. The `ClusterStore` rule
+                        // -- a wrong cluster is not a wrong colour -- and it
+                        // bounds the table at 127 distinct targets for the
+                        // storage's life, which `links_refused` says when it
+                        // is reached. Not reset on `RIS`: history survives
+                        // one, and a freed slot taken by a new link would give
+                        // the old cells in it that link's target.
+                        self.link = LinkId::NONE;
+                        self.links_refused += 1;
+                    }
                 }
                 self.refresh_flags();
             }
