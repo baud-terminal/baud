@@ -21,6 +21,18 @@ pub use portable::*;
 /// implemented in the AVX2 path only and `feed` silently disagreed with
 /// `feed_avx2`.
 ///
+/// **Two of the three have a caller and the third has a pinned decision**,
+/// which is the bar for being here at all. `run` and `stride_three` are
+/// called by `baud-core`'s `write.rs` on every default build. `stride_four`
+/// is called by nothing: `run_of` was measured with it and without, the
+/// corpus enters it zero times, and `baud-core/tests/bulk_paths.rs` goes red
+/// in *both* directions so the next person re-derives the audit budget rather
+/// than rediscovering the measurement.
+///
+/// A trait offering a scan says the parser scans for that thing. Two methods
+/// here said it and it was not true -- see CLAUDE.md, "Two scans the trait
+/// offered and nothing took".
+///
 /// # Safety
 /// An implementation may require a target feature. The caller establishes it
 /// once, at startup; `no_std` has no runtime feature detection.
@@ -44,20 +56,6 @@ pub trait Scan {
     /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
     /// caller's decision made once at startup rather than per call.
     unsafe fn run(buf: &[StreamByte]) -> ByteLen;
-    /// Offset of the first CSI final byte (`0x40..=0x7e`).
-    /// # Safety
-    /// The caller must have established every target feature the chosen
-    /// implementation requires -- `Portable` requires none, `Avx2` requires
-    /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
-    /// caller's decision made once at startup rather than per call.
-    unsafe fn final_byte(buf: &[StreamByte]) -> Option<ByteLen>;
-    /// Offset of the first BEL, or the ESC of an ESC-backslash terminator.
-    /// # Safety
-    /// The caller must have established every target feature the chosen
-    /// implementation requires -- `Portable` requires none, `Avx2` requires
-    /// AVX2. `no_std` has no `is_x86_feature_detected!`, so this is the
-    /// caller's decision made once at startup rather than per call.
-    unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen>;
     /// How many complete three-byte characters lead `buf`, capped at five.
     ///
     /// **This is the scan the corpus spends its time in**, and the trait went

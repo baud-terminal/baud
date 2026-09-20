@@ -84,18 +84,6 @@ impl Neon {
         // SAFETY: as `Neon::run`.
         unsafe { <Neon as Scan>::stride_four(buf) }
     }
-    /// Offset of the first `CSI` final byte.
-    #[inline(always)]
-    pub fn final_byte(buf: &[StreamByte]) -> Option<ByteLen> {
-        // SAFETY: as `Neon::run`.
-        unsafe { <Neon as Scan>::final_byte(buf) }
-    }
-    /// Offset of the first `BEL`, or the `ESC` of an `ESC \` terminator.
-    #[inline(always)]
-    pub fn st(buf: &[StreamByte]) -> Option<ByteLen> {
-        // SAFETY: as `Neon::run`.
-        unsafe { <Neon as Scan>::st(buf) }
-    }
 }
 
 impl Scan for Neon {
@@ -185,65 +173,6 @@ impl Scan for Neon {
             let ok = vbslq_u8(at_lead, is_lead, is_cont);
             Count::of((nibbles(ok).leading_run() / 4).min(4))
         }
-    }
-
-    /// # Safety
-    /// aarch64 only, where NEON is baseline.
-    #[inline(always)]
-    unsafe fn final_byte(buf: &[StreamByte]) -> Option<ByteLen> {
-        use core::arch::aarch64::*;
-        let raw = StreamByte::slice_as_bytes(buf);
-        let n = raw.len();
-        let mut i = 0usize;
-        unsafe {
-            let lo = vdupq_n_u8(0x40);
-            let hi = vdupq_n_u8(0x7e);
-            while i + LANES <= n {
-                let v = vld1q_u8(raw.as_ptr().add(i));
-                let m = nibbles(vandq_u8(vcgeq_u8(v, lo), vcleq_u8(v, hi)));
-                if let Some(lane) = m.first() {
-                    return Some(lane.offset_from(i));
-                }
-                i += LANES;
-            }
-        }
-        while i < n {
-            if FinalByte::from_stream(buf[i]).is_some() {
-                return Some(ByteLen::from_lane(i));
-            }
-            i += 1;
-        }
-        None
-    }
-
-    /// # Safety
-    /// aarch64 only, where NEON is baseline.
-    #[inline(always)]
-    unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen> {
-        use core::arch::aarch64::*;
-        let raw = StreamByte::slice_as_bytes(buf);
-        let n = raw.len();
-        let mut i = 0usize;
-        unsafe {
-            let bel = vdupq_n_u8(0x07);
-            let esc = vdupq_n_u8(0x1b);
-            while i + LANES <= n {
-                let v = vld1q_u8(raw.as_ptr().add(i));
-                let m = nibbles(vorrq_u8(vceqq_u8(v, bel), vceqq_u8(v, esc)));
-                if let Some(lane) = m.first() {
-                    return Some(lane.offset_from(i));
-                }
-                i += LANES;
-            }
-        }
-        while i < n {
-            let b = buf[i];
-            if b == StreamByte::BEL || b == StreamByte::ESC {
-                return Some(ByteLen::from_lane(i));
-            }
-            i += 1;
-        }
-        None
     }
 }
 

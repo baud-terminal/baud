@@ -79,14 +79,17 @@ fn a_full_block_of_valid_characters_is_capped_at_five() {
     assert_eq!((p, v), (5, 5));
 }
 
-// **The four methods below ship or are offered, and none had a test.** This
-// file's header says `Neon` must answer what `Portable` answers; until now it
-// said it about `stride_three` alone. `run` is the sharper gap: `neon-scan` is
-// in `baud-core`'s default features and `write.rs` calls `Neon::run` on every
+// **The methods below ship, and none had a test.** This file's header says
+// `Neon` must answer what `Portable` answers; until now it said it about
+// `stride_three` alone. `run` is the sharper gap: `neon-scan` is in
+// `baud-core`'s default features and `write.rs` calls `Neon::run` on every
 // text run of every default build, so the one scan a user actually gets was
-// the one nothing compared. `final_byte`, `st` and `stride_four` have no
-// caller anywhere -- an offered API rather than a dead arm -- and a sweep is
-// what makes them correct-if-used instead of merely present.
+// the one nothing compared. `stride_four` has no caller -- `run_of` was
+// measured with it and without, and `baud-core/tests/bulk_paths.rs` pins that
+// decision in both directions -- so a sweep is what keeps it correct-if-used.
+//
+// `final_byte` and `st` had sweeps here too and went with the methods: see
+// CLAUDE.md, "Two scans the trait offered and nothing took".
 
 /// Exhaustive agreement over the first eight lanes of an alphabet, with a
 /// fixed tail, for one scan.
@@ -135,44 +138,6 @@ fn neon_run_agrees_with_portable() {
     );
 }
 
-/// `final_byte` finds the byte that ends a `CSI`, `0x40..=0x7e`.
-#[test]
-fn neon_final_byte_agrees_with_portable() {
-    // Both ends of the range and the byte just outside each.
-    sweep(
-        "final_byte",
-        &[0x40, 0x7e, 0x3f, 0x7f],
-        [0x30, 0x31, 0x3b, 0x32, 0x30, 0x31, 0x3b, 0x33],
-        |b| {
-            let s = StreamByte::slice_from(b);
-            let at = |o: Option<ByteLen>| o.map_or(usize::MAX, |l| l.index());
-            // SAFETY: `Portable` requires no target feature at all.
-            (
-                at(unsafe { Portable::final_byte(s) }),
-                at(Neon::final_byte(s)),
-            )
-        },
-    );
-}
-
-/// `st` finds a BEL, or the ESC of an `ESC \` terminator.
-#[test]
-fn neon_st_agrees_with_portable() {
-    // BEL, ESC, the backslash that completes it, and an ordinary byte -- so the
-    // sweep builds `ESC \`, a lone ESC, and a BEL in every arrangement.
-    sweep(
-        "st",
-        &[0x07, 0x1b, 0x5c, 0x41],
-        [0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41],
-        |b| {
-            let s = StreamByte::slice_from(b);
-            let at = |o: Option<ByteLen>| o.map_or(usize::MAX, |l| l.index());
-            // SAFETY: `Portable` requires no target feature at all.
-            (at(unsafe { Portable::st(s) }), at(Neon::st(s)))
-        },
-    );
-}
-
 /// `stride_four` counts complete four-byte characters.
 #[test]
 fn neon_stride_four_agrees_with_portable() {
@@ -195,22 +160,15 @@ fn neon_stride_four_agrees_with_portable() {
     );
 }
 
-/// None of the four may read past a buffer shorter than a block.
+/// Neither scan may read past a buffer shorter than a block.
 #[test]
-fn none_of_the_four_reads_past_a_short_buffer() {
+fn neither_scan_reads_past_a_short_buffer() {
     let full = [0x41u8, 0x07, 0x1b, 0x5c, 0xf0, 0x90, 0x80, 0x80].repeat(3);
     for len in 0..16usize {
         let s = StreamByte::slice_from(&full[..len]);
-        let at = |o: Option<ByteLen>| o.map_or(usize::MAX, |l| l.index());
         // SAFETY: `Portable` requires no target feature at all.
         unsafe {
             assert_eq!(Portable::run(s).index(), Neon::run(s).index(), "run {len}");
-            assert_eq!(
-                at(Portable::final_byte(s)),
-                at(Neon::final_byte(s)),
-                "final_byte {len}"
-            );
-            assert_eq!(at(Portable::st(s)), at(Neon::st(s)), "st {len}");
             assert_eq!(
                 Portable::stride_four(s).index(),
                 Neon::stride_four(s).index(),

@@ -38,27 +38,6 @@ impl Scan for Portable {
         ByteLen::from_lane(i)
     }
 
-    #[inline(always)]
-    unsafe fn final_byte(buf: &[StreamByte]) -> Option<ByteLen> {
-        let n = buf.len();
-        let mut i = 0usize;
-        while i + LANES <= n {
-            let m = Vectorized::<Printable>::load(&buf[i..i + LANES])
-                .in_range(StreamByte::FINAL_LOW, StreamByte::FINAL_HIGH);
-            if let Some(lane) = m.first() {
-                return Some(lane.offset_from(i));
-            }
-            i += LANES;
-        }
-        while i < n {
-            if FinalByte::from_stream(buf[i]).is_some() {
-                return Some(ByteLen::from_lane(i));
-            }
-            i += 1;
-        }
-        None
-    }
-
     /// # Safety
     /// None required; `Portable` is portable.
     #[inline(always)]
@@ -71,28 +50,6 @@ impl Scan for Portable {
     #[inline(always)]
     unsafe fn stride_four(buf: &[StreamByte]) -> Count {
         Portable::stride_four_portable(buf)
-    }
-
-    #[inline(always)]
-    unsafe fn st(buf: &[StreamByte]) -> Option<ByteLen> {
-        let n = buf.len();
-        let mut i = 0usize;
-        while i + LANES <= n {
-            let m = Vectorized::<Printable>::load(&buf[i..i + LANES])
-                .either(StreamByte::BEL, StreamByte::ESC);
-            if let Some(lane) = m.first() {
-                return Some(lane.offset_from(i));
-            }
-            i += LANES;
-        }
-        while i < n {
-            let b = buf[i];
-            if b == StreamByte::BEL || b == StreamByte::ESC {
-                return Some(ByteLen::from_lane(i));
-            }
-            i += 1;
-        }
-        None
     }
 }
 
