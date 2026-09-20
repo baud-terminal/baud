@@ -255,7 +255,10 @@ fn a_ring_that_cannot_hold_the_rewrapped_history_drops_the_oldest_lines() {
         assert_eq!(depth, n + 1 - 50, "every line but the screen's is retained");
         resize(t, 100, 50);
         let len = t.scrollback().len();
-        assert!(len >= 2000 - 1 && len <= 2000, "the ring is full: {len}");
+        assert!(
+            ((2000 - 1)..=2000).contains(&len),
+            "the ring is full: {len}"
+        );
         let (oldest, w) = back(t, len - 1);
         assert_eq!(
             w,
@@ -270,10 +273,13 @@ fn a_ring_that_cannot_hold_the_rewrapped_history_drops_the_oldest_lines() {
         // whole lines and the tail of line 1075, whose head is the newest
         // retained line.
         let (newest, w) = back(t, 0);
-        assert_eq!(newest, (format!("01075") + &digits(145))[..100]);
+        assert_eq!(newest, (String::from("01075") + &digits(145))[..100]);
         assert_eq!(w, Wrap::Continues);
         assert_eq!(row_text(t, 0), digits(145)[95..]);
-        assert_eq!(row_text(t, 47), (format!("01099") + &digits(145))[..100]);
+        assert_eq!(
+            row_text(t, 47),
+            (String::from("01099") + &digits(145))[..100]
+        );
     });
 }
 
@@ -291,14 +297,17 @@ fn a_full_ring_narrows_and_keeps_what_fits() {
         assert_eq!(t.scrollback().len(), 2000, "the ring is full");
         resize(t, 100, 50);
         let len = t.scrollback().len();
-        assert!(len >= 2000 - 1 && len <= 2000, "still full: {len}");
+        assert!(((2000 - 1)..=2000).contains(&len), "still full: {len}");
         let (oldest, w) = back(t, len - 1);
         assert_eq!(w, Wrap::Continues);
         assert!(
             oldest.starts_with(|c: char| c.is_ascii_digit()),
             "{oldest:?}"
         );
-        assert_eq!(row_text(t, 47), (format!("02099") + &digits(145))[..100]);
+        assert_eq!(
+            row_text(t, 47),
+            (String::from("02099") + &digits(145))[..100]
+        );
         assert_eq!(row_text(t, 48), digits(145)[95..]);
         assert_eq!(t.cursor(), (Row::from_index(49), Col::ZERO));
         // What the narrowing dropped is gone: it kept lines 1076 to 2099
@@ -306,9 +315,9 @@ fn a_full_ring_narrows_and_keeps_what_fits() {
         // rows, 975 of them behind the screen.
         resize(t, 200, 50);
         assert_eq!(t.scrollback().len(), 975);
-        assert_eq!(row_text(t, 48), format!("02099") + &digits(145));
+        assert_eq!(row_text(t, 48), String::from("02099") + &digits(145));
         let (oldest, w) = back(t, 974);
         assert_eq!(w, Wrap::Ended);
-        assert_eq!(oldest, format!("01076") + &digits(145), "a whole line");
+        assert_eq!(oldest, String::from("01076") + &digits(145), "a whole line");
     });
 }

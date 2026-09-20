@@ -11,6 +11,11 @@
 use crate::support;
 use baud_core::*;
 
+/// One step of a script: bytes to feed, and what the model does with them.
+/// Named because the tuple-in-slice spelling is past clippy's complexity bar,
+/// and both scripts below are the same shape.
+type Step = (&'static str, fn(&mut Model));
+
 const COLS: usize = 200;
 
 /// The rendered rows of a run, as comparable values.
@@ -421,7 +426,7 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
     }
 
     // A region, then every line-moving operation inside and across it.
-    let script: &[(&str, fn(&mut Model))] = &[
+    let script: &[Step] = &[
         ("\x1b[5;40r", |m| {
             m.top = 4;
             m.bot = 39;
@@ -502,7 +507,7 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
     // Plain `LF` at the last row is the case the recording is full of -- 638 of
     // them in `less-pager.raw` -- and the one no test reached. It scrolls the
     // full screen with no region set, which is the branch a fast path takes.
-    let script: &[(&str, fn(&mut Model))] = &[
+    let script: &[Step] = &[
         // **`RI` first, while every row still holds text.** Done after a few
         // newlines instead, the row the bottom recycles to the top is already
         // blank, so blanking the *wrong* row leaves a blank either way and the

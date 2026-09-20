@@ -1201,9 +1201,26 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // character, and `set_after_ordinary` below is that advance for the whole
     // run at once. Asking on the live machine would advance it twice for the
     // first character.
+    #[cfg(not(feature = "ceiling-no-run-gate"))]
     let admit = all_ordinary && k > 0 && {
         let mut probe = p.cluster;
         probe.is_break_classified(GraphemeClass::Other, Lookback::from_bits(0))
+    };
+    // **The ceiling arm: the gate always admits.** Every run reaches the bulk
+    // writers, so a run holding a ZWJ or a regional indicator is written as
+    // separate characters -- `a_flag_is_one_cluster` renders four regional
+    // indicators where two flags belong, which is what makes this an upper
+    // bound on the gate's fallback rather than a measurement of it. On the
+    // corpus no recording changes a cell, because everything that clusters is
+    // separated by a codepoint of a different encoded length and so never
+    // reaches a stride run at all; the fixture is the only thing that can see
+    // the difference, which is why it exists.
+    #[cfg(feature = "ceiling-no-run-gate")]
+    let admit = {
+        // `all_ordinary` is the gate's own input and the arm is what ignores
+        // it; consumed so the stub does not trip `-D warnings`.
+        let _ = all_ordinary;
+        k > 0
     };
     if !admit {
         for cp in cps.iter().take(k) {
@@ -1580,33 +1597,6 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
                 p.unsupported_by_final[f.slot()] += 1;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tables {
-    use super::*;
-
-    /// **All 63 finals, against the rules the table replaced.** A table may
-    /// only stand in for a function if it answers the same way everywhere, and
-    /// for a byte-indexed table "everywhere" is small enough to enumerate --
-    /// which is the whole reason it is a table.
-    #[test]
-    fn the_csi_table_agrees_with_the_rules() {
-        for i in 0..FinalByte::COUNT {
-            let f = FinalByte::at(i);
-            assert_eq!(CSI_OP[f.slot()], csi_op_of(f), "final slot {i}");
-        }
-    }
-
-    /// **The finals this core recognises and does not implement are
-    /// enumerable**, which is the point of an `Unsupported` variant rather than
-    /// a silent `_ => {}`: the gap is a number someone can look at. Ten finals
-    /// are implemented -- `H` and `f` are both CUP.
-    #[test]
-    fn the_unimplemented_finals_are_enumerable() {
-        let n = CSI_OP.iter().filter(|o| **o == CsiOp::Unsupported).count();
-        assert_eq!(n, 53, "63 finals, 10 implemented");
     }
 }
 
@@ -2205,5 +2195,39 @@ fn sgr_into_table(p: &mut Paint<'_, '_>, csi: &Csi, seq: &[StreamByte]) {
     if let Some(key) = SgrKey::of(seq) {
         let fold = StyleFold::derive(|w| csi.fold_sgr(w));
         p.cold.sgr[SgrKey::bucket_of(seq, NSGR)] = SgrSlot { key, fold };
+    }
+}
+
+// **The test module sits at the end of the file**, because clippy's
+// items-after-test-module lint -- named without backticks, because the docs
+// gate reads a backticked snake_case name as a test and cannot tell one from
+// a lint -- is about a reader's expectation as much as the compiler's: a
+// `#[cfg(test)] mod` in the middle of a file reads as the end of it, and the
+// six functions that followed this one were easy to miss.
+
+#[cfg(test)]
+mod tables {
+    use super::*;
+
+    /// **All 63 finals, against the rules the table replaced.** A table may
+    /// only stand in for a function if it answers the same way everywhere, and
+    /// for a byte-indexed table "everywhere" is small enough to enumerate --
+    /// which is the whole reason it is a table.
+    #[test]
+    fn the_csi_table_agrees_with_the_rules() {
+        for i in 0..FinalByte::COUNT {
+            let f = FinalByte::at(i);
+            assert_eq!(CSI_OP[f.slot()], csi_op_of(f), "final slot {i}");
+        }
+    }
+
+    /// **The finals this core recognises and does not implement are
+    /// enumerable**, which is the point of an `Unsupported` variant rather than
+    /// a silent `_ => {}`: the gap is a number someone can look at. Ten finals
+    /// are implemented -- `H` and `f` are both CUP.
+    #[test]
+    fn the_unimplemented_finals_are_enumerable() {
+        let n = CSI_OP.iter().filter(|o| **o == CsiOp::Unsupported).count();
+        assert_eq!(n, 53, "63 finals, 10 implemented");
     }
 }

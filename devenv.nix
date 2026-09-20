@@ -54,9 +54,17 @@ in
     treefmt --fail-on-change
   '';
 
+  # **`--all-targets`, because without it clippy sees neither `tests/` nor a
+  # `#[cfg(test)] mod`.** The gate was green for as long as it has existed
+  # while `cargo clippy --workspace --all-targets` carried 13 errors -- five
+  # `format!`s with nothing to interpolate, two hand-rolled range tests, three
+  # loops indexing what they could iterate, two tuple types past the
+  # complexity bar, and a test module with six functions hidden behind it.
+  # That is this repo's gate-scoped-to-less-than-it-appears failure, in the
+  # one gate whose whole job is to read every line that compiles.
   scripts.dev-lint.exec = ''
     echo "Running clippy..."
-    cargo clippy --quiet ${scope} -- -D warnings
+    cargo clippy --quiet ${scope} --all-targets -- -D warnings
   '';
 
   scripts.dev-check.exec = ''

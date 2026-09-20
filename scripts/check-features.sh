@@ -46,7 +46,7 @@ cd "$(dirname "$0")/.." || exit 1
 # repo's own rule -- a budget that is not equal to the count is not
 # measuring anything -- so the floors sit at the counts and a dropped arm
 # fails here. Adding a feature means changing the number beside it.
-CRATES="baud-bench:54 baud-core:50 baud-domain:8 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
+CRATES="baud-bench:53 baud-core:49 baud-domain:7 baud-isa:1 baud-isa-aarch64:1 baud-isa-x86-64:1 baud-font:0 baud-render:3 baud-present-macos:0 baud-app:1 baud-wayland:0 baud-xkb:0 baud-present-wayland:0"
 
 # **The control on the list itself.** Every crate carrying a `[features]`
 # block must be named above, or the gate silently checks fewer crates than
@@ -90,26 +90,27 @@ fi
 # arm lives in the crate it names, and that leaf is checked when the loop
 # reaches it. Anything else must be named here with a reason.
 #
-# **Two are declared and inert, and both are about live code.**
-# `ceiling-no-run-gate` had a `#[cfg]` until 08abfb1, the commit that took
-# `routes()` off the hot path, and CLAUDE.md prices it at 33.7% of
-# cat-cjk; `probe-const-stride` was *declared* in that same commit and
-# has never had a reader in any commit, so the table calling it one of
-# "three compiled arms" describes a measurement taken with a patch that
-# was never committed. Both price code that still exists, so both are
-# restorable -- and a restore is a re-derivation against code that has
-# moved since, verifiable per arm by its recorded cell count, which is
-# the owner's call to spend. Exempting keeps them visible; deleting would
-# make the record's "kept as a compiled arm" false in silence.
+# **The list is empty, and that is the point.** It carried two: both were
+# declared with no `#[cfg]` reading them, so `--features <either>` built the
+# base program and priced its subject at nothing. Both are resolved rather
+# than exempted.
 #
-# Four others went with `scan-neon` rather than onto this list, because
-# their subject is deleted code and no restore is possible: `no-extend`,
-# `ceiling-no-walk`, `probe-double-classify-block` and
-# `probe-double-masks` priced the block walk -- run extension past a
-# block edge, the walk itself, the block classification, the six lane
-# mask extractions -- and all four lost their `#[cfg]` in 08abfb1 when
-# the one-line graph loop replaced it. None is cited anywhere.
-DEAD_OK="baud-core/ceiling-no-run-gate baud-domain/probe-const-stride"
+# `ceiling-no-run-gate` is restored, because the run gate is live code. Its
+# `#[cfg]` makes the gate always admit, and `a_flag_is_one_cluster` goes red
+# under it -- `left: 4, right: 2`, four regional indicators where two flags
+# belong -- which is the arm being wrong by construction rather than merely
+# present.
+#
+# `probe-const-stride` is deleted, because the arm it names cannot be spelled
+# against this code. Its hypothesis was a `Cols` field always equal to 2048;
+# the pitch is a cache-derived `Stride` that differs by machine and by width
+# (208 for the corpus here, 400 for the app, 200 on a 64-byte line), so the
+# literal the probe needs does not exist. The two ways to force one are a
+# memory bug -- thirty multiply sites diverging from the field the buffer was
+# allocated at -- or overriding `store_stride`, the formula
+# `baud-domain/tests/cache.rs` pins in fifteen places. It measured flat when
+# it was measured, with a patch that was never committed.
+DEAD_OK=""
 
 unexplained=""
 for m in */Cargo.toml; do

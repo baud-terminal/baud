@@ -26,8 +26,5 @@ probe-double-extent = []
 # the scroll, and skips only the two `PackedCell` writes, so both arms attribute
 # identical cells and only the stores differ.
 ceiling-no-store = []
-# The grid stride as a compile-time constant, to price the general multiply
-# and the bounds checks a runtime stride prevents the compiler discharging.
-probe-const-stride = []
 # Ceiling arm: `View::fill_row` does the bookkeeping and skips the stores.
 ceiling-no-rowfill = []

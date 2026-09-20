@@ -1320,11 +1320,11 @@ mod classes {
         // `Edge` values directly costs no cast, which the action's
         // discriminant would have.
         let mut sigs = [[edge(Act::Bad, Node::Ground); 2 * NNODE]; 256];
-        for i in 0..256usize {
+        for (i, sig) in sigs.iter_mut().enumerate() {
             let b = StreamByte::ALL[i];
             for (n, node) in Node::FROM_INDEX.iter().enumerate() {
-                sigs[i][n] = Edge::of(InputEncoding::Utf8, *node, b);
-                sigs[i][NNODE + n] = Edge::of(InputEncoding::Latin1, *node, b);
+                sig[n] = Edge::of(InputEncoding::Utf8, *node, b);
+                sig[NNODE + n] = Edge::of(InputEncoding::Latin1, *node, b);
             }
         }
         let (mut count, mut seen) = (0usize, [false; 256]);

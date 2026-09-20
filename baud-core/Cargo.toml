@@ -94,7 +94,6 @@ probe-free-width = []
 # Phase 0b: the graph indexed at a constant node, to price the loop-carried
 # load-to-load dependence through the node. Exact on a whole-file read.
 probe-pinned-node = []
-probe-const-stride = ["baud-domain/probe-const-stride"]
 # The run scan, priced by doing it twice: 7% of cat-cjk.
 probe-double-scan = []
 # **Prefetch the row the scroll after the next will blank.** With the grid as
