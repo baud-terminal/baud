@@ -798,6 +798,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let Some(&base) = cps.first() else {
             return Vec::new();
         };
+        if crate::boxes::covers(base) {
+            // A box, block or braille cell is baud's own mask, whatever is
+            // attached to it: the shaper is not consulted.
+            return vec![ClusterGlyph {
+                id: GlyphId::from_shaper(0),
+                slot: self.procedural(base),
+                dx: 0,
+                dy: 0,
+            }];
+        }
         let face = self.stack.select(base);
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
@@ -820,6 +830,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     pub fn single(&mut self, cp: Codepoint) -> Option<Single> {
+        if crate::boxes::covers(cp) {
+            // `PairRole::Neither` is load-bearing: with both pair bits clear
+            // the cell is never a ligature candidate, never gathered into a
+            // window and never re-shaped by a font, so the face field is
+            // never read for it.
+            return Some(Single {
+                slot: self.procedural(cp),
+                glyph: GlyphId::from_shaper(0),
+                role: PairRole::Neither,
+                face: FaceIx::PRIMARY,
+            });
+        }
         let face = self.stack.select(cp);
         let clusters = [ClusterIn {
             cps: vec![cp],
@@ -1167,6 +1189,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += 1;
                 continue;
             };
+            if crate::boxes::covers(base) {
+                // Box drawing, a block element or braille: baud's own mask
+                // at the cell origin, never shaped, never in a run.
+                let width = if row[c].flags.is_wide() {
+                    2usize
+                } else {
+                    1usize
+                };
+                if let Some(slot) = self.procedural(base) {
+                    self.emit_at(r, Col::at_index(c), slot, &mut instances);
+                }
+                c += width;
+                continue;
+            }
             let face = self.stack.select(base);
             // Gather the run: consecutive drawn cells on this face.
             let start = c;
@@ -1188,7 +1224,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let Some(cp) = cell.content.as_codepoint() else {
                     break;
                 };
-                if self.stack.select(cp) != face {
+                if crate::boxes::covers(cp) || self.stack.select(cp) != face {
                     break;
                 }
                 let width = if cell.flags.is_wide() { 2usize } else { 1usize };
@@ -1349,6 +1385,41 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 exc.differs.bump();
             }
         }
+    }
+
+    /// The atlas mask for a procedural codepoint at this cell size.
+    fn procedural(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
+        let cell = crate::boxes::Cell {
+            w: self.metrics.cell_w,
+            h: self.metrics.cell_h,
+        };
+        self.atlas.synthetic(cp, cell, self.metrics.baseline)
+    }
+
+    /// One instance for a slot placed at the origin of cell `col` of row
+    /// `r`, in the cell's foreground: the procedural glyphs' emitter.
+    fn emit_at(&mut self, r: Row, col: Col, slot: crate::atlas::Slot, out: &mut Vec<Instance>) {
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
+        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0);
+        let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
+        let range = self.row_cells(r);
+        let color = self
+            .fg
+            .get(range.start + col.index())
+            .copied()
+            .unwrap_or(self.theme.fg);
+        let x = i32::try_from(col.index()).unwrap_or(0) * cell_w + slot.left;
+        let y = top + baseline + slot.top;
+        out.push(Instance {
+            x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
+            y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+            w: slot.w,
+            h: slot.h,
+            u: slot.x,
+            v: slot.y,
+            color,
+            kind: slot.kind,
+        });
     }
 
     fn emit(&mut self, face: FaceIx, r: Row, start: Col, shaped: &Shaped, out: &mut Vec<Instance>) {

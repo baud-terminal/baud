@@ -35,7 +35,7 @@
 use crate::color::Argb;
 use crate::stack::FaceIx;
 use crate::units::{Coverage, Tally, slots};
-use baud_domain::{Chan, GlyphId};
+use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
     Bounds, Canvas, Face, Fit, Palette, PaletteEntry, Png, Px, Rasterizer, Scale, Strike,
@@ -183,6 +183,9 @@ impl Side {
 #[derive(Clone, Copy, Default, Debug)]
 pub struct AtlasStats {
     pub rasterised: Tally,
+    /// Procedural masks drawn: box drawing, block elements and braille,
+    /// once per codepoint per size.
+    pub synthesised: Tally,
     /// Bitmap strikes decoded and `COLR` glyphs painted.
     pub coloured: Tally,
     /// Every slot voided: [`Atlas::reset`], which a font size change asks
@@ -328,6 +331,10 @@ pub struct Atlas {
     color_replaced: Replaced,
     /// `None` records a glyph with no ink, so a space is looked up once.
     map: HashMap<GlyphKey, Option<Slot>>,
+    /// The procedural glyphs -- box drawing, block elements, braille --
+    /// by codepoint, drawn once per size the way a font glyph is; a cell
+    /// mask is a function of the cell, so `reset` voids it with `map`.
+    procedural: HashMap<u32, Option<Slot>>,
     scratch: Vec<f32>,
     coverage: Vec<u8>,
     raw: Vec<u8>,
@@ -353,6 +360,7 @@ impl Atlas {
             mask_replaced: Replaced::No,
             color_replaced: Replaced::No,
             map: HashMap::new(),
+            procedural: HashMap::new(),
             scratch: Vec::new(),
             coverage: Vec::new(),
             raw: Vec::new(),
@@ -453,6 +461,7 @@ impl Atlas {
         // the whole sheet at each one, on every step of a zoom.
         let (mask, color) = (self.mask.side, self.color.side);
         self.map.clear();
+        self.procedural.clear();
         self.clear_mask(mask);
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
@@ -771,6 +780,68 @@ impl Atlas {
             h: rect.h,
             left: fit.left,
             top: fit.top,
+        })
+    }
+
+    /// The mask for a procedural codepoint -- box drawing, a block element,
+    /// braille -- drawn at exactly `cell` and placed at the cell origin:
+    /// `left` is zero and `top` is `-baseline`, so every path's placement
+    /// formula lands it on the cell whatever face the row is on. `None`
+    /// for a codepoint a font draws. Memoised per codepoint until `reset`,
+    /// because the mask is a function of the cell and the cell changes
+    /// only with the size.
+    pub fn synthetic(
+        &mut self,
+        cp: Codepoint,
+        cell: crate::boxes::Cell,
+        baseline: Px,
+    ) -> Option<Slot> {
+        if let Some(slot) = self.procedural.get(&cp.value()) {
+            return *slot;
+        }
+        let slot = self.synthesise(cp, cell, baseline);
+        if slot.is_some() || !crate::boxes::covers(cp) {
+            self.procedural.insert(cp.value(), slot);
+        }
+        slot
+    }
+
+    fn synthesise(
+        &mut self,
+        cp: Codepoint,
+        cell: crate::boxes::Cell,
+        baseline: Px,
+    ) -> Option<Slot> {
+        let extent = crate::boxes::draw(cp, cell, &mut self.scratch, &mut self.coverage)?;
+        self.stats.synthesised.bump();
+        let (w, h) = (extent.w, extent.h);
+        let (x, y) = loop {
+            if let Some(at) = self.mask.take(w, h) {
+                break at;
+            }
+            let next = Side(self.mask.side.0.checked_mul(2)?);
+            if next.0 > Side::LIMIT.0 {
+                return None;
+            }
+            self.grow_mask(next)?;
+        };
+        self.blit(x, y, w, h);
+        self.touched();
+        let rect = TexRect {
+            x: Tex(u16::try_from(x.value()).ok()?),
+            y: Tex(u16::try_from(y.value()).ok()?),
+            w: Tex(u16::try_from(w.value()).ok()?),
+            h: Tex(u16::try_from(h.value()).ok()?),
+        };
+        Atlas::dirtied(&mut self.dirty.mask, rect);
+        Some(Slot {
+            kind: Kind::Mask,
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            left: 0,
+            top: -i32::try_from(baseline.value()).unwrap_or(0),
         })
     }
 

@@ -508,8 +508,11 @@ mod tests {
     use baud_domain::Codepoint;
     use baud_font::{Face, FaceIndex};
 
+    /// Box drawing, block elements and braille are not in the list: baud
+    /// draws those itself (`baud_render::boxes`), so no face has to carry
+    /// them and the stack is not held to a range it never renders.
     #[test]
-    fn the_default_stack_carries_han_kana_hangul_devanagari_box_drawing_and_emoji() {
+    fn the_default_stack_carries_han_kana_hangul_devanagari_and_emoji() {
         let specs: Vec<FaceSpec> = DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect();
         let files: Vec<Vec<u8>> = specs
             .iter()
@@ -525,7 +528,6 @@ mod tests {
             ("kana", 0x3042),
             ("Hangul", 0xD55C),
             ("Devanagari", 0x0928),
-            ("box drawing", 0x2500),
             ("emoji", 0x1F600),
         ] {
             let c = Codepoint::new(cp).expect("a codepoint");

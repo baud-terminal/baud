@@ -40,7 +40,10 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 }
 
 /// A screen with every rule the cell path implements on it, and none it
-/// does not: no ligature pair, no combining mark.
+/// does not: no ligature pair, no combining mark. The second box row is
+/// the procedural range -- heavy, double, arc, diagonal, dashed, block,
+/// shade and braille, and a red heavy corner -- which both arms must take
+/// from baud's own masks rather than the face.
 fn scene(t: &mut Term<'_>) {
     feed(
         t,
@@ -50,6 +53,7 @@ fn scene(t: &mut Term<'_>) {
           \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done\r\n\
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
           box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end\r\n\
+          \xe2\x94\x8f\xe2\x94\x81\xe2\x94\xb3\xe2\x94\x93 \xe2\x95\x94\xe2\x95\x90\xe2\x95\xa6\xe2\x95\x97 \xe2\x95\xad\xe2\x94\x80\xe2\x95\xae \xe2\x95\xb1\xe2\x95\xb2\xe2\x95\xb3 \xe2\x94\x84\xe2\x94\x8c\xe2\x95\x8c \xe2\x96\x80\xe2\x96\x84\xe2\x96\x88\xe2\x96\x8c\xe2\x96\x90\xe2\x96\x91\xe2\x96\x92\xe2\x96\x93\xe2\x96\x9a\xe2\x96\x9f \xe2\xa0\x81\xe2\xa0\xbf\xe2\xa3\x80\xe2\xa2\xb2 \x1b[31m\xe2\x94\x8f\xe2\x94\x81\xe2\x94\x93\x1b[0m\r\n\
           marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed\r\n\
           arrows a -> b => c != d <= e // f :: g <- end\r\n",
     );

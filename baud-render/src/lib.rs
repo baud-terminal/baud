@@ -26,6 +26,7 @@
 #![forbid(unsafe_code)]
 
 mod atlas;
+pub mod boxes;
 mod cache;
 mod cellmap;
 mod color;

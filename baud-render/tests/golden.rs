@@ -25,15 +25,18 @@ fn dump_ppm(c: &Canvas, path: &str) {
     std::fs::write(path, out).unwrap();
 }
 
-/// `(recording, digest)`, regenerate with `GOLDEN_PRINT=1`.
+/// `(recording, digest)`, regenerate with `GOLDEN_PRINT=1`. btop and
+/// cava carry box drawing and braille, drawn by `baud_render::boxes`
+/// rather than by JetBrains Mono, so their digests are baud's own masks:
+/// btop's graph braille was `.notdef` boxes in the font and is now dots.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0x456c152d8222558e),
-    ("utf8/btop.raw", 0xf65863f26cfca29a),
+    ("utf8/btop.raw", 0xa07322ef55ae6859),
     ("ascii/cat-scroll.raw", 0xe999d6de53f9bd22),
     ("ascii/git-log.raw", 0xdd0654c533b33046),
     ("ascii/less-pager.raw", 0xfefd4d0139c73789),
     ("utf8/cat-cjk.raw", 0x9ea1d82356198690),
-    ("utf8/cava.raw", 0x3c30d39e2e80bf73),
+    ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
     ("utf8/vim-unicode.raw", 0xddf30bb4376a32a8),
 ];
