@@ -172,6 +172,25 @@ impl Chan {
     pub fn from_u8(v: u8) -> Chan {
         Chan(v)
     }
+    /// A channel from a unit fraction -- an alpha written as `0.22` rather
+    /// than as `56`, which is what a config and an AppKit colour both
+    /// carry.
+    ///
+    /// **Rounded, not truncated**, and clamped before it is scaled: 0.22
+    /// of 255 is 56.1, and the floor of a fraction is a different colour
+    /// from the nearest one.
+    ///
+    /// Half-up by `+ 0.5` rather than by `round`, which is libm's and this
+    /// crate is `no_std`. They agree here and only here: the operand is
+    /// clamped to 0..=1 first, so it is never negative, which is the one
+    /// case where truncating a half-up differs from rounding to nearest.
+    ///
+    /// A NaN gives zero -- `clamp` returns the NaN, and `as` saturates it
+    /// -- which is the safe end for an opacity. Pinned, rather than left
+    /// to be rediscovered.
+    pub fn from_unit(v: f32) -> Chan {
+        Chan((v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)
+    }
     /// As a palette subscript. The palette has exactly 256 entries because a
     /// `Chan` has exactly 256 values, so this cannot be out of range.
     pub fn index(self) -> usize {

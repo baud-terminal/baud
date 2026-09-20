@@ -1,11 +1,19 @@
 //! The terminal's configuration: which faces, what size, how translucent.
 //!
 //! A small, dependency-free reader for a subset of TOML -- `key = value`,
-//! string and integer scalars, and a bracketed list of strings that may span
-//! lines. baud owns its stack rather than pulling `serde` and a TOML crate for
-//! a handful of keys -- a font list, `font_size`, `background_alpha`,
-//! `padding` and `colorspace` -- and a key it does not understand is ignored
-//! rather than fatal, so a newer config does not break an older binary.
+//! string, integer and decimal scalars, a bracketed list of strings that may
+//! span lines, and `[section]` headers. baud owns its stack rather than
+//! pulling `serde` and a TOML crate for a handful of keys -- a font list,
+//! `font_size`, `padding`, `colorspace`, `theme`, and the eight under
+//! `[glass]` -- and a key it does not understand is ignored rather than
+//! fatal, so a newer config does not break an older binary.
+//!
+//! **Sections are a namespace, and they did not used to be.** The reader
+//! flattened them, so `[glass] style` and a top-level `style` were one key;
+//! `[glass]`'s eight names are generic enough (`hue`, `shadow`, `style`)
+//! that flattening them would have put them in the same space as every
+//! future top-level key. A config that put a top-level key under some
+//! header stops being read -- neither committed config does.
 //!
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
@@ -29,8 +37,6 @@ pub struct Config {
     pub faces: Vec<FaceSpec>,
     /// Points; pixels are this times the backing scale.
     pub font_size: f32,
-    /// The window background's opacity, 0 clear to 255 opaque.
-    pub background_alpha: u8,
     /// The gutter, in points, left of and right of and below the grid, so
     /// the glass shows through around the terminal rather than the cells
     /// meeting the window's edge. The titlebar strip is the top gutter and
@@ -46,6 +52,98 @@ pub struct Config {
     /// driver re-reads it on every style change; the Linux driver has no
     /// signal wired yet and resolves it to dark.
     pub theme: ThemeChoice,
+    /// The window's material and how it is dimmed, from `[glass]`.
+    pub glass: Glass,
+}
+
+/// The material, and the dimming over it.
+///
+/// **Every value here is one the crate's own example sweeps with a `GN_*`
+/// environment variable** -- `examples/common/mod.rs` in
+/// `macos-liquid-glass`, the content both `titled` and `borderless` draw,
+/// and what was built as `glassterm` before the examples were renamed.
+/// The defaults are that example's own calibration, which its header
+/// records as "tuned against the system widget over one wallpaper rather
+/// than derived from a measurement" -- so they are a starting point a
+/// reader adjusts, which is why every one of them is a key.
+///
+/// **Four of the eight are pairs, because the example's are.** The
+/// material darkening and the body dim both change with the system's
+/// light/dark setting; baud had one fixed `background_alpha` and no
+/// material darkening at all, which is the whole of why its glass looked
+/// nothing like the example's. Nothing here resolves the pair: that needs
+/// the appearance, which is the driver's to read, and this file compiles
+/// on Linux where there is no such signal.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Glass {
+    /// `style`: which material. `Clear` is the example's default and the
+    /// one Apple's HIG pairs with a dimming layer over bright content,
+    /// which is what a terminal body is.
+    pub style: Material,
+    /// `dim_dark`: the body dim under a dark appearance, 0 to 1. The
+    /// palette's background is painted at this.
+    pub dim_dark: f32,
+    /// `dim_light`: the same under a light appearance.
+    pub dim_light: f32,
+    /// `tint_dark`: the material darkening under a dark appearance, 0 to
+    /// 1 -- applied to the material itself rather than as a layer over
+    /// it, so the titlebar strip and the body share one surface.
+    pub tint_dark: f32,
+    /// `tint_light`: the same under a light appearance. A black strong
+    /// enough for Dark would wrongly darken Light, which is the reason
+    /// the pair exists.
+    pub tint_light: f32,
+    /// `hue`: the material darkening's hue, 0 to 1. Not black: black
+    /// scales every channel equally, so it cannot shift the material's
+    /// hue, only scale the colour down -- the harder it darkens, the less
+    /// colour survives.
+    pub hue: f32,
+    /// `saturation`: the material darkening's saturation, 0 to 1.
+    pub saturation: f32,
+    /// `shadow`: whether the window casts one.
+    pub shadow: Shadow,
+}
+
+/// Which `NSGlassEffectView` style the surface asks for.
+///
+/// Named for what it selects rather than `GlassStyle`, which is the
+/// crate's own type: this one has to compile on Linux, so it carries the
+/// choice and the driver maps it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Material {
+    #[default]
+    Clear,
+    Regular,
+}
+
+/// `auto` casts a shadow only under a dark appearance: over a light
+/// material a window shadow draws as a hard black outline, which none of
+/// the system's own light glass surfaces have.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Shadow {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl Glass {
+    /// The example's own calibration, the values its `GN_*` knobs default
+    /// to: `GN_PAPER_D` 0.22, `GN_PAPER_L` 0.12, `GN_GT_D` 0.54,
+    /// `GN_GT_L` 0.14, `GN_HUE` 0.60, `GN_HSAT` 0.80, `GN_GLASS` clear,
+    /// `GN_SHADOW` auto.
+    pub fn defaults() -> Glass {
+        Glass {
+            style: Material::Clear,
+            dim_dark: 0.22,
+            dim_light: 0.12,
+            tint_dark: 0.54,
+            tint_light: 0.14,
+            hue: 0.60,
+            saturation: 0.80,
+            shadow: Shadow::Auto,
+        }
+    }
 }
 
 /// The palette, or the instruction to follow the system's appearance.
@@ -73,10 +171,10 @@ impl Config {
         Config {
             faces: default_faces(),
             font_size: 13.0,
-            background_alpha: 0xD8,
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
+            glass: Glass::defaults(),
             source: None,
         }
     }
@@ -93,24 +191,30 @@ impl Config {
     }
 
     fn apply(&mut self, text: &str) {
-        for (key, value) in fields(text) {
-            match key.as_str() {
-                "font_size" => {
+        for (section, key, value) in fields(text) {
+            match (section.as_str(), key.as_str()) {
+                ("", "font_size") => {
                     if let Ok(v) = value.trim().parse::<f32>() {
                         self.font_size = v;
                     }
                 }
-                "background_alpha" => {
-                    if let Ok(v) = value.trim().parse::<u8>() {
-                        self.background_alpha = v;
-                    }
+                // Recognised only to say it is gone. Dropping it to the
+                // wildcard would leave the owner's own config carrying a
+                // number that reaches no drawing code, which is the
+                // failure the example's `GN_GTINT` comment records: a
+                // knob that reports one thing and does another.
+                ("", "background_alpha") => {
+                    crate::warn!(
+                        "config: background_alpha is superseded by [glass] dim_dark and \
+                         dim_light, which change with the system appearance; it is ignored"
+                    );
                 }
-                "padding" => {
+                ("", "padding") => {
                     if let Ok(v) = value.trim().parse::<f32>() {
                         self.padding = v.max(0.0);
                     }
                 }
-                "theme" => {
+                ("", "theme") => {
                     self.theme = match value.trim().trim_matches('"') {
                         "auto" => ThemeChoice::Auto,
                         "dark" => ThemeChoice::Dark,
@@ -123,7 +227,7 @@ impl Config {
                         }
                     };
                 }
-                "colorspace" => {
+                ("", "colorspace") => {
                     self.colorspace = match value.trim().trim_matches('"') {
                         "srgb" => Space::Srgb,
                         "display-p3" => Space::DisplayP3,
@@ -135,16 +239,94 @@ impl Config {
                         }
                     };
                 }
-                "fonts" => {
+                ("", "fonts") => {
                     let faces: Vec<_> =
                         strings(&value).iter().map(|s| FaceSpec::parse(s)).collect();
                     if !faces.is_empty() {
                         self.faces = faces;
                     }
                 }
+                ("glass", "style") => {
+                    self.glass.style = match value.trim().trim_matches('"') {
+                        "clear" => Material::Clear,
+                        "regular" => Material::Regular,
+                        other => {
+                            crate::warn!(
+                                "config: glass style {other:?} is not clear or regular; \
+                                 using clear"
+                            );
+                            Material::Clear
+                        }
+                    };
+                }
+                ("glass", "shadow") => {
+                    self.glass.shadow = match value.trim().trim_matches('"') {
+                        "auto" => Shadow::Auto,
+                        "always" => Shadow::Always,
+                        "never" => Shadow::Never,
+                        other => {
+                            crate::warn!(
+                                "config: glass shadow {other:?} is not auto, always or \
+                                 never; using auto"
+                            );
+                            Shadow::Auto
+                        }
+                    };
+                }
+                ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark"),
+                ("glass", "dim_light") => self.glass.dim_light = unit(&value, "dim_light"),
+                ("glass", "tint_dark") => self.glass.tint_dark = unit(&value, "tint_dark"),
+                ("glass", "tint_light") => self.glass.tint_light = unit(&value, "tint_light"),
+                ("glass", "hue") => self.glass.hue = unit(&value, "hue"),
+                ("glass", "saturation") => self.glass.saturation = unit(&value, "saturation"),
+                // `[glass]` is a closed set of eight, so a name that is
+                // not one of them is a typo rather than a key from a
+                // newer baud, and saying so costs a line. It is a warning
+                // and not an error for the reason every other unknown key
+                // is ignored: a newer config must not break an older
+                // binary.
+                ("glass", other) => {
+                    crate::warn!("config: [glass] has no key {other:?}; it is ignored");
+                }
                 _ => {}
             }
         }
+    }
+}
+
+/// A `[glass]` fraction: parsed, and clamped to 0..=1 with a warning.
+///
+/// Clamped rather than rejected, for the reason a malformed `GN_ORIGIN` is
+/// ignored rather than fatal in the example: a mistyped alpha should not
+/// stop the window appearing. It says what it did, because a value
+/// silently changed is the same defect as a key silently ignored.
+fn unit(value: &str, name: &str) -> f32 {
+    let raw = value.trim();
+    let Ok(v) = raw.parse::<f32>() else {
+        let d = fallback(name);
+        crate::warn!("config: glass {name} {raw:?} is not a number; using {d}");
+        return d;
+    };
+    if !(0.0..=1.0).contains(&v) {
+        let c = v.clamp(0.0, 1.0);
+        crate::warn!("config: glass {name} {v} is outside 0..1; using {c}");
+        return c;
+    }
+    v
+}
+
+/// What a rejected `[glass]` value falls back to: the default for that key
+/// rather than a shared zero, which would turn a typo into a missing
+/// material instead of a default one.
+fn fallback(name: &str) -> f32 {
+    let g = Glass::defaults();
+    match name {
+        "dim_dark" => g.dim_dark,
+        "dim_light" => g.dim_light,
+        "tint_dark" => g.tint_dark,
+        "tint_light" => g.tint_light,
+        "hue" => g.hue,
+        _ => g.saturation,
     }
 }
 
@@ -185,17 +367,32 @@ fn read_first() -> Option<(std::path::PathBuf, String)> {
         .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
 }
 
-/// `key = value` pairs. A value runs to the end of the line, or, when it opens
-/// a `[`, to the matching `]` however many lines that takes. Comments (`#`)
-/// outside a string and blank lines are skipped. Section headers (`[name]` on
-/// their own line) are ignored -- the keys are flat.
-fn fields(text: &str) -> Vec<(String, String)> {
+/// `(section, key, value)` triples. A value runs to the end of the line, or,
+/// when it opens a `[`, to the matching `]` however many lines that takes.
+/// Comments (`#`) outside a string and blank lines are skipped.
+///
+/// **A section header (`[name]` on its own line) opens a namespace**, and
+/// the keys after it carry it until the next one; keys before any header
+/// carry the empty section. This reader used to drop the header and
+/// flatten the keys, which was fine while no two sections wanted the same
+/// name and stopped being fine the moment `[glass]` asked for `style`,
+/// `hue` and `shadow`.
+///
+/// A header is told from a list's opening bracket by the line being
+/// nothing else: a list is the right-hand side of a `key =`, so it never
+/// starts a line.
+fn fields(text: &str) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
+    let mut section = String::new();
     let mut lines = text.lines().peekable();
     while let Some(line) = lines.next() {
         let line = strip_comment(line);
         let trimmed = line.trim();
-        if trimmed.is_empty() || (trimmed.starts_with('[') && trimmed.ends_with(']')) {
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            section = trimmed[1..trimmed.len() - 1].trim().to_string();
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
@@ -214,7 +411,7 @@ fn fields(text: &str) -> Vec<(String, String)> {
                 }
             }
         }
-        out.push((key.trim().to_string(), value));
+        out.push((section.clone(), key.trim().to_string(), value));
     }
     out
 }
@@ -337,5 +534,160 @@ mod tests {
                 "{name} U+{cp:04X} is in no face of the default stack"
             );
         }
+    }
+}
+
+/// The reader, and what sections being a namespace buys.
+///
+/// These are unit tests rather than a file under `tests/` because
+/// `baud-app` is a binary crate and an integration test cannot reach its
+/// internals -- the same reason `sys.rs` holds its ABI probes.
+#[cfg(test)]
+mod reader {
+    use super::*;
+
+    fn read(text: &str) -> Config {
+        let mut c = Config::defaults();
+        c.apply(text);
+        c
+    }
+
+    /// The defaults are the crate example's own calibration, so a config
+    /// that names no `[glass]` key at all gets what `glassterm` draws.
+    /// Pinned by value: these are what the record quotes.
+    #[test]
+    fn the_defaults_are_the_examples_calibration() {
+        let g = Config::defaults().glass;
+        assert_eq!(g.style, Material::Clear);
+        assert_eq!(g.shadow, Shadow::Auto);
+        assert_eq!((g.dim_dark, g.dim_light), (0.22, 0.12));
+        assert_eq!((g.tint_dark, g.tint_light), (0.54, 0.14));
+        assert_eq!((g.hue, g.saturation), (0.60, 0.80));
+    }
+
+    #[test]
+    fn a_glass_section_sets_every_one_of_its_keys() {
+        let c = read(
+            r#"
+[glass]
+style      = "regular"
+dim_dark   = 0.3
+dim_light  = 0.05
+tint_dark  = 0.4
+tint_light = 0.2
+hue        = 0.1
+saturation = 0.9
+shadow     = "never"
+"#,
+        );
+        assert_eq!(c.glass.style, Material::Regular);
+        assert_eq!(c.glass.shadow, Shadow::Never);
+        assert_eq!((c.glass.dim_dark, c.glass.dim_light), (0.3, 0.05));
+        assert_eq!((c.glass.tint_dark, c.glass.tint_light), (0.4, 0.2));
+        assert_eq!((c.glass.hue, c.glass.saturation), (0.1, 0.9));
+    }
+
+    /// **The half that fails on the reader this replaced.** It flattened
+    /// the headers, so a top-level `style` and `[glass] style` were one
+    /// key -- and `[glass]`'s names are generic enough that the collision
+    /// is not hypothetical.
+    #[test]
+    fn a_top_level_key_does_not_reach_the_glass_section() {
+        let c = read("style = \"regular\"\nhue = 0.1\nshadow = \"never\"\n");
+        assert_eq!(c.glass.style, Material::Clear, "top-level style leaked");
+        assert_eq!(c.glass.hue, 0.60, "top-level hue leaked");
+        assert_eq!(c.glass.shadow, Shadow::Auto, "top-level shadow leaked");
+    }
+
+    /// And the other half: a section must not swallow the keys that are
+    /// not in one, whether it comes before them or after.
+    #[test]
+    fn top_level_keys_parse_around_a_section() {
+        let c = read("font_size = 20\n[glass]\ndim_dark = 0.3\n");
+        assert_eq!(c.font_size, 20.0);
+        assert_eq!(c.glass.dim_dark, 0.3);
+        // A key under `[glass]` that belongs to no section is not a
+        // top-level key either: `font_size` below is the glass section's.
+        let c = read("[glass]\ndim_dark = 0.3\nfont_size = 20\n");
+        assert_eq!(c.font_size, 13.0, "a sectioned font_size set the top level");
+        assert_eq!(c.glass.dim_dark, 0.3);
+    }
+
+    /// A mistyped alpha is clamped and said, not fatal and not silent --
+    /// and a value that is not a number falls back to *that key's*
+    /// default rather than to a shared zero, which would turn a typo into
+    /// a missing material.
+    #[test]
+    fn a_value_outside_the_unit_range_is_clamped_and_a_word_is_refused() {
+        let c = read("[glass]\ndim_dark = 4\ndim_light = -1\ntint_dark = \"thick\"\n");
+        assert_eq!(c.glass.dim_dark, 1.0);
+        assert_eq!(c.glass.dim_light, 0.0);
+        assert_eq!(c.glass.tint_dark, 0.54, "a word fell back to zero");
+    }
+
+    /// An unknown word for an enum keeps the default rather than the
+    /// previous value, so a typo cannot leave a config half-applied.
+    #[test]
+    fn an_unknown_material_or_shadow_falls_back() {
+        let c = read("[glass]\nstyle = \"frosted\"\nshadow = \"sometimes\"\n");
+        assert_eq!(c.glass.style, Material::Clear);
+        assert_eq!(c.glass.shadow, Shadow::Auto);
+    }
+
+    /// `background_alpha` is recognised only to be reported gone. The
+    /// assertion with teeth is that it does not reach a dim: a reader's
+    /// 255 must not turn into an opaque window through some later
+    /// aliasing of the old key onto the new one.
+    #[test]
+    fn background_alpha_no_longer_reaches_a_dim() {
+        let c = read("background_alpha = 255\nfont_size = 20\n");
+        assert_eq!(c.glass.dim_dark, 0.22);
+        assert_eq!(c.glass.dim_light, 0.12);
+        assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
+    }
+
+    /// **The committed example must parse to what it documents**, and
+    /// the first draft of it did not: `fonts` sat after the `[glass]`
+    /// header, so the namespace this change introduces swallowed the font
+    /// stack and the example silently ran the built-in one. A file whose
+    /// keys are in the wrong order is the same defect as a key in the
+    /// wrong section, and nothing but reading it catches either.
+    #[test]
+    fn the_committed_example_parses_to_what_it_documents() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../config.toml.example"
+        ))
+        .expect("config.toml.example");
+        let c = read(&text);
+        assert_eq!(c.font_size, 13.0);
+        assert_eq!(c.padding, 8.0);
+        assert_eq!(c.theme, ThemeChoice::Auto);
+        assert_eq!(c.colorspace, Space::Srgb);
+        // The stack it lists, not the built-in one it would fall back to.
+        assert_eq!(c.faces.len(), 3, "the font stack was not read");
+        assert!(
+            c.faces[0].path.ends_with("Menlo.ttc"),
+            "{}",
+            c.faces[0].path
+        );
+        // And every `[glass]` key reached the glass rather than nothing.
+        assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");
+    }
+
+    /// The list reader still spans lines with a section above it, which
+    /// is the one shape the header test could have broken: a list's `[`
+    /// opens a value where a header's `[` opens a line.
+    #[test]
+    fn a_list_across_lines_survives_a_section_header() {
+        let c = read("[glass]\ndim_dark = 0.3\n\nfonts = [\n  \"a\",\n  \"b@2\",\n]\n");
+        // `fonts` is under `[glass]` here, so it is NOT the font stack --
+        // which is the namespace working, not a defect.
+        assert_eq!(c.faces.len(), Config::defaults().faces.len());
+        let c = read("fonts = [\n  \"a\",\n  \"b@2\",\n]\n[glass]\ndim_dark = 0.3\n");
+        assert_eq!(c.faces.len(), 2);
+        assert_eq!(c.faces[1].path, "b");
+        assert_eq!(c.faces[1].index, 2);
+        assert_eq!(c.glass.dim_dark, 0.3);
     }
 }

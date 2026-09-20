@@ -34,8 +34,8 @@ use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSImage, NSImageView,
-    NSScreen, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSColor, NSImage,
+    NSImageView, NSScreen, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -394,8 +394,8 @@ struct Boot {
     padding: f64,
     /// Whether the palette follows the appearance, from the config.
     theme: crate::config::ThemeChoice,
-    /// The background's opacity, from the config.
-    bg_alpha: baud_domain::Chan,
+    /// The material and its dimming, from the config's `[glass]`.
+    glass: crate::config::Glass,
 }
 
 impl Boot {
@@ -486,7 +486,16 @@ impl Boot {
             crate::config::ThemeChoice::Light => Theme::light(),
             _ => Theme::dark(),
         };
-        theme.bg_alpha = baud_domain::Chan::from_u8(cfg.background_alpha);
+        // The dim for the appearance the config pins, or dark's until the
+        // window can be asked -- this renderer draws no frame; `run` sets
+        // the palette again from `window.is_dark()` before the first one.
+        theme.bg_alpha = dim(
+            &cfg.glass,
+            match cfg.theme {
+                crate::config::ThemeChoice::Light => Appearance::Light,
+                _ => Appearance::Dark,
+            },
+        );
         let space = match cfg.colorspace {
             crate::config::Space::Srgb => SurfaceSpace::Srgb,
             crate::config::Space::DisplayP3 => SurfaceSpace::DisplayP3,
@@ -514,7 +523,7 @@ impl Boot {
             font_size: cfg.font_size,
             padding: f64::from(cfg.padding),
             theme: cfg.theme,
-            bg_alpha: baud_domain::Chan::from_u8(cfg.background_alpha),
+            glass: cfg.glass,
         }
     }
 
@@ -538,7 +547,7 @@ impl App {
             // Both were consumed in `prepare`, which built the renderer's
             // palette; `run` reads them off `boot` for the driver.
             theme: _,
-            bg_alpha: _,
+            glass: _,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -1254,6 +1263,104 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 #[derive(Clone, Default)]
 struct PendingStyle(std::rc::Rc<std::cell::Cell<Option<Appearance>>>);
 
+/// Which of a `[glass]` pair the window's appearance selects.
+///
+/// **One source, read in three places, and they agree only because baud
+/// does not force the window's appearance.** The startup call reads the
+/// window, the style observer reads the window, and `apply_style` reads
+/// what the view reported -- and a view's effective appearance is the
+/// window's while nothing assigns the window one. The crate's own example
+/// *does* assign it, from the Icon & widget style, and that is a
+/// different light/dark axis: under the Default selection the preference
+/// key is absent and the crate infers light, which painted a terminal
+/// light under a dark system. If `window.set_appearance` is ever added
+/// back, these three stop agreeing.
+fn appearance_of(window: &GlassWindow) -> Appearance {
+    if window.is_dark() {
+        Appearance::Dark
+    } else {
+        Appearance::Light
+    }
+}
+
+/// The body dim for an appearance, as the channel the palette's
+/// background is painted at.
+fn dim(glass: &crate::config::Glass, appearance: Appearance) -> baud_domain::Chan {
+    baud_domain::Chan::from_unit(match appearance {
+        Appearance::Dark => glass.dim_dark,
+        Appearance::Light => glass.dim_light,
+    })
+}
+
+/// HSB to an sRGB colour.
+///
+/// Built in sRGB explicitly, so the alpha has a defined colour space
+/// rather than whatever `NSColor.black` happens to be -- Generic Gray
+/// Gamma 2.2, which cannot carry a hue at all. The same conversion the
+/// crate's example does by hand, for the same reason.
+fn hsb(h: f32, sat: f32, b: f32, alpha: f32) -> Retained<NSColor> {
+    let c = f64::from(b * sat);
+    let hp = f64::from(h.rem_euclid(1.0)) * 6.0;
+    let x = c * (1.0 - (hp % 2.0 - 1.0).abs());
+    // Compared rather than cast to a sector index: `hp` is already
+    // bounded to 0..6 by the `rem_euclid`, so the six arms are six range
+    // tests -- and a cast here would be the only one in this crate
+    // outside the kernel ABI in `sys.rs`.
+    let (r1, g1, b1) = if hp < 1.0 {
+        (c, x, 0.0)
+    } else if hp < 2.0 {
+        (x, c, 0.0)
+    } else if hp < 3.0 {
+        (0.0, c, x)
+    } else if hp < 4.0 {
+        (0.0, x, c)
+    } else if hp < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = f64::from(b) - c;
+    NSColor::colorWithSRGBRed_green_blue_alpha(r1 + m, g1 + m, b1 + m, f64::from(alpha))
+}
+
+/// The material darkening and the shadow, for an appearance.
+///
+/// **The darkening goes on the MATERIAL, not as a layer over it**, so the
+/// titlebar strip and the body share one surface -- which is what the
+/// crate's example does with the same setter, and what baud did not do at
+/// all. It is appearance-dependent because a black strong enough for dark
+/// would wrongly darken light.
+///
+/// The colour is a dark, slightly saturated blue rather than pure black:
+/// black scales every channel equally, so it cannot shift the material's
+/// hue, only scale the colour down -- the harder it darkens, the less
+/// colour survives. Zero strength means no tint at all rather than a
+/// transparent one.
+///
+/// **What this does not carry.** The example also washes the surface with
+/// the Icon & widget style's *theme* colour under Tinted, and it does so
+/// by painting it in its own `drawRect:` -- explicitly not through this
+/// setter, which "despite being documented as a bias floods the surface
+/// to a flat saturated slab at full strength". baud has no equivalent of
+/// that painting and no key for it, so a Tinted desktop gets the material
+/// darkening and no theme colour.
+fn apply_glass(
+    glass: &GlassSurface,
+    window: &GlassWindow,
+    cfg: &crate::config::Glass,
+    appearance: Appearance,
+) {
+    let dark = appearance == Appearance::Dark;
+    let strength = if dark { cfg.tint_dark } else { cfg.tint_light };
+    let color = (strength > 0.0).then(|| hsb(cfg.hue, cfg.saturation, 0.10, strength));
+    glass.set_tint_color(color.as_deref());
+    window.set_has_shadow(match cfg.shadow {
+        crate::config::Shadow::Always => true,
+        crate::config::Shadow::Never => false,
+        crate::config::Shadow::Auto => dark,
+    });
+}
+
 /// The palette an appearance resolves to, at the configured opacity.
 fn theme_for(appearance: Appearance, alpha: baud_domain::Chan) -> Theme {
     let mut theme = match appearance {
@@ -1287,9 +1394,21 @@ struct Driver {
     /// window's material -- the glass is the window's, the palette is the
     /// terminal's, and only the second is the reader's choice.
     theme_choice: crate::config::ThemeChoice,
-    /// The opacity the palette is painted at, kept so a theme swap can
-    /// rebuild one without re-reading the config.
-    bg_alpha: baud_domain::Chan,
+    /// The material and its dimming, from the config's `[glass]`. Kept
+    /// so an appearance change can resolve the pairs without re-reading
+    /// the config, and so a theme swap can rebuild the palette.
+    glass_cfg: crate::config::Glass,
+    /// The window's material, and the window itself, so a light/dark flip
+    /// can re-tint the one and re-shadow the other. Both are retains: a
+    /// clone of either addresses the one AppKit object.
+    ///
+    /// The window one closes a cycle -- the window owns the view, the
+    /// view owns this driver, and this driver retains the window -- which
+    /// is a leak of exactly one window on a process that never tears its
+    /// window down before it exits, and is the same trade the style
+    /// observer is deliberately `forget`ten for.
+    glass: GlassSurface,
+    window: GlassWindow,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -2321,7 +2440,7 @@ pub fn run() {
     // the margin. The pty and the renderer follow the inset area.
     let padding = boot.padding;
     let theme_choice = boot.theme;
-    let bg_alpha = boot.bg_alpha;
+    let glass_cfg = boot.glass;
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -2403,7 +2522,30 @@ pub fn run() {
     }
     let inset = measured;
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
-    let glass = GlassSurface::new(mtm, frame, GlassStyle::Regular, 16.0).expect("glass");
+    // **The material is the config's, and it is chosen once.** `Regular` is
+    // the standard frosted material and `Clear` the thinner, more transparent
+    // one, which Apple's HIG pairs with a dimming layer over bright content.
+    // baud *is* that dimming layer -- it paints its palette's background over
+    // the material -- so asking for the thicker one and then covering it at
+    // 85%, which is what a fixed `background_alpha = 216` did, was paying for
+    // a material twice and seeing neither. Unlike the dim, the tint and the
+    // shadow, the style does not change with the appearance, so there is no
+    // setter call anywhere: it is a constructor argument and nothing else.
+    let glass = GlassSurface::new(
+        mtm,
+        frame,
+        match glass_cfg.style {
+            crate::config::Material::Clear => GlassStyle::Clear,
+            crate::config::Material::Regular => GlassStyle::Regular,
+        },
+        16.0,
+    )
+    .expect("glass");
+    // Tinted before it is shown rather than after: the surface is not the
+    // window's content until the first frame is on the layer, so doing it
+    // here costs nothing and there is no frame in which an untinted
+    // material is visible.
+    apply_glass(&glass, &window, &glass_cfg, appearance_of(&window));
     let view = DrawableView::new(mtm, frame);
     startup_mark("window");
     let _ = late.set(view.waker());
@@ -2538,7 +2680,9 @@ pub fn run() {
         deferred: Deferred::Nothing,
         style: style.clone(),
         theme_choice,
-        bg_alpha,
+        glass_cfg,
+        glass: glass.clone(),
+        window: window.clone(),
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,
@@ -2555,15 +2699,11 @@ pub fn run() {
     // this frame, so a light-mode launch would draw one dark frame and
     // correct it. The window knows its own appearance already.
     if theme_choice == crate::config::ThemeChoice::Auto {
-        let appearance = if window.is_dark() {
-            Appearance::Dark
-        } else {
-            Appearance::Light
-        };
+        let appearance = appearance_of(&window);
         driver
             .app
             .renderer
-            .set_theme(theme_for(appearance, bg_alpha));
+            .set_theme(theme_for(appearance, dim(&glass_cfg, appearance)));
     }
     Responder::resized(&mut driver, view.frame().size, scale);
     let v = driver.view.clone();
@@ -2597,10 +2737,18 @@ pub fn run() {
     // AppKit objects, not the driver -- and leaves the palette in a cell
     // for `pump`, because it can land while a responder callback holds the
     // view's borrow.
+    //
+    // **It used to hand `s.tint()` to `set_tint_color`, and that was the
+    // one thing the example's own comment forbids**: the theme colour
+    // through this setter "floods the surface to a flat saturated slab at
+    // full strength", which is why the example paints its wash in its own
+    // `drawRect:` instead. The setter carries the material *darkening*
+    // now, and nothing carries the wash -- see `apply_glass`.
     {
         let glass_cb = glass.clone();
-        let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |s| {
-            glass_cb.set_tint_color(s.tint());
+        let window_cb = window.clone();
+        let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
+            apply_glass(&glass_cb, &window_cb, &glass_cfg, appearance_of(&window_cb));
         });
         // The window is never torn down before the process ends, so the
         // observer outlives every reference by outliving the process --
@@ -3008,12 +3156,23 @@ impl Driver {
         let Some(appearance) = self.style.0.take() else {
             return;
         };
+        // **The material before the early return, because the glass is the
+        // window's and the palette is the terminal's.** A reader who pins
+        // `theme = "dark"` has chosen a palette, not a window: the
+        // material still follows the system, and returning above this
+        // line left it frozen at whatever the launch resolved.
+        apply_glass(&self.glass, &self.window, &self.glass_cfg, appearance);
         if self.theme_choice != crate::config::ThemeChoice::Auto {
+            // No frame is owed: the material is AppKit's own drawing and
+            // baud's surface did not change, because a pinned palette
+            // paints the same cells at the same dim. The two lines below
+            // are the repaint the *palette* owes, and this branch has no
+            // palette change to repaint.
             return;
         }
         self.app
             .renderer
-            .set_theme(theme_for(appearance, self.bg_alpha));
+            .set_theme(theme_for(appearance, dim(&self.glass_cfg, appearance)));
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
         self.app.present(&self.view, Show::Event);

@@ -9,10 +9,6 @@
 # Points; pixels are this times the display's backing scale.
 font_size = 13
 
-# The window background's opacity, 0 clear to 255 opaque, so the desktop shows
-# through the glass. 216 is the default.
-background_alpha = 216
-
 # The gutter in points around the grid -- left, right and below -- so the glass
 # shows through rather than the cells meeting the window's edge. The titlebar
 # strip is the top gutter. 8 is the default; 0 turns it off.
@@ -31,6 +27,7 @@ padding = 8
 theme = "auto"
 
 colorspace = "srgb"
+
 
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.
@@ -62,3 +59,48 @@ fonts = [
 #   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
+
+# The window's material and how it is dimmed. Every key here is one the
+# macos-liquid-glass example sweeps with a GN_* environment variable -- the
+# content both its examples draw, and what was built as "glassterm" -- and the
+# defaults below are that example's own calibration, which its header records
+# as tuned against the system widget over one wallpaper rather than derived
+# from a measurement. So they are a starting point, which is why they are keys.
+#
+# Four of the eight are PAIRS, because macOS light/dark is two different
+# surfaces: the same darkening that reads right over a dark desktop is far too
+# much over a light one. baud picks the one the system appearance names and
+# changes it when that changes -- so does the palette, unless "theme" above
+# pins it. On Linux there is no appearance signal yet, so "dim_dark" is used
+# and the rest of this section has no counterpart at all.
+[glass]
+
+# Which material. "clear" is the thinner, more transparent one, which Apple's
+# HIG pairs with a dimming layer over bright content -- which is what a
+# terminal body is. "regular" is the standard frosted material.
+style = "clear"
+
+# The body dim: the opacity the palette's background is painted at, 0 clear to
+# 1 opaque, so the desktop shows through it. This is the key to turn up if the
+# text is hard to read, and down for more glass.
+dim_dark = 0.22
+dim_light = 0.12
+
+# The material darkening, applied to the material itself rather than as a
+# layer over it, so the titlebar strip and the body are one surface. 0 turns
+# it off.
+tint_dark = 0.54
+tint_light = 0.14
+
+# The darkening's hue and saturation, 0 to 1 each. Not black: black scales
+# every channel equally, so it cannot shift the material's hue, only scale the
+# colour down -- the harder it darkens, the less colour survives. 0.60 is a
+# blue.
+hue = 0.60
+saturation = 0.80
+
+# Whether the window casts a shadow: "auto", "always" or "never". "auto" casts
+# one only under a dark appearance -- over a light material a window shadow
+# draws as a hard black outline, which none of the system's own light glass
+# surfaces have.
+shadow = "auto"

@@ -103,7 +103,12 @@ pub fn run() {
         crate::config::ThemeChoice::Light => Theme::light(),
         _ => Theme::dark(),
     };
-    theme.bg_alpha = Chan::from_u8(cfg.background_alpha);
+    // The same absence decides the dim: `[glass]`'s pairs are resolved by
+    // the appearance, and `dim_light` is unreachable here for exactly as
+    // long as `Auto` is. The rest of `[glass]` -- the material, its
+    // darkening, the shadow -- is `NSGlassEffectView`'s and has no
+    // counterpart on this driver at all.
+    theme.bg_alpha = Chan::from_unit(cfg.glass.dim_dark);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(
         Stack::new(faces).expect("faces"),
