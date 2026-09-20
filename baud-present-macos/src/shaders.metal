@@ -175,16 +175,21 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     return o;
 }
 
-// Four shapes a cell: its underline, its strike, a second underline line for
-// a double underline, and the cursor when it is an underline or a bar. A shape
-// not drawn is a zero-area quad.
+// Shapes a cell: its underline, its strike, a second underline line for a
+// double underline, the cursor when it is an underline or a bar, and then
+// SEGMENTS quads for a curly, dotted or dashed underline (kitty's 4:3/4:4/4:5)
+// -- each a run of thickness-wide solids across the cell, so the styles need
+// no texel and composite exactly as the straight line does. A shape not drawn
+// is a zero-area quad.
+#define SHAPE_SLOTS 20u
+#define SEGMENTS (SHAPE_SLOTS - 4u)
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
-    uint which = iid % 4u, ci = iid / 4u;
+    uint which = iid % SHAPE_SLOTS, ci = iid / SHAPE_SLOTS;
     uint col = ci % u.grid.x, row = ci / u.grid.x;
     uint2 cell = cell_at(u, cells, col, row);
     Style s = styles[cell.y & 0xffffu];
@@ -213,7 +218,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         at = float2(col * u.cell.x, float(row * u.cell.y) + y);
         wh = float2(u.cell.x, u.thickness);
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
-    } else {
+    } else if (which == 3u) {
         if (col != u.cursor.x || row != u.cursor.y || u.cursor_kind < 2u) return o;
         if (u.cursor_kind == 2u) {
             at = float2(col * u.cell.x, float(row * u.cell.y + u.cell.y) - thick);
@@ -223,6 +228,24 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             wh = float2(thick, u.cell.y);
         }
         colw = fgw;
+    } else {
+        // Segment k of a styled underline: the same arithmetic as the CPU
+        // compositor's, so the two arms agree pixel for pixel.
+        uint k = which - 4u;
+        bool curly = (s.shapes & 16u) != 0u, dotted = (s.shapes & 32u) != 0u,
+             dashed = (s.shapes & 64u) != 0u;
+        if (!(curly || dotted || dashed)) return o;
+        float th = max(float(u.thickness), 1.0);
+        float dx = float(k) * th;
+        if (dx >= float(u.cell.x)) return o;
+        bool on = curly ? true : (dotted ? (k % 2u == 0u) : (k % 3u != 2u));
+        if (!on) return o;
+        float dy = (curly && (k % 2u == 1u)) ? th : 0.0;
+        float low = float(u.cell.y) - th;
+        float y = min(float(u.underline) + dy, max(low, float(u.underline)));
+        at = float2(float(col * u.cell.x) + dx, float(row * u.cell.y) + y);
+        wh = float2(th, th);
+        colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     }
     float2 c = float2(vid & 1u, vid >> 1u);
     o.pos = clip(at + c * wh, u);

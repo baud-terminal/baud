@@ -49,6 +49,11 @@ pub enum SgrAttr {
     /// `[[source: ctlseqs]]` gives it the same `5;n` and `2;r;g;b` spellings as
     /// the foreground and background, which is why it shares their parser.
     Underline(Color),
+    /// `SGR 4:n` -- the underline's style, one of [`Attrs::UNDERLINES`] or
+    /// `NONE`. **Replaces the family rather than setting a bit**: a `4:3`
+    /// after a `4:2` is curly, not double-and-curly, because exactly one
+    /// style is in force at a time.
+    UnderlineStyle(Attrs),
 }
 
 impl SgrAttr {
@@ -124,6 +129,7 @@ impl SgrAttr {
             100..=107 => SgrAttr::Bg(Color::Indexed(Chan::from_offset(v, 100 - 8))),
             0 => SgrAttr::Reset,
             1 => SgrAttr::Set(Attrs::BOLD),
+            4 => SgrAttr::UnderlineStyle(Attrs::UNDERLINE),
             39 => SgrAttr::Fg(Color::Default),
             49 => SgrAttr::Bg(Color::Default),
             _ => return None,
@@ -169,7 +175,35 @@ impl SgrAttr {
             1 => (SgrAttr::Set(Attrs::BOLD), ParamCount(1)),
             2 => (SgrAttr::Set(Attrs::DIM), ParamCount(1)),
             3 => (SgrAttr::Set(Attrs::ITALIC), ParamCount(1)),
-            4 => (SgrAttr::Set(Attrs::UNDERLINE), ParamCount(1)),
+            // `4 : n` -- the underline *style*, `[[source: kitty-underlines]]`:
+            // 0 none, 1 straight, 2 double, 3 curly, 4 dotted, 5 dashed. A
+            // colon group of two rather than a lone `4`, which stays the
+            // straight underline it always was. Exactly one style is in force,
+            // so the arm replaces the whole family: `Underline(style)` is a
+            // masked replace over `UNDERLINES`, and an unknown `n` is refused
+            // (`None`) rather than read as some other style. The group is
+            // consumed whole, however long an emitter made it.
+            4 if params.group_len(ParamIdx::FIRST) > 1 => {
+                let group = params.group_len(ParamIdx::FIRST);
+                let style = match params.at(ParamIdx::SECOND).map(|x| x.0) {
+                    Some(0) => Attrs::NONE,
+                    Some(1) => Attrs::UNDERLINE,
+                    Some(2) => Attrs::DOUBLE_UNDERLINE,
+                    Some(3) => Attrs::CURLY_UNDERLINE,
+                    Some(4) => Attrs::DOTTED_UNDERLINE,
+                    Some(5) => Attrs::DASHED_UNDERLINE,
+                    // A style this core does not know clears the family
+                    // rather than aborting the walk: `None` here would stop
+                    // every parameter after it from applying, which is a
+                    // worse answer than no underline.
+                    _ => Attrs::NONE,
+                };
+                (SgrAttr::UnderlineStyle(style), ParamCount(group))
+            }
+            // A bare `4` is `4:1`, `[[source: kitty-underlines]]`'s backward-
+            // compatible spelling: it *replaces* the family, so a `4` after a
+            // `4:3` is a straight underline and not a curly-and-straight one.
+            4 => (SgrAttr::UnderlineStyle(Attrs::UNDERLINE), ParamCount(1)),
             // 5 slow blink, 6 rapid blink. `[[source: ecma48]]` § 8.3.117
             // distinguishes them by rate; a terminal core has no timer and
             // nothing downstream can use the distinction, so both set BLINK.
@@ -189,10 +223,9 @@ impl SgrAttr {
                 SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR)),
                 ParamCount(1),
             ),
-            24 => (
-                SgrAttr::Unset(Attrs::UNDERLINE.with(Attrs::DOUBLE_UNDERLINE)),
-                ParamCount(1),
-            ),
+            // `24` is `4:0`: every underline style off, not only the two it
+            // used to name.
+            24 => (SgrAttr::Unset(Attrs::UNDERLINES), ParamCount(1)),
             25 => (SgrAttr::Unset(Attrs::BLINK), ParamCount(1)),
             27 => (SgrAttr::Unset(Attrs::REVERSE), ParamCount(1)),
             28 => (SgrAttr::Unset(Attrs::HIDDEN), ParamCount(1)),
@@ -429,6 +462,9 @@ impl SgrAttr {
             SgrAttr::Reset => *cur = StyleWord::DEFAULT,
             SgrAttr::Set(a) => cur.set_attrs(cur.attrs().with(a)),
             SgrAttr::Unset(a) => cur.set_attrs(cur.attrs().without(a)),
+            SgrAttr::UnderlineStyle(a) => {
+                cur.set_attrs(cur.attrs().without(Attrs::UNDERLINES).with(a))
+            }
             SgrAttr::Fg(c) => cur.set_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.set_bg(ColorWord::from_color(c)),
             SgrAttr::Font(f) => cur.set_font(f),
@@ -443,6 +479,9 @@ impl SgrAttr {
             SgrAttr::Reset => StyleWord::DEFAULT,
             SgrAttr::Set(a) => cur.with_attrs(cur.attrs().with(a)),
             SgrAttr::Unset(a) => cur.with_attrs(cur.attrs().without(a)),
+            SgrAttr::UnderlineStyle(a) => {
+                cur.with_attrs(cur.attrs().without(Attrs::UNDERLINES).with(a))
+            }
             SgrAttr::Fg(c) => cur.with_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.with_bg(ColorWord::from_color(c)),
             SgrAttr::Font(f) => cur.with_font(f),
@@ -468,7 +507,7 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             1 => Some(SgrAttr::Set(Attrs::BOLD)),
             2 => Some(SgrAttr::Set(Attrs::DIM)),
             3 => Some(SgrAttr::Set(Attrs::ITALIC)),
-            4 => Some(SgrAttr::Set(Attrs::UNDERLINE)),
+            4 => Some(SgrAttr::UnderlineStyle(Attrs::UNDERLINE)),
             5 | 6 => Some(SgrAttr::Set(Attrs::BLINK)),
             7 => Some(SgrAttr::Set(Attrs::REVERSE)),
             8 => Some(SgrAttr::Set(Attrs::HIDDEN)),
@@ -477,9 +516,7 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             21 => Some(SgrAttr::Set(Attrs::DOUBLE_UNDERLINE)),
             22 => Some(SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM))),
             23 => Some(SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR))),
-            24 => Some(SgrAttr::Unset(
-                Attrs::UNDERLINE.with(Attrs::DOUBLE_UNDERLINE),
-            )),
+            24 => Some(SgrAttr::Unset(Attrs::UNDERLINES)),
             25 => Some(SgrAttr::Unset(Attrs::BLINK)),
             26 => Some(SgrAttr::Set(Attrs::PROPORTIONAL)),
             27 => Some(SgrAttr::Unset(Attrs::REVERSE)),

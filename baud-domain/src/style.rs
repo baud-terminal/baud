@@ -71,6 +71,26 @@ impl Attrs {
     /// that a second bit "no renderer reads" would be the set-and-never-used
     /// failure held only until one did.
     pub const DOUBLE_UNDERLINE: Attrs = Attrs(1 << 18);
+    /// `SGR 4:3` -- curly underline, `[[source: kitty-underlines]]`; what
+    /// every language server draws a diagnostic with. Kitty's extension,
+    /// adopted by xterm, wezterm and foot.
+    pub const CURLY_UNDERLINE: Attrs = Attrs(1 << 19);
+    /// `SGR 4:4` -- dotted underline.
+    pub const DOTTED_UNDERLINE: Attrs = Attrs(1 << 20);
+    /// `SGR 4:5` -- dashed underline.
+    pub const DASHED_UNDERLINE: Attrs = Attrs(1 << 21);
+
+    /// **The five underline styles are one family and exactly one is in
+    /// force**, so a `4:n` replaces the family rather than adding a bit, and
+    /// `24` (`4:0`) clears all five. Named so the clear cannot drift from the
+    /// set, the shape `IDEOGRAM` has for `SGR 65`.
+    pub const UNDERLINES: Attrs = Attrs(
+        Attrs::UNDERLINE.0
+            | Attrs::DOUBLE_UNDERLINE.0
+            | Attrs::CURLY_UNDERLINE.0
+            | Attrs::DOTTED_UNDERLINE.0
+            | Attrs::DASHED_UNDERLINE.0,
+    );
 
     /// The five aspects `SGR 65` cancels together.
     ///
@@ -93,7 +113,7 @@ impl Attrs {
     /// to report the current rendition, and a `match` per bit is the shape that
     /// silently omits one -- which is how `fold` came to discard every
     /// attribute except reset and foreground.
-    pub const WIRE: [(Attrs, u8); 19] = [
+    pub const WIRE: [(Attrs, u8); 22] = [
         (Attrs::BOLD, 1),
         (Attrs::DIM, 2),
         (Attrs::ITALIC, 3),
@@ -104,6 +124,13 @@ impl Attrs {
         (Attrs::STRIKE, 9),
         (Attrs::FRAKTUR, 20),
         (Attrs::DOUBLE_UNDERLINE, 21),
+        // The three colon styles have no single-parameter spelling; `emit_sgr`
+        // writes them as `4:n`, keyed on these placeholder codes. They are in
+        // `WIRE` so that DECRQSS walks them like every other bit and so
+        // `CAPACITY` grows with them.
+        (Attrs::CURLY_UNDERLINE, 3),
+        (Attrs::DOTTED_UNDERLINE, 4),
+        (Attrs::DASHED_UNDERLINE, 5),
         (Attrs::PROPORTIONAL, 26),
         (Attrs::FRAMED, 51),
         (Attrs::ENCIRCLED, 52),
@@ -653,7 +680,11 @@ mod style_fold {
         }
         // The count is asserted so the test cannot quietly stop reaching the
         // grammar -- a probe that cannot fire looks exactly like a pass.
-        assert_eq!(checked, 36, "single-parameter SGR values in 0..=200");
+        // 37: the thirty-six the fast path always answered, plus `4` since the
+        // colon underline styles landed -- a bare `4` became a family replace
+        // (`UnderlineStyle`) so the fast path has to fold it the same way the
+        // grammar does, and a masked replace over `UNDERLINES` derives cleanly.
+        assert_eq!(checked, 37, "single-parameter SGR values in 0..=200");
     }
 
     /// Composition: two folds applied in turn must equal the pair that

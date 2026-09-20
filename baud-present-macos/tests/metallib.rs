@@ -109,3 +109,33 @@ fn the_shipped_library_offers_what_the_source_does() {
          -- run scripts/build-metallib.sh"
     );
 }
+
+/// **`SHAPE_SLOTS` in the shader and `SHAPES_PER_CELL` in `metal.rs` are
+/// one fact spelled twice.** The vertex stage turns an instance id into a
+/// cell and a slot by dividing by the first; the draw call sizes the
+/// instance count by multiplying by the second. Unequal, every slot past
+/// the smaller is never drawn -- which is how the colon underline styles
+/// nearly shipped drawn on one GPU arm and not the other: the shader grew
+/// sixteen segment slots and the Rust constant sat at four until the draw
+/// call was read. The pixel oracle catches the pixels; this catches the
+/// number before a `.metallib` is built.
+#[test]
+fn the_shape_slot_count_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define SHAPE_SLOTS ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines SHAPE_SLOTS");
+    let slots: usize = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("SHAPE_SLOTS is an unsigned literal");
+    assert_eq!(
+        slots,
+        baud_present_macos::metal::SHAPES_PER_CELL,
+        "the shader divides by {line:?} and the draw call multiplies by \
+         SHAPES_PER_CELL; they must be the same number"
+    );
+}

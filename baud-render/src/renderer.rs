@@ -959,13 +959,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 fg = bg;
             }
             let mut shapes = Shapes::default();
-            if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE))
-            {
+            // Any underline style asks for the base line's colour plumbing;
+            // which line is drawn is the style's own bit below. The three colon
+            // styles *replace* the straight line rather than adding to it, so
+            // the straight-line bit is set only for the two that draw one.
+            let styled = attrs.has(Attrs::UNDERLINES);
+            let straight = attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE);
+            if !blink_hidden && straight {
                 shapes = shapes.with(Shapes::UNDERLINE);
             }
             if !blink_hidden && attrs.has(Attrs::DOUBLE_UNDERLINE) {
                 shapes = shapes.with(Shapes::DOUBLE_UNDERLINE);
             }
+            if !blink_hidden && attrs.has(Attrs::CURLY_UNDERLINE) {
+                shapes = shapes.with(Shapes::CURLY_UNDERLINE);
+            }
+            if !blink_hidden && attrs.has(Attrs::DOTTED_UNDERLINE) {
+                shapes = shapes.with(Shapes::DOTTED_UNDERLINE);
+            }
+            if !blink_hidden && attrs.has(Attrs::DASHED_UNDERLINE) {
+                shapes = shapes.with(Shapes::DASHED_UNDERLINE);
+            }
+            let _ = styled;
             if !blink_hidden && attrs.has(Attrs::STRIKE) {
                 shapes = shapes.with(Shapes::STRIKE);
             }
@@ -1058,6 +1073,46 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.bg[range.start + c] = bg;
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
             let double = attrs.has(Attrs::DOUBLE_UNDERLINE);
+            // The three colon styles, `[[source: kitty-underlines]]`, drawn as
+            // runs of solid quads so they need no texel and composite exactly
+            // as the straight line does. Amplitude and period are the line's
+            // thickness, which is what keeps them legible at every size.
+            if !blink_hidden
+                && (attrs.has(Attrs::CURLY_UNDERLINE)
+                    || attrs.has(Attrs::DOTTED_UNDERLINE)
+                    || attrs.has(Attrs::DASHED_UNDERLINE))
+            {
+                let color = self.theme.underline(style, fg, |ch| term.palette(ch));
+                let ul = px_i32(self.metrics.underline);
+                let th = px_i32(self.metrics.thickness).max(1);
+                let w = px_i32(self.metrics.cell_w);
+                let low = px_i32(self.metrics.cell_h) - th;
+                let seg = Px::of(u32::try_from(th).unwrap_or(1));
+                let mut dx = 0;
+                let mut k = 0;
+                while dx < w {
+                    let (on, dy) = if attrs.has(Attrs::CURLY_UNDERLINE) {
+                        // A zigzag: up for a thickness, down for a thickness.
+                        (true, if k % 2 == 0 { 0 } else { th })
+                    } else if attrs.has(Attrs::DOTTED_UNDERLINE) {
+                        (k % 2 == 0, 0)
+                    } else {
+                        (k % 3 != 2, 0)
+                    };
+                    if on {
+                        let y = (ul + dy).min(low.max(ul));
+                        shapes.push(solid(
+                            screen(x + dx),
+                            screen(top + y),
+                            seg,
+                            self.metrics.thickness,
+                            color,
+                        ));
+                    }
+                    dx += th;
+                    k += 1;
+                }
+            }
             if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || double) {
                 let color = self.theme.underline(style, fg, |ch| term.palette(ch));
                 let ul = px_i32(self.metrics.underline);

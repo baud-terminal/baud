@@ -134,6 +134,15 @@ impl Paint<'_, '_> {
         for (bit, code) in Attrs::WIRE {
             if w.attrs().has(bit) {
                 self.emit(b";");
+                // The three colon styles have no one-parameter spelling: their
+                // `WIRE` code is the sub-parameter, written as `4:n` so the
+                // answer round-trips through `SgrAttr::parse`'s colon arm.
+                if bit == Attrs::CURLY_UNDERLINE
+                    || bit == Attrs::DOTTED_UNDERLINE
+                    || bit == Attrs::DASHED_UNDERLINE
+                {
+                    self.emit(b"4:");
+                }
                 self.emit_dec(WireByte::of(code));
             }
         }

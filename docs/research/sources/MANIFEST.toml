@@ -6513,3 +6513,24 @@ sha256 = "23b3314dff301e25977197ec402f688708a69d3366c9c613d99b268a46d9f23c"
 bytes  = 1462190
 status = "retrieved"
 group  = "R"
+
+[sources.kitty-underlines]
+key    = "kitty-underlines"
+title  = "Colored and styled underlines"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty documentation"
+url    = "https://sw.kovidgoyal.net/kitty/underlines/"
+file   = "kitty-underlines.html"
+sha256 = "73c2eb31824a9594f256693dd55d990acd3cc0094345f3b61a0f8d2c5c2a6546"
+bytes  = 156855
+status = "retrieved"
+group  = "C"
+# The colon underline styles: `CSI 4:0m` none, `4:1` straight, `4:2` double,
+# `4:3` curly, `4:4` dotted, `4:5` dashed, with `4m` and `24m` kept for
+# backward compatibility, and the rule that the underline colour "must remain
+# the same under reverse video, if it has a color, if not, it should follow the
+# foreground color". Not in ctlseqs; kitty's extension, adopted by xterm,
+# wezterm and foot. **The text layer carries the codes only once tags are
+# stripped** -- a grep for `4:3` on the raw HTML reads zero and is a probe that
+# cannot fire; `sed 's/<[^>]*>//g'` first, and all six are there.

@@ -344,6 +344,36 @@ fn the_widest_rendition_survives_the_reply_buffer() {
     );
 }
 
+/// **A colon underline style round-trips through DECRQSS.** The three colon
+/// styles have no one-parameter spelling, so the reply must write `4:n`
+/// where the walk over `WIRE` writes a bare code for every other bit -- and
+/// a reply that wrote `3` for curly would set *italic* when replayed. Each of
+/// the three, replayed, reproduces itself and nothing else.
+#[test]
+fn a_colon_underline_style_round_trips() {
+    for (set, name) in [
+        (&b"\x1b[4:3m"[..], "curly"),
+        (&b"\x1b[4:4m"[..], "dotted"),
+        (&b"\x1b[4:5m"[..], "dashed"),
+    ] {
+        let mut query = set.to_vec();
+        query.extend_from_slice(b"\x1bP$qm\x1b\\");
+        let reply = replies(&query);
+        let body = &reply[5..reply.len() - 2];
+        assert!(
+            body.windows(2).any(|w| w == b"4:"),
+            "{name}: the reply spells the style as 4:n, got {:?}",
+            String::from_utf8_lossy(body)
+        );
+        let mut replay = b"\x1b[".to_vec();
+        replay.extend_from_slice(body);
+        replay.push(b'X');
+        let mut original = set.to_vec();
+        original.push(b'X');
+        assert_eq!(grid(&replay), grid(&original), "{name} round-trips");
+    }
+}
+
 /// The *smallest* rendition whose reply does not round-trip.
 ///
 /// Bold plus three truecolours is sixteen parameters going in — it fits — but

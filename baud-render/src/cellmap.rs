@@ -379,6 +379,14 @@ impl Shapes {
     pub const UNDERLINE_FOLLOWS_FG: Shapes = Shapes(4);
     /// A second underline below the first: `SGR 21`, doubly underlined.
     pub const DOUBLE_UNDERLINE: Shapes = Shapes(8);
+    /// `SGR 4:3` -- curly. A zigzag one thickness in amplitude across the
+    /// cell, drawn in segments so it needs no texel; the shape a diagnostic
+    /// squiggle is.
+    pub const CURLY_UNDERLINE: Shapes = Shapes(16);
+    /// `SGR 4:4` -- dotted: one thickness on, one off, across the cell.
+    pub const DOTTED_UNDERLINE: Shapes = Shapes(32);
+    /// `SGR 4:5` -- dashed: two thicknesses on, one off.
+    pub const DASHED_UNDERLINE: Shapes = Shapes(64);
 
     pub fn with(self, s: Shapes) -> Shapes {
         Shapes(self.0 | s.0)

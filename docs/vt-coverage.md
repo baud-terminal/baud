@@ -587,7 +587,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 0 reset | done |
 | 1, 2 bold/dim · 22 neither | done |
 | 3 italic · 23 not | done |
-| 4 underline, 21 double · 24 not | done — one underline bit, so double is an underline |
+| 4 underline, 21 double, **4:1..4:5** styled · 24 / 4:0 not | done — five styles, exactly one in force: straight, double, and `[[source: kitty-underlines]]`'s curly, dotted and dashed, each its own `Attrs` bit and drawn by the software compositor and the cell shader. A `4:n` *replaces* the family and so does a bare 4 (the spec's backward-compatible 4:1); 24 and 4:0 clear all five; an unknown n clears rather than aborts the walk. **4:3 is not 4;3** -- sfte flattens the colon and gets underline-plus-italic, measured -- and DECRQSS reports the three colon styles as 4:n so the reply round-trips. `each_colon_style_sets_exactly_its_own_bit`, `the_colon_form_is_not_the_semicolon_form`, `a_style_replaces_the_family_and_4_0_clears_it`, `a_colon_underline_style_round_trips` |
 | 5, 6 blink · 25 steady | done — no timer, so rapid and slow are the same bit |
 | 7 reverse · 27 positive | done |
 | 8 conceal · 28 reveal | done |
