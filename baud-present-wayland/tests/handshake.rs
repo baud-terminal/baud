@@ -251,6 +251,34 @@ fn a_window_opens_shows_a_frame_and_types() {
     );
     assert_eq!(w.size(), Some((Px(320), Px(200))));
 
+    // **A zero configure means the client chooses, and it must keep what it
+    // had.** This is not an edge case: weston sends `0 x 0` for an ordinary
+    // toplevel, so it is what a real compositor does on nearly every launch --
+    // and it was the one branch of `xdg_toplevel::configure` no test reached,
+    // because the case above always sends a size. Running baud against a real
+    // headless weston is what exercised it; the guard held, and this pins it
+    // so nothing removes the `w > 0 && h > 0` test as redundant.
+    server.send(
+        top,
+        "xdg_toplevel",
+        "configure",
+        &[Arg::Int(0), Arg::Int(0), Arg::Array(&[])],
+    );
+    server.send(xdg, "xdg_surface", "configure", &[Arg::Uint(8)]);
+    pump(&mut conn, &mut w);
+    let r = server.expect("xdg_surface", "ack_configure");
+    assert!(
+        matches!(r.args[0], Val::Uint(8)),
+        "a zero configure is still acked -- the ack is owed per xdg_surface \
+         configure whatever the size says"
+    );
+    assert_eq!(
+        w.size(),
+        Some((Px(320), Px(200))),
+        "a zero configure must not resize the window: the compositor is \
+         deferring to the client, not asking for a zero-sized surface"
+    );
+
     // A frame: the pool arrives with its file, two buffers, then attach,
     // damage, a frame callback and the commit.
     let frame = vec![0x80ff_0000u32; 320 * 200];
