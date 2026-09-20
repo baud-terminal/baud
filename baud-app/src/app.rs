@@ -34,8 +34,9 @@ use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSAutoresizingMaskOptions, NSColor, NSImage,
-    NSImageView, NSScreen, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
+    NSAutoresizingMaskOptions, NSColor, NSImage, NSImageView, NSScreen, NSView, NSWindow,
+    NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -1263,20 +1264,49 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
 #[derive(Clone, Default)]
 struct PendingStyle(std::rc::Rc<std::cell::Cell<Option<Appearance>>>);
 
-/// Which of a `[glass]` pair the window's appearance selects.
+/// **macOS carries two light/dark settings and they disagree, so baud
+/// reads each one where it belongs.**
 ///
-/// **One source, read in three places, and they agree only because baud
-/// does not force the window's appearance.** The startup call reads the
-/// window, the style observer reads the window, and `apply_style` reads
-/// what the view reported -- and a view's effective appearance is the
-/// window's while nothing assigns the window one. The crate's own example
-/// *does* assign it, from the Icon & widget style, and that is a
-/// different light/dark axis: under the Default selection the preference
-/// key is absent and the crate infers light, which painted a terminal
-/// light under a dark system. If `window.set_appearance` is ever added
-/// back, these three stop agreeing.
+/// `AppleInterfaceStyle` is System Settings > Appearance, light/dark, and
+/// it is the *readability* axis: it decides the palette, and therefore
+/// the dim, which is the palette's own opacity. That is this function.
+/// `AppleIconAppearanceTheme` is **Icon & widget style**, the system's own
+/// "how should glass look" setting, and it decides the material -- see
+/// [`material_appearance`].
+///
+/// They are independent. On the machine this was written on the first is
+/// `Dark` and the second is `ClearLight`, which is why the crate's example
+/// renders its *light* calibration under a dark system, and why reading
+/// one key for both would have matched neither.
+///
+/// This one is the window's own appearance, which is the view's while
+/// nothing assigns the window one. baud deliberately does not: forcing it
+/// from the widget style is what painted a terminal light under a dark
+/// system, and that measurement is why the palette is not on that key.
 fn appearance_of(window: &GlassWindow) -> Appearance {
     if window.is_dark() {
+        Appearance::Dark
+    } else {
+        Appearance::Light
+    }
+}
+
+/// The appearance the **material** follows: Icon & widget style.
+///
+/// This is the axis the crate's example follows, and the one the owner was
+/// watching when they said the example changes with the system settings --
+/// measured, because the example's body is byte-identical under a light
+/// and a dark system while its own band reads "Clear > Light" under both.
+///
+/// `ThemeMode::Auto` is the one token with no light/dark of its own, and
+/// `WidgetStyle::is_dark` resolves it against an ambient appearance -- so
+/// under Auto the material does follow the system after all, and every
+/// caller gets that without having to know which of the two preference
+/// keys fired. The observer watches both, so both routes re-apply and both
+/// compute this same answer.
+fn material_appearance(window: &GlassWindow) -> Appearance {
+    let ambient = window.ns_window().effectiveAppearance();
+    if macos_liquid_glass::icon_style::current().is_dark(&ambient) {
         Appearance::Dark
     } else {
         Appearance::Light
@@ -2545,7 +2575,7 @@ pub fn run() {
     // window's content until the first frame is on the layer, so doing it
     // here costs nothing and there is no frame in which an untinted
     // material is visible.
-    apply_glass(&glass, &window, &glass_cfg, appearance_of(&window));
+    apply_glass(&glass, &window, &glass_cfg, material_appearance(&window));
     let view = DrawableView::new(mtm, frame);
     startup_mark("window");
     let _ = late.set(view.waker());
@@ -2748,7 +2778,12 @@ pub fn run() {
         let glass_cb = glass.clone();
         let window_cb = window.clone();
         let observer = macos_liquid_glass::icon_style::StyleObserver::new(mtm, move |_| {
-            apply_glass(&glass_cb, &window_cb, &glass_cfg, appearance_of(&window_cb));
+            apply_glass(
+                &glass_cb,
+                &window_cb,
+                &glass_cfg,
+                material_appearance(&window_cb),
+            );
         });
         // The window is never torn down before the process ends, so the
         // observer outlives every reference by outliving the process --
@@ -3161,7 +3196,16 @@ impl Driver {
         // `theme = "dark"` has chosen a palette, not a window: the
         // material still follows the system, and returning above this
         // line left it frozen at whatever the launch resolved.
-        apply_glass(&self.glass, &self.window, &self.glass_cfg, appearance);
+        // The material's own axis, not the one that just changed: under
+        // an `Auto` widget token the two coincide and this is the re-apply
+        // that case needs, and under any other token it is the same value
+        // the observer last set.
+        apply_glass(
+            &self.glass,
+            &self.window,
+            &self.glass_cfg,
+            material_appearance(&self.window),
+        );
         if self.theme_choice != crate::config::ThemeChoice::Auto {
             // No frame is owed: the material is AppKit's own drawing and
             // baud's surface did not change, because a pinned palette
