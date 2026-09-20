@@ -21,7 +21,7 @@ baud-render = { path = "../baud-render" }
 # `newLibraryWithData` takes a `dispatch_data_t`, and
 # `DispatchData::from_static_bytes` wraps `include_bytes!` without a copy.
 dispatch2 = "0.3"
-macos-liquid-glass = { path = "~/src/test/glassnote", features = ["drawable"] }
+macos-liquid-glass = { git = "https://github.com/i-am-logger/macos-liquid-glass", branch = "feat/drawable-view", features = ["drawable"] }
 # Metal, and the two crates the surface-to-texture bridge names. The same
 # `objc2` family and versions the window crate pins, so the `IOSurface` it
 # hands over is the type these read.
