@@ -316,8 +316,18 @@ in
       exec = "bash ./scripts/check-features.sh";
       after = [ "test:audit" ];
     };
+
+    # A `path` dependency that leaves the repository builds on the machine it
+    # was written on and nowhere else. Two have already shipped here and both
+    # were green -- one by never being built, one by not being a workspace
+    # member -- so this is the gate that says which machine a tree can be
+    # built on rather than leaving it to a failure somewhere else.
+    "test:paths" = {
+      exec = "bash ./scripts/check-paths.sh";
+      after = [ "test:features" ];
+    };
   };
 
   # https://devenv.sh/tests/
-  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features";
+  enterTest = lib.mkForce "devenv tasks run test:fmt test:sources test:clippy test:check test:unit test:bare test:linux test:audit test:features test:paths";
 }
