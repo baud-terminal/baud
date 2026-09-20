@@ -153,6 +153,18 @@ pub struct Cold {
     /// requires knowing.
     pub(crate) highlight: HighlightTracking,
     pub(crate) highlight_region: HighlightRegion,
+    /// **The dynamic colours, `OSC 10` and `OSC 11`, as two pairs.** `defaults`
+    /// is what the embedder's theme says the foreground and background are,
+    /// pushed in through [`Term::set_default_colors`]; `dynamic` is an
+    /// application's override from `OSC 10`/`11`, `DEFAULT` meaning none.
+    /// A query answers the override if there is one, else the default if the
+    /// embedder supplied one, else nothing -- the same refusal `OSC 4` makes,
+    /// because this core holds no palette of its own and naming a colour the
+    /// renderer does not use is a wrong-shaped answer. `OSC 110`/`111` clear
+    /// the override and leave the default, which is what "reset" means. Here
+    /// rather than in `StrBuf` so no caller-provided buffer grows a field.
+    pub(crate) defaults: [ColorWord; 2],
+    pub(crate) dynamic: [ColorWord; 2],
     /// Which control string is being accumulated, and how much of it.
     ///
     /// In `Cold` because a control string is not the write path: `str_kind` is
@@ -249,9 +261,13 @@ pub struct Cold {
 // And to 264 for `prompt`, the prompt block's ring row: written once per
 // `OSC 133 ; P` and read by `Term::prompt_row`, which is a resize-time and
 // embedder-side question the per-byte loop never asks.
+// And to 280 for the dynamic colours: two `ColorWord` pairs, written once
+// per `OSC 10`/`11` and by the embedder's theme, read by a query and by the
+// renderer once a frame. Measured on landing rather than assumed free --
+// vim and btop interleaved with an A/A copy, every range overlapping.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 264);
+const _: () = assert!(core::mem::size_of::<Cold>() == 280);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -264,6 +280,8 @@ impl Cold {
             prompt: crate::prompt::PromptBlock::NONE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
+            defaults: [ColorWord::DEFAULT; 2],
+            dynamic: [ColorWord::DEFAULT; 2],
             highlight: HighlightTracking::Off,
             highlight_region: HighlightRegion::default(),
             terminal: TerminalMode::Ansi,
@@ -1516,6 +1534,28 @@ impl<'b> Term<'b> {
     /// a colour the renderer does not use is a wrong-shaped answer.
     pub fn palette(&self, index: Chan) -> Option<(u8, u8, u8)> {
         self.store.strs.palette[index.index()].as_rgb()
+    }
+
+    /// The default foreground or background an application set with `OSC
+    /// 10`/`11`, if any. `None` means "use your theme's": the renderer
+    /// consults this before its own `Theme`, the way it consults
+    /// [`Term::palette`] before its palette table.
+    pub fn dynamic_color(&self, which: DynamicColor) -> Option<(u8, u8, u8)> {
+        self.cold.dynamic[which.index()].as_rgb()
+    }
+
+    /// Tell the core what the embedder's theme draws the default foreground
+    /// and background as, so an `OSC 10 ; ?` or `OSC 11 ; ?` on a fresh
+    /// terminal can be answered. Every theme-aware program asks `OSC 11` to
+    /// decide whether it is on a light or a dark background; without this
+    /// call the query gets no reply, which is the truthful answer of a core
+    /// that has not been told, and not a wrong one. Call it again when the
+    /// theme changes.
+    pub fn set_default_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
+        let word = |(r, g, b): (u8, u8, u8)| {
+            ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+        };
+        self.cold.defaults = [word(fg), word(bg)];
     }
 
     /// The URI a cell's link index resolves to, if any.

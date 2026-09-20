@@ -117,6 +117,15 @@ pub enum Report {
         b: u8,
         term: StringTerm,
     },
+    /// `OSC 10 ; rgb:RRRR/GGGG/BBBB ST` or `OSC 11 ; ...`: the answer to a
+    /// dynamic-colour query, in the setter's own shape so it can be fed back.
+    DynamicColor {
+        which: DynamicColor,
+        r: u8,
+        g: u8,
+        b: u8,
+        term: StringTerm,
+    },
     ModeStatus {
         marker: Marker,
         mode: Param,
@@ -363,6 +372,37 @@ impl Report {
                 e.push(b'4');
                 e.push(b';');
                 e.push_num(index.get() as u16);
+                e.push(b';');
+                for &c in b"rgb:" {
+                    e.push(c);
+                }
+                e.push_hex(r);
+                e.push(b'/');
+                e.push_hex(g);
+                e.push(b'/');
+                e.push_hex(b);
+                match term {
+                    StringTerm::St => {
+                        e.push(0x1b);
+                        e.push(b'\\');
+                    }
+                    StringTerm::Bel => e.push(0x07),
+                }
+            }
+            Report::DynamicColor {
+                which,
+                r,
+                g,
+                b,
+                term,
+            } => {
+                // `OSC 10 ; rgb:RRRR/GGGG/BBBB` -- the same rewind and the
+                // same spec form as `Color`, with the colour's own code in
+                // place of `4 ; index`.
+                e.len = ByteLen::ZERO;
+                e.push(0x1b);
+                e.push(b']');
+                e.push_num(which.code());
                 e.push(b';');
                 for &c in b"rgb:" {
                     e.push(c);

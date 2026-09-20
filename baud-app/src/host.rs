@@ -107,6 +107,17 @@ enum Wanted {
     Quiet,
 }
 
+/// Tell the core what the theme draws the default foreground and background
+/// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
+/// query every theme-aware program sends to learn whether it is on a light
+/// or a dark background. One function for both drivers, called wherever a
+/// theme is set, so a renderer and its core cannot disagree about the
+/// defaults: the renderer draws the theme's colour and the core reports it.
+pub fn tell_defaults(term: &mut baud_core::Term<'_>, theme: &baud_render::Theme) {
+    let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
+    term.set_default_colors(rgb(theme.fg), rgb(theme.bg));
+}
+
 pub fn startup_begin() {
     let _ = START.set(Instant::now());
     let _ = WANTED.set(match std::env::var_os("BAUD_STARTUP") {

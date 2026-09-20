@@ -589,6 +589,8 @@ impl App {
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
         };
         renderer.fit(&term);
+        let mut term = term;
+        crate::host::tell_defaults(&mut term, renderer.theme());
         let (frame_w, frame_h) = renderer.pixel_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
@@ -2747,6 +2749,7 @@ pub fn run() {
             .app
             .renderer
             .set_theme(theme_for(appearance, dim(&glass_cfg, appearance)));
+        crate::host::tell_defaults(&mut driver.app.term, driver.app.renderer.theme());
     }
     Responder::resized(&mut driver, view.frame().size, scale);
     let v = driver.view.clone();
@@ -3230,6 +3233,7 @@ impl Driver {
         self.app
             .renderer
             .set_theme(theme_for(appearance, dim(&self.glass_cfg, appearance)));
+        crate::host::tell_defaults(&mut self.app.term, self.app.renderer.theme());
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
         self.app.present(&self.view, Show::Event);

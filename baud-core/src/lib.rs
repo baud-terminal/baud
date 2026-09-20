@@ -88,7 +88,9 @@ pub use baud_domain::{
 };
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return.
-pub use baud_domain::{Chan, ClipboardOp, ColorWord, LinkId, Osc, StringTerm, XColor};
+pub use baud_domain::{
+    Chan, ClipboardOp, ColorWord, DynamicColor, LinkId, Osc, StringTerm, XColor,
+};
 /// Mouse reporting's vocabulary: an embedder that cannot name a
 /// `MouseEvent` cannot call [`Term::mouse_report`].
 pub use baud_domain::{

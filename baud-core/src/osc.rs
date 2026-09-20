@@ -112,11 +112,21 @@ impl Paint<'_, '_> {
                 // repo has no citable copy, so it is left alone rather than
                 // set to something plausible-but-wrong -- which is the same
                 // reason the DEC line-drawing table was refused until a
-                // machine-readable source was cited.
-                XColor::Unresolved(_) => {}
+                // machine-readable source was cited. **Counted**, because a
+                // spec this core cannot resolve is a request it did not
+                // honour, and `every_spec_osc_code_is_handled_or_counted`
+                // probes with exactly such a name.
+                XColor::Unresolved(_) => self.unsupported_total += 1,
             },
             Osc::ResetColor(Some(c)) => self.strs.palette[c.index()] = ColorWord::DEFAULT,
             Osc::ResetColor(None) => self.strs.palette.fill(ColorWord::DEFAULT),
+            Osc::SetDynamic { which, spec } => match spec {
+                XColor::Rgb(r, g, b) => self.cold.dynamic[which.index()] = ColorWord::rgb(r, g, b),
+                XColor::Query => self.report_dynamic(which, term),
+                // Counted, as `OSC 4`'s unresolvable name is.
+                XColor::Unresolved(_) => self.unsupported_total += 1,
+            },
+            Osc::ResetDynamic(which) => self.cold.dynamic[which.index()] = ColorWord::DEFAULT,
             // **Inline, because the URI borrows the payload buffer.** Both
             // live in `strs`, so resolving the slot and the length first is
             // what lets the write happen at all -- the same borrow split
@@ -193,6 +203,30 @@ impl Paint<'_, '_> {
         };
         self.want_reply(Report::Color {
             index,
+            r,
+            g,
+            b,
+            term,
+        });
+    }
+}
+
+impl Paint<'_, '_> {
+    /// Answer `OSC 10 ; ?` / `OSC 11 ; ?`: the application's override if it
+    /// set one, else the embedder's default if it supplied one, else nothing
+    /// -- the `OSC 4` refusal, for the same reason.
+    fn report_dynamic(&mut self, which: DynamicColor, term: StringTerm) {
+        let word = self.cold.dynamic[which.index()];
+        let word = if word.is_default() {
+            self.cold.defaults[which.index()]
+        } else {
+            word
+        };
+        let Some((r, g, b)) = word.as_rgb() else {
+            return;
+        };
+        self.want_reply(Report::DynamicColor {
+            which,
             r,
             g,
             b,

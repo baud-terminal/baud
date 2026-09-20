@@ -149,6 +149,14 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             "alt screen re-entry",
             b"\x1b[?1049hHELLO\x1b[?1049h".to_vec(),
         ),
+        // `OSC 11` set then queried. sfte's setter is a no-op -- it always
+        // answers its compile-time `SFTE_COLOR_BG`, black -- where baud
+        // answers what was set. Probed through the patched header, because
+        // under the pristine one a BEL-terminated query gets no reply at all.
+        (
+            "OSC 11 set then query",
+            b"\x1b]11;rgb:aa/bb/cc\x07\x1b]11;?\x07".to_vec(),
+        ),
         // The two that MUST differ -- see `MUST_DIFFER`.
         ("tab", b"a\tb\tc".to_vec()),
         ("tab at a stop", b"01234567\tX".to_vec()),
@@ -178,6 +186,12 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   screen, so `multibench`'s second pass over it re-enters, and the harness
 ///   gate read "different screen" on a recording the boundary differential
 ///   had passed at every read.
+/// * **`OSC 11 set then query` -- sfte's dynamic-colour setter is a no-op.**
+///   It answers every query with its compile-time default (`SFTE_COLOR_BG`,
+///   black, as `rgb:0000/0000/0000`), whatever `OSC 11` set before; baud
+///   answers the value set, in the two-digit form. Both replies are pinned
+///   byte for byte. It also says sfte *does* answer a fresh query, which baud
+///   does only once the embedder has told it the theme.
 /// * **`alt screen in/out` -- sfte does not restore the cursor on
 ///   `?1049 l`.** baud's `?1049` saves and restores it (`docs/vt-coverage.md:
 ///   675`; `?47` at `:573` is the variant that does not), so after `main`,
@@ -214,6 +228,13 @@ const MUST_DIFFER: &[(&str, Control)] = &[
             (0, 3, 'L', ' '),
             (0, 4, 'O', ' '),
         ]),
+    ),
+    (
+        "OSC 11 set then query",
+        Control::Reply(
+            b"\x1b]11;rgb:aa/bb/cc\x07",
+            b"\x1b]11;rgb:0000/0000/0000\x07",
+        ),
     ),
 ];
 
@@ -585,11 +606,13 @@ mod tests {
         // starts firing somewhere new has to come and change these numbers.
         // Over every fixture and every boundary of every recording: 84,557
         // wide tails (every second cell of a double-width character, on both
-        // sides, keyed on sfte's DUMMY flag) and 230,317 zero-rune blanks
+        // sides, keyed on sfte's DUMMY flag) and 240,317 zero-rune blanks
         // (cells sfte has never written, read as blank -- the blindness the
         // `Normalised` doc records).
         assert_eq!(norm.tails.get(), 84_557, "wide tails normalised");
-        assert_eq!(norm.blanks.get(), 230_317, "zero-rune blanks normalised");
+        // 240,317: it was 230,317 until the `OSC 11 set then query` fixture,
+        // whose 10,000 untouched cells are exactly the difference.
+        assert_eq!(norm.blanks.get(), 240_317, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

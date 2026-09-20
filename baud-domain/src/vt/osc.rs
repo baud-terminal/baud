@@ -26,6 +26,19 @@ pub enum Osc<'a> {
     /// `OSC 104` — reset the palette. `None` resets every entry, which is what
     /// an omitted parameter means.
     ResetColor(Option<Chan>),
+    /// `OSC 10 ; spec` / `OSC 11 ; spec` -- the default foreground and
+    /// background. `[[source: ctlseqs]]`: "Change VT100 text foreground
+    /// color to Pt", and `?` in place of a spec is a query "with a control
+    /// sequence of the same form". Only the first spec is taken, as with
+    /// `OSC 4`: xterm lets one sequence carry several and answer each, and a
+    /// fixed reply buffer does not.
+    SetDynamic {
+        which: DynamicColor,
+        spec: XColor<'a>,
+    },
+    /// `OSC 110` / `OSC 111` -- reset the default foreground or background
+    /// to what the embedder's theme says.
+    ResetDynamic(DynamicColor),
     /// `OSC 8 ; params ; URI` — a hyperlink.
     ///
     /// An empty URI *closes* the current link rather than opening an empty one,
@@ -52,6 +65,33 @@ pub enum Osc<'a> {
     Semantic(Semantic),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// Which dynamic colour an `OSC 10`-family sequence names. Two of xterm's
+/// ten: `12` (the cursor) is parsed and counted rather than stored, because
+/// no renderer here reads a cursor colour yet and a value recorded and never
+/// read is the failure `docs/vt-coverage.md` rates worst; `13`-`19` are
+/// pointer, Tektronix and highlight colours this terminal has no object for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DynamicColor {
+    Foreground,
+    Background,
+}
+
+impl DynamicColor {
+    /// The `Ps` that sets this colour; the reset is `100 + Ps`.
+    pub fn code(self) -> u16 {
+        match self {
+            DynamicColor::Foreground => 10,
+            DynamicColor::Background => 11,
+        }
+    }
+    pub fn index(self) -> usize {
+        match self {
+            DynamicColor::Foreground => 0,
+            DynamicColor::Background => 1,
+        }
+    }
 }
 
 /// The mark an `OSC 133` carries.
@@ -287,6 +327,22 @@ impl<'a> Osc<'a> {
                     _ => Osc::Unsupported,
                 }
             }
+            b"10" | b"11" => {
+                let which = match ps {
+                    b"10" => DynamicColor::Foreground,
+                    _ => DynamicColor::Background,
+                };
+                let mut p = Split::new(rest, b';');
+                match p.next() {
+                    Some(spec) if !spec.is_empty() => Osc::SetDynamic {
+                        which,
+                        spec: XColor::parse(spec),
+                    },
+                    _ => Osc::Unsupported,
+                }
+            }
+            b"110" => Osc::ResetDynamic(DynamicColor::Foreground),
+            b"111" => Osc::ResetDynamic(DynamicColor::Background),
             b"104" => {
                 if rest.is_empty() {
                     Osc::ResetColor(None)

@@ -12,7 +12,9 @@ use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
-use baud_domain::{Attrs, Chan, Codepoint, Col, Cols, CursorStyle, GlyphId, PackedCell, Row, Rows};
+use baud_domain::{
+    Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, PackedCell, Row, Rows,
+};
 use baud_font::bytes::Count;
 use baud_font::{
     Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale,
@@ -237,6 +239,15 @@ fn palette_digest(term: &Term<'_>) -> Digest {
     for i in 0..=u8::MAX {
         let (r, g, b) = term.palette(Chan::from_u8(i)).unwrap_or((0, 0, 0));
         d = d.fold_bytes(&[r, g, b, 1]);
+    }
+    // The dynamic colours ride in the same digest: an `OSC 11` moves no cell
+    // word and no style slot, so without this a changed default background
+    // would repaint nothing, the way a theme swap did before `set_theme`
+    // dropped the damage cache.
+    for which in [DynamicColor::Foreground, DynamicColor::Background] {
+        let (r, g, b) = term.dynamic_color(which).unwrap_or((0, 0, 0));
+        let set = u8::from(term.dynamic_color(which).is_some());
+        d = d.fold_bytes(&[r, g, b, set]);
     }
     d
 }
@@ -525,6 +536,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The scrollbar's instance caches [`Theme::fg`] at the moment
     /// [`Renderer::set_scrollbar`] ran, so it is rebuilt here rather than
     /// left drawing the old foreground until the window next scrolls.
+    /// The theme in force, so a driver can tell the core what the defaults
+    /// draw as (`Term::set_default_colors`) from the one place that knows.
+    pub fn theme(&self) -> &Theme {
+        &self.theme
+    }
+
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
         self.known = Prev::Unknown;
@@ -927,7 +944,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut n = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
             let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
-            let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
+            let (mut fg, mut bg) =
+                self.theme
+                    .resolve(style, |ch| term.palette(ch), |d| term.dynamic_color(d));
             bg = bg.with_alpha(self.theme.bg_alpha);
             let attrs = style.attrs();
             let blink_hidden = if attrs.has(Attrs::BLINK) {
@@ -982,7 +1001,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
-            let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
+            let (mut fg, mut bg) =
+                self.theme
+                    .resolve(style, |ch| term.palette(ch), |d| term.dynamic_color(d));
             // **Every background is translucent, not only the default
             // one.** The rendering register's item 6 asked whether alpha is
             // a *window* property (the default background only) or a

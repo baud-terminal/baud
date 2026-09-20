@@ -305,3 +305,128 @@ fn clipboard_requests_are_refused_but_counted() {
     // `unsupported` counter.
     assert_eq!(t.strings_ignored, 0, "OSC 52 is recognised, not ignored");
 }
+
+// ── dynamic colours ─────────────────────────────────────────────────────────
+
+/// Feed `bytes` after the embedder has said what its theme draws, the way
+/// both drivers do through `host::tell_defaults`, and return the reply and
+/// the two dynamic colours.
+/// An `(r, g, b)` triple, as `Term::dynamic_color` answers.
+type Rgb = (u8, u8, u8);
+
+fn dynamic(defaults: Option<(Rgb, Rgb)>, bytes: &[u8]) -> (Vec<u8>, [Option<Rgb>; 2]) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    if let Some((fg, bg)) = defaults {
+        t.set_default_colors(fg, bg);
+    }
+    support::feed(&mut t, bytes);
+    (
+        t.reply().to_vec(),
+        [
+            t.dynamic_color(DynamicColor::Foreground),
+            t.dynamic_color(DynamicColor::Background),
+        ],
+    )
+}
+
+/// `OSC 10` and `OSC 11` set the default foreground and background, which the
+/// renderer reads through `Term::dynamic_color` before its own theme.
+#[test]
+fn osc_10_and_11_set_the_dynamic_colours() {
+    let (_, d) = dynamic(None, b"\x1b]10;rgb:ff/00/80\x07\x1b]11;#102030\x07");
+    assert_eq!(d, [Some((0xff, 0x00, 0x80)), Some((0x10, 0x20, 0x30))]);
+}
+
+/// **A query on a fresh terminal answers the theme, once the embedder said
+/// what it is.** That is the case every theme-aware program depends on: it
+/// sends `OSC 11 ; ?` to learn whether it is on a light or a dark background,
+/// and a terminal that never answers leaves it guessing.
+#[test]
+fn osc_11_query_answers_the_embedders_default() {
+    let (reply, _) = dynamic(
+        Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11))),
+        b"\x1b]11;?\x07",
+    );
+    assert_eq!(reply, b"\x1b]11;rgb:11/11/11\x07");
+    let (reply, _) = dynamic(
+        Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11))),
+        b"\x1b]10;?\x1b\\",
+    );
+    assert_eq!(
+        reply, b"\x1b]10;rgb:e0/e0/e0\x1b\\",
+        "an ST query must get an ST reply"
+    );
+}
+
+/// An application's override wins the query over the theme, and `OSC 111`
+/// puts the theme back -- reset means the default, not nothing.
+#[test]
+fn an_override_wins_the_query_and_reset_restores_the_default() {
+    let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));
+    let (reply, d) = dynamic(defaults, b"\x1b]11;rgb:aa/bb/cc\x07\x1b]11;?\x07");
+    assert_eq!(reply, b"\x1b]11;rgb:aa/bb/cc\x07");
+    assert_eq!(d[1], Some((0xaa, 0xbb, 0xcc)));
+    let (reply, d) = dynamic(
+        defaults,
+        b"\x1b]11;rgb:aa/bb/cc\x07\x1b]111\x07\x1b]11;?\x07",
+    );
+    assert_eq!(reply, b"\x1b]11;rgb:11/11/11\x07");
+    assert_eq!(d[1], None, "the renderer draws its theme again");
+}
+
+/// **A core that was never told its defaults says nothing**, for the reason
+/// `OSC 4` says nothing about an entry nothing set: naming a colour the
+/// renderer does not use is a wrong-shaped answer. The refusal is the truthful
+/// reply of a core that has not been told, not an omission.
+#[test]
+fn a_query_with_no_defaults_and_no_override_is_silent() {
+    let (reply, _) = dynamic(None, b"\x1b]10;?\x07\x1b]11;?\x07");
+    assert!(reply.is_empty());
+}
+
+/// `OSC 12` -- the cursor colour -- is parsed and **counted**, not stored:
+/// no renderer here reads a cursor colour yet, and a value recorded and never
+/// read is the failure the coverage table rates worst. The day one does, this
+/// test is the one that changes.
+#[test]
+fn osc_12_is_counted_and_not_stored() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]12;rgb:ff/00/00\x07");
+    assert_eq!(t.unsupported, 1, "OSC 12 is counted as unsupported");
+}
+
+/// The same bytes at every read size produce the same colours and the same
+/// reply: an `OSC` spans reads, and the value must not depend on where they
+/// fell. The core's own chunk-invariance sweep does not reach this, because
+/// no recording in the corpus carries an `OSC 10` or `11`.
+#[test]
+fn dynamic_colours_are_chunk_invariant() {
+    let seq = b"\x1b]10;rgb:12/34/56\x1b\\\x1b]11;#abcdef\x07\x1b]11;?\x07after";
+    let (whole_reply, whole) = dynamic(None, seq);
+    for chunk in 1..seq.len() {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let mut i = 0;
+        while i < seq.len() {
+            let n = chunk.min(seq.len() - i);
+            t.write_at(BytePos::ZERO, &seq[i..i + n]);
+            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+            i += n;
+        }
+        let got = [
+            t.dynamic_color(DynamicColor::Foreground),
+            t.dynamic_color(DynamicColor::Background),
+        ];
+        assert_eq!(got, whole, "colours differed at chunk {chunk}");
+        assert_eq!(
+            t.reply(),
+            &whole_reply[..],
+            "reply differed at chunk {chunk}"
+        );
+    }
+}

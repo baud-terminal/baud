@@ -94,7 +94,7 @@ pub fn run() {
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
-    let term = Term::new(owned.storage(), &FIRST);
+    let mut term = Term::new(owned.storage(), &FIRST);
     // **No appearance signal is wired here, so `Auto` resolves to dark.**
     // The desktop's preference lives behind `org.freedesktop.appearance`
     // on the portal's settings interface, which this driver does not speak
@@ -119,6 +119,7 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
+    crate::host::tell_defaults(&mut term, renderer.theme());
     startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST).expect("pty");
     startup_mark("pty");

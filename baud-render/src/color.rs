@@ -1,6 +1,6 @@
 //! Renditions to pixels: the theme, the palette, and the attribute rules.
 
-use baud_domain::{Attrs, Chan, ColorWord, StyleWord};
+use baud_domain::{Attrs, Chan, ColorWord, DynamicColor, StyleWord};
 
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
 /// `wl_shm` buffer both take once premultiplied at the edge.
@@ -108,8 +108,16 @@ impl Theme {
         &self,
         style: StyleWord,
         palette: impl Fn(Chan) -> Option<(u8, u8, u8)>,
+        dynamic: impl Fn(DynamicColor) -> Option<(u8, u8, u8)>,
     ) -> (Argb, Argb) {
         let attrs = style.attrs();
+        // The default foreground and background are the theme's unless the
+        // application moved them with `OSC 10`/`11` -- consulted first, the
+        // way `palette` is consulted before the theme's own table.
+        let fg_default =
+            dynamic(DynamicColor::Foreground).map_or(self.fg, |(r, g, b)| triple(r, g, b));
+        let bg_default =
+            dynamic(DynamicColor::Background).map_or(self.bg, |(r, g, b)| triple(r, g, b));
         let pick = |w: ColorWord, default: Argb, bright: bool| -> Argb {
             if let Some((r, g, b)) = w.as_rgb() {
                 return triple(r, g, b);
@@ -124,8 +132,8 @@ impl Theme {
             default
         };
         let bold = attrs.has(Attrs::BOLD);
-        let mut fg = pick(style.fg(), self.fg, bold);
-        let mut bg = pick(style.bg(), self.bg, false);
+        let mut fg = pick(style.fg(), fg_default, bold);
+        let mut bg = pick(style.bg(), bg_default, false);
         if attrs.has(Attrs::DIM) {
             fg = fg.dimmed();
         }

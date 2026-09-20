@@ -667,7 +667,10 @@ In scope because applications assume them, not because DEC specified them.
 | seq | name | status |
 |---|---|---|
 | `OSC 0/1/2` | window/icon title | done |
-| `OSC 4` | set colour palette | done — including the `?` query |
+| `OSC 4` | set colour palette | done — including the `?` query. A colour *name* (`OSC 4 ; 1 ; red`) is left alone rather than guessed, and **counted** as unsupported since 2026-09-20 -- the spec inventory probes with exactly such a name and found the arm silent |
+| `OSC 10` / `OSC 11` | default foreground / background | done — set from an `rgb:` or `#` spec, read by the renderer before its theme (`Term::dynamic_color`), and the `?` query answered in the setter's shape. **A query on a fresh terminal answers the embedder's theme**, which both apps push in through `Term::set_default_colors` -- the query every theme-aware program sends to learn light from dark; a core that was never told says nothing, the `OSC 4` refusal for the same reason. Only the first spec of a sequence is taken, as with `OSC 4`. `osc_10_and_11_set_the_dynamic_colours`, `osc_11_query_answers_the_embedders_default`, `dynamic_colours_are_chunk_invariant`, and the pixels in `baud-render/tests/dynamic.rs` |
+| `OSC 110` / `OSC 111` | reset default foreground / background | done — clears the application's override and leaves the theme's default, which is what reset means. `an_override_wins_the_query_and_reset_restores_the_default` |
+| `OSC 12` / `OSC 112` | cursor colour | **parsed and counted, not stored** — no renderer here reads a cursor colour yet, and a value recorded and never read is the failure this table rates worst. `osc_12_is_counted_and_not_stored` is the test that changes the day one does |
 | `OSC 8` | hyperlinks | done — bounded, evicting link table |
 | `OSC 52` | clipboard | done — **read deliberately refused**, and both halves counted in `clipboard_reads_refused` / `clipboard_writes_dropped`; see security note |
 | `OSC 133` | semantic prompt marks | done — `A`/`P` open the prompt zone, `B` keeps it, `C` closes it; acted on by `Term::resize`, which does not re-cut the rows a shell will redraw, and counted in `semantic_marks`. `D`'s exit status is **not** parsed, because nothing here would read it |
