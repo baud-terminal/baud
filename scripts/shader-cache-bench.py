@@ -81,7 +81,16 @@ BUILD = re.compile(
     r"warm pass ([\d.]+), probe ([\d.]+)"
 )
 FIRST = re.compile(r"^startup: (first completion|first present)\s")
-FIELDS = ["device", "library", "pipelines", "warm", "probe", "wall"]
+# **The five, one at a time.** `pipelines` is their sum, and row 1's leftover
+# -- a cold pipeline build that went 45.1 ms to 73.6 when the `.metallib`
+# shipped -- cannot be attributed from a sum. A second line carries them so
+# the regex above stays anchored on the whole first line.
+PIPES = re.compile(
+    r"^startup: gpu pipelines: bg ([\d.]+) ms, glyph ([\d.]+), "
+    r"cell_bg ([\d.]+), cell_glyph ([\d.]+), cell_shape ([\d.]+)"
+)
+PIPE_FIELDS = ["bg", "glyph", "cell_bg", "cell_glyph", "cell_shape"]
+FIELDS = ["device", "library", "pipelines", "warm", "probe", "wall"] + PIPE_FIELDS
 SOURCE_GROUP = 3  # the `(Library|Compiled)` capture, read as a string not a float
 
 
@@ -119,6 +128,10 @@ def launch():
             got["source"] = g.pop(SOURCE_GROUP - 1)
             for name, v in zip(FIELDS[:5], g):
                 got[name] = float(v)
+        mp = PIPES.match(line)
+        if mp:
+            for name, v in zip(PIPE_FIELDS, mp.groups()):
+                got[name] = float(v)
         if FIRST.match(line):
             wall = (time.perf_counter() - t0) * 1e3
             break
@@ -128,7 +141,14 @@ def launch():
     except subprocess.TimeoutExpired:
         p.kill()
     if wall is None or "probe" not in got:
-        return None
+        return "no gpu build line, or no first present"
+    if any(f not in got for f in PIPE_FIELDS):
+        # The instrument outliving what feeds it is the failure this repo
+        # records four times; a missing line stops the run rather than
+        # reporting a sum it cannot break down. It names *which* line is
+        # missing, because a guard that misattributes its own cause sends
+        # the next reader to the wrong half of the instrument.
+        return "no gpu pipelines line: the five cannot be attributed"
     got["wall"] = wall
     return got
 
@@ -151,8 +171,8 @@ try:
             finally:
                 if arm == "cold":
                     restore()
-            if got is None:
-                print(f"launch {i} {arm}: no gpu build line or no first present; stopping")
+            if isinstance(got, str):
+                print(f"launch {i} {arm}: {got}; stopping")
                 sys.exit(1)
             results[arm].append(got)
             print(
@@ -188,7 +208,8 @@ print(
 # each other; what is refused is an arm that differs from itself.
 mixed = False
 for arm in ("warm", "cold"):
-    seen = sorted({r.get("source", "?") for r in results[arm][1:]})
+    settled = results[arm][1:] or results[arm]
+    seen = sorted({r.get("source", "?") for r in settled})
     print(f"{arm:5s} library from: {', '.join(seen)}")
     if len(seen) > 1:
         mixed = True

@@ -549,6 +549,18 @@ pub struct Build {
     pub device: Duration,
     pub library: Duration,
     pub pipelines: Duration,
+    /// What each of the five cost on its own, in the order they are built:
+    /// bg, glyph, cell_bg, cell_glyph, cell_shape.
+    ///
+    /// **Because `pipelines` alone cannot answer row 1's leftover.** Shipping
+    /// the `.metallib` took a cold launch's pipeline build from 45.1 ms to
+    /// **73.6**, reproduced across every settled launch, and the record
+    /// carries that +28.5 as unexplained with one named next step: time the
+    /// five separately under both libraries. A cost spread across all five in
+    /// proportion to their shaders is work `newLibraryWithSource` was doing
+    /// eagerly and `newLibraryWithData` leaves here; a cost in one is
+    /// something about that shader.
+    pub each: [Duration; 5],
     /// Which of the two the library came from. A measurement that cannot
     /// say this cannot tell a shipped library from a cold compile that
     /// happened to be fast, and the whole of row 1 is the difference.
@@ -600,6 +612,9 @@ impl Gpu {
         };
         let library_made = t1.elapsed();
         let t2 = Instant::now();
+        // Timed one at a time; see `Build::each`.
+        let mut each = [Duration::ZERO; 5];
+        let p0 = Instant::now();
         let bg_pipe = pipeline(
             &device,
             &library,
@@ -607,6 +622,8 @@ impl Gpu {
             "bg_fragment",
             Blend::Replace,
         )?;
+        each[0] = p0.elapsed();
+        let p1 = Instant::now();
         let glyph_pipe = pipeline(
             &device,
             &library,
@@ -614,6 +631,8 @@ impl Gpu {
             "glyph_fragment",
             Blend::Over,
         )?;
+        each[1] = p1.elapsed();
+        let p2 = Instant::now();
         let cell_bg_pipe = pipeline(
             &device,
             &library,
@@ -621,6 +640,8 @@ impl Gpu {
             "flat_fragment",
             Blend::Replace,
         )?;
+        each[2] = p2.elapsed();
+        let p3 = Instant::now();
         let cell_glyph_pipe = pipeline(
             &device,
             &library,
@@ -628,6 +649,8 @@ impl Gpu {
             "glyph_fragment",
             Blend::Over,
         )?;
+        each[3] = p3.elapsed();
+        let p4 = Instant::now();
         let cell_shape_pipe = pipeline(
             &device,
             &library,
@@ -635,10 +658,12 @@ impl Gpu {
             "glyph_fragment",
             Blend::Over,
         )?;
+        each[4] = p4.elapsed();
         let build = Build {
             device: device_made,
             library: library_made,
             pipelines: t2.elapsed(),
+            each,
             library_from,
         };
         let sd = MTLSamplerDescriptor::new();
