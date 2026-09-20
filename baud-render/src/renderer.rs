@@ -552,7 +552,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// presenter to clear the margin around the grid to -- so the gutter is
     /// the terminal's own background rather than a see-through edge. It is
     /// what a default cell resolves to: the theme background at its alpha,
-    /// the one colour the glass shows through (D14).
+    /// the one colour the glass shows through.
     pub fn clear_color(&self) -> Argb {
         self.theme.bg.with_alpha(self.theme.bg_alpha)
     }
@@ -985,7 +985,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
             let (mut fg, mut bg) = self.theme.resolve(style, |ch| term.palette(ch));
-            // Only the default background lets the glass through (D14).
+            // **Only the default background lets the glass through**, and
+            // that is the open question rather than a decision: the
+            // rendering register's unresolved item 6 asks whether alpha is
+            // a *window* property (the default background only, which is
+            // this) or a *rendition* property (an SGR background may be
+            // translucent too). This is one answer shipped before the
+            // question was settled, and it is visible: 72% of `btop.raw`'s
+            // final screen and 100% of `asciiquarium.raw`'s carry a
+            // background the application set, so those screens are opaque
+            // where a plain shell is not. Every other recording in the
+            // corpus is 0%.
             if style.bg().is_default() && !style.attrs().has(Attrs::REVERSE) {
                 bg = bg.with_alpha(self.theme.bg_alpha);
             }
