@@ -31,7 +31,7 @@ baud-wayland = { path = "../baud-wayland" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
-macos-liquid-glass = { git = "https://github.com/i-am-logger/macos-liquid-glass", branch = "feat/drawable-view", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.5", features = ["drawable"] }
 
 [features]
 # **A ceiling arm for row 11, off.** `present` returns early when nothing

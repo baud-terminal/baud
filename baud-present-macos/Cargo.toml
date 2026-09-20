@@ -15,13 +15,17 @@ baud-domain = { path = "../baud-domain" }
 baud-font = { path = "../baud-font" }
 baud-render = { path = "../baud-render" }
 
-# The owner's window crate, extended in place on its `feat/drawable-view`
-# branch for the drawable view and the surface; a path until it is released.
+# The owner's window crate. The drawable view and the surface were added on
+# its `feat/drawable-view` branch and released as 1.0.0-beta.5, so this is a
+# version rather than a branch revision -- a branch pin is a snapshot that
+# stops receiving the release commits, and it named one machine's checkout
+# before that. The requirement must spell the pre-release out: a `"1.0"`
+# requirement does not match `1.0.0-beta.5`.
 [target.'cfg(target_os = "macos")'.dependencies]
 # `newLibraryWithData` takes a `dispatch_data_t`, and
 # `DispatchData::from_static_bytes` wraps `include_bytes!` without a copy.
 dispatch2 = "0.3"
-macos-liquid-glass = { git = "https://github.com/i-am-logger/macos-liquid-glass", branch = "feat/drawable-view", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.5", features = ["drawable"] }
 # Metal, and the two crates the surface-to-texture bridge names. The same
 # `objc2` family and versions the window crate pins, so the `IOSurface` it
 # hands over is the type these read.

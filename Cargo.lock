@@ -415,8 +415,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "macos-liquid-glass"
-version = "1.0.0-beta.3"
-source = "git+https://github.com/i-am-logger/macos-liquid-glass?branch=feat%2Fdrawable-view#718810b6eb8fc95c07d87f01638deb3e50259b3b"
+version = "1.0.0-beta.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b62ae471ff7a717f6ca51b3259ed0c1d760f9506dd33e68c54babdb6623eda34"
 dependencies = [
  "objc2",
  "objc2-app-kit",
