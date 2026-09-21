@@ -225,6 +225,11 @@ struct CellUniforms {
     sel_from_row: Uni,
     sel_to_col: Uni,
     sel_to_row: Uni,
+    /// Smooth scroll: the pixels the screen is shifted down, and the number
+    /// of extra rows drawn above the window (0 or 1). Both zero settles the
+    /// draw to the plain one.
+    pan: Px,
+    slide_rows: Uni,
 }
 
 /// What the cell path draws from: the grid in place, under its rotation
@@ -251,6 +256,11 @@ pub struct CellInput<'a> {
     pub overlay: &'a OverlayBuffer,
     /// What draws the cells the overlay masks, in the instance layout.
     pub records: &'a [Instance],
+    /// Smooth scroll: `Some(pan)` shifts the screen down by `pan` pixels and
+    /// draws one extra "leaving" row above the window -- ring row -1, the
+    /// line just retired, which the shader reaches by the same modulo.
+    /// `None` is the settled draw, unchanged.
+    pub slide: Option<Px>,
 }
 
 /// How the cursor is drawn, as the shader switches on it.
@@ -1134,7 +1144,11 @@ impl Gpu {
         }
         let t0 = Instant::now();
         let (cols, rows) = renderer.grid();
-        let count = cols.index().saturating_mul(rows.index());
+        // Smooth scroll draws one extra row above the window; `count` is the
+        // per-cell draw count over those `draw_rows`.
+        let slide_rows = usize::from(input.slide.is_some());
+        let draw_rows = rows.index().saturating_add(slide_rows);
+        let count = cols.index().saturating_mul(draw_rows);
         let metrics = renderer.metrics();
         let grid_px = renderer.pixel_size();
         let clear = clear_of(renderer.clear_color());
@@ -1173,6 +1187,8 @@ impl Gpu {
             sel_from_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.from.0.index()))),
             sel_to_col: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.1.index()))),
             sel_to_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.0.index()))),
+            pan: input.slide.unwrap_or(Px::of(0)),
+            slide_rows: Uni::of(Elems(slide_rows)),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target, clear, viewport)?;

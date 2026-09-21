@@ -35,6 +35,7 @@ mod instance;
 mod metrics;
 mod overlay;
 mod renderer;
+mod scroll;
 mod scrollbar;
 mod select;
 mod stack;
@@ -59,6 +60,7 @@ pub use renderer::{
     Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, PairRole, Pairs, Renderer,
     Single,
 };
+pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{Thumb, Window, back_for, thumb};
 pub use select::{AbsLine, Clip, Grain, Highlight, Point, Scrolled, Selection, Span};
 pub use stack::{FaceIx, Stack};

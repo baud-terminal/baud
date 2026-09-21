@@ -23,8 +23,8 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, MapEntry,
-    Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target,
-    Theme, Trail, Transition, Window, back_for,
+    Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Slide, Span, Stack, Tally,
+    Target, Theme, Trail, Transition, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -425,6 +425,12 @@ struct App {
     /// does, so an idle terminal on either screen builds nothing.
     screen_transition: crate::config::ScreenTransition,
     transition: Option<TransitionState>,
+    /// Whether output scrolls smoothly, from `[scroll] mode`, and the live
+    /// slide it drives. The slide's offset is capped at one row, so a fast
+    /// burst never accumulates lag; a non-zero pan forces a frame the way a
+    /// trail does, and an idle screen -- whose pan is zero -- forces none.
+    scroll: crate::config::ScrollMode,
+    slide: Slide,
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
     latency: Latency,
@@ -454,6 +460,8 @@ struct Boot {
     cursor_trail: crate::config::CursorTrail,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
+    /// Whether output scrolls smoothly, from `[scroll] mode`.
+    scroll: crate::config::ScrollMode,
 }
 
 impl Boot {
@@ -584,6 +592,7 @@ impl Boot {
             glass: cfg.glass,
             cursor_trail: cfg.cursor_trail,
             screen_transition: cfg.screen_transition,
+            scroll: cfg.scroll,
         }
     }
 
@@ -610,6 +619,7 @@ impl App {
             glass: _,
             cursor_trail,
             screen_transition,
+            scroll,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -673,7 +683,7 @@ impl App {
                     // `copy_from_slice` a row and no arithmetic changes when
                     // the grid is resized under it.
                     let copied =
-                        sets(|| gpu.grid(Rows::of_index(usize::from(MAX_GRID.ws_row)), pitch))
+                        sets(|| gpu.grid(Rows::of_index(usize::from(MAX_GRID.ws_row) + 1), pitch))
                             .expect("a shared window copy a frame in flight");
                     let (copies, copies_mem): (Vec<_>, Vec<_>) = copied.into_iter().unzip();
                     Some(CellMemory {
@@ -730,6 +740,9 @@ impl App {
             (None, None) => eprintln!("trace: off (set BAUD_TRACE=<prefix> to record the session)"),
             (Some(_), None) => {}
         }
+        // The smooth-scroll slide caps its offset at one row, so it needs the
+        // row height in device pixels; `renderer` is moved into `App` below.
+        let cell_h = renderer.metrics().cell_h;
         App {
             term,
             renderer,
@@ -783,6 +796,8 @@ impl App {
             tick_target: 0.0,
             screen_transition,
             transition: None,
+            scroll,
+            slide: Slide::new(cell_h),
             latency: Latency::from_env(),
         }
     }
@@ -992,6 +1007,28 @@ impl App {
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
                 let view = self.term.view(self.back);
+                // Smooth scroll: at the live screen on the primary surface, a
+                // non-zero pan draws one leaving row above the window.
+                let pan = self.slide.pan();
+                let sliding = self.scroll == crate::config::ScrollMode::Smooth
+                    && self.back.index() == 0
+                    && self.term.screen() == Screen::Normal
+                    && pan.value() > 0;
+                // The leaving row's glyphs are one row up, not in `view`, so
+                // ensure the map over the view one line up too -- the
+                // persistent map holds them from when the row was on screen,
+                // and this covers a clear. It is ensured *first*, because
+                // `ensure` clears `candidates` and refills them for the view
+                // it walks (`cellmap`): the screen must be ensured last, or
+                // the overlay's records name `above`'s rows -- the whole
+                // screen one line up -- and every mark and ligature is drawn
+                // a row off its cell for the length of the slide.
+                if sliding {
+                    let above = self.term.view(Rows::of_index(self.back.index() + 1));
+                    cell.maps
+                        .live
+                        .ensure(above, &mut self.renderer, &mut cell.candidates);
+                }
                 cell.maps
                     .live
                     .ensure(view, &mut self.renderer, &mut cell.candidates);
@@ -1032,6 +1069,16 @@ impl App {
                     let at = y * stride;
                     cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
                 }
+                // The leaving row: the line just above the window,
+                // `view(back + 1).row(0)`, appended at index `vrows`, where
+                // `slide_rows = 1` maps draw row 0 to it with the identity
+                // rotation the copy is read under.
+                if sliding {
+                    let above = self.term.view(Rows::of_index(self.back.index() + 1));
+                    let src = above.row(Row::from_index(0));
+                    let at = vrows * stride;
+                    cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
+                }
                 self.renderer
                     .resolve_styles_into(&self.term, &mut cell.styles_mem[set][..]);
                 cell.exceptions.ensure(
@@ -1043,6 +1090,10 @@ impl App {
                         highlight,
                         map: &cell.maps.live,
                         candidates: &cell.candidates,
+                        // Smooth scroll: the records slide with the grid,
+                        // gated on the same `sliding` as the grid's own pan
+                        // so a mark or a ligature never lags a settled frame.
+                        pan: if sliding { pan } else { Px::of(0) },
                     },
                     &mut self.renderer,
                     &mut cell.overlay_mem[set][..],
@@ -1119,11 +1170,13 @@ impl App {
                     map: cell.maps.buffer(),
                     stride: self.term.stride(),
                     rotation: RowRot::NONE,
-                    ring: Rows::of_index(vrows),
+                    // One more row when sliding: the appended leaving row.
+                    ring: Rows::of_index(if sliding { vrows + 1 } else { vrows }),
                     cursor,
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,
+                    slide: sliding.then_some(pan),
                     set: at,
                 };
                 if let Some(p) = &mut self.presenter {
@@ -1277,6 +1330,9 @@ impl App {
     /// moves: a pointer, no copy, no allocation, and nothing waits.
     fn rescale(&mut self, px: PxSize) -> Option<()> {
         self.renderer.rescale(px)?;
+        // The row height changed, so the slide's cap did too; keep an offset
+        // in flight a valid fraction of the new row.
+        self.slide.set_cell_h(self.renderer.metrics().cell_h);
         if let Some(cell) = self.cell.as_mut() {
             cell.maps.rescaled();
         }
@@ -2164,7 +2220,26 @@ impl Driver {
         // to replace.
         let screen = self.app.term.screen();
         match moved {
-            Ring::Retired(n) => self.app.scrolled = self.app.scrolled.advanced(n),
+            Ring::Retired(n) => {
+                self.app.scrolled = self.app.scrolled.advanced(n);
+                // Smooth scroll: output scrolled the live screen up on the
+                // primary surface, so start (or extend) a slide. The offset
+                // is capped at one row inside `retire`, so a fast burst never
+                // builds a backlog -- the whole latency argument. Only at the
+                // live screen (`back == 0`): looking back, the window follows
+                // the content up and the visible lines do not move. And only
+                // when the cell path is drawing (`cell.is_some()`): the pan is
+                // applied in the cell branch of `present` alone, so on the
+                // instance and CPU paths a slide would force frames the way
+                // the tick does while nothing on screen moved.
+                if self.app.scroll == crate::config::ScrollMode::Smooth
+                    && self.app.back.index() == 0
+                    && screen == Screen::Normal
+                    && self.app.cell.is_some()
+                {
+                    self.app.slide.retire(n);
+                }
+            }
             Ring::Restored(_) => self.app.selection = None,
         }
         if screen != self.app.last_screen {
@@ -2172,6 +2247,10 @@ impl Driver {
             self.app.selection = None;
             self.app.predictions.clear();
             self.app.guess = Guess::None;
+            // A surface switch: the slide's offset names a row the new
+            // surface does not have (the alternate screen keeps no ring), so
+            // settle it rather than carry it across.
+            self.app.slide.snap();
             // The alternate screen swapped: fade the new one in from the
             // background, off `tick_target` the way the trail is spawned.
             if self.app.screen_transition == crate::config::ScreenTransition::On {
@@ -2462,6 +2541,13 @@ impl Responder for Driver {
             return;
         }
         self.app.back = back;
+        // The view left the live screen for history: a slide names rows of
+        // the live screen, so settle it. The scrolled-back frame is drawn
+        // un-panned regardless (`sliding` checks `back == 0`); this only
+        // stops the tick forcing frames for a slide that draws nothing.
+        if back.index() != 0 {
+            self.app.slide.snap();
+        }
         self.app.pending = Pending::Dirty;
         self.pump(Trigger::Wake);
     }
@@ -2525,6 +2611,17 @@ impl Responder for Driver {
         // When the sweep lands the trail clears itself and this stops
         // firing, so an idle screen returns to no frames.
         if self.app.trail.is_some() || self.app.transition.is_some() {
+            self.app.pending = Pending::Dirty;
+        }
+        // Smooth scroll: advance the slide toward settled off the display
+        // link's own clock, at one row per SLIDE_SECS_PER_ROW, and force a
+        // frame while it is in flight -- including the tick that settles it
+        // to zero, so the last frame is the plain screen. An idle screen's
+        // slide is settled, so this forces nothing, the trail's discipline.
+        if self.app.slide.active() {
+            self.app
+                .slide
+                .advance(self.app.interval.as_secs_f64() as f32);
             self.app.pending = Pending::Dirty;
         }
         self.app.ticks.bump();
@@ -3260,6 +3357,11 @@ impl Driver {
         let back = back_for(win, size, cell_h, top);
         if back.index() != self.app.back.index() {
             self.app.back = back;
+            // Dragging the thumb into history settles a slide, as the wheel
+            // does: it names live-screen rows the scrolled-back view lacks.
+            if back.index() != 0 {
+                self.app.slide.snap();
+            }
             self.app.pending = Pending::Dirty;
             self.pump(Trigger::Wake);
         }
@@ -3345,6 +3447,11 @@ impl Driver {
             // contradicted it.
             self.app.predictions.clear();
             self.app.guess = Guess::None;
+            // A slide in flight names a leaving row of the ring about to be
+            // re-cut: the same reason predictions are cleared here. Settle it
+            // rather than draw a leaving row from the reflowed ring, which
+            // would be a different line for the frame or two before it drains.
+            self.app.slide.snap();
             // Truncated only past MAX_GRID, which the clamp above prevents.
             let _ = self.app.term.resize(&ws);
             if let Some(t) = self.app.trace.as_mut() {

@@ -67,6 +67,11 @@ struct CU {
     uint ring;
     uint sel_on; uint sel_from_col; uint sel_from_row; uint sel_to_col;
     uint sel_to_row;
+    // Smooth scroll: the screen is shifted down by `pan` pixels, and
+    // `slide_rows` extra rows are drawn above the window -- logical row -1,
+    // the line that just scrolled off, still in the ring one row up. Both
+    // zero when settled, so the non-slide draw is unchanged.
+    uint pan; uint slide_rows;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -83,12 +88,16 @@ static float4 clip(float2 p, constant CU& u) {
     return float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
 }
 
-// The cell at screen row `row`, column `col`: the grid is read in place,
+// The cell at draw row `dr`, column `col`: the grid is read in place,
 // under the core's rotation, at its live stride, modulo the ring -- the
 // buffer's rows, which on the primary screen are the screen plus the
-// scrollback behind it.
-static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint row) {
-    uint prow = (row + u.rot) % u.ring;
+// scrollback behind it. `dr` counts the extra `slide_rows` above the
+// window, so logical row L = dr - slide_rows and the ring row is
+// `(rot + L) % ring` -- for L = -1 (the leaving row) that is `rot - 1`, the
+// line just retired, by the same modulo. `slide_rows = 0` leaves it
+// exactly the plain read.
+static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint dr) {
+    uint prow = (u.rot + dr + u.ring - u.slide_rows) % u.ring;
     return cells[prow * u.stride + col];
 }
 
@@ -124,11 +133,13 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]]) {
-    uint col = iid % u.grid.x, row = iid / u.grid.x;
+    uint col = iid % u.grid.x, dr = iid / u.grid.x;
+    int lrow = int(dr) - int(u.slide_rows);
     uint fgw, bgw;
-    colors(u, styles, cell_at(u, cells, col, row), col, row, fgw, bgw);
+    colors(u, styles, cell_at(u, cells, col, dr), col, uint(lrow), fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
-    float2 p = (float2(col, row) + c) * float2(u.cell);
+    float2 p = float2((float(col) + c.x) * float(u.cell.x),
+                      (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
     FlatOut o;
     o.pos = clip(p, u);
     float4 bg = unpack(bgw);
@@ -146,9 +157,12 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uchar* overlay [[buffer(4)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
-    if (overlay[iid] != 0) return o;
-    uint col = iid % u.grid.x, row = iid / u.grid.x;
-    uint2 cell = cell_at(u, cells, col, row);
+    uint col = iid % u.grid.x, dr = iid / u.grid.x;
+    int lrow = int(dr) - int(u.slide_rows);
+    // The overlay is a screen-cell mask; index it by the screen row, not
+    // the draw row, and never for the leaving row above the window.
+    if (lrow >= 0 && overlay[uint(lrow) * u.grid.x + col] != 0) return o;
+    uint2 cell = cell_at(u, cells, col, dr);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
     uint mask = u.map_slots - 1u;
@@ -162,10 +176,11 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     }
     if (!found || e.kind > 2u) return o;
     uint fgw, bgw;
-    colors(u, styles, cell, col, row, fgw, bgw);
+    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
-                           float(row * u.cell.y + u.baseline) + float(e.at.y));
+                           float(lrow) * float(u.cell.y) + float(u.baseline)
+                               + float(u.pan) + float(e.at.y));
     float2 wh = float2(e.rect.zw);
     o.pos = clip(origin + c * wh, u);
     float side = e.kind == 1u ? float(u.sides.y) : float(u.sides.x);
@@ -190,21 +205,24 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
     uint which = iid % SHAPE_SLOTS, ci = iid / SHAPE_SLOTS;
-    uint col = ci % u.grid.x, row = ci / u.grid.x;
-    uint2 cell = cell_at(u, cells, col, row);
+    uint col = ci % u.grid.x, dr = ci / u.grid.x;
+    int lrow = int(dr) - int(u.slide_rows);
+    // The top of this row's cell, shifted down by the smooth-scroll pan.
+    float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
+    uint2 cell = cell_at(u, cells, col, dr);
     Style s = styles[cell.y & 0xffffu];
     uint fgw, bgw;
-    colors(u, styles, cell, col, row, fgw, bgw);
+    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
     float2 at; float2 wh; uint colw;
     float thick = float(max(u.thickness, 2u));
     if (which == 0u) {
         if ((s.shapes & 1u) == 0u) return o;
-        at = float2(col * u.cell.x, row * u.cell.y + u.underline);
+        at = float2(float(col * u.cell.x), rowy + float(u.underline));
         wh = float2(u.cell.x, u.thickness);
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     } else if (which == 1u) {
         if ((s.shapes & 2u) == 0u) return o;
-        at = float2(col * u.cell.x, row * u.cell.y + u.strike);
+        at = float2(float(col * u.cell.x), rowy + float(u.strike));
         wh = float2(u.cell.x, u.thickness);
         colw = fgw;
     } else if (which == 2u) {
@@ -215,16 +233,16 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         float gap = max(th, 1.0) + 1.0;
         float low = float(u.cell.y) - th;
         float y = min(float(u.underline) + gap, max(low, float(u.underline)));
-        at = float2(col * u.cell.x, float(row * u.cell.y) + y);
+        at = float2(float(col * u.cell.x), rowy + y);
         wh = float2(u.cell.x, u.thickness);
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     } else if (which == 3u) {
-        if (col != u.cursor.x || row != u.cursor.y || u.cursor_kind < 2u) return o;
+        if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u) return o;
         if (u.cursor_kind == 2u) {
-            at = float2(col * u.cell.x, float(row * u.cell.y + u.cell.y) - thick);
+            at = float2(float(col * u.cell.x), rowy + float(u.cell.y) - thick);
             wh = float2(u.cell.x, thick);
         } else {
-            at = float2(col * u.cell.x, row * u.cell.y);
+            at = float2(float(col * u.cell.x), rowy);
             wh = float2(thick, u.cell.y);
         }
         colw = fgw;
@@ -243,7 +261,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         float dy = (curly && (k % 2u == 1u)) ? th : 0.0;
         float low = float(u.cell.y) - th;
         float y = min(float(u.underline) + dy, max(low, float(u.underline)));
-        at = float2(float(col * u.cell.x) + dx, float(row * u.cell.y) + y);
+        at = float2(float(col * u.cell.x) + dx, rowy + y);
         wh = float2(th, th);
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     }

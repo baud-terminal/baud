@@ -61,6 +61,12 @@ pub struct Config {
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
+    /// `[scroll] mode`: whether output scrolls the screen up in one jump
+    /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
+    /// matching sfte -- the slide is bounded to one row so a burst never
+    /// accumulates lag, and an idle screen pays nothing, so the latency is
+    /// bounded rather than a reason to keep it off. `normal` opts out.
+    pub scroll: ScrollMode,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
 }
@@ -185,6 +191,19 @@ pub enum ScreenTransition {
     On,
 }
 
+/// Whether output scrolls the screen in one jump or slides it smoothly.
+/// `Smooth` by default, matching sfte: the slide's added latency is bounded
+/// to one row and an idle screen pays nothing, so it ships on rather than
+/// behind an opt-in. A two-state enum for the reason `CursorTrail` is,
+/// spelled `normal`/`smooth` rather than `true`/`false` because that is how
+/// the setting reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ScrollMode {
+    Normal,
+    #[default]
+    Smooth,
+}
+
 /// The colour space the surface is tagged with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Space {
@@ -205,6 +224,7 @@ impl Config {
             theme: ThemeChoice::Auto,
             cursor_trail: CursorTrail::Off,
             screen_transition: ScreenTransition::Off,
+            scroll: ScrollMode::Smooth,
             glass: Glass::defaults(),
             source: None,
         }
@@ -293,6 +313,19 @@ impl Config {
                                  using false"
                             );
                             ScreenTransition::Off
+                        }
+                    };
+                }
+                ("scroll", "mode") => {
+                    self.scroll = match value.trim() {
+                        "smooth" => ScrollMode::Smooth,
+                        "normal" => ScrollMode::Normal,
+                        other => {
+                            crate::warn!(
+                                "config: [scroll] mode {other:?} is not normal or smooth; \
+                                 using the default, smooth"
+                            );
+                            ScrollMode::Smooth
                         }
                     };
                 }
@@ -663,6 +696,17 @@ mod reader {
         );
     }
 
+    /// Scroll is smooth unless `[scroll] mode = normal`, and a value that is
+    /// neither `normal` nor `smooth` falls back to the default, smooth, with
+    /// a warning.
+    #[test]
+    fn the_scroll_mode_is_smooth_unless_asked_for() {
+        assert_eq!(Config::defaults().scroll, ScrollMode::Smooth);
+        assert_eq!(read("[scroll]\nmode = normal\n").scroll, ScrollMode::Normal);
+        assert_eq!(read("[scroll]\nmode = smooth\n").scroll, ScrollMode::Smooth);
+        assert_eq!(read("[scroll]\nmode = fast\n").scroll, ScrollMode::Smooth);
+    }
+
     #[test]
     fn a_glass_section_sets_every_one_of_its_keys() {
         let c = read(
@@ -781,6 +825,11 @@ shadow     = "never"
             c.screen_transition,
             ScreenTransition::Off,
             "the [screen] section did not land"
+        );
+        assert_eq!(
+            c.scroll,
+            ScrollMode::Smooth,
+            "the [scroll] section did not land"
         );
         // And every `[glass]` key reached the glass rather than nothing.
         assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");

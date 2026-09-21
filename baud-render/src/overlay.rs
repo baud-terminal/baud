@@ -24,6 +24,7 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{Chan, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
+use baud_font::Px;
 use std::collections::HashMap;
 
 /// What one frame's walk found and what the store holds.
@@ -60,6 +61,15 @@ pub struct Scene<'s, 't> {
     pub map: &'s GlyphMap<'s>,
     /// The cells that end an admitted pair, from the map's walk.
     pub candidates: &'s [Candidate],
+    /// Smooth scroll: the pixels the cell-path grid is shifted down this
+    /// frame, folded into every record's vertical offset so a mark or a
+    /// cross-cell ligature slides with the glyph beneath it rather than
+    /// holding its un-slid position for the length of the slide. `Px::of(0)`
+    /// when not sliding; the instance path builds its own records in
+    /// `Renderer::convert_row` and never reads this, so a draw-time pan on
+    /// the shared record pipeline -- the coupling the first smooth-scroll
+    /// withdrawal was about -- is not reintroduced.
+    pub pan: Px,
 }
 
 /// The cluster map and the walk that fills the overlay from it.
@@ -81,6 +91,9 @@ struct ClusterKey(u64);
 struct Geom {
     m: Metrics,
     cols: Cols,
+    /// The downward pixel shift a smooth scroll applies to every record on
+    /// the cell path, matching the grid passes' `u.pan`.
+    pan: Px,
 }
 
 /// What colours a record: the resolved rendition table, the selection and
@@ -196,6 +209,7 @@ impl Overlay {
         let geom = Geom {
             m: r.metrics(),
             cols: view.cols(),
+            pan: scene.pan,
         };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
@@ -471,9 +485,13 @@ impl Overlay {
         }
         *slot = 1;
         let glyphs = r.cluster(&[cp]);
+        // A prediction is a local echo at the live cursor; the ring rotation
+        // that starts a slide drops any pending prediction first, so a
+        // predicted record never coexists with a non-zero pan.
         let geom = Geom {
             m: r.metrics(),
             cols,
+            pan: Px::of(0),
         };
         Overlay::emit(
             records,
@@ -549,7 +567,9 @@ impl Overlay {
         let cell_h = i32::try_from(geom.m.cell_h.value()).unwrap_or(0);
         let baseline = i32::try_from(geom.m.baseline.value()).unwrap_or(0);
         let ox = i32::try_from(x).unwrap_or(0) * cell_w;
-        let oy = i32::try_from(y).unwrap_or(0) * cell_h + baseline;
+        let oy = i32::try_from(y).unwrap_or(0) * cell_h
+            + baseline
+            + i32::try_from(geom.pan.value()).unwrap_or(0);
         for g in glyphs {
             let Some(slot) = g.slot else {
                 continue;

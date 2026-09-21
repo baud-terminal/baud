@@ -745,6 +745,80 @@ The one frame an idle run ever builds is the launch frame.
 No change shipped. `present` already returns on `Pending::Clean` before
 the glyph-map walk, the style resolve, the overlay walk and the draw.
 
+## Smooth scroll idle (measured, no change)
+
+Apple M5 Max, macOS 27.0, on AC. `scripts/idle-cpu.py` on the release
+`baud`, interleaving `[scroll] mode = smooth`, `= normal` and an A/A copy of
+smooth in one sweep through pid-preserving wrappers, first round discarded.
+The child writes nothing.
+
+| arm | idle CPU | range | a tick at 120 Hz |
+|---|---|---|---|
+| `[scroll] mode = smooth` | 0.878% of one core | 0.845-0.894 | 73.2 us |
+| `[scroll] mode = normal` | 0.865% | 0.831-0.896 | 72.1 us |
+| a byte-identical copy of smooth | 0.877% | 0.842-0.900 | 73.0 us |
+
+**Smooth adds nothing to idle.** normal against smooth is -0.013% (-1.5%),
+inside the A/A copy's own 0.058% spread, and every range overlaps -- not a
+result, which is the by-construction claim: an idle screen retires no line,
+so `Slide.retire` is never called, so the tick's `slide.active()` gate is
+false and no frame is forced. The one smooth-vs-normal difference at idle is
+a `remaining > 0.0` bool per tick.
+
+**The absolute is the branch's, not row 11's.** ~0.87% against row 11's
+0.464% master baseline is per-tick work accumulated on the sfte-oracle
+branch (the focus `isKeyWindow` poll and the like), unrelated to this
+feature -- the `normal` arm carries the smooth code fully inert and reads
+the same. Not chased here; the branch is not merged.
+
+**The per-frame cost of a slide is not in `frame_gpu`, which drives
+`draw_cells` and never runs `present`.** A slide turns one discrete jump
+frame into at most seven cell-path frames over 60 ms (the cap holds it to
+<= one row), each the cell-path convert `frame_gpu`'s async arm measures
+(14-19 us on ASCII, more on CJK) plus one full-view map walk for the
+leaving-row `ensure` and one row's copy, with `(rows+1)/rows` more instances
+drawn. There is no accumulating backlog to price -- that is what the cap
+removes.
+
+## Smooth scroll's per-frame cost (measured, under the floor)
+
+Apple M5 Max, macOS 27.0, on AC. `frame_gpu`'s new `slide` arm is the
+`async` cell frame plus the extra `map.ensure` the app's `present` slide
+branch does -- it walks the map over the view one line up (the leaving
+row's glyphs) as well as over the screen, where a steady frame walks only
+the screen. So `slide - async` is the per-frame CPU cost a slide adds;
+`FRAME_ARMS=async,slide`, four rounds interleaved, first discarded,
+JetBrains Mono at 14 px, 200x50, convert in us a frame:
+
+| recording | `async` (steady) | `slide` | delta | map misses |
+|---|---|---|---|---|
+| btop | 33.4-35.0 | 48.8-49.9 | **+14-15** | 126 both |
+| cat-scroll | 109.7-110.8 | 118.3-121.0 | **+8-10** | 101 both |
+| cat-cjk | 106.4-108.6 | 114.3-115.2 | **+7-9** | 3197 both |
+
+**The delta is a redundant walk, and the misses say so: identical on both
+arms.** The extra ensure rasterises nothing new -- the leaving row's glyphs
+are already in the map from when the row was on screen -- so it is pure
+walk over the screen's cells, and a single-row ensure of just the leaving
+row would recover nearly all of it.
+
+**And it is far under the frame floor, so it is not a cost problem.** A
+slide is at most seven cell-path frames over `SLIDE_SECS_PER_ROW = 60 ms`
+(the cap holds it to one row), so a discrete scroll costs about
+`7 x 10 us = 70 us` of extra convert spread over 60 ms -- **~0.1% of one
+120 Hz frame**, against a keep rule of the larger of 5% (417 us) and one
+frame (8333 us). This is note N's rows 7 and 8 again: a real redundancy
+with no floor to spend the fix against. The leaving-row copy (one row) and
+the `(rows+1)/rows` extra instances the GPU draws are bounded-negligible by
+construction and are not modelled by the arm.
+
+**So the levers for improving smooth scroll are fidelity, coverage and
+smoothness, not cost** -- marks and ligatures do not slide (the overlay
+records hold their un-slid screen position for the ~60 ms), the instance
+and CPU paths jump (the slide is cell-path only), and the pan advances
+linearly in whole pixels. Those are what a change would move; the
+per-frame CPU cost is already invisible to the budget.
+
 ## The shipped `.metallib` (row 1, kept)
 
 Apple M5 Max, macOS 27.0, Xcode 27.0, on AC.

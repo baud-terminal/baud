@@ -15,7 +15,7 @@
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{BytePos, Col, Cols, Depth, PackedCell, ReadLen, Row, RowRot, Rows, WinSize};
-use baud_font::Face;
+use baud_font::{Face, Px};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
@@ -95,6 +95,9 @@ struct Arms<'f, 'a> {
     /// from it and be compared against the two that read the live grid.
     copy: GridBuffer,
     copy_mem: &'static mut [PackedCell],
+    /// Smooth scroll: the pixels the screen is shifted down, or none. Both
+    /// cell arms draw one extra leaving row above the window when set.
+    slide: Option<Px>,
 }
 
 impl Arms<'_, '_> {
@@ -127,6 +130,10 @@ impl Arms<'_, '_> {
                 highlight: self.highlight,
                 map: &self.map,
                 candidates: &self.candidates,
+                // Smooth scroll: the records slide with the grid, matching
+                // the `slide` handed to the CellInput below, so the marked
+                // and ligatured slide gate compares like against like.
+                pan: self.slide.unwrap_or(Px::of(0)),
             },
             &mut self.renderer,
             self.overlay_mem,
@@ -147,6 +154,9 @@ impl Arms<'_, '_> {
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            // In place: the shared ring holds the leaving row one row up
+            // (ring row `rot - 1`), reached by the shader's own modulo.
+            slide: self.slide,
         };
         let Some(Drawn::Frame(_)) =
             self.gpu
@@ -188,6 +198,19 @@ impl Arms<'_, '_> {
             let at = y * stride;
             self.copy_mem[at..at + cols].copy_from_slice(&src[..cols]);
         }
+        // Smooth scroll: append the leaving row -- the line just above the
+        // window, `view(back + 1).row(0)` -- at index `rows`, and read one
+        // more row, so the shader's `slide_rows = 1` maps draw row 0 to it
+        // with the identity rotation.
+        let ring = if self.slide.is_some() {
+            let above = t.view(Rows::of_index(self.back.index() + 1));
+            let src = above.row(Row::from_index(0));
+            let at = rows * stride;
+            self.copy_mem[at..at + cols].copy_from_slice(&src[..cols]);
+            rows + 1
+        } else {
+            rows
+        };
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
@@ -199,11 +222,12 @@ impl Arms<'_, '_> {
             map: &self.map_buffer,
             stride: t.stride(),
             rotation: RowRot::NONE,
-            ring: Rows::of_index(rows),
+            ring: Rows::of_index(ring),
             cursor,
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            slide: self.slide,
         };
         let Some(Drawn::Frame(_)) =
             self.gpu
@@ -286,10 +310,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             Rows::of_index(usize::from(WS.ws_row)),
         )
         .expect("a shared overlay");
-    // The window's own buffer: the screen's height at the core's pitch,
-    // which is what the app provisions.
+    // The window's own buffer: the screen's height plus one, so a smooth
+    // scroll can append the leaving row, at the core's pitch -- what the
+    // app provisions.
     let (copy, copy_mem) = gpu
-        .grid(Rows::of_index(usize::from(WS.ws_row)), owned_stride)
+        .grid(Rows::of_index(usize::from(WS.ws_row) + 1), owned_stride)
         .expect("a shared window copy");
     let mut arms = Arms {
         gpu,
@@ -311,6 +336,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         fade: None,
         copy,
         copy_mem,
+        slide: None,
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -543,4 +569,150 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     feed(&mut t, b"\x1b[1;1H");
     let (_, b) = arms.draw(&mut t);
     assert!(differing(&a, &b) > 0, "the comparison can fail");
+
+    // Smooth scroll. Hide the cursor -- the settled `back = 1` reference
+    // below cannot show it and the slid `back = 0` frame would. Plain digit
+    // content, cleared first: no combining marks and no ligature pairs, so
+    // the overlay is empty and this gates the slide's cell math, not the
+    // separate question of sliding the mark and ligature records (which the
+    // marked and ligature rows above already gate at rest). Enough lines to
+    // scroll history in, so there is a leaving row above the window. Its
+    // glyphs are one row up, not in `view(0)`, so ensure the map over
+    // `view(1)`, which the app's persistent map holds for free.
+    feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+    for i in 0..14u32 {
+        feed(
+            &mut t,
+            format!("0000 1111 2222 row {i:02} 3333 4444 5555\r\n").as_bytes(),
+        );
+    }
+    let cell_h = arms.renderer.metrics().cell_h;
+    arms.map.ensure(
+        t.view(Rows::of_count(1)),
+        &mut arms.renderer,
+        &mut arms.candidates,
+    );
+
+    // A full-row slide at the live screen is the screen one line up. At
+    // `pan = cell_h`, the leaving row fills the top and every row lands on a
+    // settled grid line, so the frame is exactly `view(1)` -- the pre-scroll
+    // screen. Comparing against the trusted **non-slide** path is the strong
+    // gate: a systematic slide error both cell layouts share, which a
+    // layout-vs-layout check could not see, moves this against a reference
+    // that does not run the slide shader at all.
+    arms.back = Rows::ZERO;
+    arms.slide = Some(cell_h);
+    let (_, full_slid) = arms.draw(&mut t);
+    arms.slide = None;
+    arms.back = Rows::of_count(1);
+    let (_, one_up) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&full_slid, &one_up),
+        0,
+        "a full-row slide is not the screen one line up"
+    );
+
+    // Mid-slide, where there is no non-slide reference: the two cell layouts
+    // -- the shared ring read in place, and the flat window copy the app
+    // binds -- must still agree pixel for pixel at a fractional pan, so the
+    // app's copy path is sound wherever the slide is.
+    arms.back = Rows::ZERO;
+    arms.slide = Some(Px::of(cell_h.value() / 2));
+    let (_, mid_in_place) = arms.draw(&mut t);
+    let mid_copy = arms.draw_copied(&mut t);
+    assert_eq!(
+        differing(&mid_in_place, &mid_copy),
+        0,
+        "the two cell layouts disagree mid-slide"
+    );
+    // And the slide reached the pixels: a mid-slide frame is not the settled
+    // one, so the pan is not being dropped.
+    arms.slide = None;
+    let (_, settled) = arms.draw(&mut t);
+    assert!(
+        differing(&mid_in_place, &settled) > 0,
+        "the slide did not move the screen"
+    );
+
+    // Rank 1: the overlay records slide with the grid. The plain-digit gates
+    // above prove the cell math; this proves a combining mark and a
+    // cross-cell ligature on the *visible* rows move with the glyphs beneath
+    // them, rather than holding their un-slid positions for the ~60 ms of a
+    // slide. The marked and ligatured cells are addressed absolutely into the
+    // middle of the live screen, so the leaving row (one above the window)
+    // and the bottom row are plain by construction: rank 1 slides only the
+    // on-screen records.
+    //
+    // Do not "fix" the plain leaving row by marking it -- a mark there goes
+    // red and *stays* red, even with a leaving-row overlay pass built. The
+    // reason is the shader, not a missing pass: `cell_glyph_vertex` consults
+    // the overlay mask only for `lrow >= 0` (the mask is `cols*rows` and has
+    // no slot for the leaving row at `lrow = -1`), so it always draws the
+    // leaving row's base glyph. An overlay record for that row would draw the
+    // base a second time, and this full-slide-vs-one-line-up gate then
+    // differs at the base's antialiased edges where the reference masks it.
+    // Masking the leaving row needs a `cols*(rows+1)` mask with every index
+    // shifted *and* a shader change -- see CLAUDE.md "Rank 2 and 3 are closed
+    // on the shader". That is why rank 1 stops at the on-screen rows.
+    feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+    for i in 0..14u32 {
+        feed(
+            &mut t,
+            format!("plain filler row {i:02} here\r\n").as_bytes(),
+        );
+    }
+    // Middle of the 10-row live screen: `e` + U+0301 on row 5 and a `->`
+    // ligature on row 6, the shapes the resting marked and ligature rows use.
+    feed(&mut t, b"\x1b[5;1Hmark e\xcc\x81 here");
+    feed(&mut t, b"\x1b[6;1Harrow a -> b here");
+    arms.map.ensure(
+        t.view(Rows::of_count(1)),
+        &mut arms.renderer,
+        &mut arms.candidates,
+    );
+    // A full-row slide at the live screen is the screen one line up -- the
+    // strong reference, drawn with no slide shader at all. If the records do
+    // not slide, the mark's accent and the ligature's glyphs stay at their
+    // pre-slide rows while the grid moves under them, and the two frames
+    // differ at exactly those cells.
+    arms.back = Rows::ZERO;
+    arms.slide = Some(cell_h);
+    let (_, slid_marks) = arms.draw(&mut t);
+    assert!(
+        arms.exceptions.stats().records.value() > 0,
+        "the marked and ligatured slide scene emitted overlay records"
+    );
+    arms.slide = None;
+    arms.back = Rows::of_count(1);
+    let (_, up_marks) = arms.draw(&mut t);
+    let (w, _) = arms.renderer.pixel_size();
+    let m = arms.renderer.metrics();
+    let cell = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let bx = diff_box(
+        &slid_marks,
+        &up_marks,
+        usize::try_from(w.value()).unwrap(),
+        cell,
+    );
+    assert_eq!(
+        differing(&slid_marks, &up_marks),
+        0,
+        "the overlay records did not slide with the grid, cells {bx:?}"
+    );
+    // At rest the pan is zero and the records sit exactly where the instance
+    // path puts them: the same marked and ligatured content, no slide, must
+    // agree across the two arms -- the cell-vs-instance pairing the slide gate
+    // above deliberately does not use, closing the zero-pan direction of the
+    // field.
+    arms.back = Rows::ZERO;
+    arms.slide = None;
+    let (rest_a, rest_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&rest_a, &rest_b),
+        0,
+        "the marked and ligatured content disagrees across the arms at rest"
+    );
 }

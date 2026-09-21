@@ -73,6 +73,14 @@ trail = false
 [screen]
 transition = false
 
+# How output scrolls the screen: "normal" jumps it up in one step, "smooth"
+# slides it. "smooth" by default -- the slide is bounded to one row so a fast
+# burst snaps forward rather than accumulating lag, and an idle screen pays
+# nothing, so the added latency is bounded rather than a reason to opt out.
+# Set "normal" for an instant jump with no slide.
+[scroll]
+mode = "smooth"
+
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the

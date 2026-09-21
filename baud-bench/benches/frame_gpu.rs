@@ -40,7 +40,7 @@ fn main() {
     use baud_domain::{
         BytePos, Cols, FrameGen, ReadLen, Row, RowBlock, RowRot, Rows, SwapEpoch, WinSize,
     };
-    use baud_font::Face;
+    use baud_font::{Face, Px};
     use baud_present_macos::journal::{FrameTag, Journal, SetIx};
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
     use baud_render::{
@@ -187,6 +187,15 @@ fn main() {
         /// hardware, arriving when the hardware says so; only the rebuild
         /// is scripted, and it is scripted to the shape the app produces.
         Present,
+        /// The `async` cell frame plus the extra map walk the app's smooth-
+        /// scroll slide does: `present` ensures the map over the view one
+        /// line up (the leaving row's glyphs) *and* over the screen, where a
+        /// steady frame ensures only the screen. So `slide - async` is the
+        /// per-frame CPU cost a slide adds, which is dominated by that
+        /// redundant walk; the leaving-row copy (one row) and the +1-row
+        /// draw ((rows+1)/rows) are bounded-negligible by construction and
+        /// not modelled here.
+        Slide,
     }
     let arms = [
         Arm::Cpu,
@@ -196,6 +205,7 @@ fn main() {
         Arm::Async,
         Arm::Copied,
         Arm::Present,
+        Arm::Slide,
     ];
     // `FRAME_ARMS=async,cells` runs only the arms named, so a profile or a
     // sweep sees one path.
@@ -218,6 +228,7 @@ fn main() {
                     Arm::Async => "async",
                     Arm::Copied => "copied",
                     Arm::Present => "present",
+                    Arm::Slide => "slide",
                 };
                 w.split(',').any(|n| n.trim() == name)
             })
@@ -275,7 +286,10 @@ fn main() {
             let mut r = fresh();
             // The cell arms lend the terminal its viewport from the GPU;
             // the others take the storage's own.
-            let cell_arm = matches!(arm, Arm::Cells | Arm::Async | Arm::Copied | Arm::Present);
+            let cell_arm = matches!(
+                arm,
+                Arm::Cells | Arm::Async | Arm::Copied | Arm::Present | Arm::Slide
+            );
             let (grid, shared) = if cell_arm {
                 let (g, cells) = gpu.grid(ring, stride).expect("a shared grid");
                 let (_, alt) = gpu.grid(rows, stride).expect("a shared alternate");
@@ -316,6 +330,14 @@ fn main() {
                 at += n;
                 if cell_arm {
                     let tc = Instant::now();
+                    // Faithful to `present`'s slide branch: ensure the map
+                    // over the view one line up (the leaving row) first, so
+                    // the redundant walk it does is priced. `ensure` clears
+                    // `candidates` and refills, so the screen ensure below
+                    // still leaves them as the screen's -- the app's order.
+                    if arm == Arm::Slide {
+                        map.ensure(t.view(Rows::of_index(1)), &mut r, &mut candidates);
+                    }
                     map.ensure(t.viewport(), &mut r, &mut candidates);
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
@@ -331,6 +353,10 @@ fn main() {
                             highlight: None,
                             map: &map,
                             candidates: &candidates,
+                            // The bench prices the overlay walk; a settled
+                            // frame's records do not slide, and folding a
+                            // zero pan costs what folding a real one does.
+                            pan: Px::of(0),
                         },
                         &mut r,
                         overlay_mem,
@@ -374,13 +400,14 @@ fn main() {
                         highlight: None,
                         overlay: &overlay,
                         records: &records,
+                        slide: None,
                         // The bench drives one frame at a time, so a set a
                         // frame would say nothing; the presenter's wheel is
                         // what decides in the app.
                         set: SetIx(0),
                     };
                     let done = match arm {
-                        Arm::Async => Done::Notify(Arc::clone(&sink)),
+                        Arm::Async | Arm::Slide => Done::Notify(Arc::clone(&sink)),
                         Arm::Present => {
                             // The identity the frame carries, captured the
                             // way `Presenter::on_done` captures it.
@@ -449,7 +476,7 @@ fn main() {
                         s.gpu += g.gpu.unwrap_or_default();
                         s.inst += g.instances.value();
                     }
-                    Arm::Cells | Arm::Async | Arm::Copied | Arm::Present => {
+                    Arm::Cells | Arm::Async | Arm::Copied | Arm::Present | Arm::Slide => {
                         unreachable!("the cell arms continue above")
                     }
                 }
@@ -480,6 +507,7 @@ fn main() {
                     Arm::Async => "async",
                     Arm::Copied => "copied",
                     Arm::Present => "present",
+                    Arm::Slide => "slide",
                 },
                 s.frames,
                 per(s.total),
