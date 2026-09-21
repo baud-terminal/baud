@@ -14,7 +14,9 @@
 
 use baud_core::{DynamicColor, Owned, Term};
 use baud_domain::CacheGeometry;
-use baud_domain::{BytePos, Col, Cols, Depth, PackedCell, ReadLen, Row, RowRot, Rows, WinSize};
+use baud_domain::{
+    BytePos, Col, Cols, Depth, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+};
 use baud_font::{Face, Px};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
@@ -33,6 +35,14 @@ const WS: WinSize = WinSize {
     ws_col: 120,
     ws_row: 10,
 };
+
+/// A real 64x48 ImageMagick Sixel -- the same capture the domain and CPU
+/// gates decode. Placed at the top-left of the scene, over the text, so both
+/// GPU arms must draw it identically.
+const SWIRL: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../tests/recordings/sixel/swirl.raw"
+));
 
 fn feed(t: &mut Term<'_>, bytes: &[u8]) {
     t.write_at(BytePos::ZERO, bytes);
@@ -114,6 +124,9 @@ impl Arms<'_, '_> {
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
+        // Both arms draw the same image placements: computed once here, read by
+        // `draw` and `draw_cells` alike.
+        self.renderer.set_images(t, self.back);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
@@ -192,6 +205,7 @@ impl Arms<'_, '_> {
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target = self.gpu.offscreen(w, h).expect("target");
         let view = t.view(self.back);
+        self.renderer.set_images(t, self.back);
         let stride = t.stride().index();
         let (cols, rows) = (view.cols().index(), view.rows().index());
         for y in 0..rows {
@@ -295,7 +309,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
     // The viewport is the GPU's memory: the core writes it, the shader
     // reads it.
-    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12));
+    // With image memory: without it a stored Sixel is *refused*, both arms
+    // draw nothing, and the image comparison passes while proving the opposite
+    // -- the `golden.rs` trap this file exists not to fall into.
+    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12))
+        .with_images(ImageBudget::of(64 * 48 + 64, 8192));
     let (grid, cells) = gpu
         .grid(owned.ring(), owned.stride())
         .expect("a shared grid");
@@ -752,5 +770,46 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&rest_a, &rest_b),
         0,
         "the marked and ligatured content disagrees across the arms at rest"
+    );
+
+    // **The image gate, last so a lingering placement disturbs nothing.** A
+    // real Sixel homed onto the live screen: both GPU arms draw it through the
+    // same `Kind::Color` pass, so they must agree pixel for pixel -- and it
+    // must *change its rect* against the very same frame with no image, or a
+    // pass that drew nothing (both arms agreeing on no image, the `golden.rs`
+    // vacuity) would pass while proving the opposite. The rect already carries
+    // text under it, so a bare colour count cannot tell an image from the text
+    // it covers -- only a before/after can.
+    feed(&mut t, b"\x1b[H\x1b[?25l");
+    let (_, no_image) = arms.draw(&mut t);
+    feed(&mut t, SWIRL);
+    let (img_a, img_b) = arms.draw(&mut t);
+    let places = arms.renderer.image_placements();
+    assert_eq!(places.len(), 1, "the sixel was placed on the live screen");
+    let p = places[0];
+    assert_eq!(
+        differing(&img_a, &img_b),
+        0,
+        "the arms disagree with the sixel on screen"
+    );
+    let iw = usize::try_from(arms.renderer.pixel_size().0.value()).unwrap();
+    let (rx, ry) = (
+        usize::try_from(p.x).unwrap_or(0),
+        usize::try_from(p.y).unwrap_or(0),
+    );
+    let (rw, rh) = (usize::from(p.w), usize::from(p.h));
+    let mut changed = 0;
+    for y in ry..ry + rh {
+        for x in rx..rx + rw {
+            let i = y * iw + x;
+            if no_image.get(i) != img_b.get(i) {
+                changed += 1;
+            }
+        }
+    }
+    assert!(
+        changed > rw * rh / 2,
+        "the sixel changed its rect against the no-image frame: {changed} of {} pixels",
+        rw * rh
     );
 }

@@ -4,8 +4,8 @@
 //! because the renderer borrows them for the life of the process.
 
 use crate::config::Config;
-use baud_domain::{CacheGeometry, CacheLevel, WinSize};
-use baud_font::{Face, FaceIndex};
+use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, WinSize};
+use baud_font::{Face, FaceIndex, Px};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -15,6 +15,38 @@ pub const MAX_GRID: WinSize = WinSize {
     ws_col: 400,
     ws_row: 150,
 };
+
+/// A cell height in device pixels as the core's [`ImagePx`], for
+/// `Term::set_cell_size` -- the numbers the core needs to advance the
+/// cursor past a Sixel. Saturates rather than truncates a cell taller than
+/// 65535 px, which no font produces.
+pub fn cell_px(cell_h: Px) -> ImagePx {
+    ImagePx::of(u16::try_from(cell_h.value()).unwrap_or(u16::MAX))
+}
+
+/// The default image arena, when a config names no `[images]` section: enough
+/// for a moderate Sixel or several small ones -- the gap-scan packs them, and
+/// an overflow is refused and counted rather than truncated -- plus body
+/// scratch for one raw Sixel before it decodes. The single source of the
+/// default; `Config::defaults` reads it, and `[images] pixels_mb`/`body_kb`
+/// override it for a reader who wants a full-screen image at [`MAX_GRID`].
+pub const IMAGE_BUDGET: ImageBudget = ImageBudget {
+    pixels: 1 << 20, // 1,048,576 ColorWords, 4 MiB
+    body: 1 << 18,   // 256 KiB
+};
+
+/// One startup line naming the resolved image budget, so a `[images]`
+/// misconfiguration is diagnosable without a rebuild: a refused image against
+/// a budget the log names is a config the reader can fix. A `ColorWord` is
+/// four bytes, so a MiB is `1 << 18` of them -- `>> 18` gives MiB with no
+/// multiply -- and a KiB is `1 << 10` bytes.
+pub fn describe_images(b: &ImageBudget) -> String {
+    format!(
+        "images: {} MiB pixels, {} KiB body",
+        b.pixels >> 18,
+        b.body >> 10,
+    )
+}
 
 /// The cache geometry of the machine this runs on, from the per-arch probe:
 /// `UNKNOWN` where there is no probe, which still resolves to a pitch.

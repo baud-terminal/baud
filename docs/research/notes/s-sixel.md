@@ -1,0 +1,486 @@
+# S. Sixel graphics
+
+The spec for baud's Sixel image support, written before the code, which is
+this repo's rule (`k-selection.md` and `l-scrollbar.md` are the precedent).
+Every protocol claim traces to a pinned source: the DCS envelope and the
+mode/DA surface to `[[source: ctlseqs]]`, and the raster grammar a decoder
+implements to `[[source: vt3xx-sixel]]` -- the VT330/VT340 manual chapter
+`ctlseqs` names and defers to (`xterm-ctlseqs.txt:3234`).
+
+**Scope: Sixel only.** Kitty graphics is a separate protocol and is *not*
+in this note, for one measured reason rather than as a matter of order:
+Kitty's transmission formats include `f=100` PNG, which reaches a PNG +
+zlib decoder over untrusted bytes, and baud-core is `no_std`, `alloc`-free
+and `#![forbid(unsafe_code)]`. The shape of an image decoder under that
+contract is a research-scale question the owner has not settled, and it is
+recorded as such in `TODO.md`'s Research-scale section. Sixel needs *no*
+external decoder -- it is a self-contained run-length format with no
+compression -- so it is the tractable half and the sane first one. Nothing
+here builds toward Kitty; a Kitty note settles the decoder question first.
+
+**The design question is storage, not decoding.** Decoding a Sixel is a
+stateful walk over bytes with no cleverness in it. What baud does not have,
+and every other terminal takes for granted, is *somewhere to put an
+image's pixels* -- baud-core allocates nothing, and a Sixel can be
+arbitrarily large. That is the whole of the design, and the rest of this
+note is its answer.
+
+## The acceptance gate, before any parser code
+
+Fix the acceptance test first, which is this repo's rule. Three gates, and
+a change is not done until all three are green and pinned:
+
+1. **Decode agreement.** A hand-authored Sixel of a known small bitmap --
+   a two-colour checker, a run using `!Pn`, a `$`/`-` pair -- decodes to
+   the exact `[u32]` ARGB bitmap written out by hand. This is the
+   `decode_agrees.rs` shape: the decoder checked against a fixture it
+   cannot argue with, at every read-chunk boundary, because a DCS body
+   split across two `read(2)`s must decode identically (`chunk invariance`,
+   which the control-string suite already holds for consumption and this
+   extends to the decoded pixels).
+2. **A golden frame digest.** One recording that carries a Sixel renders to
+   a pinned FNV digest over the frame's pixels, the way
+   `every_recording_paints_to_its_pinned_frame` already pins the nine text
+   recordings. No such recording exists in the corpus; it is authored for
+   this, small and committed, and it is the regression net.
+3. **Placement across a scroll and a resize.** The two operations that move
+   a cell out from under an image. An image placed, then the screen
+   scrolled a line, must draw one row higher; scrolled past the top of the
+   ring, it clips; a width resize that reflows the anchor line moves or
+   drops it by the rule this note settles (below). Perturb each: a
+   placement that ignores the scroll draws the image in the wrong row and
+   the test goes red.
+4. **A previewer replacing one image with the next.** The third way a cell
+   moves out from under an image, and the one that shipped broken: a file
+   manager (yazi) draws a Sixel, then positions the cursor back at the
+   image's cell and **overwrites those cells with spaces** before drawing
+   the next file's Sixel -- it does not use `ED`. Nothing freed an image on
+   overwrite and `unplace` was dead code, so every preview added an image
+   and a placement at the one cell until the 32-slot store filled and every
+   later preview was refused; in the meantime the stale transparent-
+   background images stacked at one position and composited into blocky
+   garbage -- the scramble a previewer showed in baud, captured from yazi's
+   real bytes and reproduced. The fix is that **writing new content over an
+   image's cells frees it** -- the standard "text over a Sixel erases it",
+   which is what a previewer relies on. `Term::set_cell_size` gives the core
+   the cell width beside the height so it knows an image spans
+   `ceil(w/cell_w)` by `ceil(h/cell_h)` cells; `ImageStore::overwrite` frees
+   any placement a write's row and columns land on, gated on an O(1) live
+   count so a stream with no image pays one predictable branch. It hooks
+   overwrite, not `ED`, so the store's "survive one erase" behaviour stands.
+   The decoder was never at fault: baud decodes yazi's real Sixel pixel-
+   identically to libsixel's `sixel2png` (the `sixel_oracle.rs` gate), and
+   the CPU and GPU display paths render it identically to the oracle -- the
+   bug was entirely the placement leak.
+
+The pixel oracle (`the_cell_arm_draws_what_the_instance_arm_draws`) must
+also cover a placed image, because a Sixel drawn on one GPU arm and not the
+other is exactly what that gate exists to catch -- the same requirement the
+colon underlines and box drawing carried.
+
+## The grammar
+
+The envelope, from `[[source: ctlseqs]]`:
+
+```
+DCS Pa ; Pb ; Ph  q   <sixel data>   ST
+```
+
+`Pa` pixel aspect ratio, `Pb` background-colour option, `Ph` horizontal
+grid size (xterm ignores it). The `q` final with numeric parameters and
+**no `$` intermediate** is what distinguishes a Sixel from DECRQSS (`DCS $
+q`, `[[source: ctlseqs]]`), which baud already acts on -- the graph carries
+`Node::Dcs` and `Node::DcsDollar` (`graph.rs:280`), so the Sixel hook is a
+`Node::Dcs` final `q` reached without passing through `DcsDollar`. Every
+other DCS body is consumed and dropped today, so a Sixel is consumed and
+dropped today; this note makes it decode instead.
+
+The raster grammar, from `[[source: vt3xx-sixel]]`, is the part a decoder
+implements:
+
+| token | meaning |
+|---|---|
+| `?`..`~` (`0x3F`..`0x7E`) | a data byte: six vertical pixels, the low six bits of `value - 0x3F`, LSB at the top |
+| `#Pc;Pu;Px;Py;Pz` | define colour register `Pc`: `Pu` = 1 HLS (`Px` hue 0-360, `Py` lightness, `Pz` saturation), 2 RGB (`Px;Py;Pz` intensities 0-100%) |
+| `#Pc` | select colour register `Pc` for subsequent data |
+| `!Pn` | repeat the *next* data byte `Pn` times |
+| `$` | graphics carriage return: active position to the left, same sixel row |
+| `-` | graphics new line: active position to the left of the next sixel row (down six pixels) |
+| `"Pan;Pad;Ph;Pv` | raster attributes: aspect ratio `Pan/Pad`, image size `Ph`x`Pv` pixels |
+
+A Sixel builds a paletted bitmap: 256 colour registers, each a `u32` ARGB
+once resolved, and the data bytes paint six-pixel columns advancing the
+active position rightward, `$` returning it and `-` dropping six rows. RGB
+percentages scale to 0-255; HLS is converted once at register-define time
+so the hot decode never does trigonometry.
+
+## What is built: the decoder and its gate
+
+The decode half of the first acceptance gate is landed as
+`baud-domain/src/sixel.rs` -- pure, `no_std`, allocation-free, painting into a
+caller's `SixelCanvas` over `&mut [ColorWord]` where `DEFAULT` is a transparent
+unpainted pixel. It decodes the data bytes, the `#` colour registers, the `!`
+repeat introducer, `$`/`-`, and the `"` raster attributes, and returns a
+`SixelReport` of the used extent and two **refuse-and-count** figures. Nothing
+of the storage, placement, render or parser-hook slices is built yet.
+
+`baud-domain/tests/sixel_decode.rs` is the decode-agreement gate: ten fixtures
+-- nine hand-authored, each token cited to `[[source: vt3xx-sixel]]`, plus one a
+real Sixel emitted by ImageMagick (a red 4x4 with a green and a blue point),
+which proves the decoder handles a mainstream encoder's output and not only
+hand-crafted bytes, the "use real recordings" discipline for the gate. All
+decode to the exact pixels the grammar prescribes. It was perturbed -- flipping
+the
+six-pixel bit order to most-significant-at-the-top -- and the discriminating
+test failed, **confirmed against a forced rebuild**
+(`rm -f target/debug/deps/sixel_decode-*`): cargo's fingerprint races a rapid
+edit-and-test and reports the stale binary, so the intermediate red runs were
+the old binary, not the code. The next person re-running the perturbation will
+hit the same race.
+
+**The report's extent is the data's reach, not the ink's.** `width`/`height`
+count the columns the cursor advanced through and the bands a data byte
+occupied, so a trailing `?` (all bits clear) still widens the image -- because
+`[[source: ctlseqs]]` mode 8452 places the next text past the extent, and an
+image that reported a short extent would be written over. The extent is
+independent of the canvas; `refused` is what did not fit.
+
+**RGB (`Pu = 2`) is implemented; HLS (`Pu = 1`) and any unrecognised
+coordinate system are counted, not applied.** The source gives the HLS hue as
+"0 to 360 degrees" and defers the origin to a chapter that is not pinned, and
+DEC's HLS does not put red at 0 -- so a converted register would be a guess,
+and "never record a mode you do not act on" says to count it
+(`SixelReport::unapplied_registers`) rather than paint a wrong colour. Pinning
+the VT330/VT340 manual's chapter 2 "Output Mapping" and implementing the
+conversion is the follow-on. `!0` (a zero repeat, which the source does not
+define) is treated as one and flagged in the source as a guess.
+
+## What is also built: the storage value types
+
+The design below is landed as `baud-domain/src/image.rs` -- `ImageStore`, the
+`ClusterStore` pattern a fourth time: a caller-provided ARGB arena
+(`&mut [ColorWord]`), an image-slot table and a placement table, all
+**refuse-and-count** with public counters (`images_refused`,
+`placements_refused`, `images_dropped`). `store` reserves a `w`x`h` span and
+returns the slice to **decode into in place** -- so a Sixel lands where a
+renderer will read it rather than in a scratch that is then copied -- `place`
+adds an absolute-line/column/`z` placement and refcounts the image, and the
+last placement leaving (or an explicit `free`, the Kitty delete) returns the
+span. Reclaim is inherent: free space is the gaps between live spans, recomputed
+per allocation, so a free is a slot cleared and nothing more, correct for every
+free order rather than a stack. `docs/research/notes/t-images.md` records why
+ARGB and not palette indices, and why the gap-scan over a free list.
+
+`baud-domain/tests/image_store.rs` is the gate: ten fixtures. Nine check the
+mechanics with synthetic images written distinct sentinels -- so an overlapping
+allocation corrupts one and the test sees it -- covering non-overlap, the three
+refuse-and-count axes, free-on-last-placement, `free`, `reset`, and gap reuse
+proven by a full arena that still stores after a middle image is freed. The
+tenth decodes the **real** ImageMagick capture below into the store in place.
+Perturbed -- an allocator that ignores gaps and always returns offset 0 -- the
+non-overlap and gap-reuse tests fail, confirmed against a forced rebuild.
+
+**Wired to the parser and to `Storage`.** `Storage` now carries an
+`ImageStore` and a `sixel_body` scratch (`baud-core/src/storage.rs`), and a
+bare-`q` DCS routes to it: `Act::SixelStart` (a `q` from `Node::Dcs` reached
+after numeric parameters `30-3B`, not after an intermediate -- so `DCS + q`
+and `DCS $ q` stay XTGETTCAP and DECRQSS) renames the string kind, the body
+accumulates in `sixel_body` across reads through the same `StrPut`/`StrEnd`
+path an OSC body uses, and at the terminator `Paint::sixel_end`
+(`baud-core/src/sixel.rs`) measures the body with `Sixel::extent`, reserves
+the span, decodes in place and places the image at the cursor's absolute line
+and column. `Term::images()` exposes the store; `RIS` resets it.
+
+The gate is `baud-core/tests/sixel.rs`: the real `swirl.raw` decodes to one
+64x48 placement, **chunk-invariant** across read sizes 1 through the whole file
+(the body spans reads, which is the case no recording could show and the one a
+reset-at-boundary parser breaks only in production); an unprovisioned store
+refuses and counts; a body larger than the scratch is refused whole; and the
+text after a Sixel is drawn, not swallowed. Recognising the bare-`q` DCS moved
+the stride-k class ladder (958 -> 967 at stride 2, and up), which
+`the_alphabet_reduces_as_the_stride_doubles` re-pins.
+
+**Provisioned by the caller, defaulting absent.** `Owned::with_images(budget)`
+sizes the pixel arena and the body scratch (an `ImageBudget`, one typed pair
+rather than two raw sizes); `Owned::new` provisions neither, so a default
+terminal recognises a Sixel and refuses it, counted. The size is the owner's
+call the mechanism does not depend on -- a 64x48 image is 3072 `ColorWord`s, a
+full screen ~1.4M.
+
+**All three paths draw it, and the placement math is written once.**
+`Renderer::set_images` computes each visible placement's screen rect --
+`line - (scrolled - back)` in cells, off-screen ones skipped -- into one list
+the CPU compositor and both GPU arms read, so three paths cannot disagree about
+where an image goes (which the pixel oracle could not otherwise tell from a blit
+bug).
+
+* **CPU.** `Target::blit_image` blits the ARGB over the frame the way a
+  `Kind::Color` glyph composites -- `blend.over`, opaque, a `DEFAULT` pixel
+  transparent by omission -- **on a full frame only** (an incremental frame
+  paints only its dirty rows, so per-placement damage is the follow-on). Gate:
+  `baud-render/tests/image.rs`, the real `swirl.raw` into its 64x48 rect (pixels
+  before any digest), scrolled off as a control.
+* **GPU, both arms.** The collapse was that `glyph`/`Kind::Color` already draws
+  a premultiplied-OVER textured quad, so an image is **one draw call through the
+  existing pipeline -- no shader change, no `.metallib` rebuild**: its own
+  texture (not the shared atlas -- an image is not glyph-sized) bound at fragment
+  1, and a uniform whose `color` floats are the image size so the quad's uv spans
+  it. The texture is uploaded once, keyed on `(ImageGen, ImageId)` and dropped
+  whole when the store's epoch moves, so a slot reused after a `reset` cannot
+  return a stale texture. It draws last, over the glyphs and records, matching
+  the CPU path, and slides with the grid under smooth scroll (cell path). Gate:
+  the pixel oracle's scene gains a homed Sixel, both arms must agree *and* it
+  must change its rect against the same frame with no image -- perturbing either
+  the cell-path draw (arms disagree) or the whole pass (rect unchanged) fires it.
+* **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB pixels / 256 KiB
+  body) on every path, so a Sixel is stored and shown rather than parsed and
+  silently refused. The default is overridable through `[images] pixels_mb`
+  and `[images] body_kb` -- two knobs and not one, because the decoded-pixel
+  and raw-body limits are independent and a single knob scaling both would
+  rest on an unmeasured guess about Sixel encoding density; a large image
+  needs both raised, and the resolved budget is named on a startup line so a
+  refusal is diagnosable without a rebuild.
+
+Two costs are named rather than hidden. **Only the GPU cell path slides images**
+(with `pan`, so an anchored image moves with its line under smooth scroll); the
+CPU compositor does not, and that is not a divergence in the three-paths-agree
+invariant, because the CPU/full-frame `render()` slides *nothing* -- smooth
+scroll is a cell-path feature the Linux and instance paths do not have either.
+And **`set_images` snapshots each referenced image's pixels once**, not every
+frame. The snapshot -- a `Vec<u32>` and a per-pixel `as_rgb` conversion of the
+whole image -- is kept across frames and rebuilt only for a new `(epoch, id)`,
+the same key the GPU texture cache uses, dropped whole when the store epoch
+moves. So a static image on screen costs one snapshot however many frames it
+draws, where the first version rebuilt it every frame: free on the corpus
+(`64x48` is nothing) and a saving that grows with the image -- a `Vec<u32>`
+and an `as_rgb` conversion of every pixel a frame, so hundreds of KB and a few
+hundred thousand conversions for a mid-sized image, up to the arena's ~1M-pixel
+ceiling. `Renderer::image_snapshots` counts snapshots built, and
+`a_static_image_is_snapshotted_once_not_per_frame` gates it at one over five
+frames (perturbed to a clear-every-frame renderer, which reads five); it is
+unmeasured on the corpus because the corpus has no image large enough to show
+the cost, and the counter is the evidence rather than a throughput sweep.
+
+**And the cache is pruned, not just kept.** An image scrolled off screen is
+dropped from the cache the next `set_images` rather than held until the epoch
+changes -- the clear-every-frame version did this by accident, and keeping the
+cache across frames would otherwise hold a large image's pixels forever on a
+terminal showing one. The same test asserts the cache empties when the images
+leave the screen (a build counter is blind to a leak, so the observable is the
+cache length). An image that oscillates on and off re-snapshots on each
+re-entry, which is the price of not holding it and far cheaper than a rebuild a
+frame.
+
+**The cursor advances past the image, in the core.** After placing, `sixel_end`
+moves the cursor down `ceil(Pv / cell_h)` rows through the **existing scroll
+path** (`Paint::index`), so an image at the bottom of the screen scrolls and
+`book.scrolled` moves with it -- which keeps the *next* image's anchor right,
+and which assigning `cy` directly (the tempting shortcut) would not. The core
+lacks only the cell height in pixels, which the renderer owns; the embedder
+supplies it through `Term::set_cell_height`, re-set on every `rescale` (a stale
+height mis-advances every image after a zoom, the geometry trap this repo has
+hit before). A caller that never sets it -- a headless test, a bench -- leaves
+it zero and the cursor unmoved, today's behaviour, which the sentinel gate
+pins. The advance is settled in the core rather than the renderer for two
+reasons a renderer-side advance gives up: the core owns cursor state, and the
+advance must happen per **read** (`DCS ... ST` completes per read) not per
+frame, or `cat a.six b.six` in one read would advance once. `[[source:
+vt3xx-sixel]]`'s **mode 8452** -- the cursor to the *right* of the image rather
+than below -- is not implemented and falls through to the unsupported-mode
+counter. Gates in `baud-core/tests/sixel.rs`: the below-advance, the
+bottom-of-screen scroll (which pins the scroll-path route, perturbed to a `cy`
+assignment), the column staying at the image's left (`CUP` to a non-zero column
+first, so an unchanged column is a decision and not an accident -- the DEC
+source for the exact column is unread and the test pins the choice), the
+sentinel, and chunk invariance.
+
+**The `Term` field and the `Paint::new` argument cost nothing, measured.** They
+are per-`read(2)`, not per-byte -- `Paint::new` is called once a feed, not once
+a character -- so unlike the `last_cp`-in-`Cold` case this repo prices at 16%,
+they sit beneath the ingest floor by construction. Swept on `cat-cjk`, 40 reps,
+five interleaved rounds with the first discarded: HEAD read ~2% below its parent
+with HEAD first and at or above it with the order reversed, inside a ~2% A/A
+spread of the same binary against itself -- a null, the ordering artefact this
+repo records, not a regression.
+
+**The anchor line is exact.** `sixel_end` records the line as `scrolled + cy`,
+where `Term::scrolled()` is the monotonic count of lines ever retired (`Book.
+scrolled`, bumped in `retire`, never in `unretire`) -- the same quantity
+`select.rs` builds `AbsLine` from and the renderer reads to place the image at
+`line - (scrolled - back)`. So two images at the same screen row on different
+logical lines get distinct anchors even past a full ring, which
+`baud-core/tests/sixel.rs` pins with `two_sixels_past_a_full_ring_get_distinct_anchors`
+and `the_scroll_count_matches_the_rotation_deltas`.
+
+## The Sixel capture, in the corpus
+
+`tests/recordings/sixel/swirl.raw` is a real 64x48 Sixel from ImageMagick
+(`magick -size 64x48 gradient:blue-yellow -swirl 180 sixel:-`) -- 5458 bytes,
+`"1;1;64;48` raster attributes, 233 RGB register defines, 184 `!` repeats and
+eight six-pixel bands, all RGB. It is the golden-frame gate's payload (`s-sixel`
+gate 2) once a renderer exists, and the storage gate's real input today.
+Recordings are enumerated by explicit lists (`golden.rs`, `support/mod.rs`), not
+by a directory scan, so a `sixel/` capture joins a gate only when its name is
+added to that gate -- it does not disturb the text corpus.
+
+## Storage: a caller-provided image arena, refuse and count
+
+This is the settled design and it is the `ClusterStore` / `LinkId` / `tmpl`
+pattern a fourth time -- bounded by construction, **refuse rather than
+evict, and count the refusal**. An evicted image is a wrong picture on
+screen, the same argument that made the cluster store refuse a 64th
+distinct cluster rather than drop somebody's accent.
+
+Three bounded structures, all caller-owned on `Storage` (which already owns
+the grid, the arena, the reply buffer -- baud-core allocates none of them):
+
+* **An image pixel arena**, `[u32]`, caller-provided, holding decoded ARGB.
+  A decode that would exceed it is refused whole (`images_refused += 1`),
+  never truncated -- half an image is a wrong image. The raster attributes
+  `Ph`x`Pv` bound a decode before it starts, and an image with no raster
+  attributes is bounded by the arena's free space and refused if it fills
+  it. **Size is the owner's call**, flagged below; the mechanism does not
+  depend on the number.
+* **A placement table**, bounded, holding `{ image slot, anchor, z }`.
+  Screen-space with its own storage, *not* a per-cell reference, because
+  `CellFlags` is full at 16 bits with zero spare -- the note the images
+  entry in the plan already carries. Kitty's own model is placements with a
+  z-index, which is exactly this and avoids the cell-bits problem by
+  construction.
+* **An image slot table** mapping a live image to its span in the arena,
+  freed when its last placement is gone, so the arena is a bump-or-reuse
+  allocator over caller memory rather than a heap. A slot taken once for
+  the arena's life, a distinct image refused past capacity, counted.
+
+Reset on `RIS` alone, not on the alternate screen or a clear -- an image is
+content a program may redraw over, and a placement outliving one erase is
+the correct behaviour, the same call the link table makes.
+
+## Placement: absolute line, column, z-index
+
+An anchor is an **absolute line** plus a column, the `select.rs` model
+(`AbsLine(u64)`, `scrolled - back` is the top visible line, the oldest
+retained is `scrolled - history`). A Sixel is placed at the cursor's cell
+when its `ST` arrives; the anchor records the absolute line that cell is
+on, so:
+
+* **Scroll is free.** The image draws at `anchor_line - (scrolled - back)`
+  rows from the top of the screen. Output scrolling under it moves it up
+  with its line, exactly as a selection endpoint moves, and nothing
+  re-registers.
+* **Off the top clips**, and past `scrolled - history` the anchor's line is
+  gone from the ring and the placement is dropped (`images_dropped += 1`).
+* **The live view and the scrollback view** both draw it, because both are
+  a rotation of the ring the anchor is expressed against -- the same
+  property that made the scrollbar and selection survive `Term::view(back)`.
+
+Z-index orders overlapping placements; a later image at the same cell draws
+over an earlier one. Text is drawn, then images by ascending z, so an image
+is over the cells it covers -- which is the Kitty convention and what a
+program placing an image expects.
+
+**The cursor after a Sixel** is a real interaction with the grid, not a
+render detail. `[[source: ctlseqs]]` mode 8452 (sixel scrolling) leaves the
+cursor to the right of the image; without it the cursor returns to the
+image's left column on the line below. baud follows the mode, defaults it
+to off (the DEC default), and records it -- a mode set and never read is
+the failure `docs/vt-coverage.md` rates worst, so the cursor advance is
+what reads it. The image occupies `ceil(Pv / cell_h)` rows and the grid
+scrolls to make room the way `LF` past the bottom does, so a tall image at
+the bottom of the screen pushes lines into scrollback and its own anchor
+scrolls with them.
+
+## Rendering: ARGB, its own region, all three paths
+
+The renderer already rasterises `sbix`, `CBDT` and `COLR` glyphs into an
+`ARGB` atlas sheet (`atlas.rs:1`, `Kind::Color` = "an ARGB image, painted
+as it is; the instance's colour is unused"). A Sixel is ARGB pixels, so it
+draws through the same `Kind::Color` path -- **but an image is not
+glyph-sized**, so it does not go in the shared glyph atlas (a single Sixel
+can be larger than the whole atlas). An image gets its own texture region,
+uploaded once when decoded and referenced by the placement; the atlas's
+generation-and-dirty upload machinery (`Atlas::take_dirty`) is the
+precedent for uploading only what changed.
+
+All three render paths carry it, because the design's whole point is that a
+placement is grid-anchored data the paths read, not a fourth drawing
+mechanism:
+
+* **CPU compositor**: blit the region's ARGB over the cells the placement
+  covers, after the glyphs, respecting z.
+* **Instance path**: one textured quad per visible placement, chained after
+  the cell quads the way the scrollbar and cursor already chain.
+* **Cell path**: the same quad appended to the records the cell shader
+  draws after its passes, the overlay-record precedent.
+
+Damage is the rows a placement covers, dirtied when the placement moves
+(a scroll) or its image changes -- the `bar_moved` / blink precedent, so an
+image on a still screen costs nothing per frame and a scroll repaints only
+the rows it spans.
+
+## The vt-coverage row
+
+`docs/vt-coverage.md`'s Sixel row is rewritten in the commit that starts
+this work, per the plan. Its old reason was two clauses -- "an image
+protocol, not a terminal protocol", which stands as a *classification*, and
+"does not interact with the ingest architecture baud exists to test", which
+was written when baud was a headless VT core and has expired: the renderer
+now has a CPU compositor, two GPU paths and an ARGB atlas an image protocol
+interacts with directly. The row moves from `out` to `todo`/`partial` as
+the work lands, `done` only when the three gates above exist and would fail
+if the operation regressed.
+
+## Owner's calls, flagged not settled
+
+* ~~**The image arena size.**~~ **Taken.** How much caller memory Sixel gets
+  is `[images] pixels_mb` (decoded ARGB) and `[images] body_kb` (raw-Sixel
+  scratch), defaulting to `host::IMAGE_BUDGET`'s 4 MiB / 256 KiB -- the
+  owner's number, kept, with the knobs added around it rather than the
+  default retuned. Two knobs because the two limits are independent: a
+  1024x1024 image is 4 MiB decoded whatever its Sixel encodes to, and its
+  raw body varies with colour count and run-length use, so a single knob
+  scaling both would rest on an unmeasured density guess. The resolved
+  budget is logged at startup, so a reader who raises one knob and still
+  hits a refusal can see which limit bit them.
+* **Reflow.** A width resize re-cuts the lines an anchor names. An image
+  anchored to a line that reflow joins or splits has an ill-defined column
+  afterwards. The simplest sound answer is to keep the anchor's absolute
+  line, recompute the column at the new width, and drop the placement if
+  the line no longer exists -- but "images survive a width change at all"
+  is a product decision, and dropping every image on resize (what a decode
+  that re-runs on redraw would give) is also defensible. Flagged.
+* **Private vs shared colour registers** (`[[source: ctlseqs]]` mode 1070).
+  Whether each Sixel gets a fresh 256-register palette or shares one across
+  the session. The ecosystem default is **private** (mode 1070 *set*) --
+  xterm, foot and notcurses all default there, a fresh palette per image --
+  which is both the de-facto default and the safer isolation. (An earlier
+  version of this line said xterm defaults to shared; that was wrong, caught
+  by the prior-art survey and corrected in the Images register.)
+* **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
+  and `[[source: ctlseqs]]` documents both. baud picks one and records the
+  choice with the source conflict named, the DECAWM precedent.
+* **`Pb`/`P2` opaque background: counted, not built.** `P2` = 0 or 2 asks that
+  unpainted pixels be drawn in an opaque background rather than left
+  transparent. baud draws them transparent -- the `P2` = 1 behaviour, and the
+  more useful default, since an image then composites over the text -- and the
+  opaque fill is **not built**, because *what colour* to fill with has no
+  defensible pinned source (`[[source: vt3xx-sixel]]`'s background chapter is
+  unread), and a wrong opaque fill paints over content that should show through,
+  which is worse than the current transparent. So the gap is made visible rather
+  than filled with a guess: the graph now routes the `Node::Dcs` parameters into
+  `csi`, `SixelStart` records the `P2` selector on `Cold`, and the terminator
+  bumps `ImageStore::sixel_p2_ignored` **after the image stores** -- not at parse
+  time, so a Sixel later refused (which drew nothing for a fill to have helped)
+  does not inflate the count. **How often a rendered image asks for it is the
+  number that would justify building the fill** -- the `clipboard_reads_refused`
+  / `mouse_unencodable` pattern. Routing the parameters moved the stride-k class
+  counts +0.6% at stride 4 (the pinned `the_alphabet_reduces_as_the_stride_doubles`
+  trade), and the DECRQSS path (`DCS $ q`, and `DCS 1 $ q` with a digit before
+  the `$`) is unchanged, which the conformance suite confirms.
+
+## What this note does not cover
+
+Kitty graphics (the decoder question, above), image animation, Sixel
+*output* (baud is a terminal, not a Sixel-producing application), and the
+ReGIS graphics `ctlseqs` documents beside Sixel -- a vector description
+language with no bitmap, a far larger and separate surface, recorded `out`.

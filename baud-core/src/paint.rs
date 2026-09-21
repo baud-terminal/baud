@@ -49,6 +49,14 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) cx: Col,
     pub(crate) rows: Rows,
     pub(crate) cols: Cols,
+    /// The cell height in device pixels, or [`ImagePx::ZERO`] when unknown --
+    /// what [`Paint::sixel_end`] divides an image's pixel height by to advance
+    /// the cursor. Read-only during a feed, so it is passed by value and never
+    /// written back.
+    pub(crate) cell_height: ImagePx,
+    /// The cell width in device pixels, paired with `cell_height` for freeing a
+    /// Sixel a write overwrites. Zero (a headless caller) frees nothing.
+    pub(crate) cell_width: ImagePx,
     pub(crate) style: StyleId,
     pub(crate) flags: CellFlags,
     pub(crate) charset: Charset,
@@ -158,6 +166,12 @@ pub(crate) struct Paint<'a, 'b> {
     /// and both recovered by a thin reference. `AltBuf` was grouped for the
     /// same reason one change earlier.
     pub(crate) clusters: &'a mut ClusterStore<'b>,
+    /// Stored images and their placements. A completed Sixel decodes into this
+    /// and places at the cursor; see [`ImageStore`].
+    pub(crate) images: &'a mut ImageStore<'b>,
+    /// Where a Sixel body accumulates across reads before it is decoded, the
+    /// OSC-body pattern for a body too large for `pending`.
+    pub(crate) sixel_body: &'a mut [u8],
     /// Everything a control string writes. **One word, not six slices.**
     ///
     /// `Paint` is inlined into the per-byte loop, and this file records the
@@ -271,6 +285,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         cx: Col,
         rows: Rows,
         cols: Cols,
+        cell_height: ImagePx,
+        cell_width: ImagePx,
         rot: RowRot,
         style: StyleId,
         style_raw: StyleWord,
@@ -298,6 +314,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             book,
             clusters,
             strs,
+            images,
+            sixel_body,
             ..
         } = store;
         // **The live surface by which screen is up.** The primary is the
@@ -364,12 +382,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             book,
             clusters,
             strs,
+            images,
+            sixel_body,
             cold,
             view,
             cy,
             cx,
             rows,
             cols,
+            cell_height,
+            cell_width,
             style,
             flags,
             charset,
@@ -554,8 +576,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.view
             .put_ascii_run(self.cy, self.cx, src, self.style, self.flags, self.charset);
         self.cells = self.cells.plus(k);
-        self.cx = Col::at_index(self.cx.index() + k);
+        let start = self.cx;
+        self.cx = Col::at_index(start.index() + k);
         self.row_written = self.row_written.max(self.cx);
+        self.overwrite_images(start, self.cx);
     }
 
     /// Advance past a character just written, leaving the pending-wrap
@@ -697,6 +721,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             }
         }
         self.cells = self.cells.plus(need);
+        let start = self.cx;
+        self.overwrite_images(start, Col::at_index(start.index() + need));
         self.advance(Count::of(need));
         self.row_written = self.row_written.max(self.cx);
     }
@@ -801,8 +827,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         let n = cps.len() * (1 + usize::from(w == Width::WIDE));
         self.cells = self.cells.plus(n);
-        self.cx = Col::at_index(self.cx.index() + n);
+        let start = self.cx;
+        self.cx = Col::at_index(start.index() + n);
         self.row_written = self.row_written.max(self.cx);
+        self.overwrite_images(start, self.cx);
     }
 
     /// Does a run of `n` characters of width `w` fit the rest of the row?

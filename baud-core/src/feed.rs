@@ -40,6 +40,8 @@ impl Term<'_> {
             self.cx,
             self.rows,
             self.cols,
+            self.cell_height,
+            self.cell_width,
             self.rot,
             self.style,
             self.style_raw,

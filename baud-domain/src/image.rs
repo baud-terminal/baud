@@ -1,0 +1,591 @@
+//! Image storage for Sixel and Kitty graphics: a caller-provided ARGB arena, a
+//! bounded image-slot table and a bounded placement table, all
+//! **refuse-and-count**. Pure, `no_std`, allocation-free -- the caller owns the
+//! pixels, the slots and the placements exactly as it owns the grid and the
+//! arena, and `docs/research/notes/t-images.md` is the design.
+//!
+//! An image is decoded **once, into the arena in place** (a [`SixelCanvas`] over
+//! the slice [`ImageStore::store`] returns), which is the zero-extra-copy path
+//! the register describes: the pixels land where a renderer will read them
+//! rather than in a scratch that is then copied. The storage carries ARGB
+//! [`ColorWord`]s and never palette indices, decided in the register on the
+//! shader-sampling ground -- a palette index in the cell shader is a second
+//! dependent texture fetch.
+//!
+//! Three bounded structures, the [`ClusterStore`] pattern a fourth time --
+//! **refuse rather than evict, and count the refusal**, because an evicted image
+//! is a wrong picture on screen:
+//!
+//! * the pixel arena, a bump-or-reuse allocator over caller memory;
+//! * the image-slot table, mapping a live [`ImageId`] to its span;
+//! * the placement table, `{ image, line, column, z }`, screen-space with its
+//!   own storage rather than a per-cell reference -- because `CellFlags` is full
+//!   at sixteen bits with zero spare, and Kitty's own model is placements with a
+//!   `z` index, which avoids the cell-bits problem by construction.
+//!
+//! An image is freed when its last placement is gone (or by an explicit
+//! [`ImageStore::free`], the Kitty delete), which returns its span to the arena.
+//! Reclaim is **inherent, not bookkept**: free space is the gaps between live
+//! spans, recomputed per allocation ([`ImageStore::allocate`]), so a free is a
+//! slot cleared and nothing else -- baud's "compute the gaps rather than keep a
+//! free list" instinct, and correct for every free order rather than only a
+//! stack.
+
+use crate::pos::LineIdx;
+use crate::quantity::{Col, Count};
+use crate::style::ColorWord;
+
+/// A pixel dimension of a stored image, width or height. `u16` covers any image
+/// a terminal draws -- 65535 pixels a side is far past a screen -- and the area
+/// is a `usize` so the arena index cannot overflow the type it is stored at.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ImagePx(u16);
+
+impl ImagePx {
+    /// The empty dimension; an image slot at width [`ImagePx::ZERO`] is free.
+    pub const ZERO: ImagePx = ImagePx(0);
+
+    /// A dimension of `n` pixels.
+    pub fn of(n: u16) -> ImagePx {
+        ImagePx(n)
+    }
+
+    /// The raw pixel count.
+    pub fn raw(self) -> u16 {
+        self.0
+    }
+
+    /// As an index or a length.
+    pub fn index(self) -> usize {
+        usize::from(self.0)
+    }
+
+    fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// A signed draw-order index, the Kitty `z` (`[[source: kitty-graphics]]`).
+/// Negative draws below text; ties are broken by image id elsewhere. It is
+/// stored on a placement and read by the renderer, never on the ingest path.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ZIndex(i32);
+
+impl ZIndex {
+    /// Above text, the default for a placement that names no `z`.
+    pub const ZERO: ZIndex = ZIndex(0);
+
+    /// A draw order of `n`.
+    pub fn of(n: i32) -> ZIndex {
+        ZIndex(n)
+    }
+
+    /// The raw index, for the renderer's ordering.
+    pub fn raw(self) -> i32 {
+        self.0
+    }
+}
+
+/// A handle to a stored image. `NONE` is zero, so a zeroed slot names no image;
+/// a live handle is [`ImageId::from_index`] of the slot it occupies, the
+/// `ClusterId`/`LinkId` shape.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageId(u32);
+
+impl ImageId {
+    /// Names no image.
+    pub const NONE: ImageId = ImageId(0);
+
+    fn from_index(i: usize) -> ImageId {
+        ImageId((i as u32).wrapping_add(1))
+    }
+
+    fn index(self) -> Option<usize> {
+        usize::try_from(self.0).ok()?.checked_sub(1)
+    }
+
+    /// Whether this handle names no image.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// A monotonic epoch bumped whenever the set of stored images changes -- a
+/// `store`, a `free`, an `unplace` that drops an image, or a `reset`.
+///
+/// A GPU texture cache keyed on `(generation, id)` drops stale textures
+/// without a per-image generation: an image slot reused after a `reset` (RIS)
+/// lands under a new epoch, so the cache cannot return the old texture for a
+/// reused id. Per-slot generations -- so adding one image does not invalidate
+/// the textures of the others -- are the follow-on if images ever churn per
+/// frame; the corpus stores an image a handful of times a session, so the
+/// coarse epoch re-uploads nothing that is hot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageGen(u32);
+
+impl ImageGen {
+    /// The epoch of a store that has held nothing.
+    pub const ZERO: ImageGen = ImageGen(0);
+
+    /// The raw counter, for a cache key.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    fn bumped(self) -> ImageGen {
+        ImageGen(self.0.wrapping_add(1))
+    }
+}
+
+/// A handle to a placement. `NONE` is zero, the [`ImageId`] shape.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PlacementId(u32);
+
+impl PlacementId {
+    /// Names no placement.
+    pub const NONE: PlacementId = PlacementId(0);
+
+    fn from_index(i: usize) -> PlacementId {
+        PlacementId((i as u32).wrapping_add(1))
+    }
+
+    /// Whether this handle names no placement.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// One image-slot: where a live image's pixels are in the arena, its size, and
+/// how many placements reference it. Empty when [`ImageSlot::width`] is
+/// [`ImagePx::ZERO`] -- a zero-width image is meaningless, the `ClusterSlot`
+/// `len == 0` precedent, so no `bool` is needed to say a slot is free.
+#[derive(Clone, Copy)]
+pub struct ImageSlot {
+    offset: u32,
+    width: ImagePx,
+    height: ImagePx,
+    /// The reference count: how many live placements name this image. An image
+    /// is freed when this reaches zero after having been placed.
+    placements: Count,
+}
+
+impl ImageSlot {
+    /// A free slot.
+    pub const EMPTY: ImageSlot = ImageSlot {
+        offset: 0,
+        width: ImagePx::ZERO,
+        height: ImagePx::ZERO,
+        placements: Count::ZERO,
+    };
+
+    fn is_empty(self) -> bool {
+        self.width.is_zero()
+    }
+
+    fn span_len(self) -> usize {
+        self.width.index() * self.height.index()
+    }
+
+    fn start(self) -> usize {
+        self.offset as usize
+    }
+
+    fn end(self) -> usize {
+        self.start() + self.span_len()
+    }
+}
+
+/// One placement: an image drawn at an absolute line and column with a draw
+/// order. The anchor is an **absolute line** (`[[source: kitty-graphics]]` and
+/// rio both anchor to the scrollback row), so output scrolling under it moves it
+/// with its line; the scroll and view arithmetic is the renderer's, and this
+/// only holds the anchor. Empty when [`PlacementSlot::image`] is
+/// [`ImageId::NONE`].
+#[derive(Clone, Copy)]
+pub struct PlacementSlot {
+    /// The image this places, or [`ImageId::NONE`] for a free slot.
+    pub image: ImageId,
+    /// The absolute line the anchor cell is on.
+    pub line: LineIdx,
+    /// The column the anchor cell is at.
+    pub col: Col,
+    /// The draw order; higher draws later, negative below text.
+    pub z: ZIndex,
+}
+
+impl PlacementSlot {
+    /// A free slot.
+    pub const EMPTY: PlacementSlot = PlacementSlot {
+        image: ImageId::NONE,
+        line: LineIdx::FIRST,
+        col: Col::ZERO,
+        z: ZIndex::ZERO,
+    };
+
+    fn is_empty(self) -> bool {
+        self.image.is_none()
+    }
+}
+
+/// How much caller memory an image store is given: the ARGB pixel arena in
+/// `ColorWord`s and the Sixel-body scratch in bytes. A typed pair rather than
+/// two loose sizes, so a caller provisioning a store names which is which -- and
+/// so `baud-core`'s provisioning method takes one struct rather than two raw
+/// `usize`s, which its signature budget forbids.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageBudget {
+    /// `ColorWord`s of ARGB pixel arena.
+    pub pixels: usize,
+    /// Bytes of Sixel-body scratch, holding one raw body before it decodes.
+    pub body: usize,
+}
+
+impl ImageBudget {
+    /// A budget of `pixels` arena words and `body` scratch bytes.
+    pub fn of(pixels: usize, body: usize) -> ImageBudget {
+        ImageBudget { pixels, body }
+    }
+}
+
+/// A read view of a stored image: its pixels and its size.
+pub struct ImageView<'a> {
+    /// The ARGB pixels, `width * height` of them, row-major.
+    pub pixels: &'a [ColorWord],
+    /// The image width in pixels.
+    pub width: ImagePx,
+    /// The image height in pixels.
+    pub height: ImagePx,
+}
+
+/// A bounded, caller-owned store of images and their placements.
+///
+/// The three caller buffers are the arena (ARGB pixels), the image-slot table
+/// and the placement table; all three are refuse-and-count, and the counters are
+/// public and never silent, the [`ClusterStore`] contract.
+pub struct ImageStore<'b> {
+    pixels: &'b mut [ColorWord],
+    slots: &'b mut [ImageSlot],
+    placements: &'b mut [PlacementSlot],
+    /// Images that did not fit -- no free slot, or no gap in the arena. Never
+    /// silent: a refused image is not drawn, and how often is a number.
+    pub images_refused: usize,
+    /// Placements that did not fit -- no free placement slot.
+    pub placements_refused: usize,
+    /// Images freed, by a last placement leaving or an explicit delete.
+    pub images_dropped: usize,
+    /// Sixels that stored *and* explicitly asked for an opaque background
+    /// (`P2` = 0 or 2) that baud renders transparent instead. baud draws
+    /// unpainted pixels transparent -- the `P2` = 1 behaviour, and the more
+    /// useful default, since an image then composites over the text -- and the
+    /// opaque fill has no defensible pinned source for *what colour* to fill
+    /// with, so the request is honoured as transparent and counted rather than
+    /// filled with a guess. Counted at the terminator after the image stores,
+    /// not when its parameters parse: a refused image drew nothing, so the fill
+    /// would not have helped it, and counting it would inflate the number. How
+    /// often a *rendered* image asks for it is what would justify building the
+    /// fill.
+    pub sixel_p2_ignored: usize,
+    /// The epoch, bumped whenever the set of stored images changes. A GPU
+    /// texture cache keyed on it drops a texture whose image was freed and
+    /// its id reused. See [`ImageGen`].
+    epoch: ImageGen,
+    /// How many placements are live: the O(1) gate so the per-write
+    /// overwrite check (does this write land on an image, so free it) costs
+    /// one comparison on the common path where no image is on screen.
+    placed: usize,
+}
+
+impl<'b> ImageStore<'b> {
+    /// A store over caller memory: `pixels` the ARGB arena, `slots` the
+    /// image-slot table, `placements` the placement table.
+    pub fn new(
+        pixels: &'b mut [ColorWord],
+        slots: &'b mut [ImageSlot],
+        placements: &'b mut [PlacementSlot],
+    ) -> ImageStore<'b> {
+        ImageStore {
+            pixels,
+            slots,
+            placements,
+            images_refused: 0,
+            placements_refused: 0,
+            images_dropped: 0,
+            sixel_p2_ignored: 0,
+            epoch: ImageGen::ZERO,
+            placed: 0,
+        }
+    }
+
+    /// The store's epoch: bumped on every `store`, `free`, `reset`, and every
+    /// `unplace` that drops an image. A GPU texture cache keyed on it and the
+    /// [`ImageId`] survives an image being freed and its slot reused.
+    pub fn generation(&self) -> ImageGen {
+        self.epoch
+    }
+
+    /// Reserve a `width` x `height` span and return its id and the slice to
+    /// decode into. The caller paints the slice in place -- a [`SixelCanvas`]
+    /// over it, or a memcpy of raw Kitty pixels -- so nothing is copied
+    /// afterwards.
+    ///
+    /// Refused, counted, and `None`, if the dimensions are zero, if no image
+    /// slot is free, or if no gap in the arena holds the span. Never truncated:
+    /// half an image is a wrong image.
+    pub fn store(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+    ) -> Option<(ImageId, &mut [ColorWord])> {
+        let area = match width.index().checked_mul(height.index()) {
+            Some(a) if a > 0 => a,
+            _ => {
+                self.images_refused += 1;
+                return None;
+            }
+        };
+        let slot = match self.free_slot() {
+            Some(i) => i,
+            None => {
+                self.images_refused += 1;
+                return None;
+            }
+        };
+        let offset = match self.allocate(area) {
+            Some(o) => o,
+            None => {
+                self.images_refused += 1;
+                return None;
+            }
+        };
+        self.slots[slot] = ImageSlot {
+            offset,
+            width,
+            height,
+            placements: Count::ZERO,
+        };
+        self.epoch = self.epoch.bumped();
+        let start = offset as usize;
+        Some((
+            ImageId::from_index(slot),
+            &mut self.pixels[start..start + area],
+        ))
+    }
+
+    /// A read view of a live image, or `None` if `id` names none.
+    pub fn image(&self, id: ImageId) -> Option<ImageView<'_>> {
+        let i = id.index()?;
+        let s = *self.slots.get(i)?;
+        if s.is_empty() {
+            return None;
+        }
+        Some(ImageView {
+            pixels: &self.pixels[s.start()..s.end()],
+            width: s.width,
+            height: s.height,
+        })
+    }
+
+    /// Place a live image at an absolute line, column and draw order, returning
+    /// the placement id. Refused, counted, and `None` if the image is not live
+    /// or no placement slot is free.
+    pub fn place(&mut self, id: ImageId, line: LineIdx, col: Col, z: ZIndex) -> PlacementId {
+        let Some(i) = id.index() else {
+            self.placements_refused += 1;
+            return PlacementId::NONE;
+        };
+        match self.slots.get(i) {
+            Some(s) if !s.is_empty() => {}
+            _ => {
+                self.placements_refused += 1;
+                return PlacementId::NONE;
+            }
+        }
+        let Some(p) = self.free_placement() else {
+            self.placements_refused += 1;
+            return PlacementId::NONE;
+        };
+        self.placements[p] = PlacementSlot {
+            image: id,
+            line,
+            col,
+            z,
+        };
+        self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
+        self.placed += 1;
+        PlacementId::from_index(p)
+    }
+
+    /// Remove a placement. If it was the image's last, the image is freed and
+    /// its span returns to the arena.
+    pub fn unplace(&mut self, pid: PlacementId) {
+        let Some(p) = pid_index(pid) else { return };
+        let Some(slot) = self.placements.get(p) else {
+            return;
+        };
+        if slot.is_empty() {
+            return;
+        }
+        let image = slot.image;
+        self.placements[p] = PlacementSlot::EMPTY;
+        self.placed = self.placed.saturating_sub(1);
+        let Some(i) = image.index() else { return };
+        let Some(s) = self.slots.get_mut(i) else {
+            return;
+        };
+        let left = s.placements.index().saturating_sub(1);
+        s.placements = Count::of(left);
+        if left == 0 {
+            *s = ImageSlot::EMPTY;
+            self.images_dropped += 1;
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// Delete an image and every placement of it (the Kitty uppercase delete).
+    pub fn free(&mut self, id: ImageId) {
+        let Some(i) = id.index() else { return };
+        match self.slots.get_mut(i) {
+            Some(s) if !s.is_empty() => *s = ImageSlot::EMPTY,
+            _ => return,
+        }
+        for p in self.placements.iter_mut() {
+            if p.image == id {
+                *p = PlacementSlot::EMPTY;
+                self.placed = self.placed.saturating_sub(1);
+            }
+        }
+        self.images_dropped += 1;
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// Every live placement, for the renderer to draw. Order is slot order, not
+    /// `z` order; the renderer sorts by `z`.
+    pub fn placements(&self) -> impl Iterator<Item = (PlacementId, &PlacementSlot)> + '_ {
+        self.placements
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !p.is_empty())
+            .map(|(i, p)| (PlacementId::from_index(i), p))
+    }
+
+    /// Forget every image and placement. `RIS`, not a clear or an alt-screen
+    /// switch -- an image is content a program may redraw over, and a placement
+    /// outliving one erase is the correct behaviour, the link-table call.
+    pub fn reset(&mut self) {
+        for s in self.slots.iter_mut() {
+            *s = ImageSlot::EMPTY;
+        }
+        for p in self.placements.iter_mut() {
+            *p = PlacementSlot::EMPTY;
+        }
+        self.placed = 0;
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// Whether any placement is live -- the O(1) gate for the write path's
+    /// overwrite check, so a stream with no image on screen pays one compare.
+    pub fn any_placed(&self) -> bool {
+        self.placed > 0
+    }
+
+    /// Whether the store has any pixel arena at all, so a Sixel can be drawn
+    /// rather than refused for want of memory. What the Primary DA's Sixel
+    /// advertisement is gated on: an unprovisioned store (the caller passed no
+    /// image budget) refuses every Sixel, and claiming Sixel then would make an
+    /// application send images baud draws as nothing.
+    pub fn provisioned(&self) -> bool {
+        !self.pixels.is_empty()
+    }
+
+    /// Free every image a write covers: a glyph or erase at absolute `line`,
+    /// columns `[col0, col1)`, over `cell_w` by `cell_h` pixel cells. An image
+    /// spans `ceil(h / cell_h)` rows by `ceil(w / cell_w)` cells from its
+    /// anchor, and writing new content over any of them removes it -- the
+    /// standard "text over a Sixel erases it", and what a previewer relies on
+    /// to replace one preview with the next. Without it a previewer's images
+    /// pile up at one cell until the store fills and every later preview is
+    /// refused, drawn stacked and transparent-blended into garbage in the
+    /// meantime. Zero cell dimensions (a headless caller that set none) free
+    /// nothing. Returns how many placements were freed.
+    pub fn overwrite(
+        &mut self,
+        line: LineIdx,
+        col0: usize,
+        col1: usize,
+        cell_w: ImagePx,
+        cell_h: ImagePx,
+    ) -> usize {
+        let (cw, ch) = (cell_w.index(), cell_h.index());
+        if self.placed == 0 || cw == 0 || ch == 0 || col1 <= col0 {
+            return 0;
+        }
+        let wl = usize::try_from(line.value()).unwrap_or(usize::MAX);
+        let mut freed = 0;
+        for p in 0..self.placements.len() {
+            let slot = self.placements[p];
+            if slot.is_empty() {
+                continue;
+            }
+            let Some(i) = slot.image.index() else {
+                continue;
+            };
+            let img = self.slots[i];
+            if img.is_empty() {
+                continue;
+            }
+            let rows = img.height.index().div_ceil(ch);
+            let cols = img.width.index().div_ceil(cw);
+            let l0 = usize::try_from(slot.line.value()).unwrap_or(usize::MAX);
+            let c0 = slot.col.index();
+            // The write's row `wl` lands in the image's rows, and its column
+            // span `[col0, col1)` overlaps the image's `[c0, c0 + cols)`.
+            if wl >= l0 && wl < l0 + rows && col1 > c0 && col0 < c0 + cols {
+                self.unplace(PlacementId::from_index(p));
+                freed += 1;
+            }
+        }
+        freed
+    }
+
+    fn free_slot(&self) -> Option<usize> {
+        self.slots.iter().position(|s| s.is_empty())
+    }
+
+    fn free_placement(&self) -> Option<usize> {
+        self.placements.iter().position(|p| p.is_empty())
+    }
+
+    /// The lowest offset at which `area` pixels fit in a gap between live spans,
+    /// or `None` if the arena has no such gap. Free space is the gaps between
+    /// live slots, so this reclaims every freed span with no free list to keep:
+    /// a candidate offset is bumped past any span it overlaps until a full pass
+    /// finds none, which converges because the candidate only rises and is
+    /// bounded by the arena length.
+    fn allocate(&self, area: usize) -> Option<u32> {
+        let mut cand: usize = 0;
+        loop {
+            let end = cand.checked_add(area)?;
+            if end > self.pixels.len() {
+                return None;
+            }
+            let mut bumped = false;
+            for s in self.slots.iter() {
+                if s.is_empty() {
+                    continue;
+                }
+                // Overlap of [cand, end) with the live span [start, end).
+                if cand < s.end() && s.start() < end && s.end() > cand {
+                    cand = s.end();
+                    bumped = true;
+                }
+            }
+            if !bumped {
+                return u32::try_from(cand).ok();
+            }
+        }
+    }
+}
+
+fn pid_index(pid: PlacementId) -> Option<usize> {
+    usize::try_from(pid.0).ok()?.checked_sub(1)
+}

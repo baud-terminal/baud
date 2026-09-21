@@ -52,11 +52,13 @@
 use crate::journal::Landing;
 use crate::slots;
 use baud_core::Term;
-use baud_domain::{Col, Cols, CursorStyle, HostTime, PackedCell, Row, RowRot, Rows, Stride};
+use baud_domain::{
+    Col, Cols, CursorStyle, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
+};
 use baud_font::Px;
 use baud_render::{
-    Argb, Atlas, Dirty, Generation, Highlight, Instance, MAP_BITS, MAP_SLOTS, MapEntry, Renderer,
-    Replaced, Resolved, Side, Tally, TexRect,
+    Argb, Atlas, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS,
+    MapEntry, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -385,6 +387,13 @@ pub struct Gpu {
     color: Option<Sheet>,
     /// The atlas generation the sheets were last brought up to.
     uploaded: Option<Generation>,
+    /// Per-image textures, valid for `image_gen`. Each image uploads once to
+    /// its own texture -- images are not glyph-sized and do not belong in the
+    /// shared atlas -- and the cache is cleared whole when the store's epoch
+    /// changes, so an image slot reused after a `reset` cannot return the old
+    /// texture. Keyed by [`ImageId`] within an epoch.
+    images: Vec<(ImageId, Texture)>,
+    image_gen: ImageGen,
     /// Frames committed and not yet completed: zero or one.
     in_flight: Arc<AtomicUsize>,
     /// What `Gpu::new` cost, step by step.
@@ -715,6 +724,8 @@ impl Gpu {
             mask: None,
             color: None,
             uploaded: None,
+            images: Vec::new(),
+            image_gen: ImageGen::ZERO,
             in_flight: Arc::new(AtomicUsize::new(0)),
             build,
         })
@@ -964,6 +975,141 @@ impl Gpu {
         Some(())
     }
 
+    /// Ensures every visible image has a GPU texture -- uploading a new one
+    /// once, its own texture rather than the shared atlas, because an image is
+    /// not glyph-sized -- and returns the instances to draw, each with the
+    /// texture to bind. The cache is dropped whole when the store's epoch
+    /// moves, so a slot reused after a `reset` cannot return a stale texture.
+    /// Called before the encoder, so a `replaceRegion` upload never touches a
+    /// bound texture.
+    fn resolve_images(&mut self, renderer: &Renderer<'_, '_>) -> Vec<(Instance, Texture)> {
+        let places = renderer.image_placements();
+        let Some(epoch) = places.first().map(|p| p.epoch) else {
+            return Vec::new();
+        };
+        if self.image_gen != epoch {
+            self.images.clear();
+            self.image_gen = epoch;
+        }
+        let mut draws = Vec::with_capacity(places.len());
+        for p in places {
+            if !self.images.iter().any(|(id, _)| *id == p.id) {
+                let Some(up) = renderer
+                    .image_uploads()
+                    .iter()
+                    .find(|u| u.id == p.id && u.epoch == epoch)
+                else {
+                    continue;
+                };
+                let (w, h) = (Px::of(u32::from(up.w)), Px::of(u32::from(up.h)));
+                let Some(tex) = texture(
+                    &self.device,
+                    MTLPixelFormat::BGRA8Unorm,
+                    w,
+                    h,
+                    MTLTextureUsage::ShaderRead,
+                ) else {
+                    continue;
+                };
+                upload(&tex, w, h, word_bytes(&up.pixels), Texel::Bgra8);
+                self.images.push((p.id, tex));
+            }
+            if let Some((_, tex)) = self.images.iter().find(|(id, _)| *id == p.id) {
+                draws.push((image_instance(p), tex.clone()));
+            }
+        }
+        draws
+    }
+
+    /// Draws each resolved image as a textured quad from its own texture, over
+    /// the glyphs -- the same premultiplied OVER the CPU `blit_image` does,
+    /// through the same `glyph`/`Kind::Color` pipeline a colour glyph uses, so
+    /// no shader is added. One draw call per image: its texture at fragment 1,
+    /// and a uniform whose `color` floats are the image size, so the quad's uv
+    /// spans exactly the texture.
+    ///
+    /// Called inside an open encoder. `pan` shifts every image down by that
+    /// many pixels -- the smooth-scroll offset the grid and records already
+    /// take, so an image anchored to a sliding line moves with it -- and is
+    /// zero on the instance path and on a settled cell frame.
+    fn draw_images(
+        &mut self,
+        enc: &ProtocolObject<dyn MTLRenderCommandEncoder>,
+        draws: &[(Instance, Texture)],
+        mask: &ProtocolObject<dyn MTLTexture>,
+        grid_px: (Px, Px),
+        pan: Px,
+    ) -> Option<()> {
+        if draws.is_empty() {
+            return Some(());
+        }
+        let pan16 = i16::try_from(pan.value()).unwrap_or(i16::MAX);
+        let bytes = draws.len().saturating_mul(Instance::BYTES);
+        let slot = self.ring.0;
+        if self.instances[slot].length() < bytes {
+            let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
+            self.instances[slot] = self.shared(Span(want))?;
+        }
+        {
+            let buffer = &self.instances[slot];
+            let ptr = buffer.contents().cast::<u8>();
+            // SAFETY: a shared buffer's contents are CPU-addressable for its
+            // whole length, at least `bytes` after the check above, and nothing
+            // is in flight, so the GPU is not reading it.
+            let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
+            for (chunk, (inst, _)) in dst.chunks_exact_mut(Instance::BYTES).zip(draws) {
+                let mut inst = *inst;
+                inst.y = Screen(inst.y.0.saturating_add(pan16));
+                chunk.copy_from_slice(&inst.to_bytes());
+            }
+        }
+        self.ring = Ring((slot + 1) % RING);
+        // SAFETY: `u` and the instance bytes outlive their calls (Metal copies
+        // `setBytes`/`setVertexBytes` at the call); the instance buffer holds
+        // `draws.len()` records so an offset never reads past it; the buffer and
+        // texture indices match `glyph_vertex`/`glyph_fragment`.
+        unsafe {
+            enc.setRenderPipelineState(&self.glyph_pipe);
+            enc.setFragmentTexture_atIndex(Some(mask), 0);
+            enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+            for (i, (inst, tex)) in draws.iter().enumerate() {
+                // Only `viewport` (0,1) and `color` (8,9) are read by
+                // `glyph_vertex`; `color` is the image size, so uv spans 0..1
+                // over the whole texture. The rest is unused on this path.
+                let u: [f32; UNIFORM_FLOATS] = [
+                    px_f32(grid_px.0),
+                    px_f32(grid_px.1),
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    f32::from(inst.w.0),
+                    f32::from(inst.h.0),
+                    0.0,
+                    0.0,
+                ];
+                let ubytes = NonNull::from(&u).cast::<c_void>();
+                let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
+                enc.setVertexBuffer_offset_atIndex(
+                    Some(&self.instances[slot]),
+                    i.saturating_mul(Instance::BYTES),
+                    0,
+                );
+                enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
+                enc.setFragmentTexture_atIndex(Some(tex), 1);
+                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                    MTLPrimitiveType::TriangleStrip,
+                    0,
+                    4,
+                    1,
+                );
+            }
+        }
+        Some(())
+    }
+
     /// A pass over `target`, cleared to `clear` -- the terminal's own
     /// background, so the margin around the grid is the same colour as a
     /// default cell rather than a see-through edge -- with the rasteriser
@@ -1079,6 +1225,9 @@ impl Gpu {
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
+        // Resolve images before the encoder, so a new one's `replaceRegion`
+        // upload never touches a bound texture.
+        let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, grid_px);
         let uniforms: [f32; UNIFORM_FLOATS] = [
             px_f32(grid_px.0),
@@ -1122,6 +1271,9 @@ impl Gpu {
                     count,
                 );
             }
+            // Images last, over the text, the way the CPU compositor blits
+            // them. The instance path does not slide, so no pan.
+            self.draw_images(&enc, &images, &mask, grid_px, Px::of(0))?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -1162,6 +1314,8 @@ impl Gpu {
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
+        // Resolve images before the encoder, as the instance path does.
+        let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, grid_px);
         let (cursor_row, cursor_col) = input
             .cursor
@@ -1282,6 +1436,15 @@ impl Gpu {
                     n,
                 );
             }
+            // Images last, over the records, matching the instance path and
+            // the CPU compositor. They slide with the grid under smooth scroll.
+            self.draw_images(
+                &enc,
+                &images,
+                &mask,
+                grid_px,
+                input.slide.unwrap_or(Px::of(0)),
+            )?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -1330,6 +1493,23 @@ impl Gpu {
 pub enum Memory {
     Unified,
     Discrete,
+}
+
+/// The `Kind::Color` instance for an image placement: its screen rect and
+/// size, `uv` zero. `color` is unused -- the fragment samples the bound
+/// texture -- and the uv spans the whole texture because `draw_images` sets
+/// the uniform's `color` to the image size.
+fn image_instance(p: &ImagePlacement) -> Instance {
+    Instance {
+        x: Screen(p.x),
+        y: Screen(p.y),
+        w: Tex(p.w),
+        h: Tex(p.h),
+        u: Tex(0),
+        v: Tex(0),
+        color: Argb(0),
+        kind: Kind::Color,
+    }
 }
 
 /// The whole of a sheet of `side`.

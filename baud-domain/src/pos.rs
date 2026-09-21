@@ -64,6 +64,16 @@ impl LineIdx {
     pub fn next(self) -> LineIdx {
         LineIdx(self.0 + 1)
     }
+    /// An absolute line by number. A caller that tracks the scroll position
+    /// (`scrolled - back`, or `hist + row`) names a line this way; an image
+    /// placement anchors to one.
+    pub fn of(n: u64) -> LineIdx {
+        LineIdx(n)
+    }
+    /// The absolute line number, for a renderer positioning against the scroll.
+    pub fn value(self) -> u64 {
+        self.0
+    }
 }
 
 /// Index into the shared run pool.

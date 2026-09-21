@@ -93,7 +93,7 @@ pub(crate) const NNODE: usize = 20;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 37;
+pub(crate) const NACT: usize = 38;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -218,6 +218,12 @@ pub enum Act {
     /// `StrEnd` -- a DCS payload and an OSC payload are the same bytes with a
     /// different prefix, and only the prefix differs.
     DcsQuery,
+    /// The `q` of a `DCS Pa;Pb;Ph q`: this control string is a Sixel image,
+    /// reached from `Node::Dcs` **without** the `$` intermediate that marks a
+    /// DECRQSS. Like `DcsQuery`, it renames the string kind so the body the
+    /// existing `StrPut`/`StrEnd` machinery accumulates is decoded as Sixel
+    /// raster data rather than dropped.
+    SixelStart,
     /// `BEL`, or the `\` of an `ST`: the string is complete, act on it.
     ///
     /// Distinct from the `Consume` that the `anywhere` rule uses for `CAN` and
@@ -357,6 +363,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Vt52SetRow => "Vt52SetRow",
         Act::Vt52Address => "Vt52Address",
         Act::DcsQuery => "DcsQuery",
+        Act::SixelStart => "SixelStart",
         Act::StrEnd => "StrEnd",
         Act::CsiStart => "CsiStart",
         Act::EscStart => "EscStart",
@@ -400,6 +407,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Vt52SetRow,
     Act::Vt52Address,
     Act::DcsQuery,
+    Act::SixelStart,
     Act::StrEnd,
     Act::CsiStart,
     Act::Digit,
@@ -518,6 +526,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Vt52SetRow => 34,
         Act::Vt52Address => 35,
         Act::DcsQuery => 36,
+        Act::SixelStart => 37,
     }] += 1;
 }
 
@@ -729,6 +738,37 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         Node::Dcs => {
             return match b.raw_byte() {
                 b'$' => edge(Act::Consume, Node::DcsDollar),
+                // A bare `q` (no `$` before it) is a Sixel: rename the string
+                // kind and route the body through the `StrPut`/`StrEnd` path,
+                // which now decodes it rather than dropping it.
+                b'q' => edge(Act::SixelStart, Node::Str),
+                // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
+                // parameters* and no intermediate.** So the parameters `30-3F`
+                // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
+                // `q` reached from here is a Sixel. The earlier `_ => Str` sent
+                // the first digit to the passthrough body, so `q` never arrived
+                // and the image was never recognised.
+                //
+                // **Only the numeric parameters `30-3B` (`0-9 : ;`) collect,
+                // not the private markers `3C-3F` (`< = > ?`) or the
+                // intermediates `20-2F`.** A Sixel's parameters are
+                // `Pa;Pb;Ph` -- digits and `;` -- so that is all it needs; and
+                // routing the rest to `Node::Str` keeps two things right that
+                // williams' separate `dcs_param`/`dcs_intermediate`/`dcs_ignore`
+                // states enforce: `DCS + q` (XTGETTCAP, an intermediate then
+                // `q`) is not mistaken for a Sixel, and `DCS 1 ? $ q` (a marker
+                // in a non-first position, which "cause[s] the entire control
+                // sequence to be ignored") produces no DECRQSS reply. `$` is
+                // the intermediate `DcsDollar` catches for DECRQSS, above.
+                // The numeric parameters feed `csi` -- the same buffer a CSI
+                // uses, fresh here because `Act::StrStart` reset it at the
+                // `ESC P` entry -- so `sixel_end` can read `Pb`/`P2` (the
+                // background-transparency selector) and count a request it does
+                // not honour, rather than dropping the parameters unseen. A `q`
+                // is still a Sixel and `$` still a DECRQSS: neither is a digit
+                // or `;`, so both leave this edge untouched.
+                0x30..=0x39 => edge(Act::Digit, Node::Dcs),
+                0x3a..=0x3b => edge(Act::Sep, Node::Dcs),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x07 => edge(Act::StrEnd, Node::Ground),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::Dcs),
@@ -1215,6 +1255,7 @@ mod classes {
         // | `Act::Bell` -- BEL counted, not consumed | 30/921/13,339/255,588 | +3.2% |
         // | **the 8-bit C1 controls, routed** | **34/921/22,619/522,818** | **+105%** |
         // | C0 and `DEL` ignored in a DCS prefix | **34/958/24,113/566,827** | +8.4% |
+        // | DCS `Pa;Pb;Ph` routed to `csi` (Digit/Sep) | **34/968/24,645/584,842** | +0.6% at stride 4 |
         //
         // The last row added **no class at stride 1** -- `Act::Consume` with a
         // different next node, the cheapest kind of edge this graph has, the
@@ -1286,10 +1327,21 @@ mod classes {
         // both encodings -- the alphabet a stride-k transition table is
         // indexed by, once the characters that label the same transitions
         // everywhere are grouped.
+        // **The Sixel hook moved strides 2, 3 and 4, not stride 1.** Routing a
+        // `DCS` bare-`q` to `Act::SixelStart` and collecting the numeric
+        // parameters `30-3F` in `Node::Dcs` (rather than dumping the first one
+        // to `Node::Str`) tells apart the `q` final and the param bytes there.
+        // It nets zero new stride-1 classes, but the param bytes `30-3B` now
+        // differ from the markers `3C-3F` and the intermediates `20-2F` at that
+        // node, so 958 -> 967 at stride 2, 24,113 -> 24,566 at stride 3 and
+        // 566,827 -> 581,143 at stride 4 -- a distinction invisible in one byte
+        // compounding in two, three and four. That is the cost of recognising
+        // Sixel stated as arithmetic, the same shape every action this file
+        // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 958, "stride 2");
-        assert_eq!(three.len(), 24_113, "stride 3");
-        assert_eq!(four.len(), 566_827, "stride 4");
+        assert_eq!(two.len(), 968, "stride 2");
+        assert_eq!(three.len(), 24_645, "stride 3");
+        assert_eq!(four.len(), 584_842, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a

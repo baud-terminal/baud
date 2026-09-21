@@ -9,7 +9,7 @@
 //! ```
 
 use baud_core::*;
-use baud_domain::{Depth, Stride};
+use baud_domain::{Depth, ImageSlot, ImageStore, PlacementSlot, Stride};
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -288,6 +288,12 @@ fn main() {
     let mut palette = vec![ColorWord::DEFAULT; 256];
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
+    // No images: an empty store refuses every Sixel, and the recordings carry
+    // none, so the ingest path never reaches image storage.
+    let mut img_pixels: [ColorWord; 0] = [];
+    let mut img_slots: [ImageSlot; 0] = [];
+    let mut img_places: [PlacementSlot; 0] = [];
+    let mut sixel_body: [u8; 0] = [];
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -310,6 +316,8 @@ fn main() {
                 &mut links,
                 &mut link_len,
             ),
+            ImageStore::new(&mut img_pixels, &mut img_slots, &mut img_places),
+            &mut sixel_body,
         ),
         &ws,
     );

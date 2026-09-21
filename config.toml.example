@@ -81,6 +81,23 @@ transition = false
 [scroll]
 mode = "smooth"
 
+# How much memory the image store (Sixel today) is given. Two knobs, because
+# the two limits are independent: pixels_mb bounds the DECODED image (a
+# 1024x1024 picture is 4 MiB whatever its Sixel encodes to), and body_kb
+# bounds the RAW Sixel bytes held before they decode, which varies with the
+# image's colours and run-length runs. A large image needs BOTH raised; either
+# limit alone refuses the image (and counts it) rather than showing half of
+# one. The defaults hold a moderate Sixel.
+#
+# advertise_sixel makes the Primary DA claim Sixel (attribute 4), so a
+# previewer such as yazi draws a real image instead of its half-block text
+# fallback. Off by default: the half-block preview is what baud is proven to
+# draw right, and the claim is the reader's to make.
+[images]
+pixels_mb = 4
+body_kb = 256
+advertise_sixel = false
+
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the

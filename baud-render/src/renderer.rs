@@ -15,7 +15,8 @@ use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{
-    Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, PackedCell, Row, Rows,
+    Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen, ImageId,
+    PackedCell, Row, Rows,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -295,6 +296,41 @@ enum Prev {
     Known,
 }
 
+/// One visible image to draw: which image (and the store epoch it was seen
+/// at, the GPU texture-cache key), and where on screen at what size, in device
+/// pixels. The origin is signed, so a partly-scrolled image hangs off the top.
+#[derive(Clone, Copy)]
+pub struct ImagePlacement {
+    /// Which stored image this draws.
+    pub id: ImageId,
+    /// The store epoch when it was snapshotted -- the cache key with `id`.
+    pub epoch: ImageGen,
+    /// The screen x of the top-left, device pixels, signed.
+    pub x: i16,
+    /// The screen y of the top-left, device pixels, signed.
+    pub y: i16,
+    /// The image width in device pixels.
+    pub w: u16,
+    /// The image height in device pixels.
+    pub h: u16,
+}
+
+/// One image's pixels to upload once: keyed by `id` and `epoch`, premultiplied
+/// `0xAARRGGBB` words, `w * h` of them, row-major. A transparent (unpainted
+/// Sixel) pixel is `0x00000000`.
+pub struct ImageUpload {
+    /// Which stored image these pixels are.
+    pub id: ImageId,
+    /// The store epoch -- the cache key with `id`.
+    pub epoch: ImageGen,
+    /// The image width in pixels.
+    pub w: u16,
+    /// The image height in pixels.
+    pub h: u16,
+    /// The premultiplied pixels, `w * h`, row-major.
+    pub pixels: Vec<u32>,
+}
+
 pub struct Renderer<'f, 'a> {
     stack: Stack<'f, 'a>,
     scales: Vec<Scale>,
@@ -364,6 +400,26 @@ pub struct Renderer<'f, 'a> {
     /// driver repaints on a phase flip only when something actually blinks.
     blink: Blink,
     blink_seen: Blinking,
+    /// The visible image placements this frame, screen rects in device
+    /// pixels, computed once by [`Renderer::set_images`] and consumed by
+    /// both the CPU `paint_images` and the two GPU arms -- one description
+    /// of where an image goes, not three.
+    image_places: Vec<ImagePlacement>,
+    /// Each referenced image's pixels, premultiplied, for a GPU to upload
+    /// once. Keyed by id and store epoch; the CPU path reads the term's
+    /// pixels directly instead. **Kept across frames** and refreshed only for a
+    /// new `(id, epoch)`, so a static image is snapshotted once rather than
+    /// rebuilt every frame -- a large image's per-frame allocation and
+    /// per-pixel conversion, which the frame path would otherwise pay while it
+    /// is on screen. Cleared whole when the store epoch moves. See
+    /// [`Renderer::set_images`].
+    image_uploads: Vec<ImageUpload>,
+    /// The store epoch [`Renderer::image_uploads`] is snapshotted at; a change
+    /// drops the whole snapshot cache, the [`baud_domain::ImageGen`] rule.
+    image_epoch: ImageGen,
+    /// How many image pixel-snapshots have been built, cumulative -- a static
+    /// image bumps it once, not once a frame, which is what the gate checks.
+    image_snapshots: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
     /// The palette the last frame resolved against: `OSC 4` repaints
@@ -463,6 +519,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fade_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
+            image_places: Vec::new(),
+            image_uploads: Vec::new(),
+            image_epoch: ImageGen::ZERO,
+            image_snapshots: Tally::of(0),
             dirty: Vec::new(),
             last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
@@ -693,7 +753,145 @@ impl<'f, 'a> Renderer<'f, 'a> {
         damage: Damage,
     ) -> Frame {
         let converted = self.convert(term, Rows::ZERO, damage);
-        self.paint(target, converted)
+        let frame = self.paint(target, converted);
+        // **Images draw only on a full frame.** `paint` touches only the rows
+        // it marked dirty, and this pass blits unconditionally, so on an
+        // incremental frame an image would composite over rows that were not
+        // repainted -- correct-looking until something underneath changes.
+        // Per-placement damage (dirtying the rows a placement moved over, the
+        // `bar_moved` precedent) is the follow-on; a full frame is honest now.
+        if damage == Damage::Full {
+            self.set_images(term, Rows::ZERO);
+            self.paint_images(term, target);
+        }
+        frame
+    }
+
+    /// Computes where every visible image placement lands this frame, into
+    /// [`Renderer::image_placements`], and snapshots each referenced image's
+    /// pixels into [`Renderer::image_uploads`] for a GPU to upload once.
+    ///
+    /// A placement anchors to an absolute line; its screen row is
+    /// `line - (scrolled - back)`, so as output scrolls the image moves up with
+    /// its line, and a scrollback view `back` lines up shows the images
+    /// anchored there. The pixel origin is the cell `(row, col)` at the cell
+    /// metrics, and the image draws one image-pixel per device pixel, its
+    /// natural size. Placements fully off the screen are skipped; a
+    /// partly-scrolled one keeps a signed screen origin and is clipped by the
+    /// blit (CPU) or the rasteriser (GPU).
+    ///
+    /// This is the one place the placement-to-screen arithmetic is written:
+    /// the CPU `paint_images` and the two GPU arms all read the list, so three
+    /// paths cannot disagree about where an image goes -- which the pixel
+    /// oracle could not otherwise tell from a blit bug.
+    ///
+    /// Order is placement order, drawn over the text. Z-ordering -- a negative
+    /// `z` below the glyphs, ties broken by image id -- is the follow-on;
+    /// nothing in the corpus places two overlapping images.
+    pub fn set_images(&mut self, term: &Term<'_>, back: Rows) {
+        self.image_places.clear();
+        let imgs = term.images();
+        let epoch = imgs.generation();
+        // The snapshot cache is kept across frames and dropped whole only when
+        // the store epoch moves -- a `store`, `free` or `reset` -- so a static
+        // image on screen is not re-snapshotted every frame. Within an epoch,
+        // an id names the same pixels, so the `any(id)` check below is the
+        // never-rebuild gate.
+        if self.image_epoch != epoch {
+            self.image_uploads.clear();
+            self.image_epoch = epoch;
+        }
+        let top = term.scrolled().index().saturating_sub(back.index()) as i64;
+        let cw = self.metrics.cell_w.value() as i64;
+        let ch = self.metrics.cell_h.value() as i64;
+        let screen_h = self.rows.index() as i64 * ch;
+        let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+        for (_, p) in imgs.placements() {
+            let Some(view) = imgs.image(p.image) else {
+                continue;
+            };
+            let y0 = (p.line.value() as i64 - top) * ch;
+            let x0 = p.col.index() as i64 * cw;
+            // Fully above the top, or fully below the bottom: nothing to draw.
+            if y0 + view.height.index() as i64 <= 0 || y0 >= screen_h {
+                continue;
+            }
+            self.image_places.push(ImagePlacement {
+                id: p.image,
+                epoch,
+                x: clamp16(x0),
+                y: clamp16(y0),
+                w: view.width.raw(),
+                h: view.height.raw(),
+            });
+            // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
+            // reads this to upload, the CPU reads the term itself. A pixel that
+            // resolves to RGB is opaque; a `DEFAULT` (unpainted Sixel) pixel is
+            // `0x00000000`, transparent, which the fragment's premultiplied OVER
+            // leaves the cell showing through.
+            if !self
+                .image_uploads
+                .iter()
+                .any(|u| u.id == p.image && u.epoch == epoch)
+            {
+                let pixels = view
+                    .pixels
+                    .iter()
+                    .map(|cw| {
+                        cw.as_rgb().map_or(0u32, |(r, g, b)| {
+                            0xFF00_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+                        })
+                    })
+                    .collect();
+                self.image_uploads.push(ImageUpload {
+                    id: p.image,
+                    epoch,
+                    w: view.width.raw(),
+                    h: view.height.raw(),
+                    pixels,
+                });
+                self.image_snapshots = self.image_snapshots.inc();
+            }
+        }
+        // Drop snapshots of images no longer on screen, so an image scrolled off
+        // the top does not hold its pixels until the next epoch change -- which
+        // on a terminal showing one image is forever. The clear-every-frame
+        // first version avoided this by accident; keeping the cache across
+        // frames reintroduces it unless the leavers are pruned. An image that
+        // oscillates on and off screen re-snapshots on each re-entry, which is
+        // the price of not holding it, and far cheaper than a rebuild a frame.
+        let places = &self.image_places;
+        self.image_uploads
+            .retain(|u| places.iter().any(|p| p.id == u.id));
+    }
+
+    /// The visible image placements this frame, in device-pixel screen rects.
+    pub fn image_placements(&self) -> &[ImagePlacement] {
+        &self.image_places
+    }
+
+    /// Each referenced image's premultiplied pixels, for a GPU to upload once.
+    pub fn image_uploads(&self) -> &[ImageUpload] {
+        &self.image_uploads
+    }
+
+    /// How many image pixel-snapshots have been built over this renderer's
+    /// life. A static image on screen bumps it once, not once a frame, which is
+    /// how the snapshot-cache gate distinguishes "built once" from "rebuilt".
+    pub fn image_snapshots(&self) -> Tally {
+        self.image_snapshots
+    }
+
+    /// Blits every image placement over the frame, after the glyphs, reading
+    /// the list [`Renderer::set_images`] built and the term's own pixels.
+    fn paint_images(&self, term: &Term<'_>, target: &mut Target<'_>) {
+        let imgs = term.images();
+        for p in &self.image_places {
+            let Some(view) = imgs.image(p.id) else {
+                continue;
+            };
+            target.blit_image((i32::from(p.x), i32::from(p.y)), &view, self.blend);
+        }
     }
 
     /// Reads the terminal and converts the rows that changed since the

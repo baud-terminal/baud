@@ -57,8 +57,8 @@ pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{Overlay, OverlayStats, Scene};
 pub use renderer::{
-    Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, PairRole, Pairs, Renderer,
-    Single,
+    Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, ImagePlacement,
+    ImageUpload, PairRole, Pairs, Renderer, Single,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{Thumb, Window, back_for, thumb};

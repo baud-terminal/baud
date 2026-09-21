@@ -21,7 +21,8 @@
 
 use crate::config::Config;
 use crate::host::{
-    FIRST_PRESENT, MAX_GRID, describe, host_geometry, load_faces, startup_first, startup_mark,
+    FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
+    startup_mark,
 };
 use crate::pty::{Chunk, Pty, Ready, wait};
 use baud_core::{Owned, Resized, Term};
@@ -89,11 +90,14 @@ pub fn run() {
     for f in &cfg.faces {
         crate::info!("face: {}", f.path);
     }
+    crate::info!("{}", crate::host::describe_images(&cfg.images));
     let faces = load_faces(&cfg);
     startup_mark("faces");
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
-    let owned: &'static mut Owned = Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
+    let owned: &'static mut Owned = Box::leak(Box::new(
+        Owned::with_geometry(&MAX_GRID, &geom).with_images(cfg.images),
+    ));
     let mut term = Term::new(owned.storage(), &FIRST);
     // **No appearance signal is wired here, so `Auto` resolves to dark.**
     // The desktop's preference lives behind `org.freedesktop.appearance`
@@ -120,6 +124,13 @@ pub fn run() {
     )
     .expect("cell metrics");
     crate::host::tell_defaults(&mut term, renderer.theme());
+    // The cell height for the Sixel cursor advance, before the first feed;
+    // re-set on every `configure`.
+    term.set_cell_size(
+        cell_px(renderer.metrics().cell_w),
+        cell_px(renderer.metrics().cell_h),
+    );
+    term.set_sixel_claim(cfg.sixel);
     startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST).expect("pty");
     startup_mark("pty");
@@ -237,6 +248,11 @@ impl Driver {
     /// window's size, and the child told.
     fn configure(&mut self, width: baud_present_wayland::Px, height: baud_present_wayland::Px) {
         let m = self.renderer.metrics();
+        // The core advances the cursor past a Sixel by cell rows: give it the
+        // height. Set on every configure, which is where a cell size could
+        // change (a font or scale change would arrive as one).
+        self.term
+            .set_cell_size(cell_px(m.cell_w), cell_px(m.cell_h));
         let cols = (width.0 / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
         let rows = (height.0 / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
         let ws = WinSize {

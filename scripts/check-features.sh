@@ -18,6 +18,14 @@
 # is enough and far faster. `-D warnings` because the commonest rot is a stubbed
 # body leaving a variable unused, which is a warning the arm must not carry.
 #
+# **Do not run this concurrently with a build for another target** (e.g. the
+# `x86_64-unknown-none` no_std check). A `cargo check` for the host and a build
+# for a bare-metal target contend, and one arm's test compile picked up the
+# no_std target and reported a false `BROKEN` with "can't find crate for `std`".
+# The arm built fine alone. This gate says "an arm that does not compile cannot
+# be re-measured", so a false BROKEN wastes exactly the time it exists to save --
+# run it on its own.
+#
 # **One list, several crates.** The first version hard-wired `baud-bench`, so a
 # feature arm in any other crate was gated by nothing -- the "scoped to what it
 # was written beside" failure this repo records for `docs.rs`'s `ROOTS` and the

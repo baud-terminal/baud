@@ -43,6 +43,18 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn str_put(&mut self, b: StreamByte) {
+        // A Sixel body is far larger than `OSC_MAX` and goes to its own buffer.
+        // The length rises past the buffer so an overflow is detectable at the
+        // terminator (`sixel_len > sixel_body.len()`) and the image is refused
+        // whole rather than decoded from a truncated body.
+        if self.cold.str_kind == StrKind::Sixel {
+            let n = self.cold.sixel_len.index();
+            if n < self.sixel_body.len() {
+                self.sixel_body[n] = b.raw_byte();
+            }
+            self.cold.sixel_len = ReadLen::from_index(n + 1);
+            return;
+        }
         let n = self.cold.str_len.index();
         if n < OSC_MAX {
             self.strs.pending[n] = b.raw_byte();
@@ -67,6 +79,7 @@ impl Paint<'_, '_> {
         };
         match self.cold.str_kind {
             StrKind::Osc => self.dispatch_osc(term),
+            StrKind::Sixel => self.sixel_end(),
             StrKind::Decrqss => {
                 let n = self.cold.str_len.index();
                 let target = StatusTarget::parse(&self.strs.pending[..n]);
@@ -82,6 +95,7 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.str_len = ByteLen::ZERO;
+        self.cold.sixel_len = ReadLen::ZERO;
     }
 
     fn dispatch_osc(&mut self, term: StringTerm) {
@@ -291,6 +305,10 @@ pub(crate) enum StrKind {
     Osc,
     /// A `DCS $ q`, which is the one DCS either core acts on.
     Decrqss,
+    /// A `DCS Pa;Pb;Ph q` Sixel: the body is raster data, accumulated into
+    /// `sixel_body` and decoded at the terminator. Reached through the bare
+    /// `q` prefix, the `Decrqss` shape one prefix over.
+    Sixel,
     Other,
 }
 

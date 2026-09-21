@@ -12,7 +12,7 @@ use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
 use crate::instance::Instance;
 use crate::units::{Band, Coverage, slots};
-use baud_domain::Chan;
+use baud_domain::{Chan, ImageView};
 use baud_font::Px;
 
 /// How coverage mixes a glyph colour into the background.
@@ -125,6 +125,48 @@ impl<'p> Target<'p> {
                     }
                 };
                 row[x] = out.0;
+            }
+        }
+    }
+
+    /// Blits an image's ARGB pixels over the buffer at slot `(x0, y0)`, which
+    /// may be negative when an image has scrolled partway off the top. Clipped
+    /// to the buffer on every side. A pixel is composited `blend.over` opaque,
+    /// exactly as a `Kind::Color` glyph is (an image is ARGB the same way an
+    /// `sbix` glyph is), so an image drawn over glyphs reads over them.
+    ///
+    /// A `ColorWord` that resolves to RGB is drawn; anything else -- a
+    /// `DEFAULT` word, which is an unpainted, transparent Sixel pixel, or an
+    /// indexed word, which a Sixel arena never holds -- draws nothing and lets
+    /// the cell underneath show through. Transparency is by omission, not an
+    /// alpha channel; the Sixel `Pb`/`P2` whole-image transparency mode is a
+    /// separate thing the core does not yet see.
+    pub fn blit_image(&mut self, origin: (i32, i32), view: &ImageView<'_>, blend: Blend) {
+        let (x0, y0) = origin;
+        let (iw, ih) = (view.width.index(), view.height.index());
+        let pixels = view.pixels;
+        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
+        for my in 0..ih {
+            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
+                continue;
+            };
+            if y >= height {
+                continue;
+            }
+            let base = y * stride;
+            for mx in 0..iw {
+                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
+                    continue;
+                };
+                if x >= width {
+                    continue;
+                }
+                let Some((r, g, b)) = pixels[my * iw + mx].as_rgb() else {
+                    continue;
+                };
+                let src = Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+                let dst = Argb(self.pixels[base + x]);
+                self.pixels[base + x] = blend.over(src, dst, Coverage(255)).0;
             }
         }
     }

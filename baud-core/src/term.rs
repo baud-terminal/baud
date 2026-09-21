@@ -105,6 +105,19 @@ pub enum Moved {
     Restored(Rows),
 }
 
+/// A Sixel's requested background, from its `Pb`/`P2` parameter. `Opaque`
+/// (`P2` = 0 or 2) asks for unpainted pixels to be filled rather than left
+/// transparent; baud renders them transparent and counts the request, so this
+/// says which Sixels to count. Not a `bool`, so the two-state meaning is named
+/// and the field cannot be confused with a flag.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SixelBg {
+    /// `P2` = 1, or absent: unpainted pixels are transparent, which baud does.
+    Transparent,
+    /// `P2` = 0 or 2: an opaque background baud does not fill; counted.
+    Opaque,
+}
+
 /// The state a control sequence changes that the write loop does not read.
 #[derive(Clone, Copy)]
 pub struct Cold {
@@ -178,6 +191,18 @@ pub struct Cold {
     /// because a string spans reads.
     pub(crate) str_kind: StrKind,
     pub(crate) str_len: ByteLen,
+    /// A Sixel body's length, `ReadLen` rather than `ByteLen` because a Sixel
+    /// body runs to tens of kilobytes where `str_len` is a `u16`. It counts the
+    /// **true** body length and keeps rising past the scratch buffer, so a body
+    /// that overflowed is `sixel_len > sixel_body.len()` at the terminator and
+    /// is refused whole rather than decoded truncated.
+    pub(crate) sixel_len: ReadLen,
+    /// A Sixel's `Pb`/`P2` background selector, read from the DCS parameters at
+    /// `SixelStart` and consulted at the terminator so a Sixel that is *refused*
+    /// (no arena, an overflowed body) is not counted as an ignored request --
+    /// the counter is a decision input, and a refused image renders nothing for
+    /// a fill to have helped.
+    pub(crate) sixel_bg: SixelBg,
     /// ANSI or VT52, and the row byte a half-finished `ESC Y` is holding.
     ///
     /// **Both land in existing padding**: `size_of::<Cold>()` does not change.
@@ -228,6 +253,10 @@ pub struct Cold {
     pub(crate) other_keys_format: OtherKeysFormat,
     pub(crate) encoding: InputEncoding,
     pub(crate) ambiguous: AmbiguousWidth,
+    /// Whether the Primary DA may claim Sixel. `No` until the embedder opts
+    /// in, whatever the store holds: an application that reads the claim stops
+    /// drawing its text fallback, so the claim is the embedder's to make.
+    pub(crate) sixel_claim: SixelClaim,
     pub(crate) cursor_style: CursorStyle,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
@@ -269,10 +298,13 @@ pub struct Cold {
 // the renderer once a frame. Measured on landing rather than assumed free --
 // vim and btop interleaved with an A/A copy, every range overlapping. The
 // cursor colour took this from 280 to 288, one word each on `defaults` and
-// `dynamic`, on `Cold` which the per-byte loop carries by reference.
+// `dynamic`, on `Cold` which the per-byte loop carries by reference. The Sixel
+// body length (`sixel_len: ReadLen`) took it from 288 to 296 -- a `usize`,
+// because a Sixel body runs to tens of kilobytes past `str_len`'s `u16`; it is
+// read only while a Sixel is parsing, not per glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 288);
+const _: () = assert!(core::mem::size_of::<Cold>() == 296);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -293,6 +325,8 @@ impl Cold {
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
             str_len: ByteLen::ZERO,
+            sixel_len: ReadLen::ZERO,
+            sixel_bg: SixelBg::Transparent,
             c1: C1Transmit::SevenBit,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.
@@ -302,6 +336,7 @@ impl Cold {
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
             ambiguous: AmbiguousWidth::Narrow,
+            sixel_claim: SixelClaim::No,
             cursor_style: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
@@ -340,6 +375,22 @@ pub struct Term<'b> {
     pub(crate) cx: Col,
     pub(crate) rows: Rows,
     pub(crate) cols: Cols,
+    /// The height of a cell in device pixels, or [`ImagePx::ZERO`] when the
+    /// embedder has not said. It is the one number a headless core lacks to
+    /// advance the cursor past a Sixel -- `ceil(image_pixel_height / cell_h)`
+    /// rows -- so it is set by the renderer's metrics through
+    /// [`Term::set_cell_size`], not by any control sequence, and it survives
+    /// `RIS`: a reset does not change the physical cell size. Zero means "do
+    /// not advance", which keeps a headless test or bench at today's
+    /// behaviour.
+    pub(crate) cell_height: ImagePx,
+    /// The width of a cell in device pixels, or [`ImagePx::ZERO`] when the
+    /// embedder has not said. Paired with [`Term::cell_height`], it is what
+    /// lets the core free a Sixel when text is written over its cells: an
+    /// image spans `ceil(w / cell_width)` columns, and a previewer replacing
+    /// one preview with the next relies on the overwrite removing the old
+    /// image. Zero (a headless caller) frees nothing.
+    pub(crate) cell_width: ImagePx,
     /// The distance between rows in the grid: [`Storage::stride`], fixed for
     /// the life of the storage.
     ///
@@ -970,6 +1021,8 @@ impl<'b> Term<'b> {
             cx: Col::ZERO,
             rows,
             cols,
+            cell_height: ImagePx::ZERO,
+            cell_width: ImagePx::ZERO,
             stride,
             rot: RowRot::NONE,
             style: StyleId::DEFAULT,
@@ -1195,6 +1248,14 @@ impl<'b> Term<'b> {
         self.cold.ambiguous
     }
 
+    /// Let the Primary DA advertise Sixel (attribute `4`). Off by default: the
+    /// claim is made only when this is `Yes` **and** the image store is
+    /// provisioned, because an application that reads it switches from its text
+    /// (half-block) fallback to Sixel, and an embedder may want the fallback.
+    pub fn set_sixel_claim(&mut self, c: SixelClaim) {
+        self.cold.sixel_claim = c;
+    }
+
     /// `DECSCUSR`. The cursor shape an application asked for.
     pub fn cursor_style(&self) -> CursorStyle {
         self.cold.cursor_style
@@ -1312,6 +1373,17 @@ impl<'b> Term<'b> {
         self.surface().3
     }
 
+    /// **Lines that have ever scrolled off the top, monotonic and unbounded.**
+    /// The absolute line at the top of the live screen: screen row `y` is line
+    /// `scrolled + y`, and a scrollback view `back` lines up shows lines from
+    /// `scrolled - back`. This is what an image placement anchors to, and it
+    /// equals the `Scrolled` the app tracks off [`Term::moved_since`] -- the
+    /// same count, exposed here so the core that places an image and the
+    /// renderer that draws it agree without one re-deriving it.
+    pub fn scrolled(&self) -> Rows {
+        self.store.book.scrolled
+    }
+
     /// Rows a shorter screen cut from below the cursor and a taller one
     /// reveals first, before it pulls anything back from the history. Zero
     /// unless a shrink left some; a redraw of a prompt block taller than
@@ -1414,6 +1486,34 @@ impl<'b> Term<'b> {
             .get(cell.flags.cluster(), cell.content)
             .into_iter()
             .flat_map(|s| s.marks())
+    }
+
+    /// The stored images and their placements, for a renderer to draw and a
+    /// test to inspect. A placement carries an image id, an absolute line, a
+    /// column and a `z`; the image carries its pixel size and its ARGB pixels.
+    /// How many images and placements were refused or dropped are counters on
+    /// the store ([`ImageStore::images_refused`] and the rest).
+    ///
+    /// A Sixel arriving with no image memory provisioned ([`Owned::with_images`]
+    /// is how a caller provisions it) is refused and counted here, so an empty
+    /// store with a non-zero `images_refused` is the honest state of a terminal
+    /// that was sent an image it had nowhere to put.
+    pub fn images(&self) -> &ImageStore<'b> {
+        &self.store.images
+    }
+
+    /// Tell the core the cell size in device pixels, so it can advance the
+    /// cursor past a Sixel by `ceil(image_pixel_height / cell_h)` rows and free
+    /// a Sixel when text is written over its `ceil(w / cell_w)` by
+    /// `ceil(h / cell_h)` cells. The embedder sets it from the renderer's
+    /// metrics and re-sets it whenever the cell size changes -- a zoom, a font
+    /// change, a backing-scale change -- because a stale size mis-advances and
+    /// mis-frees every image from then on. Zero (the default, and a headless
+    /// caller that never sets it) means "do not advance and do not free",
+    /// leaving a Sixel where it landed.
+    pub fn set_cell_size(&mut self, width: ImagePx, height: ImagePx) {
+        self.cell_width = width;
+        self.cell_height = height;
     }
 
     /// What tracking the application asked for: `?1000`, `?1002`, `?1003`.

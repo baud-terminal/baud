@@ -24,6 +24,11 @@ impl Tally {
     pub fn value(self) -> u64 {
         self.0
     }
+
+    /// One more, saturating -- for a counter bumped in place.
+    pub fn inc(self) -> Tally {
+        Tally(self.0.saturating_add(1))
+    }
 }
 
 /// A mask texel: how much of the pixel the glyph covers, 0 to 255.

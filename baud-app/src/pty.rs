@@ -272,6 +272,16 @@ impl Pty {
 #[cfg(target_os = "macos")]
 fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake: impl Fn()) {
     let mut buf = vec![0u8; READ_CHUNK];
+    // Debug tee: with BAUD_PTYLOG set, every byte the child writes is appended
+    // to that file, so a scrambled Sixel can be captured as the exact input
+    // baud received and replayed through a decoder test.
+    let mut log = std::env::var_os("BAUD_PTYLOG").and_then(|p| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+    });
     loop {
         // SAFETY: the buffer is valid for READ_CHUNK bytes.
         let n = unsafe { crate::sys::read(fd, buf.as_mut_ptr().cast(), READ_CHUNK) };
@@ -282,6 +292,10 @@ fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake
             return;
         }
         let n = usize::try_from(n).unwrap_or(0);
+        if let Some(f) = log.as_mut() {
+            use std::io::Write;
+            let _ = f.write_all(&buf[..n]);
+        }
         if tx
             .send(Read {
                 at,

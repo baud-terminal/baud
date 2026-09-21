@@ -6534,3 +6534,50 @@ group  = "C"
 # wezterm and foot. **The text layer carries the codes only once tags are
 # stripped** -- a grep for `4:3` on the raw HTML reads zero and is a probe that
 # cannot fire; `sed 's/<[^>]*>//g'` first, and all six are there.
+
+[sources.vt3xx-sixel]
+key    = "vt3xx-sixel"
+title  = "Sixel Graphics (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 14)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter14.html"
+file   = "vt3xx-sixel.html"
+sha256 = "97be785d3f9997e33f0f3ee7c2d8cf59b76f4e6b85ea82bbddf9470e9689de48"
+bytes  = 32784
+status = "retrieved"
+group  = "C"
+# The Sixel raster grammar, which `ctlseqs` documents the *envelope* of and
+# then defers to this manual by name (`xterm-ctlseqs.txt:3234`). It carries
+# the parts a decoder implements: the data byte encoding (`?`..`~`, `0x3F`..
+# `0x7E`, each carrying six vertical pixels as `value - 0x3F`), the colour
+# introducer `#Pc;Pu;Px;Py;Pz` (`Pu` = 1 HLS, 2 RGB), the repeat introducer
+# `!Pn`, graphics carriage return `$` and graphics new line `-`, and the
+# raster attributes `"Pan;Pad;Ph;Pv`. The grammar characters are text content
+# in the HTML and survive `sed 's/<[^>]*>//g'`, unlike `kitty-underlines`'s
+# colon codes above.
+
+[sources.kitty-graphics]
+key    = "kitty-graphics"
+title  = "Terminal graphics protocol"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty documentation"
+url    = "https://sw.kovidgoyal.net/kitty/graphics-protocol/"
+file   = "kitty-graphics-protocol.html"
+sha256 = "1e7c751498e93ea358d8d611aa3da824b9c91afc815447fca343a9b2146a4a32"
+bytes  = 300190
+status = "retrieved"
+group  = "C"
+# The Kitty graphics protocol, the second image protocol the Images phase
+# covers and the one whose *transmission mediums* are the zero-copy question:
+# `APC G <keys> ; <payload> ST`, with `t=d` direct base64, `t=f`/`t=t` a file,
+# and `t=s` a POSIX shared-memory object the terminal reads and then
+# `shm_unlink`s -- so it is one copy (shm to the image store), not zero, and
+# what it saves is the base64, the zlib and the pty chunking rather than the
+# copy itself, which `docs/research/notes/t-images.md` records against the
+# survey that read the spec. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
+# and `f=100` PNG (a decoder the `no_std` core cannot carry). Placements are
+# separate from images, carry a `z` index (negative below text), and a Unicode
+# placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
+# `docs/research/notes/t-images.md`.

@@ -297,6 +297,10 @@ struct Snapshot {
     title: Vec<u8>,
     icon: Vec<u8>,
     bells: usize,
+    /// A Sixel `DCS ... q` is refused here because the snapshot's terminal has
+    /// no image memory, so this counter moving is how a Sixel registers as
+    /// handled-not-silent -- the image half of `unsupported`.
+    images_refused: usize,
     palette: Vec<Option<(u8, u8, u8)>>,
     /// `OSC 10`/`11`/`12`, and their resets.
     dynamic: [Option<(u8, u8, u8)>; 3],
@@ -369,6 +373,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         bells: t.bells,
+        images_refused: t.images().images_refused,
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
         dynamic: [
             t.dynamic_color(DynamicColor::Foreground),

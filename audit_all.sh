@@ -348,7 +348,10 @@ tree_audit() {
     echo "  ok   $ta_name: $ta_total (limit $ta_limit, a floor to drive down)"
   fi
 }
-tree_audit "baud-core/tests suites" 34 baud-core/tests
+# 35, up one for `spec_inventory`'s `images_refused: usize` -- the Sixel counter
+# it checks so a `DCS q` registers as handled-not-silent, the same shape as the
+# `unsupported`/`bells` counter fields beside it. A floor to drive down.
+tree_audit "baud-core/tests suites" 35 baud-core/tests
 
 for f in baud-core/tests/*.rs baud-difftest/src/main.rs baud-sfte-difftest/src/main.rs baud-sfte-difftest/src/lib.rs baud-sfte-difftest/src/ffi.rs; do
   # **A gate that cannot find its input must fail, not pass.** An unmatched

@@ -69,6 +69,23 @@ pub struct Config {
     pub scroll: ScrollMode,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
+    /// How much caller memory the image store is given, from `[images]`.
+    ///
+    /// Two knobs, because the two limits are independent and a single one
+    /// scaling both would rest on an unmeasured guess about Sixel encoding
+    /// density -- a user who raised it and still hit a refusal would have no
+    /// knob left to turn. `pixels_mb` bounds the *decoded* ARGB image (a
+    /// 1024x1024 image is 4 MiB whatever its Sixel encodes to); `body_kb`
+    /// bounds the *raw* Sixel body held before it decodes, which varies with
+    /// its colour count and run-length use. A large image needs both raised:
+    /// the default 4 MiB / 256 KiB holds a moderate Sixel, and either limit
+    /// alone refuses (and counts) rather than truncating.
+    pub images: baud_domain::ImageBudget,
+    /// Whether the Primary DA advertises Sixel, from `[images] advertise_sixel`.
+    /// **Off by default**: an application that sees the claim draws Sixel instead
+    /// of its text (half-block) preview, and the claim is the reader's to make
+    /// rather than baud's to guess.
+    pub sixel: baud_domain::SixelClaim,
 }
 
 /// The material, and the dimming over it.
@@ -226,6 +243,8 @@ impl Config {
             screen_transition: ScreenTransition::Off,
             scroll: ScrollMode::Smooth,
             glass: Glass::defaults(),
+            images: crate::host::IMAGE_BUDGET,
+            sixel: baud_domain::SixelClaim::No,
             source: None,
         }
     }
@@ -329,6 +348,34 @@ impl Config {
                         }
                     };
                 }
+                // The image arena, in the units a reader thinks in: MiB of
+                // decoded ARGB pixels, KiB of raw-Sixel scratch. Converted to
+                // the store's own units (`ColorWord`s and bytes) here as a
+                // local -- a `usize` field on `Config` would trip the audit,
+                // but `ImageBudget` is a `baud-domain` type and exempt.
+                ("images", "pixels_mb") => match value.trim().parse::<usize>() {
+                    Ok(mb) => self.images.pixels = mb.saturating_mul(1 << 18),
+                    Err(_) => warn_size(&value, "pixels_mb"),
+                },
+                ("images", "body_kb") => match value.trim().parse::<usize>() {
+                    Ok(kb) => self.images.body = kb.saturating_mul(1 << 10),
+                    Err(_) => warn_size(&value, "body_kb"),
+                },
+                ("images", "advertise_sixel") => {
+                    self.sixel = match value.trim() {
+                        "true" => baud_domain::SixelClaim::Yes,
+                        "false" => baud_domain::SixelClaim::No,
+                        other => {
+                            crate::warn!(
+                                "config: [images] advertise_sixel = {other:?} is not true or false; it stays off"
+                            );
+                            baud_domain::SixelClaim::No
+                        }
+                    };
+                }
+                ("images", other) => {
+                    crate::warn!("config: [images] has no key {other:?}; it is ignored");
+                }
                 ("", "fonts") => {
                     let faces: Vec<_> =
                         strings(&value).iter().map(|s| FaceSpec::parse(s)).collect();
@@ -403,6 +450,21 @@ fn unit(value: &str, name: &str) -> f32 {
         return c;
     }
     v
+}
+
+/// Said when a `[images]` size does not parse: the knob keeps its default,
+/// the way a malformed `font_size` does -- a mistyped memory budget must not
+/// stop the window appearing -- and it says so, because a value silently
+/// ignored is the same defect as a key silently ignored.
+///
+/// Takes `(value, name)` in `unit`'s order, deliberately: two adjacent
+/// `&str`-pair helpers with swapped orders is a transposition the compiler
+/// cannot catch.
+fn warn_size(value: &str, name: &str) {
+    crate::warn!(
+        "config: [images] {name} {:?} is not a whole number; keeping the default",
+        value.trim()
+    );
 }
 
 /// What a rejected `[glass]` value falls back to: the default for that key
@@ -707,6 +769,45 @@ mod reader {
         assert_eq!(read("[scroll]\nmode = fast\n").scroll, ScrollMode::Smooth);
     }
 
+    /// `[images]` sets both knobs, in the reader's units: `pixels_mb` MiB of
+    /// ARGB become `mb << 18` ColorWords, `body_kb` KiB become `kb << 10`
+    /// bytes. Non-default values, so a section that lands as "the defaults
+    /// anyway" cannot pass this. A whole number that is not one keeps the
+    /// default rather than being read as zero, which a zero-size arena would
+    /// refuse every image silently.
+    #[test]
+    fn advertising_sixel_is_off_unless_asked() {
+        use baud_domain::SixelClaim;
+        assert_eq!(Config::defaults().sixel, SixelClaim::No);
+        assert_eq!(
+            read("[images]\nadvertise_sixel = true\n").sixel,
+            SixelClaim::Yes
+        );
+        assert_eq!(
+            read("[images]\nadvertise_sixel = false\n").sixel,
+            SixelClaim::No
+        );
+        assert_eq!(
+            read("[images]\nadvertise_sixel = maybe\n").sixel,
+            SixelClaim::No
+        );
+        // A top-level key of the same name is not the images section's.
+        assert_eq!(read("advertise_sixel = true\n").sixel, SixelClaim::No);
+    }
+
+    #[test]
+    fn an_images_section_sets_both_knobs() {
+        assert_eq!(Config::defaults().images, crate::host::IMAGE_BUDGET);
+        let c = read("[images]\npixels_mb = 8\nbody_kb = 512\n");
+        assert_eq!(c.images.pixels, 8 << 18, "8 MiB of ColorWords");
+        assert_eq!(c.images.body, 512 << 10, "512 KiB of scratch");
+        // A non-number on one knob leaves that knob at the default and does
+        // not disturb the other.
+        let c = read("[images]\npixels_mb = plenty\nbody_kb = 512\n");
+        assert_eq!(c.images.pixels, crate::host::IMAGE_BUDGET.pixels);
+        assert_eq!(c.images.body, 512 << 10);
+    }
+
     #[test]
     fn a_glass_section_sets_every_one_of_its_keys() {
         let c = read(
@@ -833,6 +934,14 @@ shadow     = "never"
         );
         // And every `[glass]` key reached the glass rather than nothing.
         assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");
+        // The `[images]` section lands too, and it sits after `fonts` for
+        // the reason `[cursor]` does -- a section before the stack would
+        // swallow it, which the face assert above would catch.
+        assert_eq!(
+            c.images,
+            crate::host::IMAGE_BUDGET,
+            "the [images] section did not land"
+        );
     }
 
     /// The list reader still spans lines with a section above it, which

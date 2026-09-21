@@ -169,6 +169,21 @@ pub struct Storage<'b> {
     /// deliberately unanswered, which `docs/vt-coverage.md` rates as better
     /// than answering in the wrong shape but worse than answering.
     pub(crate) reply: &'b mut [u8],
+    /// Stored images and their placements; see [`ImageStore`]. Bounded,
+    /// refuse-and-count, caller-owned like everything else.
+    ///
+    /// **The pixel arena defaults absent**, the `cells3` opt-in shape: a
+    /// caller that wants images provisions it with [`Owned::with_images`], and
+    /// without it every image is refused and counted -- a terminal with no
+    /// image memory draws none and says how many it dropped, which is the
+    /// refuse-and-count contract rather than a silent nothing.
+    pub(crate) images: ImageStore<'b>,
+    /// Where a Sixel body accumulates across reads before it is decoded, the
+    /// way an OSC body accumulates in `pending`. It has its own buffer because
+    /// a Sixel body is far larger than `OSC_MAX` -- over 5 KB for a 64x48
+    /// image -- and it also defaults absent, so a body arriving with no
+    /// scratch is counted rather than decoded from nothing.
+    pub(crate) sixel_body: &'b mut [u8],
 }
 
 /// The parked primary screen: its cells, its extents and its rotation.
@@ -202,6 +217,15 @@ pub struct AltBuf<'b> {
 pub struct Book {
     pub(crate) hist: Rows,
     pub(crate) hidden: Rows,
+    /// **Lines that have ever scrolled off the top, monotonic and unbounded.**
+    /// `hist` is the *retained* depth, capped at `depth`, so it stops rising
+    /// once the ring fills and cannot number a line past it. This numbers every
+    /// line that leaves the top and never decrements -- an un-retire (a taller
+    /// screen or a reverse index bringing a line back) does not un-number it,
+    /// the monotonic `Scrolled` the app already tracks off `moved_since`. An
+    /// image placement anchors to `scrolled + cursor row`, so two images past a
+    /// full ring get distinct absolute lines rather than the same `hist`.
+    pub(crate) scrolled: Rows,
 }
 
 /// Everything a control string writes, in one struct.
@@ -304,6 +328,10 @@ pub struct Owned {
     palette: alloc::vec::Vec<ColorWord>,
     links: alloc::vec::Vec<u8>,
     link_len: alloc::vec::Vec<ByteLen>,
+    img_pixels: alloc::vec::Vec<ColorWord>,
+    img_slots: alloc::vec::Vec<ImageSlot>,
+    img_places: alloc::vec::Vec<PlacementSlot>,
+    sixel_body: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
@@ -359,7 +387,36 @@ impl Owned {
             palette: vec![ColorWord::DEFAULT; 256],
             links: vec![0u8; NLINK * LINK_MAX],
             link_len: vec![ByteLen::ZERO; NLINK],
+            // The slot and placement tables are tiny and always allocated; the
+            // pixel arena and the Sixel-body scratch are the large buffers and
+            // default absent, provisioned by [`Owned::with_images`].
+            img_pixels: vec::Vec::new(),
+            img_slots: vec![ImageSlot::EMPTY; NIMAGE],
+            img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
+            sixel_body: vec::Vec::new(),
         }
+    }
+
+    /// Provision image storage: `pixels` `ColorWord`s of ARGB arena and `body`
+    /// bytes of Sixel-body scratch. [`Owned::new`] provisions neither -- the
+    /// `with_cell_table` opt-in shape -- so a terminal draws no images until a
+    /// caller that wants them sizes these.
+    ///
+    /// **The size is the owner's call, between one image and a screenful.** A
+    /// 64x48 image is 3072 `ColorWord`s (12 KiB); a full 200x50 screen at an
+    /// 8x18 cell is ~1.4M (5.6 MiB). The body scratch holds one raw Sixel
+    /// before it decodes, a few KB per small image and proportionally more.
+    ///
+    /// **A zero-length arena is valid and refuses every image**, which the
+    /// gate depends on -- do not add a non-empty assert here. Refuse-and-count
+    /// is the contract: `store` returns `None` and increments `images_refused`
+    /// when no gap holds the pixels, and an empty arena is that with no gap at
+    /// all, which is the correct nothing for a caller that wants images
+    /// recognised and dropped rather than drawn.
+    pub fn with_images(mut self, budget: ImageBudget) -> Owned {
+        self.img_pixels = alloc::vec![ColorWord::DEFAULT; budget.pixels];
+        self.sixel_body = alloc::vec![0u8; budget.body];
+        self
     }
 
     /// Sized to `ws` with **neither surface of its own**, for an embedder
@@ -419,6 +476,12 @@ impl Owned {
                 links: &mut self.links,
                 link_len: &mut self.link_len,
             },
+            ImageStore::new(
+                &mut self.img_pixels,
+                &mut self.img_slots,
+                &mut self.img_places,
+            ),
+            &mut self.sixel_body,
         )
     }
 
@@ -445,6 +508,12 @@ impl Owned {
                 links: &mut self.links,
                 link_len: &mut self.link_len,
             },
+            ImageStore::new(
+                &mut self.img_pixels,
+                &mut self.img_slots,
+                &mut self.img_places,
+            ),
+            &mut self.sixel_body,
         )
     }
 }
@@ -523,6 +592,20 @@ pub const LINK_MAX: usize = 256;
 /// bounds it with room while staying far below anything that matters.
 pub const REPLY: usize = 256;
 
+/// How many images can be live at once. Small: a screen shows a handful, the
+/// table is scanned linearly, and it is tiny (a slot is a span and a refcount),
+/// so it is always allocated -- unlike the pixel arena, which is the large
+/// buffer and defaults absent. The store works with any slot count, so this is
+/// [`Owned`]'s provisioning size rather than an invariant, hence `alloc`-gated.
+#[cfg(feature = "alloc")]
+pub const NIMAGE: usize = 32;
+
+/// How many placements can be live at once. An image can be placed more than
+/// once, so this is larger than [`NIMAGE`], and also small and always
+/// allocated.
+#[cfg(feature = "alloc")]
+pub const NPLACEMENT: usize = 64;
+
 impl<'b> Storage<'b> {
     /// How many rows the caller provisioned, which is not the live row count.
     ///
@@ -563,6 +646,8 @@ impl<'b> Storage<'b> {
         alt_used: &'b mut [RowExtent],
         clusters: &'b mut [ClusterSlot],
         strs: StrBuf<'b>,
+        images: ImageStore<'b>,
+        sixel_body: &'b mut [u8],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // **The stride is checked, not assumed.** `links` is `NLINK` URIs flat
@@ -641,8 +726,11 @@ impl<'b> Storage<'b> {
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,
+                scrolled: Rows::ZERO,
             },
             strs,
+            images,
+            sixel_body,
         }
     }
 }

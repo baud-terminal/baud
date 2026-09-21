@@ -3,8 +3,8 @@
 
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
-    FIRST_TICK_DONE, MAX_GRID, describe, host_geometry, load_faces, startup_first, startup_mark,
-    startup_note,
+    FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
+    startup_mark, startup_note,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
@@ -462,6 +462,10 @@ struct Boot {
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
     scroll: crate::config::ScrollMode,
+    /// How much caller memory the image store is given, from `[images]`.
+    images: baud_domain::ImageBudget,
+    /// Whether the DA claims Sixel, from `[images] advertise_sixel`.
+    sixel: baud_domain::SixelClaim,
 }
 
 impl Boot {
@@ -543,6 +547,7 @@ impl Boot {
         for f in &cfg.faces {
             crate::info!("face: {}", f.path);
         }
+        crate::info!("{}", crate::host::describe_images(&cfg.images));
         let faces = load_faces(&cfg);
         startup_mark("faces");
         // An explicit choice is the palette; `Auto` starts dark and is
@@ -593,6 +598,8 @@ impl Boot {
             cursor_trail: cfg.cursor_trail,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
+            images: cfg.images,
+            sixel: cfg.sixel,
         }
     }
 
@@ -620,12 +627,15 @@ impl App {
             cursor_trail,
             screen_transition,
             scroll,
+            images,
+            sixel,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
         let own_grid = |ws: &WinSize| {
-            let owned: &'static mut Owned =
-                Box::leak(Box::new(Owned::with_geometry(&MAX_GRID, &geom)));
+            let owned: &'static mut Owned = Box::leak(Box::new(
+                Owned::with_geometry(&MAX_GRID, &geom).with_images(images),
+            ));
             Term::new(owned.storage(), ws)
         };
         // **Both surfaces are the GPU's on the cell path.** The primary is
@@ -634,11 +644,9 @@ impl App {
         // it swaps which buffer the shader reads and copies nothing.
         let (mut wanted, gpu, term, grid) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
-                let owned: &'static mut Owned = Box::leak(Box::new(Owned::without_surfaces(
-                    &MAX_GRID,
-                    &geom,
-                    Depth::DEFAULT,
-                )));
+                let owned: &'static mut Owned = Box::leak(Box::new(
+                    Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT).with_images(images),
+                ));
                 match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
                         let term = Term::new(owned.storage_over(cells, alt_cells), &ws);
@@ -743,6 +751,11 @@ impl App {
         // The smooth-scroll slide caps its offset at one row, so it needs the
         // row height in device pixels; `renderer` is moved into `App` below.
         let cell_h = renderer.metrics().cell_h;
+        let cell_w = renderer.metrics().cell_w;
+        // The core advances the cursor past a Sixel by cell rows, so it needs
+        // the cell height in pixels; re-set on every `rescale`.
+        term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
+        term.set_sixel_claim(sixel);
         App {
             term,
             renderer,
@@ -994,6 +1007,9 @@ impl App {
             self.wrote_in_flight.bump();
         }
         self.renderer.set_blink(self.blink);
+        // Image placements for this view: both GPU arms and the CPU path read
+        // the one list `set_images` builds, so an image lands where its line is.
+        self.renderer.set_images(&self.term, self.back);
         let damage = self.next_damage;
         self.next_damage = Damage::Incremental;
         let waker = self.waker;
@@ -1332,8 +1348,14 @@ impl App {
     fn rescale(&mut self, px: PxSize) -> Option<()> {
         self.renderer.rescale(px)?;
         // The row height changed, so the slide's cap did too; keep an offset
-        // in flight a valid fraction of the new row.
+        // in flight a valid fraction of the new row. The Sixel cursor advance
+        // divides by the same height, so re-take it here or every image from
+        // now mis-advances -- the stale-geometry trap this repo has hit before.
         self.slide.set_cell_h(self.renderer.metrics().cell_h);
+        self.term.set_cell_size(
+            cell_px(self.renderer.metrics().cell_w),
+            cell_px(self.renderer.metrics().cell_h),
+        );
         if let Some(cell) = self.cell.as_mut() {
             cell.maps.rescaled();
         }

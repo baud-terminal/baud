@@ -54,8 +54,10 @@ pub enum Report {
     /// DSR operating status, `CSI 0 n`. `[[source: ctlseqs]]`: "Status Report.
     /// Result ("OK") is CSI 0 n".
     OperatingStatus,
-    /// Primary DA, `CSI ? Ps c`.
-    PrimaryDeviceAttributes(DeviceAttribute),
+    /// Primary DA, `CSI ? Ps c`. The [`SixelClaim`] flag adds attribute `4` to the
+    /// reply when the embedder has provisioned image memory, so an application
+    /// learns baud will draw a Sixel and uses it rather than a text fallback.
+    PrimaryDeviceAttributes(DeviceAttribute, SixelClaim),
     /// The answer to VT52's `ESC Z`: `ESC / Z`.
     ///
     /// `[[source: vt510-decanm]]` Table 5-1: "ESC Z Identify (host to
@@ -148,6 +150,16 @@ pub enum Report {
     /// `ESC [ M Cb Cx Cy`, each ordinate offset by 32. See
     /// [`MouseEncoding::X10`] for why the caller must check the range first.
     MouseX10(MouseEvent),
+}
+
+/// Whether the Primary DA advertises Sixel graphics (attribute `4`). A typed
+/// flag rather than a `bool` so the call site reads as what it is, and so the
+/// audit sees a name; `Yes` only when the image store is provisioned, since an
+/// unprovisioned baud refuses every Sixel.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SixelClaim {
+    No,
+    Yes,
 }
 
 /// Which terminal baud claims to be, in a Primary DA response.
@@ -306,9 +318,17 @@ impl Report {
                 e.push_num(u16::from(f.bits()));
                 e.push(b'u');
             }
-            Report::PrimaryDeviceAttributes(d) => {
+            Report::PrimaryDeviceAttributes(d, sixel) => {
                 e.push(b'?');
                 e.push_num(d.param());
+                // Attribute `4` is Sixel graphics (`[[source: ctlseqs]]`), added
+                // only when the store is provisioned so the claim is honest: an
+                // unprovisioned baud refuses every Sixel, and advertising it
+                // would make an application send images it draws as nothing.
+                if let SixelClaim::Yes = sixel {
+                    e.push(b';');
+                    e.push_num(4);
+                }
                 e.push(b'c');
             }
             Report::MouseSgr(ev) => {

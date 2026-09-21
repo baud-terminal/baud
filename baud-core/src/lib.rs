@@ -56,6 +56,7 @@ mod ops;
 mod osc;
 mod paint;
 mod prompt;
+mod sixel;
 mod storage;
 mod term;
 mod vt52;

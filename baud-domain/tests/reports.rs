@@ -87,7 +87,10 @@ fn dsr_operating_status_is_csi_zero_n() {
 #[test]
 fn primary_da_answers_as_a_vt102() {
     assert_eq!(
-        enc(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102)),
+        enc(Report::PrimaryDeviceAttributes(
+            DeviceAttribute::Vt102,
+            SixelClaim::No
+        )),
         b"\x1b[?6c"
     );
 }
@@ -105,7 +108,7 @@ fn reports_are_mutually_distinguishable() {
             col: one(1),
         },
         Report::OperatingStatus,
-        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
     ];
     for (i, a) in all.iter().enumerate() {
         for (j, b) in all.iter().enumerate() {
@@ -130,7 +133,7 @@ fn every_report_is_a_well_formed_csi() {
             col: one(2048),
         },
         Report::OperatingStatus,
-        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102),
+        Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
     ];
     for r in all {
         let b = enc(r);
@@ -240,7 +243,7 @@ fn report_encodings_fit() {
         ("dsr", Report::OperatingStatus, b'n'),
         (
             "da",
-            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102),
+            Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
             b'c',
         ),
         (

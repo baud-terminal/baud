@@ -115,6 +115,11 @@ impl Paint<'_, '_> {
         self.book.hist = Rows::of_count(hist);
         self.book.hidden =
             Rows::of_count(self.book.hidden.index().saturating_sub(1).min(room - hist));
+        // Monotonic, and uncapped where `hist` is capped at `room`: this numbers
+        // the line that just left the top so a placement past a full ring gets a
+        // distinct absolute line. `unretire` does not undo it -- a line coming
+        // back keeps the number it was given.
+        self.book.scrolled = Rows::of_count(self.book.scrolled.index() + 1);
     }
 
     /// **The row the scroll after the next will blank, asked for now.** With
@@ -994,6 +999,11 @@ impl Paint<'_, '_> {
         // slot but cannot take an occupied one. `RIS` is the one point where
         // every cell really is gone.
         self.clusters.reset();
+        // Images go with the clusters and for the same reason: `RIS` is the one
+        // point where every cell is gone, so a placement outliving a mere clear
+        // or an alt-screen switch is correct -- an image is content a program
+        // may redraw over -- and only a reset drops them all.
+        self.images.reset();
         self.reset_tabs();
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);

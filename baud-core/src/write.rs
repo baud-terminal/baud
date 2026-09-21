@@ -586,6 +586,11 @@ pub(crate) fn act(
         // `for w in [WIDE, NARROW]` cost 3.5% of a payload that could not
         // execute it.
         Act::StrStart => {
+            // Fresh parameters for this string. A DCS's `Pa;Pb;Ph` feed `csi`
+            // (the `Node::Dcs` digit edges), so it must start empty rather than
+            // holding the last CSI's parameters; harmless for an OSC, which
+            // reads none.
+            csi.reset();
             p.str_start(StreamByte::from_stream(p.arena[from.index()]));
             ReadLen::ONE
         }
@@ -615,6 +620,34 @@ pub(crate) fn act(
         }
         Act::DcsQuery => {
             p.cold.str_kind = StrKind::Decrqss;
+            ReadLen::ONE
+        }
+        // A bare-`q` DCS is a Sixel: rename the string kind so the body the
+        // `StrPut`/`StrEnd` path accumulates goes to `sixel_body` and decodes,
+        // and reset the length in case a previous body did not terminate.
+        Act::SixelStart => {
+            p.cold.str_kind = StrKind::Sixel;
+            p.cold.sixel_len = ReadLen::ZERO;
+            // `Pb`/`P2` is the second parameter: 0 or 2 asks for an opaque
+            // background where baud renders unpainted pixels transparent. Record
+            // which it is for `sixel_end` to count *after* the image stores --
+            // a refused Sixel drew nothing, so it is not a request the fill
+            // would have helped. An absent or empty second parameter is
+            // transparent: `for_each_param` yields only the parameters present,
+            // so fewer than two leaves `p2` `None`.
+            let mut i = 0u8;
+            let mut p2 = None;
+            csi.for_each_param(|param| {
+                if i == 1 {
+                    p2 = param;
+                }
+                i = i.saturating_add(1);
+            });
+            p.cold.sixel_bg = match p2.map(|v| v.value()) {
+                Some(0) | Some(2) => crate::term::SixelBg::Opaque,
+                _ => crate::term::SixelBg::Transparent,
+            };
+            csi.reset();
             ReadLen::ONE
         }
         Act::StrEnd => {
@@ -1500,7 +1533,19 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // wrong shape is worse than silence, because an application parses
         // whatever arrives as the report it asked for.
         DomCsi::DeviceAttributes => {
-            p.want_reply(Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102))
+            // Advertise Sixel (attribute `4`) only when the embedder opted in
+            // (`Term::set_sixel_claim`) and the store is provisioned, so the
+            // claim is honest: an application that reads it
+            // then draws with Sixel rather than a text fallback, and an
+            // unprovisioned baud that refuses every Sixel must not claim it.
+            let sixel = match (p.cold.sixel_claim, p.images.provisioned()) {
+                (SixelClaim::Yes, true) => SixelClaim::Yes,
+                _ => SixelClaim::No,
+            };
+            p.want_reply(Report::PrimaryDeviceAttributes(
+                DeviceAttribute::Vt102,
+                sixel,
+            ))
         }
         // **`DSR 6` is the cursor, `DSR 5` is health, and nothing else is
         // answered.** An unimplemented `DSR` gets no reply at all rather than
