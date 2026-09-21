@@ -397,6 +397,7 @@ fn main() {
                         rotation,
                         ring,
                         cursor,
+                        cursor_color: None,
                         highlight: None,
                         overlay: &overlay,
                         records: &records,

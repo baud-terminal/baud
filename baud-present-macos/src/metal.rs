@@ -230,6 +230,9 @@ struct CellUniforms {
     /// draw to the plain one.
     pan: Px,
     slide_rows: Uni,
+    /// `OSC 12` cursor colour packed `0xFFRRGGBB`, or 0 for none. Read after
+    /// the block-cursor swap and by the bar or underline shape pass.
+    cursor_color: Uni,
 }
 
 /// What the cell path draws from: the grid in place, under its rotation
@@ -249,6 +252,10 @@ pub struct CellInput<'a> {
     /// The rotation's modulus: the grid buffer's rows, `Term::ring`.
     pub ring: Rows,
     pub cursor: Option<(Row, Col, CursorStyle)>,
+    /// The application's `OSC 12` cursor colour, if set: the block cursor
+    /// fills with it and the bar or underline cursor takes it, matching
+    /// `Renderer::convert_row`. `None` is the reverse-video default.
+    pub cursor_color: Option<(u8, u8, u8)>,
     /// The selection on this view, or none: a selected cell's colours swap
     /// before the cursor's own swap, the rule every path applies.
     pub highlight: Option<Highlight>,
@@ -1189,6 +1196,9 @@ impl Gpu {
             sel_to_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.0.index()))),
             pan: input.slide.unwrap_or(Px::of(0)),
             slide_rows: Uni::of(Elems(slide_rows)),
+            cursor_color: Uni(input
+                .cursor_color
+                .map_or(0, |(r, g, b)| u32::from_be_bytes([0xFF, r, g, b]))),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target, clear, viewport)?;

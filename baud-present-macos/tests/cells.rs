@@ -12,7 +12,7 @@
 //! than passing, because a comparison that skips itself reads as a pass.
 #![cfg(target_os = "macos")]
 
-use baud_core::{Owned, Term};
+use baud_core::{DynamicColor, Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{BytePos, Col, Cols, Depth, PackedCell, ReadLen, Row, RowRot, Rows, WinSize};
 use baud_font::{Face, Px};
@@ -151,6 +151,7 @@ impl Arms<'_, '_> {
             rotation: view.rotation(),
             ring: t.ring(),
             cursor,
+            cursor_color: t.dynamic_color(DynamicColor::Cursor),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -224,6 +225,7 @@ impl Arms<'_, '_> {
             rotation: RowRot::NONE,
             ring: Rows::of_index(ring),
             cursor,
+            cursor_color: t.dynamic_color(DynamicColor::Cursor),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -419,6 +421,42 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "{diff} pixels differ between the live grid and its copy, {name} cursor"
         );
     }
+    // **`OSC 12`: an application-set cursor colour.** Two things are gated.
+    // The block fills with it and the bar and underline cursors take it, and
+    // the two arms must still agree pixel for pixel -- a dropped `cursor_color`
+    // on either arm is the wrong-colour bug the translucent-background work
+    // found in three places. And the colour must *move the pixels* off the
+    // reverse-video default: without that check a `cursor_color` dropped on
+    // *both* arms would pass vacuously, both agreeing on the reverse video --
+    // the `SHAPE_SLOTS` near-miss this scene exists to avoid.
+    feed(&mut t, b"\x1b[2 q\x1b[1;1H");
+    let (plain, _) = arms.draw(&mut t);
+    feed(&mut t, b"\x1b]12;rgb:ff/00/00\x07");
+    let (block_a, block_b) = arms.draw(&mut t);
+    assert_ne!(
+        differing(&plain, &block_a),
+        0,
+        "the OSC 12 colour never reached the block cursor's pixels"
+    );
+    assert_eq!(
+        differing(&block_a, &block_b),
+        0,
+        "the arms disagree on an OSC 12 block cursor"
+    );
+    for (shape, name) in [
+        (b"\x1b[4 q".as_slice(), "osc12 underline"),
+        (b"\x1b[6 q".as_slice(), "osc12 bar"),
+    ] {
+        feed(&mut t, shape);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on an {name} cursor"
+        );
+    }
+    // Reset, so the rotation and selection cases below draw the default cursor.
+    feed(&mut t, b"\x1b]112\x07");
     // Scroll the scene so the grid is under a rotation, and compare again:
     // the cell arm reads it rotated, the instance arm turns it.
     // From the last row, so the two newlines scroll whatever the grid's

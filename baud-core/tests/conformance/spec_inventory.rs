@@ -298,8 +298,8 @@ struct Snapshot {
     icon: Vec<u8>,
     bells: usize,
     palette: Vec<Option<(u8, u8, u8)>>,
-    /// `OSC 10`/`11`, and their resets.
-    dynamic: [Option<(u8, u8, u8)>; 2],
+    /// `OSC 10`/`11`/`12`, and their resets.
+    dynamic: [Option<(u8, u8, u8)>; 3],
     // All four G-slots, not just the invoked one: a designation into G1 is
     // recorded and was invisible from outside.
     g: [Charset; 4],
@@ -314,9 +314,9 @@ struct Snapshot {
 /// `CSI 1 A` at row 0 is a no-op -- so a blank start would report real
 /// operations as silent. The palette entry is there for the same reason:
 /// `OSC 104` resets one, and resetting a colour nobody set changes nothing.
-/// The two dynamic colours are set for the same reason: `OSC 110`/`111`
+/// The three dynamic colours are set for the same reason: `OSC 110`/`111`/`112`
 /// reset them, and a reset of an override nobody made is invisible.
-const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07hello world\r\nsecond line\r\n\x1b[2;5H";
+const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07hello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -373,6 +373,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         dynamic: [
             t.dynamic_color(DynamicColor::Foreground),
             t.dynamic_color(DynamicColor::Background),
+            t.dynamic_color(DynamicColor::Cursor),
         ],
         g: [
             t.charset_in(GSlot::G0),

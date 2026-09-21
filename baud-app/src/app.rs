@@ -8,7 +8,7 @@ use crate::host::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
-use baud_core::{Depth, Owned, Screen, Term, Zone, grid_stride};
+use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
     Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen,
@@ -1173,6 +1173,7 @@ impl App {
                     // One more row when sliding: the appended leaving row.
                     ring: Rows::of_index(if sliding { vrows + 1 } else { vrows }),
                     cursor,
+                    cursor_color: self.term.dynamic_color(DynamicColor::Cursor),
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,

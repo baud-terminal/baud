@@ -386,17 +386,34 @@ fn a_query_with_no_defaults_and_no_override_is_silent() {
     assert!(reply.is_empty());
 }
 
-/// `OSC 12` -- the cursor colour -- is parsed and **counted**, not stored:
-/// no renderer here reads a cursor colour yet, and a value recorded and never
-/// read is the failure the coverage table rates worst. The day one does, this
-/// test is the one that changes.
+/// `OSC 12` -- the cursor colour -- is **stored and read**, and `OSC 112`
+/// resets it. This is the test the deferral named: it was `is_counted_and_
+/// not_stored` while no renderer drew a cursor colour, and it inverted when
+/// `baud-render` began to. The set no longer counts as unsupported, the
+/// value round-trips through `Term::dynamic_color`, the query answers in the
+/// code-12 shape, and `OSC 112` clears it back to none -- there being no
+/// embedder cursor default, "none" is the fresh-terminal answer too.
 #[test]
-fn osc_12_is_counted_and_not_stored() {
+fn osc_12_sets_and_reads_the_cursor_colour() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, b"\x1b]12;rgb:ff/00/00\x07");
-    assert_eq!(t.unsupported, 1, "OSC 12 is counted as unsupported");
+    assert_eq!(t.unsupported, 0, "OSC 12 is stored, not counted");
+    assert_eq!(
+        t.dynamic_color(DynamicColor::Cursor),
+        Some((0xff, 0x00, 0x00))
+    );
+
+    support::feed(&mut t, b"\x1b]12;?\x07");
+    assert_eq!(t.reply(), b"\x1b]12;rgb:ff/00/00\x07");
+
+    support::feed(&mut t, b"\x1b]112\x07");
+    assert_eq!(
+        t.dynamic_color(DynamicColor::Cursor),
+        None,
+        "OSC 112 resets it"
+    );
 }
 
 /// The same bytes at every read size produce the same colours and the same

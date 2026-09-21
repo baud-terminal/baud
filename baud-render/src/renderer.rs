@@ -1118,6 +1118,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut shapes: Vec<Instance> = Vec::new();
         let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
+        // `OSC 12` cursor colour, if the application set one. Read once for the
+        // row -- it is terminal-global -- and used where the cursor draws: the
+        // block cursor fills with it (rather than the reverse-video swap) and
+        // the bar or underline cursor's shape takes it.
+        let cursor_color = term
+            .dynamic_color(DynamicColor::Cursor)
+            .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
             let (mut fg, mut bg) =
@@ -1160,6 +1167,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 core::mem::swap(&mut fg, &mut bg);
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
                 fg = fg.with_alpha(Chan::from_u8(0xFF));
+                // `OSC 12`: the block fills with the application's cursor
+                // colour instead of the swapped foreground. The glyph under
+                // it stays `fg` (the cell's own background), so it reads
+                // against whatever colour was chosen.
+                if let Some(cc) = cursor_color {
+                    bg = cc;
+                }
             }
             let attrs = style.attrs();
             // Blink hides the whole foreground -- glyph, underline, strike --
@@ -1251,15 +1265,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     fg,
                 ));
             }
+            // The bar or underline cursor draws in the application's cursor
+            // colour (`OSC 12`) if it set one, else the cell's foreground.
+            let cur = cursor_color.unwrap_or(fg);
             match here {
                 Some((_, _, CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline)) => {
                     let h = Px::of(self.metrics.thickness.value().max(2));
                     let y = top + px_i32(self.metrics.cell_h) - px_i32(h);
-                    shapes.push(solid(screen(x), screen(y), self.metrics.cell_w, h, fg));
+                    shapes.push(solid(screen(x), screen(y), self.metrics.cell_w, h, cur));
                 }
                 Some((_, _, CursorStyle::BlinkingBar | CursorStyle::SteadyBar)) => {
                     let w = Px::of(self.metrics.thickness.value().max(2));
-                    shapes.push(solid(screen(x), screen(top), w, self.metrics.cell_h, fg));
+                    shapes.push(solid(screen(x), screen(top), w, self.metrics.cell_h, cur));
                 }
                 _ => {}
             }

@@ -67,15 +67,17 @@ pub enum Osc<'a> {
     Unsupported,
 }
 
-/// Which dynamic colour an `OSC 10`-family sequence names. Two of xterm's
-/// ten: `12` (the cursor) is parsed and counted rather than stored, because
-/// no renderer here reads a cursor colour yet and a value recorded and never
-/// read is the failure `docs/vt-coverage.md` rates worst; `13`-`19` are
+/// Which dynamic colour an `OSC 10`-family sequence names. Three of xterm's
+/// ten: `12` (the cursor) is stored and read now that a renderer draws a
+/// cursor colour -- the deferral this enum once carried ("no renderer here
+/// reads a cursor colour yet") expired when `baud-render` landed, which is
+/// the day `docs/vt-coverage.md` named for it. `13`-`19` remain out: they are
 /// pointer, Tektronix and highlight colours this terminal has no object for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DynamicColor {
     Foreground,
     Background,
+    Cursor,
 }
 
 impl DynamicColor {
@@ -84,12 +86,14 @@ impl DynamicColor {
         match self {
             DynamicColor::Foreground => 10,
             DynamicColor::Background => 11,
+            DynamicColor::Cursor => 12,
         }
     }
     pub fn index(self) -> usize {
         match self {
             DynamicColor::Foreground => 0,
             DynamicColor::Background => 1,
+            DynamicColor::Cursor => 2,
         }
     }
 }
@@ -327,10 +331,11 @@ impl<'a> Osc<'a> {
                     _ => Osc::Unsupported,
                 }
             }
-            b"10" | b"11" => {
+            b"10" | b"11" | b"12" => {
                 let which = match ps {
                     b"10" => DynamicColor::Foreground,
-                    _ => DynamicColor::Background,
+                    b"11" => DynamicColor::Background,
+                    _ => DynamicColor::Cursor,
                 };
                 let mut p = Split::new(rest, b';');
                 match p.next() {
@@ -343,6 +348,7 @@ impl<'a> Osc<'a> {
             }
             b"110" => Osc::ResetDynamic(DynamicColor::Foreground),
             b"111" => Osc::ResetDynamic(DynamicColor::Background),
+            b"112" => Osc::ResetDynamic(DynamicColor::Cursor),
             b"104" => {
                 if rest.is_empty() {
                     Osc::ResetColor(None)

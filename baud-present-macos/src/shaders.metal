@@ -72,6 +72,8 @@ struct CU {
     // the line that just scrolled off, still in the ring one row up. Both
     // zero when settled, so the non-slide draw is unchanged.
     uint pan; uint slide_rows;
+    // `OSC 12` cursor colour, packed 0xFFRRGGBB, or 0 for none.
+    uint cursor_color;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -126,6 +128,9 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
         uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
+        // `OSC 12`: the block fills with the application's cursor colour
+        // instead of the swapped foreground; the glyph stays `fgw`.
+        if (u.cursor_color != 0u) bgw = u.cursor_color;
     }
 }
 
@@ -245,7 +250,8 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             at = float2(float(col * u.cell.x), rowy);
             wh = float2(thick, u.cell.y);
         }
-        colw = fgw;
+        // `OSC 12`: the bar or underline cursor draws in the cursor colour.
+        colw = (u.cursor_color != 0u) ? u.cursor_color : fgw;
     } else {
         // Segment k of a styled underline: the same arithmetic as the CPU
         // compositor's, so the two arms agree pixel for pixel.
