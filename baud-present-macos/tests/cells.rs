@@ -21,7 +21,7 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Renderer, Resolved,
-    Scene, Stack, Theme, Trail, Window,
+    Scene, Stack, Theme, Trail, Transition, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -88,6 +88,8 @@ struct Arms<'f, 'a> {
     window: Option<Window>,
     /// The cursor trail both arms draw, or none.
     trail: Option<Trail>,
+    /// The alternate-screen fade both arms draw, or none.
+    fade: Option<Transition>,
     /// The window copied flat, in screen order -- research decision D4's
     /// buffer, and what the app binds. Held here so a third arm can draw
     /// from it and be compared against the two that read the live grid.
@@ -108,6 +110,7 @@ impl Arms<'_, '_> {
         self.renderer.set_highlight(self.highlight);
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
+        self.renderer.set_screen_fade(self.fade);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
         let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
@@ -131,6 +134,7 @@ impl Arms<'_, '_> {
         );
         self.records.extend_from_slice(self.renderer.trail());
         self.records.extend_from_slice(self.renderer.scrollbar());
+        self.records.extend_from_slice(self.renderer.screen_fade());
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
             grid: &self.grid,
@@ -304,6 +308,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         highlight: None,
         window: None,
         trail: None,
+        fade: None,
         copy,
         copy_mem,
     };
@@ -516,6 +521,22 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the trail reached the pixels"
     );
     arms.trail = None;
+    // The alternate-screen fade: a full-screen veil at mid-progress, drawn
+    // by both arms as one translucent solid over everything, and a change to
+    // the pixels against the unveiled frame it was drawn over.
+    let (unveiled, _) = arms.draw(&mut t);
+    arms.fade = Some(Transition { progress: 0.5 });
+    let (fade_a, fade_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&fade_a, &fade_b),
+        0,
+        "the arms disagree under a screen fade"
+    );
+    assert!(
+        differing(&fade_a, &unveiled) > 0,
+        "the fade veiled the screen"
+    );
+    arms.fade = None;
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

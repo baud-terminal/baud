@@ -24,7 +24,7 @@ use baud_present_macos::{
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, MapEntry,
     Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Span, Stack, Tally, Target,
-    Theme, Trail, Window, back_for,
+    Theme, Trail, Transition, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -73,6 +73,17 @@ const BLINK_HALF: f64 = 0.4;
 /// How long a cursor trail's ghost takes to sweep from the old cell to the
 /// new, seconds -- short and snappy, and only paid when the trail is on.
 const TRAIL_S: f64 = 0.1;
+/// How long the alternate-screen fade takes to reveal the new screen,
+/// seconds. Only paid on a screen switch when the transition is on.
+const TRANSITION_S: f64 = 0.15;
+
+/// An alternate-screen switch being animated: the display-link timestamp
+/// the fade began at. `progress` is `(now - start) / TRANSITION_S`, off the
+/// same clock as the blink and the trail.
+#[derive(Clone, Copy)]
+struct TransitionState {
+    start: f64,
+}
 
 /// A cursor move being animated: the cell the cursor left, the cell it
 /// reached, and the display-link timestamp the sweep began at. `progress`
@@ -409,6 +420,11 @@ struct App {
     trail: Option<TrailState>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
+    /// Whether an alternate-screen switch fades, from `[screen] transition`,
+    /// and the fade being animated. `Some` forces a frame the way a trail
+    /// does, so an idle terminal on either screen builds nothing.
+    screen_transition: crate::config::ScreenTransition,
+    transition: Option<TransitionState>,
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
     latency: Latency,
@@ -436,6 +452,8 @@ struct Boot {
     glass: crate::config::Glass,
     /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`.
     cursor_trail: crate::config::CursorTrail,
+    /// Whether an alternate-screen switch fades, from `[screen] transition`.
+    screen_transition: crate::config::ScreenTransition,
 }
 
 impl Boot {
@@ -565,6 +583,7 @@ impl Boot {
             theme: cfg.theme,
             glass: cfg.glass,
             cursor_trail: cfg.cursor_trail,
+            screen_transition: cfg.screen_transition,
         }
     }
 
@@ -590,6 +609,7 @@ impl App {
             theme: _,
             glass: _,
             cursor_trail,
+            screen_transition,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -761,6 +781,8 @@ impl App {
             trail: None,
             last_cursor_cell: None,
             tick_target: 0.0,
+            screen_transition,
+            transition: None,
             latency: Latency::from_env(),
         }
     }
@@ -864,6 +886,26 @@ impl App {
             None => None,
         };
         self.renderer.set_trail(ghost);
+        // The alternate-screen fade: a veil over the new screen ramping to
+        // nothing, advanced and cleared off `tick_target` like the trail.
+        let veil = match self.transition {
+            Some(st) => {
+                let p = ((self.tick_target - st.start) / TRANSITION_S) as f32;
+                if p >= 1.0 {
+                    // Settled: this frame draws `set_screen_fade(None)`,
+                    // which repaints the whole screen once to clear it, and
+                    // the tick stops forcing frames.
+                    self.transition = None;
+                    None
+                } else {
+                    Some(Transition {
+                        progress: p.max(0.0),
+                    })
+                }
+            }
+            None => None,
+        };
+        self.renderer.set_screen_fade(veil);
         // The grid, and the whole surface it is centred in; the letterbox
         // margin between them is the gap.
         let (w, h) = self.renderer.pixel_size();
@@ -1045,11 +1087,12 @@ impl App {
                         );
                     }
                 }
-                // The trail and thumb ride with the records, drawn after the
-                // cell passes: the trail under the thumb, so a scrollbar over
-                // a moving cursor stays on top.
+                // The trail, thumb and screen fade ride with the records,
+                // drawn after the cell passes: the trail under the thumb, and
+                // the fade last so it veils everything during a switch.
                 cell.records.extend_from_slice(self.renderer.trail());
                 cell.records.extend_from_slice(self.renderer.scrollbar());
+                cell.records.extend_from_slice(self.renderer.screen_fade());
                 self.stats = Frame {
                     convert: t0.elapsed(),
                     ..Frame::default()
@@ -2129,6 +2172,13 @@ impl Driver {
             self.app.selection = None;
             self.app.predictions.clear();
             self.app.guess = Guess::None;
+            // The alternate screen swapped: fade the new one in from the
+            // background, off `tick_target` the way the trail is spawned.
+            if self.app.screen_transition == crate::config::ScreenTransition::On {
+                self.app.transition = Some(TransitionState {
+                    start: self.app.tick_target,
+                });
+            }
         }
         let oldest = self.app.scrolled.oldest(retained);
         let gone = self
@@ -2474,7 +2524,7 @@ impl Responder for Driver {
         // renderer's `trail_moved`, so this does not force `Damage::Full`.
         // When the sweep lands the trail clears itself and this stops
         // firing, so an idle screen returns to no frames.
-        if self.app.trail.is_some() {
+        if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.pending = Pending::Dirty;
         }
         self.app.ticks.bump();

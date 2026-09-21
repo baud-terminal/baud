@@ -66,6 +66,13 @@ fonts = [
 [cursor]
 trail = false
 
+# Whether switching to or from the alternate screen (opening or leaving a
+# full-screen program like vim or less) fades the new screen in from the
+# background. Off by default; opt-in polish, and an idle terminal pays
+# nothing for it.
+[screen]
+transition = false
+
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the

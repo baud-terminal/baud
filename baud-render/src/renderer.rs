@@ -11,6 +11,7 @@ use crate::scrollbar::{self, Thumb, Window};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::trail::{self, Ghost, Trail};
+use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Digest, Tally};
 use baud_core::Term;
 use baud_domain::{
@@ -352,6 +353,12 @@ pub struct Renderer<'f, 'a> {
     trail: Option<Ghost>,
     last_trail: Option<Ghost>,
     trail_inst: Vec<Instance>,
+    /// The alternate-screen fade's veil on this frame and the last, and its
+    /// one full-screen solid: while it fades every row is dirty, because the
+    /// veil covers the whole screen and the whole screen is what changed.
+    fade: Option<Veil>,
+    last_fade: Option<Veil>,
+    fade_inst: Vec<Instance>,
     /// This frame's blink phase, set by [`Renderer::set_blink`] before a
     /// convert or resolve, and whether any blinking cell was seen -- so the
     /// driver repaints on a phase flip only when something actually blinks.
@@ -451,6 +458,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             trail: None,
             last_trail: None,
             trail_inst: Vec::new(),
+            fade: None,
+            last_fade: None,
+            fade_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
             dirty: Vec::new(),
@@ -551,6 +561,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// own -- drawn after the cells and under the scrollbar.
     pub fn trail(&self) -> &[Instance] {
         &self.trail_inst
+    }
+
+    /// The alternate-screen fade for the next frame, or none: one
+    /// full-screen translucent solid in the theme's background that every
+    /// path draws on top of everything else, so the new screen appears out
+    /// of the background. The driver hands a `progress` it computed from the
+    /// display link's timestamp; this only interpolates, so the pixel oracle
+    /// can compare two GPU arms on it.
+    pub fn set_screen_fade(&mut self, fade: Option<Transition>) {
+        let (w, h) = self.pixel_size();
+        self.fade = fade.map(|t| transition::veil(t, w, h));
+        self.fade_inst.clear();
+        if let Some(v) = self.fade {
+            self.fade_inst.push(transition::instance(v, self.theme.bg));
+        }
+    }
+
+    /// The screen fade's instances, for a path that draws records of its
+    /// own -- drawn last, over the cells, the trail and the scrollbar.
+    pub fn screen_fade(&self) -> &[Instance] {
+        &self.fade_inst
     }
 
     pub fn set_blink(&mut self, blink: Blink) {
@@ -713,8 +744,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (r, c, term.cursor_style())
         });
         let palette = palette_digest(term);
-        let full =
-            damage == Damage::Full || self.known == Prev::Unknown || palette != self.last_palette;
+        // The screen fade veils every row, so a change to it -- spawned,
+        // stepped or cleared -- makes the whole frame dirty. It is not a
+        // per-row predicate like the trail's band overlap.
+        let full = damage == Damage::Full
+            || self.known == Prev::Unknown
+            || palette != self.last_palette
+            || self.fade != self.last_fade;
         self.last_palette = palette;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut rows_dirty = Tally::default();
@@ -754,6 +790,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
         self.last_trail = self.trail;
+        self.last_fade = self.fade;
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),
@@ -809,6 +846,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .flatten()
             .chain(self.trail_inst.iter())
             .chain(self.bar_inst.iter())
+            .chain(self.fade_inst.iter())
     }
 
     /// The background word of every cell, row-major, `cols` by `rows`.

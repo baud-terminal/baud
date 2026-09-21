@@ -58,6 +58,9 @@ pub struct Config {
     /// terminal pays nothing for it and the low-latency default is
     /// unchanged.
     pub cursor_trail: CursorTrail,
+    /// `[screen] transition`: whether a switch to or from the alternate
+    /// screen fades the new one in from the background. Off by default.
+    pub screen_transition: ScreenTransition,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
 }
@@ -172,6 +175,16 @@ pub enum CursorTrail {
     On,
 }
 
+/// Whether switching to or from the alternate screen fades the new screen
+/// in from the background. Off by default, like the trail; a two-state enum
+/// for the reason `CursorTrail` is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ScreenTransition {
+    #[default]
+    Off,
+    On,
+}
+
 /// The colour space the surface is tagged with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Space {
@@ -191,6 +204,7 @@ impl Config {
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
             cursor_trail: CursorTrail::Off,
+            screen_transition: ScreenTransition::Off,
             glass: Glass::defaults(),
             source: None,
         }
@@ -266,6 +280,19 @@ impl Config {
                                  using false"
                             );
                             CursorTrail::Off
+                        }
+                    };
+                }
+                ("screen", "transition") => {
+                    self.screen_transition = match value.trim() {
+                        "true" => ScreenTransition::On,
+                        "false" => ScreenTransition::Off,
+                        other => {
+                            crate::warn!(
+                                "config: [screen] transition {other:?} is not true or false; \
+                                 using false"
+                            );
+                            ScreenTransition::Off
                         }
                     };
                 }
@@ -617,6 +644,25 @@ mod reader {
         );
     }
 
+    /// The screen transition is off unless `[screen] transition = true`, and
+    /// a value that is neither leaves it off with a warning.
+    #[test]
+    fn the_screen_transition_is_off_unless_asked_for() {
+        assert_eq!(Config::defaults().screen_transition, ScreenTransition::Off);
+        assert_eq!(
+            read("[screen]\ntransition = true\n").screen_transition,
+            ScreenTransition::On
+        );
+        assert_eq!(
+            read("[screen]\ntransition = false\n").screen_transition,
+            ScreenTransition::Off
+        );
+        assert_eq!(
+            read("[screen]\ntransition = maybe\n").screen_transition,
+            ScreenTransition::Off
+        );
+    }
+
     #[test]
     fn a_glass_section_sets_every_one_of_its_keys() {
         let c = read(
@@ -730,6 +776,11 @@ shadow     = "never"
             c.cursor_trail,
             CursorTrail::Off,
             "the [cursor] section did not land"
+        );
+        assert_eq!(
+            c.screen_transition,
+            ScreenTransition::Off,
+            "the [screen] section did not land"
         );
         // And every `[glass]` key reached the glass rather than nothing.
         assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");
