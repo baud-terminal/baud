@@ -118,6 +118,13 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
                    uint col, uint row, thread uint& fgw, thread uint& bgw) {
     Style s = styles[cell.y & 0xffffu];
     fgw = s.fg; bgw = s.bg;
+    // `[glass] app_backgrounds = "opaque"`: a background the application
+    // set is drawn as it chose it, not as glass. The whole test is the
+    // rendition's, baked into the slot as bit 128 (`Shapes::OPAQUE_BG`).
+    // Must match `Renderer::convert_row`.
+    if ((s.shapes & 128u) != 0u) {
+        bgw |= 0xff000000u;
+    }
     // Opaque on BOTH sides of a swap. Every background carries the
     // window's dim now, so the foreground a swap hands back would be
     // drawn at that alpha -- a glyph at 0.22 over its own cursor block.

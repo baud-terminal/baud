@@ -95,7 +95,7 @@ fn the_whole_storage_requirement_is_fixed_and_stated() {
     let cells3 = CELLS3 * cell;
     // The rendition table is the one structure sized to the screen rather than
     // fixed: `NSTYLE` is its **floor**, and a real screen sizes it up to hold a
-    // screenful of distinct renditions (a half-block image preview mints one
+    // screenful of distinct renditions (a text-drawn image preview mints one
     // per cell), up to the `NSTYLE_MAX` ceiling the `u16` `StyleId` sets. So
     // this is the minimum requirement; a 200x50 screen adds ~360 KB and the
     // largest window ~1.5 MB.

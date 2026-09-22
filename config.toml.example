@@ -90,9 +90,10 @@ mode = "smooth"
 # one. The defaults hold a moderate Sixel.
 #
 # advertise_sixel makes the Primary DA claim Sixel (attribute 4), so a
-# previewer such as yazi draws a real image instead of its half-block text
-# fallback. Off by default: the half-block preview is what baud is proven to
-# draw right, and the claim is the reader's to make.
+# previewer such as yazi draws a real image instead of its text fallback --
+# chafa's grid of block elements, box-drawing strokes and coloured spaces.
+# Off by default: the text preview is what baud is proven to draw right, and
+# the claim is the reader's to make.
 [images]
 pixels_mb = 4
 body_kb = 256
@@ -127,6 +128,16 @@ style = "clear"
 # glass.
 dim_dark = 0.22
 dim_light = 0.12
+
+# Whether a background an application sets is dimmed with the default one.
+# "dim" draws it at the body dim, so btop's panels are glass -- and so is a
+# file manager's text-drawn photo preview, which is nothing but per-cell
+# colours and at 0.22 reads as noise over the wallpaper. "opaque" draws every
+# background an application sets as it chose it, and leaves only the default
+# background glass: the preview is a photo again, and btop's panels are
+# solid. It cannot be narrower than that -- an image's flat areas are spaces
+# on a coloured background, and so is every TUI panel.
+app_backgrounds = "dim"
 
 # The material darkening, applied to the material itself rather than as a
 # layer over it, so the titlebar strip and the body are one surface. 0 turns

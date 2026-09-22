@@ -376,7 +376,7 @@ impl Owned {
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
             // Sized to the whole primary screen (`span` is `rows * stride`), so
-            // a half-block image preview -- one distinct rendition per cell --
+            // a text-drawn image preview -- one distinct rendition per cell --
             // never evicts a rendition a visible cell still references. A resize
             // clamps `cols` to `stride` and `rows` to the provisioned capacity,
             // so the largest screen this storage can display is `span.len()`
@@ -564,7 +564,7 @@ pub const NCLUSTER: usize = 64;
 
 /// The **floor** on the rendition table: the smallest it is ever sized to, for
 /// a screen too small to need more. The table is sized to the screen by
-/// [`style_slots`] -- a half-block image preview mints one distinct truecolour
+/// [`style_slots`] -- a text-drawn image preview mints one distinct truecolour
 /// rendition per cell, so a table smaller than the screen would evict a
 /// rendition an on-screen cell still points at, and that cell would resolve to
 /// another's colour. Below capacity the mapping is exact, so a table that holds

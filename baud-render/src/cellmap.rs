@@ -387,6 +387,10 @@ impl Shapes {
     pub const DOTTED_UNDERLINE: Shapes = Shapes(32);
     /// `SGR 4:5` -- dashed: two thicknesses on, one off.
     pub const DASHED_UNDERLINE: Shapes = Shapes(64);
+    /// This rendition's background is drawn opaque whatever the window's
+    /// dim: [`crate::Theme::opaque_bg`], resolved once a slot so the
+    /// shader reads one bit.
+    pub const OPAQUE_BG: Shapes = Shapes(128);
 
     pub fn with(self, s: Shapes) -> Shapes {
         Shapes(self.0 | s.0)

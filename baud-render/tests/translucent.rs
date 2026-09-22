@@ -11,7 +11,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Argb, Blend, Damage, Kind, PxSize, Renderer, Stack, Theme};
+use baud_render::{AppBg, Argb, Blend, Damage, Kind, PxSize, Renderer, Stack, Theme};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -33,19 +33,27 @@ fn dim_theme() -> Theme {
 }
 
 fn render(bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
+    render_with(dim_theme(), bytes, f);
+}
+
+fn render_with(theme: Theme, bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
+    render_ws(theme, &WS, bytes, f);
+}
+
+fn render_ws(theme: Theme, ws: &WinSize, bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let mut r = Renderer::new(
         Stack::new(&faces).unwrap(),
         PxSize::of(14.0).unwrap(),
-        dim_theme(),
+        theme,
         Blend::Native,
-        Cols::of_index(usize::from(WS.ws_col)),
-        Rows::of_index(usize::from(WS.ws_row)),
+        Cols::of_index(usize::from(ws.ws_col)),
+        Rows::of_index(usize::from(ws.ws_row)),
     )
     .unwrap();
-    let mut owned = Owned::new(&WS);
-    let mut t = Term::new(owned.storage(), &WS);
+    let mut owned = Owned::new(ws);
+    let mut t = Term::new(owned.storage(), ws);
     t.write_at(BytePos::ZERO, bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     let mut canvas = support::Canvas::for_renderer(&r);
@@ -110,4 +118,109 @@ fn the_margin_is_the_same_alpha_as_a_cell() {
     render(b"A", |r| {
         assert_eq!(alpha(r.clear_color()), DIM);
     });
+}
+
+/// The six cells `[glass] app_backgrounds` decides between: a space, a
+/// box-drawing stroke and a block element on a set background -- the three
+/// kinds of cell chafa draws an image with -- the same block under `SGR 7`
+/// with a set foreground, so the drawn background is the set one; then a
+/// letter on the default background, and a reversed letter whose drawn
+/// background is the default foreground. Cursor parked off them.
+const RULE_ROW: &[u8] = "\x1b[44m \x1b[31;44m\u{2500}\x1b[31;44m\u{2580}\x1b[0;7;32m\u{2584}\
+     \x1b[0mA\x1b[7mB\x1b[0m\x1b[2;12H"
+    .as_bytes();
+
+const RULE_NAMES: [&str; 6] = [
+    "space on blue",
+    "box-drawing on blue",
+    "half-block on blue",
+    "reversed half-block, green foreground",
+    "letter on default",
+    "reversed letter, default foreground",
+];
+
+/// **The default draws every background under the dim** -- the owner's
+/// 2026-09-20 call, which the key must not change unless it is asked for.
+#[test]
+fn app_backgrounds_are_dimmed_by_default() {
+    render(RULE_ROW, |r| {
+        let bg = r.background();
+        for (i, c) in bg[..6].iter().enumerate() {
+            assert_eq!(alpha(*c), DIM, "cell {i} ({}) left the dim", RULE_NAMES[i]);
+        }
+    });
+}
+
+/// `app_backgrounds = "opaque"`: every background the application set is
+/// opaque, whatever glyph is on it, and under reverse too; a cell on the
+/// default background stays glass -- including a reversed one, whose drawn
+/// background is the default foreground.
+#[test]
+fn opaque_keeps_every_set_background_and_only_those() {
+    let theme = Theme {
+        app_bg: AppBg::Opaque,
+        ..dim_theme()
+    };
+    render_with(theme, RULE_ROW, |r| {
+        let bg = r.background();
+        let want = [0xFF, 0xFF, 0xFF, 0xFF, DIM, DIM];
+        for (i, c) in bg[..6].iter().enumerate() {
+            assert_eq!(alpha(*c), want[i], "cell {i} ({})", RULE_NAMES[i]);
+        }
+    });
+}
+
+/// **The case the key exists for, on a real capture**: chafa's truecolour
+/// output (`tests/previews/`), fed the way yazi feeds it -- each line at the
+/// pane's origin, a row further down each time -- is opaque in every one
+/// of its 1148 cells under `opaque` and dimmed in every one under `dim`,
+/// while a cell of the default background beside it is glass under both.
+#[test]
+fn a_chafa_preview_is_opaque_only_when_asked() {
+    let path = format!(
+        "{}/../tests/previews/chafa-truecolour.ans",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).expect("the capture");
+    let ws = WinSize {
+        ws_row: 30,
+        ws_col: 44,
+    };
+    let (row0, col0) = (1usize, 2usize);
+    let mut bytes = Vec::new();
+    let mut rows = 0usize;
+    for (i, line) in text.split('\n').filter(|l| !l.is_empty()).enumerate() {
+        bytes.extend(format!("\x1b[{};{}H", row0 + i + 1, col0 + 1).into_bytes());
+        bytes.extend(line.as_bytes());
+        rows += 1;
+    }
+    bytes.extend(b"\x1b[30;44H");
+    assert_eq!(rows, 28, "the capture is not the 41x28 it was");
+    let cols = usize::from(ws.ws_col);
+    for (app_bg, want) in [(AppBg::Dimmed, DIM), (AppBg::Opaque, 0xFF)] {
+        let theme = Theme {
+            app_bg,
+            ..dim_theme()
+        };
+        render_ws(theme, &ws, &bytes, |r| {
+            let bg = r.background();
+            let mut off = 0usize;
+            for y in row0..row0 + rows {
+                for x in col0..col0 + 41 {
+                    if alpha(bg[y * cols + x]) != want {
+                        off += 1;
+                    }
+                }
+            }
+            assert_eq!(
+                off, 0,
+                "{app_bg:?}: {off} of 1148 preview cells are not {want:#04x}"
+            );
+            assert_eq!(
+                alpha(bg[0]),
+                DIM,
+                "{app_bg:?}: the default background left the glass"
+            );
+        });
+    }
 }

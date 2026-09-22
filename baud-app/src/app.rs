@@ -560,6 +560,7 @@ impl Boot {
         // The dim for the appearance the config pins, or dark's until the
         // window can be asked -- this renderer draws no frame; `run` sets
         // the palette again from `window.is_dark()` before the first one.
+        theme.app_bg = cfg.glass.app_backgrounds;
         theme.bg_alpha = dim(
             &cfg.glass,
             match cfg.theme {
@@ -1614,12 +1615,13 @@ fn apply_glass(
 }
 
 /// The palette an appearance resolves to, at the configured opacity.
-fn theme_for(appearance: Appearance, alpha: baud_domain::Chan) -> Theme {
+fn theme_for(appearance: Appearance, glass: &crate::config::Glass) -> Theme {
     let mut theme = match appearance {
         Appearance::Dark => Theme::dark(),
         Appearance::Light => Theme::light(),
     };
-    theme.bg_alpha = alpha;
+    theme.bg_alpha = dim(glass, appearance);
+    theme.app_bg = glass.app_backgrounds;
     theme
 }
 
@@ -3044,7 +3046,7 @@ pub fn run() {
         driver
             .app
             .renderer
-            .set_theme(theme_for(appearance, dim(&glass_cfg, appearance)));
+            .set_theme(theme_for(appearance, &glass_cfg));
         crate::host::tell_defaults(&mut driver.app.term, driver.app.renderer.theme());
     }
     Responder::resized(&mut driver, view.frame().size, scale);
@@ -3671,7 +3673,7 @@ impl Driver {
         }
         self.app
             .renderer
-            .set_theme(theme_for(appearance, dim(&self.glass_cfg, appearance)));
+            .set_theme(theme_for(appearance, &self.glass_cfg));
         crate::host::tell_defaults(&mut self.app.term, self.app.renderer.theme());
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;

@@ -1251,7 +1251,7 @@ impl<'b> Term<'b> {
     /// Let the Primary DA advertise Sixel (attribute `4`). Off by default: the
     /// claim is made only when this is `Yes` **and** the image store is
     /// provisioned, because an application that reads it switches from its text
-    /// (half-block) fallback to Sixel, and an embedder may want the fallback.
+    /// fallback to Sixel, and an embedder may want the fallback.
     pub fn set_sixel_claim(&mut self, c: SixelClaim) {
         self.cold.sixel_claim = c;
     }

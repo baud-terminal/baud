@@ -55,7 +55,36 @@ pub struct Theme {
     /// the glass through; `baud-render/tests/translucent.rs` is the gate,
     /// and it is the only one in the workspace that renders below `0xFF`.
     pub bg_alpha: Chan,
+    /// Whether a background the application set is drawn under the dim
+    /// or above it. The default is [`AppBg::Dimmed`]: every background is
+    /// translucent, which is the owner's 2026-09-20 call. [`AppBg::Opaque`]
+    /// keeps every background an application set at full alpha and leaves
+    /// only the default one glass; see [`Theme::opaque_bg`].
+    pub app_bg: AppBg,
     pub palette: [Argb; 256],
+}
+
+/// What the window's dim does to a background the application set.
+///
+/// **Why the rule is every set background and not something narrower**,
+/// measured 2026-09-22 on the owner's own yazi preview: a file manager
+/// with no image protocol draws a photo with chafa, whose output is a
+/// grid of cells each carrying its own foreground *and* background --
+/// block elements, box-drawing strokes, and plain spaces for the flat
+/// areas. On that .heic 68% of the preview's area was cell background, and
+/// on a photo with flat regions most cells are spaces. A space on a set
+/// background is also every TUI panel there is, so no rule that looks at
+/// one cell can keep the image's spaces opaque and btop's glass; the
+/// block-elements-only rule this replaced covered 66% of that photo's
+/// cells and 19% of another's. So the choice is the owner's, per window,
+/// and it is this key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum AppBg {
+    /// The same alpha as the default background.
+    #[default]
+    Dimmed,
+    /// Opaque: a colour an application chose is drawn as it chose it.
+    Opaque,
 }
 
 impl Default for Theme {
@@ -71,6 +100,7 @@ impl Theme {
             fg: grey(0xD8),
             bg: grey(0x10),
             bg_alpha: Chan::from_u8(0xFF),
+            app_bg: AppBg::Dimmed,
             palette: xterm_palette(),
         }
     }
@@ -97,7 +127,27 @@ impl Theme {
             fg: grey(0x27),
             bg: grey(0xEF),
             bg_alpha: Chan::from_u8(0xFF),
+            app_bg: AppBg::Dimmed,
             palette: xterm_palette(),
+        }
+    }
+
+    /// Whether a cell drawn under `style` keeps its background opaque: the
+    /// exemption is on and the background it resolves to is one the
+    /// application set. A pure function of the rendition, so the cell path
+    /// bakes it into the style table and the shader reads one bit.
+    pub fn opaque_bg(&self, style: StyleWord) -> bool {
+        self.app_bg == AppBg::Opaque && Self::set_bg(style)
+    }
+
+    /// Whether the background `style` resolves to is one the application
+    /// set rather than the default -- under `SGR 7` that is the
+    /// foreground, because reverse swaps them.
+    pub fn set_bg(style: StyleWord) -> bool {
+        if style.attrs().has(Attrs::REVERSE) {
+            !style.fg().is_default()
+        } else {
+            !style.bg().is_default()
         }
     }
 

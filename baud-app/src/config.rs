@@ -83,8 +83,9 @@ pub struct Config {
     pub images: baud_domain::ImageBudget,
     /// Whether the Primary DA advertises Sixel, from `[images] advertise_sixel`.
     /// **Off by default**: an application that sees the claim draws Sixel instead
-    /// of its text (half-block) preview, and the claim is the reader's to make
-    /// rather than baud's to guess.
+    /// of its text preview -- chafa's grid of block elements, box-drawing
+    /// strokes and coloured spaces, for yazi -- and the claim is the reader's
+    /// to make rather than baud's to guess.
     pub sixel: baud_domain::SixelClaim,
 }
 
@@ -134,6 +135,17 @@ pub struct Glass {
     pub saturation: f32,
     /// `shadow`: whether the window casts one.
     pub shadow: Shadow,
+    /// `app_backgrounds`: `"dim"`, the default, draws every background an
+    /// application sets under the same dim as the default one -- the
+    /// owner's 2026-09-20 rule, so btop's panels are glass; `"opaque"`
+    /// draws them as the application chose them and leaves only the
+    /// default background glass, so a file manager's text-drawn photo
+    /// preview is not 78% transparent over the wallpaper. Every set
+    /// background and not only an image's, because an image's flat areas
+    /// are spaces on a set background and so is every TUI panel: see
+    /// `baud_render::AppBg`. It replaced `images`, a block-elements-only
+    /// rule that covered as little as 19% of a preview's cells.
+    pub app_backgrounds: baud_render::AppBg,
 }
 
 /// Which `NSGlassEffectView` style the surface asks for.
@@ -174,6 +186,7 @@ impl Glass {
             hue: 0.60,
             saturation: 0.80,
             shadow: Shadow::Auto,
+            app_backgrounds: baud_render::AppBg::Dimmed,
         }
     }
 }
@@ -410,13 +423,27 @@ impl Config {
                         }
                     };
                 }
+                ("glass", "app_backgrounds") => {
+                    self.glass.app_backgrounds = app_backgrounds(&value, "app_backgrounds");
+                }
+                // The key's first name, shipped for one day as a
+                // block-elements-only rule. Applied under its new meaning
+                // rather than dropped, and said, so a config written for it
+                // keeps working and learns the name that will stay.
+                ("glass", "images") => {
+                    crate::warn!(
+                        "config: glass images is now app_backgrounds, and \"opaque\" keeps \
+                         every background an application sets, not only block elements"
+                    );
+                    self.glass.app_backgrounds = app_backgrounds(&value, "images");
+                }
                 ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark"),
                 ("glass", "dim_light") => self.glass.dim_light = unit(&value, "dim_light"),
                 ("glass", "tint_dark") => self.glass.tint_dark = unit(&value, "tint_dark"),
                 ("glass", "tint_light") => self.glass.tint_light = unit(&value, "tint_light"),
                 ("glass", "hue") => self.glass.hue = unit(&value, "hue"),
                 ("glass", "saturation") => self.glass.saturation = unit(&value, "saturation"),
-                // `[glass]` is a closed set of eight, so a name that is
+                // `[glass]` is a closed set of nine, so a name that is
                 // not one of them is a typo rather than a key from a
                 // newer baud, and saying so costs a line. It is a warning
                 // and not an error for the reason every other unknown key
@@ -437,6 +464,19 @@ impl Config {
 /// ignored rather than fatal in the example: a mistyped alpha should not
 /// stop the window appearing. It says what it did, because a value
 /// silently changed is the same defect as a key silently ignored.
+/// `[glass] app_backgrounds`'s value, or `dim` with a warning on a word it
+/// does not know.
+fn app_backgrounds(value: &str, key: &str) -> baud_render::AppBg {
+    match value.trim().trim_matches('"') {
+        "dim" => baud_render::AppBg::Dimmed,
+        "opaque" => baud_render::AppBg::Opaque,
+        other => {
+            crate::warn!("config: glass {key} {other:?} is not dim or opaque; using dim");
+            baud_render::AppBg::Dimmed
+        }
+    }
+}
+
 fn unit(value: &str, name: &str) -> f32 {
     let raw = value.trim();
     let Ok(v) = raw.parse::<f32>() else {
@@ -854,6 +894,26 @@ shadow     = "never"
         let c = read("[glass]\ndim_dark = 0.3\nfont_size = 20\n");
         assert_eq!(c.font_size, 13.0, "a sectioned font_size set the top level");
         assert_eq!(c.glass.dim_dark, 0.3);
+    }
+
+    /// `[glass] app_backgrounds` defaults to dimming every background an
+    /// application sets, takes `opaque`, falls back to `dim` on a word it
+    /// does not know, and is not reached from the top level. Its first name,
+    /// `images`, still sets it.
+    #[test]
+    fn app_backgrounds_are_dimmed_unless_asked_for_opaque() {
+        use baud_render::AppBg;
+        let get = |t: &str| read(t).glass.app_backgrounds;
+        assert_eq!(get(""), AppBg::Dimmed);
+        assert_eq!(
+            get("[glass]\napp_backgrounds = \"opaque\"\n"),
+            AppBg::Opaque
+        );
+        assert_eq!(get("[glass]\napp_backgrounds = \"dim\"\n"), AppBg::Dimmed);
+        assert_eq!(get("[glass]\napp_backgrounds = \"clear\"\n"), AppBg::Dimmed);
+        assert_eq!(get("app_backgrounds = \"opaque\"\n"), AppBg::Dimmed);
+        assert_eq!(get("[glass]\nimages = \"opaque\"\n"), AppBg::Opaque);
+        assert_eq!(get("images = \"opaque\"\n"), AppBg::Dimmed);
     }
 
     /// A mistyped alpha is clamped and said, not fatal and not silent --

@@ -53,7 +53,11 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 /// does not: no ligature pair, no combining mark. The second box row is
 /// the procedural range -- heavy, double, arc, diagonal, dashed, block,
 /// shade and braille, and a red heavy corner -- which both arms must take
-/// from baud's own masks rather than the face.
+/// from baud's own masks rather than the face. The first box row ends in
+/// what a text-drawn image is made of -- block elements, a space and a
+/// box-drawing stroke on a set background, and a reversed block -- which
+/// the theme's `AppBg::Opaque` keeps opaque, as it does the fourth row's
+/// `blue bg` and `reverse` spans.
 fn scene(t: &mut Term<'_>) {
     feed(
         t,
@@ -62,7 +66,7 @@ fn scene(t: &mut Term<'_>) {
           \x1b[4:3mcurly\x1b[0m \x1b[4:4mdotted\x1b[0m \x1b[4:5mdashed\x1b[0m \x1b[58;5;196;4:3mred curl\x1b[0m\r\n\
           \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done\r\n\
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
-          box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end\r\n\
+          box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end \x1b[38;2;200;0;0;48;2;0;0;200m\xe2\x96\x80\xe2\x96\x80 \xe2\x94\x80\x1b[0;7;32m\xe2\x96\x84\x1b[0m image\r\n\
           \xe2\x94\x8f\xe2\x94\x81\xe2\x94\xb3\xe2\x94\x93 \xe2\x95\x94\xe2\x95\x90\xe2\x95\xa6\xe2\x95\x97 \xe2\x95\xad\xe2\x94\x80\xe2\x95\xae \xe2\x95\xb1\xe2\x95\xb2\xe2\x95\xb3 \xe2\x94\x84\xe2\x94\x8c\xe2\x95\x8c \xe2\x96\x80\xe2\x96\x84\xe2\x96\x88\xe2\x96\x8c\xe2\x96\x90\xe2\x96\x91\xe2\x96\x92\xe2\x96\x93\xe2\x96\x9a\xe2\x96\x9f \xe2\xa0\x81\xe2\xa0\xbf\xe2\xa3\x80\xe2\xa2\xb2 \x1b[31m\xe2\x94\x8f\xe2\x94\x81\xe2\x94\x93\x1b[0m\r\n\
           marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed\r\n\
           arrows a -> b => c != d <= e // f :: g <- end\r\n",
@@ -293,8 +297,14 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // executes -- and the swap rule this compares (an opaque foreground
     // handed back by a cursor or a selection) is only visible when a
     // background carries an alpha below one.
+    // And `[glass] app_backgrounds = "opaque"`: every background the scene
+    // sets -- the image cells at the end of the `box` row, the `blue bg`
+    // and `reverse` spans -- keeps full alpha, while the default background
+    // everywhere else stays dimmed, so both halves of the rule are compared
+    // across the arms.
     let theme = Theme {
         bg_alpha: baud_domain::Chan::from_u8(56),
+        app_bg: baud_render::AppBg::Opaque,
         ..Theme::dark()
     };
     let renderer = Renderer::new(

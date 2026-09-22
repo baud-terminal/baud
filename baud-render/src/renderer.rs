@@ -1261,6 +1261,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 fg = bg;
             }
             let mut shapes = Shapes::default();
+            if self.theme.opaque_bg(style) {
+                shapes = shapes.with(Shapes::OPAQUE_BG);
+            }
             // Any underline style asks for the base line's colour plumbing;
             // which line is drawn is the style's own bit below. The three colon
             // styles *replace* the straight line rather than adding to it, so
@@ -1344,6 +1347,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // alpha reaches the compositor once rather than compounding
             // with the clear under it.
             bg = bg.with_alpha(self.theme.bg_alpha);
+            if self.theme.opaque_bg(style) {
+                bg = bg.with_alpha(Chan::from_u8(0xFF));
+            }
             if self
                 .highlight
                 .is_some_and(|h| h.contains(r, Col::at_index(c)))

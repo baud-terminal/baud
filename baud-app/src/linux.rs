@@ -113,6 +113,7 @@ pub fn run() {
     // darkening, the shadow -- is `NSGlassEffectView`'s and has no
     // counterpart on this driver at all.
     theme.bg_alpha = Chan::from_unit(cfg.glass.dim_dark);
+    theme.app_bg = cfg.glass.app_backgrounds;
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(
         Stack::new(faces).expect("faces"),

@@ -437,7 +437,7 @@ impl Paint<'_, '_> {
     /// screen-sized table is.
     ///
     /// **The table is sized to the screen** (the screen-sizing in `Owned::with_history`), not fixed at
-    /// 1024, because a half-block image preview mints one distinct truecolour
+    /// 1024, because a text-drawn image preview mints one distinct truecolour
     /// rendition per cell and every one is live at once -- the whole image is on
     /// screen. A 1024-slot table under a photo evicts thousands of on-screen
     /// cells' renditions, and each resolves to a later cell's colour: the top
@@ -453,7 +453,7 @@ impl Paint<'_, '_> {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
         // `len` is a screen's worth of slots -- a power of two, always at least
         // `NSTYLE`. Below that many distinct live renditions the mapping is
-        // exact, which is why a half-block image preview (one distinct rendition
+        // exact, which is why a text-drawn image preview (one distinct rendition
         // per cell) no longer scrambles: a screenful of them all fit.
         let len = self.tmpl.len();
         #[cfg(feature = "probe-double-intern")]
