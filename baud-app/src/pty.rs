@@ -1,7 +1,7 @@
 //! The pty: a login shell on the slave, the master read on a thread on
 //! macOS and polled beside the compositor's socket on Linux.
 //!
-//! The one place this binary calls libc: `forkpty`, `execvp`, `read`,
+//! The one place this binary calls libc: `forkpty`, `execve`, `read`,
 //! `write`, `poll`, the `TIOCSWINSZ` ioctl, `mmap` for the font files, and
 //! CoreGraphics for the display's scale before AppKit exists. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
@@ -15,10 +15,11 @@
 use baud_domain::HostTime;
 use baud_domain::WinSize;
 use baud_font::Px;
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::os::fd::BorrowedFd;
+use std::os::unix::ffi::OsStrExt;
 #[cfg(target_os = "macos")]
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
@@ -87,6 +88,146 @@ const DEFAULT_SHELL: &str = "/bin/zsh";
 #[cfg(not(target_os = "macos"))]
 const DEFAULT_SHELL: &str = "/bin/sh";
 
+/// The variables a terminal sets to name itself to what runs inside it,
+/// so a program can pick the terminal's own features -- and the ones a
+/// multiplexer sets to say it sits in between. baud's shell is in none of
+/// them: launched from Terminal.app it would otherwise tell every child it
+/// *is* Terminal.app, and on 2026-09-22 that is what happened. yazi read
+/// the inherited `TERM_PROGRAM=Apple_Terminal`, decided the terminal was
+/// Apple's -- a brand with no image support in its table -- and fell back
+/// to chafa without ever reading baud's own device attributes; chafa read
+/// the same variable and drew in 240 colours rather than truecolour.
+///
+/// The list is every variable yazi 26.5.6's `Brand::from_env` reads
+/// (`yazi-emulator/src/brand.rs`), the rest of each named terminal's own
+/// family, the multiplexers yazi's `Mux` consults, and the three that
+/// describe the outer terminal to any program: `COLORFGBG` (its colours,
+/// not baud's), `WINDOWID` (its X window) and `TERMINFO` (its terminfo
+/// directory, which ncurses searches *alone* when the variable is set, so
+/// a Ghostty- or kitty-provided one hides the `xterm-256color` entry baud
+/// asks for). A variable a user sets in their own rc is set after this and
+/// is theirs.
+const OUTER: &[&str] = &[
+    // Apple Terminal.
+    "TERM_SESSION_ID",
+    // iTerm2.
+    "ITERM_SESSION_ID",
+    "ITERM_PROFILE",
+    "LC_TERMINAL",
+    "LC_TERMINAL_VERSION",
+    "TERM_FEATURES",
+    // kitty.
+    "KITTY_WINDOW_ID",
+    "KITTY_PID",
+    "KITTY_PUBLIC_KEY",
+    "KITTY_INSTALLATION_DIR",
+    "KITTY_LISTEN_ON",
+    // WezTerm.
+    "WEZTERM_EXECUTABLE",
+    "WEZTERM_EXECUTABLE_DIR",
+    "WEZTERM_PANE",
+    "WEZTERM_UNIX_SOCKET",
+    "WEZTERM_CONFIG_DIR",
+    "WEZTERM_CONFIG_FILE",
+    // Ghostty.
+    "GHOSTTY_RESOURCES_DIR",
+    "GHOSTTY_BIN_DIR",
+    "GHOSTTY_SHELL_FEATURES",
+    // Alacritty.
+    "ALACRITTY_WINDOW_ID",
+    "ALACRITTY_SOCKET",
+    "ALACRITTY_LOG",
+    // Konsole.
+    "KONSOLE_VERSION",
+    "KONSOLE_DBUS_SERVICE",
+    "KONSOLE_DBUS_SESSION",
+    "KONSOLE_DBUS_WINDOW",
+    "SHELL_SESSION_ID",
+    // VTE-based terminals.
+    "VTE_VERSION",
+    // Windows Terminal.
+    "WT_SESSION",
+    "WT_PROFILE_ID",
+    // Warp.
+    "WARP_HONOR_PS1",
+    "WARP_IS_LOCAL_SHELL_SESSION",
+    "WARP_USE_SSH_WRAPPER",
+    // VS Code's integrated terminal.
+    "VSCODE_INJECTION",
+    "VSCODE_SHELL_INTEGRATION",
+    // Tabby.
+    "TABBY_CONFIG_DIRECTORY",
+    // JetBrains' terminal.
+    "TERMINAL_EMULATOR",
+    // Multiplexers.
+    "TMUX",
+    "TMUX_PANE",
+    "STY",
+    "WINDOW",
+    "ZELLIJ",
+    "ZELLIJ_SESSION_NAME",
+    "ZELLIJ_PANE_ID",
+    // The outer terminal's colours, window and terminfo.
+    "COLORFGBG",
+    "WINDOWID",
+    "TERMINFO",
+];
+
+/// What baud says about itself, replacing whatever the parent said.
+/// `TERM_PROGRAM` is the convention every macOS terminal keeps --
+/// `Apple_Terminal`, `iTerm.app`, `ghostty`, `WezTerm` -- and a name no
+/// program's table knows is the honest answer: yazi then decides from
+/// baud's own replies, and chafa from `COLORTERM`.
+const OURS: [(&str, &str); 4] = [
+    ("TERM", "xterm-256color"),
+    ("COLORTERM", "truecolor"),
+    ("TERM_PROGRAM", "baud"),
+    ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION")),
+];
+
+/// The child's environment: the parent's, less every variable in
+/// [`OUTER`] and every one baud sets, then baud's own in [`OURS`]. Built in
+/// the parent, before the fork, so the child does nothing between `fork`
+/// and `exec` but the exec -- no `putenv`, which may reallocate the
+/// environment array in a process that was multi-threaded a moment ago.
+fn child_env(parent: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<CString> {
+    let dropped = |k: &[u8]| {
+        OUTER.iter().any(|o| o.as_bytes() == k) || OURS.iter().any(|(o, _)| o.as_bytes() == k)
+    };
+    let mut env: Vec<CString> = parent
+        .into_iter()
+        .filter(|(k, _)| !k.is_empty() && !dropped(k.as_bytes()))
+        .filter_map(|(k, v)| {
+            let mut entry = k.as_bytes().to_vec();
+            entry.push(b'=');
+            entry.extend_from_slice(v.as_bytes());
+            CString::new(entry).ok()
+        })
+        .collect();
+    env.extend(
+        OURS.iter()
+            .filter_map(|(k, v)| CString::new(format!("{k}={v}")).ok()),
+    );
+    env
+}
+
+/// `prog` as a path `execve` can take: itself when it names a path, else
+/// the first executable of that name on `PATH` -- the search `execvp` would
+/// have done, done here because the child must not allocate.
+fn resolve(prog: &str) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    if prog.contains('/') {
+        return Some(prog.to_string());
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(prog))
+        .find(|p| {
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+        .and_then(|p| p.into_os_string().into_string().ok())
+}
+
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
@@ -94,19 +235,44 @@ impl Pty {
     /// the terminal: the window closes when the command ends.
     fn fork(size: &WinSize) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
+        Pty::fork_with(size, cmd, child_env(std::env::vars_os()))
+    }
+
+    /// [`Pty::fork`] with the command and the environment given rather
+    /// than read, so a test can hand the child a parent environment of its
+    /// own and read back what the child saw.
+    fn fork_with(size: &WinSize, cmd: Option<String>, env: Vec<CString>) -> Option<crate::sys::Fd> {
         let shell = match &cmd {
             Some(_) => "/bin/sh".to_string(),
             None => std::env::var("SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string()),
         };
-        let shell_c = CString::new(shell.clone()).ok()?;
+        let path = resolve(&shell).unwrap_or_else(|| DEFAULT_SHELL.to_string());
+        let path_c = CString::new(path).ok()?;
         let argv0 = match &cmd {
             Some(_) => CString::new("sh").ok()?,
             None => CString::new(format!("-{}", shell.rsplit('/').next().unwrap_or("sh"))).ok()?,
         };
         let dash_c = CString::new("-c").ok()?;
         let cmd_c = cmd.and_then(|c| CString::new(c).ok());
-        let term = CString::new("TERM=xterm-256color").ok()?;
-        let colorterm = CString::new("COLORTERM=truecolor").ok()?;
+        let argv = match &cmd_c {
+            Some(c) => [
+                argv0.as_ptr(),
+                dash_c.as_ptr(),
+                c.as_ptr(),
+                std::ptr::null(),
+            ],
+            None => [
+                argv0.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            ],
+        };
+        let envp: Vec<*const core::ffi::c_char> = env
+            .iter()
+            .map(|e| e.as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
         // Darwin's `forkpty` takes the size by mutable pointer and
         // glibc's by const, so the binding is only mutated on one.
         #[cfg_attr(target_os = "linux", allow(unused_mut))]
@@ -123,7 +289,8 @@ impl Pty {
         #[cfg(not(target_os = "linux"))]
         let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
         // SAFETY: forkpty is given a valid out-pointer and window size; in
-        // the child only async-signal-safe calls run before exec.
+        // the child only `execve` and `_exit` run, both async-signal-safe,
+        // over pointers into memory built before the fork.
         let pid = unsafe {
             crate::sys::forkpty(
                 &mut master,
@@ -137,23 +304,7 @@ impl Pty {
         }
         if pid == 0 {
             unsafe {
-                crate::sys::putenv(term.into_raw());
-                crate::sys::putenv(colorterm.into_raw());
-                let argv = match &cmd_c {
-                    Some(c) => [
-                        argv0.as_ptr(),
-                        dash_c.as_ptr(),
-                        c.as_ptr(),
-                        std::ptr::null(),
-                    ],
-                    None => [
-                        argv0.as_ptr(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        std::ptr::null(),
-                    ],
-                };
-                crate::sys::execvp(shell_c.as_ptr(), argv.as_ptr());
+                crate::sys::execve(path_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 crate::sys::_exit(127);
             }
         }
@@ -494,4 +645,121 @@ pub fn host_now() -> HostTime {
     // SAFETY: a libSystem call with no preconditions beyond a valid clock
     // id, which `CLOCK_UPTIME_RAW` is.
     unsafe { clock_gettime_nsec_np(crate::sys::CLOCK_UPTIME_RAW) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parent environment as Terminal.app, kitty and tmux leave it, with
+    /// two variables that are nobody's terminal and must pass through.
+    fn outer_parent() -> Vec<(OsString, OsString)> {
+        [
+            ("TERM_PROGRAM", "Apple_Terminal"),
+            ("TERM_PROGRAM_VERSION", "455"),
+            ("TERM_SESSION_ID", "w0t0p0:0"),
+            ("KITTY_WINDOW_ID", "3"),
+            ("TMUX", "/tmp/tmux-501/default,1,0"),
+            ("TERM", "dumb"),
+            ("COLORTERM", "no"),
+            ("HOME", "/nowhere"),
+            ("BAUD_KEPT", "yes"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+        .collect()
+    }
+
+    fn strings(env: &[CString]) -> Vec<String> {
+        let mut v: Vec<String> = env
+            .iter()
+            .map(|e| e.to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    }
+
+    fn ours() -> Vec<String> {
+        OURS.iter().map(|(k, v)| format!("{k}={v}")).collect()
+    }
+
+    /// **The child names baud and no outer terminal**: every identity
+    /// variable the parent carried is gone, each of baud's appears once
+    /// with baud's value, and a variable that names no terminal survives.
+    #[test]
+    fn the_child_names_baud_and_no_outer_terminal() {
+        let mut want = ours();
+        want.push("BAUD_KEPT=yes".into());
+        want.push("HOME=/nowhere".into());
+        want.sort();
+        assert_eq!(strings(&child_env(outer_parent())), want);
+    }
+
+    /// The list is what it says: no entry is one of baud's own, which
+    /// would drop a variable and then set it -- harmless, but a sign the
+    /// two lists were not read together -- and none is repeated.
+    #[test]
+    fn the_outer_list_is_disjoint_from_ours_and_has_no_repeat() {
+        for o in OUTER {
+            assert!(!OURS.iter().any(|(k, _)| k == o), "{o} is in both lists");
+        }
+        let mut seen: Vec<&str> = OUTER.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), OUTER.len(), "OUTER repeats an entry");
+    }
+
+    /// **And the child a pty forks actually sees it**: the same parent
+    /// environment handed to a real `forkpty`, with the child running
+    /// `env`, read back off the master. This is the gate on the fork's
+    /// plumbing -- the `execve` and the pointer array -- rather than on the
+    /// filter, which the test above holds.
+    #[test]
+    fn a_forked_child_sees_the_environment_baud_gives_it() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            &size,
+            Some("exec /usr/bin/env".into()),
+            child_env(outer_parent()),
+        )
+        .expect("forkpty");
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            // SAFETY: `buf` is a live, writable buffer of the length passed.
+            let n = unsafe { crate::sys::read(master, buf.as_mut_ptr().cast(), buf.len()) };
+            let Ok(n) = usize::try_from(n) else { break };
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+        let text = String::from_utf8_lossy(&out);
+        let lines: Vec<&str> = text.lines().map(|l| l.trim_end_matches('\r')).collect();
+        assert!(
+            lines.contains(&"BAUD_KEPT=yes"),
+            "the child's env never arrived, so nothing below is evidence: {text:?}"
+        );
+        for want in ours() {
+            assert_eq!(
+                lines.iter().filter(|l| **l == want).count(),
+                1,
+                "{want} is not in the child's env exactly once: {text:?}"
+            );
+        }
+        for gone in [
+            "TERM_SESSION_ID=",
+            "KITTY_WINDOW_ID=",
+            "TMUX=",
+            "TERM_PROGRAM=Apple",
+        ] {
+            assert!(
+                !lines.iter().any(|l| l.starts_with(gone)),
+                "the child inherited {gone}: {text:?}"
+            );
+        }
+    }
 }

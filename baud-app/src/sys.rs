@@ -106,8 +106,11 @@ unsafe extern "C" {
     pub fn write(fd: Fd, buf: *const c_void, count: usize) -> isize;
     #[cfg(target_os = "linux")]
     pub fn poll(fds: *mut PollFd, nfds: Nfds, timeout: c_int) -> c_int;
-    pub fn execvp(file: *const c_char, argv: *const *const c_char) -> c_int;
-    pub fn putenv(string: *mut c_char) -> c_int;
+    pub fn execve(
+        path: *const c_char,
+        argv: *const *const c_char,
+        envp: *const *const c_char,
+    ) -> c_int;
     pub fn mmap(
         addr: *mut c_void,
         len: usize,
