@@ -13,7 +13,6 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::Paint;
-use crate::storage::NSTYLE;
 use crate::term::{Saved, Screen};
 use baud_domain::*;
 
@@ -434,34 +433,50 @@ impl Paint<'_, '_> {
     ///
     /// The cost is a probe on the write path, and the probe length is
     /// `1/(1 - load)` on average -- a fraction of a slot while the table is
-    /// far from full, which a screen holding a few hundred renditions in 1024
-    /// slots is. The table never reclaims a slot a rewritten cell no longer
-    /// references, so a long session that mints more than `NSTYLE` *distinct*
-    /// renditions fills it and the probe lengthens toward a scan; that is the
-    /// bound a garbage-collected table would remove, and it is recorded rather
-    /// than paid for here.
+    /// far from full, which a screen holding a few hundred renditions in a
+    /// screen-sized table is.
+    ///
+    /// **The table is sized to the screen** (the screen-sizing in `Owned::with_history`), not fixed at
+    /// 1024, because a half-block image preview mints one distinct truecolour
+    /// rendition per cell and every one is live at once -- the whole image is on
+    /// screen. A 1024-slot table under a photo evicts thousands of on-screen
+    /// cells' renditions, and each resolves to a later cell's colour: the top
+    /// band of the preview scrambles while the bottom stays coherent, because
+    /// eviction hits the cells interned first. A table holding a screenful of
+    /// distinct renditions cannot: below capacity the mapping is exact. A
+    /// garbage collector could not help, because nothing is dead to reclaim
+    /// while the image is displayed; the fix is capacity, sized to what a screen
+    /// can show. Eviction remains only for a session that mints more than a
+    /// screenful of *distinct* renditions over its life -- an animation cycling
+    /// colours, not a still image -- and that is recorded rather than paid for.
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
+        // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
+        // `len` is a screen's worth of slots -- a power of two, always at least
+        // `NSTYLE`. Below that many distinct live renditions the mapping is
+        // exact, which is why a half-block image preview (one distinct rendition
+        // per cell) no longer scrambles: a screenful of them all fit.
+        let len = self.tmpl.len();
         #[cfg(feature = "probe-double-intern")]
-        core::hint::black_box(StyleId::bucket(raw, NSTYLE));
+        core::hint::black_box(StyleId::bucket(raw, len));
         #[cfg(feature = "probe-double-intern-full")]
         {
-            let k2 = StyleId::bucket(raw, NSTYLE);
+            let k2 = StyleId::bucket(raw, len);
             self.tmpl[k2] = Some(raw);
         }
-        let base = StyleId::bucket(raw, NSTYLE);
-        // Probe for this style's own slot or the first free one. `NSTYLE` is a
-        // power of two, so `& (NSTYLE - 1)` wraps and the loop visits every
-        // slot exactly once. A hit returns the slot the style already has,
-        // which is why equal cells share a `StyleId`.
+        let base = StyleId::bucket(raw, len);
+        // Probe for this style's own slot or the first free one. `len` is a
+        // power of two, so `& (len - 1)` wraps and the loop visits every slot
+        // exactly once. A hit returns the slot the style already has, which is
+        // why equal cells share a `StyleId`.
         let mut k = base;
-        for _ in 0..NSTYLE {
+        for _ in 0..len {
             match self.tmpl[k] {
                 Some(w) if w == raw => return StyleId::from_index(k),
                 None => {
                     self.tmpl[k] = Some(raw);
                     return StyleId::from_index(k);
                 }
-                Some(_) => k = (k + 1) & (NSTYLE - 1),
+                Some(_) => k = (k + 1) & (len - 1),
             }
         }
         // Every slot holds a live style: evict at the bucket, the only case a

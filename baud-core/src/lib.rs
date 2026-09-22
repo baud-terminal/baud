@@ -114,7 +114,7 @@ pub use baud_domain::{Back, Depth, Scrollback, Wrap};
 pub use storage::Owned;
 pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
-    OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf, grid_stride,
+    NSTYLE_MAX, OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{Moved, Resized, Screen, Term, Zone};

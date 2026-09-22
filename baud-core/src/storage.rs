@@ -375,7 +375,16 @@ impl Owned {
             vp: vec![PackedCell::EMPTY; ring.len()],
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
-            tmpl: vec![None; NSTYLE],
+            // Sized to the whole primary screen (`span` is `rows * stride`), so
+            // a half-block image preview -- one distinct rendition per cell --
+            // never evicts a rendition a visible cell still references. A resize
+            // clamps `cols` to `stride` and `rows` to the provisioned capacity,
+            // so the largest screen this storage can display is `span.len()`
+            // cells, and the table holds it. The next power of two at or above
+            // it (so open addressing's `& (len - 1)` wraps), between the NSTYLE
+            // floor and the NSTYLE_MAX ceiling; the ceiling clamp precedes
+            // `next_power_of_two()`, which panics past 2^63.
+            tmpl: vec![None; span.len().min(NSTYLE_MAX).next_power_of_two().max(NSTYLE)],
             tabs: vec![false; MAX_COLS],
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
@@ -553,9 +562,24 @@ impl Owned {
 /// answer is never wrong and how often it is missing is a number.
 pub const NCLUSTER: usize = 64;
 
-/// How many renditions the template table holds. Bounded so it cannot walk out
-/// of cache under truecolour key pressure.
+/// The **floor** on the rendition table: the smallest it is ever sized to, for
+/// a screen too small to need more. The table is sized to the screen by
+/// [`style_slots`] -- a half-block image preview mints one distinct truecolour
+/// rendition per cell, so a table smaller than the screen would evict a
+/// rendition an on-screen cell still points at, and that cell would resolve to
+/// another's colour. Below capacity the mapping is exact, so a table that holds
+/// one full screen never scrambles a preview; the floor keeps a small screen
+/// from paying for slots it cannot fill.
 pub const NSTYLE: usize = 1024;
+
+/// The **ceiling**, from the cell rather than from a sweep: a [`StyleId`] is a
+/// `u16`, so a slot index must fit sixteen bits and the table cannot exceed
+/// `2^16` slots however large the screen. A screen with more than this many
+/// distinct renditions -- 65,536 cells, a window no real terminal reaches --
+/// can still evict, which is recorded rather than paid for. At 20 bytes a
+/// `StyleWord` the ceiling is a 1.5 MB table, so only a window that large pays
+/// it; a 200x50 screen sizes to 16,384 slots, ~384 KB.
+pub const NSTYLE_MAX: usize = 1 << 16;
 
 /// How many `(lead, continuation)` prefixes a three-byte character has.
 pub const CELLS3_PREFIXES: usize = 16 * 64;
@@ -700,7 +724,10 @@ impl<'b> Storage<'b> {
             cells3.len() == CELLS3 || cells3.is_empty(),
             "the three-byte cell table is 1024 x 256 entries, or absent"
         );
-        assert!(tmpl.len() == NSTYLE, "the rendition table is NSTYLE slots");
+        assert!(
+            tmpl.len().is_power_of_two() && tmpl.len() >= NSTYLE && tmpl.len() <= NSTYLE_MAX,
+            "the rendition table is a power of two between NSTYLE and NSTYLE_MAX slots"
+        );
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
         assert!(reply.len() >= REPLY, "the reply buffer is REPLY bytes");
         assert!(

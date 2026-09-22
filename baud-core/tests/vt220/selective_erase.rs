@@ -149,26 +149,35 @@ fn selective_erase_is_not_confined_to_the_region() {
 
 /// Protection survives style-table eviction.
 ///
-/// The style table is a 64-slot direct-mapped cache: interning a new rendition
-/// overwrites whichever one shared its bucket. Protection therefore cannot be
-/// stored there and looked back up, which is what an earlier version did -- it
-/// answered with whatever style had displaced the original, so protection was
-/// silently lost (or granted to text that never asked for it) as soon as an
-/// application cycled through more than `NSTYLE` renditions. Truecolour
-/// applications do that in ordinary use, not adversarially.
+/// The style table evicts once it is full: past capacity, interning a new
+/// rendition overwrites whichever one shared its bucket. Protection therefore
+/// cannot be stored there and looked back up, which is what an earlier version
+/// did -- it answered with whatever style had displaced the original, so
+/// protection was silently lost (or granted to text that never asked for it)
+/// as soon as an application cycled through more distinct renditions than the
+/// table holds. The table is sized to the screen now, so a still image no
+/// longer overflows it, but an application cycling colours over time still
+/// does, and protection must survive that.
 ///
 /// Deterministic: the cycle is forced, not searched for.
 #[test]
 fn protection_survives_style_eviction() {
-    let mut v = b"\x1b[1\"qAB\x1b[0\"q".to_vec();
-    // Four times the table, so every bucket is overwritten several times.
-    for i in 0..(NSTYLE * 4) {
-        v.extend_from_slice(
-            format!("\x1b[38;2;{};{};{}m", i % 251, (i * 7) % 251, i % 97).as_bytes(),
-        );
+    // The table is sized to the screen now, so "more than the table" is
+    // `style_capacity()`, not a fixed 1024 -- mint half again past it so every
+    // bucket is overwritten and the table genuinely turns over.
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let cap = t.styles().len();
+    support::feed(&mut t, b"\x1b[1\"qAB\x1b[0\"q");
+    for i in 0..(cap + cap / 2) {
+        // A distinct 24-bit colour per `i`, so the count of distinct renditions
+        // is the iteration count and it provably exceeds `cap`.
+        let (r, g, b) = ((i >> 16) & 0xff, (i >> 8) & 0xff, i & 0xff);
+        support::feed(&mut t, format!("\x1b[38;2;{r};{g};{b}m").as_bytes());
     }
-    v.extend_from_slice(b"\x1b[1;1H\x1b[?2K");
-    let after = grid(&v);
+    support::feed(&mut t, b"\x1b[1;1H\x1b[?2K");
+    let after = support::screen(&t);
     let only_ab = grid(b"\x1b[1\"qAB");
     assert_eq!(
         after[..2],

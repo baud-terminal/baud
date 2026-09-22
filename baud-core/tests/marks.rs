@@ -337,8 +337,9 @@ fn a_colliding_rendition_does_not_evict_a_live_one() {
     assert_eq!(ids.len(), 16, "two distinct renditions share a slot");
 }
 
-/// The style table is exact up to its capacity: `NSTYLE` distinct renditions
-/// each get their own slot, and only the one past capacity evicts.
+/// The style table is exact up to its capacity: distinct renditions each get
+/// their own slot, and only the one past capacity evicts. Capacity is the
+/// screen-sized [`Term::style_capacity`], at least `NSTYLE`.
 ///
 /// This is the guarantee full-table open addressing buys over the bounded
 /// window -- a distinct colour never displaces another while a slot is free.
@@ -353,7 +354,7 @@ fn the_style_table_is_exact_below_capacity() {
     };
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);
-    // 900 distinct foregrounds, under the 1024 slots, over 5 rows of 200.
+    // 900 distinct foregrounds, under capacity, over 5 rows of 200.
     // `u16` throughout so the channel values need no cast; `rgb` derives the
     // three from `i` the same way both when writing and when checking.
     const N: u16 = 900;
