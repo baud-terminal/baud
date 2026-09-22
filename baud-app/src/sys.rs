@@ -185,7 +185,16 @@ int main(void) {
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
-        let dir = std::env::temp_dir().join(format!("baud-abi-{}", std::process::id()));
+        // **One directory per call, not per process.** Both probe tests call
+        // this, and the test harness runs them as threads of one process, so a
+        // name keyed on the pid alone gave them one directory: one test could
+        // compile over the binary the other was running, or `remove_dir_all`
+        // it mid-run. The kernel logged exactly that shape -- AMFI evaluating
+        // one `probe` path from two threads at once, "Unrecoverable CT
+        // signature issue". A counter makes the paths distinct.
+        static CALL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let call = CALL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("baud-abi-{}-{call}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let src = dir.join("probe.c");
         let bin = dir.join("probe");

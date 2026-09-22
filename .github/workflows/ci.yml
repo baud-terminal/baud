@@ -176,7 +176,7 @@ jobs:
           set -euo pipefail
           devenv shell -- cargo build --release -p baud-isa-x86-64
           devenv shell -- sh -c \
-            "RUSTFLAGS='-C target-feature=+avx2' cargo test --release -p baud-isa-x86-64 -- --nocapture"
+            "RUSTFLAGS='-C target-feature=+avx2' cargo test --release --no-fail-fast -p baud-isa-x86-64 -- --nocapture"
 
       # And the arm as `baud-core` would ship it, so the wiring is exercised
       # rather than only the crate.
@@ -200,7 +200,7 @@ jobs:
           devenv shell -- sh -c \
             "RUSTFLAGS='$RF' cargo build --release -p baud-core --features avx2-scan"
           devenv shell -- sh -c \
-            "RUSTFLAGS='$RF' cargo test --release --workspace --features baud-core/avx2-scan"
+            "RUSTFLAGS='$RF' cargo test --release --no-fail-fast --workspace --features baud-core/avx2-scan"
 
   release-plz-release:
     name: Release

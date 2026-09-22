@@ -259,8 +259,9 @@ crate_audit "baud-app" 1 4 baud-app/src
 # `find` over `src` went from auditing eleven raw sites to auditing none while
 # still reporting "ok (limit 14)" -- a budget four times its count, which this
 # file's own rule calls not measuring anything. Each tree carries its own, and
-# each is set at the count: `src` is the shared lib alone, `benches` the seven
-# programs. Both are floors and neither moves to fit a change.
+# each is set at the count: `src` is the shared lib alone, `benches` every
+# bench program (nine as of `reshape`; the count is not written here so it
+# cannot go stale again). Both are floors and neither moves to fit a change.
 audit_tree() {
   label=$1
   dir=$2

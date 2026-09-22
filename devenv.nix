@@ -46,7 +46,7 @@ in
   # Development scripts
   scripts.dev-test.exec = ''
     echo "Running tests..."
-    RUSTFLAGS="-D warnings" cargo test --release ${scope} --all-features
+    RUSTFLAGS="-D warnings" cargo test --release --no-fail-fast ${scope} --all-features
   '';
 
   scripts.dev-fmt.exec = ''
@@ -96,7 +96,7 @@ in
     # caught by the same gap and fixed only for itself.
     cargo check --quiet --all-targets ${scope} || { echo "FAILED: check"; exit 1; }
     echo "=== test ==="
-    RUSTFLAGS="-D warnings" cargo test --release --quiet ${scope} || { echo "FAILED: test"; exit 1; }
+    RUSTFLAGS="-D warnings" cargo test --release --quiet --no-fail-fast ${scope} || { echo "FAILED: test"; exit 1; }
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
     echo "=== linux ==="
@@ -274,7 +274,13 @@ in
     # build misses them by an order of magnitude, so the suite would fail on the
     # profile rather than on the code. BUILD.md runs the same tests in release.
     "test:unit" = {
-      exec = "RUSTFLAGS='-D warnings' cargo test --release --quiet ${scope}";
+      # `--no-fail-fast`, the owner's call 2026-09-22: cargo stops at the
+      # first failing test binary, and a wall-clock flake once stopped this
+      # run at 81 of 119 -- which read as one red test rather than a partial
+      # run. One red binary must not hide the rest. It does not un-skip the
+      # gates chained after this task: cargo still exits non-zero, so a red
+      # run here still stops `test:bare` and everything `after` it.
+      exec = "RUSTFLAGS='-D warnings' cargo test --release --quiet --no-fail-fast ${scope}";
       after = [ "test:check" ];
     };
 
