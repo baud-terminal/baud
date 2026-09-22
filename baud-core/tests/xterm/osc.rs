@@ -190,11 +190,11 @@ fn osc_104_resets_the_palette() {
 #[test]
 fn osc_4_query_replies_in_the_same_form() {
     let o = run(b"\x1b]4;9;rgb:ff/00/80\x07\x1b]4;9;?\x07");
-    assert_eq!(o.reply, b"\x1b]4;9;rgb:ff/00/80\x07");
+    assert_eq!(o.reply, b"\x1b]4;9;rgb:ffff/0000/8080\x07");
 
     let st = run(b"\x1b]4;9;rgb:ff/00/80\x07\x1b]4;9;?\x1b\\");
     assert_eq!(
-        st.reply, b"\x1b]4;9;rgb:ff/00/80\x1b\\",
+        st.reply, b"\x1b]4;9;rgb:ffff/0000/8080\x1b\\",
         "an ST query must get an ST reply"
     );
 }
@@ -349,13 +349,13 @@ fn osc_11_query_answers_the_embedders_default() {
         Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11))),
         b"\x1b]11;?\x07",
     );
-    assert_eq!(reply, b"\x1b]11;rgb:11/11/11\x07");
+    assert_eq!(reply, b"\x1b]11;rgb:1111/1111/1111\x07");
     let (reply, _) = dynamic(
         Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11))),
         b"\x1b]10;?\x1b\\",
     );
     assert_eq!(
-        reply, b"\x1b]10;rgb:e0/e0/e0\x1b\\",
+        reply, b"\x1b]10;rgb:e0e0/e0e0/e0e0\x1b\\",
         "an ST query must get an ST reply"
     );
 }
@@ -366,13 +366,13 @@ fn osc_11_query_answers_the_embedders_default() {
 fn an_override_wins_the_query_and_reset_restores_the_default() {
     let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));
     let (reply, d) = dynamic(defaults, b"\x1b]11;rgb:aa/bb/cc\x07\x1b]11;?\x07");
-    assert_eq!(reply, b"\x1b]11;rgb:aa/bb/cc\x07");
+    assert_eq!(reply, b"\x1b]11;rgb:aaaa/bbbb/cccc\x07");
     assert_eq!(d[1], Some((0xaa, 0xbb, 0xcc)));
     let (reply, d) = dynamic(
         defaults,
         b"\x1b]11;rgb:aa/bb/cc\x07\x1b]111\x07\x1b]11;?\x07",
     );
-    assert_eq!(reply, b"\x1b]11;rgb:11/11/11\x07");
+    assert_eq!(reply, b"\x1b]11;rgb:1111/1111/1111\x07");
     assert_eq!(d[1], None, "the renderer draws its theme again");
 }
 
@@ -406,7 +406,7 @@ fn osc_12_sets_and_reads_the_cursor_colour() {
     );
 
     support::feed(&mut t, b"\x1b]12;?\x07");
-    assert_eq!(t.reply(), b"\x1b]12;rgb:ff/00/00\x07");
+    assert_eq!(t.reply(), b"\x1b]12;rgb:ffff/0000/0000\x07");
 
     support::feed(&mut t, b"\x1b]112\x07");
     assert_eq!(

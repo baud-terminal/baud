@@ -133,7 +133,8 @@ pub fn run() {
     );
     term.set_sixel_claim(cfg.sixel);
     startup_mark("renderer");
-    let pty = Pty::spawn_polled(&FIRST).expect("pty");
+    let pty = Pty::spawn_polled(&FIRST, renderer.metrics().cell_w, renderer.metrics().cell_h)
+        .expect("pty");
     startup_mark("pty");
     let mut conn = match Connection::connect() {
         Ok(c) => c,
@@ -273,8 +274,21 @@ impl Driver {
         self.stride = Px::of(width.0);
         self.damage = Damage::Full;
         self.pending = Pending::Dirty;
-        let (pw, ph) = self.renderer.pixel_size();
-        self.pty.resize(&ws, pw, ph);
+        // The grid the terminal *has*, not the one asked for -- `resize`
+        // clamps, and a child told the request draws for a screen that does
+        // not exist, which the macOS driver learned from btop -- and the text
+        // area in pixels from the cell, not the window's, which carries the
+        // padding and the part of a cell the grid does not fill.
+        let (has_cols, has_rows) = self.term.geometry();
+        let has = WinSize {
+            ws_col: u16::try_from(has_cols.index()).unwrap_or(u16::MAX),
+            ws_row: u16::try_from(has_rows.index()).unwrap_or(u16::MAX),
+        };
+        let m = self.renderer.metrics();
+        self.pty.resize(&has, m.cell_w, m.cell_h);
+        // Then the replies: the `?2048` report `resize` or `set_cell_size`
+        // queued goes out with the `SIGWINCH`, after it and not before.
+        self.flush_reply();
     }
 
     /// Paint what changed and hand the frame to the window, unless a

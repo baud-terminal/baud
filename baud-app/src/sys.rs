@@ -37,7 +37,7 @@ pub type Nfds = c_ulong;
 /// The terminal's size, as `TIOCSWINSZ` takes it. Four `u16`s, in this
 /// order, on both platforms.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Winsize {
     pub ws_row: u16,
     pub ws_col: u16,
@@ -63,6 +63,14 @@ pub struct PollFd {
 pub const TIOCSWINSZ: c_ulong = 0x8008_7467;
 #[cfg(not(target_os = "macos"))]
 pub const TIOCSWINSZ: c_ulong = 0x5414;
+
+/// Read the terminal's window size back. Only a test asks: it forks a pty and
+/// reads what the kernel holds, which is the one reading of "the child was
+/// told" that does not trust baud's own bookkeeping.
+#[cfg(all(test, target_os = "macos"))]
+pub const TIOCGWINSZ: c_ulong = 0x4008_7468;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const TIOCGWINSZ: c_ulong = 0x5413;
 
 #[cfg(target_os = "linux")]
 pub const POLLIN: i16 = 0x1;
@@ -163,6 +171,7 @@ int main(void) {
     printf("nfds.size=%zu\n", sizeof(nfds_t));
     printf("request.size=%zu\n", sizeof(unsigned long));
     printf("TIOCSWINSZ=%llu\n", (unsigned long long)TIOCSWINSZ);
+    printf("TIOCGWINSZ=%llu\n", (unsigned long long)TIOCGWINSZ);
     printf("POLLIN=%lld\n", (long long)POLLIN);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
@@ -207,7 +216,7 @@ int main(void) {
         // empty map -- the shape this repo keeps recording as a gate that
         // cannot fire.
         assert!(
-            map.len() >= 16,
+            map.len() >= 17,
             "the probe printed {} values, which is fewer than it has lines: {text}",
             map.len()
         );
@@ -238,6 +247,7 @@ int main(void) {
     fn the_constants_are_the_platform_headers_own() {
         let h = ask_the_headers();
         assert_eq!(h["TIOCSWINSZ"], i128::from(TIOCSWINSZ));
+        assert_eq!(h["TIOCGWINSZ"], i128::from(TIOCGWINSZ));
         #[cfg(target_os = "linux")]
         assert_eq!(h["POLLIN"], i128::from(POLLIN));
         assert_eq!(h["PROT_READ"], i128::from(PROT_READ));

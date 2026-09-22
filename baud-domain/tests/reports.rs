@@ -222,9 +222,20 @@ fn report_encodings_fit() {
         b: 0xff,
         term: StringTerm::St,
     });
-    assert_eq!(color, b"\x1b]4;255;rgb:ff/ff/ff\x1b\\");
+    assert_eq!(color, b"\x1b]4;255;rgb:ffff/ffff/ffff\x1b\\");
+
+    // **And then the `?2048` report took the title** when its pixel fields
+    // stopped being zero: four five-digit fields where there had been two
+    // and two zeros. Every field at `u16::MAX` is the widest it can encode.
+    let inband = enc(Report::InbandResize {
+        rows: Rows::of_count(65535),
+        cols: Cols::of_index(65535),
+        height: ImagePx::of(u16::MAX),
+        width: ImagePx::of(u16::MAX),
+    });
+    assert_eq!(inband, b"\x1b[48;65535;65535;65535;65535t");
     assert_eq!(
-        color.len(),
+        inband.len(),
         Report::MAX_LEN,
         "the widest report is this one"
     );
@@ -252,6 +263,30 @@ fn report_encodings_fit() {
             b'M',
         ),
         ("vt52 id", Report::Vt52Identity, b'Z'),
+        (
+            "text area pixels",
+            Report::TextAreaPixels {
+                height: ImagePx::of(u16::MAX),
+                width: ImagePx::of(u16::MAX),
+            },
+            b't',
+        ),
+        (
+            "cell pixels",
+            Report::CellPixels {
+                height: ImagePx::of(u16::MAX),
+                width: ImagePx::of(u16::MAX),
+            },
+            b't',
+        ),
+        (
+            "text area chars",
+            Report::TextAreaChars {
+                rows: Rows::of_count(65535),
+                cols: Cols::of_index(65535),
+            },
+            b't',
+        ),
         ("version", Report::Version, b'\\'),
         (
             "colour, BEL",
@@ -264,7 +299,67 @@ fn report_encodings_fit() {
             },
             0x07,
         ),
+        // The six that were missing from this list while it said a variant
+        // absent from it is a variant nothing bounds.
+        ("focus", Report::Focus(Focus::Gained), b'I'),
+        ("kitty flags", Report::KittyFlags(KittyFlags::ALL), b'u'),
+        (
+            "inband resize",
+            Report::InbandResize {
+                rows: Rows::of_count(65535),
+                cols: Cols::of_index(65535),
+                height: ImagePx::of(u16::MAX),
+                width: ImagePx::of(u16::MAX),
+            },
+            b't',
+        ),
+        (
+            "dynamic colour",
+            Report::DynamicColor {
+                which: DynamicColor::Background,
+                r: 0xff,
+                g: 0xff,
+                b: 0xff,
+                term: StringTerm::St,
+            },
+            b'\\',
+        ),
+        (
+            "mode status",
+            Report::ModeStatus {
+                marker: Marker::Private,
+                mode: Param::ZERO,
+                state: ModeState::PermanentlyReset,
+            },
+            b'y',
+        ),
+        (
+            "x10 mouse",
+            Report::MouseX10(mouse(MouseButton::Left, MouseKind::Press, 222, 222)),
+            b' ' + 223,
+        ),
     ] {
+        // **Exhaustive, so this list cannot fall behind the enum again.** A
+        // new `Report` variant stops this match compiling, and the edit it
+        // forces is here, beside the list it has to join.
+        match r {
+            Report::Focus(_)
+            | Report::CursorPosition { .. }
+            | Report::OperatingStatus
+            | Report::PrimaryDeviceAttributes(..)
+            | Report::Vt52Identity
+            | Report::KittyFlags(_)
+            | Report::InbandResize { .. }
+            | Report::TextAreaPixels { .. }
+            | Report::CellPixels { .. }
+            | Report::TextAreaChars { .. }
+            | Report::Version
+            | Report::Color { .. }
+            | Report::DynamicColor { .. }
+            | Report::ModeStatus { .. }
+            | Report::MouseSgr(_)
+            | Report::MouseX10(_) => {}
+        }
         let b = enc(r);
         assert!(
             b.len() <= Report::MAX_LEN,

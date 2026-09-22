@@ -329,10 +329,6 @@ impl<'a> Params<'a> {
     pub(crate) fn at(&self, i: ParamIdx) -> Option<Param> {
         self.v.get(i.0 as usize).copied().flatten()
     }
-    /// How many parameters arrived.
-    ///
-    /// Needed because two different operations share the final byte `T` and
-    /// are told apart only by *arity*: one parameter is SD, five are XTHIMOUSE.
     /// One parameter as a raw number, with a default when it is absent.
     ///
     /// For operations whose parameters are coordinates rather than counts or
@@ -345,6 +341,12 @@ impl<'a> Params<'a> {
             .flatten()
             .map_or(default, |p| p.0)
     }
+    /// How many parameters arrived.
+    ///
+    /// Needed because two different operations share the final byte `T` and
+    /// are told apart only by *arity*: one parameter is SD, five are XTHIMOUSE.
+    /// XTWINOPS leans on it too: `CSI 14 t` is the text area and
+    /// `CSI 14 ; 2 t` the window.
     pub fn len(&self) -> usize {
         self.v.len()
     }
@@ -375,6 +377,33 @@ pub enum EraseExtent {
     ToEnd,
     ToStart,
     All,
+}
+
+/// An XTWINOPS operation, `CSI Ps ; Ps ; Ps t`: one of the three reports
+/// baud answers, or the rest of the family.
+///
+/// `[[source: ctlseqs]]`, "Window manipulation (XTWINOPS)": `Ps = 1 4` "Report
+/// xterm text area size in pixels. Result is CSI 4 ; height ; width t",
+/// `Ps = 1 6` "Report xterm character cell size in pixels. Result is CSI 6 ;
+/// height ; width t", and `Ps = 1 8` "Report the size of the text area in
+/// characters. Result is CSI 8 ; height ; width t".
+///
+/// **Every other form is recognised and refused**, which is why it is a
+/// variant and not `Csi::Unsupported`: the operation is known, and what it
+/// asks -- move, resize, iconify or report the *window*, a thing this core is
+/// never handed, or push the title -- is not done. The core counts it as an
+/// unsupported parameter, the way it counts a `DSR` it cannot answer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowOp {
+    /// `CSI 14 t`, the text area in pixels. Not `CSI 14 ; 2 t`, which is the
+    /// window including its frame, and nothing here knows the frame.
+    TextAreaPixels,
+    /// `CSI 16 t`, one cell in pixels.
+    CellPixels,
+    /// `CSI 18 t`, the text area in cells.
+    TextAreaChars,
+    /// Any other `Ps`, any extra parameter, or none at all.
+    Refused,
 }
 
 /// A half-open span of columns within one row, `[from, to)`.
@@ -628,6 +657,11 @@ pub enum Csi {
     /// ignored until the proper escape sequence is received" describes an event
     /// loop, and baud has none to block. What baud must not do is *scroll*.
     HighlightMouseTracking(HighlightRegion),
+    /// XTWINOPS, `CSI Ps ; Ps ; Ps t`. Three forms are *questions* about the
+    /// text area's size, answered with [`Report::TextAreaPixels`],
+    /// [`Report::CellPixels`] and [`Report::TextAreaChars`]; the rest are
+    /// [`WindowOp::Refused`].
+    Window(WindowOp),
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -878,6 +912,17 @@ impl Csi {
                 last_row: p.raw(ParamIdx::FIRST.plus(4), 1),
             }),
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
+            // XTWINOPS. **Only the exact forms `[[source: ctlseqs]]` gives**,
+            // one parameter each: `CSI 14 ; 2 t` is the *window* in pixels
+            // and a second parameter on the other two is undefined, so both
+            // fall to `Unsupported` rather than being read as the bare form --
+            // an answer to a question that was not asked is the wrong shape.
+            b't' => Csi::Window(match (p.len(), p.at(ParamIdx::FIRST).map_or(0, |x| x.0)) {
+                (1, 14) => WindowOp::TextAreaPixels,
+                (1, 16) => WindowOp::CellPixels,
+                (1, 18) => WindowOp::TextAreaChars,
+                _ => WindowOp::Refused,
+            }),
             b'h' => Csi::Mode {
                 change: ModeChange::Set,
                 mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),
@@ -1034,7 +1079,9 @@ impl Csi {
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
 
-            RequestVersion | HighlightMouseTracking(_) => Level::Xterm,
+            // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
+            // xterm's extensions of it.
+            RequestVersion | HighlightMouseTracking(_) | Window(_) => Level::Xterm,
             // XTMODKEYS and XTFMTKEYS are xterm's, and input-side: they change
             // what the keyboard sends rather than what the screen shows. The
             // kitty negotiation is the same shape -- input-side, and an

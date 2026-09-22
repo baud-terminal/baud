@@ -81,12 +81,31 @@ pub enum Report {
     /// `WinSize` is usually read in -- so the two are destructured here
     /// and nowhere else, the same rule `WinSize::geometry` carries.
     ///
-    /// The pixel fields are zero. The specification requires exactly
-    /// that of a terminal that cannot report them, and this core cannot:
-    /// it is handed a grid, never a window, and `CSI 14 t` is not
-    /// implemented either. They go in when a caller passes a pixel size,
-    /// which is the same change that would implement `CSI 14 t`.
-    InbandResize { rows: Rows, cols: Cols },
+    /// **The pixel fields are the text area**, and zero until the embedder
+    /// has told the core its cell size. `[[source: inband-resize]]`: "If a
+    /// terminal is not capable of reporting pixel sizes, it must report them
+    /// as 0. A terminal MUST report pixel sizes if it is capable of reporting
+    /// them", and "The reported size MUST be the text area size. Text area
+    /// does not include any padding" -- so it is `rows` cells by `cols`
+    /// cells of the cell size, the same numbers `CSI 14 t` answers with, and
+    /// not whatever the window measures.
+    InbandResize {
+        rows: Rows,
+        cols: Cols,
+        height: ImagePx,
+        width: ImagePx,
+    },
+    /// `CSI 4 ; height ; width t`, the answer to `CSI 14 t`: the text area in
+    /// pixels. `[[source: ctlseqs]]`, XTWINOPS `Ps = 1 4`.
+    TextAreaPixels { height: ImagePx, width: ImagePx },
+    /// `CSI 6 ; height ; width t`, the answer to `CSI 16 t`: one cell in
+    /// pixels. `[[source: ctlseqs]]`, XTWINOPS `Ps = 1 6`. This is the reply
+    /// an image client sizes its pictures from -- `[[source: yazi-emulator]]`
+    /// reads it out of its DA1 burst.
+    CellPixels { height: ImagePx, width: ImagePx },
+    /// `CSI 8 ; rows ; cols t`, the answer to `CSI 18 t`: the text area in
+    /// cells. `[[source: ctlseqs]]`, XTWINOPS `Ps = 1 8`.
+    TextAreaChars { rows: Rows, cols: Cols },
     /// XTVERSION, the answer to `CSI > 0 q`.
     ///
     /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
@@ -104,7 +123,8 @@ pub enum Report {
     /// is IRM and `CSI ? 4` is DECSCLM. Answering a private request without the
     /// `?` would have the application read it as an answer about a different
     /// mode entirely.
-    /// `OSC 4 ; c ; rgb:RR/GG/BB ST` -- the answer to `OSC 4 ; c ; ?`.
+    /// `OSC 4 ; c ; rgb:RRRR/GGGG/BBBB ST` -- the answer to `OSC 4 ; c ; ?`,
+    /// four digits a channel for the reason [`ReportBytes::push_hex`] gives.
     ///
     /// `[[source: ctlseqs]]`: xterm "replies with a control sequence of the
     /// same form which can be used to set the corresponding color", and it
@@ -268,11 +288,69 @@ impl C1Transmit {
 }
 
 impl Report {
-    /// Longest possible encoding: an SGR mouse report, which is `ESC [ <` then
-    /// three five-digit fields, two separators and a final byte. Five digits
-    /// covers `MAX_COLS` and `MAX_ROWS` with room to spare, and nothing larger
-    /// can be a coordinate on this grid. `report_encodings_fit` pins it.
-    pub const MAX_LEN: usize = 22;
+    /// The `?2048` report for a text area of `rows` by `cols` cells, each
+    /// `cell_w` by `cell_h` device pixels.
+    ///
+    /// The pixel fields are derived here and nowhere else, so the report
+    /// sent on enablement, after a resize and after a cell-size change
+    /// cannot disagree about what "the text area" is. **Both zero unless
+    /// both dimensions are known**: `[[source: inband-resize]]` gives zero as
+    /// the answer of a terminal that cannot report pixels, and one known
+    /// dimension beside one unknown is not a size.
+    pub fn inband(rows: Rows, cols: Cols, cell_w: ImagePx, cell_h: ImagePx) -> Report {
+        let known = cell_w != ImagePx::ZERO && cell_h != ImagePx::ZERO;
+        let (height, width) = match known {
+            true => (cell_h.span(rows.index()), cell_w.span(cols.index())),
+            false => (ImagePx::ZERO, ImagePx::ZERO),
+        };
+        Report::InbandResize {
+            rows,
+            cols,
+            height,
+            width,
+        }
+    }
+
+    /// The answer to an XTWINOPS operation, or `None` when there is none to
+    /// give: a [`WindowOp::Refused`] form, or a pixel question before the
+    /// cell size is known.
+    ///
+    /// **The two pixel answers need the cell size, and without it there is
+    /// no answer at all** rather than `CSI 6 ; 0 ; 0 t`. Mode 2048's
+    /// specification defines zero as "not capable"; XTWINOPS defines no such
+    /// value, and a client that divides by the cell size is better served by
+    /// the silence it already has to handle than by a zero it may not. The
+    /// text area in cells is always known.
+    pub fn window(
+        op: WindowOp,
+        rows: Rows,
+        cols: Cols,
+        cell_w: ImagePx,
+        cell_h: ImagePx,
+    ) -> Option<Report> {
+        let known = cell_w != ImagePx::ZERO && cell_h != ImagePx::ZERO;
+        match (op, known) {
+            (WindowOp::Refused, _) => None,
+            (WindowOp::TextAreaChars, _) => Some(Report::TextAreaChars { rows, cols }),
+            (_, false) => None,
+            (WindowOp::TextAreaPixels, true) => Some(Report::TextAreaPixels {
+                height: cell_h.span(rows.index()),
+                width: cell_w.span(cols.index()),
+            }),
+            (WindowOp::CellPixels, true) => Some(Report::CellPixels {
+                height: cell_h,
+                width: cell_w,
+            }),
+        }
+    }
+
+    /// Longest possible encoding: the `?2048` report with its pixel fields,
+    /// `ESC [ 48` then four five-digit fields, four separators and a final
+    /// byte -- 29 bytes. It took the title from the palette reply at 22 when
+    /// the pixel fields stopped being zero. `report_encodings_fit` pins it,
+    /// and `ReportBytes::push` drops past it in silence, which is why that
+    /// test names every variant.
+    pub const MAX_LEN: usize = 29;
 
     /// Render the report to bytes.
     ///
@@ -301,16 +379,45 @@ impl Report {
                 Focus::Gained => b'I',
                 Focus::Lost => b'O',
             }),
-            Report::InbandResize { rows, cols } => {
+            Report::InbandResize {
+                rows,
+                cols,
+                height,
+                width,
+            } => {
                 e.push_num(48);
                 e.push(b';');
                 e.push_num(u16::try_from(rows.index()).unwrap_or(u16::MAX));
                 e.push(b';');
                 e.push_num(u16::try_from(cols.index()).unwrap_or(u16::MAX));
                 e.push(b';');
-                e.push_num(0);
+                e.push_num(height.raw());
                 e.push(b';');
-                e.push_num(0);
+                e.push_num(width.raw());
+                e.push(b't');
+            }
+            Report::TextAreaPixels { height, width } => {
+                e.push_num(4);
+                e.push(b';');
+                e.push_num(height.raw());
+                e.push(b';');
+                e.push_num(width.raw());
+                e.push(b't');
+            }
+            Report::CellPixels { height, width } => {
+                e.push_num(6);
+                e.push(b';');
+                e.push_num(height.raw());
+                e.push(b';');
+                e.push_num(width.raw());
+                e.push(b't');
+            }
+            Report::TextAreaChars { rows, cols } => {
+                e.push_num(8);
+                e.push(b';');
+                e.push_num(u16::try_from(rows.index()).unwrap_or(u16::MAX));
+                e.push(b';');
+                e.push_num(u16::try_from(cols.index()).unwrap_or(u16::MAX));
                 e.push(b't');
             }
             Report::KittyFlags(f) => {
@@ -460,11 +567,24 @@ impl Report {
 }
 
 impl ReportBytes {
-    /// Two lowercase hex digits, which is the width `rgb:` specifies.
+    /// **Four** lowercase hex digits for one 8-bit channel: the byte twice,
+    /// which is `v * 257`, the 16-bit value X colours carry.
+    ///
+    /// This said "two hex digits, which is the width `rgb:` specifies", and
+    /// `rgb:` specifies no width: XParseColor reads one to four digits a
+    /// channel, so either is a colour an application may *send*. What
+    /// matters in a *reply* is what readers parse, and they parse xterm's,
+    /// which is four -- `[[source: sfte]]` answers `rgb:%02x%02x/...` for the
+    /// same reason. `[[source: yazi-emulator]]`'s `light_bg` reads the
+    /// channels at fixed offsets 0..2, 5..7 and 10..12, so a two-digit reply
+    /// fails there, and yazi takes the failure as a dark background whatever
+    /// the theme.
     fn push_hex(&mut self, b: u8) {
         const HEX: &[u8; 16] = b"0123456789abcdef";
-        self.push(HEX[(b >> 4) as usize]);
-        self.push(HEX[(b & 0x0f) as usize]);
+        for _ in 0..2 {
+            self.push(HEX[(b >> 4) as usize]);
+            self.push(HEX[(b & 0x0f) as usize]);
+        }
     }
 
     fn push(&mut self, b: u8) {

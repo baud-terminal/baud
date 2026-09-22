@@ -232,7 +232,7 @@ const MUST_DIFFER: &[(&str, Control)] = &[
     (
         "OSC 11 set then query",
         Control::Reply(
-            b"\x1b]11;rgb:aa/bb/cc\x07",
+            b"\x1b]11;rgb:aaaa/bbbb/cccc\x07",
             b"\x1b]11;rgb:0000/0000/0000\x07",
         ),
     ),

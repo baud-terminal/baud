@@ -63,6 +63,17 @@ impl ImagePx {
     fn is_zero(self) -> bool {
         self.0 == 0
     }
+
+    /// The extent of `cells` cells of this size, **saturating** at the
+    /// widest dimension a report or a `winsize` can carry.
+    ///
+    /// Saturating rather than wrapping: 2048 columns of a 72-pixel cell is
+    /// 147,456 pixels, which a `u16` cannot hold, and a wrapped answer names
+    /// a small text area that does not exist where a saturated one says only
+    /// "at least this big".
+    pub fn span(self, cells: usize) -> ImagePx {
+        ImagePx(u16::try_from(self.index().saturating_mul(cells)).unwrap_or(u16::MAX))
+    }
 }
 
 /// A signed draw-order index, the Kitty `z` (`[[source: kitty-graphics]]`).

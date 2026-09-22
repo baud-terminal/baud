@@ -22,8 +22,11 @@ fn enabling_the_mode_reports_the_current_size_at_once() {
     support::with_term(&WS, |t| {
         support::feed(t, b"\x1b[?2048h");
         // `CSI 48 ; rows ; cols ; height_px ; width_px t`, characters
-        // before pixels, and the pixels zero because this core is handed a
-        // grid and never a window.
+        // before pixels, and the pixels zero because this harness never
+        // tells the core its cell size -- which `[[source: inband-resize]]`
+        // defines as the answer of a terminal that cannot report them. With
+        // a cell size they are the text area:
+        // `the_inband_report_carries_pixels_once_the_cell_is_known`.
         assert_eq!(t.reply(), b"\x1b[48;24;80;0;0t");
     });
 }

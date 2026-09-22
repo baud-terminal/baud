@@ -815,8 +815,8 @@ impl Paint<'_, '_> {
             PrivateMode::InbandResize => {
                 self.cold.modes.apply(ModeBit::InbandResize, on);
                 if on {
-                    let (cols, rows) = (self.cols, self.rows);
-                    self.want_reply(Report::InbandResize { rows, cols });
+                    let r = Report::inband(self.rows, self.cols, self.cell_width, self.cell_height);
+                    self.want_reply(r);
                 }
             }
             PrivateMode::SmoothScroll => self.cold.modes.apply(ModeBit::SmoothScroll, on),

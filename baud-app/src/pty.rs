@@ -32,6 +32,10 @@ use std::time::Duration;
 /// The master's file descriptor, owned here.
 pub struct Pty {
     master: crate::sys::Fd,
+    /// The size the kernel was last told, so a `resize` that changes nothing
+    /// sends no `SIGWINCH`: the app calls it on every re-lay, including the
+    /// ones where only the pixels could have moved.
+    told: crate::sys::Winsize,
     #[cfg(target_os = "macos")]
     rx: Receiver<Read>,
     /// Set by the reader when it has woken the main thread and not yet
@@ -228,20 +232,67 @@ fn resolve(prog: &str) -> Option<String> {
         .and_then(|p| p.into_os_string().into_string().ok())
 }
 
+/// The `winsize` for a grid of `cells` whose cells are `cell_w` by `cell_h`
+/// device pixels: the cell counts, and **the text area** in pixels.
+///
+/// The text area and not the window, because a child reads `ws_xpixel /
+/// ws_col` as the width of a cell -- `[[source: yazi-dimension]]` does exactly
+/// that -- and the window's width carries the padding and the part of a cell
+/// the grid does not fill. `[[source: inband-resize]]` defines the same
+/// quantity for the in-band report, "Text area does not include any padding
+/// the terminal applies to the window", and `CSI 14 t` answers with it, so
+/// all three agree. Device pixels, because that is what every render path
+/// draws a Sixel pixel as. Saturating at the `u16` the kernel's field holds.
+pub fn text_area(cells: &WinSize, cell_w: Px, cell_h: Px) -> crate::sys::Winsize {
+    let span = |cell: Px, n: u16| {
+        u16::try_from(u64::from(cell.value()) * u64::from(n)).unwrap_or(u16::MAX)
+    };
+    crate::sys::Winsize {
+        ws_row: cells.ws_row,
+        ws_col: cells.ws_col,
+        ws_xpixel: span(cell_w, cells.ws_col),
+        ws_ypixel: span(cell_h, cells.ws_row),
+    }
+}
+
+/// Sends `ws` to the kernel through `master`, unless `told` says the kernel
+/// already holds it -- a `TIOCSWINSZ` is a `SIGWINCH` to the child, and a
+/// shell woken for a size it already has redraws its prompt for nothing.
+fn tell(master: crate::sys::Fd, told: &mut crate::sys::Winsize, ws: crate::sys::Winsize) {
+    if ws == *told {
+        return;
+    }
+    // SAFETY: TIOCSWINSZ takes a pointer to a winsize.
+    unsafe {
+        crate::sys::ioctl(master, crate::sys::TIOCSWINSZ, &ws);
+    }
+    *told = ws;
+}
+
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
     /// `/bin/sh -c "$BAUD_CMD"` instead, which is how a benchmark drives
     /// the terminal: the window closes when the command ends.
-    fn fork(size: &WinSize) -> Option<crate::sys::Fd> {
+    ///
+    /// **The pixels go in at the fork**, not at the first resize: a program
+    /// that asks the kernel how big a cell is before the window has settled
+    /// -- yazi does, at startup -- would otherwise read zero, and the first
+    /// resize after launch usually computes the grid the pty was spawned at,
+    /// so it had nothing to send and the zero stood until the window changed.
+    fn fork(ws: crate::sys::Winsize) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
-        Pty::fork_with(size, cmd, child_env(std::env::vars_os()))
+        Pty::fork_with(ws, cmd, child_env(std::env::vars_os()))
     }
 
     /// [`Pty::fork`] with the command and the environment given rather
     /// than read, so a test can hand the child a parent environment of its
     /// own and read back what the child saw.
-    fn fork_with(size: &WinSize, cmd: Option<String>, env: Vec<CString>) -> Option<crate::sys::Fd> {
+    fn fork_with(
+        ws: crate::sys::Winsize,
+        cmd: Option<String>,
+        env: Vec<CString>,
+    ) -> Option<crate::sys::Fd> {
         let shell = match &cmd {
             Some(_) => "/bin/sh".to_string(),
             None => std::env::var("SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string()),
@@ -276,11 +327,7 @@ impl Pty {
         // Darwin's `forkpty` takes the size by mutable pointer and
         // glibc's by const, so the binding is only mutated on one.
         #[cfg_attr(target_os = "linux", allow(unused_mut))]
-        let mut ws = crate::sys::Winsize {
-            ws_row: size.ws_row,
-            ws_col: size.ws_col,
-            ..crate::sys::Winsize::default()
-        };
+        let mut ws = ws;
         let mut master: crate::sys::Fd = -1;
         // Linux's forkpty takes the window size by const pointer and
         // Darwin's by mutable pointer; the size is the same struct.
@@ -316,8 +363,14 @@ impl Pty {
     /// descriptor -- the macOS run loop -- learns there is something to
     /// drain.
     #[cfg(target_os = "macos")]
-    pub fn spawn(size: &WinSize, wake: impl Fn() + Send + 'static) -> Option<Pty> {
-        let master = Pty::fork(size)?;
+    pub fn spawn(
+        size: &WinSize,
+        cell_w: Px,
+        cell_h: Px,
+        wake: impl Fn() + Send + 'static,
+    ) -> Option<Pty> {
+        let told = text_area(size, cell_w, cell_h);
+        let master = Pty::fork(told)?;
         let (tx, rx) = channel();
         let fd = master;
         let signalled = Arc::new(AtomicBool::new(false));
@@ -325,6 +378,7 @@ impl Pty {
         std::thread::spawn(move || reader(fd, tx, flag, wake));
         Some(Pty {
             master,
+            told,
             rx,
             signalled,
         })
@@ -335,9 +389,11 @@ impl Pty {
     /// the Linux loop's shape -- one wait over the compositor's socket and
     /// the master, and nothing crossing a channel.
     #[cfg(target_os = "linux")]
-    pub fn spawn_polled(size: &WinSize) -> Option<Pty> {
+    pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px) -> Option<Pty> {
+        let told = text_area(size, cell_w, cell_h);
         Some(Pty {
-            master: Pty::fork(size)?,
+            master: Pty::fork(told)?,
+            told,
         })
     }
 
@@ -404,19 +460,16 @@ impl Pty {
         Wrote::All
     }
 
-    /// Tells the kernel, and through it the shell, the new geometry in
-    /// cells and in pixels.
-    pub fn resize(&self, size: &WinSize, px_w: Px, px_h: Px) {
-        let ws = crate::sys::Winsize {
-            ws_col: size.ws_col,
-            ws_row: size.ws_row,
-            ws_xpixel: u16::try_from(px_w.value()).unwrap_or(u16::MAX),
-            ws_ypixel: u16::try_from(px_h.value()).unwrap_or(u16::MAX),
-        };
-        // SAFETY: TIOCSWINSZ takes a pointer to a winsize.
-        unsafe {
-            crate::sys::ioctl(self.master, crate::sys::TIOCSWINSZ, &ws);
-        }
+    /// Tells the kernel, and through it the shell, the geometry in cells
+    /// and the text area in pixels -- **the cell size, not the window's**, so
+    /// a caller cannot hand it the padding; see [`text_area`].
+    ///
+    /// Called on every re-lay, and a no-op when nothing moved: a zoom that
+    /// keeps the grid still changes the pixels and is sent, a drag step that
+    /// lands on the same grid and cell is not, so the shell is not woken
+    /// for nothing.
+    pub fn resize(&mut self, size: &WinSize, cell_w: Px, cell_h: Px) {
+        tell(self.master, &mut self.told, text_area(size, cell_w, cell_h));
     }
 }
 
@@ -721,7 +774,7 @@ mod tests {
             ws_row: 24,
         };
         let master = Pty::fork_with(
-            &size,
+            text_area(&size, Px::of(8), Px::of(16)),
             Some("exec /usr/bin/env".into()),
             child_env(outer_parent()),
         )
@@ -761,5 +814,100 @@ mod tests {
                 "the child inherited {gone}: {text:?}"
             );
         }
+    }
+
+    /// What the kernel holds for the pty behind `master` -- read back rather
+    /// than trusted from `told`, so the tests below are about the kernel.
+    fn ask(master: crate::sys::Fd) -> crate::sys::Winsize {
+        let mut ws = crate::sys::Winsize::default();
+        // SAFETY: TIOCGWINSZ writes one winsize through the pointer.
+        let rc = unsafe { crate::sys::ioctl(master, crate::sys::TIOCGWINSZ, &mut ws) };
+        assert_eq!(rc, 0, "TIOCGWINSZ failed");
+        ws
+    }
+
+    /// **The pixels are the text area, from the cell -- not the window.** A
+    /// child reads `ws_xpixel / ws_col` as a cell's width, so a window's
+    /// width, which carries the padding and the part of a cell the grid does
+    /// not fill, would inflate it.
+    #[test]
+    fn the_winsize_is_the_text_area_in_pixels() {
+        let ws = text_area(
+            &WinSize {
+                ws_col: 80,
+                ws_row: 24,
+            },
+            Px::of(17),
+            Px::of(34),
+        );
+        assert_eq!(
+            ws,
+            crate::sys::Winsize {
+                ws_row: 24,
+                ws_col: 80,
+                ws_xpixel: 1360,
+                ws_ypixel: 816,
+            }
+        );
+        // Saturating, not wrapping: 2048 columns of a 72-pixel cell is
+        // 147,456 pixels, which the kernel's `u16` cannot hold.
+        let wide = text_area(
+            &WinSize {
+                ws_col: 2048,
+                ws_row: 10,
+            },
+            Px::of(72),
+            Px::of(144),
+        );
+        assert_eq!((wide.ws_xpixel, wide.ws_ypixel), (u16::MAX, 1440));
+    }
+
+    /// **The kernel holds the pixels from the fork on, and hears a zoom that
+    /// keeps the grid.** Before this, the fork carried zero pixels and the
+    /// first resize after launch computed the grid the pty was spawned at,
+    /// so nothing was sent and a child asking at startup -- yazi does --
+    /// read zero until the window changed. Read back through `TIOCGWINSZ`
+    /// on a real master, so it is the kernel's answer and not baud's
+    /// bookkeeping.
+    #[test]
+    fn the_kernel_holds_the_text_area_from_the_fork_and_after_a_zoom() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let first = text_area(&size, Px::of(17), Px::of(34));
+        let master = Pty::fork_with(
+            first,
+            Some("exec /bin/cat".into()),
+            child_env(outer_parent()),
+        )
+        .expect("forkpty");
+        assert_eq!(ask(master), first, "the fork did not carry the pixels");
+
+        // A zoom: the same grid, a bigger cell. Told.
+        let mut told = first;
+        let zoomed = text_area(&size, Px::of(20), Px::of(40));
+        tell(master, &mut told, zoomed);
+        assert_eq!(
+            ask(master),
+            zoomed,
+            "a zoom that kept the grid was not sent"
+        );
+        assert_eq!(told, zoomed);
+
+        // **The same size again sends nothing**, which is the property that
+        // lets the app call this on every re-lay. The kernel's size is moved
+        // out of band first, so a `tell` that did send would put it back.
+        let elsewhere = text_area(&size, Px::of(1), Px::of(1));
+        // SAFETY: TIOCSWINSZ takes a pointer to a winsize.
+        unsafe {
+            crate::sys::ioctl(master, crate::sys::TIOCSWINSZ, &elsewhere);
+        }
+        tell(master, &mut told, zoomed);
+        assert_eq!(ask(master), elsewhere, "an unchanged size was sent again");
+
+        // SAFETY: `master` is the descriptor forkpty returned and nothing
+        // else owns it; closing it hangs up the child.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
     }
 }

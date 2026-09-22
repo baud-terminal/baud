@@ -6581,3 +6581,64 @@ group  = "C"
 # separate from images, carry a `z` index (negative below text), and a Unicode
 # placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
 # `docs/research/notes/t-images.md`.
+
+[sources.inband-resize]
+key    = "inband-resize"
+title  = "Private Mode for In-Band Window Resize Notifications"
+author = "Tim Culverhouse"
+year   = 2024
+venue  = "GitHub gist"
+url    = "https://gist.githubusercontent.com/rockorager/e695fb2924d36b2bcf1fff4a3704bd83/raw/abca37a71844627772fb0b9528588fb768c48726/in-band-resize-notifications.md"
+file   = "inband-resize-notifications.md"
+sha256 = "30f0f454fb20bfc21b0d3ebeee989c02bffffcc9cf4cc19432ccefd2dfc7f1e8"
+bytes  = 3095
+status = "retrieved"
+group  = "C"
+# Mode 2048. The URL names the blob, not the gist's floating `/raw`, so a
+# later revision of the gist cannot change what this hash backs. Three
+# sentences carry baud's obligations: the report is
+# `CSI 48 ; height_chars ; width_chars ; height_pix ; width_pix t`; "If a
+# terminal is not capable of reporting pixel sizes, it must report them as 0.
+# A terminal MUST report pixel sizes if it is capable of reporting them"; and
+# "The reported area MUST be the text area size. Text area does not include
+# any padding the terminal applies to the window ... Font size changes can
+# also affect the text area size." The last is why a cell-size change with
+# the grid unchanged still owes a report.
+
+[sources.yazi-emulator]
+key    = "yazi-emulator"
+title  = "yazi-emulator/src/emulator.rs, at v26.5.6"
+author = "sxyazi and contributors"
+year   = 2026
+venue  = "github.com/sxyazi/yazi, MIT"
+url    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs"
+file   = "yazi-emulator-26.5.6.rs"
+sha256 = "e767683398e5711be7b26ee402b4933af7a7b437e0847ddd4437dfdd0844a0ec"
+bytes  = 5985
+status = "retrieved"
+group  = "C"
+# The client, not a specification: the terminal yazi 26.5.6 asks for is the
+# one in `detect`, which writes `CSI > q`, `CSI 16 t`, `OSC 11 ; ? BEL` and
+# `CSI 0 c` in one burst and reads to the DA1 reply. `csi_16t` takes the
+# first `ESC [ 6 ;` and parses `h ; w t` from it; `light_bg` reads
+# `]11;rgb:` at fixed offsets 0..2, 5..7 and 10..12, which is the four-digit
+# `rrrr/gggg/bbbb` form and fails on two digits. `force_16t` prefers the
+# `CSI 16 t` answer when the pty's pixel ratio disagrees with it. The commit
+# is the one the `v26.5.6` tag names.
+
+[sources.yazi-dimension]
+key    = "yazi-dimension"
+title  = "yazi-emulator/src/dimension.rs, at v26.5.6"
+author = "sxyazi and contributors"
+year   = 2026
+venue  = "github.com/sxyazi/yazi, MIT"
+url    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/dimension.rs"
+file   = "yazi-dimension-26.5.6.rs"
+sha256 = "22a3902080be4c83459d985ce333b41728e8109badc38813eb5ce4a9498b6147"
+bytes  = 1482
+status = "retrieved"
+group  = "C"
+# `Dimension::cell_size`: the `CSI 16 t` answer when `force_16t`, else the
+# pty's `ws_xpixel / ws_col` and `ws_ypixel / ws_row`, else the `CSI 16 t`
+# answer, else nothing -- and with nothing, `yazi-adapter`'s `max_pixel`
+# falls back to the configured 600x900 whatever the pane.

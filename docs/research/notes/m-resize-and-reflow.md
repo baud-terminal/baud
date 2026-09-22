@@ -153,9 +153,15 @@ past the edge until the window widens again; nothing is destroyed.
   `CSI 48 ; rows ; cols ; height_px ; width_px t` on enablement, on
   re-enablement, and after each resize completes. It carries what the
   terminal *has* rather than what was asked for, because the clamps in
-  `resize` are real. The pixel fields are zero, which the specification
+  `resize` are real. ~~The pixel fields are zero, which the specification
   requires of a terminal that cannot report them: this core is handed a
-  grid and never a window, and `CSI 14 t` is not implemented either.
+  grid and never a window, and `CSI 14 t` is not implemented either.~~
+  **Since 2026-09-22 they are the text area** -- the grid times the cell
+  size the embedder gives `Term::set_cell_size` -- and zero only until one
+  is given. `[[source: inband-resize]]` makes reporting them an
+  obligation for a terminal that can, and names a font-size change as a
+  change of the text area, so a zoom that keeps the grid reports too.
+  `CSI 14 t`, `CSI 16 t` and `CSI 18 t` answer from the same numbers.
 
 What is still open from this note is the refinement rather than the
 fix: re-cutting the output *above* a prompt while leaving the prompt's
@@ -371,5 +377,6 @@ recording's own signature, and the screen at the step the count rises.
 failure mode; `microsoft/vscode#330040` for the debounce and the
 row/column split; `romkatv/powerlevel10k#1200` for the shell's own
 statement of the problem; the in-band resize specification for mode
-2048. None is cited as a source above and none may be until it is in
+2048 -- which is pinned now, as `inband-resize`, and cited above. The
+others are not cited as a source and none may be until it is in
 `MANIFEST.toml`.

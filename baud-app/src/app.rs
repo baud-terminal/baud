@@ -821,6 +821,33 @@ impl App {
         (f64::from(m.cell_w.value()), f64::from(m.cell_h.value()))
     }
 
+    /// Tells the child the grid the terminal *has* and the text area in
+    /// pixels, from the cell the renderer draws -- the numbers `CSI 14 t`
+    /// answers with, so a child that asks either way hears the same thing.
+    /// A no-op when neither moved since the kernel was last told.
+    ///
+    /// **Then the replies, so `?2048`'s report goes out with the `SIGWINCH`,
+    /// not a frame later.** `Term::resize` queues one, and so does
+    /// `Term::set_cell_size` when a zoom moves the pixels with the grid
+    /// unchanged. The point of an in-band notification is that it has a
+    /// position in the stream the application is reading -- leaving it in the
+    /// buffer until the next pump would put it after whatever the child wrote
+    /// in between, which is the ordering the mode exists to fix. After the
+    /// `ioctl` and never before it: `[[source: inband-resize]]` forbids a
+    /// report before the resize is complete. The flush is here rather than
+    /// at each caller because a same-grid zoom reaches `relayout`'s
+    /// fall-through, which had none.
+    fn tell_pty(&mut self) {
+        let (cols, rows) = self.term.geometry();
+        let ws = WinSize {
+            ws_col: u16::try_from(cols.index()).unwrap_or(u16::MAX),
+            ws_row: u16::try_from(rows.index()).unwrap_or(u16::MAX),
+        };
+        let m = self.renderer.metrics();
+        self.pty.resize(&ws, m.cell_w, m.cell_h);
+        self.flush_reply();
+    }
+
     /// Sends a key to the core and whatever it answers to the shell, and
     /// says whether anything did: a key the core encodes to nothing asks
     /// for no echo, and the instrument must not wait for one.
@@ -2815,7 +2842,8 @@ pub fn run() {
     // the first wake after the window is shown drains them.
     let late: Arc<OnceLock<Waker>> = Arc::new(OnceLock::new());
     let wake_late = Arc::clone(&late);
-    let pty = Pty::spawn(&ws, move || {
+    let cell = boot.renderer.metrics();
+    let pty = Pty::spawn(&ws, cell.cell_w, cell.cell_h, move || {
         if let Some(w) = wake_late.get() {
             w.wake();
         }
@@ -3446,6 +3474,8 @@ impl Driver {
         // The titlebar mark follows the window's top-left on every resize.
         self.place_icon();
         if self.app.sizing == Sizing::Fixed {
+            // The grid is pinned, and a zoom still moves the pixels.
+            self.app.tell_pty();
             return Drew::No;
         }
         let gutter = 2.0 * self.app.padding * scale;
@@ -3496,7 +3526,6 @@ impl Driver {
             let moved = self.app.term.moved_since(before);
             let retained = Rows::of_count(self.app.term.scrollback().len());
             self.app.back = anchored(self.app.back, moved, retained);
-            let px = |v: f64| Px::of(u32::try_from(v as i64).unwrap_or(u32::MAX));
             // **The child is told what the terminal has, not what the
             // window asked for.** `Term::resize` clamps: columns to
             // `MAX_COLS` and to the pitch the rows are laid at, rows to
@@ -3520,15 +3549,9 @@ impl Driver {
             // window moves, so it fills the rows the reflow opened rather
             // than leaving them blank until the drag stops -- the black gaps
             // a settle-delay left in a live resize.
-            self.app.pty.resize(&ws, px(px_w), px(px_h));
-            // **`?2048`'s report goes out with the `SIGWINCH`, not a frame
-            // later.** `Term::resize` queues it, and the point of an
-            // in-band notification is that it has a position in the
-            // stream the application is reading -- leaving it in the
-            // buffer until the next pump would put it after whatever the
-            // child wrote in between, which is the ordering the mode
-            // exists to fix.
-            self.app.flush_reply();
+            // `tell_pty` flushes the `?2048` report `Term::resize` queued,
+            // so it leaves with the `SIGWINCH`; see there.
+            self.app.tell_pty();
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
             // no longer name cells.
@@ -3583,7 +3606,11 @@ impl Driver {
             }
             return Drew::Yes;
         }
-        // The window moved but the grid did not: a sub-cell drag step.
+        // The window moved but the grid did not: a sub-cell drag step, or a
+        // zoom that landed on the same grid -- which changed every pixel of
+        // the text area, so the pty is told; a drag step changed nothing,
+        // and `Pty::resize` sends nothing.
+        self.app.tell_pty();
         Drew::No
     }
 

@@ -987,7 +987,12 @@ impl<'b> Term<'b> {
         // must send the child the settled size rather than the requested
         // one.
         if self.cold.modes.is_set(ModeBit::InbandResize) {
-            self.queue(Report::InbandResize { rows, cols });
+            self.queue(Report::inband(
+                rows,
+                cols,
+                self.cell_width,
+                self.cell_height,
+            ));
         }
         match over {
             true => Resized::Truncated { cols, rows },
@@ -1511,9 +1516,24 @@ impl<'b> Term<'b> {
     /// mis-frees every image from then on. Zero (the default, and a headless
     /// caller that never sets it) means "do not advance and do not free",
     /// leaving a Sixel where it landed.
+    ///
+    /// **It also sizes the text area in pixels**, which `CSI 14 t`, `CSI 16 t`
+    /// and the `?2048` report answer with -- and a change of it with `?2048`
+    /// set owes a report whether or not the grid moved.
+    /// `[[source: inband-resize]]`: "Font size changes can also affect the
+    /// text area size", and a zoom that keeps the column count still changes
+    /// the pixels. An embedder changing both the cell and the grid -- a zoom
+    /// usually does -- sends two reports, one for each change; each is the
+    /// size the terminal has at that moment, and the specification limits
+    /// nothing about how often one is sent.
     pub fn set_cell_size(&mut self, width: ImagePx, height: ImagePx) {
+        let before = Report::inband(self.rows, self.cols, self.cell_width, self.cell_height);
         self.cell_width = width;
         self.cell_height = height;
+        let after = Report::inband(self.rows, self.cols, width, height);
+        if after != before && self.cold.modes.is_set(ModeBit::InbandResize) {
+            self.queue(after);
+        }
     }
 
     /// What tracking the application asked for: `?1000`, `?1002`, `?1003`.
