@@ -855,9 +855,17 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One field read on a path taken once a *run*, not once a character --
     /// the same placement `charset` has, and the reason `Cold` holds the
     /// margins rather than `Paint` resolving them per cell.
+    ///
+    /// **None when the cursor is past the right margin**, which `CUP` can
+    /// put it since the side margins do not confine it. This subtracted
+    /// past zero there -- a panic in a debug build, and in release a run
+    /// taken as fitting: written on from the cursor past the margin, and
+    /// clipped at the screen's edge with the rest dropped when it reached
+    /// it. No room sends the run to `wrapped`, which wraps first, as
+    /// `glyph` already did for one character.
     #[inline(always)]
     pub(crate) fn room(&self) -> Count {
-        Count::of(self.cold.right.index() + 1 - self.cx.index())
+        Count::of((self.cold.right.index() + 1).saturating_sub(self.cx.index()))
     }
 
     /// Move the cursor anywhere on the screen.

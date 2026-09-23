@@ -119,6 +119,51 @@ fn text_wraps_within_the_margins() {
     assert_eq!(c, 5, "and to the left margin, not column 0");
 }
 
+/// **A cursor right of the right margin wraps before it writes.** `CUP` is
+/// not confined by the side margins, so `CSI 1;30 H` with margins at 5..10
+/// leaves the cursor at column 30, past the margin. The one-character
+/// writer and the wrapping loop both treat "past the right margin" as a
+/// wrap and take it first; the run writers asked how much room was left
+/// before the margin and subtracted past zero -- a panic in a debug build,
+/// and in release a run taken as fitting and written on from column 30 past
+/// the margin: eight characters landed in columns 30-37, and a run of 180
+/// kept 171 and dropped the rest at the screen's edge. All three writers
+/// agree now: an ASCII run, a narrow non-ASCII run, and one character each.
+/// Whether a terminal should instead write on to the screen's edge from
+/// there is a question no pinned source answers; this pins the rule baud's
+/// own writers already shared.
+#[test]
+fn a_run_right_of_the_right_margin_wraps_to_the_left_margin() {
+    for (text, want, at) in [
+        ("XXXXXXXX", "\x1b[2;5HXXXXXX\x1b[3;5HXX", (2, 6)),
+        ("éééééééé", "\x1b[2;5Héééééé\x1b[3;5Héé", (2, 6)),
+        ("X", "\x1b[2;5HX", (1, 5)),
+        ("é", "\x1b[2;5Hé", (1, 5)),
+    ] {
+        let mut v = LRM.to_vec();
+        v.extend_from_slice(b"\x1b[1;30H");
+        v.extend_from_slice(text.as_bytes());
+        let mut w = LRM.to_vec();
+        w.extend_from_slice(want.as_bytes());
+        let want_grid = grid(&w);
+        assert_eq!(grid(&v), want_grid, "{text}: wrapped to the left margin");
+        assert_eq!(cursor(&v), at, "{text}: where the cursor ends");
+        for chunk in 1..v.len() {
+            let ws = support::CORPUS;
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            let mut i = 0;
+            while i < v.len() {
+                let n = chunk.min(v.len() - i);
+                t.write_at(BytePos::ZERO, &v[i..i + n]);
+                t.feed(BytePos::ZERO, ReadLen::from_index(n));
+                i += n;
+            }
+            assert_eq!(support::screen(&t), want_grid, "{text} at chunk {chunk}");
+        }
+    }
+}
+
 /// With autowrap off the cursor pins to the right margin, not the last column.
 #[test]
 fn no_wrap_pins_to_the_right_margin() {
