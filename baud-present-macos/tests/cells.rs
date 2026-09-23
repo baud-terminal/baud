@@ -912,4 +912,78 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the sixel changed its rect against the no-image frame: {changed} of {} pixels",
         rw * rh
     );
+
+    // **An image slides with its line.** The same strong reference the
+    // grid's slide gate uses: a full-row slide at the live screen is the
+    // screen one line up, drawn with no slide shader at all. `RIS` drops the
+    // swirl, then plain digit lines build history, and a one-band 8x6 Sixel
+    // -- shorter than a cell, so it lies inside one row -- is placed on the
+    // bottom row. Newlines alone scroll it up: an `LF` writes no cell, so
+    // nothing is drawn over the image and its row is never blanked.
+    feed(&mut t, b"\x1bc\x1b[?25l");
+    for i in 0..14u32 {
+        feed(
+            &mut t,
+            format!("0000 1111 2222 row {i:02} 3333 4444 5555\r\n").as_bytes(),
+        );
+    }
+    feed(&mut t, DOT);
+    let placed = |t: &Term<'_>| {
+        t.images()
+            .placements()
+            .map(|(_, p)| p.line)
+            .next()
+            .expect("the dot was placed")
+    };
+    let line = placed(&t);
+    let cell_h = arms.renderer.metrics().cell_h;
+    let slid_is_one_up = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.map.ensure(
+            t.view(Rows::of_count(1)),
+            &mut arms.renderer,
+            &mut arms.candidates,
+        );
+        arms.back = Rows::ZERO;
+        arms.slide = Some(cell_h);
+        let (_, slid) = arms.draw(t);
+        arms.slide = None;
+        arms.back = Rows::of_count(1);
+        let (_, one_up) = arms.draw(t);
+        // The image is on the reference frame, so an equal pair is two
+        // drawings of it and not two frames without it.
+        assert_eq!(
+            arms.renderer.image_placements().len(),
+            1,
+            "{what}: the dot is drawn on the frame one line up"
+        );
+        arms.back = Rows::ZERO;
+        let d = differing(&slid, &one_up);
+        assert_eq!(
+            d, 0,
+            "{what}: a full-row slide is not the screen one line up, {d} pixels"
+        );
+    };
+    // Mid-screen: scroll the image up from the bottom row to row 4.
+    while t.image_origin(Rows::ZERO).top.value() + 4 < line.value() {
+        feed(&mut t, b"\n");
+    }
+    slid_is_one_up(&mut arms, &mut t, "an image mid-screen");
+    // The leaving row: the image's line has just scrolled off the top, so at
+    // rest it is not on screen, and during the slide it is -- in the one row
+    // the slide draws above the window. A cull that ignores the slide drops
+    // it, and it pops off at the start of the slide instead of sliding out.
+    while t.image_origin(Rows::ZERO).top.value() <= line.value() {
+        feed(&mut t, b"\n");
+    }
+    assert_eq!(
+        t.image_origin(Rows::ZERO).top.value(),
+        line.value() + 1,
+        "the dot's line is the leaving row"
+    );
+    assert_eq!(placed(&t), line, "the dot survived the scroll");
+    slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
 }
+
+/// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this
+/// file draws, so the whole image lies inside one row.
+const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";

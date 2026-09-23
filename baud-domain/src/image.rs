@@ -32,7 +32,7 @@
 //! stack.
 
 use crate::pos::LineIdx;
-use crate::quantity::{Col, Count};
+use crate::quantity::{Col, Count, Rows};
 use crate::style::ColorWord;
 
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
@@ -206,6 +206,76 @@ impl ImageSlot {
     }
 }
 
+/// **Which screen a placement is on**, because the two number their lines
+/// apart. The primary screen's lines run on through its history; the
+/// alternate screen keeps no history and its lines are the editor's, gone
+/// when the editor leaves. A placement is drawn only while its screen is up
+/// -- the shell's image is not drawn over the editor -- and the alternate
+/// screen's are deleted when it is left, which is foot's rule and ghostty's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageScreen {
+    Primary,
+    Alternate,
+}
+
+impl ImageScreen {
+    fn slot(self) -> usize {
+        match self {
+            ImageScreen::Primary => 0,
+            ImageScreen::Alternate => 1,
+        }
+    }
+}
+
+/// **Which way rows moved inside a band of the screen**: toward its top
+/// line, as a region scrolls up or `DL` pulls rows in, or toward its bottom,
+/// as a region scrolls down or `IL` pushes rows out. A type rather than a
+/// `bool`, so a call site names the direction it means.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BandMove {
+    Up,
+    Down,
+}
+
+/// **The lines a screen's placements lie between**, inclusive: a bound no
+/// placement is outside, so a check whose rows miss it skips the scan. It is
+/// widened by every placement and tightened by every scan; a placement
+/// removed between scans leaves it wide, which costs a scan that finds
+/// nothing and never a missed one.
+///
+/// It is what makes an image on screen cheap for the text after it. Every
+/// glyph write asks whether it lands on an image, and every scroll asks
+/// whether one's row just left: both are a scan of the placement table,
+/// and with an image anywhere in the history -- where one stays for two
+/// thousand lines -- both would run once a run and once a line. The rows
+/// being written and scrolled are past the image, so the bound answers.
+#[derive(Clone, Copy)]
+struct Reach {
+    first: LineIdx,
+    last: LineIdx,
+}
+
+/// Where a view's top is in a screen's numbering: the screen, and the
+/// absolute line at the view's top row. A placement on that screen is drawn
+/// at screen row `line - top`; one on the other screen is not drawn. The
+/// core answers this, with the same clamp its own view uses, so the grid row
+/// and the image row cannot disagree.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageOrigin {
+    pub screen: ImageScreen,
+    pub top: LineIdx,
+}
+
+/// A placement's progress through one reflow: not in one, or staged at its
+/// row in the old layout, or mapped to its row in the new one. Rows count
+/// from the oldest retained row, which a reflow does not move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Staged {
+    Idle,
+    From(Rows),
+    To(Rows),
+}
+
 /// One placement: an image drawn at an absolute line and column with a draw
 /// order. The anchor is an **absolute line** (`[[source: kitty-graphics]]` and
 /// rio both anchor to the scrollback row), so output scrolling under it moves it
@@ -216,21 +286,26 @@ impl ImageSlot {
 pub struct PlacementSlot {
     /// The image this places, or [`ImageId::NONE`] for a free slot.
     pub image: ImageId,
+    /// The screen whose numbering [`PlacementSlot::line`] is in.
+    pub screen: ImageScreen,
     /// The absolute line the anchor cell is on.
     pub line: LineIdx,
     /// The column the anchor cell is at.
     pub col: Col,
     /// The draw order; higher draws later, negative below text.
     pub z: ZIndex,
+    staged: Staged,
 }
 
 impl PlacementSlot {
     /// A free slot.
     pub const EMPTY: PlacementSlot = PlacementSlot {
         image: ImageId::NONE,
+        screen: ImageScreen::Primary,
         line: LineIdx::FIRST,
         col: Col::ZERO,
         z: ZIndex::ZERO,
+        staged: Staged::Idle,
     };
 
     fn is_empty(self) -> bool {
@@ -284,6 +359,11 @@ pub struct ImageStore<'b> {
     pub placements_refused: usize,
     /// Images freed, by a last placement leaving or an explicit delete.
     pub images_dropped: usize,
+    /// Placements removed because the row their anchor is on no longer
+    /// exists: it left the retained history, a scroll blanked it as it came
+    /// in, a reflow dropped its line, or its screen was the alternate one
+    /// and was left. Never silent -- an image that vanished has a count.
+    pub placements_expired: usize,
     /// Sixels that stored *and* explicitly asked for an opaque background
     /// (`P2` = 0 or 2) that baud renders transparent instead. baud draws
     /// unpainted pixels transparent -- the `P2` = 1 behaviour, and the more
@@ -304,6 +384,13 @@ pub struct ImageStore<'b> {
     /// overwrite check (does this write land on an image, so free it) costs
     /// one comparison on the common path where no image is on screen.
     placed: usize,
+    /// Each screen's [`Reach`], `None` when nothing was placed on it since
+    /// the last scan found it empty.
+    reach: [Option<Reach>; 2],
+    /// The tallest image stored since the store was last reset, in pixels:
+    /// with the cell height, how far below its anchor any image can reach.
+    /// Widened by every store and never narrowed -- a bound, like `reach`.
+    tallest: ImagePx,
 }
 
 impl<'b> ImageStore<'b> {
@@ -321,9 +408,38 @@ impl<'b> ImageStore<'b> {
             images_refused: 0,
             placements_refused: 0,
             images_dropped: 0,
+            placements_expired: 0,
             sixel_p2_ignored: 0,
             epoch: ImageGen::ZERO,
             placed: 0,
+            reach: [None; 2],
+            tallest: ImagePx::ZERO,
+        }
+    }
+
+    /// Widen `screen`'s reach to hold `line`.
+    fn widen(&mut self, screen: ImageScreen, line: LineIdx) {
+        let r = &mut self.reach[screen.slot()];
+        *r = Some(match *r {
+            None => Reach {
+                first: line,
+                last: line,
+            },
+            Some(Reach { first, last }) => Reach {
+                first: first.min(line),
+                last: last.max(line),
+            },
+        });
+    }
+
+    /// Recompute `screen`'s reach from its live placements, exactly.
+    fn rescan(&mut self, screen: ImageScreen) {
+        self.reach[screen.slot()] = None;
+        for i in 0..self.placements.len() {
+            let p = self.placements[i];
+            if !p.is_empty() && p.screen == screen {
+                self.widen(screen, p.line);
+            }
         }
     }
 
@@ -374,6 +490,7 @@ impl<'b> ImageStore<'b> {
             height,
             placements: Count::ZERO,
         };
+        self.tallest = self.tallest.max(height);
         self.epoch = self.epoch.bumped();
         let start = offset as usize;
         Some((
@@ -396,10 +513,17 @@ impl<'b> ImageStore<'b> {
         })
     }
 
-    /// Place a live image at an absolute line, column and draw order, returning
-    /// the placement id. Refused, counted, and `None` if the image is not live
-    /// or no placement slot is free.
-    pub fn place(&mut self, id: ImageId, line: LineIdx, col: Col, z: ZIndex) -> PlacementId {
+    /// Place a live image at an absolute line of `screen`, a column and a draw
+    /// order, returning the placement id. Refused, counted, and `None` if the
+    /// image is not live or no placement slot is free.
+    pub fn place(
+        &mut self,
+        id: ImageId,
+        screen: ImageScreen,
+        line: LineIdx,
+        col: Col,
+        z: ZIndex,
+    ) -> PlacementId {
         let Some(i) = id.index() else {
             self.placements_refused += 1;
             return PlacementId::NONE;
@@ -417,12 +541,15 @@ impl<'b> ImageStore<'b> {
         };
         self.placements[p] = PlacementSlot {
             image: id,
+            screen,
             line,
             col,
             z,
+            staged: Staged::Idle,
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
         self.placed += 1;
+        self.widen(screen, line);
         PlacementId::from_index(p)
     }
 
@@ -479,9 +606,11 @@ impl<'b> ImageStore<'b> {
             .map(|(i, p)| (PlacementId::from_index(i), p))
     }
 
-    /// Forget every image and placement. `RIS`, not a clear or an alt-screen
-    /// switch -- an image is content a program may redraw over, and a placement
-    /// outliving one erase is the correct behaviour, the link-table call.
+    /// Forget every image and placement. `RIS`, not a clear -- an image is
+    /// content a program may redraw over, and a placement outliving one erase
+    /// is the correct behaviour, the link-table call. Leaving the alternate
+    /// screen drops only that screen's, through
+    /// [`ImageStore::expire_screen`].
     pub fn reset(&mut self) {
         for s in self.slots.iter_mut() {
             *s = ImageSlot::EMPTY;
@@ -490,6 +619,8 @@ impl<'b> ImageStore<'b> {
             *p = PlacementSlot::EMPTY;
         }
         self.placed = 0;
+        self.reach = [None; 2];
+        self.tallest = ImagePx::ZERO;
         self.epoch = self.epoch.bumped();
     }
 
@@ -508,6 +639,184 @@ impl<'b> ImageStore<'b> {
         !self.pixels.is_empty()
     }
 
+    /// Drop every placement on `screen` whose anchor row is gone: one before
+    /// `lo` or at or past `hi`, the rows the screen retains, or one on
+    /// `blanked`, a row a scroll blanked as it came in. Each is counted in
+    /// [`ImageStore::placements_expired`]. Returns how many.
+    ///
+    /// An image goes whole when its **anchor** row goes, foot's rule: a
+    /// placement names one row, and an image half off the far end of the
+    /// history is a picture of nothing a reader is looking at.
+    pub fn expire(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        blanked: Option<LineIdx>,
+    ) -> usize {
+        let Some(r) = self.reach[screen.slot()] else {
+            return 0;
+        };
+        let clear = blanked.is_none_or(|b| b < r.first || b > r.last);
+        if r.first >= lo && r.last < hi && clear {
+            return 0;
+        }
+        let mut n = 0;
+        for p in 0..self.placements.len() {
+            let s = self.placements[p];
+            if s.is_empty() || s.screen != screen {
+                continue;
+            }
+            if s.line < lo || s.line >= hi || Some(s.line) == blanked {
+                self.unplace(PlacementId::from_index(p));
+                self.placements_expired += 1;
+                n += 1;
+            }
+        }
+        self.rescan(screen);
+        n
+    }
+
+    /// Drop every placement on `screen`, counted as expired: the alternate
+    /// screen being left, whose rows go with it.
+    pub fn expire_screen(&mut self, screen: ImageScreen) -> usize {
+        self.rescan(screen);
+        self.expire(screen, LineIdx::FIRST, LineIdx::FIRST, None)
+    }
+
+    /// **Move `screen`'s placements with rows that moved inside a band**:
+    /// the lines `[lo, hi)` shifted `n` rows `way`, which is what a
+    /// scrolling region, `IL` and `DL` do to the rows between their bounds
+    /// without moving the window. A placement whose anchor leaves the band
+    /// went with its row -- deleted off one end, the region's text with it
+    /// -- and is dropped and counted in [`ImageStore::placements_expired`].
+    /// Outside the band nothing moves. Returns how many were dropped.
+    pub fn scroll_band(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        n: Rows,
+        way: BandMove,
+    ) -> usize {
+        let Some(r) = self.reach[screen.slot()] else {
+            return 0;
+        };
+        if r.last < lo || r.first >= hi {
+            return 0;
+        }
+        let mut n_gone = 0;
+        for p in 0..self.placements.len() {
+            let s = self.placements[p];
+            if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
+                continue;
+            }
+            let to = match way {
+                BandMove::Up => s.line.minus(n).filter(|l| *l >= lo),
+                BandMove::Down => Some(s.line.plus(n)).filter(|l| *l < hi),
+            };
+            match to {
+                Some(line) => self.placements[p].line = line,
+                None => {
+                    self.unplace(PlacementId::from_index(p));
+                    self.placements_expired += 1;
+                    n_gone += 1;
+                }
+            }
+        }
+        self.rescan(screen);
+        n_gone
+    }
+
+    /// Move every placement on `screen` `n` rows later. For a window moved
+    /// back over rows its numbering has no line for -- a reverse scroll at the
+    /// top of a screen with no history -- so its text moved down and the
+    /// numbering, which cannot go below zero, moves the images instead.
+    pub fn shift(&mut self, screen: ImageScreen, n: Rows) {
+        for p in self.placements.iter_mut() {
+            if !p.is_empty() && p.screen == screen {
+                p.line = p.line.plus(n);
+            }
+        }
+        self.rescan(screen);
+    }
+
+    /// **Follow `screen`'s placements through a reflow**, in three steps
+    /// around it. This stages each placement at its row counted from
+    /// `floor`, the oldest retained line; [`ImageStore::follow_line`] maps
+    /// the ones on each line as the reflow visits it; and
+    /// [`ImageStore::follow_end`] writes them back and drops the ones whose
+    /// line the reflow dropped. Staging is what lets each placement be mapped
+    /// exactly once, though the old and new layouts share one numbering: a
+    /// row mapped into a later line's old range is not mapped again.
+    /// Returns how many are staged, so a caller with none skips the hook.
+    pub fn follow_begin(&mut self, screen: ImageScreen, floor: LineIdx) -> usize {
+        let mut n = 0;
+        for p in self.placements.iter_mut() {
+            if p.is_empty() || p.screen != screen {
+                continue;
+            }
+            p.staged = match p.line.since(floor) {
+                Some(r) => {
+                    n += 1;
+                    Staged::From(r)
+                }
+                None => Staged::Idle,
+            };
+        }
+        n
+    }
+
+    /// Map the staged placements on one line of a reflow: the line's first
+    /// `rows` rows from `from`, and `land`, where a row of it lands. Called
+    /// before the line is copied, while its cells can still be read.
+    pub fn follow_line(&mut self, from: Rows, rows: Rows, land: &dyn Fn(Rows) -> Rows) {
+        let end = from.index() + rows.index();
+        for p in self.placements.iter_mut() {
+            match p.staged {
+                Staged::From(r) if (from.index()..end).contains(&r.index()) => {
+                    p.staged = Staged::To(land(r));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Leave a follow the reflow never ran: every staged placement stays
+    /// where it was. For a reflow that returned before re-cutting anything,
+    /// which [`ImageStore::follow_end`] would read as every line dropped.
+    pub fn follow_cancel(&mut self) {
+        for p in self.placements.iter_mut() {
+            p.staged = Staged::Idle;
+        }
+    }
+
+    /// Write the mapped placements back as lines from `floor` -- the same
+    /// oldest retained line the staging counted from, which a reflow keeps as
+    /// its origin -- and drop, counted, the ones no line took. Returns how
+    /// many were dropped.
+    pub fn follow_end(&mut self, floor: LineIdx) -> usize {
+        let mut n = 0;
+        for p in 0..self.placements.len() {
+            match self.placements[p].staged {
+                Staged::Idle => continue,
+                Staged::To(r) => {
+                    self.placements[p].line = floor.plus(r);
+                    self.placements[p].staged = Staged::Idle;
+                }
+                Staged::From(_) => {
+                    self.placements[p].staged = Staged::Idle;
+                    self.unplace(PlacementId::from_index(p));
+                    self.placements_expired += 1;
+                    n += 1;
+                }
+            }
+        }
+        self.rescan(ImageScreen::Primary);
+        self.rescan(ImageScreen::Alternate);
+        n
+    }
+
     /// Free every image a write covers: a glyph or erase at absolute `line`,
     /// columns `[col0, col1)`, over `cell_w` by `cell_h` pixel cells. An image
     /// spans `ceil(h / cell_h)` rows by `ceil(w / cell_w)` cells from its
@@ -520,6 +829,7 @@ impl<'b> ImageStore<'b> {
     /// nothing. Returns how many placements were freed.
     pub fn overwrite(
         &mut self,
+        screen: ImageScreen,
         line: LineIdx,
         col0: usize,
         col1: usize,
@@ -530,11 +840,22 @@ impl<'b> ImageStore<'b> {
         if self.placed == 0 || cw == 0 || ch == 0 || col1 <= col0 {
             return 0;
         }
+        // The write's row against the rows any image on this screen can
+        // cover: from the first anchor down to the tallest image below the
+        // last. Text written past them -- the common case, output after an
+        // image -- is answered here and never scans.
+        let Some(r) = self.reach[screen.slot()] else {
+            return 0;
+        };
+        let below = Rows::of_count(self.tallest.index().div_ceil(ch));
+        if line < r.first || line >= r.last.plus(below) {
+            return 0;
+        }
         let wl = usize::try_from(line.value()).unwrap_or(usize::MAX);
         let mut freed = 0;
         for p in 0..self.placements.len() {
             let slot = self.placements[p];
-            if slot.is_empty() {
+            if slot.is_empty() || slot.screen != screen {
                 continue;
             }
             let Some(i) = slot.image.index() else {

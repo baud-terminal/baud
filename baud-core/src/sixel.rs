@@ -10,7 +10,7 @@
 //!
 //! The cursor advances past the image by `ceil(Pv / cell_h)` rows through the
 //! **existing scroll path** ([`Paint::index`]), so an image at the bottom of
-//! the screen scrolls and `book.scrolled` moves -- which keeps the anchor of
+//! the screen scrolls and the window's top line moves -- which keeps the anchor of
 //! the *next* image right, and which assigning `cy` directly would not. The
 //! core lacks only the one number the renderer owns, the cell height in
 //! pixels, so the embedder supplies it through [`Term::set_cell_size`]; a
@@ -20,7 +20,7 @@
 //! not implemented and falls through to the unsupported-mode counter.
 
 use crate::paint::Paint;
-use crate::term::SixelBg;
+use crate::term::{Screen, SixelBg};
 use baud_domain::*;
 
 impl Paint<'_, '_> {
@@ -77,13 +77,13 @@ impl Paint<'_, '_> {
         if self.cold.sixel_bg == SixelBg::Opaque {
             self.images.sixel_p2_ignored += 1;
         }
-        // Anchor to the cursor's absolute line and column. The line is
-        // `scrolled + cursor row` -- `book.scrolled` is the monotonic,
-        // unbounded count of lines that have left the top (unlike `hist`, which
-        // caps at `depth`), so two images placed past a full ring get distinct
-        // lines, and it is the same count `Term::scrolled()` exposes for the
-        // renderer to position against. `place` counts a refused placement; an
-        // image that fails to place keeps a zero refcount and is freed by `RIS`.
+        // Anchor to the cursor's absolute line and column on the live screen:
+        // `top + cursor row`, where `top` is the line at the window's top in
+        // that screen's numbering (`Book::top`, `Book::alt_top`). It moves with
+        // the window, so the anchor follows its row -- and it is what
+        // `Term::image_origin` positions the renderer against. `place` counts a
+        // refused placement; an image that fails to place keeps a zero refcount
+        // and is freed by `RIS`.
         //
         // **`Pa` and `Ph` are dropped; `Pb`/`P2` is read at `SixelStart` and
         // counted.** The graph now routes the `Node::Dcs` parameters into `csi`
@@ -92,18 +92,17 @@ impl Paint<'_, '_> {
         // baud renders transparent -- `s-sixel.md` records why the fill itself
         // is not built. The aspect ratio `Pa` and grid `Ph` are still dropped;
         // baud draws one image-pixel per cell-pixel and honours no aspect.
-        let abs = self.book.scrolled.index().saturating_add(self.cy.index());
-        let line = LineIdx::of(u64::try_from(abs).unwrap_or(u64::MAX));
-        let _ = self.images.place(id, line, self.cx, ZIndex::ZERO);
+        let (screen, line) = self.image_anchor();
+        let _ = self.images.place(id, screen, line, self.cx, ZIndex::ZERO);
         // Advance the cursor below the image, through the scroll path so a
-        // bottom-of-screen image scrolls and `book.scrolled` moves with it --
-        // the anchor of the next image reads the moved count. `index` does not
-        // carriage-return, so the column stays where the image started; the DEC
-        // source for the exact column is unread, and the test pins this choice.
-        // Only when the embedder has said how tall a cell is; zero leaves the
-        // cursor where the image is, the headless default. `h` was refused when
-        // zero three branches up and `cell_height` is non-zero here, so the row
-        // count is at least one without a guard.
+        // bottom-of-screen image scrolls and the window's top line moves with
+        // it -- the anchor of the next image reads the moved line. `index` does
+        // not carriage-return, so the column stays where the image started; the
+        // DEC source for the exact column is unread, and the test pins this
+        // choice. Only when the embedder has said how tall a cell is; zero
+        // leaves the cursor where the image is, the headless default. `h` was
+        // refused when zero three branches up and `cell_height` is non-zero
+        // here, so the row count is at least one without a guard.
         if self.cell_height != ImagePx::ZERO {
             let rows = usize::from(h.raw()).div_ceil(self.cell_height.index());
             for _ in 0..rows {
@@ -112,22 +111,46 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// Where an image placed at the cursor anchors: the live screen, and the
+    /// absolute line of the cursor's row in that screen's numbering.
+    pub(crate) fn image_anchor(&self) -> (ImageScreen, LineIdx) {
+        let cy = Rows::of_count(self.cy.index());
+        match self.cold.screen {
+            Screen::Normal => (ImageScreen::Primary, self.book.top.plus(cy)),
+            Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top.plus(cy)),
+        }
+    }
+
+    /// The live screen, and the line its window's top row is in that
+    /// screen's numbering: what a screen row is turned into a line against
+    /// for the rows a region moves under an image. [`Paint::image_anchor`]
+    /// spells the same match rather than calling this, and on purpose: it is
+    /// inlined into every write's gated tail, and routing it through here
+    /// grew the per-byte loop by 20 bytes. Kept apart, the loop is
+    /// instruction for instruction what it was before regions moved images.
+    pub(crate) fn image_top(&self) -> (ImageScreen, LineIdx) {
+        match self.cold.screen {
+            Screen::Normal => (ImageScreen::Primary, self.book.top),
+            Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
+        }
+    }
+
     /// Free any Sixel a write at the cursor's row over columns `[col0, col1)`
     /// lands on -- text over an image erases it, which is how a previewer
     /// replaces one preview with the next. Without it a previewer's images
     /// pile up at one cell until the store fills and every later preview is
     /// refused. Gated on `any_placed`, so a stream with no image on screen
-    /// pays one comparison; the absolute line is `scrolled + cursor row`, the
-    /// same anchor `sixel_end` places against, so a placement and its
-    /// overwrite name the same cell.
+    /// pays one comparison; the anchor is [`Paint::image_anchor`], the one
+    /// `sixel_end` places against, so a placement and its overwrite name the
+    /// same cell on the same screen.
     #[inline(always)]
     pub(crate) fn overwrite_images(&mut self, col0: Col, col1: Col) {
         if !self.images.any_placed() {
             return;
         }
-        let abs = self.book.scrolled.index().saturating_add(self.cy.index());
-        let line = LineIdx::of(u64::try_from(abs).unwrap_or(u64::MAX));
+        let (screen, line) = self.image_anchor();
         self.images.overwrite(
+            screen,
             line,
             col0.index(),
             col1.index(),

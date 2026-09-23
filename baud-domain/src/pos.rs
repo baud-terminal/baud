@@ -54,7 +54,7 @@ impl ByteGap {
 }
 
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
 #[repr(transparent)]
 pub struct LineIdx(pub(crate) u64);
@@ -73,6 +73,25 @@ impl LineIdx {
     /// The absolute line number, for a renderer positioning against the scroll.
     pub fn value(self) -> u64 {
         self.0
+    }
+    /// The line `n` rows later.
+    pub fn plus(self, n: Rows) -> LineIdx {
+        LineIdx(
+            self.0
+                .saturating_add(u64::try_from(n.index()).unwrap_or(u64::MAX)),
+        )
+    }
+    /// The line `n` rows earlier, or `None` before the first.
+    pub fn minus(self, n: Rows) -> Option<LineIdx> {
+        self.0
+            .checked_sub(u64::try_from(n.index()).ok()?)
+            .map(LineIdx)
+    }
+    /// How many rows after `earlier` this line is, or `None` if it is not
+    /// after it.
+    pub fn since(self, earlier: LineIdx) -> Option<Rows> {
+        let d = self.0.checked_sub(earlier.0)?;
+        usize::try_from(d).ok().map(Rows::of_count)
     }
 }
 

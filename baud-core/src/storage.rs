@@ -217,15 +217,19 @@ pub struct AltBuf<'b> {
 pub struct Book {
     pub(crate) hist: Rows,
     pub(crate) hidden: Rows,
-    /// **Lines that have ever scrolled off the top, monotonic and unbounded.**
-    /// `hist` is the *retained* depth, capped at `depth`, so it stops rising
-    /// once the ring fills and cannot number a line past it. This numbers every
-    /// line that leaves the top and never decrements -- an un-retire (a taller
-    /// screen or a reverse index bringing a line back) does not un-number it,
-    /// the monotonic `Scrolled` the app already tracks off `moved_since`. An
-    /// image placement anchors to `scrolled + cursor row`, so two images past a
-    /// full ring get distinct absolute lines rather than the same `hist`.
-    pub(crate) scrolled: Rows,
+    /// **The absolute line at the top of the primary window.** It moves with
+    /// the rotation both ways -- up one for every row the window retires,
+    /// down one for every row it takes back -- and a reflow renumbers it with
+    /// the rows. So screen row `y` is line `top + y`, a line `n` rows behind
+    /// the window is `top - 1 - n`, and the oldest retained is `top - hist`.
+    /// An image placement anchors to `top + cursor row`, so it follows its row
+    /// through every move the window makes. Unbounded, where `hist` is capped
+    /// at the depth, so two images past a full ring get distinct lines.
+    pub(crate) top: LineIdx,
+    /// The same for the alternate screen, which keeps no history: its line at
+    /// the top of the window. Kept only while an image is placed -- nothing
+    /// else reads it -- and restarted each time the screen is entered.
+    pub(crate) alt_top: LineIdx,
 }
 
 /// Everything a control string writes, in one struct.
@@ -753,7 +757,8 @@ impl<'b> Storage<'b> {
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,
-                scrolled: Rows::ZERO,
+                top: LineIdx::FIRST,
+                alt_top: LineIdx::FIRST,
             },
             strs,
             images,

@@ -16,6 +16,14 @@ use crate::paint::Paint;
 use crate::term::{Saved, Screen};
 use baud_domain::*;
 
+/// Which way a full-screen scroll moved the window over the ring: up one,
+/// retiring a row, or down one, taking one back.
+#[derive(Clone, Copy)]
+pub(crate) enum Scroll {
+    Up,
+    Down,
+}
+
 impl Paint<'_, '_> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
@@ -107,6 +115,9 @@ impl Paint<'_, '_> {
     /// and never reaches here.
     pub(crate) fn retire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
+            if self.images.any_placed() {
+                self.alt_images_moved(Scroll::Up);
+            }
             return;
         }
         let room = self.view.ring().index() - self.rows.index();
@@ -114,11 +125,83 @@ impl Paint<'_, '_> {
         self.book.hist = Rows::of_count(hist);
         self.book.hidden =
             Rows::of_count(self.book.hidden.index().saturating_sub(1).min(room - hist));
-        // Monotonic, and uncapped where `hist` is capped at `room`: this numbers
-        // the line that just left the top so a placement past a full ring gets a
-        // distinct absolute line. `unretire` does not undo it -- a line coming
-        // back keeps the number it was given.
-        self.book.scrolled = Rows::of_count(self.book.scrolled.index() + 1);
+        // Uncapped where `hist` is capped at `room`: the window's top line
+        // moves on with the window, so a placement past a full ring gets a
+        // distinct line, and `unretire` moves it back.
+        self.book.top = self.book.top.plus(Rows::of_count(1));
+        // **The one compare a stream with no image pays.** The work behind it
+        // is outlined, the wide-row fill's shape: `retire` runs once a scroll,
+        // on the path `cat` spends its time in.
+        if self.images.any_placed() {
+            self.primary_images_moved(Scroll::Up);
+        }
+    }
+
+    /// **The primary's images after its window moved one row**: those whose
+    /// row left what the ring retains go, and so does one on the row the
+    /// scroll blanked as it came in -- the new bottom row going up, the new
+    /// top row going down, which is the newest history line taken back.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn primary_images_moved(&mut self, way: Scroll) {
+        let top = self.book.top;
+        let blanked = match way {
+            Scroll::Up => top.plus(Rows::of_count(self.rows.index() - 1)),
+            Scroll::Down => top,
+        };
+        self.expire_primary_images(Some(blanked));
+    }
+
+    /// Drop the primary's placements whose anchor row the ring no longer
+    /// retains -- before the oldest history line, or past the rows a shorter
+    /// window cut -- and one on `blanked`.
+    pub(crate) fn expire_primary_images(&mut self, blanked: Option<LineIdx>) {
+        let b = &self.book;
+        let lo = b.top.minus(b.hist).unwrap_or(LineIdx::FIRST);
+        let hi = b.top.plus(self.rows).plus(b.hidden);
+        self.images.expire(ImageScreen::Primary, lo, hi, blanked);
+    }
+
+    /// **The alternate screen's images after its window moved one row.** It
+    /// keeps no history, so a row that leaves the window leaves the screen,
+    /// and its image with it; the row the scroll blanked goes too. Its top
+    /// line is kept only while an image is placed, which is when this runs.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn alt_images_moved(&mut self, way: Scroll) {
+        let rows = self.rows;
+        let blanked = match way {
+            Scroll::Up => {
+                self.book.alt_top = self.book.alt_top.plus(Rows::of_count(1));
+                self.book.alt_top.plus(Rows::of_count(rows.index() - 1))
+            }
+            Scroll::Down => {
+                match self.book.alt_top.minus(Rows::of_count(1)) {
+                    Some(t) => self.book.alt_top = t,
+                    None => self.images.shift(ImageScreen::Alternate, Rows::of_count(1)),
+                }
+                self.book.alt_top
+            }
+        };
+        let top = self.book.alt_top;
+        self.images
+            .expire(ImageScreen::Alternate, top, top.plus(rows), Some(blanked));
+    }
+
+    /// **The live screen's images after the rows `[from, to]` moved `k`
+    /// `way` inside the window**: a region scrolling by copy, `IL`, `DL`, or
+    /// a top-anchored region's rotation putting the rows under it back. The
+    /// window's top line does not move for any of them, so an anchor has to
+    /// be moved with its row by name; one whose row left the band was
+    /// deleted with it and goes. Outlined like the moves above: the callers
+    /// gate it on `any_placed`, so a stream with no image pays one compare.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn band_images_moved(&mut self, from: Row, to: Row, k: Rows, way: BandMove) {
+        let (screen, top) = self.image_top();
+        let lo = top.plus(Rows::of_count(from.index()));
+        let hi = top.plus(Rows::of_count(to.index() + 1));
+        self.images.scroll_band(screen, lo, hi, k, way);
     }
 
     /// **The row the scroll after the next will blank, asked for now.** With
@@ -151,12 +234,30 @@ impl Paint<'_, '_> {
     /// live height the way a shorter window keeps one.
     pub(crate) fn unretire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
+            if self.images.any_placed() {
+                self.alt_images_moved(Scroll::Down);
+            }
             return;
         }
         let room = self.view.ring().index() - self.rows.index();
         let hist = self.book.hist.index().saturating_sub(1);
         self.book.hist = Rows::of_count(hist);
         self.book.hidden = Rows::of_count((self.book.hidden.index() + 1).min(room - hist));
+        // **The window's top line moves back with it.** With no history it
+        // moves back over a row no line was numbered for, and at line zero the
+        // numbering cannot follow -- so the images move down a row instead,
+        // which is the same move seen from the other side: their text went
+        // down one.
+        match self.book.top.minus(Rows::of_count(1)) {
+            Some(t) => self.book.top = t,
+            None if self.images.any_placed() => {
+                self.images.shift(ImageScreen::Primary, Rows::of_count(1));
+            }
+            None => {}
+        }
+        if self.images.any_placed() {
+            self.primary_images_moved(Scroll::Down);
+        }
     }
 
     // ---- scrolling ------------------------------------------------------
@@ -225,6 +326,19 @@ impl Paint<'_, '_> {
                         .copy_row(Row::from_index(y - 1), Row::from_index(y));
                 }
                 self.fill_row_counted(bot);
+                // **The rows under the region went back, and their images
+                // go back with them.** `retire` moved every image up with the
+                // window, which is right for the region's and one row wrong
+                // for these: without this an image on a status line walks up
+                // into the region a row a scroll while its text stays put.
+                if self.images.any_placed() {
+                    self.band_images_moved(
+                        bot,
+                        Row::from_index(last),
+                        Rows::of_count(1),
+                        BandMove::Down,
+                    );
+                }
             }
             self.cells = self.cells.plus(k * below * self.cols.index());
             return;
@@ -244,6 +358,9 @@ impl Paint<'_, '_> {
         {
             let b = self.blank();
             self.view.delete_lines_in(top, n, bot, b);
+        }
+        if self.images.any_placed() {
+            self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
         // **The whole region, not `k` rows.** `delete_lines_in` moves every
         // row inside the region and blanks `k`; counting only the blanks
@@ -275,6 +392,9 @@ impl Paint<'_, '_> {
         }
         let b = self.blank();
         self.view.insert_lines_in(top, n, bot, b);
+        if self.images.any_placed() {
+            self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
@@ -304,6 +424,9 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         let b = self.blank();
         self.view.insert_lines_in(at, n, bot, b);
+        if self.images.any_placed() {
+            self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
     }
@@ -317,6 +440,9 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         let b = self.blank();
         self.view.delete_lines_in(at, n, bot, b);
+        if self.images.any_placed() {
+            self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Up);
+        }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
     }
@@ -930,8 +1056,19 @@ impl Paint<'_, '_> {
                 self.view.reset_rot();
                 self.clear_screen();
                 self.goto(Row::ZERO, Col::ZERO);
+                // Its image numbering starts again with the screen. No image
+                // can be on it: leaving is the only way off it, and leaving
+                // deletes them.
+                self.book.alt_top = LineIdx::FIRST;
             }
             (false, Screen::Alternate) => {
+                // **The editor's images go with the editor's screen.** foot
+                // and ghostty both delete them; the alternate screen keeps no
+                // history, so nothing could scroll back to them, and a shell
+                // that got them would show a picture over its own text.
+                if self.images.any_placed() {
+                    self.images.expire_screen(ImageScreen::Alternate);
+                }
                 self.cold.screen = Screen::Normal;
                 // Restore the primary screen's kitty stack; see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
@@ -1016,8 +1153,9 @@ impl Paint<'_, '_> {
         self.clusters.reset();
         // Images go with the clusters and for the same reason: `RIS` is the one
         // point where every cell is gone, so a placement outliving a mere clear
-        // or an alt-screen switch is correct -- an image is content a program
-        // may redraw over -- and only a reset drops them all.
+        // is correct -- an image is content a program may redraw over -- and
+        // only a reset drops them all. Leaving the alternate screen, above,
+        // drops that screen's alone.
         self.images.reset();
         self.reset_tabs();
         self.last_cp = None;

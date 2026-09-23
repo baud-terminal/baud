@@ -778,10 +778,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::image_placements`], and snapshots each referenced image's
     /// pixels into [`Renderer::image_uploads`] for a GPU to upload once.
     ///
-    /// A placement anchors to an absolute line; its screen row is
-    /// `line - (scrolled - back)`, so as output scrolls the image moves up with
-    /// its line, and a scrollback view `back` lines up shows the images
-    /// anchored there. The pixel origin is the cell `(row, col)` at the cell
+    /// A placement anchors to an absolute line of its screen; its screen row
+    /// is `line - top`, where [`Term::image_origin`] gives `top` for a view
+    /// `back` lines up with the same clamp [`Term::view`] uses -- so as output
+    /// scrolls the image moves up with its line, a scrollback view shows the
+    /// images anchored there, and an image and the grid row under it are drawn
+    /// from one answer. A placement on the screen that is not up is not
+    /// drawn: the shell's image is not the editor's. The pixel origin is the cell `(row, col)` at the cell
     /// metrics, and the image draws one image-pixel per device pixel, its
     /// natural size. Placements fully off the screen are skipped; a
     /// partly-scrolled one keeps a signed screen origin and is clipped by the
@@ -808,19 +811,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.image_uploads.clear();
             self.image_epoch = epoch;
         }
-        let top = term.scrolled().index().saturating_sub(back.index()) as i64;
+        let origin = term.image_origin(back);
+        let top = origin.top.value() as i64;
         let cw = self.metrics.cell_w.value() as i64;
         let ch = self.metrics.cell_h.value() as i64;
         let screen_h = self.rows.index() as i64 * ch;
         let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
         for (_, p) in imgs.placements() {
+            if p.screen != origin.screen {
+                continue;
+            }
             let Some(view) = imgs.image(p.image) else {
                 continue;
             };
             let y0 = (p.line.value() as i64 - top) * ch;
             let x0 = p.col.index() as i64 * cw;
             // Fully above the top, or fully below the bottom: nothing to draw.
-            if y0 + view.height.index() as i64 <= 0 || y0 >= screen_h {
+            // "The top" is one row above the window, not the window's edge:
+            // under smooth scroll the cell path draws the leaving row there
+            // and `draw_images` adds the same pan, so an image wholly inside
+            // that row is on screen for the length of the slide. Culling at
+            // zero dropped it, and it popped off at the slide's start rather
+            // than sliding out. A frame that is not sliding draws it at a
+            // negative y, which every path clips.
+            if y0 + view.height.index() as i64 <= -ch || y0 >= screen_h {
                 continue;
             }
             self.image_places.push(ImagePlacement {

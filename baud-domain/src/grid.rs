@@ -1,7 +1,7 @@
 use crate::*;
 
 mod reflow;
-pub use reflow::Reflowed;
+pub use reflow::{Follow, Reflowed};
 
 /// A grid indexed by [`Row`] and [`Col`], never by an integer.
 ///

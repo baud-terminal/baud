@@ -104,6 +104,195 @@ fn a_sixel_scrolls_off_and_the_frame_changes() {
     );
 }
 
+/// The frame `swirl.raw` paints at home, as a digest -- `s-sixel` gate 2,
+/// the regression net the painted-pixel count above cannot be: a count holds
+/// through a flipped image, a register read one entry off or a band drawn a
+/// row late, and a digest does not. Taken on the first run and not an
+/// oracle, which is the decoder's own gate; regenerate with
+/// `GOLDEN_PRINT=1`, and `GOLDEN_DUMP=<dir>` writes the frame to look at.
+const SWIRL_FRAME: u64 = 0x22cfc4f36d316b7b;
+
+/// Writes the frame as a binary PPM: `golden.rs`'s shape, its three bytes
+/// taken whole rather than cast one at a time.
+fn dump_ppm(c: &Canvas, path: &str) {
+    let mut out = format!("P6\n{} {}\n255\n", c.width, c.height).into_bytes();
+    for &p in &c.pixels {
+        out.extend_from_slice(&p.to_be_bytes()[1..]);
+    }
+    std::fs::write(path, out).unwrap();
+}
+
+#[test]
+fn a_sixel_paints_to_its_pinned_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, SWIRL);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    // The pixels before the digest, so a pinned frame of a refused image --
+    // a background and a cursor -- cannot be what this pins.
+    let painted = painted_in_image_rect(&c);
+    assert!(painted > 64 * 48 / 2, "the swirl drew, {painted} pixels");
+    if let Ok(dir) = std::env::var("GOLDEN_DUMP") {
+        dump_ppm(&c, &format!("{dir}/sixel-swirl.ppm"));
+    }
+    let got = c.digest();
+    if std::env::var("GOLDEN_PRINT").is_ok() {
+        println!("const SWIRL_FRAME: u64 = 0x{got:016x};");
+    } else {
+        assert_eq!(got, SWIRL_FRAME, "the swirl's frame digest 0x{got:016x}");
+    }
+}
+
+/// An image placed on row 5 and the screen scrolled one line draws one cell
+/// row higher, pixel for pixel -- `s-sixel` gate 3's first clause. The test
+/// above scrolls the image clean off, which a placement that ignored the
+/// scroll by a row would also pass once enough lines went by; this is the
+/// one-line case. The cursor is hidden and parked on the bottom row, so the
+/// only thing in the image's rect is the image.
+#[test]
+fn a_sixel_scrolled_one_line_draws_one_row_higher() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l\x1b[6;1H");
+    feed(&mut t, SWIRL);
+    feed(&mut t, b"\x1b[50;1H");
+    let rect = |c: &Canvas, top: usize| -> Vec<u32> {
+        (0..48)
+            .flat_map(|y| c.pixels[(top + y) * c.width..][..64].to_vec())
+            .collect()
+    };
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let before = rect(&c, 5 * ch);
+    let above_before = rect(&c, 4 * ch);
+    let bg = Theme::dark().bg.0;
+    let painted = before.iter().filter(|&&p| p != bg).count();
+    assert!(
+        painted > 64 * 48 / 2,
+        "the swirl drew on row 5, {painted} pixels"
+    );
+
+    feed(&mut t, b"\n");
+    assert_eq!(
+        t.image_origin(Rows::ZERO).top.value(),
+        1,
+        "one line feed on the bottom row is one scroll"
+    );
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    // A comparison that cannot fail by being the same frame twice: the rect
+    // one row up held something else before the scroll.
+    assert_ne!(
+        above_before, before,
+        "the rect one row up was not the image already"
+    );
+    assert_eq!(
+        rect(&c, 4 * ch),
+        before,
+        "the image did not move exactly one cell row up with its line"
+    );
+}
+
+/// The text of a view row, blanks trimmed.
+fn row_text(t: &Term, back: Rows, y: usize) -> String {
+    t.view(back)
+        .row(baud_domain::Row::from_index(y))
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|p| char::from_u32(p.value()))
+                .unwrap_or(' ')
+        })
+        .collect::<String>()
+        .trim_end()
+        .to_string()
+}
+
+/// **A shorter screen retires the rows above the cursor into the history, and
+/// a reader scrolled back to them finds the image on the row it was drawn
+/// on.** The history here is deeper than the count of scrolls -- sixty scrolls,
+/// then thirty rows retired by the shrink -- which is the case a renderer
+/// computing its own `scrolled - back` put thirty rows off, because a shrink
+/// retires rows without scrolling.
+#[test]
+fn a_scrolled_back_image_after_a_shrink_draws_on_its_row() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let ch = i32::try_from(r.metrics().cell_h.value()).unwrap();
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, &[b'\n'; 60]);
+    feed(&mut t, b"\x1b[1;1HMARK\r\n");
+    feed(&mut t, SWIRL);
+    feed(&mut t, b"\x1b[50;1H");
+    let short = baud_domain::WinSize {
+        ws_row: 20,
+        ws_col: WS.ws_col,
+    };
+    assert_eq!(t.resize(&short), baud_core::Resized::Ok);
+    let back = Rows::of_count(30);
+    assert_eq!(
+        row_text(&t, back, 0),
+        "MARK",
+        "the view 30 up starts at MARK"
+    );
+    r.set_images(&t, back);
+    let p = r.image_placements();
+    assert_eq!(p.len(), 1, "the image is in that view");
+    assert_eq!(i32::from(p[0].y), ch, "one row below MARK");
+}
+
+/// **Each screen draws only its own images**, and the editor's go when it
+/// leaves: the shell's image is not drawn over a full-screen program, and is
+/// back where it was when the program exits.
+#[test]
+fn the_shells_image_is_not_drawn_over_the_editor() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let ch = i32::try_from(r.metrics().cell_h.value()).unwrap();
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 128, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, SWIRL);
+    r.set_images(&t, Rows::ZERO);
+    assert_eq!(r.image_placements().len(), 1, "the shell's image");
+    feed(&mut t, b"\x1b[?1049h");
+    r.set_images(&t, Rows::ZERO);
+    assert!(
+        r.image_placements().is_empty(),
+        "the shell's image is not drawn on the editor's screen"
+    );
+    feed(&mut t, b"\x1b[10;1H");
+    feed(&mut t, TINY);
+    r.set_images(&t, Rows::ZERO);
+    let p = r.image_placements();
+    assert_eq!(p.len(), 1, "the editor's own image");
+    assert_eq!(i32::from(p[0].y), 9 * ch, "on the row the editor put it");
+    feed(&mut t, b"\x1b[?1049l");
+    r.set_images(&t, Rows::ZERO);
+    let p = r.image_placements();
+    assert_eq!(p.len(), 1, "the editor's image went with its screen");
+    assert_eq!((p[0].y, p[0].w, p[0].h), (0, 64, 48), "the shell's is back");
+}
+
 #[test]
 fn a_static_image_is_snapshotted_once_not_per_frame() {
     // `set_images` runs every frame; a large image's per-frame pixel snapshot

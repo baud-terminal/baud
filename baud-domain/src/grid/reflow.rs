@@ -45,7 +45,23 @@ pub struct Reflowed {
     pub hist: Rows,
     pub hidden: Rows,
     pub cursor: (Row, Col),
+    /// Rows dropped from the oldest end because the re-cut history did not
+    /// fit: the new oldest retained row is this many rows after the old one.
+    pub dropped: Rows,
 }
+
+/// **A hook a reflow calls once for every line it keeps, before copying
+/// it**: the line's first row and how many rows it has, both counted from
+/// the oldest retained row, and where each of its rows lands, counted the
+/// same way. Before the copy, because narrowing copies downwards over rows
+/// it has read, and where a row lands is computed from its cells.
+///
+/// What lets a thing anchored to a row -- an image placement -- follow the
+/// row through the re-cut rather than keep a number that now names another.
+/// A row lands where **its first cell** lands, foot's rule: the anchor
+/// follows the row it was placed on and keeps its column, and a column past
+/// the new edge is cropped where it is drawn rather than moved.
+pub type Follow<'f> = &'f mut dyn FnMut(Rows, Rows, &dyn Fn(Rows) -> Rows);
 
 /// The re-cut: where the oldest retained row is, and the two widths.
 #[derive(Clone, Copy)]
@@ -257,6 +273,7 @@ impl<'a> View<'a> {
         hist: Rows,
         hidden: Rows,
         cursor: (Row, Col),
+        mut follow: Option<Follow<'_>>,
     ) -> Reflowed {
         let (old, new) = (old.index(), new.index());
         let rows = self.rows.index();
@@ -266,6 +283,7 @@ impl<'a> View<'a> {
             hist,
             hidden,
             cursor,
+            dropped: Rows::ZERO,
         };
         if old == new || old == 0 || new == 0 || rows == 0 {
             return unchanged;
@@ -306,6 +324,7 @@ impl<'a> View<'a> {
                 if (l.start..l.start + l.rows).contains(&cur_row) {
                     cur = Some(self.landing(c, &l, dst, cur_row, cursor.1.index()));
                 }
+                self.follow(&mut follow, c, &l, dst);
                 self.copy_up(c, &l, dst);
                 dst += l.dest;
                 i += l.rows;
@@ -321,6 +340,7 @@ impl<'a> View<'a> {
                 if (l.start..end).contains(&cur_row) {
                     cur = Some(self.landing(c, &l, dst, cur_row, cursor.1.index()));
                 }
+                self.follow(&mut follow, c, &l, dst);
                 self.copy_down(c, &l, dst);
                 dend = dst;
                 end = l.start;
@@ -356,6 +376,15 @@ impl<'a> View<'a> {
                 Row::from_index(cur_row.saturating_sub(top).min(rows - 1)),
                 Col::at_index(cur_col.min(new - 1)),
             ),
+            dropped: Rows::of_count(first),
+        }
+    }
+
+    /// Hand one kept line to the follow hook, with where its rows land.
+    fn follow(&self, follow: &mut Option<Follow<'_>>, c: Cut, l: &Line, dst: usize) {
+        if let Some(f) = follow.as_mut() {
+            let land = |r: Rows| Rows::of_count(self.landing(c, l, dst, r.index(), 0).0);
+            f(Rows::of_count(l.start), Rows::of_count(l.rows), &land);
         }
     }
 }

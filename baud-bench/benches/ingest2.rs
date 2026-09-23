@@ -9,7 +9,7 @@
 //! ```
 
 use baud_core::*;
-use baud_domain::{Depth, ImageSlot, ImageStore, PlacementSlot, Stride};
+use baud_domain::{Depth, ImagePx, ImageSlot, ImageStore, PlacementSlot, Stride};
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -238,8 +238,21 @@ fn main() {
         "git-log" => recording("ascii/git-log.raw"),
         "cat-cjk" => recording("utf8/cat-cjk.raw"),
         "less-cjk" => recording("utf8/less-cjk.raw"),
+        // **An image, then a lot of output**: the committed 64x48 Sixel and
+        // then `cat-scroll.raw`, unmodified and in order, with image memory
+        // provisioned and a cell size set so the image is placed and the
+        // cursor moves below it the way the app's does. What a user sees after
+        // `img2sixel` in a shell -- the image stays in the history while the
+        // output after it runs -- and the one payload that reaches the
+        // per-write and per-scroll image checks at all.
+        "sixel-cat" => {
+            let mut v = recording("sixel/swirl.raw");
+            v.extend_from_slice(&recording("ascii/cat-scroll.raw"));
+            v
+        }
         other => recording(other),
     };
+    let images = which == "sixel-cat";
 
     // 200 x 50, which is the geometry the recordings were captured at.
     let ws = WinSize {
@@ -288,12 +301,18 @@ fn main() {
     let mut palette = vec![ColorWord::DEFAULT; 256];
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
-    // No images: an empty store refuses every Sixel, and the recordings carry
-    // none, so the ingest path never reaches image storage.
-    let mut img_pixels: [ColorWord; 0] = [];
-    let mut img_slots: [ImageSlot; 0] = [];
-    let mut img_places: [PlacementSlot; 0] = [];
-    let mut sixel_body: [u8; 0] = [];
+    // No images, except for the payload that places one: an empty store
+    // refuses every Sixel, and the recordings carry none, so the ingest path
+    // never reaches image storage. `sixel-cat` gets room for its one image and
+    // the placement tables `Owned` provisions.
+    let (px, slots, places, body) = match images {
+        true => (64 * 48 + 64, 32, 64, 8192),
+        false => (0, 0, 0, 0),
+    };
+    let mut img_pixels = vec![ColorWord::DEFAULT; px];
+    let mut img_slots = vec![ImageSlot::EMPTY; slots];
+    let mut img_places = vec![PlacementSlot::EMPTY; places];
+    let mut sixel_body = vec![0u8; body];
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -321,6 +340,10 @@ fn main() {
         ),
         &ws,
     );
+
+    if images {
+        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+    }
 
     // **The chunk is written into the arena and then parsed, which is what a
     // `read(2)` does.** Parsing the recording in place instead -- placed once,
@@ -371,6 +394,15 @@ fn main() {
         cells as f64 / bytes_in as f64,
         t.marks_dropped,
     );
+    if images {
+        let im = t.images();
+        println!(
+            "  images: {} placed now, {} images refused, {} placements refused",
+            im.placements().count(),
+            im.images_refused,
+            im.placements_refused,
+        );
+    }
     #[cfg(feature = "diag")]
     {
         // **Bytes an iteration is the unit the loop is designed against.**

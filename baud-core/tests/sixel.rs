@@ -7,7 +7,7 @@
 //! and only in production.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx, SixelClaim};
+use baud_domain::{ImageBudget, ImagePx, RowRot, SixelClaim};
 
 mod support;
 
@@ -237,40 +237,54 @@ fn feed(t: &mut Term, bytes: &[u8]) {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 }
 
+/// The line at the top of the live window in the image numbering, as a
+/// count: what a placement at the cursor's row adds its row to.
+fn top(t: &Term) -> usize {
+    usize::try_from(t.image_origin(Rows::ZERO).top.value()).unwrap()
+}
+
 #[test]
-fn the_scroll_count_matches_the_rotation_deltas() {
-    // `Term::scrolled()` must equal the sum of the retired deltas the app reads
-    // off `moved_since` and tracks as `Scrolled` -- the same count, or an image
-    // anchored by one and drawn by the other would drift. The claim is
-    // by-construction (one bump per `retire`, one delta per pump), which this
-    // repo keeps finding wrong, so it is measured on a payload that scrolls past
-    // the ring.
+fn the_windows_top_line_matches_the_rotation_deltas() {
+    // The window's top line must move exactly with the rotation -- up one for
+    // every row retired, down one for every row restored -- or an image
+    // anchored by it slides off its row. The claim is by construction (one
+    // step per `retire` and `unretire`), which this repo keeps finding wrong,
+    // so it is measured on a payload that scrolls past the ring and back.
     let ws = support::CORPUS;
     let mut owned = Owned::new(&ws);
     let mut t = Term::new(owned.storage(), &ws);
-    let mut sum = 0usize;
+    let mut net: i64 = 0;
     let mut before = t.rotation();
+    let step = |t: &mut Term, bytes: &[u8], before: &mut RowRot, net: &mut i64| {
+        feed(t, bytes);
+        match t.moved_since(*before) {
+            Moved::Retired(n) => *net += i64::try_from(n.index()).unwrap(),
+            Moved::Restored(n) => *net -= i64::try_from(n.index()).unwrap(),
+        }
+        *before = t.rotation();
+    };
     let newlines = vec![b'\n'; 80];
     for _ in 0..40 {
-        feed(&mut t, &newlines);
-        if let Moved::Retired(n) = t.moved_since(before) {
-            sum += n.index();
-        }
-        before = t.rotation();
+        step(&mut t, &newlines, &mut before, &mut net);
     }
-    assert!(sum > 2000, "the payload scrolled past the ring, not {sum}");
+    assert!(net > 2000, "the payload scrolled past the ring, not {net}");
+    // Twelve reverse indexes at the top take twelve rows back.
+    step(&mut t, b"\x1b[1;1H", &mut before, &mut net);
+    for _ in 0..12 {
+        step(&mut t, b"\x1bM", &mut before, &mut net);
+    }
     assert_eq!(
-        t.scrolled().index(),
-        sum,
-        "scrolled equals the retired deltas"
+        i64::try_from(top(&t)).unwrap(),
+        net,
+        "the top line is the net of the retired and restored rows"
     );
 }
 
 #[test]
 fn two_sixels_past_a_full_ring_get_distinct_anchors() {
-    // The bug the monotonic count fixes: `hist` caps at `depth`, so two images
-    // placed after the ring fills would share the capped anchor. `scrolled`
-    // does not cap, so they get distinct absolute lines.
+    // `hist` caps at `depth`, so two images placed after the ring fills would
+    // share an anchor numbered by it. The window's top line does not cap, so
+    // they get distinct absolute lines.
     let ws = support::CORPUS;
     let mut owned = Owned::new(&ws).with_images(ample());
     let mut t = Term::new(owned.storage(), &ws);
@@ -346,7 +360,7 @@ fn a_sixel_advances_the_cursor_below_it() {
     advanced(SWIRL, SWIRL.len(), 16, |t| {
         assert_eq!(t.cursor().0.index(), 3, "three rows below");
         assert_eq!(t.cursor().1.index(), 0, "the column is unchanged");
-        assert_eq!(t.scrolled().index(), 0, "no scroll: the screen had room");
+        assert_eq!(top(t), 0, "no scroll: the screen had room");
     });
 }
 
@@ -360,7 +374,7 @@ fn a_bottom_of_screen_sixel_scrolls_and_the_scroll_count_moves() {
     let mut bytes = Vec::from(b"\x1b[50;1H".as_slice());
     bytes.extend_from_slice(SWIRL);
     advanced(&bytes, bytes.len(), 16, |t| {
-        assert_eq!(t.scrolled().index(), 3, "three scrolls at the bottom");
+        assert_eq!(top(t), 3, "three scrolls at the bottom");
         assert_eq!(t.cursor().0.index(), 49, "the cursor stays on the last row");
     });
 }
@@ -391,7 +405,7 @@ fn no_cell_height_leaves_the_cursor_where_the_image_is() {
     // bench unchanged.
     advanced(SWIRL, SWIRL.len(), 0, |t| {
         assert_eq!(t.cursor().0.index(), 0, "the cursor is unmoved");
-        assert_eq!(t.scrolled().index(), 0);
+        assert_eq!(top(t), 0);
     });
 }
 
@@ -402,7 +416,7 @@ fn the_cursor_advance_is_chunk_invariant() {
     for chunk in [1usize, 3, 7, 512, SWIRL.len()] {
         advanced(SWIRL, chunk, 16, |t| {
             assert_eq!(t.cursor().0.index(), 3, "chunk {chunk}: three rows below");
-            assert_eq!(t.scrolled().index(), 0, "chunk {chunk}");
+            assert_eq!(top(t), 0, "chunk {chunk}");
         });
     }
 }

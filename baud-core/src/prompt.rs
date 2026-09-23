@@ -81,6 +81,18 @@ impl Paint<'_, '_> {
             self.book.hist = Rows::of_count(hist);
             self.book.hidden =
                 Rows::of_count((self.book.hidden.index() + above).min(r - rows - hist));
+            // The window's top line moves back with it -- `above` is within
+            // the history, and the top line is never below the history's
+            // depth, so it cannot run out -- and rows the window gave up past
+            // what the ring keeps below take their images with them.
+            self.book.top = self
+                .book
+                .top
+                .minus(Rows::of_count(above))
+                .unwrap_or(LineIdx::FIRST);
+            if self.images.any_placed() {
+                self.expire_primary_images(None);
+            }
         }
         self.cy = Row::from_index(cy.saturating_sub(d));
         let blank = PackedCell::empty_with(self.style);

@@ -78,6 +78,19 @@ also cover a placed image, because a Sixel drawn on one GPU arm and not the
 other is exactly what that gate exists to catch -- the same requirement the
 colon underlines and box drawing carried.
 
+**Where the four stand (2026-09-22).** Gate 1 is `sixel_decode.rs`'s
+hand-written fixtures, `sixel_oracle.rs` against libsixel, and
+`a_sixel_is_chunk_invariant` for the read boundaries. Gate 2 is
+`a_sixel_paints_to_its_pinned_frame`, which pins `swirl.raw`'s frame at home
+after asserting the swirl drew. Gate 3's scroll half is
+`a_sixel_scrolled_one_line_draws_one_row_higher` and
+`a_sixel_scrolls_off_and_the_frame_changes`. Gate 4 is
+`a_previewer_replacing_images_does_not_accumulate_them`. Gate 3's resize
+half is `baud-core/tests/image_anchor.rs`, below. The scroll test
+was perturbed to an image that moves two rows a scroll and fails alone; the
+digest was perturbed to a CPU blit one pixel low, which the painted-pixel
+count passes and the digest does not.
+
 ## The grammar
 
 The envelope, from `[[source: ctlseqs]]`:
@@ -209,7 +222,8 @@ full screen ~1.4M.
 
 **All three paths draw it, and the placement math is written once.**
 `Renderer::set_images` computes each visible placement's screen rect --
-`line - (scrolled - back)` in cells, off-screen ones skipped -- into one list
+`line - top` in cells, with `top` from `Term::image_origin(back)`, placements
+on the other screen and off-screen ones skipped -- into one list
 the CPU compositor and both GPU arms read, so three paths cannot disagree about
 where an image goes (which the pixel oracle could not otherwise tell from a blit
 bug).
@@ -228,10 +242,15 @@ bug).
   it. The texture is uploaded once, keyed on `(ImageGen, ImageId)` and dropped
   whole when the store's epoch moves, so a slot reused after a `reset` cannot
   return a stale texture. It draws last, over the glyphs and records, matching
-  the CPU path, and slides with the grid under smooth scroll (cell path). Gate:
+  the CPU path, and slides with the grid under smooth scroll (cell path) -- an
+  image wholly inside the leaving row included, which `set_images`' cull
+  dropped until it kept the row above the window. Gate:
   the pixel oracle's scene gains a homed Sixel, both arms must agree *and* it
   must change its rect against the same frame with no image -- perturbing either
   the cell-path draw (arms disagree) or the whole pass (rect unchanged) fires it.
+  For the slide, a one-band Sixel mid-screen and in the leaving row: a
+  full-row slide must be the screen one line up, drawn with no slide shader.
+  Dropping the pan fires the first (96 pixels), the old cull the second (48).
 * **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB pixels / 256 KiB
   body) on every path, so a Sixel is stored and shown rather than parsed and
   silently refused. The default is overridable through `[images] pixels_mb`
@@ -274,10 +293,10 @@ frame.
 **The cursor advances past the image, in the core.** After placing, `sixel_end`
 moves the cursor down `ceil(Pv / cell_h)` rows through the **existing scroll
 path** (`Paint::index`), so an image at the bottom of the screen scrolls and
-`book.scrolled` moves with it -- which keeps the *next* image's anchor right,
+the window's top line moves with it -- which keeps the *next* image's anchor right,
 and which assigning `cy` directly (the tempting shortcut) would not. The core
 lacks only the cell height in pixels, which the renderer owns; the embedder
-supplies it through `Term::set_cell_height`, re-set on every `rescale` (a stale
+supplies it through `Term::set_cell_size`, re-set on every `rescale` (a stale
 height mis-advances every image after a zoom, the geometry trap this repo has
 hit before). A caller that never sets it -- a headless test, a bench -- leaves
 it zero and the cursor unmoved, today's behaviour, which the sentinel gate
@@ -303,14 +322,22 @@ with HEAD first and at or above it with the order reversed, inside a ~2% A/A
 spread of the same binary against itself -- a null, the ordering artefact this
 repo records, not a regression.
 
-**The anchor line is exact.** `sixel_end` records the line as `scrolled + cy`,
-where `Term::scrolled()` is the monotonic count of lines ever retired (`Book.
-scrolled`, bumped in `retire`, never in `unretire`) -- the same quantity
-`select.rs` builds `AbsLine` from and the renderer reads to place the image at
-`line - (scrolled - back)`. So two images at the same screen row on different
-logical lines get distinct anchors even past a full ring, which
-`baud-core/tests/sixel.rs` pins with `two_sixels_past_a_full_ring_get_distinct_anchors`
-and `the_scroll_count_matches_the_rotation_deltas`.
+**The anchor follows its row.** `sixel_end` records the line as `top + cy`,
+where `top` is the absolute line at the top of the live window in that
+screen's numbering -- `Book::top` on the primary, `Book::alt_top` on the
+alternate screen -- and the placement carries which screen it is on. `top`
+moves with the window both ways: up one for every row a scroll retires, down
+one for every row a reverse scroll or a taller screen takes back, and a reflow
+renumbers it with the rows. `Term::image_origin(back)` hands the renderer the
+top of a view `back` lines up with the clamp `Term::view` uses, so an image
+and the grid row under it are drawn from one answer. This replaced a monotonic
+`scrolled` count that a shrink retiring rows never moved and a reverse scroll
+never moved back: both drifted an image off its row, and a view scrolled back
+after a shrink put it thirty rows off. `baud-core/tests/sixel.rs` pins the
+count with `the_windows_top_line_matches_the_rotation_deltas` and
+`two_sixels_past_a_full_ring_get_distinct_anchors`, and
+`baud-core/tests/image_anchor.rs` pins the rows by their text -- see "What a
+resize does to an image" below.
 
 ## The Sixel capture, in the corpus
 
@@ -318,7 +345,7 @@ and `the_scroll_count_matches_the_rotation_deltas`.
 (`magick -size 64x48 gradient:blue-yellow -swirl 180 sixel:-`) -- 5458 bytes,
 `"1;1;64;48` raster attributes, 233 RGB register defines, 184 `!` repeats and
 eight six-pixel bands, all RGB. It is the golden-frame gate's payload (`s-sixel`
-gate 2) once a renderer exists, and the storage gate's real input today.
+gate 2) and the storage gate's real input.
 Recordings are enumerated by explicit lists (`golden.rs`, `support/mod.rs`), not
 by a directory scan, so a `sixel/` capture joins a gate only when its name is
 added to that gate -- it does not disturb the text corpus.
@@ -358,21 +385,120 @@ the correct behaviour, the same call the link table makes.
 
 ## Placement: absolute line, column, z-index
 
-An anchor is an **absolute line** plus a column, the `select.rs` model
-(`AbsLine(u64)`, `scrolled - back` is the top visible line, the oldest
-retained is `scrolled - history`). A Sixel is placed at the cursor's cell
-when its `ST` arrives; the anchor records the absolute line that cell is
-on, so:
+An anchor is an **absolute line of one screen** plus a column. A Sixel is
+placed at the cursor's cell when its `ST` arrives, and the anchor records
+the line that cell is on: `top + cursor row`, where `top` is the line at the
+top of that screen's window (`Book::top`, `Book::alt_top`). So:
 
-* **Scroll is free.** The image draws at `anchor_line - (scrolled - back)`
-  rows from the top of the screen. Output scrolling under it moves it up
-  with its line, exactly as a selection endpoint moves, and nothing
-  re-registers.
-* **Off the top clips**, and past `scrolled - history` the anchor's line is
-  gone from the ring and the placement is dropped (`images_dropped += 1`).
+* **Scroll is free.** The image draws at `line - top` rows from the top of
+  the view, with `top` from `Term::image_origin(back)`. Output scrolling
+  under it moves `top` and not the anchor, so the image moves up with its
+  line and nothing re-registers.
+* **Off the top clips**, and when its anchor row leaves what the ring
+  retains the placement is dropped and counted in `placements_expired`.
 * **The live view and the scrollback view** both draw it, because both are
   a rotation of the ring the anchor is expressed against -- the same
   property that made the scrollbar and selection survive `Term::view(back)`.
+
+### What a resize does to an image
+
+The owner's call, 2026-09-22: **an image follows the row it was placed on**,
+foot's model and ghostty's. A survey of eight terminals, read in source and
+adversarially checked, found four models -- follow the row (foot, ghostty),
+keep the screen position and let text reflow under it (kitty), cut the image
+into per-cell slices that reflow with the text (WezTerm), and let the
+application redraw (xterm, mintty and the rest) -- and following the row is
+the one where the picture stays beside the text it was printed with.
+
+* **The window's top line moves with the window.** A shorter screen retires
+  rows off the top and `top` moves on by as many; a taller one pulls them
+  back and `top` moves back. The first implementation numbered placements by
+  a monotonic count of scrolls, which neither moved, so a shrink slid every
+  image down by the rows it retired and a view scrolled back after one put
+  it thirty rows off. `the_windows_top_line_matches_the_rotation_deltas`
+  pins the count to the rotation, both ways.
+* **A reflow maps each anchor through the re-cut.** `View::reflow` takes a
+  hook (`grid::Follow`) it calls once per line it keeps, before copying the
+  line, with where each of its rows lands; the store stages every primary
+  placement at its row from the oldest retained line, maps the ones on each
+  line as it is visited, and writes them back against the same origin. A
+  row lands where its first cell lands. The column is kept, so a column past
+  the new edge is cropped where it is drawn rather than moved. An anchor at
+  a line's start -- every image printed after a newline -- round-trips
+  exactly, and widening back brings it whole. An anchor on a wrapped
+  continuation row does not: a round trip brings it back a row higher,
+  because the first cell of the row it landed on belongs to the row above
+  at the old width. A line the reflow drops takes its image with it.
+* **An image goes when its row does**: past the far end of the history, cut
+  below a shorter window past what the ring keeps, blanked as a reverse
+  scroll takes the newest history line back, or dropped by a reflow. Each is
+  counted. Without this a placement in the history never left the 64-slot
+  table, and once one was in it every text run and every scroll after it
+  scanned the table.
+* **Each screen owns its images.** A placement records its screen; the
+  renderer draws only the live screen's; leaving the alternate screen
+  deletes its images, which foot and ghostty both do.
+
+**What it is gated by**: `baud-core/tests/image_anchor.rs`, where every
+assertion is the text beside the image -- `MARK` on the row above, the prompt
+on the row after its last -- because a reflow renumbers every row and a
+line-number assertion can hold with the image on the wrong row. foot's trap
+(an image after a blank line, which foot maps a row high) and WezTerm's (an
+image on a row that also holds text, which WezTerm truncates) are pinned by
+name, with a drag through forty sizes, an image in the history narrowed and
+widened, a view asked for past the history, an image above a prompt block
+the shell redraws, and the continuation-row drift pinned as what it is.
+Eleven mechanisms were perturbed on their own, and each fails its own test --
+two of them only after a test written for it, because the first cases could
+not tell the mechanism apart (the view clamp at a history whose oldest line
+was zero) or never reached it (no image test sent the shell's prompt marks).
+
+**What it costs, measured** (`ingest2`, six rounds interleaved, first
+discarded, A/A in the sweep, on mains, `cells_written` identical on every
+arm): nothing on a stream with no image -- flat, lines, cat, less and btop
+all overlap. And on `sixel-cat`, the committed Sixel followed by
+`cat-scroll.raw`:
+
+| arm | MB/s |
+|---|---|
+| before | 789.0 [774.5-792.0] |
+| **after** | **1408.3** [1337.3-1447.0] |
+| A/A copy of after | 1397.4 [1368.5-1427.5] |
+| after, without the line bound | 1034.4 [1007.4-1057.3] |
+
+The "before" arm kept its first image placed forever and scanned all 64
+slots on every text run. In time a byte the expiry and a per-screen bound on
+the lines placements lie between (`Reach`) share the win about equally --
+1.27 ms a MB before, 0.97 with the expiry alone, 0.71 with both -- and the
+bound is what lets the text-over-image check and the expiry answer from two
+compares when the rows being written are past every image.
+
+The arms do not do equal work, and the difference runs against "before": its
+arena holds one image and nothing frees it, so it stores the first and
+refuses the other 59, decoding and storing less than the arms it loses to.
+The no-bound arm's figure is a whole-rep average -- each rep's image expires
+partway through the rep -- so the cost while an image is present is larger
+than it shows, and is not measured on its own.
+
+**Rows that move inside the window move their images too.** A scrolling
+region, `IL` and `DL` move rows without moving the window's top line, so
+the anchor has to be moved by name: `ImageStore::scroll_band` shifts the
+placements on the band's lines with the rows, and drops, counted, one whose
+row left the band -- deleted off the top of a region that copies, or
+pushed past its bottom. A region anchored at the top with fewer rows under
+it than in it scrolls by rotating the whole grid and copying the rows under
+it back, so the band there is the rows under the region, moved back down
+one a scroll, and the line leaving its top is retired to the history with
+its image; a shorter top-anchored region copies instead, and that line is
+deleted with its image. Before, an image on a
+status line under `DECSTBM 1 ; 49` walked up into the region a row a
+scroll while its text stayed put, and a middle region copied its text and
+left its images behind. No recording carries an image in a region; the
+gates are fixtures in `baud-core/tests/image_anchor.rs`, the HT and SO/SI
+precedent for what the corpus cannot contain, each red before the fix and
+each of the band's mechanisms perturbed to fail its own. Every call site's
+bounds were moved a row each way too, twenty perturbations: nineteen fail a
+test, and the one that does not moves only a line below the window.
 
 Z-index orders overlapping placements; a later image at the same cell draws
 over an earlier one. Text is drawn, then images by ascending z, so an image
@@ -382,10 +508,11 @@ program placing an image expects.
 **The cursor after a Sixel** is a real interaction with the grid, not a
 render detail. `[[source: ctlseqs]]` mode 8452 (sixel scrolling) leaves the
 cursor to the right of the image; without it the cursor returns to the
-image's left column on the line below. baud follows the mode, defaults it
-to off (the DEC default), and records it -- a mode set and never read is
-the failure `docs/vt-coverage.md` rates worst, so the cursor advance is
-what reads it. The image occupies `ceil(Pv / cell_h)` rows and the grid
+image's left column on the line below. The design was to follow the mode;
+what shipped is the default only, and 8452 falls through to the
+unsupported-mode counter, as the section on the cursor advance above says --
+a mode recorded and never read being the failure `docs/vt-coverage.md` rates
+worst. The image occupies `ceil(Pv / cell_h)` rows and the grid
 scrolls to make room the way `LF` past the bottom does, so a tall image at
 the bottom of the screen pushes lines into scrollback and its own anchor
 scrolls with them.
@@ -442,13 +569,14 @@ if the operation regressed.
   scaling both would rest on an unmeasured density guess. The resolved
   budget is logged at startup, so a reader who raises one knob and still
   hits a refusal can see which limit bit them.
-* **Reflow.** A width resize re-cuts the lines an anchor names. An image
-  anchored to a line that reflow joins or splits has an ill-defined column
-  afterwards. The simplest sound answer is to keep the anchor's absolute
-  line, recompute the column at the new width, and drop the placement if
-  the line no longer exists -- but "images survive a width change at all"
-  is a product decision, and dropping every image on resize (what a decode
-  that re-runs on redraw would give) is also defensible. Flagged.
+* ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
+  placed on**, foot's model and ghostty's, over kitty's fixed screen
+  position and WezTerm's per-cell slices. See "What a resize does to an
+  image" below.
+* ~~**The alternate screen's images.**~~ **Taken, 2026-09-22: each screen
+  owns its images.** The shell's are not drawn while a full-screen program
+  is up and are back when it exits; the program's are deleted when it
+  leaves, the rule foot and ghostty both follow.
 * **Private vs shared colour registers** (`[[source: ctlseqs]]` mode 1070).
   Whether each Sixel gets a fresh 256-register palette or shares one across
   the session. The ecosystem default is **private** (mode 1070 *set*) --

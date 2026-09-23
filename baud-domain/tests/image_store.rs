@@ -7,8 +7,8 @@
 //! describes.
 
 use baud_domain::{
-    Col, ColorWord, ImagePx, ImageSlot, ImageStore, LineIdx, PlacementSlot, Sixel, SixelCanvas,
-    SixelPx, ZIndex,
+    BandMove, Col, ColorWord, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, PlacementSlot,
+    Rows, Sixel, SixelCanvas, SixelPx, ZIndex,
 };
 
 fn red() -> ColorWord {
@@ -109,7 +109,13 @@ fn a_placement_holds_its_image_line_column_and_z() {
     let mut store = b.store();
     let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
 
-    let pid = store.place(id, LineIdx::FIRST.next(), Col::ZERO, ZIndex::of(-3));
+    let pid = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST.next(),
+        Col::ZERO,
+        ZIndex::of(-3),
+    );
     assert!(!pid.is_none());
 
     let placed: Vec<PlacementSlot> = store.placements().map(|(_, p)| *p).collect();
@@ -126,13 +132,25 @@ fn a_full_placement_table_refuses_and_counts() {
     for _ in 0..4 {
         assert!(
             !store
-                .place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO)
+                .place(
+                    id,
+                    ImageScreen::Primary,
+                    LineIdx::FIRST,
+                    Col::ZERO,
+                    ZIndex::ZERO
+                )
                 .is_none()
         );
     }
     assert!(
         store
-            .place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO)
+            .place(
+                id,
+                ImageScreen::Primary,
+                LineIdx::FIRST,
+                Col::ZERO,
+                ZIndex::ZERO
+            )
             .is_none(),
         "the fifth placement has no slot"
     );
@@ -144,8 +162,20 @@ fn the_last_placement_leaving_frees_the_image_and_reclaims_its_span() {
     let mut b = Buffers::new();
     let mut store = b.store();
     let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
-    let p1 = store.place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO);
-    let p2 = store.place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO);
+    let p1 = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    let p2 = store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
 
     store.unplace(p1);
     assert!(
@@ -199,8 +229,20 @@ fn free_deletes_the_image_and_all_its_placements() {
     let mut b = Buffers::new();
     let mut store = b.store();
     let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
-    store.place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO);
-    store.place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO);
+    store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
 
     store.free(id);
     assert!(store.image(id).is_none());
@@ -217,7 +259,13 @@ fn reset_forgets_everything() {
     let mut b = Buffers::new();
     let mut store = b.store();
     let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
-    store.place(id, LineIdx::FIRST, Col::ZERO, ZIndex::ZERO);
+    store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::FIRST,
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
 
     store.reset();
     assert!(store.image(id).is_none());
@@ -274,4 +322,222 @@ fn a_real_sixel_decodes_into_the_store_in_place() {
         view.pixels.len()
     );
     assert!(!id.is_none(), "the store handed back a live image id");
+}
+
+#[test]
+fn a_reflow_maps_each_placement_once_and_drops_the_ones_no_line_took() {
+    // The old and new layouts share one numbering, so a placement mapped into
+    // a later line's old range must not be mapped again when that line is
+    // visited. Three placements at rows 5, 10 and 20 from the floor: the first
+    // line (rows 0..6) moves down five, landing the first on row 10; the next
+    // line visited (row 10 alone) moves down a hundred, which is the second's
+    // and not the first's; no line takes row 20, so that one is dropped.
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let floor = LineIdx::of(1000);
+    for r in [5u64, 10, 20] {
+        let pid = store.place(
+            id,
+            ImageScreen::Primary,
+            LineIdx::of(1000 + r),
+            Col::ZERO,
+            ZIndex::ZERO,
+        );
+        assert!(!pid.is_none());
+    }
+    // One on the other screen, which the reflow of the primary must not touch.
+    store.place(
+        id,
+        ImageScreen::Alternate,
+        LineIdx::of(3),
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert_eq!(store.follow_begin(ImageScreen::Primary, floor), 3);
+    store.follow_line(Rows::of_count(0), Rows::of_count(6), &|r: Rows| {
+        Rows::of_count(r.index() + 5)
+    });
+    store.follow_line(Rows::of_count(10), Rows::of_count(1), &|r: Rows| {
+        Rows::of_count(r.index() + 100)
+    });
+    assert_eq!(store.follow_end(floor), 1, "the one no line took");
+    let mut lines: Vec<(ImageScreen, u64)> = store
+        .placements()
+        .map(|(_, p)| (p.screen, p.line.value()))
+        .collect();
+    lines.sort_by_key(|&(_, l)| l);
+    assert_eq!(
+        lines,
+        vec![
+            (ImageScreen::Alternate, 3),
+            (ImageScreen::Primary, 1010),
+            (ImageScreen::Primary, 1110)
+        ]
+    );
+    assert_eq!(store.placements_expired, 1);
+}
+
+#[test]
+fn expiry_keeps_the_retained_span_and_drops_a_blanked_row() {
+    let mut pixels = [ColorWord::DEFAULT; 4];
+    let mut slots = [ImageSlot::EMPTY; 1];
+    let mut places = [PlacementSlot::EMPTY; 8];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    for l in [9u64, 10, 15, 19, 20] {
+        store.place(
+            id,
+            ImageScreen::Primary,
+            LineIdx::of(l),
+            Col::ZERO,
+            ZIndex::ZERO,
+        );
+    }
+    store.place(
+        id,
+        ImageScreen::Alternate,
+        LineIdx::of(0),
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert_eq!(store.placements_refused, 0, "all six placed");
+    // Retain [10, 20), and 15 was blanked: 9, 15 and 20 go.
+    let n = store.expire(
+        ImageScreen::Primary,
+        LineIdx::of(10),
+        LineIdx::of(20),
+        Some(LineIdx::of(15)),
+    );
+    assert_eq!(n, 3);
+    let mut kept: Vec<u64> = store
+        .placements()
+        .filter(|(_, p)| p.screen == ImageScreen::Primary)
+        .map(|(_, p)| p.line.value())
+        .collect();
+    kept.sort_unstable();
+    assert_eq!(kept, vec![10, 19]);
+    assert_eq!(store.expire_screen(ImageScreen::Alternate), 1);
+    assert_eq!(store.placements_expired, 4);
+}
+
+#[test]
+fn a_cancelled_follow_leaves_every_placement_where_it_was() {
+    // A reflow that returns before re-cutting visits no line, so nothing is
+    // mapped; ending the follow would read that as every line dropped.
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::of(7),
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    assert_eq!(store.follow_begin(ImageScreen::Primary, LineIdx::of(0)), 1);
+    store.follow_cancel();
+    assert_eq!(
+        store.follow_end(LineIdx::of(0)),
+        0,
+        "nothing staged is left"
+    );
+    let lines: Vec<u64> = store.placements().map(|(_, p)| p.line.value()).collect();
+    assert_eq!(lines, vec![7]);
+    assert_eq!(store.placements_expired, 0);
+}
+
+#[test]
+fn a_band_moves_its_placements_and_drops_the_ones_that_leave_it() {
+    // The band is lines [5, 10). 4 and 10 are its neighbours on either side
+    // and must not move; the alternate screen's 7 is on the other screen.
+    let mut pixels = [ColorWord::DEFAULT; 4];
+    let mut slots = [ImageSlot::EMPTY; 1];
+    let mut places = [PlacementSlot::EMPTY; 8];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    for l in [4u64, 5, 7, 9, 10] {
+        store.place(
+            id,
+            ImageScreen::Primary,
+            LineIdx::of(l),
+            Col::ZERO,
+            ZIndex::ZERO,
+        );
+    }
+    store.place(
+        id,
+        ImageScreen::Alternate,
+        LineIdx::of(7),
+        Col::ZERO,
+        ZIndex::ZERO,
+    );
+    let lines = |s: &ImageStore<'_>, screen| {
+        let mut v: Vec<u64> = s
+            .placements()
+            .filter(|(_, p)| p.screen == screen)
+            .map(|(_, p)| p.line.value())
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    // Up two: 5 leaves the band's top and goes, 7 and 9 move to 5 and 7.
+    let gone = store.scroll_band(
+        ImageScreen::Primary,
+        LineIdx::of(5),
+        LineIdx::of(10),
+        Rows::of_count(2),
+        BandMove::Up,
+    );
+    assert_eq!(gone, 1);
+    assert_eq!(lines(&store, ImageScreen::Primary), vec![4, 5, 7, 10]);
+    // Down three: 7 lands on 10, past the band's last line, and goes.
+    let gone = store.scroll_band(
+        ImageScreen::Primary,
+        LineIdx::of(5),
+        LineIdx::of(10),
+        Rows::of_count(3),
+        BandMove::Down,
+    );
+    assert_eq!(gone, 1);
+    assert_eq!(lines(&store, ImageScreen::Primary), vec![4, 8, 10]);
+    assert_eq!(
+        lines(&store, ImageScreen::Alternate),
+        vec![7],
+        "the other screen"
+    );
+    assert_eq!(store.placements_expired, 2);
+    // A band that misses every placement moves nothing.
+    assert_eq!(
+        store.scroll_band(
+            ImageScreen::Primary,
+            LineIdx::of(11),
+            LineIdx::of(20),
+            Rows::of_count(1),
+            BandMove::Up,
+        ),
+        0
+    );
+    assert_eq!(lines(&store, ImageScreen::Primary), vec![4, 8, 10]);
+    // The reach has to follow a move out past its old last line, or the
+    // next band over the new line early-outs on the stale one. 10 goes to
+    // 15, past the reach of [4, 10] the placements were made with, and a
+    // band covering only 15 must still find it. Without the rescan after
+    // the first move this is the one assertion that fails: every earlier
+    // one reads the same off a stale reach and a fresh one.
+    store.scroll_band(
+        ImageScreen::Primary,
+        LineIdx::of(10),
+        LineIdx::of(20),
+        Rows::of_count(5),
+        BandMove::Down,
+    );
+    store.scroll_band(
+        ImageScreen::Primary,
+        LineIdx::of(15),
+        LineIdx::of(30),
+        Rows::of_count(2),
+        BandMove::Down,
+    );
+    assert_eq!(lines(&store, ImageScreen::Primary), vec![4, 8, 17]);
 }

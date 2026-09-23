@@ -822,6 +822,9 @@ impl<'b> Term<'b> {
                 let cut = k.min(from - 1 - cy);
                 let retire = k - cut;
                 self.rot = self.rot.advance(retire, ring);
+                // The window's top line moves on with it, so an image on a
+                // retired row keeps its row -- it is behind the window now.
+                self.store.book.top = self.store.book.top.plus(Rows::of_count(retire));
                 hist = (hist + retire).min(spare);
                 hidden = (hidden + cut).min(spare - hist);
                 cy -= retire;
@@ -863,6 +866,14 @@ impl<'b> Term<'b> {
                 let pull = (k - reveal).min(hist);
                 self.rot = self.rot.retreat(pull, ring);
                 hist -= pull;
+                // Back with the window; `pull` is within the history, and the
+                // top line is never below the history's depth.
+                self.store.book.top = self
+                    .store
+                    .book
+                    .top
+                    .minus(Rows::of_count(pull))
+                    .unwrap_or(LineIdx::FIRST);
                 cy += pull;
                 // The blank cut rows, after the history: revealed rather
                 // than counted as hidden, and blanked below all the same.
@@ -927,13 +938,43 @@ impl<'b> Term<'b> {
                     .alt_saved
                     .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
             };
+            // **The primary's images follow their rows through the re-cut.**
+            // Each is staged at its row counted from the oldest retained line,
+            // mapped as the reflow visits its line -- before the line is
+            // copied, while its cells can still be read -- and written back
+            // against the same origin, which a reflow keeps. A line the reflow
+            // drops takes its image with it, counted.
+            let ring = self.store.ring_rows();
+            let floor = self
+                .store
+                .book
+                .top
+                .minus(self.store.book.hist)
+                .unwrap_or(LineIdx::FIRST);
+            let images = &mut self.store.images;
+            let staged = match images.any_placed() {
+                true => images.follow_begin(ImageScreen::Primary, floor),
+                false => 0,
+            };
+            // Whether the reflow visited a line: one that returned before
+            // the re-cut visited none, and staged placements it never mapped
+            // are still where they were, not gone.
+            let mut visited = false;
+            let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows) -> Rows| {
+                visited = true;
+                images.follow_line(from, n, land);
+            };
+            let follow: Option<Follow<'_>> = match staged {
+                0 => None,
+                _ => Some(&mut hook),
+            };
             let r = View::new(
                 self.store.vp,
                 self.store.used,
                 self.stride,
                 Cols::of_index(old_cols.index().max(cols.index())),
                 rows,
-                self.store.ring_rows(),
+                ring,
                 self.rot,
             )
             .reflow(
@@ -942,10 +983,21 @@ impl<'b> Term<'b> {
                 self.store.book.hist,
                 self.store.book.hidden,
                 cursor,
+                follow,
             );
+            match (staged, visited) {
+                (0, _) => {}
+                (_, true) => {
+                    self.store.images.follow_end(floor);
+                }
+                (_, false) => self.store.images.follow_cancel(),
+            }
             self.rot = r.rot;
             self.store.book.hist = r.hist;
             self.store.book.hidden = r.hidden;
+            // The oldest retained line moved on by what the reflow dropped,
+            // and the window's top is the history's depth after it.
+            self.store.book.top = floor.plus(r.dropped).plus(r.hist);
             match live {
                 true => (self.cy, self.cx) = r.cursor,
                 false => {
@@ -976,6 +1028,12 @@ impl<'b> Term<'b> {
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(cols.index().saturating_sub(1));
+        // **An image whose row the resize took away goes with it**: a row
+        // past what the primary's ring now retains, or past the bottom of a
+        // shorter alternate screen, which keeps nothing below it.
+        if self.store.images.any_placed() {
+            self.expire_images();
+        }
         // **The in-band report, after the resize is complete.** The
         // specification is explicit that a terminal must not send one
         // before its own resize has finished, which is why this is the
@@ -1110,11 +1168,18 @@ impl<'b> Term<'b> {
     /// the same read as [`Term::viewport`], at a rotation `back` further
     /// round the ring, so it costs a frame nothing more.
     pub fn view(&self, back: Rows) -> Viewport<'_> {
-        let n = match self.cold.screen {
-            Screen::Normal => back.index().min(self.store.book.hist.index()),
-            Screen::Alternate => 0,
-        };
-        self.viewport().back(n)
+        self.viewport().back(self.looking_back(back).index())
+    }
+
+    /// How far back a view asked for `back` lines up really is: bounded by
+    /// the history on the primary, and none on the alternate screen. The one
+    /// clamp [`Term::view`] and [`Term::image_origin`] share, so the row a
+    /// view draws and the row an image draws on cannot disagree.
+    fn looking_back(&self, back: Rows) -> Rows {
+        match self.cold.screen {
+            Screen::Normal => back.min(self.store.book.hist),
+            Screen::Alternate => Rows::ZERO,
+        }
     }
 
     /// One screen row, `cols` cells: [`Viewport::row`].
@@ -1378,15 +1443,41 @@ impl<'b> Term<'b> {
         self.surface().3
     }
 
-    /// **Lines that have ever scrolled off the top, monotonic and unbounded.**
-    /// The absolute line at the top of the live screen: screen row `y` is line
-    /// `scrolled + y`, and a scrollback view `back` lines up shows lines from
-    /// `scrolled - back`. This is what an image placement anchors to, and it
-    /// equals the `Scrolled` the app tracks off [`Term::moved_since`] -- the
-    /// same count, exposed here so the core that places an image and the
-    /// renderer that draws it agree without one re-deriving it.
-    pub fn scrolled(&self) -> Rows {
-        self.store.book.scrolled
+    /// Drop every placement whose row is gone, on either screen: the
+    /// primary's outside the rows its ring retains, the alternate's outside
+    /// its window. Counted in `ImageStore::placements_expired`.
+    fn expire_images(&mut self) {
+        let b = &self.store.book;
+        let lo = b.top.minus(b.hist).unwrap_or(LineIdx::FIRST);
+        let hi = b.top.plus(self.rows).plus(b.hidden);
+        let (alt, rows) = (b.alt_top, self.rows);
+        let images = &mut self.store.images;
+        images.expire(ImageScreen::Primary, lo, hi, None);
+        images.expire(ImageScreen::Alternate, alt, alt.plus(rows), None);
+    }
+
+    /// **Where a view `back` lines up starts, in the live screen's image
+    /// numbering**: the screen, and the absolute line at the view's top row.
+    /// A placement on that screen draws at screen row `line - top`; a
+    /// placement on the other screen is not drawn -- the shell's image is not
+    /// the editor's. `back` is clamped exactly as [`Term::view`] clamps it, so
+    /// an image and the grid row it sits on are drawn from one answer, and
+    /// the renderer re-derives nothing.
+    pub fn image_origin(&self, back: Rows) -> ImageOrigin {
+        let book = &self.store.book;
+        match self.cold.screen {
+            Screen::Normal => ImageOrigin {
+                screen: ImageScreen::Primary,
+                top: book
+                    .top
+                    .minus(self.looking_back(back))
+                    .unwrap_or(LineIdx::FIRST),
+            },
+            Screen::Alternate => ImageOrigin {
+                screen: ImageScreen::Alternate,
+                top: book.alt_top,
+            },
+        }
     }
 
     /// Rows a shorter screen cut from below the cursor and a taller one
