@@ -483,11 +483,15 @@ fn row_of<'t>(
         let y = Row::from_index(y);
         return Some((live.row(y), live.wrapped(y)));
     }
-    let back = usize::try_from(scrolled.0 - line.0).ok()?;
-    if back > term.scrollback().len() {
+    // A line the window can reach, by the core's clamp: the history count
+    // is the primary's whatever screen is up, and the alternate screen
+    // reaches none of it -- its view clamps to the live screen, whose top
+    // row a line above it would otherwise read again.
+    let back = Rows::of_count(usize::try_from(scrolled.0 - line.0).ok()?);
+    if term.looking_back(back) != back {
         return None;
     }
-    let view = term.view(Rows::of_count(back));
+    let view = term.view(back);
     Some((view.row(Row::ZERO), view.wrapped(Row::ZERO)))
 }
 

@@ -133,7 +133,10 @@ impl Arms<'_, '_> {
         self.renderer.set_images(t, self.back);
         self.map
             .ensure(view, &mut self.renderer, &mut self.candidates);
-        let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
+        // The app's rule: the window by the core's clamp, so the alternate
+        // screen -- which keeps no history -- has its cursor whatever
+        // window the scene carries.
+        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
         });
@@ -230,7 +233,10 @@ impl Arms<'_, '_> {
         } else {
             rows
         };
-        let cursor = (t.cursor_visible() && self.back.index() == 0).then(|| {
+        // The app's rule: the window by the core's clamp, so the alternate
+        // screen -- which keeps no history -- has its cursor whatever
+        // window the scene carries.
+        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
         });

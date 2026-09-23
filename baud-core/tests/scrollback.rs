@@ -366,3 +366,170 @@ fn moved_since_reads_a_rotation_the_short_way_round() {
         }
     }
 }
+
+/// **The clamp every reader of a scrolled-back window has to ask.**
+/// `looking_back` is what `Term::view` applies: the history on the primary,
+/// and nothing on the alternate screen -- beside a history count that still
+/// reports the primary's while the alternate screen is up, which is what a
+/// reader that skips the clamp reads instead, and what drew a thumb over a
+/// screen with nothing behind it.
+#[test]
+fn looking_back_is_the_history_on_the_primary_and_nothing_on_the_alternate_screen() {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..60)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        assert_eq!(t.scrollback().len(), 11);
+        assert_eq!(t.looking_back(Rows::ZERO).index(), 0);
+        assert_eq!(t.looking_back(Rows::of_count(5)).index(), 5);
+        assert_eq!(
+            t.looking_back(Rows::of_count(500)).index(),
+            11,
+            "bounded by what is retained"
+        );
+        support::feed(t, b"\x1b[?1049h");
+        assert_eq!(
+            t.scrollback().len(),
+            11,
+            "the history is still the primary's, and still reported"
+        );
+        assert_eq!(
+            t.looking_back(Rows::of_count(5)).index(),
+            0,
+            "the alternate screen has no window over it"
+        );
+        assert_eq!(t.looking_back(Rows::of_count(11)).index(), 0);
+        support::feed(t, b"\x1b[?1049l");
+        assert_eq!(t.looking_back(Rows::of_count(5)).index(), 5);
+    });
+}
+
+/// **The history mark measures the primary, whatever screen is up.** The
+/// alternate screen scrolling rotates its own ring and not the primary's,
+/// so a window over the history must not follow it; the primary's rows
+/// retired before a switch are still counted while the alternate screen is
+/// live; and a read that ends back on the primary counts what the primary
+/// scrolled on both sides of the excursion. Only the first of the three
+/// tells this mark from the live rotation: the other two are held to it so
+/// a mark that answered nothing on the alternate screen, or only read the
+/// primary's ring when it is live, cannot pass.
+#[test]
+fn the_history_mark_moves_with_the_primary_and_not_the_alternate_screen() {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..60)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        let alt = |from: usize, to: usize| -> Vec<u8> {
+            (from..to)
+                .flat_map(|i| format!("alt {i}\r\n").into_bytes())
+                .collect()
+        };
+        // The alternate screen scrolls; the primary does not.
+        // The control reads the alternate screen's own ring over ten rows:
+        // it is the screen's capacity, fifty, and the short way round a
+        // ring of fifty cannot tell thirty forward from twenty back.
+        let mark = t.history_mark();
+        support::feed(t, b"\x1b[?1049h\x1b[50;1H");
+        let live = t.rotation();
+        support::feed(t, &alt(0, 10));
+        assert_eq!(
+            t.moved_since(live),
+            Moved::Retired(Rows::of_count(10)),
+            "the control: the alternate screen's own ring did turn"
+        );
+        support::feed(t, &alt(10, 30));
+        assert_eq!(
+            t.history_moved_since(mark),
+            Moved::Retired(Rows::ZERO),
+            "and the primary's did not"
+        );
+        support::feed(t, b"\x1b[?1049l");
+        assert_eq!(t.history_moved_since(mark), Moved::Retired(Rows::ZERO));
+        // Measured while the alternate screen is up, after the primary
+        // moved: three rows retired before the switch are three rows, not
+        // nothing because the alternate screen is live.
+        let mark = t.history_mark();
+        support::feed(t, b"a\r\nb\r\nc\r\n\x1b[?1049h\x1b[50;1H");
+        support::feed(t, &alt(0, 30));
+        assert_eq!(
+            t.history_moved_since(mark),
+            Moved::Retired(Rows::of_count(3))
+        );
+        // And a read that ends back on the primary: two more after it.
+        support::feed(t, b"\x1b[?1049ld\r\ne\r\n");
+        assert_eq!(
+            t.history_moved_since(mark),
+            Moved::Retired(Rows::of_count(5))
+        );
+    });
+}
+
+/// **A flood is counted, not read round a ring.** Forty lines on a
+/// ten-row screen with twenty lines of history retire thirty-one rows in
+/// one read: more than half of a thirty-row ring, which the short way round
+/// reads as one, and more than the whole ring, which it cannot read at all.
+/// A window scrolled back through that had its lines scroll away above it,
+/// and the count that says so is the line at the window's top.
+#[test]
+fn the_history_mark_counts_a_flood_past_the_ring() {
+    let ws = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+    let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &ws);
+    assert_eq!(t.ring().index(), 30);
+    let (mark, live) = (t.history_mark(), t.rotation());
+    let flood: Vec<u8> = (0..40)
+        .flat_map(|i| format!("line {i}\r\n").into_bytes())
+        .collect();
+    support::feed(&mut t, &flood);
+    assert_eq!(
+        t.moved_since(live),
+        Moved::Retired(Rows::of_count(1)),
+        "the control: the ring's rotation came round to one"
+    );
+    assert_eq!(
+        t.history_moved_since(mark),
+        Moved::Retired(Rows::of_count(31))
+    );
+}
+
+/// **The screen epoch moves on every switch and on nothing else**, so a
+/// read that left the alternate screen and entered it again -- the same
+/// screen at both ends, a cleared ring between -- is seen to have switched.
+#[test]
+fn the_screen_epoch_moves_on_every_switch_and_nothing_else() {
+    support::with_corpus(|t| {
+        let first = t.screen_epoch();
+        support::feed(t, b"text\r\n\x1b[2J\x1b[?1049l\x1b[1;5r\x1b[r");
+        assert_eq!(
+            t.screen_epoch(),
+            first,
+            "output, and a leave while not in it"
+        );
+        support::feed(t, b"\x1b[?1049h");
+        let entered = t.screen_epoch();
+        assert_ne!(entered, first);
+        support::feed(t, b"\x1b[?1049h\x1b[Hvi");
+        assert_eq!(t.screen_epoch(), entered, "an entry while in it");
+        support::feed(t, b"\x1b[?1049l");
+        let left = t.screen_epoch();
+        assert_ne!(left, entered, "leaving is a switch too");
+        support::feed(t, b"\x1b[?1049h");
+        let again = t.screen_epoch();
+        assert!(
+            again != left && again != entered,
+            "and so is entering again"
+        );
+        support::feed(t, b"\x1b[?1049l\x1b[?1049h");
+        assert_eq!(t.screen(), Screen::Alternate);
+        assert_ne!(
+            t.screen_epoch(),
+            again,
+            "left and entered again in one read: the same screen, not the same surface"
+        );
+    });
+}

@@ -98,11 +98,41 @@ pub enum Zone {
     Output,
 }
 
-/// How the window moved between two rotations; see [`Term::moved_since`].
+/// How the window moved between two rotations; see [`Term::moved_since`]
+/// and [`Term::history_moved_since`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Moved {
     Retired(Rows),
     Restored(Rows),
+}
+
+/// Where the primary screen's window stood, noted by [`Term::history_mark`]:
+/// what a window scrolled back into the history is anchored against. It is
+/// the absolute line at the primary window's top -- which the primary holds
+/// whatever screen is up, and which does not move while the alternate screen
+/// does -- rather than a rotation, so it is not read modulo a ring: a flood
+/// that retires more than half the ring in one read is still that many rows,
+/// where the short way round a ring would read it as rows restored. Its own
+/// type, so the live [`RowRot`] [`Term::rotation`] answers -- the other
+/// ring's while the alternate screen is up -- cannot be passed here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HistoryMark(LineIdx);
+
+/// Which surface is up, and which time it went up: it moves on every switch
+/// between the primary and the alternate screen, in either direction. Two
+/// equal readings saw one surface throughout -- where [`Term::screen`] read
+/// at both ends of a read cannot tell one that left the alternate screen and
+/// entered it again, which clears it and resets its ring, from one that
+/// never left.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ScreenEpoch(u32);
+
+impl ScreenEpoch {
+    pub(crate) const FIRST: ScreenEpoch = ScreenEpoch(0);
+
+    pub(crate) fn next(self) -> ScreenEpoch {
+        ScreenEpoch(self.0.wrapping_add(1))
+    }
 }
 
 /// A Sixel's requested background, from its `Pb`/`P2` parameter. `Opaque`
@@ -261,6 +291,8 @@ pub struct Cold {
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
+    /// Moves on every switch of `screen`: [`Term::screen_epoch`].
+    pub(crate) epoch: ScreenEpoch,
     /// The scrolling region, inclusive at both ends.
     pub(crate) top: Row,
     pub(crate) bot: Row,
@@ -341,6 +373,7 @@ impl Cold {
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
+            epoch: ScreenEpoch::FIRST,
             top: Row::ZERO,
             bot: Row::from_index(rows.index() - 1),
             saved: None,
@@ -1174,8 +1207,12 @@ impl<'b> Term<'b> {
     /// How far back a view asked for `back` lines up really is: bounded by
     /// the history on the primary, and none on the alternate screen. The one
     /// clamp [`Term::view`] and [`Term::image_origin`] share, so the row a
-    /// view draws and the row an image draws on cannot disagree.
-    fn looking_back(&self, back: Rows) -> Rows {
+    /// view draws and the row an image draws on cannot disagree -- and
+    /// public, because an embedder's scrollbar, cursor and selection have to
+    /// agree with that row too: [`Term::scrollback`] still reports the
+    /// primary's history while the alternate screen is up, and a window read
+    /// against it draws a thumb over a screen with nothing behind it.
+    pub fn looking_back(&self, back: Rows) -> Rows {
         match self.cold.screen {
             Screen::Normal => back.min(self.store.book.hist),
             Screen::Alternate => Rows::ZERO,
@@ -1423,12 +1460,17 @@ impl<'b> Term<'b> {
         RowBlock::leading(ring, self.stride).of(cells)
     }
 
-    /// How the window moved since a rotation a caller noted: rows retired
-    /// off the top, or rows restored -- a resize pulling history back, or
-    /// a redraw mark moving the window over its block. A rotation is
-    /// modular, so the short way round is the one that happened; an
-    /// embedder anchoring a scrolled-back window needs this and must not
-    /// guess it from two rotations.
+    /// How the live surface's window moved since a rotation a caller noted:
+    /// rows retired off the top, or rows restored -- a resize pulling
+    /// history back, or a redraw mark moving the window over its block. A
+    /// rotation is modular, so the short way round is the one that
+    /// happened. It is the *live* ring's, so across a read that switches
+    /// screens it compares two rings: a count that means nothing, and a
+    /// subtraction past zero -- a panic in a debug build -- when the
+    /// rotation noted is the primary's and the ring now live is the
+    /// alternate screen's shorter one. [`Term::screen_epoch`] says whether a
+    /// read switched; a window over the history is anchored with
+    /// [`Term::history_moved_since`] instead.
     pub fn moved_since(&self, before: RowRot) -> Moved {
         let ring = self.ring().index();
         let fwd = (self.rotation().index() + ring - before.index()) % ring;
@@ -1441,6 +1483,39 @@ impl<'b> Term<'b> {
     /// The rotation [`Term::cells`] is under.
     pub fn rotation(&self) -> RowRot {
         self.surface().3
+    }
+
+    /// Where the primary's window stands, whatever screen is up: what a
+    /// window over the history is anchored from. [`Term::moved_since`]
+    /// measures the *live* surface, which is the alternate screen's ring
+    /// while it is up -- so its output would push a scrolled-back window
+    /// further up the primary's history, and a read that switches screens
+    /// would compare two rings' rotations.
+    pub fn history_mark(&self) -> HistoryMark {
+        HistoryMark(self.store.book.top)
+    }
+
+    /// How the primary's window moved since `before`: rows retired into the
+    /// history, or rows taken back from it. Nothing while only the alternate
+    /// screen wrote, and what the primary scrolled across a read that
+    /// entered or left it -- however many rows, because the line at the
+    /// window's top is counted rather than read round a ring. A reflow
+    /// renumbers that line with the rows it re-cuts, so across a change of
+    /// width this is the renumbering of the window's top, not a count of
+    /// rows that scrolled.
+    pub fn history_moved_since(&self, before: HistoryMark) -> Moved {
+        let now = self.store.book.top;
+        match now.since(before.0) {
+            Some(n) => Moved::Retired(n),
+            None => Moved::Restored(before.0.since(now).unwrap_or(Rows::ZERO)),
+        }
+    }
+
+    /// Which surface is up, and which time: it moves on every switch between
+    /// the screens. A read whose two ends carry one epoch saw one surface,
+    /// so its live rotations are one ring's; any other read did not.
+    pub fn screen_epoch(&self) -> ScreenEpoch {
+        self.cold.epoch
     }
 
     /// Drop every placement whose row is gone, on either screen: the

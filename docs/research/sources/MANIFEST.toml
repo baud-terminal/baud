@@ -27,6 +27,7 @@
 #   I  instruction-set dispatch and how per-ISA code is organised
 #   J  rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation
 #   O  keystroke to pixel: the clocks on the path, and how typing latency has been measured
+#   L  the scrollbar, and the window over the history it indicates
 #   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 
@@ -6642,3 +6643,37 @@ group  = "C"
 # pty's `ws_xpixel / ws_col` and `ws_ypixel / ws_row`, else the `CSI 16 t`
 # answer, else nothing -- and with nothing, `yazi-adapter`'s `max_pixel`
 # falls back to the configured 600x900 whatever the pane.
+
+# Where a scrolled-back view goes when the alternate screen is entered. foot
+# keeps `view` and `offset` per grid (`[[source: foot-vt100-0]]`'s terminal.c
+# resets both, 2179-2180), and these two say what the switch and a keystroke
+# do with them: `?1049` swaps `term->grid` and resets no view (csi.c 497-538),
+# and a handled key calls `term_reset_view` (input.c 1732-1735), whose body --
+# in terminal.c, 3215-3222 -- resets `term->grid->view`: the live grid's, so
+# the primary's survives an alternate-screen excursion. **Cited as foot's**:
+# one implementation's answer.
+[sources.foot-csi]
+key    = "foot-csi"
+title  = "foot 1.21.0, csi.c -- the 47/1047/1049 switch between the normal and alternate grids"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/csi.c"
+file   = "foot-csi.c"
+sha256 = "45e1a839714c7670bd6a1a924dd8e8d8e8e55916f10f9aaf17c8a558a542d969"
+bytes  = 73284
+status = "retrieved"
+group  = "L"
+
+[sources.foot-input]
+key    = "foot-input"
+title  = "foot 1.21.0, input.c -- a handled key resets the live grid's view"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/input.c"
+file   = "foot-input.c"
+sha256 = "f5b8b8955b09c93c34af9af02b2a336a81459b43c5bb70331270e6013b95b596"
+bytes  = 121433
+status = "retrieved"
+group  = "L"

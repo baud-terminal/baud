@@ -1037,6 +1037,7 @@ impl Paint<'_, '_> {
             (true, Screen::Normal) => {
                 self.cold.alt_saved = Some(self.save());
                 self.cold.screen = Screen::Alternate;
+                self.cold.epoch = self.cold.epoch.next();
                 // **The kitty keyboard stacks are per-screen.** The active one
                 // parks and the alternate's takes over, so an editor's flags do
                 // not leak back to the shell -- the specification's separate
@@ -1073,6 +1074,7 @@ impl Paint<'_, '_> {
                     self.images.expire_screen(ImageScreen::Alternate);
                 }
                 self.cold.screen = Screen::Normal;
+                self.cold.epoch = self.cold.epoch.next();
                 // Restore the primary screen's kitty stack; see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
                 // Surface first, then the cursor: `restore` clamps against the

@@ -759,7 +759,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
-        let converted = self.convert(term, Rows::ZERO, damage);
+        self.render_at(term, Rows::ZERO, target, damage)
+    }
+
+    /// [`Renderer::render`] of a window `back` lines up the history: the
+    /// rows [`Term::view`] shows, and the images on them. What a driver
+    /// that scrolls the CPU path back calls, so the text moves with the
+    /// thumb, the selection and the link under a click.
+    pub fn render_at(
+        &mut self,
+        term: &mut Term<'_>,
+        back: Rows,
+        target: &mut Target<'_>,
+        damage: Damage,
+    ) -> Frame {
+        let converted = self.convert(term, back, damage);
         let frame = self.paint(target, converted);
         // **Images draw only on a full frame.** `paint` touches only the rows
         // it marked dirty, and this pass blits unconditionally, so on an
@@ -768,7 +782,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // Per-placement damage (dirtying the rows a placement moved over, the
         // `bar_moved` precedent) is the follow-on; a full frame is honest now.
         if damage == Damage::Full {
-            self.set_images(term, Rows::ZERO);
+            self.set_images(term, back);
             self.paint_images(term, target);
         }
         frame
@@ -943,7 +957,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the ring, `back` lines into the history when the user is looking
         // back; the copy into `cur` is this path's own frame-to-frame damage
         // record, not the core's, and a change of `back` dirties the rows it
-        // moves the way any other change does.
+        // moves the way any other change does. The window is the core's
+        // clamp of `back` -- what `Term::view` draws -- so the cursor below
+        // agrees with it: on the alternate screen, which keeps no history, a
+        // window left scrolled back on the primary is the live screen, and
+        // the program that owns it owns the cursor.
+        let back = term.looking_back(back);
         let vp = term.view(back);
         for r in 0..rows.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
