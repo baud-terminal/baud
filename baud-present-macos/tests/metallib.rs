@@ -139,3 +139,28 @@ fn the_shape_slot_count_matches_the_shader() {
          SHAPES_PER_CELL; they must be the same number"
     );
 }
+
+/// **`WIDE_TAIL` in the shader and `Content::WIDE_TAIL` are one fact spelled
+/// twice.** The cell shader reads the grid in place and gives a wide tail
+/// its lead's selection by comparing the cell's word against the literal;
+/// a literal that drifted from the reserved value would half-select every
+/// wide character a block's edge cuts on one GPU arm and not the other.
+#[test]
+fn the_wide_tail_value_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define WIDE_TAIL ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines WIDE_TAIL");
+    let hex = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .trim_start_matches("0x");
+    let value = u32::from_str_radix(hex, 16).expect("WIDE_TAIL is a hex literal");
+    assert_eq!(
+        value,
+        baud_domain::Content::WIDE_TAIL.bits(),
+        "the shader tests {line:?} for a wide tail; it must be the grid's word"
+    );
+}

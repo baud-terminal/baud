@@ -23,8 +23,8 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance, MapEntry,
-    Overlay, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Slide, Span, Stack, Tally,
-    Target, Theme, Trail, Transition, Window, back_for,
+    Overlay, Press, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Slide, Span, Stack,
+    Tally, Target, Theme, Trail, Transition, Window, back_for,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -3319,8 +3319,11 @@ impl Driver {
 
     /// A press, drag or release as a selection: one click a cell, two a
     /// word, three a line, a drag extending by the press's grain, Shift
-    /// moving the head and keeping the anchor, and a click that never
-    /// moved clearing what was there.
+    /// moving the head and keeping the anchor and the shape, and a click
+    /// that never moved clearing what was there. **Option at the press
+    /// starts a block**, and wins over Shift: under mouse tracking Shift is
+    /// the only way in, so Shift+Option is how a block starts there, where
+    /// letting Shift win would extend whatever was already on screen.
     fn select(&mut self, event: &Mouse) {
         let (row, col) = self.cell_under(event.x, event.y);
         let scrolled = self.app.scrolled;
@@ -3340,13 +3343,12 @@ impl Driver {
                     2 => Grain::Word,
                     _ => Grain::Line,
                 };
-                self.app.selection = match self.app.selection {
-                    Some(mut sel) if event.modifiers.shift => {
-                        sel.extend(span_at(sel.grain()));
-                        Some(sel)
-                    }
-                    _ => Some(Selection::at(span_at(grain), grain)),
-                };
+                self.app.selection = Some(Selection::pressed(
+                    self.app.selection,
+                    press_of(event.modifiers),
+                    grain,
+                    span_at,
+                ));
                 self.held = Some(MouseButton::Left);
             }
             ViewMouseKind::Dragged if self.held == Some(MouseButton::Left) => {
@@ -3788,6 +3790,20 @@ fn cell_under(
     )
 }
 
+/// What a left press does to the selection, from the modifiers held:
+/// Option starts a block and wins over Shift, because under mouse tracking
+/// Shift is the only way into a selection at all -- were Shift to win, a
+/// block could not be started while a selection was on screen.
+fn press_of(m: macos_liquid_glass::drawable::Modifiers) -> Press {
+    if m.option {
+        Press::Block
+    } else if m.shift {
+        Press::Extend
+    } else {
+        Press::Stream
+    }
+}
+
 /// The modifier bits a mouse report carries, from the view's modifiers:
 /// Option is Meta, the way xterm reads the key.
 fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
@@ -3807,6 +3823,22 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn option_starts_a_block_and_wins_over_shift() {
+        use macos_liquid_glass::drawable::Modifiers;
+        let held = |shift, option| Modifiers {
+            shift,
+            option,
+            ..Modifiers::default()
+        };
+        assert_eq!(press_of(held(false, false)), Press::Stream);
+        assert_eq!(press_of(held(true, false)), Press::Extend);
+        assert_eq!(press_of(held(false, true)), Press::Block);
+        // Under mouse tracking Shift is the only way into a selection, so
+        // Shift+Option is how a block starts there.
+        assert_eq!(press_of(held(true, true)), Press::Block);
+    }
 
     #[test]
     fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {

@@ -34,6 +34,12 @@ impl Content {
     pub fn is_wide_tail(self) -> bool {
         self == Content::WIDE_TAIL
     }
+    /// The word as the grid stores it. A shader reading the grid in place
+    /// compares against these words, so a reserved state it tests for is
+    /// spelled there as a literal and pinned to this.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
 }
 
 impl Default for Content {

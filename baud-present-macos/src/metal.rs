@@ -58,7 +58,7 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::{
     Argb, Atlas, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS,
-    MapEntry, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
+    MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -1343,7 +1343,12 @@ impl Gpu {
             stride: Uni::of(Elems(input.stride.index())),
             rotation: Uni::of(Elems(input.rotation.index())),
             ring: Uni::of(Elems(input.ring.index())),
-            sel_on: Uni(u32::from(input.highlight.is_some())),
+            // 0 none, 1 a stream, 2 a block: the shader's `selected()`.
+            sel_on: Uni(match input.highlight.map(|h| h.region) {
+                None => 0,
+                Some(Region::Stream) => 1,
+                Some(Region::Block) => 2,
+            }),
             sel_from_col: Uni::of(Elems(input.highlight.map_or(0, |h| h.from.1.index()))),
             sel_from_row: Uni::of(Elems(input.highlight.map_or(0, |h| h.from.0.index()))),
             sel_to_col: Uni::of(Elems(input.highlight.map_or(0, |h| h.to.1.index()))),

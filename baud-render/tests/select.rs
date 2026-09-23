@@ -35,6 +35,22 @@ fn select(t: &Term<'_>, scrolled: Scrolled, from: (usize, usize), to: (usize, us
     s
 }
 
+/// The same corners as a block: Option held at the press.
+fn block(t: &Term<'_>, from: (usize, usize), to: (usize, usize)) -> Selection {
+    let view = t.viewport();
+    let at = |(r, c): (usize, usize)| {
+        let row = Row::from_index(r);
+        Span::cell(
+            view.row(row),
+            Scrolled::START.line(Rows::ZERO, row),
+            Col::at_index(c),
+        )
+    };
+    let mut s = Selection::block(at(from), Grain::Cell);
+    s.extend(at(to));
+    s
+}
+
 #[test]
 fn a_wide_character_a_gap_a_trailing_blank_and_a_mark_read_as_the_spec_says() {
     let mut owned = Owned::new(&WS);
@@ -95,4 +111,46 @@ fn a_range_over_the_history_reads_the_lines_the_ring_kept() {
         .unwrap();
     assert_eq!(h.from, (Row::ZERO, Col::at_index(1)));
     assert_eq!(h.to, (Row::from_index(2), Col::at_index(1)));
+}
+
+#[test]
+fn a_block_reads_each_row_over_its_columns_and_cuts_a_wrapped_row() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    // Twelve characters wrap at ten; a newline; then `x`, a gap the cursor
+    // moved over, and `yz`.
+    feed(&mut t, b"0123456789AB\r\nx\x1b[4Gyz");
+    // Columns 1..=3 on each row: the wrapped row is cut by a newline, the
+    // second row's blanks never written are dropped, and the gap before
+    // `y` on the third is two spaces.
+    let s = block(&t, (0, 1), (2, 3));
+    assert_eq!(s.text(&t, Scrolled::START), "123\nB\n  y");
+    // Dragged from the bottom-left corner to the top-right, the same block.
+    let s = block(&t, (2, 1), (0, 3));
+    assert_eq!(s.text(&t, Scrolled::START), "123\nB\n  y");
+    // The stream over the first pair of corners, for contrast: row-major,
+    // and the wrapped row joins the next.
+    let s = select(&t, Scrolled::START, (0, 1), (2, 3));
+    assert_eq!(s.text(&t, Scrolled::START), "123456789AB\nx  y");
+}
+
+#[test]
+fn a_block_edge_through_a_wide_character_keeps_it_whole_or_leaves_it_out() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    // A one-column block at column 2. On row 1 a wide character's lead is
+    // at 1 and its tail at 2, straddling the left edge; on row 2 its lead
+    // is at 2 and its tail at 3, straddling the right. Rows 0 and 3 are
+    // the narrow corners.
+    feed(
+        &mut t,
+        "abcdef\r\na\u{65e5}bc\r\nab\u{65e5}c\r\nabcdef".as_bytes(),
+    );
+    let view = t.viewport();
+    assert!(view.row(Row::from_index(1))[2].content.is_wide_tail());
+    assert!(view.row(Row::from_index(2))[3].content.is_wide_tail());
+    // Out on row 1, whole on row 2: a character belongs to the block its
+    // lead is in.
+    let s = block(&t, (0, 2), (3, 2));
+    assert_eq!(s.text(&t, Scrolled::START), "c\n\n\u{65e5}\nc");
 }

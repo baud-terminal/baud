@@ -8,16 +8,16 @@ re-decided rather than rediscovered.
 
 ## What it is
 
-A selection is a contiguous range of cells over the **live surface's
-lines**, in reading order, made with the mouse and read back as text.
-Character, word and line granularity; Cmd-C copies it to the pasteboard,
-Cmd-V pastes the pasteboard into the child. The three render paths draw it
-as reverse video.
+A selection is a range of cells over the **live surface's lines**, made
+with the mouse and read back as text: a **stream** -- contiguous, in
+reading order -- or, with Option held at the press, a **block** of whole
+columns (see "Rectangular selection" below). Character, word and line
+granularity; Cmd-C copies it to the pasteboard, Cmd-V pastes the
+pasteboard into the child. The three render paths draw it as reverse
+video.
 
 Not in this slice, each for a stated reason:
 
-* **Rectangular selection** (Option-drag). A second membership rule and a
-  second extraction order; wanted, and separable.
 * **Copy on select, middle-click paste.** X conventions; macOS has neither.
 * **A selection colour.** Reverse video needs no theme entry and is what
   the block cursor already does; a colour under glass wants the luma
@@ -72,6 +72,62 @@ is never half-selected.
 The delimiter set is alacritty's default for the same purpose; it is a
 decision, not a source, and it is one constant.
 
+## Rectangular selection
+
+**Option at the press makes the selection a block**: every row from the
+earlier endpoint's line to the later's, and on each of them the same range
+of columns. It is Terminal.app's gesture; alacritty takes Control and
+iTerm2 Cmd-Option, and none of them is a source -- this is a decision.
+
+* **An Option press always starts a new block**, even with Shift held.
+  Under mouse tracking Shift is the only way into a selection at all, so
+  Shift+Option is how a block is started there; were Shift to win, an
+  existing selection would be extended instead and a block could not be
+  started while one was on screen.
+* **Shift without Option extends whatever is there and keeps its shape**:
+  the shape belongs to the gesture that made the selection, not to the
+  modifiers of the click that moves its head.
+* **Grains apply as they do to a stream.** A double click with Option is a
+  block over the two words' columns, a triple click one over whole rows.
+
+**The column range is taken apart from the line range.** A stream orders
+its two endpoints row-major, so the earlier point's column is where it
+starts; a block's left edge is the smaller of the two spans' start
+columns and its right edge the larger of their end columns, whatever the
+lines. A drag up and to the right, or down and to the left, is the case
+the row-major order gets backwards.
+
+**The corners are snapped, both of them.** A press or a drag's head on a
+wide character takes both its columns, as in a stream, so the rectangle
+drawn encloses the characters at its corners -- and on every *other* row
+the block is that wide too, one column past where the pointer is on the
+narrow text beside it. The alternative, snapping neither end and letting
+the rule below keep characters whole, would draw a block one column wide
+on ASCII rows and two on the CJK row the user pressed, which reads as a
+ragged edge rather than a rectangle.
+
+**A wide tail is selected exactly when its lead is.** On the corner rows
+this is already so; on any other row a block's edge can cut a wide
+character in two, and a character half-selected is drawn with half its
+glyph over the swapped background and half not. So on every path -- the
+CPU compositor, the instance path, the cell shader and the overlay's
+records -- a `WIDE_TAIL` cell takes the selection of the cell before it.
+A character straddling the left edge is out, and one straddling the right
+edge is in whole. The consequence worth having is that two blocks side by
+side partition the characters: each belongs to the block its lead is in.
+
+**The rule applies to a stream too, and there it is a behaviour change.**
+A stream's endpoints are snapped when they are made, so a tail and its
+lead always agreed -- until output overwrote a row under a live
+selection. Then a start that now lands on a tail stopped drawing that
+tail's lead and still drew the tail, and an end that now lands on a lead
+drew the lead and not its tail. Under the rule the drawing matches the
+text, which already read a tail as nothing and a lead as its character.
+
+**Clipping keeps the columns.** When the ring recycles a line a block
+names, the endpoint moves to the oldest retained line *in the same
+column*, where a stream's moves to that line's first column.
+
 ## The text
 
 Rows are walked in order; within a row, cells from the range's first
@@ -89,6 +145,12 @@ column to its last:
 * a row whose wrap flag says `Wrap::Continues` joins the next with **no
   newline**, because the writer wrapped it and the text is one line; any
   other row boundary is `\n`; there is no newline after the last row.
+
+A **block** reads each of its rows over its column range alone, by the same
+cell rules -- a tail is nothing, a gap is a space, the blanks never written
+after a row's last selected content are dropped -- and **every** row
+boundary is `\n`, the wrap flag's included: a block is a shape on the
+screen, and the rows a writer wrapped are cut by it like any other.
 
 ## Mouse tracking, and Shift
 
@@ -137,9 +199,16 @@ selection must change the pixels.
 ## Tests
 
 * the model, pure: normalisation, the wide-tail rule at both ends, word and
-  line expansion, clipping when the ring recycles a line;
+  line expansion, clipping when the ring recycles a line; for a block, all
+  four drag directions, the corner snap widening a row that is not a
+  corner's, and a clip that keeps the column;
+* a block's text against a `Term`: a wrapped row cut by a newline, a wide
+  character straddling each edge, the per-row trailing blank;
 * extraction against a `Term`: a wide character, a wrapped line, a gap, a
   trailing blank, a cell with marks;
 * the paste transform: bracketed with a forged end inside, and the newline
   rule without;
-* the pixel oracle, extended.
+* the pixel oracle, extended, with a block whose edges cut a wide
+  character on each side;
+* the tail rule on the CPU path alone, since the oracle compares two arms
+  and cannot see both lose it.

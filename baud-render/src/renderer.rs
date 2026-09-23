@@ -1389,9 +1389,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             {
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
             }
+            // A wide tail follows its lead, so a block's edge never cuts a
+            // character in two: `Highlight::selects`.
             if self
                 .highlight
-                .is_some_and(|h| h.contains(r, Col::at_index(c)))
+                .is_some_and(|h| h.selects(r, Col::at_index(c), cell.content))
             {
                 // Opaque on both sides of the swap. `bg` becomes the old
                 // foreground, which is the block a reader has to see; `fg`

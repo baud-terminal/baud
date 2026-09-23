@@ -13,9 +13,13 @@
 //! and its tail, a double click's is the word, a triple click's the line.
 //! The selection is then from the earliest span start to the latest span
 //! end, which is how a drag after a double click extends by whole words.
+//!
+//! A selection is a **stream** -- contiguous in reading order -- or, with
+//! Option held at the press, a **block**: every row between the two
+//! endpoints, over one range of columns taken apart from the lines.
 
 use baud_core::Term;
-use baud_domain::{Col, Cols, PackedCell, Row, Rows, Viewport, Wrap};
+use baud_domain::{Col, Cols, Content, PackedCell, Row, Rows, Viewport, Wrap};
 
 /// A line of the live surface, numbered from the start of the session: the
 /// rotation's advance at the moment the line was the top of the screen.
@@ -175,6 +179,27 @@ pub enum Grain {
     Line,
 }
 
+/// Whether a selection runs in reading order or is a rectangle of columns.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Region {
+    /// Contiguous, from one cell to another in row-major order.
+    Stream,
+    /// Every row between the endpoints, over one range of columns.
+    Block,
+}
+
+/// What a left press does to the selection on screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Press {
+    /// Start a stream at the press.
+    Stream,
+    /// Start a block at the press, whatever is on screen: Option held.
+    Block,
+    /// Move the head of what is on screen, keeping its anchor, grain and
+    /// region -- or start a stream when nothing is: Shift held.
+    Extend,
+}
+
 /// What clipping to the ring's oldest line left of a selection.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Clip {
@@ -188,19 +213,53 @@ pub struct Selection {
     anchor: Span,
     head: Span,
     grain: Grain,
+    region: Region,
 }
 
 impl Selection {
+    /// A stream selection pressed at `span`.
     pub fn at(span: Span, grain: Grain) -> Selection {
         Selection {
             anchor: span,
             head: span,
             grain,
+            region: Region::Stream,
+        }
+    }
+
+    /// A block selection pressed at `span`: Option held at the press.
+    pub fn block(span: Span, grain: Grain) -> Selection {
+        Selection {
+            region: Region::Block,
+            ..Selection::at(span, grain)
+        }
+    }
+
+    /// The selection a left press leaves behind, given what was on screen:
+    /// `span_at` makes the span under the pointer for a grain, so an
+    /// extension takes the grain the selection was made with.
+    pub fn pressed(
+        current: Option<Selection>,
+        press: Press,
+        grain: Grain,
+        span_at: impl Fn(Grain) -> Span,
+    ) -> Selection {
+        match (press, current) {
+            (Press::Block, _) => Selection::block(span_at(grain), grain),
+            (Press::Extend, Some(mut sel)) => {
+                sel.extend(span_at(sel.grain));
+                sel
+            }
+            _ => Selection::at(span_at(grain), grain),
         }
     }
 
     pub fn grain(&self) -> Grain {
         self.grain
+    }
+
+    pub fn region(&self) -> Region {
+        self.region
     }
 
     /// Move the head; the anchor stays.
@@ -214,25 +273,48 @@ impl Selection {
         self.grain == Grain::Cell && self.anchor == self.head
     }
 
-    /// The range, earliest start to latest end.
+    /// The range. A stream's is the earliest start to the latest end in
+    /// row-major order. A block's is its two corners, the lines and the
+    /// columns taken apart: the top line and the smaller start column,
+    /// then the bottom line and the larger end column -- so a drag up and
+    /// to the right, where the earlier point is the one further right, is
+    /// not read with its columns backwards.
     pub fn ordered(&self) -> (Point, Point) {
-        let start = self.anchor.start.min(self.head.start);
-        let end = self.anchor.end.max(self.head.end);
-        (start, end)
+        match self.region {
+            Region::Stream => {
+                let start = self.anchor.start.min(self.head.start);
+                let end = self.anchor.end.max(self.head.end);
+                (start, end)
+            }
+            Region::Block => {
+                let (a, h) = (self.anchor, self.head);
+                let left = a.start.col.index().min(h.start.col.index());
+                let right = a.end.col.index().max(h.end.col.index());
+                (
+                    Point::new(a.start.line.min(h.start.line), Col::at_index(left)),
+                    Point::new(a.end.line.max(h.end.line), Col::at_index(right)),
+                )
+            }
+        }
     }
 
     /// Move any endpoint older than `oldest` -- a line the ring has
-    /// recycled -- to the oldest line's first column. Both gone is no
-    /// selection.
+    /// recycled -- to the oldest line: a stream's to its first column, a
+    /// block's in the column it had, since a block's columns do not depend
+    /// on its lines. Both gone is no selection.
     pub fn clip(&mut self, oldest: AbsLine) -> Clip {
         let (_, end) = self.ordered();
         if end.line < oldest {
             return Clip::Cleared;
         }
+        let region = self.region;
         for span in [&mut self.anchor, &mut self.head] {
             for p in [&mut span.start, &mut span.end] {
                 if p.line < oldest {
-                    *p = Point::new(oldest, Col::ZERO);
+                    *p = match region {
+                        Region::Stream => Point::new(oldest, Col::ZERO),
+                        Region::Block => Point::new(oldest, p.col),
+                    };
                 }
             }
         }
@@ -249,6 +331,17 @@ impl Selection {
             return None;
         }
         let last_col = Col::at_index(cols.index().saturating_sub(1));
+        if self.region == Region::Block {
+            // Rows clipped to the view, and the same columns on every row.
+            let first = start.line.max(top);
+            let last = end.line.min(last_line);
+            let col = |c: Col| Col::at_index(c.index().min(last_col.index()));
+            return Some(Highlight {
+                from: (row_in(top, first), col(start.col)),
+                to: (row_in(top, last), col(end.col)),
+                region: Region::Block,
+            });
+        }
         let from = if start.line < top {
             (Row::ZERO, Col::ZERO)
         } else {
@@ -265,26 +358,33 @@ impl Selection {
                 Col::at_index(end.col.index().min(last_col.index())),
             )
         };
-        Some(Highlight { from, to })
+        Some(Highlight {
+            from,
+            to,
+            region: Region::Stream,
+        })
     }
 
     /// The selected text, as the spec extracts it: a wide tail contributes
     /// nothing, an empty cell before the row's last selected content is a
     /// space and after it is dropped, marks follow their base, a row the
     /// writer wrapped joins the next without a newline, and no newline
-    /// ends the last row.
+    /// ends the last row. A block reads each row over its columns alone,
+    /// and every one of its row boundaries is a newline, the wrapped ones
+    /// included: the writer's wrap is cut by the rectangle like any row.
     pub fn text(&self, term: &Term<'_>, scrolled: Scrolled) -> String {
         let (start, end) = self.ordered();
+        let block = self.region == Region::Block;
         let mut out = String::new();
         let mut line = start.line;
         loop {
             if let Some((row, wrap)) = row_of(term, scrolled, line) {
-                let first = if line == start.line {
+                let first = if block || line == start.line {
                     start.col.index()
                 } else {
                     0
                 };
-                let last = if line == end.line {
+                let last = if block || line == end.line {
                     end.col.index().min(row.len().saturating_sub(1))
                 } else {
                     row.len().saturating_sub(1)
@@ -297,7 +397,7 @@ impl Selection {
                         }
                     }
                 }
-                if line != end.line && matches!(wrap, Wrap::Ended) {
+                if line != end.line && (block || matches!(wrap, Wrap::Ended)) {
                     out.push('\n');
                 }
             } else if line != end.line {
@@ -312,20 +412,49 @@ impl Selection {
     }
 }
 
-/// A selection on one view, in screen coordinates, both ends inclusive in
-/// row-major order. What the renderers draw from.
+/// A selection on one view, in screen coordinates, both ends inclusive:
+/// a stream's in row-major order, a block's its top-left and bottom-right
+/// corners. What the renderers draw from. The region is part of equality,
+/// so the renderer's damage repaints a switch between the two over the
+/// same corners.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Highlight {
     pub from: (Row, Col),
     pub to: (Row, Col),
+    pub region: Region,
 }
 
 impl Highlight {
+    /// Whether the cell at `(r, c)` is inside the selection's geometry.
     pub fn contains(&self, r: Row, c: Col) -> bool {
-        let p = (r.index(), c.index());
-        let from = (self.from.0.index(), self.from.1.index());
-        let to = (self.to.0.index(), self.to.1.index());
-        p >= from && p <= to
+        match self.region {
+            Region::Stream => {
+                let p = (r.index(), c.index());
+                let from = (self.from.0.index(), self.from.1.index());
+                let to = (self.to.0.index(), self.to.1.index());
+                p >= from && p <= to
+            }
+            Region::Block => {
+                self.covers_row(r)
+                    && c.index() >= self.from.1.index()
+                    && c.index() <= self.to.1.index()
+            }
+        }
+    }
+
+    /// Whether the cell at `(r, c)`, holding `content`, is drawn selected:
+    /// a wide tail takes its lead's answer, so a character is never half
+    /// selected where a block's edge cuts it -- one straddling the left
+    /// edge is out, one straddling the right edge is in whole. **Every
+    /// render path asks this**, and the cell shader's `selected()` spells
+    /// the same rule; the pixel oracle compares the two.
+    pub fn selects(&self, r: Row, c: Col, content: Content) -> bool {
+        let c = if content.is_wide_tail() && c.index() > 0 {
+            Col::at_index(c.index() - 1)
+        } else {
+            c
+        };
+        self.contains(r, c)
     }
 
     /// Whether any cell of screen row `r` is selected.
@@ -547,6 +676,172 @@ mod tests {
             (AbsLine::at(Rows::of_count(7)), 0)
         );
         assert_eq!(s.clip(AbsLine::at(Rows::of_count(9))), Clip::Cleared);
+    }
+
+    #[test]
+    fn a_block_takes_its_columns_apart_from_its_lines() {
+        let r = row(&"x".repeat(40));
+        let at = |line: usize, col: usize| {
+            Span::cell(&r, AbsLine::at(Rows::of_count(line)), Col::at_index(col))
+        };
+        // Anchor and head at opposite corners of one rectangle, dragged in
+        // each of the four directions: every one is lines 5..=10 and
+        // columns 2..=30. Up-right and down-left are the two a row-major
+        // order reads with its columns backwards.
+        let corners = [
+            ((5, 2), (10, 30)),
+            ((10, 30), (5, 2)),
+            ((10, 2), (5, 30)),
+            ((5, 30), (10, 2)),
+        ];
+        for (a, h) in corners {
+            let mut s = Selection::block(at(a.0, a.1), Grain::Cell);
+            s.extend(at(h.0, h.1));
+            let (start, end) = s.ordered();
+            assert_eq!(
+                (start.line, start.col.index(), end.line, end.col.index()),
+                (
+                    AbsLine::at(Rows::of_count(5)),
+                    2,
+                    AbsLine::at(Rows::of_count(10)),
+                    30
+                ),
+                "anchor {a:?}, head {h:?}"
+            );
+        }
+        // A stream over the up-right pair reads row-major, which is the
+        // order a block must not take.
+        let mut s = Selection::at(at(10, 2), Grain::Cell);
+        s.extend(at(5, 30));
+        let (start, end) = s.ordered();
+        assert_eq!((start.col.index(), end.col.index()), (30, 2));
+    }
+
+    #[test]
+    fn a_block_is_a_rectangle_and_its_corner_snap_widens_every_row() {
+        // The anchor presses a wide character's lead at column 4, so its
+        // span takes the tail at 5; the head is on narrow text at 2.
+        let wide = row("abcdx#gh");
+        let narrow = row(&"x".repeat(12));
+        let mut s = Selection::block(
+            Span::cell(&wide, AbsLine::at(Rows::of_count(0)), Col::at_index(4)),
+            Grain::Cell,
+        );
+        s.extend(Span::cell(
+            &narrow,
+            AbsLine::at(Rows::of_count(3)),
+            Col::at_index(2),
+        ));
+        let h = s
+            .highlight(
+                AbsLine::at(Rows::of_count(0)),
+                Rows::of_count(4),
+                Cols::of_index(12),
+            )
+            .unwrap();
+        assert_eq!(h.region, Region::Block);
+        assert_eq!(
+            (h.from, h.to),
+            (
+                (Row::ZERO, Col::at_index(2)),
+                (Row::from_index(3), Col::at_index(5))
+            )
+        );
+        // Column 5 on a row that is no corner's: the snap widened it.
+        assert!(h.contains(Row::from_index(2), Col::at_index(5)));
+        // A middle row stops at the columns, where a stream takes it whole.
+        assert!(!h.contains(Row::from_index(1), Col::at_index(9)));
+        assert!(!h.contains(Row::from_index(1), Col::at_index(1)));
+        let stream = Highlight {
+            region: Region::Stream,
+            ..h
+        };
+        assert!(stream.contains(Row::from_index(1), Col::at_index(9)));
+        // The region is part of equality, so damage repaints a switch
+        // between the two over the same corners.
+        assert_ne!(stream, h);
+    }
+
+    #[test]
+    fn a_wide_tail_takes_its_leads_selection() {
+        let h = Highlight {
+            from: (Row::ZERO, Col::at_index(2)),
+            to: (Row::from_index(3), Col::at_index(2)),
+            region: Region::Block,
+        };
+        let tail = Content::WIDE_TAIL;
+        let plain = glyph('x').content;
+        // A tail at the left edge, its lead outside: out.
+        assert!(h.contains(Row::from_index(1), Col::at_index(2)));
+        assert!(!h.selects(Row::from_index(1), Col::at_index(2), tail));
+        // A tail past the right edge, its lead inside: in.
+        assert!(!h.contains(Row::from_index(2), Col::at_index(3)));
+        assert!(h.selects(Row::from_index(2), Col::at_index(3), tail));
+        // Anything else answers for its own column.
+        assert!(!h.selects(Row::from_index(2), Col::at_index(3), plain));
+        assert!(h.selects(Row::from_index(2), Col::at_index(2), plain));
+        // A tail in column 0 cannot have a lead before it, and answers for
+        // itself rather than wrapping.
+        let edge = Highlight {
+            from: (Row::ZERO, Col::ZERO),
+            to: (Row::ZERO, Col::ZERO),
+            region: Region::Block,
+        };
+        assert!(edge.selects(Row::ZERO, Col::ZERO, tail));
+    }
+
+    #[test]
+    fn a_clipped_block_keeps_its_columns() {
+        let r = row(&"x".repeat(20));
+        let mut s = Selection::block(
+            Span::cell(&r, AbsLine::at(Rows::of_count(5)), Col::at_index(7)),
+            Grain::Cell,
+        );
+        s.extend(Span::cell(
+            &r,
+            AbsLine::at(Rows::of_count(9)),
+            Col::at_index(3),
+        ));
+        assert_eq!(s.clip(AbsLine::at(Rows::of_count(7))), Clip::Kept);
+        let (start, end) = s.ordered();
+        assert_eq!(
+            (start.line, start.col.index(), end.col.index()),
+            (AbsLine::at(Rows::of_count(7)), 3, 7)
+        );
+        assert_eq!(s.clip(AbsLine::at(Rows::of_count(10))), Clip::Cleared);
+    }
+
+    #[test]
+    fn a_press_starts_a_stream_a_block_or_extends_what_is_there() {
+        let r = row(&"x".repeat(20));
+        let span = |c: usize| Span::cell(&r, AbsLine::at(Rows::of_count(0)), Col::at_index(c));
+        let stream = Selection::pressed(None, Press::Stream, Grain::Cell, |_| span(2));
+        assert_eq!(stream.region(), Region::Stream);
+        // Extend keeps the anchor and the region of what is on screen.
+        let block = Selection::pressed(None, Press::Block, Grain::Cell, |_| span(2));
+        let extended = Selection::pressed(Some(block), Press::Extend, Grain::Cell, |_| span(9));
+        assert_eq!(extended.region(), Region::Block);
+        assert_eq!(
+            (
+                extended.ordered().0.col.index(),
+                extended.ordered().1.col.index()
+            ),
+            (2, 9)
+        );
+        // A block press starts over, whatever is on screen.
+        let fresh = Selection::pressed(Some(extended), Press::Block, Grain::Cell, |_| span(5));
+        assert!(fresh.is_click());
+        assert_eq!(fresh.region(), Region::Block);
+        // Extend with nothing on screen starts a stream.
+        let none = Selection::pressed(None, Press::Extend, Grain::Cell, |_| span(1));
+        assert_eq!(none.region(), Region::Stream);
+        // And an extension asks for the span in the grain the selection
+        // was made with, not the grain of the click that extends it.
+        let word = Selection::pressed(None, Press::Stream, Grain::Word, |_| span(2));
+        let _ = Selection::pressed(Some(word), Press::Extend, Grain::Cell, |g| {
+            assert_eq!(g, Grain::Word);
+            span(9)
+        });
     }
 
     #[test]

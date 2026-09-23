@@ -103,9 +103,23 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
     return cells[prow * u.stride + col];
 }
 
-// Whether the cell is inside the selection: row-major, both ends inclusive.
-static bool selected(constant CU& u, uint col, uint row) {
+// `Content::WIDE_TAIL`: the right half of a double-width character, the
+// first value past U+10FFFF but one. `metallib.rs` pins it to the Rust
+// constant, because the two are one fact spelled twice.
+#define WIDE_TAIL 0x110001u
+
+// Whether the cell is inside the selection, both ends inclusive: a stream
+// (`sel_on` 1) in row-major order, a block (`sel_on` 2) by its row range
+// and its column range apart. A wide tail takes its lead's answer, so a
+// block's edge never cuts a character in two. Must match
+// `Highlight::selects`; the pixel oracle compares the two arms.
+static bool selected(constant CU& u, uint content, uint col, uint row) {
     if (u.sel_on == 0u) return false;
+    if (content == WIDE_TAIL && col > 0u) col -= 1u;
+    if (u.sel_on == 2u) {
+        return row >= u.sel_from_row && row <= u.sel_to_row &&
+               col >= u.sel_from_col && col <= u.sel_to_col;
+    }
     bool after_from = row > u.sel_from_row || (row == u.sel_from_row && col >= u.sel_from_col);
     bool before_to = row < u.sel_to_row || (row == u.sel_to_row && col <= u.sel_to_col);
     return after_from && before_to;
@@ -130,7 +144,7 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
     // drawn at that alpha -- a glyph at 0.22 over its own cursor block.
     // This must match `Renderer::convert_row`, and the pixel gate
     // compares the two arms to say so.
-    if (selected(u, col, row)) {
+    if (selected(u, cell.x, col, row)) {
         uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {

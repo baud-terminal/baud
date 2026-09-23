@@ -22,8 +22,8 @@ use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Renderer, Resolved,
-    Scene, Stack, Theme, Trail, Transition, Window,
+    Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Region, Renderer,
+    Resolved, Scene, Stack, Theme, Trail, Transition, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -291,7 +291,17 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         env!("CARGO_MANIFEST_DIR")
     ))
     .expect("face");
-    let faces = [Face::parse(&data).expect("parse")];
+    // The committed Noto subset behind it, for the one wide character the
+    // scene measures: U+231A, which a block's edges cut on both sides.
+    let noto = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/NotoColorEmoji-subset.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [
+        Face::parse(&data).expect("parse"),
+        Face::parse(&noto).expect("parse"),
+    ];
     // **Translucent on purpose.** At `Theme::dark()`'s `0xFF` the window
     // dim is a no-op, so the two arms would agree about a rule neither
     // executes -- and the swap rule this compares (an opaque foreground
@@ -558,6 +568,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.highlight = Some(Highlight {
         from: (Row::from_index(1), Col::at_index(2)),
         to: (Row::from_index(4), Col::at_index(30)),
+        region: Region::Stream,
     });
     let (a, b) = arms.draw(&mut t);
     {
@@ -577,6 +588,64 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert!(
         differing(&a, &plain) > 0,
         "the selection changed the pixels"
+    );
+    // A block, and its edges cut a wide character on each side: U+231A
+    // straddles the left edge on row 2 (lead 100, tail 101) and the right
+    // edge on row 3 (lead 101, tail 102), so a tail is out on one row and
+    // in on the other -- on the cell shader by its own `WIDE_TAIL` test,
+    // on the instance path by `Highlight::selects`. The corners, rows 1
+    // and 4 at column 101, are blank.
+    let watch = "\u{231a}";
+    feed(
+        &mut t,
+        format!("\x1b[3;101H{watch}\x1b[4;102H{watch}\x1b[2;3H").as_bytes(),
+    );
+    {
+        let view = t.viewport();
+        assert!(view.row(Row::from_index(2))[101].content.is_wide_tail());
+        assert!(view.row(Row::from_index(3))[102].content.is_wide_tail());
+    }
+    arms.highlight = None;
+    let (unselected, _) = arms.draw(&mut t);
+    let corners = (
+        (Row::from_index(1), Col::at_index(101)),
+        (Row::from_index(4), Col::at_index(101)),
+    );
+    arms.highlight = Some(Highlight {
+        from: corners.0,
+        to: corners.1,
+        region: Region::Block,
+    });
+    let (a, b) = arms.draw(&mut t);
+    {
+        let (w, _) = arms.renderer.pixel_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let bx = diff_box(&a, &b, usize::try_from(w.value()).unwrap(), cell);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree under a block, in cells {bx:?}"
+        );
+    }
+    assert!(
+        differing(&a, &unselected) > 0,
+        "the block changed the pixels"
+    );
+    // The same corners as a stream select whole middle rows, which a
+    // block does not: the region reaches the pixels.
+    arms.highlight = Some(Highlight {
+        from: corners.0,
+        to: corners.1,
+        region: Region::Stream,
+    });
+    let (stream, _) = arms.draw(&mut t);
+    assert!(
+        differing(&a, &stream) > 0,
+        "a block and a stream over the same corners drew the same"
     );
     arms.highlight = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn

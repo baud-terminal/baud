@@ -64,7 +64,9 @@ pub use renderer::{
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{Thumb, Window, back_for, thumb};
-pub use select::{AbsLine, Clip, Grain, Highlight, Point, Scrolled, Selection, Span};
+pub use select::{
+    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
+};
 pub use stack::{FaceIx, Stack};
 pub use trail::Trail;
 pub use transition::Transition;

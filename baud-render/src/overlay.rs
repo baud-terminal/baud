@@ -590,7 +590,7 @@ impl Overlay {
             .is_some_and(|(cr, cc, _)| cr.index() == y && cc.index() == x);
         let selected = paint
             .highlight
-            .is_some_and(|h| h.contains(Row::from_index(y), Col::at_index(x)));
+            .is_some_and(|h| h.selects(Row::from_index(y), Col::at_index(x), cell.content));
         // The selection swaps, then the cursor swaps again: both is
         // neither. **Opaque either way**: `resolved.bg` carries the
         // window's dim, and a mark or a ligature drawn at 0.22 over its
