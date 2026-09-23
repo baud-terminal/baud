@@ -495,7 +495,7 @@ without these.
 |---|---|---|
 | `ESC 7` | DECSC save cursor | **partial** — `[[source: vt510-decsc]]` lists seven items and `baud-core` saves five: cursor position, SGR attributes, the wrap flag, origin mode, and the selective erase attribute. The character set is saved as the one slot this core has rather than G0-G3 across GL and GR, and **any SS2/SS3 in flight is not saved** because single shifts are not implemented. The row said `done` on the strength of the first two until the manual was read rather than assumed |
 | `ESC 8` | DECRC restore cursor | **partial** — restores what DECSC saved, clamped to the grid that exists now. `a_cursor_restore_brings_back_the_wrap_flag_and_origin_mode` pins the two flags that were silently dropped |
-| `ESC D` | IND index | done — column preserved (was resetting it) |
+| `ESC D` | IND index | done — column preserved (was resetting it); scrolls the region at its bottom and nothing on the last row below it, as DECSTBM's row says |
 | `ESC E` | NEL next line | done |
 | `ESC M` | RI reverse index | done |
 | `ESC c` | RIS full reset | done |
@@ -548,7 +548,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI l` | RM reset mode | done — as SM |
 | `CSI m` | SGR character attributes | done — see SGR below |
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
-| `CSI r` | DECSTBM scroll region | done |
+| `CSI r` | DECSTBM scroll region | done — an `LF`, `IND` or wrap at a region's bottom scrolls the region whatever row that is, a region ending on the last row included (`lf_at_the_bottom_of_a_region_ending_on_the_last_row_scrolls_only_the_region`: it rotated the whole screen and retired the header rows above it), and on the last row *below* a region it neither scrolls nor moves (`lf_on_the_last_row_below_a_region_does_not_scroll`), both as `[[source: foot-terminal]]`'s `term_linefeed` and alacritty do; `baud-difftest` carries both cases |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
 | `CSI ? h` / `CSI ? l` | DECSET / DECRST | done — every parameter of a multi-parameter form is applied |
 

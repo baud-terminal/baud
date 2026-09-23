@@ -112,7 +112,10 @@ impl Paint<'_, '_> {
     /// shorter window cut. The alternate screen keeps no lines: an editor's
     /// redraws are not lines anyone scrolls back to. A region that does not
     /// start at the top is a window inside the screen, not the screen moving,
-    /// and never reaches here.
+    /// and never reaches here -- which was false for one shape until
+    /// `Paint::index` tested both ends: a region ending on the last row but
+    /// starting below the top took the full-screen path and retired its
+    /// header rows. A `debug_assert!` there holds it now.
     pub(crate) fn retire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.images.any_placed() {

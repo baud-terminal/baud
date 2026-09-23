@@ -149,6 +149,60 @@ fn lf_at_region_bottom_scrolls_only_the_region() {
     }
 }
 
+/// A region that ends on the screen's last row but starts below its top is
+/// a region, not the screen: an `LF` or `IND` at its bottom scrolls rows
+/// 5..50 and leaves the four header rows above it. The full-screen fast
+/// path tested only the bottom, so this shape rotated the whole screen and
+/// retired the headers into the history. foot scrolls the region here
+/// (`[[source: foot-terminal]]`, `term_linefeed` at `scroll_region.end - 1`),
+/// and so does alacritty, which is what `baud-difftest` compares against.
+#[test]
+fn lf_at_the_bottom_of_a_region_ending_on_the_last_row_scrolls_only_the_region() {
+    let heads = b"\x1b[1;1HH1\x1b[2;1HH2\x1b[3;1HH3\x1b[4;1HH4";
+    for step in [&b"\n"[..], b"\x1bD"] {
+        let mut bytes = heads.to_vec();
+        bytes.extend(b"\x1b[5;50r\x1b[50;1HLAST");
+        for _ in 0..3 {
+            bytes.extend(step);
+        }
+        let mut want = heads.to_vec();
+        want.extend(b"\x1b[47;1HLAST");
+        assert_eq!(
+            rows_of(&bytes),
+            rows_of(&want),
+            "{step:?} x3: the headers stay and LAST is three rows up"
+        );
+    }
+    // A wrap off the region's bottom row takes the same path: `B` wraps from
+    // the last column, the region scrolls one row, and the headers stay.
+    let mut bytes = heads.to_vec();
+    bytes.extend(b"\x1b[5;50r\x1b[50;1HLAST\x1b[50;200HAB");
+    let mut want = heads.to_vec();
+    want.extend(b"\x1b[49;1HLAST\x1b[49;200HA\x1b[50;1HB");
+    assert_eq!(
+        rows_of(&bytes),
+        rows_of(&want),
+        "a wrap at the bottom scrolls the region and not the headers"
+    );
+}
+
+/// An `LF` on the screen's last row, below a region, does nothing: the
+/// cursor is outside the region, so there is nothing to scroll, and it is
+/// already on the last row, so there is nowhere to move. foot moves the
+/// cursor down clamped to the screen (`term_cursor_down`), and alacritty
+/// does the same. It had rotated the whole screen, taking row 1 into the
+/// history and moving the status line up into the region.
+#[test]
+fn lf_on_the_last_row_below_a_region_does_not_scroll() {
+    let bytes = b"\x1b[1;1HH1\x1b[1;49r\x1b[50;1HST\nXY";
+    assert_eq!(
+        rows_of(bytes),
+        rows_of(b"\x1b[1;1HH1\x1b[50;1HSTXY"),
+        "nothing moved, and XY followed ST on the last row"
+    );
+    assert_eq!(cursor_of(bytes), (49, 4));
+}
+
 /// RI at the region top scrolls the region down, not the screen.
 #[test]
 fn ri_at_region_top_scrolls_only_the_region() {

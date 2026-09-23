@@ -1042,16 +1042,36 @@ impl<'a, 'b> Paint<'a, 'b> {
         // only inside it; testing the screen's last row instead lets a status
         // line scroll away. A full-screen region falls through to the rotation
         // below, which is where the 45% this repo measured lives.
-        if self.cy == self.cold.bot && self.cold.bot.index() != last {
+        //
+        // **Full screen means both ends.** This tested only the bottom, so a
+        // region ending on the last row but starting below the top --
+        // `DECSTBM 5 ; 50` -- took the rotation and retired its header rows
+        // into the history. foot scrolls the region at its bottom whatever
+        // row that is (`[[source: foot-terminal]]`, `term_linefeed`).
+        if self.cy == self.cold.bot {
+            if self.cold.top != Row::ZERO || self.cold.bot.index() != last {
+                self.row_changed();
+                self.scroll_region_up(Count::ONE);
+                return self.view.rot();
+            }
+        } else {
             self.row_changed();
-            self.scroll_region_up(Count::ONE);
+            // **Below the region on the last row there is nothing to do.**
+            // The cursor is outside the region, so nothing scrolls, and it is
+            // on the last row, so it cannot move: foot's `term_cursor_down`
+            // clamps to the screen, and alacritty does the same. This fell
+            // through to the rotation and scrolled the whole screen, status
+            // line and all.
+            if self.cy.index() < last {
+                self.cy = Row::from_index(self.cy.index() + 1);
+            }
             return self.view.rot();
         }
         self.row_changed();
-        if self.cy.index() < last {
-            self.cy = Row::from_index(self.cy.index() + 1);
-            return self.view.rot();
-        }
+        debug_assert!(
+            self.cold.top == Row::ZERO && self.cold.bot.index() == last,
+            "only a full-screen region rotates the whole screen"
+        );
         self.retire();
         let rot = self.view.advance_rot(1);
         #[cfg(feature = "probe-warm-scroll")]

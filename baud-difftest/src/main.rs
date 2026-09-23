@@ -260,6 +260,18 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
         ("insert blanks", b"abcdefgh\x1b[3G\x1b[2@".to_vec()),
         ("save/restore cur", b"\x1b7moved\x1b8back".to_vec()),
         ("reverse index", b"a\r\nb\x1bMx".to_vec()),
+        // A region that starts below the top and ends on the last row: an
+        // LF at its bottom scrolls the region, and the header rows above it
+        // stay where they are.
+        (
+            "region to last row",
+            b"\x1b[1;1HH1\x1b[2;1HH2\x1b[5;50r\x1b[50;1HLAST\n\n\n".to_vec(),
+        ),
+        // An LF on the last row below a region neither scrolls nor moves.
+        (
+            "LF below region",
+            b"\x1b[1;1HH1\x1b[1;49r\x1b[50;1HST\nXY".to_vec(),
+        ),
     ]
 }
 

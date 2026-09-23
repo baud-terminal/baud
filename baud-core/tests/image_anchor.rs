@@ -952,3 +952,42 @@ fn a_rotating_regions_last_row_moves_with_it_and_the_rows_under_stay() {
         assert_eq!(t.images().placements_expired, 0);
     });
 }
+
+#[test]
+fn a_header_image_above_a_region_ending_on_the_last_row_stays_on_screen() {
+    // `DECSTBM 5 ; 50`: the region ends on the screen's last row and starts
+    // below its top, so an LF at its bottom scrolls the region and the
+    // header rows above it stay -- the image on one of them with them.
+    with(Depth::DEFAULT, |t| {
+        tagged(t, 2, "HDR");
+        feed(t, b"\x1b[5;50r\x1b[50;1H\n\n\n");
+        let p = between(t, "HDR", "three LFs at the region's bottom");
+        assert_eq!(drawn_row(t, &p, Rows::ZERO), 1, "still on the screen");
+        assert!(
+            t.scrollback().line(Back::of(0)).is_none(),
+            "nothing retired"
+        );
+    });
+}
+
+#[test]
+fn a_status_line_image_placed_with_the_apps_cell_size_stays_there() {
+    // The shape `an_image_on_a_status_line_under_a_top_region_stays_there`
+    // could not test: with the app's cell size the Sixel advances the
+    // cursor through `index()`, and from the last row below a region that
+    // advance scrolled the whole screen, so the image landed a row high,
+    // under the region's last row, and row 1 went to the history.
+    with(Depth::DEFAULT, |t| {
+        feed(
+            t,
+            b"\x1b[1;1HFIRST\x1b[1;49r\x1b[49;1HREGION-LAST\x1b[50;1H",
+        );
+        feed(t, TINY);
+        feed(t, b"\x1b[50;5HSTATUS");
+        let p = only(t);
+        assert_eq!(drawn_row(t, &p, Rows::ZERO), 49, "on the status line");
+        assert_eq!(beside(t, &p, 0).as_deref(), Some("    STATUS"));
+        assert_eq!(beside(t, &p, -1).as_deref(), Some("REGION-LAST"));
+        assert_eq!(text_of(t.row(Row::ZERO)), "FIRST", "nothing scrolled");
+    });
+}
