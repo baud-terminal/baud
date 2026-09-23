@@ -782,6 +782,96 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the marked and ligatured content disagrees across the arms at rest"
     );
 
+    // **The picture gate.** Under `app_backgrounds = "dim"` a picture drawn
+    // in text -- a connected block of set backgrounds holding sixteen
+    // colours or more -- keeps its backgrounds solid, and nothing else does.
+    // The instance arm forces that in `convert_row` and the cell arm in
+    // `cell_bg_vertex` from the overlay's `MASK_PICTURE` bit: two spellings
+    // of one rule, which is what this compares. The scene holds the three
+    // shapes the rule decides between -- a 2x20 block of forty colours, a
+    // row of fifteen (one short of a picture), and a one-colour panel -- and
+    // is drawn under both `pictures` settings, so a cell arm that ignored
+    // the bit would agree with the instance arm under `dim` and not under
+    // `opaque`.
+    let resting = arms.renderer.theme().clone();
+    feed(&mut t, b"\x1b[?25l\x1b[2J\x1b[H");
+    for y in 0..2u32 {
+        feed(&mut t, format!("\x1b[{};3H", y + 2).as_bytes());
+        for x in 0..20u32 {
+            let (r, g, b) = (x * 12, y * 120 + 40, 255 - x * 12);
+            feed(
+                &mut t,
+                format!("\x1b[38;2;{b};{r};{g};48;2;{r};{g};{b}m\u{2580}").as_bytes(),
+            );
+        }
+        feed(&mut t, b"\x1b[0m");
+    }
+    feed(&mut t, b"\x1b[5;3H");
+    for x in 0..15u32 {
+        feed(
+            &mut t,
+            format!("\x1b[48;2;{};90;90m \x1b[0m", x * 16 + 10).as_bytes(),
+        );
+    }
+    feed(&mut t, b"\x1b[7;3H\x1b[44m  panel  \x1b[0m");
+    let (cols, _) = arms.renderer.grid();
+    let mut frames = Vec::new();
+    for (pictures, want_pictured) in [
+        (baud_render::PictureBg::Opaque, 40),
+        (baud_render::PictureBg::Dimmed, 0),
+    ] {
+        arms.renderer.set_theme(Theme {
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: pictures,
+            ..resting.clone()
+        });
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            arms.exceptions.stats().pictured.value(),
+            want_pictured,
+            "{pictures:?}: the cell arm's overlay found the picture's cells"
+        );
+        let bx = diff_box(
+            &a,
+            &b,
+            usize::try_from(arms.renderer.pixel_size().0.value()).unwrap(),
+            (
+                usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap(),
+                usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap(),
+            ),
+        );
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{pictures:?}: the arms disagree over a text-drawn picture, cells {bx:?}"
+        );
+        // The instance arm's own backgrounds, cell by cell: the picture
+        // solid only under `opaque`, the fifteen-colour row and the panel
+        // dimmed under both.
+        let bg = arms.renderer.background();
+        let alpha = |row: usize, col: usize| bg[row * cols.index() + col].0.to_be_bytes()[0];
+        let solid = if want_pictured > 0 { 0xFF } else { 56 };
+        assert_eq!(alpha(1, 2), solid, "{pictures:?}: the picture's first cell");
+        assert_eq!(alpha(2, 21), solid, "{pictures:?}: the picture's last cell");
+        assert_eq!(
+            alpha(4, 2),
+            56,
+            "{pictures:?}: fifteen colours are not a picture"
+        );
+        assert_eq!(alpha(6, 3), 56, "{pictures:?}: a panel is not a picture");
+        assert_eq!(
+            alpha(1, 1),
+            56,
+            "{pictures:?}: the default background beside it"
+        );
+        frames.push(b);
+    }
+    assert!(
+        differing(&frames[0], &frames[1]) > 0,
+        "the picture's solid backgrounds did not reach the cell arm's pixels"
+    );
+    arms.renderer.set_theme(resting);
+
     // **The image gate, last so a lingering placement disturbs nothing.** A
     // real Sixel homed onto the live screen: both GPU arms draw it through the
     // same `Kind::Color` pass, so they must agree pixel for pixel -- and it

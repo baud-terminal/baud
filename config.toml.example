@@ -130,14 +130,19 @@ dim_dark = 0.22
 dim_light = 0.12
 
 # Whether a background an application sets is dimmed with the default one.
-# "dim" draws it at the body dim, so btop's panels are glass -- and so is a
-# file manager's text-drawn photo preview, which is nothing but per-cell
-# colours and at 0.22 reads as noise over the wallpaper. "opaque" draws every
-# background an application sets as it chose it, and leaves only the default
-# background glass: the preview is a photo again, and btop's panels are
-# solid. It cannot be narrower than that -- an image's flat areas are spaces
-# on a coloured background, and so is every TUI panel.
+# "dim" draws it at the body dim, so btop's panels are glass. "opaque" draws
+# every background an application sets as it chose it, and leaves only the
+# default background glass, so btop's panels are solid.
 app_backgrounds = "dim"
+
+# Under "dim" above, whether a picture drawn in text keeps its backgrounds
+# solid. A file manager's photo preview (chafa, when there is no Sixel) is a
+# glyph on a background in every cell; dimmed, the backgrounds turn to holes
+# between solid glyphs and the photo reads as noise. "opaque" finds the
+# pictures -- a connected block of set backgrounds with sixteen or more
+# colours, which a photo has and no measured TUI panel does (the busiest,
+# vim's diff mode, has 8) -- and draws only those solid. "dim" dims them too.
+pictures = "opaque"
 
 # The material darkening, applied to the material itself rather than as a
 # layer over it, so the titlebar strip and the body are one surface. 0 turns

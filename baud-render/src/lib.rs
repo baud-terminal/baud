@@ -34,6 +34,7 @@ mod composite;
 mod instance;
 mod metrics;
 mod overlay;
+mod picture;
 mod renderer;
 mod scroll;
 mod scrollbar;
@@ -51,11 +52,12 @@ pub use cellmap::{
     Candidate, CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
     Resolved, Shapes,
 };
-pub use color::{AppBg, Argb, Theme};
+pub use color::{AppBg, Argb, PictureBg, Theme};
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
-pub use overlay::{Overlay, OverlayStats, Scene};
+pub use overlay::{MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
+pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, ImagePlacement,
     ImageUpload, PairRole, Pairs, Renderer, Single,

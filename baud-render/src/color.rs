@@ -61,12 +61,17 @@ pub struct Theme {
     /// keeps every background an application set at full alpha and leaves
     /// only the default one glass; see [`Theme::opaque_bg`].
     pub app_bg: AppBg,
+    /// Whether a picture drawn in text keeps its backgrounds solid under
+    /// [`AppBg::Dimmed`]. See [`PictureBg`].
+    pub picture_bg: PictureBg,
     pub palette: [Argb; 256],
 }
 
 /// What the window's dim does to a background the application set.
 ///
-/// **Why the rule is every set background and not something narrower**,
+/// **Why the rule is every set background and not something narrower**, and
+/// the one exception [`PictureBg`] carves out of it by looking at a block of
+/// cells rather than at one,
 /// measured 2026-09-22 on the owner's own yazi preview: a file manager
 /// with no image protocol draws a photo with chafa, whose output is a
 /// grid of cells each carrying its own foreground *and* background --
@@ -77,7 +82,8 @@ pub struct Theme {
 /// one cell can keep the image's spaces opaque and btop's glass; the
 /// block-elements-only rule this replaced covered 66% of that photo's
 /// cells and 19% of another's. So the choice is the owner's, per window,
-/// and it is this key.
+/// and it is this key -- and under `Dimmed`, [`PictureBg`] finds the
+/// pictures from the blocks they make and draws those solid.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum AppBg {
     /// The same alpha as the default background.
@@ -85,6 +91,21 @@ pub enum AppBg {
     Dimmed,
     /// Opaque: a colour an application chose is drawn as it chose it.
     Opaque,
+}
+
+/// What the window's dim does to a picture drawn in text, under
+/// [`AppBg::Dimmed`] -- a block of set backgrounds holding at least
+/// [`crate::PICTURE_COLOURS`] distinct colours, found by
+/// [`crate::Pictures`]. The owner's call, 2026-09-22: panels stay glass and
+/// pictures are drawn solid, because under the dim a picture splits into
+/// solid glyphs beside see-through backgrounds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PictureBg {
+    /// A picture's backgrounds are drawn solid.
+    #[default]
+    Opaque,
+    /// A picture is dimmed like every other background.
+    Dimmed,
 }
 
 impl Default for Theme {
@@ -101,6 +122,7 @@ impl Theme {
             bg: grey(0x10),
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
+            picture_bg: PictureBg::Opaque,
             palette: xterm_palette(),
         }
     }
@@ -128,6 +150,7 @@ impl Theme {
             bg: grey(0xEF),
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
+            picture_bg: PictureBg::Opaque,
             palette: xterm_palette(),
         }
     }
@@ -138,6 +161,16 @@ impl Theme {
     /// bakes it into the style table and the shader reads one bit.
     pub fn opaque_bg(&self, style: StyleWord) -> bool {
         self.app_bg == AppBg::Opaque && Self::set_bg(style)
+    }
+
+    /// Whether pictures drawn in text are looked for at all: only under the
+    /// dim, only while the pictures are asked for solid, and only when the
+    /// dim is below opaque -- otherwise every background is already what a
+    /// picture would be drawn as, and finding them would change nothing.
+    pub fn finds_pictures(&self) -> bool {
+        self.app_bg == AppBg::Dimmed
+            && self.picture_bg == PictureBg::Opaque
+            && self.bg_alpha.get() < 0xFF
     }
 
     /// Whether the background `style` resolves to is one the application

@@ -11,7 +11,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{AppBg, Argb, Blend, Damage, Kind, PxSize, Renderer, Stack, Theme};
+use baud_render::{AppBg, Argb, Blend, Damage, Kind, PictureBg, PxSize, Renderer, Stack, Theme};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -170,13 +170,15 @@ fn opaque_keeps_every_set_background_and_only_those() {
     });
 }
 
-/// **The case the key exists for, on a real capture**: chafa's truecolour
+/// **The case the keys exist for, on a real capture**: chafa's truecolour
 /// output (`tests/previews/`), fed the way yazi feeds it -- each line at the
-/// pane's origin, a row further down each time -- is opaque in every one
-/// of its 1148 cells under `opaque` and dimmed in every one under `dim`,
-/// while a cell of the default background beside it is glass under both.
+/// pane's origin, a row further down each time -- is opaque in every one of
+/// its 1148 cells unless *both* keys say dim: `app_backgrounds = "opaque"`
+/// keeps it because it keeps every set background, and `pictures =
+/// "opaque"`, the default, keeps it because it is a picture. A cell of the
+/// default background beside it is glass under all four.
 #[test]
-fn a_chafa_preview_is_opaque_only_when_asked() {
+fn a_chafa_preview_is_dimmed_only_when_both_keys_ask() {
     let path = format!(
         "{}/../tests/previews/chafa-truecolour.ans",
         env!("CARGO_MANIFEST_DIR")
@@ -197,9 +199,15 @@ fn a_chafa_preview_is_opaque_only_when_asked() {
     bytes.extend(b"\x1b[30;44H");
     assert_eq!(rows, 28, "the capture is not the 41x28 it was");
     let cols = usize::from(ws.ws_col);
-    for (app_bg, want) in [(AppBg::Dimmed, DIM), (AppBg::Opaque, 0xFF)] {
+    for (app_bg, picture_bg, want) in [
+        (AppBg::Dimmed, PictureBg::Dimmed, DIM),
+        (AppBg::Dimmed, PictureBg::Opaque, 0xFF),
+        (AppBg::Opaque, PictureBg::Dimmed, 0xFF),
+        (AppBg::Opaque, PictureBg::Opaque, 0xFF),
+    ] {
         let theme = Theme {
             app_bg,
+            picture_bg,
             ..dim_theme()
         };
         render_ws(theme, &ws, &bytes, |r| {
@@ -214,12 +222,12 @@ fn a_chafa_preview_is_opaque_only_when_asked() {
             }
             assert_eq!(
                 off, 0,
-                "{app_bg:?}: {off} of 1148 preview cells are not {want:#04x}"
+                "{app_bg:?}/{picture_bg:?}: {off} of 1148 preview cells are not {want:#04x}"
             );
             assert_eq!(
                 alpha(bg[0]),
                 DIM,
-                "{app_bg:?}: the default background left the glass"
+                "{app_bg:?}/{picture_bg:?}: the default background left the glass"
             );
         });
     }

@@ -19,6 +19,7 @@ use crate::atlas::Code;
 use crate::cellmap::{Candidate, GlyphMap, Resolved};
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
+use crate::picture::{Pictured, Pictures};
 use crate::renderer::{ClusterGlyph, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
@@ -44,7 +45,19 @@ pub struct OverlayStats {
     pub misses: Tally,
     /// Distinct clusters resolved and kept.
     pub clusters: Tally,
+    /// Cells of a picture drawn in text, whose backgrounds the shader draws
+    /// solid under the dim.
+    pub pictured: Tally,
 }
+
+/// The overlay mask's bits, one byte a screen cell. The shader reads the
+/// same two, so they are spelled once here and once in `shaders.metal`.
+///
+/// `RECORD`: the records draw this cell's glyph and the cell pass must not.
+/// `PICTURE`: the cell belongs to a picture drawn in text, and the
+/// background pass draws it solid -- [`crate::Pictures`].
+pub const MASK_RECORD: u8 = 1;
+pub const MASK_PICTURE: u8 = 2;
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
@@ -81,6 +94,8 @@ pub struct Overlay {
     /// The atlas generation the kept slots belong to; a grow moves them.
     grown: Tally,
     stats: OverlayStats,
+    /// The frame's pictures, found over the same view the walk reads.
+    pictures: Pictures,
 }
 
 /// A cluster's content, folded: the base, its marks and its width.
@@ -150,6 +165,7 @@ impl Overlay {
             windows: HashMap::new(),
             grown: Tally::default(),
             stats: OverlayStats::default(),
+            pictures: Pictures::new(),
         }
     }
 
@@ -184,6 +200,30 @@ impl Overlay {
         }
         self.stats.records = Tally::of(records.len());
         self.stats.clusters = Tally::of(self.clusters.len());
+        // Last, over the mask the walk just filled: the picture bit rides
+        // beside the record bit, and the walk's own tests read the record
+        // bit alone.
+        let view = &scene.view;
+        let (cols, rows) = (view.cols(), view.rows());
+        self.stats.pictured = if r.theme().finds_pictures() {
+            self.pictures.find(scene.term, view)
+        } else {
+            self.pictures.clear(cols, rows);
+            Tally::default()
+        };
+        if self.stats.pictured.value() > 0 {
+            let w = cols.index();
+            for y in 0..rows.index() {
+                for x in 0..w {
+                    if self.pictures.at(Row::from_index(y), Col::at_index(x)) != Pictured::Yes {
+                        continue;
+                    }
+                    if let Some(b) = mask.get_mut(y * w + x) {
+                        *b |= MASK_PICTURE;
+                    }
+                }
+            }
+        }
     }
 
     fn walk(
@@ -261,7 +301,7 @@ impl Overlay {
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
-                if !cell.flags.is_marked() || mask[y * cols + x] != 0 {
+                if !cell.flags.is_marked() || mask[y * cols + x] & MASK_RECORD != 0 {
                     continue;
                 }
                 let Some(cp) = cell.content.as_codepoint() else {
@@ -288,7 +328,7 @@ impl Overlay {
                     }
                 };
                 self.stats.cells.bump();
-                mask[y * cols + x] = 1;
+                mask[y * cols + x] |= MASK_RECORD;
                 Overlay::emit(
                     records,
                     (x, y),
@@ -480,10 +520,10 @@ impl Overlay {
         // does not replace, so drawing here would put two glyphs in one
         // cell; the prediction gives way and the echo draws it a frame
         // later.
-        if *slot == 1 {
+        if *slot & MASK_RECORD != 0 {
             return;
         }
-        *slot = 1;
+        *slot |= MASK_RECORD;
         let glyphs = r.cluster(&[cp]);
         // A prediction is a local echo at the live cursor; the ring rotation
         // that starts a slide drops any pending prediction first, so a
@@ -523,7 +563,7 @@ impl Overlay {
         for ((x, cell, _), glyphs) in piece.iter().zip(drawn) {
             if let Some(glyphs) = glyphs {
                 stats.cells.bump();
-                mask[y.index() * geom.cols.index() + x] = 1;
+                mask[y.index() * geom.cols.index() + x] |= MASK_RECORD;
                 Overlay::emit(records, (*x, y.index()), glyphs, *cell, paint, geom);
             }
         }

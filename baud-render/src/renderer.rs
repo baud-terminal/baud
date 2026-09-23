@@ -7,6 +7,7 @@ use crate::color::{Argb, Theme};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
+use crate::picture::{Pictured, Pictures};
 use crate::scrollbar::{self, Thumb, Window};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
@@ -363,6 +364,11 @@ pub struct Renderer<'f, 'a> {
     prev: Vec<PackedCell>,
     known: Prev,
     cur: Vec<PackedCell>,
+    /// The cells of the frame being converted that belong to a picture
+    /// drawn in text, whose backgrounds are drawn solid under the dim --
+    /// [`Theme::finds_pictures`]. Found over the whole screen, because a
+    /// picture is a property of a block of cells rather than of one.
+    pictures: Pictures,
     /// Per row, a fold of the renditions its cells resolve to. A `StyleId`
     /// indexes an evicting table, so an unchanged cell word can mean a
     /// changed colour; the word comparison alone would miss it.
@@ -500,6 +506,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             prev: Vec::new(),
             known: Prev::Unknown,
             cur: Vec::new(),
+            pictures: Pictures::new(),
             prev_styles: Vec::new(),
             cur_styles: Vec::new(),
             bg: Vec::new(),
@@ -927,6 +934,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for r in 0..rows.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
         }
+        if self.theme.finds_pictures() {
+            self.pictures.find(term, &vp);
+        } else {
+            self.pictures.clear(cols, rows);
+        }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let mut d = Digest::start();
@@ -972,8 +984,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 |g: Option<Ghost>| g.is_some_and(|g| g.overlaps(band.top, band.bottom));
             let trail_moved = under_trail(self.trail) != under_trail(self.last_trail)
                 || (under_trail(self.trail) && self.trail != self.last_trail);
-            self.dirty[r] =
-                full || changed || cursor_moved || selection_moved || bar_moved || trail_moved;
+            // A picture is the block's, so a row can move in or out of one
+            // without a cell of its own changing.
+            let pictured = self.pictures.row_changed(row);
+            self.dirty[r] = full
+                || changed
+                || cursor_moved
+                || selection_moved
+                || bar_moved
+                || trail_moved
+                || pictured;
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -1347,7 +1367,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // alpha reaches the compositor once rather than compounding
             // with the clear under it.
             bg = bg.with_alpha(self.theme.bg_alpha);
-            if self.theme.opaque_bg(style) {
+            // A picture drawn in text keeps its backgrounds solid under the
+            // dim: its glyphs are solid, and a dimmed background beside
+            // each one splits the picture into slivers and holes. Must match
+            // the cell shader's `cell_bg_vertex`.
+            if self.theme.opaque_bg(style) || self.pictures.at(r, Col::at_index(c)) == Pictured::Yes
+            {
                 bg = bg.with_alpha(Chan::from_u8(0xFF));
             }
             if self

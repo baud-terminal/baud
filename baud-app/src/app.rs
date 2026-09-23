@@ -561,6 +561,7 @@ impl Boot {
         // window can be asked -- this renderer draws no frame; `run` sets
         // the palette again from `window.is_dark()` before the first one.
         theme.app_bg = cfg.glass.app_backgrounds;
+        theme.picture_bg = cfg.glass.pictures;
         theme.bg_alpha = dim(
             &cfg.glass,
             match cfg.theme {
@@ -1649,6 +1650,7 @@ fn theme_for(appearance: Appearance, glass: &crate::config::Glass) -> Theme {
     };
     theme.bg_alpha = dim(glass, appearance);
     theme.app_bg = glass.app_backgrounds;
+    theme.picture_bg = glass.pictures;
     theme
 }
 

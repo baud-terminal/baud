@@ -138,14 +138,21 @@ pub struct Glass {
     /// `app_backgrounds`: `"dim"`, the default, draws every background an
     /// application sets under the same dim as the default one -- the
     /// owner's 2026-09-20 rule, so btop's panels are glass; `"opaque"`
-    /// draws them as the application chose them and leaves only the
-    /// default background glass, so a file manager's text-drawn photo
-    /// preview is not 78% transparent over the wallpaper. Every set
-    /// background and not only an image's, because an image's flat areas
-    /// are spaces on a set background and so is every TUI panel: see
-    /// `baud_render::AppBg`. It replaced `images`, a block-elements-only
-    /// rule that covered as little as 19% of a preview's cells.
+    /// draws them all as the application chose them and leaves only the
+    /// default background glass, so btop's panels are solid too. A
+    /// file manager's text-drawn photo preview no longer needs `"opaque"`:
+    /// under `"dim"`, `pictures` below finds it and draws it solid. It
+    /// replaced `images`, a block-elements-only rule that covered as
+    /// little as 19% of a preview's cells; see `baud_render::AppBg`.
     pub app_backgrounds: baud_render::AppBg,
+    /// `pictures`: `"opaque"`, the default, draws the backgrounds of a
+    /// picture drawn in text -- a connected block of set backgrounds
+    /// holding sixteen colours or more, which a chafa preview is and a TUI
+    /// panel is not -- solid under `app_backgrounds = "dim"`, so the
+    /// picture does not split into solid glyphs beside see-through holes.
+    /// `"dim"` dims them like every other background. See
+    /// `baud_render::PictureBg` for the measurement behind the threshold.
+    pub pictures: baud_render::PictureBg,
 }
 
 /// Which `NSGlassEffectView` style the surface asks for.
@@ -187,6 +194,7 @@ impl Glass {
             saturation: 0.80,
             shadow: Shadow::Auto,
             app_backgrounds: baud_render::AppBg::Dimmed,
+            pictures: baud_render::PictureBg::Opaque,
         }
     }
 }
@@ -437,13 +445,14 @@ impl Config {
                     );
                     self.glass.app_backgrounds = app_backgrounds(&value, "images");
                 }
+                ("glass", "pictures") => self.glass.pictures = pictures(&value),
                 ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark"),
                 ("glass", "dim_light") => self.glass.dim_light = unit(&value, "dim_light"),
                 ("glass", "tint_dark") => self.glass.tint_dark = unit(&value, "tint_dark"),
                 ("glass", "tint_light") => self.glass.tint_light = unit(&value, "tint_light"),
                 ("glass", "hue") => self.glass.hue = unit(&value, "hue"),
                 ("glass", "saturation") => self.glass.saturation = unit(&value, "saturation"),
-                // `[glass]` is a closed set of nine, so a name that is
+                // `[glass]` is a closed set of ten, so a name that is
                 // not one of them is a typo rather than a key from a
                 // newer baud, and saying so costs a line. It is a warning
                 // and not an error for the reason every other unknown key
@@ -458,12 +467,6 @@ impl Config {
     }
 }
 
-/// A `[glass]` fraction: parsed, and clamped to 0..=1 with a warning.
-///
-/// Clamped rather than rejected, for the reason a malformed `GN_ORIGIN` is
-/// ignored rather than fatal in the example: a mistyped alpha should not
-/// stop the window appearing. It says what it did, because a value
-/// silently changed is the same defect as a key silently ignored.
 /// `[glass] app_backgrounds`'s value, or `dim` with a warning on a word it
 /// does not know.
 fn app_backgrounds(value: &str, key: &str) -> baud_render::AppBg {
@@ -477,6 +480,25 @@ fn app_backgrounds(value: &str, key: &str) -> baud_render::AppBg {
     }
 }
 
+/// `[glass] pictures`'s value, or `opaque` with a warning on a word it does
+/// not know.
+fn pictures(value: &str) -> baud_render::PictureBg {
+    match value.trim().trim_matches('"') {
+        "opaque" => baud_render::PictureBg::Opaque,
+        "dim" => baud_render::PictureBg::Dimmed,
+        other => {
+            crate::warn!("config: glass pictures {other:?} is not opaque or dim; using opaque");
+            baud_render::PictureBg::Opaque
+        }
+    }
+}
+
+/// A `[glass]` fraction: parsed, and clamped to 0..=1 with a warning.
+///
+/// Clamped rather than rejected, for the reason a malformed `GN_ORIGIN` is
+/// ignored rather than fatal in the example: a mistyped alpha should not
+/// stop the window appearing. It says what it did, because a value
+/// silently changed is the same defect as a key silently ignored.
 fn unit(value: &str, name: &str) -> f32 {
     let raw = value.trim();
     let Ok(v) = raw.parse::<f32>() else {
@@ -914,6 +936,20 @@ shadow     = "never"
         assert_eq!(get("app_backgrounds = \"opaque\"\n"), AppBg::Dimmed);
         assert_eq!(get("[glass]\nimages = \"opaque\"\n"), AppBg::Opaque);
         assert_eq!(get("images = \"opaque\"\n"), AppBg::Dimmed);
+    }
+
+    /// `[glass] pictures` defaults to drawing a text-drawn picture's
+    /// backgrounds solid, takes `dim`, falls back to `opaque` on a word it
+    /// does not know, and is not reached from the top level.
+    #[test]
+    fn pictures_are_opaque_unless_asked_for_dim() {
+        use baud_render::PictureBg;
+        let get = |t: &str| read(t).glass.pictures;
+        assert_eq!(get(""), PictureBg::Opaque);
+        assert_eq!(get("[glass]\npictures = \"dim\"\n"), PictureBg::Dimmed);
+        assert_eq!(get("[glass]\npictures = \"opaque\"\n"), PictureBg::Opaque);
+        assert_eq!(get("[glass]\npictures = \"solid\"\n"), PictureBg::Opaque);
+        assert_eq!(get("pictures = \"dim\"\n"), PictureBg::Opaque);
     }
 
     /// A mistyped alpha is clamped and said, not fatal and not silent --

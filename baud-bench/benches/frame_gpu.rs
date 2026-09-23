@@ -70,11 +70,36 @@ fn main() {
         "cava" => "utf8/cava.raw".to_string(),
         other => other.to_string(),
     };
-    let data = std::fs::read(format!(
-        "{}/../tests/recordings/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .expect("recording");
+    // An absolute path is read as it is, so a payload that is not a
+    // recording -- a text-drawn picture placed the way a file manager
+    // places it -- can be replayed without joining the corpus.
+    let path = if name.starts_with('/') {
+        name.clone()
+    } else {
+        format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"))
+    };
+    let data = std::fs::read(&path).expect("recording");
+    // `FRAME_GLASS`: the window's dim, which `Theme::dark()` leaves at full
+    // alpha -- where `[glass] pictures`'s finder never runs, so no default
+    // arm can price it. `dim` is the app's own default (0.22 of 255, every
+    // background dimmed, pictures found and kept solid); `dim-nopictures`
+    // is the same with `pictures = "dim"`, the finder off.
+    let glass = std::env::var("FRAME_GLASS").unwrap_or_else(|_| "off".to_string());
+    let theme = match glass.as_str() {
+        "off" => Theme::dark(),
+        "dim" | "dim-nopictures" => Theme {
+            bg_alpha: baud_domain::Chan::from_u8(56),
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: if glass == "dim" {
+                baud_render::PictureBg::Opaque
+            } else {
+                baud_render::PictureBg::Dimmed
+            },
+            ..Theme::dark()
+        },
+        other => panic!("FRAME_GLASS={other:?} is not off, dim or dim-nopictures"),
+    };
+    println!("glass: {glass}");
     let stack_spec = std::env::var("FRAME_FACES").unwrap_or_else(|_| {
         format!(
             "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
@@ -103,7 +128,7 @@ fn main() {
         Renderer::new(
             Stack::new(&faces).unwrap(),
             PxSize::of(14.0).unwrap(),
-            Theme::dark(),
+            theme.clone(),
             Blend::Native,
             Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
@@ -117,7 +142,7 @@ fn main() {
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!("memory: {:?}", gpu.unified_memory());
     println!(
-        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>9}",
+        "{:<5} {:<6} {:>7} {:>9} {:>9} {:>9} {:>9} {:>9} {:>8} {:>9} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>9}",
         "round",
         "arm",
         "frames",
@@ -135,6 +160,7 @@ fn main() {
         "wcells",
         "wmiss",
         "rec",
+        "pict",
         "wait"
     );
     /// One arm's sums over a replay.
@@ -163,6 +189,9 @@ fn main() {
         wcells: Tally,
         wmiss: Tally,
         rec: Tally,
+        /// The cells `[glass] pictures`'s finder marked as a picture, which
+        /// is what says it ran: zero under `FRAME_GLASS=off`.
+        pict: Tally,
         wait: Duration,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -367,6 +396,7 @@ fn main() {
                     s.wcells.add(exceptions.stats().window_cells);
                     s.wmiss.add(exceptions.stats().window_misses);
                     s.rec.add(exceptions.stats().records);
+                    s.pict.add(exceptions.stats().pictured);
                     if arm == Arm::Copied {
                         let vp = t.viewport();
                         for y in 0..rows.index() {
@@ -498,7 +528,7 @@ fn main() {
             s.ptest = map.stats().pair_tests;
             let per = |d: Duration| d.as_secs_f64() * 1e6 / s.frames as f64;
             println!(
-                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>9.1}",
+                "{:<5} {:<6} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>9.1}",
                 round,
                 match arm {
                     Arm::Cpu => "cpu",
@@ -525,6 +555,7 @@ fn main() {
                 s.wcells.value() as f64 / s.frames as f64,
                 s.wmiss.value() as f64 / s.frames as f64,
                 s.rec.value() as f64 / s.frames as f64,
+                s.pict.value() as f64 / s.frames as f64,
                 per(s.wait),
             );
             let first_frames = usize::try_from(s.first_frames.value()).unwrap_or(usize::MAX);

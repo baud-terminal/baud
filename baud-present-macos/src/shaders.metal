@@ -144,11 +144,19 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
 vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
-                              constant CU& u [[buffer(2)]]) {
+                              constant CU& u [[buffer(2)]],
+                              device const uchar* overlay [[buffer(4)]]) {
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     uint fgw, bgw;
     colors(u, styles, cell_at(u, cells, col, dr), col, uint(lrow), fgw, bgw);
+    // A cell of a picture drawn in text keeps its background solid under
+    // the dim (`MASK_PICTURE`, bit 2 of the overlay). After the swaps is
+    // the same as before them: a swap already leaves both sides opaque.
+    // Must match `Renderer::convert_row`.
+    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 2u) != 0u) {
+        bgw |= 0xff000000u;
+    }
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = float2((float(col) + c.x) * float(u.cell.x),
                       (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
@@ -173,7 +181,8 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     int lrow = int(dr) - int(u.slide_rows);
     // The overlay is a screen-cell mask; index it by the screen row, not
     // the draw row, and never for the leaving row above the window.
-    if (lrow >= 0 && overlay[uint(lrow) * u.grid.x + col] != 0) return o;
+    // Bit 1 (`MASK_RECORD`) is a cell a record draws; bit 2 is a picture's.
+    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 1u) != 0u) return o;
     uint2 cell = cell_at(u, cells, col, dr);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
