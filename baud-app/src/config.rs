@@ -5,8 +5,8 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `theme`, and the eight under
-//! `[glass]` -- and a key it does not understand is ignored rather than
-//! fatal, so a newer config does not break an older binary.
+//! `[glass]` -- and a key it does not understand is ignored, and said,
+//! rather than fatal, so a newer config does not break an older binary.
 //!
 //! **Sections are a namespace, and they did not used to be.** The reader
 //! flattened them, so `[glass] style` and a top-level `style` were one key;
@@ -275,45 +275,58 @@ impl Config {
     pub fn load() -> Config {
         let mut c = Config::defaults();
         if let Some((path, text)) = read_first() {
-            c.apply(&text);
+            for said in c.apply(&text) {
+                crate::warn!("{said}");
+            }
             c.source = Some(path);
         }
         c
     }
 
-    fn apply(&mut self, text: &str) {
+    /// Reads `text` over `self`, and returns what it could not act on, one
+    /// sentence each: a key no arm knows in the section it is in, and a
+    /// value that fell back to a default. `load` prints them; a test reads
+    /// them, because a config whose every value equals its default reads
+    /// the same whether a line landed or was swallowed.
+    fn apply(&mut self, text: &str) -> Vec<String> {
+        let mut said = Vec::new();
         for (section, key, value) in fields(text) {
             match (section.as_str(), key.as_str()) {
-                ("", "font_size") => {
-                    if let Ok(v) = value.trim().parse::<f32>() {
-                        self.font_size = v;
-                    }
-                }
+                ("", "font_size") => match value.trim().parse::<f32>() {
+                    Ok(v) => self.font_size = v,
+                    Err(_) => said.push(format!(
+                        "config: font_size {:?} is not a number; keeping the default",
+                        value.trim()
+                    )),
+                },
                 // Recognised only to say it is gone. Dropping it to the
                 // wildcard would leave the owner's own config carrying a
                 // number that reaches no drawing code, which is the
                 // failure the example's `GN_GTINT` comment records: a
                 // knob that reports one thing and does another.
                 ("", "background_alpha") => {
-                    crate::warn!(
+                    said.push(
                         "config: background_alpha is superseded by [glass] dim_dark and \
                          dim_light, which change with the system appearance; it is ignored"
+                            .into(),
                     );
                 }
-                ("", "padding") => {
-                    if let Ok(v) = value.trim().parse::<f32>() {
-                        self.padding = v.max(0.0);
-                    }
-                }
+                ("", "padding") => match value.trim().parse::<f32>() {
+                    Ok(v) => self.padding = v.max(0.0),
+                    Err(_) => said.push(format!(
+                        "config: padding {:?} is not a number; keeping the default",
+                        value.trim()
+                    )),
+                },
                 ("", "theme") => {
                     self.theme = match value.trim().trim_matches('"') {
                         "auto" => ThemeChoice::Auto,
                         "dark" => ThemeChoice::Dark,
                         "light" => ThemeChoice::Light,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: theme {other:?} is not auto, dark or light; using auto"
-                            );
+                            ));
                             ThemeChoice::Auto
                         }
                     };
@@ -323,9 +336,9 @@ impl Config {
                         "srgb" => Space::Srgb,
                         "display-p3" => Space::DisplayP3,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: colorspace {other:?} is not srgb or display-p3; using srgb"
-                            );
+                            ));
                             Space::Srgb
                         }
                     };
@@ -335,10 +348,10 @@ impl Config {
                         "true" => CursorTrail::On,
                         "false" => CursorTrail::Off,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: [cursor] trail {other:?} is not true or false; \
                                  using false"
-                            );
+                            ));
                             CursorTrail::Off
                         }
                     };
@@ -348,23 +361,26 @@ impl Config {
                         "true" => ScreenTransition::On,
                         "false" => ScreenTransition::Off,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: [screen] transition {other:?} is not true or false; \
                                  using false"
-                            );
+                            ));
                             ScreenTransition::Off
                         }
                     };
                 }
+                // Quoted, as the example writes it, or bare: the example's
+                // `"normal"` was read as smooth until the example's own gate
+                // asked the reader what it had ignored.
                 ("scroll", "mode") => {
-                    self.scroll = match value.trim() {
+                    self.scroll = match value.trim().trim_matches('"') {
                         "smooth" => ScrollMode::Smooth,
                         "normal" => ScrollMode::Normal,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: [scroll] mode {other:?} is not normal or smooth; \
                                  using the default, smooth"
-                            );
+                            ));
                             ScrollMode::Smooth
                         }
                     };
@@ -376,31 +392,35 @@ impl Config {
                 // but `ImageBudget` is a `baud-domain` type and exempt.
                 ("images", "pixels_mb") => match value.trim().parse::<usize>() {
                     Ok(mb) => self.images.pixels = mb.saturating_mul(1 << 18),
-                    Err(_) => warn_size(&value, "pixels_mb"),
+                    Err(_) => warn_size(&value, "pixels_mb", &mut said),
                 },
                 ("images", "body_kb") => match value.trim().parse::<usize>() {
                     Ok(kb) => self.images.body = kb.saturating_mul(1 << 10),
-                    Err(_) => warn_size(&value, "body_kb"),
+                    Err(_) => warn_size(&value, "body_kb", &mut said),
                 },
                 ("images", "advertise_sixel") => {
                     self.sixel = match value.trim() {
                         "true" => baud_domain::SixelClaim::Yes,
                         "false" => baud_domain::SixelClaim::No,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: [images] advertise_sixel = {other:?} is not true or false; it stays off"
-                            );
+                            ));
                             baud_domain::SixelClaim::No
                         }
                     };
                 }
                 ("images", other) => {
-                    crate::warn!("config: [images] has no key {other:?}; it is ignored");
+                    said.push(format!(
+                        "config: [images] has no key {other:?}; it is ignored"
+                    ));
                 }
                 ("", "fonts") => {
                     let faces: Vec<_> =
                         strings(&value).iter().map(|s| FaceSpec::parse(s)).collect();
-                    if !faces.is_empty() {
+                    if faces.is_empty() {
+                        said.push("config: fonts names no face; keeping the default stack".into());
+                    } else {
                         self.faces = faces;
                     }
                 }
@@ -409,10 +429,10 @@ impl Config {
                         "clear" => Material::Clear,
                         "regular" => Material::Regular,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: glass style {other:?} is not clear or regular; \
                                  using clear"
-                            );
+                            ));
                             Material::Clear
                         }
                     };
@@ -423,35 +443,45 @@ impl Config {
                         "always" => Shadow::Always,
                         "never" => Shadow::Never,
                         other => {
-                            crate::warn!(
+                            said.push(format!(
                                 "config: glass shadow {other:?} is not auto, always or \
                                  never; using auto"
-                            );
+                            ));
                             Shadow::Auto
                         }
                     };
                 }
                 ("glass", "app_backgrounds") => {
-                    self.glass.app_backgrounds = app_backgrounds(&value, "app_backgrounds");
+                    self.glass.app_backgrounds =
+                        app_backgrounds(&value, "app_backgrounds", &mut said);
                 }
                 // The key's first name, shipped for one day as a
                 // block-elements-only rule. Applied under its new meaning
                 // rather than dropped, and said, so a config written for it
                 // keeps working and learns the name that will stay.
                 ("glass", "images") => {
-                    crate::warn!(
+                    said.push(
                         "config: glass images is now app_backgrounds, and \"opaque\" keeps \
                          every background an application sets, not only block elements"
+                            .into(),
                     );
-                    self.glass.app_backgrounds = app_backgrounds(&value, "images");
+                    self.glass.app_backgrounds = app_backgrounds(&value, "images", &mut said);
                 }
-                ("glass", "pictures") => self.glass.pictures = pictures(&value),
-                ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark"),
-                ("glass", "dim_light") => self.glass.dim_light = unit(&value, "dim_light"),
-                ("glass", "tint_dark") => self.glass.tint_dark = unit(&value, "tint_dark"),
-                ("glass", "tint_light") => self.glass.tint_light = unit(&value, "tint_light"),
-                ("glass", "hue") => self.glass.hue = unit(&value, "hue"),
-                ("glass", "saturation") => self.glass.saturation = unit(&value, "saturation"),
+                ("glass", "pictures") => self.glass.pictures = pictures(&value, &mut said),
+                ("glass", "dim_dark") => self.glass.dim_dark = unit(&value, "dim_dark", &mut said),
+                ("glass", "dim_light") => {
+                    self.glass.dim_light = unit(&value, "dim_light", &mut said)
+                }
+                ("glass", "tint_dark") => {
+                    self.glass.tint_dark = unit(&value, "tint_dark", &mut said)
+                }
+                ("glass", "tint_light") => {
+                    self.glass.tint_light = unit(&value, "tint_light", &mut said)
+                }
+                ("glass", "hue") => self.glass.hue = unit(&value, "hue", &mut said),
+                ("glass", "saturation") => {
+                    self.glass.saturation = unit(&value, "saturation", &mut said)
+                }
                 // `[glass]` is a closed set of ten, so a name that is
                 // not one of them is a typo rather than a key from a
                 // newer baud, and saying so costs a line. It is a warning
@@ -459,22 +489,30 @@ impl Config {
                 // is ignored: a newer config must not break an older
                 // binary.
                 ("glass", other) => {
-                    crate::warn!("config: [glass] has no key {other:?}; it is ignored");
+                    said.push(format!(
+                        "config: [glass] has no key {other:?}; it is ignored"
+                    ));
                 }
-                _ => {}
+                ("", other) => said.push(format!("config: no key {other:?}; it is ignored")),
+                (section, other) => said.push(format!(
+                    "config: [{section}] has no key {other:?}; it is ignored"
+                )),
             }
         }
+        said
     }
 }
 
 /// `[glass] app_backgrounds`'s value, or `dim` with a warning on a word it
 /// does not know.
-fn app_backgrounds(value: &str, key: &str) -> baud_render::AppBg {
+fn app_backgrounds(value: &str, key: &str, said: &mut Vec<String>) -> baud_render::AppBg {
     match value.trim().trim_matches('"') {
         "dim" => baud_render::AppBg::Dimmed,
         "opaque" => baud_render::AppBg::Opaque,
         other => {
-            crate::warn!("config: glass {key} {other:?} is not dim or opaque; using dim");
+            said.push(format!(
+                "config: glass {key} {other:?} is not dim or opaque; using dim"
+            ));
             baud_render::AppBg::Dimmed
         }
     }
@@ -482,12 +520,14 @@ fn app_backgrounds(value: &str, key: &str) -> baud_render::AppBg {
 
 /// `[glass] pictures`'s value, or `opaque` with a warning on a word it does
 /// not know.
-fn pictures(value: &str) -> baud_render::PictureBg {
+fn pictures(value: &str, said: &mut Vec<String>) -> baud_render::PictureBg {
     match value.trim().trim_matches('"') {
         "opaque" => baud_render::PictureBg::Opaque,
         "dim" => baud_render::PictureBg::Dimmed,
         other => {
-            crate::warn!("config: glass pictures {other:?} is not opaque or dim; using opaque");
+            said.push(format!(
+                "config: glass pictures {other:?} is not opaque or dim; using opaque"
+            ));
             baud_render::PictureBg::Opaque
         }
     }
@@ -499,16 +539,20 @@ fn pictures(value: &str) -> baud_render::PictureBg {
 /// ignored rather than fatal in the example: a mistyped alpha should not
 /// stop the window appearing. It says what it did, because a value
 /// silently changed is the same defect as a key silently ignored.
-fn unit(value: &str, name: &str) -> f32 {
+fn unit(value: &str, name: &str, said: &mut Vec<String>) -> f32 {
     let raw = value.trim();
     let Ok(v) = raw.parse::<f32>() else {
         let d = fallback(name);
-        crate::warn!("config: glass {name} {raw:?} is not a number; using {d}");
+        said.push(format!(
+            "config: glass {name} {raw:?} is not a number; using {d}"
+        ));
         return d;
     };
     if !(0.0..=1.0).contains(&v) {
         let c = v.clamp(0.0, 1.0);
-        crate::warn!("config: glass {name} {v} is outside 0..1; using {c}");
+        said.push(format!(
+            "config: glass {name} {v} is outside 0..1; using {c}"
+        ));
         return c;
     }
     v
@@ -522,11 +566,11 @@ fn unit(value: &str, name: &str) -> f32 {
 /// Takes `(value, name)` in `unit`'s order, deliberately: two adjacent
 /// `&str`-pair helpers with swapped orders is a transposition the compiler
 /// cannot catch.
-fn warn_size(value: &str, name: &str) {
-    crate::warn!(
+fn warn_size(value: &str, name: &str, said: &mut Vec<String>) {
+    said.push(format!(
         "config: [images] {name} {:?} is not a whole number; keeping the default",
         value.trim()
-    );
+    ));
 }
 
 /// What a rejected `[glass]` value falls back to: the default for that key
@@ -822,10 +866,15 @@ mod reader {
 
     /// Scroll is smooth unless `[scroll] mode = normal`, and a value that is
     /// neither `normal` nor `smooth` falls back to the default, smooth, with
-    /// a warning.
+    /// a warning. The quoted form is the one `config.toml.example` writes,
+    /// and it is the one the first version of the reader missed.
     #[test]
     fn the_scroll_mode_is_smooth_unless_asked_for() {
         assert_eq!(Config::defaults().scroll, ScrollMode::Smooth);
+        assert_eq!(
+            read("[scroll]\nmode = \"normal\"\n").scroll,
+            ScrollMode::Normal
+        );
         assert_eq!(read("[scroll]\nmode = normal\n").scroll, ScrollMode::Normal);
         assert_eq!(read("[scroll]\nmode = smooth\n").scroll, ScrollMode::Smooth);
         assert_eq!(read("[scroll]\nmode = fast\n").scroll, ScrollMode::Smooth);
@@ -1028,7 +1077,36 @@ shadow     = "never"
             ScrollMode::Smooth,
             "the [scroll] section did not land"
         );
-        // And every `[glass]` key reached the glass rather than nothing.
+        // The values above are all defaults, so they read the same whether
+        // a line landed or was swallowed by the section above it. What
+        // separates the two is the reader's own account: every key the
+        // example writes reached an arm that acts on it, in the section it
+        // sits in, and no value fell back.
+        let said = Config::defaults().apply(&text);
+        assert!(
+            said.is_empty(),
+            "the example writes what the reader ignores: {said:?}"
+        );
+        // And the reader saw every key line. A line swallowed into an
+        // unclosed list, or dropped by the tokenizer, is nothing said; this
+        // counts them a second way, as a key at the start of a line.
+        let written = text
+            .lines()
+            .filter(|l| {
+                l.split_once(" =").is_some_and(|(k, _)| {
+                    !k.is_empty() && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+                })
+            })
+            .count();
+        assert!(
+            written > 10,
+            "the key count found {written} lines; the probe is broken"
+        );
+        assert_eq!(
+            fields(&text).len(),
+            written,
+            "a key line did not reach the reader"
+        );
         assert_eq!(c.glass, Glass::defaults(), "a [glass] key did not land");
         // The `[images]` section lands too, and it sits after `fonts` for
         // the reason `[cursor]` does -- a section before the stack would
