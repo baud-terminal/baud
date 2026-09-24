@@ -321,3 +321,179 @@ fn a_full_ring_narrows_and_keeps_what_fits() {
         assert_eq!(oldest, String::from("01076") + &digits(145), "a whole line");
     });
 }
+
+// **A window over the history holds its line through a re-cut.** The app
+// anchored a scrolled-back window by how far the line at the window's top
+// moved, and a re-cut renumbers that line by the growth of every line above
+// it -- the lines above the one the window shows included, which do not move
+// it at all. `Term::resize_holding` maps the window's first row through the
+// re-cut the way an image's row is mapped.
+
+/// The line at the top of a view `back` lines up.
+fn viewed(t: &Term<'_>, back: Rows) -> String {
+    text_of(t.view(back).row(Row::ZERO)).trim_end().to_string()
+}
+
+fn hold(t: &mut Term<'_>, cols: u16, rows: u16, back: Rows) -> Rows {
+    let (r, b) = t.resize_holding(
+        &WinSize {
+            ws_row: rows,
+            ws_col: cols,
+        },
+        back,
+    );
+    assert_eq!(
+        r,
+        Resized::Ok,
+        "{cols}x{rows} is inside the provisioned grid"
+    );
+    b
+}
+
+/// How far back the line `want` starts, looking from the live screen.
+fn find(t: &Term<'_>, want: &str) -> Rows {
+    (1..=t.scrollback().len())
+        .map(Rows::of_count)
+        .find(|&b| viewed(t, b) == want)
+        .unwrap_or_else(|| panic!("{want:?} is in the history"))
+}
+
+fn long(i: usize) -> String {
+    format!("long {i} {}\r\n", "x".repeat(22))
+}
+
+fn short(i: usize) -> String {
+    format!("s {i:02}\r\n")
+}
+
+/// A terminal provisioned at twenty columns and started at `cols`.
+fn at<R>(cols: u16, rows: u16, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let ws = |c: u16| WinSize {
+        ws_col: c,
+        ws_row: rows,
+    };
+    let mut owned = Owned::new(&ws(20));
+    let mut t = Term::new(owned.storage(), &ws(cols));
+    f(&mut t)
+}
+
+#[test]
+fn a_window_over_the_history_holds_its_line_through_a_re_cut() {
+    let above: String = (0..5).map(long).chain((0..30).map(short)).collect();
+    let between: String = (0..10)
+        .map(short)
+        .chain((0..5).map(long))
+        .chain((10..30).map(short))
+        .collect();
+    for (stream, arm) in [
+        (&between, "long lines between it and the screen"),
+        (&above, "long lines above it"),
+    ] {
+        for (from, to) in [(20, 12), (12, 20), (20, 7)] {
+            for n in [1, 4096] {
+                at(from, 10, |t| {
+                    for c in stream.as_bytes().chunks(n) {
+                        support::feed(t, c);
+                    }
+                    let back = find(t, "s 05");
+                    let held = hold(t, to, 10, back);
+                    assert_eq!(
+                        viewed(t, held),
+                        "s 05",
+                        "{arm}, {from} to {to} columns, read size {n}"
+                    );
+                });
+            }
+        }
+    }
+}
+
+/// A live window stays live, even when the re-cut slides the window down to
+/// keep the cursor on the screen -- where the window's old top row lands
+/// above the new one, and mapping it would have left the live screen.
+#[test]
+fn a_live_window_stays_live_through_a_re_cut() {
+    at(20, 10, |t| {
+        let s: String = (0..20).map(long).collect();
+        support::feed(t, s.as_bytes());
+        let top = row_text(t, 0);
+        assert_eq!(hold(t, 12, 10, Rows::ZERO), Rows::ZERO);
+        assert_ne!(row_text(t, 0), top, "the control: the window slid");
+        assert_eq!(hold(t, 20, 10, Rows::ZERO), Rows::ZERO);
+    });
+}
+
+/// A window that a taller screen brings back to the live screen, in the
+/// same resize as a re-cut, is live for the re-cut: the growth pulls two
+/// rows back from the history and a window two lines up is on the live
+/// screen by the time the lines are re-cut.
+#[test]
+fn a_window_a_growth_brings_to_the_live_screen_stays_live_through_the_re_cut() {
+    let ws = |c: u16, r: u16| WinSize {
+        ws_col: c,
+        ws_row: r,
+    };
+    let mut owned = Owned::new(&ws(20, 10));
+    let mut t = Term::new(owned.storage(), &ws(20, 8));
+    let s: String = (0..20).map(long).collect();
+    support::feed(&mut t, s.as_bytes());
+    let (r, held) = t.resize_holding(&ws(12, 10), Rows::of_count(2));
+    assert_eq!(r, Resized::Ok);
+    assert_eq!(held, Rows::ZERO);
+}
+
+/// The re-cut drops whole lines from the oldest end when the ring cannot
+/// hold them, and a window on one of those lines holds the oldest line
+/// kept.
+#[test]
+fn a_window_whose_line_the_re_cut_dropped_holds_the_oldest_line_kept() {
+    let ws = |c: u16| WinSize {
+        ws_col: c,
+        ws_row: 10,
+    };
+    let mut owned = Owned::with_history(&ws(20), &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &ws(20));
+    let s: String = (0..40).map(long).collect();
+    support::feed(&mut t, s.as_bytes());
+    let deepest = Rows::of_count(t.scrollback().len());
+    assert_eq!(deepest.index(), 20, "the control: the ring is full");
+    let dropped_line = viewed(&t, deepest);
+    let held = hold(&mut t, 12, 10, deepest);
+    assert_eq!(held.index(), t.scrollback().len(), "the oldest line kept");
+    assert_ne!(
+        viewed(&t, held),
+        dropped_line,
+        "the control: the line the window showed is gone"
+    );
+}
+
+/// A change of height and width in one step: the height retires rows the
+/// cursor needs, which moves the window's lines up by that many, and then
+/// the re-cut. The window holds its line through both.
+#[test]
+fn a_change_of_height_and_width_in_one_step_holds_the_line() {
+    let s: String = (0..5).map(long).chain((0..30).map(short)).collect();
+    for (to_cols, to_rows) in [(12, 6), (7, 4)] {
+        at(20, 10, |t| {
+            support::feed(t, s.as_bytes());
+            let back = find(t, "s 05");
+            let held = hold(t, to_cols, to_rows, back);
+            assert_eq!(viewed(t, held), "s 05", "{to_cols}x{to_rows}");
+        });
+    }
+}
+
+/// At a prompt a change of width re-cuts nothing, and the window stays
+/// where it was.
+#[test]
+fn at_a_prompt_the_window_holds_without_a_re_cut() {
+    let s: String = (0..5).map(long).chain((0..30).map(short)).collect();
+    at(20, 10, |t| {
+        support::feed(t, s.as_bytes());
+        support::feed(t, b"\x1b]133;P;k=i\x07$ ");
+        let back = find(t, "s 05");
+        let held = hold(t, 12, 10, back);
+        assert_eq!(held, back, "nothing was re-cut");
+        assert_eq!(viewed(t, held), "s 05");
+    });
+}

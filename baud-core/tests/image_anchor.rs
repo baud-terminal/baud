@@ -430,6 +430,51 @@ fn an_image_in_the_history_follows_a_narrower_screen() {
     });
 }
 
+/// A window held over the history on an image's row, and the image, follow
+/// the same re-cut: the window's first row and the image's row are mapped by
+/// one hook, and the image stays at the top of the window that was showing
+/// it. Lines above both re-cut into more rows, which is what moved a window
+/// anchored by its top line's number onto another line.
+#[test]
+fn a_window_held_on_an_image_follows_it_through_a_re_cut() {
+    with(Depth::DEFAULT, |t| {
+        let mut above = Vec::new();
+        for _ in 0..3 {
+            above.extend(long(150).into_bytes());
+            above.extend_from_slice(b"\r\n");
+        }
+        scene(t, &above);
+        feed(t, b"\r\n");
+        feed(t, &lines(80));
+        let p = only(t);
+        let mut back = (1..=t.scrollback().len())
+            .map(Rows::of_count)
+            .find(|&b| drawn_row(t, &p, b) == 0)
+            .expect("a view with the image at its top");
+        for (cols, why) in [
+            (60, "narrowed"),
+            (200, "widened back"),
+            (37, "narrowed again"),
+        ] {
+            let (r, held) = t.resize_holding(
+                &WinSize {
+                    ws_row: 50,
+                    ws_col: cols,
+                },
+                back,
+            );
+            assert_eq!(r, Resized::Ok);
+            in_place(t, why);
+            assert_eq!(
+                drawn_row(t, &only(t), held),
+                0,
+                "{why}: the image is at the top of the window that was showing it"
+            );
+            back = held;
+        }
+    });
+}
+
 /// The shell's prompt block after the image: four lines opened by the
 /// initial-prompt mark, the shape zsh redraws on every resize.
 const BLOCK: &[u8] = b"\x1b]133;P;k=i\x07line one\r\nline two\r\nline three\r\n$ ";

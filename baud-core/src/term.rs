@@ -768,20 +768,20 @@ impl<'b> Term<'b> {
     /// silence. Columns are free to the pitch, which is `MAX_COLS` or more by
     /// construction.
     ///
-    /// **The content survives, hidden; nothing reflows and nothing is
-    /// blanked.** The pitch is fixed, so a cell keeps its address whatever
-    /// the geometry: a narrower or shorter screen stops addressing what lies
-    /// past its edge, and a wider or taller one addresses it again -- the
-    /// window is a view onto a grid that is as large as it was ever made.
-    /// What keeps that sound is that a row's mark bounds its content over the
-    /// whole pitch, and a clear runs through the mark, so a line the
-    /// application erased while the screen was narrow does not come back
-    /// with a tail. Reflow -- deciding where a wrapped line breaks now -- is a
-    /// renderer's problem and has no right answer at this layer; what this
-    /// layer owes is that a resize costs what it touches, which is nothing
-    /// but the rotation. [`View::widened`] is the whole of the width's half,
-    /// run over both surfaces, because both are laid out at the one pitch;
-    /// the height's half is the rotation moving over the ring, below.
+    /// **A change of width re-cuts the primary and not the alternate
+    /// screen.** Between output and output the primary's lines are re-cut to
+    /// the new width in place, through the history (`View::reflow`); at a
+    /// prompt nothing is re-cut, because the shell redraws those rows by
+    /// counting them (see [`Zone`]). The alternate screen is cell-addressed:
+    /// the pitch is fixed, so a cell keeps its address whatever the width, a
+    /// narrower screen stops addressing what lies past its edge, and a wider
+    /// one blanks the columns it reveals ([`View::widened`]) because the
+    /// program owns them and redraws. What keeps the fixed pitch sound is that
+    /// a row's mark bounds its content over the whole pitch, and a clear runs
+    /// through the mark, so a line erased while the screen was narrow does not
+    /// come back with a tail. The height's half is the rotation moving over
+    /// the ring, below. [`Term::resize_holding`] is this with a window over
+    /// the history held on its line.
     ///
     /// Three things happen besides, in an order that is not free:
     ///
@@ -806,12 +806,34 @@ impl<'b> Term<'b> {
     /// rebuilds the tab table, which is `MAX_COLS` long and stamped every
     /// eighth column at construction, so no width change can invalidate it.
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
+        self.resize_holding(ws, Rows::ZERO).0
+    }
+
+    /// [`Term::resize`], holding a window over the primary's history on the
+    /// line it shows: `back` is how many lines above the primary window's
+    /// top it starts, and the answer is where that line is afterwards, in
+    /// the same unit and bounded by the history.
+    ///
+    /// **Only the terminal can say, because a change of width re-cuts the
+    /// lines.** Anchoring the window by how far the window's top line moved
+    /// -- [`Term::history_moved_since`] -- counts the growth of every line
+    /// above the window, including the lines above the one the window shows,
+    /// which do not move it at all; long lines there put the window on
+    /// another line. So the window's first row is mapped through the re-cut
+    /// the way an image's row is, landing where its first cell lands, and a
+    /// line the re-cut dropped leaves the window on the oldest line kept.
+    /// **A live window stays live**: `back` of zero is the live screen,
+    /// whatever the re-cut did, and so is a line that lands on it.
+    pub fn resize_holding(&mut self, ws: &WinSize, back: Rows) -> (Resized, Rows) {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
         let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
         let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
+        // The window over the history, in lines from the window's top, as it
+        // moves with the steps below; `None` is the live screen.
+        let mut held = (back.index() > 0).then_some(back);
 
         // **The primary's height changes the way xterm's does, and it is
         // rotation arithmetic over the ring.** A shorter screen keeps the
@@ -825,6 +847,7 @@ impl<'b> Term<'b> {
         // twice. Applied to the primary whichever screen is up, around the
         // cursor the primary has -- its own, or the one it was saved with --
         // so an exit from the alternate screen has nothing to catch up on.
+        let top_before = self.store.book.top;
         if rows.index() != old_rows.index() {
             let ring = self.store.ring_rows();
             let spare = ring.index() - rows.index();
@@ -933,6 +956,20 @@ impl<'b> Term<'b> {
                 hist = hist.min(spare);
                 hidden = hidden.min(spare - hist);
             }
+            // A change of height moves lines past the window's top one for
+            // one: the window follows them, as it does output.
+            let now = self.store.book.top;
+            held = held
+                .map(|b| {
+                    let at = match now.since(top_before) {
+                        Some(n) => b.index().saturating_add(n.index()),
+                        None => b
+                            .index()
+                            .saturating_sub(top_before.since(now).map_or(0, |n| n.index())),
+                    };
+                    Rows::of_count(at.min(hist))
+                })
+                .filter(|b| b.index() > 0);
             self.store.book.hist = Rows::of_count(hist);
             self.store.book.hidden = Rows::of_count(hidden);
             match live {
@@ -997,12 +1034,24 @@ impl<'b> Term<'b> {
             // the re-cut visited none, and staged placements it never mapped
             // are still where they were, not gone.
             let mut visited = false;
+            // The window's first row, counted from the oldest retained row as
+            // the hook counts, and where the re-cut put it.
+            let hist = self.store.book.hist;
+            let view = held.map(|b| hist.index().saturating_sub(b.index()));
+            let mut landed: Option<Rows> = None;
             let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows) -> Rows| {
                 visited = true;
-                images.follow_line(from, n, land);
+                if staged > 0 {
+                    images.follow_line(from, n, land);
+                }
+                if let Some(v) = view {
+                    if (from.index()..from.index() + n.index()).contains(&v) {
+                        landed = Some(land(Rows::of_count(v)));
+                    }
+                }
             };
-            let follow: Option<Follow<'_>> = match staged {
-                0 => None,
+            let follow: Option<Follow<'_>> = match (staged, view) {
+                (0, None) => None,
                 _ => Some(&mut hook),
             };
             let r = View::new(
@@ -1029,6 +1078,17 @@ impl<'b> Term<'b> {
                 }
                 (_, false) => self.store.images.follow_cancel(),
             }
+            // The window over the history, from where its first row landed:
+            // lines from the new window top, which is the history's depth past
+            // what the re-cut dropped. A line that landed on the live screen
+            // or below it is the live screen; one the re-cut dropped is the
+            // oldest line kept.
+            held = held.map(|_| match landed {
+                Some(l) => {
+                    Rows::of_count((r.dropped.index() + r.hist.index()).saturating_sub(l.index()))
+                }
+                None => r.hist,
+            });
             self.rot = r.rot;
             self.store.book.hist = r.hist;
             self.store.book.hidden = r.hidden;
@@ -1089,10 +1149,16 @@ impl<'b> Term<'b> {
                 self.cell_height,
             ));
         }
-        match over {
+        let resized = match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
-        }
+        };
+        let held = held.unwrap_or(Rows::ZERO);
+        // Both steps bound it by the history they leave: the height by its
+        // own clamp, the re-cut because a kept row lands no further back
+        // than the oldest kept.
+        debug_assert!(held.index() <= self.store.book.hist.index());
+        (resized, held)
     }
 
     pub fn new(store: Storage<'b>, ws: &WinSize) -> Term<'b> {
@@ -1517,7 +1583,8 @@ impl<'b> Term<'b> {
     /// window's top is counted rather than read round a ring. A reflow
     /// renumbers that line with the rows it re-cuts, so across a change of
     /// width this is the renumbering of the window's top, not a count of
-    /// rows that scrolled.
+    /// rows that scrolled -- which is why a resize anchors a window over the
+    /// history with [`Term::resize_holding`] rather than with this.
     pub fn history_moved_since(&self, before: HistoryMark) -> Moved {
         let now = self.store.book.top;
         match now.since(before.0) {

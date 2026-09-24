@@ -1882,6 +1882,17 @@ fn after_read(term: &Term<'_>, back: Rows, before: Before) -> Rows {
     anchored(back, term.history_moved_since(before.history), retained)
 }
 
+/// Resize the terminal and say where a window over the history is after it.
+/// The resize and the anchor are one step, because a change of width
+/// re-cuts the lines under the window: anchoring it afterwards by how far the
+/// window's top line moved counted the growth of every line above it,
+/// including the lines above the one the window shows, and put it on another
+/// line. The core maps the window's first row through the re-cut
+/// (`Term::resize_holding`), and a live window stays live.
+fn resized_window(term: &mut Term<'_>, ws: &WinSize, back: Rows) -> Rows {
+    term.resize_holding(ws, back).1
+}
+
 /// The window a key or a paste leaves: the live screen, where the key's
 /// effect is -- on the primary. On the alternate screen the live screen is
 /// already what is drawn, and the primary's window is kept for when the
@@ -1902,8 +1913,8 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Ring, after_read, live_cursor, live_moved, looking, oldest, snapped, switched,
-        window_of,
+        Before, Ring, after_read, live_cursor, live_moved, looking, oldest, resized_window,
+        snapped, switched, window_of,
     };
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, ReadLen, Rows, WinSize};
@@ -2088,6 +2099,67 @@ mod alt_window_tests {
         });
     }
 
+    /// **A change of width keeps a scrolled-back window on the line it was
+    /// showing.** The window was anchored by how far the line at the
+    /// primary window's top moved, and a reflow renumbers that line by the
+    /// growth of every line above it -- including the lines above the one
+    /// the window shows, which do not move it at all. So long lines *above*
+    /// the viewed line put the window on another line; the control puts the
+    /// same long lines *between* the viewed line and the live screen, where
+    /// their growth is exactly how much further back the viewed line is.
+    #[test]
+    fn a_width_reflow_keeps_the_window_on_its_line() {
+        let long = |i: usize| format!("long {i} {}\r\n", "x".repeat(22));
+        let short = |i: usize| format!("s {i:02}\r\n");
+        // (the stream, the viewed line, the arm's name)
+        let above: String = (0..5).map(long).chain((0..30).map(short)).collect();
+        let between: String = (0..10)
+            .map(short)
+            .chain((0..5).map(long))
+            .chain((10..30).map(short))
+            .collect();
+        for (stream, viewed, arm) in [
+            (
+                &between,
+                "s 05",
+                "the control, long lines between it and the screen",
+            ),
+            (&above, "s 05", "long lines above the viewed line"),
+        ] {
+            for (from, to) in [(20u16, 12u16), (12, 20)] {
+                let ws = |c: u16| WinSize {
+                    ws_col: c,
+                    ws_row: 10,
+                };
+                let mut owned = Owned::new(&ws(20));
+                let mut t = Term::new(owned.storage(), &ws(from));
+                feed(&mut t, stream.as_bytes());
+                let text = |t: &Term<'_>, back: Rows| -> String {
+                    t.view(back)
+                        .row(baud_domain::Row::ZERO)
+                        .iter()
+                        .filter_map(|c| c.content.as_codepoint())
+                        .filter_map(|cp| char::from_u32(cp.value()))
+                        .collect::<String>()
+                        .trim_end()
+                        .to_string()
+                };
+                let back = (1..=t.scrollback().len())
+                    .map(Rows::of_count)
+                    .find(|&b| text(&t, b) == viewed)
+                    .expect("the viewed line is in the history");
+                let back = resized_window(&mut t, &ws(to), back);
+                assert_eq!(
+                    text(&t, back),
+                    viewed,
+                    "{arm}, {from} to {to} columns: the window moved to another line"
+                );
+                // A live window stays live, whatever the re-cut did.
+                assert_eq!(resized_window(&mut t, &ws(from), Rows::ZERO), Rows::ZERO);
+            }
+        }
+    }
+
     /// **The driver's calls into these are AppKit-bound**, so no test above
     /// reaches them: `present`, `select`, the link under a Cmd-click, the
     /// pump and the resize. This holds the source to them instead: every
@@ -2098,12 +2170,13 @@ mod alt_window_tests {
     #[test]
     fn every_reader_of_the_window_asks_the_clamp() {
         const SRC: &str = include_str!("app.rs");
-        const HELPERS: [&str; 5] = [
+        const HELPERS: [&str; 6] = [
             "looking(",
             "live_cursor(",
             "window_of(",
             "snapped(",
             "after_read(",
+            "resized_window(",
         ];
         const ALLOWED: [(&str, &str); 9] = [
             (
@@ -4060,7 +4133,6 @@ impl Driver {
         );
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
-            let before = Before::of(&self.app.term);
             // Row 9: a prediction names a cell of the screen about to be
             // re-cut, and a reflow moves every one of them. The clear
             // belongs *here*, at the one place the grid changes shape,
@@ -4079,7 +4151,11 @@ impl Driver {
             // would be a different line for the frame or two before it drains.
             self.app.slide.snap();
             // Truncated only past MAX_GRID, which the clamp above prevents.
-            let _ = self.app.term.resize(&ws);
+            // Anchor a window that is *already* looking back; leave one on
+            // the live screen where it is. See `anchored`. `scrolled` is
+            // left untouched: it numbers lines for a selection, and a
+            // resize has already cleared the selection.
+            self.app.back = resized_window(&mut self.app.term, &ws, self.app.back);
             if let Some(t) = self.app.trace.as_mut() {
                 // What the core *has*, post-clamp, which is what a replay
                 // must ask it for.
@@ -4090,11 +4166,6 @@ impl Driver {
                 });
             }
             let t_reflow = t_step.elapsed();
-            // Anchor a window that is *already* looking back; leave one on
-            // the live screen where it is. See `anchored`. `scrolled` is
-            // left untouched: it numbers lines for a selection, and a
-            // resize has already cleared the selection.
-            self.app.back = after_read(&self.app.term, self.app.back, before);
             // **The child is told what the terminal has, not what the
             // window asked for.** `Term::resize` clamps: columns to
             // `MAX_COLS` and to the pitch the rows are laid at, rows to
