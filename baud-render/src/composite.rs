@@ -57,8 +57,9 @@ impl<'p> Target<'p> {
     }
 
     /// Fills the pixel rows of `band` from a per-cell background: one
-    /// word of `bg` painted `cell_w` wide each.
-    pub fn fill_band(&mut self, band: Band, bg: &[Argb], cell_w: Px) {
+    /// word of `bg` painted `cell_w` wide each, and `margin` past the last
+    /// cell -- the scroller's gutter, when the frame has one.
+    pub fn fill_band(&mut self, band: Band, bg: &[Argb], cell_w: Px, margin: Argb) {
         let cell_w = slots(cell_w);
         let (stride, width) = (slots(self.stride), slots(self.width));
         for y in self.rows_of(band) {
@@ -73,7 +74,7 @@ impl<'p> Target<'p> {
                 x = end;
             }
             if x < width {
-                row[x..].fill(bg.last().map_or(0, |c| c.0));
+                row[x..].fill(margin.0);
             }
         }
     }

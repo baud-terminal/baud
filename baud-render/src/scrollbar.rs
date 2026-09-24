@@ -1,9 +1,10 @@
 //! The scrollbar: a thumb on the right edge saying where the window sits
 //! in the ring, seen as much as the driver's look says -- revealed by a
 //! scroll, held, faded, and widened with a track under the pointer, as
-//! AppKit's overlay scroller is. `docs/research/notes/l-scrollbar.md` is the
-//! spec, with the measurements; this is the geometry, pure, and the solids
-//! every path draws.
+//! AppKit's overlay scroller is; or, under the legacy style, a track and
+//! knob always drawn in a gutter of their own beside the grid.
+//! `docs/research/notes/l-scrollbar.md` is the spec, with the measurements;
+//! this is the geometry, pure, and the solids every path draws.
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
@@ -87,21 +88,47 @@ pub struct Widths {
     pub strip: Px,
 }
 
-/// What the scrollbar draws, with the window, its look and its widths.
+/// AppKit's two scroller styles, `NSScrollerStyle`: which one the user's
+/// "Show scroll bars" setting asks for is the driver's to read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Scroller {
+    /// Over the grid's right edge, revealed by a scroll and faded.
+    Overlay,
+    /// In a gutter of its own beside the grid, always drawn: a track, and
+    /// the knob in it whenever there is history. No fade, no hover.
+    Legacy,
+}
+
+/// The gutter the grid gives up to the scroller, in pixels of the frame:
+/// the strip under the legacy style, nothing under the overlay one, which
+/// lies over the grid. One function, so the layout that takes the columns
+/// and the bar that is drawn in them agree.
+pub fn gutter(scroller: Scroller, widths: Widths) -> Px {
+    match scroller {
+        Scroller::Overlay => Px::of(0),
+        Scroller::Legacy => widths.strip,
+    }
+}
+
+/// What the scrollbar draws, with the window, its look, its widths and its
+/// style.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Scroll {
     pub window: Window,
     pub look: Look,
     pub widths: Widths,
+    pub scroller: Scroller,
 }
 
 /// The scrollbar as drawn this frame: the knob, the track when the pointer
-/// widened it, and how much of both is seen. Its equality is the damage
-/// rule's: a fade changes `shown` and a hover changes the knob and the
-/// track, so a row either covers is dirty whenever any of them moves.
+/// widened it or the style keeps one, and how much of both is seen. Its
+/// equality is the damage rule's: a fade changes `shown` and a hover
+/// changes the knob and the track, so a row either covers is dirty whenever
+/// any of them moves. The knob is none only under the legacy style with
+/// nothing to scroll, where the track is drawn alone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Bar {
-    pub knob: Thumb,
+    pub knob: Option<Thumb>,
     pub track: Option<Thumb>,
     pub shown: Chan,
 }
@@ -114,7 +141,7 @@ impl Bar {
     /// changes every slice the bar has, a hover every row the track spans,
     /// and a knob that moves under a hover only the rows it entered or left.
     pub fn slice(&self, top: Px, bottom: Px) -> Option<Slice> {
-        let knob = clip(self.knob, top, bottom);
+        let knob = self.knob.and_then(|k| clip(k, top, bottom));
         let track = self.track.and_then(|t| clip(t, top, bottom));
         (knob.is_some() || track.is_some()).then_some(Slice {
             knob,
@@ -219,17 +246,29 @@ pub fn track(size: (Px, Px), widths: Widths, hover: Hover) -> Option<Thumb> {
     })
 }
 
-/// The bar to draw for `s`, or none when nothing of it is seen.
+/// The bar to draw for `s` on a frame of `size`, or none when nothing of
+/// it is seen. Under the overlay style that is the look's; under the legacy
+/// style the look is ignored, since nothing fades or hovers, and the track
+/// is drawn whether or not there is a knob to put in it.
 pub fn bar(s: Scroll, size: (Px, Px), cell_h: Px) -> Option<Bar> {
-    if s.look.shown.get() == 0 {
-        return None;
+    match s.scroller {
+        Scroller::Overlay => {
+            if s.look.shown.get() == 0 {
+                return None;
+            }
+            let knob = thumb(s.window, size, cell_h, s.widths, s.look.hover)?;
+            Some(Bar {
+                knob: Some(knob),
+                track: track(size, s.widths, s.look.hover),
+                shown: s.look.shown,
+            })
+        }
+        Scroller::Legacy => Some(Bar {
+            knob: thumb(s.window, size, cell_h, s.widths, Hover::Hovered),
+            track: track(size, s.widths, Hover::Hovered),
+            shown: Chan::from_u8(255),
+        }),
     }
-    let knob = thumb(s.window, size, cell_h, s.widths, s.look.hover)?;
-    Some(Bar {
-        knob,
-        track: track(size, s.widths, s.look.hover),
-        shown: s.look.shown,
-    })
 }
 
 /// Where a pixel column is: in the scrollbar's strip, or over the grid.
@@ -287,8 +326,10 @@ pub fn instances(b: Bar, fg: Argb) -> impl Iterator<Item = Instance> {
     let track = b
         .track
         .map(|t| solid(t, fg.with_alpha(scaled(TRACK_ALPHA, b.shown))));
-    let knob = solid(b.knob, fg.with_alpha(scaled(KNOB_ALPHA, b.shown)));
-    track.into_iter().chain(core::iter::once(knob))
+    let knob = b
+        .knob
+        .map(|k| solid(k, fg.with_alpha(scaled(KNOB_ALPHA, b.shown))));
+    track.into_iter().chain(knob)
 }
 
 #[cfg(test)]
@@ -372,6 +413,7 @@ mod tests {
                 hover,
             },
             widths: WIDTHS,
+            scroller: Scroller::Overlay,
         };
         assert!(bar(s(0, Hover::Hovered), SIZE, CELL_H).is_none());
         let alphas = |b: Bar| -> Vec<u8> {
@@ -394,6 +436,46 @@ mod tests {
             alphas(bar(s(128, Hover::Hovered), SIZE, CELL_H).unwrap()),
             [6, 64]
         );
+    }
+
+    /// **Under the legacy style the track is always drawn and the knob is
+    /// always wide**: no look hides or narrows it, the track stands alone
+    /// with nothing to scroll, and both lie in the gutter the layout gave
+    /// up -- the strip -- and nowhere left of it.
+    #[test]
+    fn the_legacy_bar_is_a_track_always_and_a_wide_knob_with_history() {
+        let s = |retained: usize, look: Look| Scroll {
+            window: win(
+                Rows::of_count(retained),
+                Rows::of_count(retained.min(40)),
+                Rows::of_count(50),
+            ),
+            look,
+            widths: WIDTHS,
+            scroller: Scroller::Legacy,
+        };
+        let alphas = |b: Bar| -> Vec<u8> {
+            instances(b, Argb(0xFFFF_FFFF))
+                .map(|i| u8::try_from(i.color.0 >> 24).unwrap())
+                .collect()
+        };
+        // Hidden and at rest by the overlay's look, and still drawn whole.
+        let b = bar(s(100, Look::HIDDEN), SIZE, CELL_H).unwrap();
+        assert_eq!(alphas(b), [12, 0x80]);
+        let knob = b.knob.unwrap();
+        assert_eq!((knob.left.value(), knob.width.value()), (772, 22));
+        let t = b.track.unwrap();
+        assert_eq!((t.left.value(), t.width.value()), (772, 22));
+        assert_eq!((t.top.value(), t.height.value()), (0, 500));
+        // Nothing to scroll: the track alone.
+        let bare = bar(s(0, Look::HIDDEN), SIZE, CELL_H).unwrap();
+        assert!(bare.knob.is_none());
+        assert_eq!(alphas(bare), [12]);
+        // The gutter is the strip, and the bar lies inside it.
+        let g = gutter(Scroller::Legacy, WIDTHS);
+        assert_eq!(g, WIDTHS.strip);
+        assert!(t.left.value() >= SIZE.0.value() - g.value());
+        assert_eq!(gutter(Scroller::Overlay, WIDTHS), Px::of(0));
     }
 
     #[test]

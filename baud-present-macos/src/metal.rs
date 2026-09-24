@@ -73,8 +73,8 @@ use objc2_metal::{
     MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary, MTLLoadAction, MTLOrigin, MTLPixelFormat,
     MTLPrimitiveType, MTLRegion, MTLRenderCommandEncoder, MTLRenderPassDescriptor,
     MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLResourceOptions, MTLSamplerDescriptor,
-    MTLSamplerMinMagFilter, MTLSamplerState, MTLSize, MTLStorageMode, MTLStoreAction, MTLTexture,
-    MTLTextureDescriptor, MTLTextureUsage, MTLViewport,
+    MTLSamplerMinMagFilter, MTLSamplerState, MTLScissorRect, MTLSize, MTLStorageMode,
+    MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureUsage, MTLViewport,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1037,7 +1037,7 @@ impl Gpu {
         enc: &ProtocolObject<dyn MTLRenderCommandEncoder>,
         draws: &[(Instance, Texture)],
         mask: &ProtocolObject<dyn MTLTexture>,
-        grid_px: (Px, Px),
+        frame_px: (Px, Px),
         pan: Px,
     ) -> Option<()> {
         if draws.is_empty() {
@@ -1077,8 +1077,8 @@ impl Gpu {
                 // `glyph_vertex`; `color` is the image size, so uv spans 0..1
                 // over the whole texture. The rest is unused on this path.
                 let u: [f32; UNIFORM_FLOATS] = [
-                    px_f32(grid_px.0),
-                    px_f32(grid_px.1),
+                    px_f32(frame_px.0),
+                    px_f32(frame_px.1),
                     0.0,
                     0.0,
                     0.0,
@@ -1186,6 +1186,7 @@ impl Gpu {
         let (cols, rows) = renderer.grid();
         let metrics = renderer.metrics();
         let grid_px = renderer.pixel_size();
+        let frame_px = renderer.frame_size();
         let clear = clear_of(renderer.clear_color());
         let count = renderer.instances().count();
         let bytes = count.saturating_mul(Instance::BYTES);
@@ -1228,10 +1229,10 @@ impl Gpu {
         // Resolve images before the encoder, so a new one's `replaceRegion`
         // upload never touches a bound texture.
         let images = self.resolve_images(renderer);
-        let (viewport, pad) = letterbox(target, grid_px);
+        let (viewport, pad) = letterbox(target, frame_px);
         let uniforms: [f32; UNIFORM_FLOATS] = [
-            px_f32(grid_px.0),
-            px_f32(grid_px.1),
+            px_f32(frame_px.0),
+            px_f32(frame_px.1),
             px_f32(metrics.cell_w),
             px_f32(metrics.cell_h),
             px_f32(bw),
@@ -1256,7 +1257,14 @@ impl Gpu {
         unsafe {
             enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
             enc.setFragmentTexture_atIndex(Some(&bg_texture), 0);
+            // The background pass replaces what is under it, and it writes
+            // nothing a cell does not cover -- so it is held to the grid,
+            // and a legacy scroller's gutter keeps the pass's clear colour,
+            // the letterbox margin's, rather than the transparent zero the
+            // fragment returns past the last column.
+            enc.setScissorRect(scissor(target, pad, grid_px));
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
+            enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
             if count > 0 {
                 enc.setRenderPipelineState(&self.glyph_pipe);
                 enc.setVertexBuffer_offset_atIndex(Some(&self.instances[slot]), 0, 0);
@@ -1273,7 +1281,7 @@ impl Gpu {
             }
             // Images last, over the text, the way the CPU compositor blits
             // them. The instance path does not slide, so no pan.
-            self.draw_images(&enc, &images, &mask, grid_px, Px::of(0))?;
+            self.draw_images(&enc, &images, &mask, frame_px, Px::of(0))?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -1309,22 +1317,22 @@ impl Gpu {
         let draw_rows = rows.index().saturating_add(slide_rows);
         let count = cols.index().saturating_mul(draw_rows);
         let metrics = renderer.metrics();
-        let grid_px = renderer.pixel_size();
+        let frame_px = renderer.frame_size();
         let clear = clear_of(renderer.clear_color());
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
         // Resolve images before the encoder, as the instance path does.
         let images = self.resolve_images(renderer);
-        let (viewport, pad) = letterbox(target, grid_px);
+        let (viewport, pad) = letterbox(target, frame_px);
         let (cursor_row, cursor_col) = input
             .cursor
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
                 (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
             });
         let uniforms = CellUniforms {
-            viewport_w: grid_px.0,
-            viewport_h: grid_px.1,
+            viewport_w: frame_px.0,
+            viewport_h: frame_px.1,
             cell_w: metrics.cell_w,
             cell_h: metrics.cell_h,
             cols: Uni::of(Elems(cols.index())),
@@ -1413,8 +1421,8 @@ impl Gpu {
                 let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
                 let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
                 let u: [f32; UNIFORM_FLOATS] = [
-                    px_f32(grid_px.0),
-                    px_f32(grid_px.1),
+                    px_f32(frame_px.0),
+                    px_f32(frame_px.1),
                     px_f32(metrics.cell_w),
                     px_f32(metrics.cell_h),
                     0.0,
@@ -1447,7 +1455,7 @@ impl Gpu {
                 &enc,
                 &images,
                 &mask,
-                grid_px,
+                frame_px,
                 input.slide.unwrap_or(Px::of(0)),
             )?;
         }
@@ -1540,9 +1548,26 @@ fn word_bytes(words: &[u32]) -> &[u8] {
 }
 
 /// The same for the compositor's colour words.
-/// The grid centred in the surface: the rasteriser viewport at the pad
+/// The rectangle of the target from `pad` that is `size` big, clamped to
+/// the target, as a scissor. The pad is the letterbox's, which may fall on
+/// half a pixel; the first pixel whose centre it covers is its floor.
+fn scissor(target: &Target, pad: [f32; 2], size: (Px, Px)) -> MTLScissorRect {
+    let (tw, th) = target.size();
+    let at = |p: f32| usize::try_from(p.max(0.0).floor() as i64).unwrap_or(0);
+    let wide = |v: Px| usize::try_from(v.value()).unwrap_or(usize::MAX);
+    let (x, y) = (at(pad[0]).min(wide(tw)), at(pad[1]).min(wide(th)));
+    MTLScissorRect {
+        x,
+        y,
+        width: wide(size.0).min(wide(tw) - x),
+        height: wide(size.1).min(wide(th) - y),
+    }
+}
+
+/// The frame centred in the surface: the rasteriser viewport at the pad
 /// offset, and that same pad as two floats for the instance background
-/// fragment, which indexes cells by the surface pixel it lands on.
+/// fragment, which indexes cells by the surface pixel it lands on. The
+/// frame is the grid and a legacy scroller's gutter beside it.
 fn letterbox(target: &Target, grid: (Px, Px)) -> (MTLViewport, [f32; 2]) {
     let (tw, th) = target.size();
     let px = |v: u32| f64::from(v);

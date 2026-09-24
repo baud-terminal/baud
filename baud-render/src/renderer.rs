@@ -389,6 +389,8 @@ pub struct Renderer<'f, 'a> {
     bar: Option<Bar>,
     last_bar: Option<Bar>,
     bar_inst: Vec<Instance>,
+    /// The pixels past the grid the frame keeps for a legacy scroller.
+    gutter: Px,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
@@ -518,6 +520,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_highlight: None,
             bar: None,
             last_bar: None,
+            gutter: Px::of(0),
             bar_inst: Vec::new(),
             trail: None,
             last_trail: None,
@@ -589,7 +592,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// instance paths from the instance list, the cell path from
     /// [`Renderer::scrollbar`] appended to its records.
     pub fn set_scrollbar(&mut self, scroll: Option<Scroll>) {
-        let size = self.pixel_size();
+        let size = self.frame_size();
         self.bar = scroll.and_then(|s| scrollbar::bar(s, size, self.metrics.cell_h));
         self.bar_inst.clear();
         if let Some(b) = self.bar {
@@ -699,6 +702,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the one colour the glass shows through.
     pub fn clear_color(&self) -> Argb {
         self.theme.bg.with_alpha(self.theme.bg_alpha)
+    }
+
+    /// The pixels past the grid's right edge the frame keeps for the
+    /// scroller: [`crate::gutter`] of the style in force, which the driver
+    /// sets where it lays the grid out. A change repaints every row, since
+    /// the frame is a different width.
+    pub fn set_gutter(&mut self, gutter: Px) {
+        if gutter != self.gutter {
+            self.gutter = gutter;
+            self.known = Prev::Unknown;
+        }
+    }
+
+    /// The pixel size of the frame: the grid, and the scroller's gutter
+    /// beside it. What a presenter letterboxes, what a CPU target is, and
+    /// what the scrollbar is drawn and hit-tested against; the cells are
+    /// [`Renderer::pixel_size`].
+    pub fn frame_size(&self) -> (Px, Px) {
+        let (w, h) = self.pixel_size();
+        (Px::of(w.value().saturating_add(self.gutter.value())), h)
     }
 
     /// The pixel size of the whole grid.
@@ -1069,7 +1092,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             }
             let band = self.band(row);
-            target.fill_band(band, &self.bg[self.row_cells(row)], self.metrics.cell_w);
+            let margin = self.clear_color();
+            target.fill_band(
+                band,
+                &self.bg[self.row_cells(row)],
+                self.metrics.cell_w,
+                margin,
+            );
             for inst in &self.per_row[r] {
                 target.over(inst, &self.atlas, self.blend, band);
             }

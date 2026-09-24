@@ -23,7 +23,7 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize, Region,
-    Renderer, Resolved, Scene, Scroll, Stack, Theme, Trail, Transition, Widths, Window,
+    Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition, Widths, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -118,7 +118,7 @@ struct Arms<'f, 'a> {
 impl Arms<'_, '_> {
     /// Both arms drawn offscreen and read back.
     fn draw(&mut self, t: &mut Term<'_>) -> (Vec<u32>, Vec<u32>) {
-        let (w, h) = self.renderer.pixel_size();
+        let (w, h) = self.renderer.frame_size();
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target_a = self.gpu.offscreen(w, h).expect("target");
         let target_b = self.gpu.offscreen(w, h).expect("target");
@@ -209,7 +209,7 @@ impl Arms<'_, '_> {
     /// the same map, the same overlay and records -- so a difference in
     /// the pixels can only be the grid it read.
     fn draw_copied(&mut self, t: &mut Term<'_>) -> Vec<u32> {
-        let (w, h) = self.renderer.pixel_size();
+        let (w, h) = self.renderer.frame_size();
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target = self.gpu.offscreen(w, h).expect("target");
         let view = t.view(self.back);
@@ -413,7 +413,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "the instance arm drew the scene, {name}"
         );
         let diff = differing(&a, &b);
-        let (pw, _) = arms.renderer.pixel_size();
+        let (pw, _) = arms.renderer.frame_size();
         let m = arms.renderer.metrics();
         let boxed = diff_box(
             &a,
@@ -572,6 +572,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             hover,
         },
         widths,
+        scroller: Scroller::Overlay,
     };
     let mut frames = Vec::new();
     for (shown, hover, what) in [
@@ -605,6 +606,52 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // A thumb faded to nothing is not a scene here: its solids would carry
     // no alpha, so no pixel could tell it from the frame without it. The
     // scrollbar's geometry test holds that no bar is built at all.
+    //
+    // The legacy scroller, in a gutter of its own beside the grid: the frame
+    // is the grid and the strip, and both arms letterbox the frame. The arms
+    // agreeing cannot show the gutter is drawn -- both could lose it
+    // together -- so the pixels are read: on every row the gutter's margin
+    // columns are what they are with no bar at all, its track columns are
+    // not, and the grid is untouched by the bar.
+    arms.renderer.set_gutter(widths.strip);
+    arms.window = None;
+    let (bare, bare_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&bare, &bare_b),
+        0,
+        "the arms disagree about an empty gutter"
+    );
+    arms.window = Some(Scroll {
+        scroller: Scroller::Legacy,
+        ..scroll(0, Hover::Rest)
+    });
+    let (legacy_a, legacy_b) = arms.draw(&mut t);
+    let (fw, fh) = arms.renderer.frame_size();
+    let (gw, _) = arms.renderer.pixel_size();
+    let (fw, fh, gw) = (
+        usize::try_from(fw.value()).unwrap(),
+        usize::try_from(fh.value()).unwrap(),
+        usize::try_from(gw.value()).unwrap(),
+    );
+    assert_eq!(
+        differing(&legacy_a, &legacy_b),
+        0,
+        "the arms disagree with a legacy scroller at cells {:?}",
+        diff_box(&legacy_a, &legacy_b, fw, (8, 18))
+    );
+    assert_eq!(fw - gw, 34, "the frame is the grid and the gutter");
+    let track = (fw - 6 - 22)..(fw - 6);
+    for y in 0..fh {
+        let (row, none) = (&legacy_a[y * fw..(y + 1) * fw], &bare[y * fw..(y + 1) * fw]);
+        assert_eq!(&row[..gw], &none[..gw], "row {y}: the bar reached a cell");
+        for x in gw..fw {
+            match track.contains(&x) {
+                true => assert_ne!(row[x], none[x], "row {y} column {x}: no track"),
+                false => assert_eq!(row[x], none[x], "row {y} column {x}: not the margin"),
+            }
+        }
+    }
+    arms.renderer.set_gutter(Px::of(0));
     arms.window = None;
     arms.back = Rows::ZERO;
     // A selection over the marked and ligature rows, with the block cursor
@@ -620,7 +667,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     });
     let (a, b) = arms.draw(&mut t);
     {
-        let (w, _) = arms.renderer.pixel_size();
+        let (w, _) = arms.renderer.frame_size();
         let m = arms.renderer.metrics();
         let cell = (
             usize::try_from(m.cell_w.value()).unwrap(),
@@ -666,7 +713,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     });
     let (a, b) = arms.draw(&mut t);
     {
-        let (w, _) = arms.renderer.pixel_size();
+        let (w, _) = arms.renderer.frame_size();
         let m = arms.renderer.metrics();
         let cell = (
             usize::try_from(m.cell_w.value()).unwrap(),
@@ -707,7 +754,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     });
     let (trail_a, trail_b) = arms.draw(&mut t);
     {
-        let (w, _) = arms.renderer.pixel_size();
+        let (w, _) = arms.renderer.frame_size();
         let m = arms.renderer.metrics();
         let cell = (
             usize::try_from(m.cell_w.value()).unwrap(),
@@ -868,7 +915,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.slide = None;
     arms.back = Rows::of_count(1);
     let (_, up_marks) = arms.draw(&mut t);
-    let (w, _) = arms.renderer.pixel_size();
+    let (w, _) = arms.renderer.frame_size();
     let m = arms.renderer.metrics();
     let cell = (
         usize::try_from(m.cell_w.value()).unwrap(),
@@ -951,7 +998,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         let bx = diff_box(
             &a,
             &b,
-            usize::try_from(arms.renderer.pixel_size().0.value()).unwrap(),
+            usize::try_from(arms.renderer.frame_size().0.value()).unwrap(),
             (
                 usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap(),
                 usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap(),
@@ -1009,7 +1056,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "the arms disagree with the sixel on screen"
     );
-    let iw = usize::try_from(arms.renderer.pixel_size().0.value()).unwrap();
+    let iw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
     let (rx, ry) = (
         usize::try_from(p.x).unwrap_or(0),
         usize::try_from(p.y).unwrap_or(0),

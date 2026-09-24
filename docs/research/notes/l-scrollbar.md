@@ -250,8 +250,62 @@ grid is laid out in the view less a 17 pt gutter on the right, and the
 gutter holds an 11 pt track, 3 pt in, always drawn, with the knob in it
 whenever there is history. No fade and no hover. The style is read from
 `NSScroller::preferredScrollerStyle` when the window is laid out and when
-the thumb would be revealed; a change of the setting applies at the next
-of those, re-laying the grid, which the shell sees as a resize.
+a wheel would reveal the thumb; a change of the setting applies at the
+next of those, re-laying the grid, which the shell sees as a resize.
+
+**The gutter is inside the renderer's frame, not in the margin.** The
+Metal paths set the rasteriser viewport to the frame they are handed, so a
+knob drawn in the letterbox margin would be clipped. So the renderer holds
+a gutter width beside the grid, `pixel_size` stays the grid's and a second
+accessor gives the frame, grid and gutter. Everything the bar is drawn and
+hit-tested against reads the frame: the bar's geometry, the press's strip,
+the letterbox, the viewport uniforms, the CPU frame buffer. Everything
+about cells reads the grid: the cells, the screen fade, the images. Draw
+and hit-test read the same size, or the knob draws in the gutter while a
+press lands on the last column.
+
+**The gutter's background is the margin's**, the default background at the
+window's dim, so the gutter reads as the edge of the window and not as a
+column of cells. The CPU compositor fills a dirty row's pixels past its last
+cell with that colour; the instance path's background pass is scissored to
+the grid, so the gutter keeps the pass's clear colour; the cell path draws
+no cell there.
+
+**The gutter is never cells.** A press in it is the scrollbar's, whatever
+the button: on the knob a drag, elsewhere with history a jump, and with
+nothing to scroll -- no history, or the alternate screen -- it does nothing.
+A press the scrollbar takes keeps its drags and its release, so neither the
+selection nor a tracking program sees a release without its press. Motion
+over the gutter with nothing pressed is taken too, so a program tracking
+every motion is not told the pointer is on the last column; a drag that
+began in the grid is the grid's, and reaches it clamped. That
+rule is the overlay strip's too: a jump there used to swallow its press and
+let the release through to the cells.
+
+**The look is constant under legacy**, so the display link forces no frame
+for it and a pointer over the gutter hovers nothing: the knob is 11 pt at
+the knob's alpha, the track 11 pt at the track's, and a wheel reveals
+nothing because nothing is hidden.
+
+**The style is read at a layout and a wheel, and not at launch.** The
+shell is spawned before AppKit starts, at a grid computed without a gutter
+-- the order is a measured cold-boot win and asking AppKit for the style
+would move its initialisation in front of it. So under legacy the first
+layout takes the gutter's columns away and the shell gets one resize while
+it is still reading its rc files. A wheel that finds the style changed
+re-lays the grid first and then scrolls, so the step lands in the new
+geometry. A key's snap to the live screen is a reveal too and does not
+read it: re-laying the grid there would clear a keystroke's own local
+echo prediction. `NSPreferredScrollerStyleDidChangeNotification` is not
+observed: a changed setting shows at the next resize or wheel.
+
+Under a fixed grid only the launch sizes the window for the gutter, so a
+style that changes mid-session clips the gutter off the right edge; normal
+sizing re-lays the grid instead.
+
+`BAUD_SCROLLER=overlay|legacy` overrides the system's answer, for a check
+that must not change the owner's settings; it is an instrument, like
+`BAUD_GPU`, and not a configuration.
 
 ## Tests
 
@@ -262,6 +316,14 @@ the track spanning the height under the pointer; a bar seen not at all
 drawing nothing and a fade scaling both alphas; the strip as the overlay
 scroller's frame; the inverse landing where the forward mapping put it.
 
+The legacy style has tests of its own: the bar is a track always and a wide
+knob with history, whatever the look; the look never changes through a
+reveal, a fade or a hover; the gutter is never cells, to a press or to
+motion, and a press the scrollbar takes keeps its release; the grid gives up the gutter's columns
+and the frame fits the view; the CPU gutter is the margin's colour, not the
+last cell's, with the track on every row and no knob without history; and
+a gutter that appears repaints every row.
+
 The reveal is a pure state machine with tests: a hold then the measured
 fade to nothing; a reveal during a fade bringing it back; the pointer
 over the strip widening and holding until it leaves; the look changing
@@ -271,7 +333,11 @@ points at the backing scale.
 
 The pixel oracle draws the thumb through both GPU arms held, half faded
 and hovered with its track, and requires them equal, each different from
-the frame without it and from each other. A thumb faded to nothing draws
+the frame without it and from each other. It draws the legacy scroller in
+its gutter too, and there the arms agreeing is not enough -- both could
+lose the gutter together -- so it reads the pixels: on every row the
+gutter's margin columns are what they are with no bar, its track columns
+are not, and the grid's pixels are untouched. A thumb faded to nothing draws
 nothing by construction -- its solids have no alpha -- so no pixel can
 gate it; the geometry test holds that no bar is built at all. The CPU
 path, which the oracle cannot see, has three tests of its own: an

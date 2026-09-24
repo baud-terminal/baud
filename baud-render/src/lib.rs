@@ -64,7 +64,8 @@ pub use renderer::{
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{
-    Bar, Hover, Look, Place, Scroll, Thumb, Widths, Window, back_for, bar, place, thumb, track,
+    Bar, Hover, Look, Place, Scroll, Scroller, Thumb, Widths, Window, back_for, bar, gutter, place,
+    thumb, track,
 };
 pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,

@@ -308,7 +308,7 @@ impl Driver {
         } else {
             self.sync_since = None;
         }
-        let (w, h) = self.renderer.pixel_size();
+        let (w, h) = self.renderer.frame_size();
         let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) else {
             return;
         };

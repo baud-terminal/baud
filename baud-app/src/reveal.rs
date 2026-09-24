@@ -12,7 +12,7 @@
 
 use baud_domain::{Chan, HostTime, Rows};
 use baud_font::Px;
-use baud_render::{Hover, Look, Place, Widths};
+use baud_render::{Hover, Look, Place, Scroller, Widths};
 use core::time::Duration;
 
 /// How long a reveal holds the thumb at full: AppKit's after a wheel click,
@@ -114,24 +114,86 @@ pub enum Knob {
     Off,
 }
 
-/// What a left press does.
+/// Which button a press is: only the left drags or jumps.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Button {
+    Left,
+    Other,
+}
+
+/// What a press does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Takes {
     /// On the knob: a drag starts.
     Drag,
     /// In the strip, off the knob: the thumb jumps to the pointer.
     Jump,
+    /// In a legacy scroller's gutter with nothing for it to do -- no
+    /// history, or a button that does not scroll: the gutter is never
+    /// cells, so the press is taken and nothing happens.
+    Swallow,
     /// Not the scrollbar's: the selection's, or the child's.
     Cells,
 }
 
-/// A press in the strip is the scrollbar's while any of the thumb is
-/// seen, on the knob a drag and off it a jump; with nothing drawn, or
-/// outside the strip, it is the cells'.
-pub fn press(place: Place, shown: Chan, knob: Knob) -> Takes {
-    match (place, shown.get() > 0, knob) {
-        (Place::Strip, true, Knob::On) => Takes::Drag,
-        (Place::Strip, true, Knob::Off) => Takes::Jump,
+/// Whether a press's drags and its release belong to the scrollbar.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Grab {
+    /// The scrollbar keeps the whole gesture, so no one else sees a
+    /// release without its press.
+    Bar,
+    /// The cells', the selection's or the child's.
+    Free,
+}
+
+impl Takes {
+    /// Who holds the pointer until this press's release.
+    pub fn grabs(self) -> Grab {
+        match self {
+            Takes::Drag | Takes::Jump | Takes::Swallow => Grab::Bar,
+            Takes::Cells => Grab::Free,
+        }
+    }
+}
+
+/// A press in the strip, which is the knob's column under the overlay style
+/// and the gutter under the legacy one. Under the overlay style it is the
+/// scrollbar's while any of the thumb is seen -- a left press on the knob a
+/// drag and off it a jump -- and with nothing drawn it is the cells', since
+/// the strip lies over them. Under the legacy style the gutter is never
+/// cells: a left press drags or jumps when there is a knob, and anything
+/// else there is taken and does nothing. Outside the strip it is always the
+/// cells'. `knob` is none when there is no history to scroll.
+pub fn press(
+    scroller: Scroller,
+    place: Place,
+    shown: Chan,
+    knob: Option<Knob>,
+    button: Button,
+) -> Takes {
+    match (place, scroller) {
+        (Place::Grid, _) => Takes::Cells,
+        (Place::Strip, Scroller::Overlay) => match (button, shown.get() > 0, knob) {
+            (Button::Left, true, Some(Knob::On)) => Takes::Drag,
+            (Button::Left, true, Some(Knob::Off)) => Takes::Jump,
+            _ => Takes::Cells,
+        },
+        (Place::Strip, Scroller::Legacy) => match (button, knob) {
+            (Button::Left, Some(Knob::On)) => Takes::Drag,
+            (Button::Left, Some(Knob::Off)) => Takes::Jump,
+            _ => Takes::Swallow,
+        },
+    }
+}
+
+/// A pointer motion that is not part of a press: under the legacy style
+/// the gutter is not cells, so motion over it is taken and reported to no
+/// one -- a program tracking every motion (`?1003`) would otherwise be told
+/// the pointer is on the last column. The overlay strip lies over cells and
+/// passes motion on.
+pub fn motion(scroller: Scroller, place: Place) -> Takes {
+    match (scroller, place) {
+        (Scroller::Legacy, Place::Strip) => Takes::Swallow,
         _ => Takes::Cells,
     }
 }
@@ -204,6 +266,21 @@ impl Reveal {
         self.step(now);
         if drag == Drag::Idle {
             self.hover(over(pointer, back, Motion::Within), now);
+        }
+    }
+
+    /// How the thumb is seen at `now` under `scroller`: this reveal's under
+    /// the overlay style, and constant under the legacy one, where nothing
+    /// fades or hovers -- so the tick, which forces a frame only when the
+    /// look changes, forces none for it, and a wheel's reveal draws nothing
+    /// new.
+    pub fn look_under(&self, scroller: Scroller, now: HostTime) -> Look {
+        match scroller {
+            Scroller::Overlay => self.look(now),
+            Scroller::Legacy => Look {
+                shown: Chan::from_u8(255),
+                hover: Hover::Hovered,
+            },
         }
     }
 
@@ -344,6 +421,81 @@ mod tests {
         );
     }
 
+    /// **Motion over the legacy gutter reaches no one**, where motion over
+    /// the overlay strip is the cells', and motion over the grid always is.
+    #[test]
+    fn motion_over_the_legacy_gutter_reaches_no_one() {
+        assert_eq!(motion(Scroller::Legacy, Place::Strip), Takes::Swallow);
+        assert_eq!(motion(Scroller::Overlay, Place::Strip), Takes::Cells);
+        assert_eq!(motion(Scroller::Legacy, Place::Grid), Takes::Cells);
+    }
+
+    /// **Under the legacy style the look never changes**, through a reveal,
+    /// its hold, its fade and a hover -- so the tick forces no frame for it
+    /// -- while under the overlay style it is the reveal's own.
+    #[test]
+    fn under_the_legacy_style_the_look_never_changes() {
+        let mut r = Reveal::HIDDEN;
+        let first = r.look_under(Scroller::Legacy, at(Duration::ZERO));
+        assert_eq!(
+            (first.shown.get(), first.hover),
+            (255, Hover::Hovered),
+            "a legacy knob is always drawn, and wide"
+        );
+        r.reveal(at(Duration::ZERO));
+        for tick in 1..=240u64 {
+            let now = at(Duration::from_millis(tick * 1000 / 120));
+            if tick == 100 {
+                r.hover(Over::Strip, now);
+            }
+            if tick == 110 {
+                r.hover(Over::Cells, now);
+            }
+            r.step(now);
+            assert_eq!(r.look_under(Scroller::Legacy, now), first, "tick {tick}");
+            assert_eq!(r.look_under(Scroller::Overlay, now), r.look(now));
+        }
+    }
+
+    /// **A press the scrollbar takes keeps its release.** A jump swallowed
+    /// its press and let the release through to the cells, so a tracking
+    /// program saw a release without its press and a selection saw an end
+    /// it never began.
+    #[test]
+    fn a_press_the_scrollbar_takes_keeps_its_release() {
+        assert_eq!(Takes::Drag.grabs(), Grab::Bar);
+        assert_eq!(Takes::Jump.grabs(), Grab::Bar, "a jump's release leaks");
+        assert_eq!(Takes::Swallow.grabs(), Grab::Bar);
+        assert_eq!(Takes::Cells.grabs(), Grab::Free);
+    }
+
+    /// **Under the legacy style the gutter is never cells**: a left press
+    /// drags or jumps when there is a knob, whatever the look, and with no
+    /// history, or another button, it is taken and does nothing -- where the
+    /// overlay strip, lying over cells, gives those presses to the cells.
+    #[test]
+    fn the_legacy_gutter_is_never_cells() {
+        let gone = Chan::from_u8(0);
+        let legacy = |knob, button| press(Scroller::Legacy, Place::Strip, gone, knob, button);
+        assert_eq!(legacy(Some(Knob::On), Button::Left), Takes::Drag);
+        assert_eq!(legacy(Some(Knob::Off), Button::Left), Takes::Jump);
+        assert_eq!(legacy(None, Button::Left), Takes::Swallow);
+        assert_eq!(legacy(Some(Knob::On), Button::Other), Takes::Swallow);
+        let overlay = |knob, button| press(Scroller::Overlay, Place::Strip, gone, knob, button);
+        assert_eq!(overlay(None, Button::Left), Takes::Cells);
+        assert_eq!(overlay(Some(Knob::On), Button::Left), Takes::Cells);
+        assert_eq!(
+            press(
+                Scroller::Legacy,
+                Place::Grid,
+                gone,
+                Some(Knob::On),
+                Button::Left
+            ),
+            Takes::Cells
+        );
+    }
+
     #[test]
     fn the_strip_hovers_only_while_scrolled_back_and_presses_only_while_seen() {
         let (live, up) = (Rows::ZERO, Rows::of_count(3));
@@ -354,11 +506,23 @@ mod tests {
         assert_eq!(over(Place::Grid, up, Motion::Within), Over::Cells);
         let seen = Chan::from_u8(1);
         let gone = Chan::from_u8(0);
-        assert_eq!(press(Place::Strip, seen, Knob::On), Takes::Drag);
-        assert_eq!(press(Place::Strip, seen, Knob::Off), Takes::Jump);
+        let p = |place, shown, knob| press(Scroller::Overlay, place, shown, knob, Button::Left);
+        assert_eq!(p(Place::Strip, seen, Some(Knob::On)), Takes::Drag);
+        assert_eq!(p(Place::Strip, seen, Some(Knob::Off)), Takes::Jump);
         // Nothing drawn, or outside the strip: the cells'.
-        assert_eq!(press(Place::Strip, gone, Knob::On), Takes::Cells);
-        assert_eq!(press(Place::Grid, seen, Knob::On), Takes::Cells);
+        assert_eq!(p(Place::Strip, gone, Some(Knob::On)), Takes::Cells);
+        assert_eq!(p(Place::Grid, seen, Some(Knob::On)), Takes::Cells);
+        // Another button in the strip is the cells', as it lies over them.
+        assert_eq!(
+            press(
+                Scroller::Overlay,
+                Place::Strip,
+                seen,
+                Some(Knob::On),
+                Button::Other
+            ),
+            Takes::Cells
+        );
     }
 
     /// **The window moves without the pointer, and the hover follows it.**

@@ -8,7 +8,7 @@ use crate::host::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
-use crate::reveal::{Drag, Knob, Motion, Over, Reveal, Scale, Takes};
+use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
@@ -26,8 +26,8 @@ use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
     Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
-    Scrolled, Selection, Slide, Span, Stack, Tally, Target, Theme, Thumb, Trail, Transition,
-    Window, back_for, place, thumb,
+    Scrolled, Scroller, Selection, Slide, Span, Stack, Tally, Target, Theme, Trail, Transition,
+    Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -38,8 +38,8 @@ use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSColor, NSImage, NSImageView, NSScreen, NSView, NSWindow,
-    NSWindowButton, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSColor, NSImage, NSImageView, NSScreen, NSScroller,
+    NSScrollerStyle, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -360,6 +360,9 @@ struct App {
     /// pointer -- a wheel, a key, a paste, a jump -- drops the hover there,
     /// and one that leaves it takes the hover up.
     pointer: Place,
+    /// The scroller "Show scroll bars" asked for when the window was last
+    /// laid out: under the legacy style the grid gives up a gutter to it.
+    scroller: Scroller,
     /// Wheel travel not yet a whole line, in points.
     scroll_accum: f64,
     frames: Tally,
@@ -646,6 +649,11 @@ impl App {
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
+        // The process's first scroller-style read is not the 5 ns a wheel
+        // pays: AppKit loads the answer the first time, and this is where
+        // the launch path makes it. Its own mark, so it is a number.
+        let scroller = scroller_style();
+        startup_mark("scroller style");
         let own_grid = |ws: &WinSize| {
             let owned: &'static mut Owned = Box::leak(Box::new(
                 Owned::with_geometry(&MAX_GRID, &geom).with_images(images),
@@ -682,9 +690,12 @@ impl App {
             (Request::Force(Path::Cpu), _) => (Path::Cpu, None, own_grid(&ws), None),
         };
         renderer.fit(&term);
+        // The first frame is laid out for the scroller the setting asks for,
+        // as every relayout after it is (`Driver::relayout`).
+        renderer.set_gutter(gutter(scroller, crate::reveal::widths(Scale(scale))));
         let mut term = term;
         crate::host::tell_defaults(&mut term, renderer.theme());
-        let (frame_w, frame_h) = renderer.pixel_size();
+        let (frame_w, frame_h) = renderer.frame_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
                 (Some(styled), Some((first_map, entries))) => {
@@ -794,6 +805,7 @@ impl App {
             reveal: Reveal::HIDDEN,
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
+            scroller,
             scroll_accum: 0.0,
             frames: Tally::default(),
             ticks: Tally::default(),
@@ -876,6 +888,14 @@ impl App {
         window_of(&self.term, self.back)
     }
 
+    /// How the thumb is seen at `now`: the reveal's under the overlay style,
+    /// and constant under the legacy one, where nothing fades or hovers --
+    /// so the tick, which forces a frame only when this changes, forces none
+    /// for it, and a wheel's reveal draws nothing new.
+    fn look(&self, now: HostTime) -> Look {
+        self.reveal.look_under(self.scroller, now)
+    }
+
     fn flush_reply(&mut self) -> Sent {
         let reply = self.term.reply().to_vec();
         if reply.is_empty() {
@@ -913,13 +933,13 @@ impl App {
         self.renderer.set_highlight(highlight);
         // The scrollbar's thumb, where the window sits in the ring, seen as
         // much as the reveal says at the display link's last target.
-        let look =
-            HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.reveal.look(now));
+        let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
         self.drawn_look = look;
         self.renderer.set_scrollbar(Some(ScrollBar {
             window: self.window(),
             look,
             widths: crate::reveal::widths(Scale(self.scale)),
+            scroller: self.scroller,
         }));
         // The cursor trail: a fading ghost sweeping from the cell the
         // cursor left to the cell it reached. Spawned here, where the
@@ -980,9 +1000,10 @@ impl App {
             None => None,
         };
         self.renderer.set_screen_fade(veil);
-        // The grid, and the whole surface it is centred in; the letterbox
-        // margin between them is the gap.
-        let (w, h) = self.renderer.pixel_size();
+        // The frame -- the grid, and a legacy scroller's gutter beside it --
+        // and the whole surface it is centred in; the letterbox margin
+        // between them is the gap.
+        let (w, h) = self.renderer.frame_size();
         let (sw, sh) = self.view_px;
         self.pad_px = (
             Px::of(sw.value().saturating_sub(w.value()) / 2),
@@ -1694,6 +1715,10 @@ struct Driver {
     /// A drag of the scrollbar's thumb: where it was grabbed, in frame
     /// pixels, and where its top was.
     bar_drag: Option<BarDrag>,
+    /// Whether the press in progress is the scrollbar's: its drags and its
+    /// release are then the scrollbar's too, so neither the selection nor a
+    /// tracking program sees a release without its press.
+    grab: Grab,
     /// What a resize or a zoom asked for while a frame was in flight,
     /// applied by the next `pump` the completion wakes.
     deferred: Deferred,
@@ -2996,6 +3021,13 @@ impl Responder for Driver {
             }
             return;
         }
+        // A wheel is where the thumb would be revealed, so the scroller the
+        // setting asks for is read here as well as at a layout: a changed
+        // style re-lays the grid first, and the step lands in the new
+        // geometry, whose anchoring `relayout` has already done.
+        if scroller_style() != self.app.scroller {
+            let _ = self.relayout(self.view.frame().size, self.app.scale);
+        }
         let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(i64::MAX);
         let now = i64::try_from(self.app.back.index()).unwrap_or(0);
         let back = Rows::of_count(usize::try_from((now + step).clamp(0, retained)).unwrap_or(0));
@@ -3093,7 +3125,7 @@ impl Responder for Driver {
                 None => Drag::Idle,
             };
             self.app.reveal.tick(now, self.app.pointer, back, drag);
-            if self.app.reveal.look(now) != self.app.drawn_look {
+            if self.app.look(now) != self.app.drawn_look {
                 self.app.pending = Pending::Dirty;
             }
         }
@@ -3357,8 +3389,11 @@ pub fn run() {
         // the titlebar inset, so the window is that much taller than the
         // grid; otherwise the inset would steal a row from the fixed
         // geometry a benchmark asked for.
+        // A legacy scroller's gutter is beside the grid, so the window is
+        // that much wider; `relayout` then gives it the same gutter back.
+        let bar = gutter(scroller_style(), crate::reveal::widths(Scale(scale)));
         let wanted = NSSize::new(
-            f64::from(ws.ws_col) * cw / scale + 2.0 * padding,
+            f64::from(ws.ws_col) * cw / scale + 2.0 * padding + f64::from(bar.value()) / scale,
             f64::from(ws.ws_row) * ch / scale + inset + 2.0 * padding,
         );
         window.ns_window().setContentSize(wanted);
@@ -3480,6 +3515,7 @@ pub fn run() {
         armed: None,
         focused: baud_core::Focus::Lost,
         bar_drag: None,
+        grab: Grab::Free,
         deferred: Deferred::Nothing,
         style: style.clone(),
         theme_choice,
@@ -3804,25 +3840,30 @@ impl Driver {
         self.pump(Trigger::Wake);
     }
 
-    /// The scrollbar's strip, the overlay scroller's frame at the grid's
-    /// right edge. The pointer over it while scrolled back widens the thumb
-    /// and holds it (`reveal`); a press in it while the thumb is drawn is
-    /// the scrollbar's -- on the widened knob it starts a drag, off it it
-    /// jumps the thumb to the pointer -- and the window follows through the
-    /// inverse geometry. With nothing drawn it is cells.
+    /// The scrollbar's strip: the overlay scroller's frame at the grid's
+    /// right edge, or the legacy scroller's gutter beside it. Under the
+    /// overlay style the pointer over it while scrolled back widens the
+    /// thumb and holds it (`reveal`), and a press in it while the thumb is
+    /// drawn is the scrollbar's -- on the knob it starts a drag, off it it
+    /// jumps the thumb to the pointer -- with nothing drawn it is cells.
+    /// Under the legacy style nothing hovers and the gutter is never cells.
+    /// Either way a press the scrollbar takes keeps its drags and its
+    /// release (`Takes::grabs`), and the window follows through the
+    /// inverse geometry.
     fn scrollbar(&mut self, event: &Mouse) -> Took {
         let scale = self.app.scale;
         let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
-        // The grid is centred in the surface; the thumb's geometry is in
-        // grid pixels, so the pointer comes in from view pixels less the
+        // The frame is centred in the surface; the thumb's geometry is in
+        // frame pixels, so the pointer comes in from view pixels less the
         // letterbox margin.
         let (px, py) = self.app.pad_px;
         let x = Px::of(at(event.x).value().saturating_sub(px.value()));
         let y = Px::of(at(event.y).value().saturating_sub(py.value()));
         let win = self.app.window();
-        let size = self.app.renderer.pixel_size();
+        let size = self.app.renderer.frame_size();
         let cell_h = self.app.renderer.metrics().cell_h;
         let widths = crate::reveal::widths(crate::reveal::Scale(scale));
+        let scroller = self.app.scroller;
         let strip = place(x, size.0, widths);
         self.app.pointer = match event.kind {
             ViewMouseKind::Exited => Place::Grid,
@@ -3831,8 +3872,9 @@ impl Driver {
         let Some(now) = HostTime::of_secs(self.app.tick_target) else {
             return Took::No;
         };
-        // The hover, on every event but a drag's, which holds its own.
-        if self.bar_drag.is_none() {
+        // The hover, on every event but a drag's, which holds its own; the
+        // legacy scroller has none.
+        if self.bar_drag.is_none() && scroller == Scroller::Overlay {
             let motion = match event.kind {
                 ViewMouseKind::Exited => Motion::Leaving,
                 _ => Motion::Within,
@@ -3848,48 +3890,81 @@ impl Driver {
         // last frame drew, not the one the hover update above will draw.
         let look = self.app.drawn_look;
         let knob = thumb(win, size, cell_h, widths, look.hover);
-        let takes = |t: Thumb| {
-            let knob = if t.covers_y(y) { Knob::On } else { Knob::Off };
-            crate::reveal::press(strip, look.shown, knob)
-        };
-        let top = match (event.kind, knob) {
-            (ViewMouseKind::Down, Some(t)) if event.button == ViewButton::Left => match takes(t) {
-                Takes::Cells => return Took::No,
-                Takes::Drag => {
-                    self.bar_drag = Some(BarDrag {
-                        grab_y: y,
-                        top: t.top,
-                    });
-                    self.app.reveal.hover(Over::Strip, now);
-                    return Took::Yes;
+        let top = match event.kind {
+            ViewMouseKind::Down => {
+                let button = match event.button {
+                    ViewButton::Left => BarButton::Left,
+                    _ => BarButton::Other,
+                };
+                let on = knob.map(|t| match t.covers_y(y) {
+                    true => Knob::On,
+                    false => Knob::Off,
+                });
+                let takes = crate::reveal::press(scroller, strip, look.shown, on, button);
+                self.grab = takes.grabs();
+                match (takes, knob) {
+                    (Takes::Cells, _) => return Took::No,
+                    (Takes::Drag, Some(t)) => {
+                        self.bar_drag = Some(BarDrag {
+                            grab_y: y,
+                            top: t.top,
+                        });
+                        if scroller == Scroller::Overlay {
+                            self.app.reveal.hover(Over::Strip, now);
+                        }
+                        return Took::Yes;
+                    }
+                    (Takes::Jump, Some(t)) => {
+                        Px::of(y.value().saturating_sub(t.height.value() / 2))
+                    }
+                    _ => return Took::Yes,
                 }
-                Takes::Jump => Px::of(y.value().saturating_sub(t.height.value() / 2)),
-            },
-            (ViewMouseKind::Dragged, _) => {
+            }
+            ViewMouseKind::Dragged => {
                 let Some(d) = self.bar_drag else {
-                    return Took::No;
+                    // A press the scrollbar took that is not a drag -- a
+                    // jump, or the gutter's -- keeps its drags too.
+                    return match self.grab {
+                        Grab::Bar => Took::Yes,
+                        Grab::Free => Took::No,
+                    };
                 };
                 // The window can no longer scroll -- the alternate screen
                 // came up mid-drag, which keeps no history -- so the drag
                 // ends rather than write the primary's window from a
-                // geometry with nothing behind it.
+                // geometry with nothing behind it. The press stays taken
+                // until its release.
                 if win.retained.index() == 0 {
                     self.bar_drag = None;
-                    return Took::No;
+                    return Took::Yes;
                 }
                 let moved = i64::from(y.value()) - i64::from(d.grab_y.value());
                 Px::of(u32::try_from((i64::from(d.top.value()) + moved).max(0)).unwrap_or(0))
             }
-            (ViewMouseKind::Up, _) if self.bar_drag.is_some() => {
-                self.bar_drag = None;
-                // The end of a drag: still over the strip it stays widened,
-                // anywhere else it is a reveal that holds and fades.
-                let over = crate::reveal::over(strip, win.back, Motion::Within);
-                self.app.reveal.hover(over, now);
-                self.app.reveal.reveal(now);
-                self.app.pending = Pending::Dirty;
-                self.pump(Trigger::Wake);
-                return Took::Yes;
+            ViewMouseKind::Up => {
+                let grabbed = core::mem::replace(&mut self.grab, Grab::Free);
+                if self.bar_drag.take().is_some() && scroller == Scroller::Overlay {
+                    // The end of a drag: still over the strip it stays
+                    // widened, anywhere else it is a reveal that holds and
+                    // fades.
+                    let over = crate::reveal::over(strip, win.back, Motion::Within);
+                    self.app.reveal.hover(over, now);
+                    self.app.reveal.reveal(now);
+                    self.app.pending = Pending::Dirty;
+                    self.pump(Trigger::Wake);
+                }
+                return match grabbed {
+                    Grab::Bar => Took::Yes,
+                    Grab::Free => Took::No,
+                };
+            }
+            // Motion with nothing pressed: the legacy gutter keeps it from
+            // a program tracking every motion.
+            ViewMouseKind::Moved => {
+                return match crate::reveal::motion(scroller, strip) {
+                    Takes::Cells => Took::No,
+                    _ => Took::Yes,
+                };
             }
             _ => return Took::No,
         };
@@ -3960,20 +4035,29 @@ impl Driver {
         );
         // The titlebar mark follows the window's top-left on every resize.
         self.place_icon();
+        // The scroller the setting asks for now, and the gutter the frame
+        // keeps for it -- before either early return below, because a frame
+        // that changed width is a new frame whether or not the grid did.
+        self.app.scroller = scroller_style();
+        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let reframed = self.app.renderer.frame_size().0.value()
+            != self.app.renderer.pixel_size().0.value() + bar.value();
+        self.app.renderer.set_gutter(bar);
+        if reframed {
+            self.app.next_damage = Damage::Full;
+            self.app.pending = Pending::Dirty;
+        }
         if self.app.sizing == Sizing::Fixed {
             // The grid is pinned, and a zoom still moves the pixels.
             self.app.tell_pty();
             return Drew::No;
         }
-        let gutter = 2.0 * self.app.padding * scale;
-        let cols =
-            (((px_w - gutter).max(cw) / cw).floor() as i64).clamp(2, i64::from(MAX_GRID.ws_col));
-        let rows =
-            (((px_h - gutter).max(ch) / ch).floor() as i64).clamp(1, i64::from(MAX_GRID.ws_row));
-        let ws = WinSize {
-            ws_col: u16::try_from(cols).unwrap_or(2),
-            ws_row: u16::try_from(rows).unwrap_or(1),
-        };
+        let ws = grid_in(
+            (px_w, px_h),
+            self.app.padding * scale,
+            f64::from(bar.value()),
+            (cw, ch),
+        );
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
             let before = Before::of(&self.app.term);
@@ -4096,6 +4180,12 @@ impl Driver {
         // the text area, so the pty is told; a drag step changed nothing,
         // and `Pty::resize` sends nothing.
         self.app.tell_pty();
+        // The scroller's style changed and the columns happened not to: the
+        // frame is still a different width, so it is drawn now.
+        if reframed {
+            self.app.present(&self.view, Show::Event);
+            return Drew::Yes;
+        }
         Drew::No
     }
 
@@ -4334,6 +4424,24 @@ mod tests {
         );
     }
 
+    /// **A legacy scroller's gutter comes out of the grid's columns, and the
+    /// frame fits the view**: the grid and the gutter beside it inside the
+    /// padding, where the overlay style, lying over the grid, gives the view
+    /// its whole width in columns. The rows are the same either way.
+    #[test]
+    fn a_legacy_gutter_takes_its_columns_and_the_frame_fits() {
+        let (view, pad, cell) = ((1000.0, 600.0), 4.0, (10.0, 20.0));
+        let overlay = grid_in(view, pad, 0.0, cell);
+        let legacy = grid_in(view, pad, 34.0, cell);
+        assert_eq!((overlay.ws_col, overlay.ws_row), (99, 29));
+        assert_eq!((legacy.ws_col, legacy.ws_row), (95, 29));
+        let frame = f64::from(legacy.ws_col) * cell.0 + 34.0;
+        assert!(
+            frame + 2.0 * pad <= view.0,
+            "a frame {frame} px wide overflows"
+        );
+    }
+
     #[test]
     fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
         // 2x scale, 20x40 px cells, a 200x50 grid: point (105, 21) is
@@ -4344,6 +4452,43 @@ mod tests {
         assert_eq!((r.index(), c.index()), (0, 0));
         let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
+    }
+}
+
+/// The scroller the user's "Show scroll bars" setting asks for:
+/// `NSScroller`'s preferred style, which follows the setting and, under
+/// Automatically, whether a mouse is connected. `BAUD_SCROLLER` names one
+/// instead, for a check that must not change the owner's settings -- an
+/// instrument like `BAUD_GPU`, not a configuration. Off the main thread,
+/// where AppKit cannot be asked, it is the overlay.
+fn scroller_style() -> Scroller {
+    match std::env::var("BAUD_SCROLLER").as_deref() {
+        Ok("legacy") => return Scroller::Legacy,
+        Ok("overlay") => return Scroller::Overlay,
+        _ => {}
+    }
+    let Some(mtm) = MainThreadMarker::new() else {
+        return Scroller::Overlay;
+    };
+    match NSScroller::preferredScrollerStyle(mtm) {
+        NSScrollerStyle::Legacy => Scroller::Legacy,
+        _ => Scroller::Overlay,
+    }
+}
+
+/// The grid a view `px` pixels big holds, in cells of `cell` pixels: the
+/// view less `pad` on each side, and less a legacy scroller's `gutter` on
+/// the right, so the frame -- the grid and the gutter -- fits inside the
+/// padding. `relayout`'s arithmetic, pure so the columns the gutter takes
+/// are a test's to check.
+fn grid_in(px: (f64, f64), pad: f64, gutter: f64, cell: (f64, f64)) -> WinSize {
+    let cols = (((px.0 - 2.0 * pad - gutter).max(cell.0) / cell.0).floor() as i64)
+        .clamp(2, i64::from(MAX_GRID.ws_col));
+    let rows = (((px.1 - 2.0 * pad).max(cell.1) / cell.1).floor() as i64)
+        .clamp(1, i64::from(MAX_GRID.ws_row));
+    WinSize {
+        ws_col: u16::try_from(cols).unwrap_or(2),
+        ws_row: u16::try_from(rows).unwrap_or(1),
     }
 }
 
