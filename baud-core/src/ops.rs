@@ -265,10 +265,12 @@ impl Paint<'_, '_> {
 
     // ---- scrolling ------------------------------------------------------
 
-    /// **The full-screen case rotates and the region case copies**, which is
-    /// the split this repo already measured at 45%: a scroll that moves an
-    /// index costs one row of blanking where one that moves the rows costs the
-    /// whole region.
+    /// **The full-screen case rotates, a region anchored at the top rotates
+    /// and repairs the rows under it, and any other region copies.** A scroll
+    /// that moves an index costs one row of blanking where one that moves the
+    /// rows costs the whole region -- the split this repo measured at 45% --
+    /// and on the primary a top region rotates whatever that costs, because
+    /// the rotation is what sends its line to the history.
     pub(crate) fn scroll_region_up(&mut self, n: Count) {
         let (top, bot) = (self.cold.top, self.cold.bot);
         if top.index() > bot.index() {
@@ -290,30 +292,49 @@ impl Paint<'_, '_> {
             }
             return;
         }
-        // **A region anchored at the top is a rotation plus a repair**, and the
-        // repair is the rows *outside* it rather than the rows inside.
-        //
-        // The shape every status-line application has -- `less`, `vim`, `htop`,
-        // `tmux` -- is `DECSTBM 1 ; rows-1`, so the region is the whole screen
-        // but one line. Copying it moves forty-nine rows a scroll; rotating and
-        // putting the one row below the region back moves **one**.
-        //
-        // Found by concatenating the corpus into one stream: a program that
-        // sets a region and does not reset it leaves the next one scrolling by
-        // copy, and the mixed stream took **89,209 scrolls, 100% of them
-        // copying**, at 201 MB/s against the 835 the recordings predict
-        // individually. Every recording measured alone shows zero, because
-        // each starts from a fresh terminal -- which is this repo's "payloads
-        // that don't exercise the case" rule, found at last.
         // **A region anchored at the top is a rotation plus a repair**, and
         // the repair is the rows *outside* it rather than the rows inside.
         //
         // The shape every status-line application has -- `less`, `vim`,
         // `htop`, `tmux` -- is `DECSTBM 1 ; rows-1`, so the region is the whole
         // screen but one line. Copying it moves forty-nine rows a scroll;
-        // rotating and putting the one row below the region back moves **one**.
+        // rotating and putting the one row below the region back moves
+        // **one**. Found by concatenating the corpus into one stream: a program
+        // that sets a region and does not reset it leaves the next one
+        // scrolling by copy, and the mixed stream took **89,209 scrolls, 100%
+        // of them copying**, at 201 MB/s against the 835 the recordings predict
+        // individually.
+        //
+        // **On the primary a full-width one rotates whatever its height,
+        // because the rotation is what keeps its line.** A short region used to
+        // copy, which deleted the line a tall one sent to the history: one
+        // operation, two fates, chosen by which path moved fewer rows. xterm
+        // keeps the line whenever the top margin is the first row and never
+        // tests the bottom (`[[source: xterm-scroll]]`, `xtermScroll`), kitty
+        // when `margin_top == 0` (`[[source: kitty-screen-0-49]]`,
+        // `screen_index` and `screen_scroll`), wezterm when the region starts
+        // at row 0 (`[[source: wezterm-screen-b09b56c]]`, `scroll_up`). A
+        // region narrower than the screen keeps nothing in xterm or wezterm,
+        // so the widening asks for full side margins; a tall one under narrow
+        // margins rotates as it always did, which is the rectangle gap the
+        // `DECSLRM` row records. The alternate screen keeps no history, so
+        // there the cheaper path still decides.
+        //
+        // **What it costs is the repair.** A short region leaves most rows
+        // under it, and each scroll moves every one of them: `below` rows of
+        // cells where the copy moved the region's. xterm, kitty and foot move
+        // row *pointers* for the same scroll, so the lever for this shape is a
+        // row indirection, which this repo measured once as not worth its
+        // carrying cost on the corpus -- none of whose recordings has it.
         let below = last - bot.index();
-        if top.index() == 0 && below < bot.index() + 1 - top.index() {
+        let height = bot.index() + 1 - top.index();
+        let keeps = self.cold.screen == Screen::Normal
+            && self.cold.left == Col::ZERO
+            && self.cold.right.index() == self.cols.index() - 1;
+        if top.index() == 0 && (keeps || below < height) {
+            if self.cold.screen == Screen::Normal {
+                self.cold.region_scrolls = self.cold.region_scrolls.next();
+            }
             #[cfg(feature = "diag")]
             {
                 self.scroll_rot += k;

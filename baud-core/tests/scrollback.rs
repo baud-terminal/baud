@@ -80,6 +80,184 @@ fn only_the_primary_screen_and_a_top_anchored_region_retire() {
     });
 }
 
+/// **A top-anchored region retires its scrolled line whatever its height.**
+/// The line used to go to the history when the region was tall enough to
+/// rotate (`1 ; 40`) and to be deleted when it copied (`1 ; 3`): one
+/// operation, two fates, chosen by a cost heuristic. xterm saves when the top
+/// margin is the first row and never tests the bottom (`[[source:
+/// xterm-scroll]]`, `xtermScroll`), kitty adds to the history when
+/// `margin_top == 0` (`[[source: kitty-screen-0-49]]`, `screen_index` and
+/// `screen_scroll`), wezterm keeps it when `scroll_region.start == 0`
+/// (`[[source: wezterm-screen-b09b56c]]`, `Screen::scroll_up`), and foot
+/// keeps every region's (`[[source: foot-linefeed]]`, `term_scroll_partial`).
+///
+/// Heights 3, 10 and 25 took the copy on fifty rows, and 25 is the boundary:
+/// the rows under it are as many as the rows in it. 40 rotated all along and
+/// is the control. `LF` at the region's bottom and `SU` are the two ways in,
+/// and the rows under the region must not move for either.
+#[test]
+fn a_top_anchored_region_retires_its_line_whatever_its_height() {
+    for h in [3usize, 10, 25, 40] {
+        support::with_corpus(|t| {
+            let mut s = format!("\x1b[{};1HUNDER\x1b[50;1HLAST\x1b[1;{h}r\x1b[1;1H", h + 1);
+            for i in 0..h {
+                s.push_str(&format!("r{i:02}"));
+                if i + 1 < h {
+                    s.push_str("\r\n");
+                }
+            }
+            // Two lines past the region's bottom: `LF` there scrolls it.
+            s.push_str("\r\nx0\r\nx1");
+            support::feed(t, s.as_bytes());
+            assert_eq!(t.scrollback().len(), 2, "height {h}: two lines retired");
+            assert_eq!(back(t, 0).0, "r01", "height {h}: the newest");
+            assert_eq!(back(t, 1).0, "r00", "height {h}");
+            assert_eq!(row_text(t, h - 1, 2), "x1", "height {h}: the bottom");
+            assert_eq!(row_text(t, h, 5), "UNDER", "height {h}: under it");
+            assert_eq!(row_text(t, 49, 4), "LAST", "height {h}");
+            // `SU` scrolls the region wherever the cursor is.
+            support::feed(t, b"\x1b[S");
+            assert_eq!(t.scrollback().len(), 3, "height {h}: SU retires");
+            assert_eq!(back(t, 0).0, "r02", "height {h}");
+            assert_eq!(row_text(t, h, 5), "UNDER", "height {h}: SU");
+            assert_eq!(row_text(t, 49, 4), "LAST", "height {h}: SU");
+        });
+    }
+}
+
+/// **The controls: a region not at the top, and the alternate screen,
+/// retire nothing at any height.** xterm, kitty and wezterm discard a middle
+/// region's line; foot keeps it, and baud follows the three. The alternate
+/// screen keeps no history in any of them.
+#[test]
+fn a_short_region_off_the_top_or_on_the_alternate_screen_retires_nothing() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[5;7r\x1b[5;1Ha\r\nb\r\nc\r\nd\r\ne\x1b[S");
+        assert!(t.scrollback().is_empty(), "a middle region");
+        support::feed(
+            t,
+            b"\x1b[r\x1b[?1049h\x1b[1;3r\x1b[1;1Ha\r\nb\r\nc\r\nd\x1b[S",
+        );
+        assert!(t.scrollback().is_empty(), "the alternate screen");
+    });
+}
+
+/// **A region narrower than the screen keeps nothing**, in xterm
+/// (`[[source: xterm-scroll]]`, `scroll_full_line`) and in wezterm
+/// (`[[source: wezterm-screen-b09b56c]]`, `scroll_up_within_margins`), because
+/// what leaves it is part of a row. So the widening asks for full side
+/// margins: a short top region under `DECSLRM` copies as it did and retires
+/// nothing.
+#[test]
+fn a_short_top_region_under_side_margins_retires_nothing() {
+    support::with_corpus(|t| {
+        support::feed(
+            t,
+            b"\x1b[?69h\x1b[5;20s\x1b[1;3r\x1b[1;5Ha\r\nb\r\nc\r\nd\r\ne\x1b[S",
+        );
+        assert!(t.scrollback().is_empty());
+    });
+}
+
+/// **Only a scroll retires.** `IL` and `DL` inside a region anchored at the
+/// top move its rows and keep nothing, and `SD` in it takes nothing back
+/// from the history -- xterm keeps what `DL` deletes at row 0
+/// (`[[source: xterm-scroll]]`, `DeleteLine`), kitty and wezterm do not, and
+/// baud follows the two.
+#[test]
+fn il_dl_and_sd_in_a_top_region_leave_the_history_alone() {
+    support::with_corpus(|t| {
+        // One line in the history first, so `SD` has something to take.
+        support::feed(t, b"\x1b[1;3r\x1b[1;1Hkept\r\nb\r\nc\r\nd");
+        assert_eq!(t.scrollback().len(), 1);
+        assert_eq!(back(t, 0).0, "kept");
+        support::feed(t, b"\x1b[1;1H\x1b[2M\x1b[1;1H\x1b[2L\x1b[T");
+        assert_eq!(t.scrollback().len(), 1, "IL, DL and SD kept nothing");
+        assert_eq!(back(t, 0).0, "kept", "and took nothing back");
+    });
+}
+
+/// **`Term::region_scrolls` moves on a region scroll that retires and on
+/// nothing else**: not on the whole screen scrolling, not on a region in the
+/// middle, not on the alternate screen.
+#[test]
+fn the_region_count_moves_only_when_a_region_retires_a_line() {
+    support::with_corpus(|t| {
+        let start = t.region_scrolls();
+        let lines: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
+        support::feed(t, &lines);
+        assert!(!t.scrollback().is_empty(), "the whole screen retired");
+        assert_eq!(t.region_scrolls(), start, "and that is not a region");
+        support::feed(t, b"\x1b[5;7r\x1b[7;1H\n\n\x1b[r");
+        assert_eq!(t.region_scrolls(), start, "a middle region keeps nothing");
+        support::feed(t, b"\x1b[1;3r\x1b[3;1H\n");
+        let once = t.region_scrolls();
+        assert_ne!(once, start, "a top region retired");
+        support::feed(t, b"\x1b[S");
+        assert_ne!(t.region_scrolls(), once, "and again for SU");
+        let twice = t.region_scrolls();
+        // A short region and a tall one: the tall one rotates on the
+        // alternate screen too, and must not move the count either.
+        support::feed(t, b"\x1b[r\x1b[?1049h\x1b[1;3r\x1b[3;1H\n\n\x1b[S");
+        support::feed(t, b"\x1b[1;40r\x1b[40;1H\n\n\x1b[S");
+        assert_eq!(
+            t.region_scrolls(),
+            twice,
+            "the alternate screen keeps nothing"
+        );
+    });
+}
+
+/// **On the alternate screen a short top region still copies**, because
+/// nothing there is kept and the copy moves the region's rows where the
+/// rotation would move every row under it. Both render the same screen, so
+/// the cell count is the only thing that can tell them apart: one `SU` of a
+/// three-row region writes the region, three rows.
+#[test]
+fn the_alternate_screen_copies_a_short_top_region() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?1049h\x1b[1;3r");
+        let cols = t.geometry().0.index();
+        let (_, before) = t.amplification();
+        support::feed(t, b"\x1b[S");
+        let (_, after) = t.amplification();
+        assert_eq!(after - before, 3 * cols);
+    });
+}
+
+/// **A top log pane over a fixed dashboard**, the shape a program draws when
+/// it keeps its output in a few rows and a status display below them on the
+/// primary screen. Thirty log lines through a five-row pane: twenty-five
+/// scroll off, and all twenty-five are in the history, in order, with the
+/// dashboard where it was drawn. No recording carries this shape, which is
+/// why it is written here.
+#[test]
+fn a_top_log_pane_keeps_every_line_it_scrolls_off() {
+    support::with_corpus(|t| {
+        let mut s = String::from("\x1b[1;5r");
+        for y in 6..=50 {
+            s.push_str(&format!("\x1b[{y};1Hdash {y:02}"));
+        }
+        s.push_str("\x1b[1;1H");
+        for i in 0..30 {
+            if i > 0 {
+                s.push_str("\r\n");
+            }
+            s.push_str(&format!("log {i:02}"));
+        }
+        support::feed(t, s.as_bytes());
+        assert_eq!(t.scrollback().len(), 25);
+        for n in 0..25 {
+            assert_eq!(back(t, n).0, format!("log {:02}", 24 - n));
+        }
+        assert_eq!(row_text(t, 0, 6), "log 25");
+        assert_eq!(row_text(t, 4, 6), "log 29");
+        for y in 6..=50 {
+            assert_eq!(row_text(t, y - 1, 7), format!("dash {y:02}"));
+        }
+    });
+}
+
 /// **A shorter primary screen retires its top rows so the cursor's stay.**
 /// Fifty numbered rows, cursor on the last; shrink to ten: the screen shows
 /// rows 40..49, the cursor is on row 9, and the forty rows are in history.

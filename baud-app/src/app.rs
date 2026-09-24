@@ -1803,6 +1803,7 @@ struct Before {
     live: RowRot,
     history: baud_core::HistoryMark,
     epoch: baud_core::ScreenEpoch,
+    region: baud_core::RegionScrolls,
 }
 
 impl Before {
@@ -1811,8 +1812,20 @@ impl Before {
             live: term.rotation(),
             history: term.history_mark(),
             epoch: term.screen_epoch(),
+            region: term.region_scrolls(),
         }
     }
+}
+
+/// Whether every line a read retired left with the whole screen: no scroll
+/// of a region smaller than the screen sent one to the history. A region
+/// anchored at the top retires its line the way the whole screen does, and
+/// the rows under it stay where they were -- so a slide that pans the whole
+/// grid would carry a status line or a dashboard up with the text above it.
+/// By the core's count rather than by the region at the read's end, because
+/// a program can set a region, scroll it and reset it inside one read.
+fn whole_screen_scrolled(term: &Term<'_>, before: Before) -> bool {
+    term.region_scrolls() == before.region
 }
 
 /// Whether a read switched surfaces -- by the core's epoch, not by the
@@ -1914,7 +1927,7 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 mod alt_window_tests {
     use super::{
         Before, Hold, Ring, after_read, hold_after, live_cursor, live_moved, looking, oldest,
-        resized_window, snapped, switched, window_of,
+        resized_window, snapped, switched, whole_screen_scrolled, window_of,
     };
     use baud_core::Zone;
     use baud_core::{Owned, Term};
@@ -2042,6 +2055,31 @@ mod alt_window_tests {
             let before = Before::of(t);
             feed(t, b"x\r\n\x1b[?1049lc\r\n");
             assert_eq!(live_moved(t, before), Ring::Retired(Rows::ZERO));
+        });
+    }
+
+    /// A region anchored at the top retires its line the way the whole screen
+    /// does, and the rows under it stay: a slide must not pan them. The core
+    /// counts it, so a read that sets a region, scrolls it and resets it
+    /// before it ends is still seen -- the region at the read's end says
+    /// nothing about what scrolled during it.
+    #[test]
+    fn a_region_scroll_is_not_a_whole_screen_scroll() {
+        with_history(|t| {
+            // The control: the whole screen scrolling.
+            let before = Before::of(t);
+            feed(t, b"a\r\nb\r\n");
+            assert!(matches!(live_moved(t, before), Ring::Retired(n) if n.index() == 2));
+            assert!(whole_screen_scrolled(t, before));
+            let before = Before::of(t);
+            feed(t, b"\x1b[1;5r\x1b[5;1Hc\r\nd\r\n\x1b[r");
+            assert!(matches!(live_moved(t, before), Ring::Retired(n) if n.index() == 2));
+            assert!(!whole_screen_scrolled(t, before), "reset inside the read");
+            // A region in the middle retires nothing, so there is nothing to
+            // slide either way.
+            let before = Before::of(t);
+            feed(t, b"\x1b[6;8r\x1b[8;1He\r\nf\r\n\x1b[r");
+            assert!(whole_screen_scrolled(t, before));
         });
     }
 
@@ -2839,8 +2877,13 @@ impl Driver {
                 // when the cell path is drawing (`cell.is_some()`): the pan is
                 // applied in the cell branch of `present` alone, so on the
                 // instance and CPU paths a slide would force frames the way
-                // the tick does while nothing on screen moved.
-                if self.app.scroll == crate::config::ScrollMode::Smooth
+                // the tick does while nothing on screen moved. And never when
+                // a region retired a line: the rows under it did not move,
+                // and a slide in flight is settled rather than left panning
+                // them.
+                if !whole_screen_scrolled(&self.app.term, before) {
+                    self.app.slide.snap();
+                } else if self.app.scroll == crate::config::ScrollMode::Smooth
                     && self.app.back.index() == 0
                     && screen == Screen::Normal
                     && self.app.cell.is_some()

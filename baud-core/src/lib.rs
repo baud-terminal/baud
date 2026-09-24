@@ -117,4 +117,4 @@ pub use storage::{
     NSTYLE_MAX, OSC_MAX, READ_CHUNK, REPLY, Storage, StrBuf, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
-pub use term::{HistoryMark, Moved, Resized, Screen, ScreenEpoch, Term, Zone};
+pub use term::{HistoryMark, Moved, RegionScrolls, Resized, Screen, ScreenEpoch, Term, Zone};

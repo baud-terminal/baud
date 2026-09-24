@@ -861,25 +861,27 @@ fn il_and_dl_carry_an_image_with_its_line() {
 
 #[test]
 fn an_image_goes_where_a_top_regions_scrolled_line_goes() {
-    // Which way a line leaving a top-anchored region goes depends on the
-    // region: `1 ; 40` rotates and retires it to the history, `1 ; 3` copies
-    // and deletes it. The image on the line follows the text either way.
+    // A line leaving a region anchored at the top goes to the history on the
+    // primary whatever the region's height, and the image on it goes with
+    // it. `1 ; 3` used to copy and delete the line where `1 ; 40` rotated and
+    // retired it; both retire now. The alternate screen keeps no history, so
+    // there the line and its image are deleted, which is the control.
+    for region in [b"\x1b[1;40r".as_slice(), b"\x1b[1;3r".as_slice()] {
+        with(Depth::DEFAULT, |t| {
+            feed(t, region);
+            feed(t, b"\x1b[1;1H");
+            feed(t, TINY);
+            feed(t, b"\x1b[1;5HTOP\x1b[2;1HNEXT\x1b[S");
+            let p = only(t);
+            assert_eq!(drawn_row(t, &p, Rows::ZERO), -1, "retired with its line");
+            assert_eq!(beside(t, &p, 0).as_deref(), Some("    TOP"));
+            assert_eq!(t.images().placements_expired, 0);
+        });
+    }
     with(Depth::DEFAULT, |t| {
-        feed(t, b"\x1b[1;40r\x1b[1;1H");
+        feed(t, b"\x1b[?1049h\x1b[1;3r\x1b[1;1H");
         feed(t, TINY);
         feed(t, b"\x1b[1;5HTOP\x1b[2;1HNEXT\x1b[S");
-        let p = only(t);
-        assert_eq!(drawn_row(t, &p, Rows::ZERO), -1, "retired with its line");
-        assert_eq!(beside(t, &p, 0).as_deref(), Some("    TOP"));
-    });
-    with(Depth::DEFAULT, |t| {
-        feed(t, b"\x1b[1;3r\x1b[1;1H");
-        feed(t, TINY);
-        feed(t, b"\x1b[1;5HTOP\x1b[2;1HNEXT\x1b[S");
-        assert!(
-            t.scrollback().line(Back::of(0)).is_none(),
-            "nothing retired"
-        );
         assert_eq!(shown(t).len(), 0, "deleted with its line");
         assert_eq!(t.images().placements_expired, 1);
     });

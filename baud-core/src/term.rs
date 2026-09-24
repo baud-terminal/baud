@@ -135,6 +135,25 @@ impl ScreenEpoch {
     }
 }
 
+/// Which scroll of a region the primary retired a line through: it moves on
+/// every scroll of a region smaller than the screen that sends its top line
+/// to the history. Two equal readings mean every line a read retired left
+/// with the whole screen -- where [`Term::history_moved_since`] counts a
+/// region's retired lines and the whole screen's alike, though a region's
+/// leave the rows under it where they were. So an embedder that moves the
+/// whole picture with the history -- a smooth scroll, a selection numbered
+/// by lines -- asks this before it does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegionScrolls(u32);
+
+impl RegionScrolls {
+    pub(crate) const FIRST: RegionScrolls = RegionScrolls(0);
+
+    pub(crate) fn next(self) -> RegionScrolls {
+        RegionScrolls(self.0.wrapping_add(1))
+    }
+}
+
 /// A Sixel's requested background, from its `Pb`/`P2` parameter. `Opaque`
 /// (`P2` = 0 or 2) asks for unpainted pixels to be filled rather than left
 /// transparent; baud renders them transparent and counts the request, so this
@@ -296,6 +315,8 @@ pub struct Cold {
     /// The scrolling region, inclusive at both ends.
     pub(crate) top: Row,
     pub(crate) bot: Row,
+    /// Moves on every region scroll that retires: [`Term::region_scrolls`].
+    pub(crate) region_scrolls: RegionScrolls,
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<Saved>,
     pub(crate) modes: Modes,
@@ -337,10 +358,12 @@ pub struct Cold {
 // read only while a Sixel is parsing, not per glyph. The prompt state went
 // per screen at 320: two `Shell`s, a zone and a block start each, where one
 // zone and one block were -- written once per `OSC 133` mark and swapped once
-// per `?1049` transition, never on the write path.
+// per `?1049` transition, never on the write path. `region_scrolls` took it
+// to 328: a `u32` bumped once per region scroll that retires a line, which the
+// per-byte loop reaches only through a scroll.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 320);
+const _: () = assert!(core::mem::size_of::<Cold>() == 328);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -380,6 +403,7 @@ impl Cold {
             epoch: ScreenEpoch::FIRST,
             top: Row::ZERO,
             bot: Row::from_index(rows.index() - 1),
+            region_scrolls: RegionScrolls::FIRST,
             saved: None,
             alt_saved: None,
             kitty: KittyStack::new(),
@@ -1625,6 +1649,15 @@ impl<'b> Term<'b> {
     /// so its live rotations are one ring's; any other read did not.
     pub fn screen_epoch(&self) -> ScreenEpoch {
         self.cold.epoch
+    }
+
+    /// Which region scroll the primary last retired a line through: it moves
+    /// on every scroll of a region smaller than the screen that sends a line
+    /// to the history, and on nothing else. A read whose two ends carry one
+    /// reading retired only whole-screen scrolls, so the rows the history
+    /// took moved every row on the screen with them.
+    pub fn region_scrolls(&self) -> RegionScrolls {
+        self.cold.region_scrolls
     }
 
     /// Drop every placement whose row is gone, on either screen: the

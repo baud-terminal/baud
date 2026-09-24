@@ -378,6 +378,10 @@ fn every_test_named_in_the_docs_exists() {
             "stable_row_index_offset",
             "wezterm's field that a rewrap never adjusts, cited in note U as why              its viewport goes stale",
         ),
+        (
+            "scroll_up_within_margins",
+            "wezterm's method, cited where a region narrower than the screen keeps nothing in the history",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
