@@ -309,12 +309,13 @@ pub struct Cold {
     /// support is claimed while the flags are merely tracked.
     pub(crate) kitty: KittyStack,
     pub(crate) kitty_alt: KittyStack,
-    /// Which half of the screen's life this is, from `OSC 133`; see
-    /// [`Zone`]. Read by [`Term::resize`] and by nothing else, which is
-    /// the whole of what these marks are acted on for here.
-    pub(crate) zone: Zone,
-    /// The prompt block the shell is at; see `prompt.rs`.
-    pub(crate) prompt: crate::prompt::PromptBlock,
+    /// What `OSC 133` has said about the live screen: which half of its
+    /// life this is (see [`Zone`]) and where the prompt block the shell is
+    /// at begins (`prompt.rs`). `shell_other` is the parked screen's, and
+    /// the `?1049` transition swaps them -- the kitty stacks' shape, for the
+    /// reason `prompt::Shell` gives.
+    pub(crate) shell: crate::prompt::Shell,
+    pub(crate) shell_other: crate::prompt::Shell,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -333,10 +334,13 @@ pub struct Cold {
 // `dynamic`, on `Cold` which the per-byte loop carries by reference. The Sixel
 // body length (`sixel_len: ReadLen`) took it from 288 to 296 -- a `usize`,
 // because a Sixel body runs to tens of kilobytes past `str_len`'s `u16`; it is
-// read only while a Sixel is parsing, not per glyph.
+// read only while a Sixel is parsing, not per glyph. The prompt state went
+// per screen at 320: two `Shell`s, a zone and a block start each, where one
+// zone and one block were -- written once per `OSC 133` mark and swapped once
+// per `?1049` transition, never on the write path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 296);
+const _: () = assert!(core::mem::size_of::<Cold>() == 320);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -345,8 +349,8 @@ impl Cold {
             sgr: [SgrSlot::EMPTY; NSGR],
             g: [Charset::Ascii; 4],
             gl: GSlot::G0,
-            zone: Zone::Output,
-            prompt: crate::prompt::PromptBlock::NONE,
+            shell: crate::prompt::Shell::FRESH,
+            shell_other: crate::prompt::Shell::FRESH,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             defaults: [ColorWord::DEFAULT; 3],
@@ -962,7 +966,7 @@ impl<'b> Term<'b> {
         //
         // A stream that sends no marks is `Zone::Output` and reaches this
         // exactly as before.
-        if cols.index() != old_cols.index() && self.cold.zone == Zone::Output {
+        if cols.index() != old_cols.index() && self.primary_zone() == Zone::Output {
             let live = self.cold.screen == Screen::Normal;
             let cursor = match live {
                 true => (self.cy, self.cx),
@@ -1255,7 +1259,17 @@ impl<'b> Term<'b> {
     /// exposed so an embedder can see which rule is in force rather than
     /// having to infer it from what the screen did.
     pub fn zone(&self) -> Zone {
-        self.cold.zone
+        self.cold.shell.zone
+    }
+
+    /// The **primary's** zone, whichever screen is up: what decides whether
+    /// a change of width re-cuts the primary. It was the live screen's, so a
+    /// mark on the alternate screen stopped the primary re-cutting.
+    fn primary_zone(&self) -> Zone {
+        match self.cold.screen {
+            Screen::Normal => self.cold.shell.zone,
+            Screen::Alternate => self.cold.shell_other.zone,
+        }
     }
 
     /// The screen row the current prompt block begins on, while the shell
@@ -1271,12 +1285,13 @@ impl<'b> Term<'b> {
     /// rotation rather than from a number that went stale at the first
     /// scroll.
     pub fn prompt_row(&self) -> Option<Row> {
-        if self.cold.zone != Zone::Prompt {
+        if self.cold.shell.zone != Zone::Prompt {
             return None;
         }
         let y = self
             .cold
-            .prompt
+            .shell
+            .block
             .start()
             .retreat(self.rotation().index(), self.ring())
             .index();

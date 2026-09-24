@@ -623,3 +623,296 @@ fn a_redraw_mark_puts_the_cursor_on_the_block_it_replaces() {
         },
     );
 }
+
+// **Each screen has its own prompt state.** The zone and the block start
+// were one field on `Cold` while the kitty stacks beside them were swapped
+// per screen, so a mark on one screen was read against the other's ring:
+// a redraw on the alternate screen erased its rows by the primary's block
+// start, a block opened there was "redrawn" on the primary against the
+// alternate ring's row numbers, and a mark there stopped the *primary*
+// re-cutting on a width change, because `Term::resize` read whichever
+// screen had last written a mark. No recording carries a mark on the
+// alternate screen -- a program that forwards an inner shell's marks, as a
+// multiplexer can, is the shape -- so these are fixtures for what the
+// corpus cannot contain, the HT and SO precedent.
+
+/// Feed `bytes` in reads of `n`, so a test can ask the same question at a
+/// read size of one and at the whole stream.
+fn feed_in(t: &mut Term<'_>, bytes: &[u8], n: usize) {
+    for chunk in bytes.chunks(n) {
+        support::feed(t, chunk);
+    }
+}
+
+/// The primary's history and screen as text: `hist` lines behind the
+/// window, oldest first, then the screen's rows.
+fn primary_text(t: &Term<'_>) -> (Vec<String>, Vec<String>) {
+    let sb = t.scrollback();
+    let hist = (0..sb.len())
+        .rev()
+        .map(|n| {
+            let (c, _) = sb.line(Back::of(n)).expect("a retained line");
+            text_of(c).trim_end().to_string()
+        })
+        .collect();
+    let rows = t.geometry().1.index();
+    (hist, (0..rows).map(|y| row_text(t, y)).collect())
+}
+
+/// Numbered lines, `from..to`, each ending in a newline.
+fn numbered(tag: &str, from: usize, to: usize) -> Vec<u8> {
+    (from..to)
+        .flat_map(|i| format!("{tag} {i}\r\n").into_bytes())
+        .collect()
+}
+
+/// A block opened on the primary does not reach the alternate screen: a
+/// mark there opens that screen's own block rather than redrawing the
+/// primary's by its ring row -- which erased five of the ten lines the
+/// program drew -- and leaving restores the primary's block, which a redraw
+/// then replaces where it is.
+#[test]
+fn a_mark_on_the_alternate_screen_does_not_redraw_the_primarys_block() {
+    for n in [1, 3, 4096] {
+        support::with_term(
+            &WinSize {
+                ws_col: 40,
+                ws_row: 20,
+            },
+            |t| {
+                // The primary at a prompt, five rows down, with no `C`:
+                // what a widget that opens a full-screen program from the
+                // line editor leaves, and the zone the redraw keys on.
+                let mut s = numbered("out", 0, 5);
+                s.extend_from_slice(b"\x1b]133;P;k=i\x07$ ");
+                feed_in(t, &s, n);
+                assert_eq!(t.zone(), Zone::Prompt, "read size {n}");
+                assert_eq!(t.prompt_row(), Some(Row::from_index(5)));
+                // A full-screen program draws ten lines, and something in
+                // it sends a prompt mark at row 10.
+                let mut s = b"\x1b[?1049h".to_vec();
+                s.extend_from_slice(&numbered("alt", 0, 10));
+                s.extend_from_slice(b"\x1b]133;P;k=i\x07");
+                feed_in(t, &s, n);
+                let alt: Vec<String> = (0..11).map(|y| row_text(t, y)).collect();
+                let want: Vec<String> = (0..10)
+                    .map(|i| format!("alt {i}"))
+                    .chain([String::new()])
+                    .collect();
+                assert_eq!(
+                    alt, want,
+                    "read size {n}: the alternate screen's text was erased by the primary's block"
+                );
+                assert_eq!(
+                    t.prompt_erases, 0,
+                    "read size {n}: the first mark there is fresh"
+                );
+                assert_eq!(t.cursor().0, Row::from_index(10), "read size {n}");
+                assert_eq!(
+                    t.prompt_row(),
+                    Some(Row::from_index(10)),
+                    "read size {n}: the alternate screen's own block"
+                );
+                // Leave, and the shell redraws the prompt it has.
+                feed_in(t, b"\x1b[?1049l\r\x1b[J\x1b]133;P;k=i\x07$ ", n);
+                assert_eq!(t.zone(), Zone::Prompt, "read size {n}");
+                assert_eq!(
+                    t.prompt_erases, 1,
+                    "read size {n}: the redraw on the primary replaced the primary's block"
+                );
+                let (hist, screen) = primary_text(t);
+                assert!(hist.is_empty(), "read size {n}: nothing scrolled");
+                assert_eq!(
+                    screen[..7],
+                    ["out 0", "out 1", "out 2", "out 3", "out 4", "$", ""],
+                    "read size {n}: the output above the block is untouched and one prompt stands"
+                );
+            },
+        );
+    }
+}
+
+/// The same mark once the primary has scrolled, so its block starts past
+/// the alternate screen's ring: the redraw subtracted the primary's ring
+/// row from the alternate ring's position, which underflows -- a panic in a
+/// debug build -- and in a release build wraps to a row count that erased
+/// whatever it landed on.
+#[test]
+fn a_mark_on_the_alternate_screen_after_the_primary_scrolled() {
+    for n in [1, 7, 4096] {
+        support::with_term(
+            &WinSize {
+                ws_col: 40,
+                ws_row: 20,
+            },
+            |t| {
+                // Sixty lines on twenty rows: the primary's ring has turned
+                // forty rows, twice the alternate ring's size, and the
+                // block opens on the last row.
+                let mut s = numbered("line", 0, 60);
+                s.extend_from_slice(b"\x1b]133;P;k=i\x07$ ");
+                feed_in(t, &s, n);
+                assert_eq!(t.prompt_row(), Some(Row::from_index(19)), "read size {n}");
+                let mut s = b"\x1b[?1049h".to_vec();
+                s.extend_from_slice(&numbered("alt", 0, 5));
+                s.extend_from_slice(b"\x1b]133;P;k=i\x07");
+                feed_in(t, &s, n);
+                let alt: Vec<String> = (0..6).map(|y| row_text(t, y)).collect();
+                assert_eq!(
+                    alt,
+                    ["alt 0", "alt 1", "alt 2", "alt 3", "alt 4", ""],
+                    "read size {n}: the alternate screen's text"
+                );
+                assert_eq!(t.prompt_erases, 0, "read size {n}");
+                assert_eq!(t.prompt_row(), Some(Row::from_index(5)), "read size {n}");
+                // Back on the primary, the prompt it had is where it was.
+                feed_in(t, b"\x1b[?1049l", n);
+                assert_eq!(t.prompt_row(), Some(Row::from_index(19)), "read size {n}");
+                assert_eq!(row_text(t, 18), "line 59", "read size {n}");
+            },
+        );
+    }
+}
+
+/// The alternate screen's prompt state starts fresh on each entry, as its
+/// cells do: a block opened on one visit names rows the next visit's
+/// clear emptied, so a mark on the second visit is a fresh prompt rather
+/// than a redraw of the first visit's block.
+#[test]
+fn the_alternate_screens_prompt_state_starts_fresh_on_each_entry() {
+    for n in [1, 4096] {
+        support::with_term(
+            &WinSize {
+                ws_col: 40,
+                ws_row: 20,
+            },
+            |t| {
+                feed_in(t, b"\x1b[?1049h\x1b[4;1H\x1b]133;P;k=i\x07$ \x1b[?1049l", n);
+                assert_eq!(
+                    t.zone(),
+                    Zone::Output,
+                    "read size {n}: the primary, untouched"
+                );
+                let mut s = b"\x1b[?1049h".to_vec();
+                assert_eq!(t.prompt_erases, 0, "read size {n}");
+                s.extend_from_slice(&numbered("alt", 0, 8));
+                s.extend_from_slice(b"\x1b]133;P;k=i\x07");
+                feed_in(t, &s, n);
+                let alt: Vec<String> = (0..9).map(|y| row_text(t, y)).collect();
+                let want: Vec<String> = (0..8)
+                    .map(|i| format!("alt {i}"))
+                    .chain([String::new()])
+                    .collect();
+                assert_eq!(
+                    alt, want,
+                    "read size {n}: the second visit's text was erased by the first visit's block"
+                );
+                assert_eq!(
+                    t.prompt_erases, 0,
+                    "read size {n}: a fresh prompt, not a redraw"
+                );
+                assert_eq!(t.prompt_row(), Some(Row::from_index(8)), "read size {n}");
+            },
+        );
+    }
+}
+
+/// The TODO's second shape, and the one that reached the history: a block
+/// opened on the alternate screen and left without a `C` was "redrawn" on
+/// the primary against the alternate ring's row number -- nine lines of
+/// the primary's history and its whole screen erased. The primary was in
+/// `Zone::Output` when the program started, and that is what it returns
+/// to.
+#[test]
+fn a_block_opened_on_the_alternate_screen_is_not_redrawn_on_the_primary() {
+    for n in [1, 5, 4096] {
+        support::with_corpus(|t| {
+            // Sixty lines: eleven behind the window. A command runs.
+            let mut s = numbered("line", 0, 60);
+            s.extend_from_slice(b"\x1b]133;C\x07");
+            feed_in(t, &s, n);
+            assert_eq!(t.zone(), Zone::Output, "read size {n}");
+            let before = primary_text(t);
+            assert_eq!(
+                before.0.len(),
+                11,
+                "read size {n}: the control, eleven retired"
+            );
+            // The program opens a block on its own screen and exits
+            // without closing it.
+            feed_in(
+                t,
+                b"\x1b[?1049h\x1b[3;1H\x1b]133;P;k=i\x07inner\x1b[?1049l",
+                n,
+            );
+            let zone = t.zone();
+            // A shell whose integration sends only the prompt mark: a
+            // fresh prompt, not a redraw.
+            feed_in(t, b"\x1b]133;P;k=i\x07$ ", n);
+            let after = primary_text(t);
+            assert_eq!(after.0, before.0, "read size {n}: the history is untouched");
+            assert_eq!(
+                after.1[..49],
+                before.1[..49],
+                "read size {n}: the screen above the prompt is untouched"
+            );
+            assert_eq!(after.1[49], "$", "read size {n}");
+            assert_eq!(t.prompt_erases, 0, "read size {n}: nothing was replaced");
+            assert_eq!(
+                zone,
+                Zone::Output,
+                "read size {n}: the primary returns to the zone it left"
+            );
+        });
+    }
+}
+
+/// A mark on the alternate screen does not decide whether the **primary**
+/// re-cuts. `Term::resize` reflows the primary whichever screen is up, and
+/// it asked the zone whichever screen had last written a mark -- so the
+/// program's mark left the primary's long line cut at the narrow edge,
+/// its tail hidden past it, where the same resize with no mark there
+/// re-wraps it. Both arms are asked, and the control is the second.
+#[test]
+fn a_mark_on_the_alternate_screen_does_not_stop_the_primary_re_cutting() {
+    for (mark, what) in [
+        (&b""[..], "the control, no mark"),
+        (
+            &b"\x1b]133;P;k=i\x07"[..],
+            "a prompt mark on the alternate screen",
+        ),
+    ] {
+        for n in [1, 4096] {
+            support::with_term(
+                &WinSize {
+                    ws_col: 40,
+                    ws_row: 8,
+                },
+                |t| {
+                    let mut s = b"above\r\n".to_vec();
+                    s.extend_from_slice(long_line(36).as_bytes());
+                    s.extend_from_slice(b"\r\n\x1b[?1049h");
+                    s.extend_from_slice(mark);
+                    feed_in(t, &s, n);
+                    let _ = t.resize(&WinSize {
+                        ws_col: 20,
+                        ws_row: 8,
+                    });
+                    feed_in(t, b"\x1b[?1049l", n);
+                    let line = long_line(36);
+                    assert_eq!(row_text(t, 0), "above", "{what}, read size {n}");
+                    assert_eq!(
+                        row_text(t, 1),
+                        line[..20],
+                        "{what}, read size {n}: the head"
+                    );
+                    assert_eq!(
+                        row_text(t, 2),
+                        line[20..],
+                        "{what}, read size {n}: the primary's line was not re-cut"
+                    );
+                },
+            );
+        }
+    }
+}

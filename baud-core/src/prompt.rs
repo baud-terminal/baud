@@ -25,7 +25,7 @@ use baud_domain::*;
 ///
 /// A ring row, so a scroll or a resize's rotation leaves it naming the
 /// same cells; a screen row went stale at the first scroll. Meaningful
-/// only while `Cold::zone` is [`crate::term::Zone::Prompt`].
+/// only while its screen's [`Shell::zone`] is [`crate::term::Zone::Prompt`].
 #[derive(Clone, Copy)]
 pub(crate) struct PromptBlock {
     start: RowRot,
@@ -41,11 +41,39 @@ impl PromptBlock {
     }
 }
 
+/// What the marks have said about **one screen**: its zone, and where its
+/// block begins.
+///
+/// **One per screen, swapped by `?1049` as the kitty stacks are.** The
+/// block start is a row of one surface's ring, so read against the other
+/// ring it names rows the shell never drew: a redraw on the alternate
+/// screen erased its rows by the primary's block start (a subtraction that
+/// underflows once the primary has turned past the alternate ring), a
+/// block opened there was redrawn on the primary against the alternate
+/// ring's numbers and took the history with it, and a mark there stopped
+/// the *primary* re-cutting, because `Term::resize` asked the zone of
+/// whichever screen last sent one. The alternate screen's state starts
+/// fresh on every entry, because the screen does: entry clears it.
+#[derive(Clone, Copy)]
+pub(crate) struct Shell {
+    pub(crate) zone: crate::term::Zone,
+    pub(crate) block: PromptBlock,
+}
+
+impl Shell {
+    /// A screen no mark has spoken about: output, which is what a stream
+    /// with no shell integration is.
+    pub(crate) const FRESH: Shell = Shell {
+        zone: crate::term::Zone::Output,
+        block: PromptBlock::NONE,
+    };
+}
+
 impl Paint<'_, '_> {
     /// The block begins on the cursor's row: an initial mark.
     pub(crate) fn open_prompt_block(&mut self) {
         let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.prompt = PromptBlock {
+        self.cold.shell.block = PromptBlock {
             start: rot.advance(self.cy.index(), ring),
         };
     }
@@ -61,7 +89,7 @@ impl Paint<'_, '_> {
     pub(crate) fn replace_prompt_block(&mut self) {
         let (rot, ring) = (self.view.rotation(), self.view.ring());
         let (cy, r, rows) = (self.cy.index(), ring.index(), self.rows.index());
-        let start = self.cold.prompt.start();
+        let start = self.cold.shell.block.start();
         // Rows from the block's first row to the cursor, in ring order.
         let d = (rot.advance(cy, ring).index() + r - start.index()) % r;
         let above = d.saturating_sub(cy);

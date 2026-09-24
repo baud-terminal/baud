@@ -363,3 +363,55 @@ fn a_redraw_computed_for_a_wider_screen_does_not_move_the_block_down() {
         assert_eq!(t.scrollback().len(), 0);
     });
 }
+
+/// A line of `n` characters that says which line it is at both ends, so a
+/// tail cut at the edge is visible as a missing string.
+fn long_name(i: usize, n: usize) -> String {
+    let body: String = (0..n - 12)
+        .map(|k| char::from(b'a' + u8::try_from(k % 26).unwrap_or(0)))
+        .collect();
+    format!("head{i:02}-{body}-tail{i:02}")
+}
+
+#[test]
+fn a_program_that_forwards_marks_does_not_decide_the_shells_reflow() {
+    // The owner's zsh runs a full-screen program, the window is dragged
+    // narrow while it runs, and it exits. The command output above the
+    // prompt is re-cut to the narrow width -- every line's tail on a row
+    // of its own -- whether or not the program forwarded an inner shell's
+    // marks on its own screen. It was not when it did: the resize read the
+    // program's zone for the primary's reflow and left the output cut at
+    // the edge. The arm with no mark is the control and runs first.
+    for forwards in [false, true] {
+        support::with_room(60, |t| {
+            support::feed(t, b"\r\n\x1b]133;C\x07");
+            for i in 0..4 {
+                support::feed(t, format!("{}\r\n", long_name(i, 70)).as_bytes());
+            }
+            support::feed(t, b"\x1b]133;D\x07");
+            prompt(t);
+            let rows = t.geometry().1.index();
+            // The user runs the program.
+            support::feed(t, b"\r\n\x1b]133;C\x07\x1b[?1049h");
+            if forwards {
+                support::feed(t, b"\x1b]133;P;k=i\x07inner $ \x1b]133;B\x07");
+            }
+            resize(t, 40, rows);
+            support::feed(t, b"\x1b[?1049l\x1b]133;D\x07");
+            prompt(t);
+            for i in 0..4 {
+                let name = long_name(i, 70);
+                assert!(
+                    on_screen(t, &name[..40]) && on_screen(t, &name[40..]),
+                    "forwards {forwards}: line {i} was not re-cut to the narrow width:\n{:#?}",
+                    screen(t)
+                );
+            }
+            assert_eq!(t.zone(), Zone::Prompt, "forwards {forwards}");
+            assert_eq!(
+                t.prompt_erases, 0,
+                "forwards {forwards}: nothing was redrawn"
+            );
+        });
+    }
+}

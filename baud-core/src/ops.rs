@@ -1044,6 +1044,12 @@ impl Paint<'_, '_> {
                 // main/alternate stacks. A swap is balanced because this arm and
                 // the exit arm each fire once per transition.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
+                // **And so is what the prompt marks said.** The primary's
+                // zone and block park; the alternate screen's start fresh,
+                // because the screen does -- it is cleared below -- and a
+                // block start left from its last visit names rows gone.
+                core::mem::swap(&mut self.cold.shell, &mut self.cold.shell_other);
+                self.cold.shell = crate::prompt::Shell::FRESH;
                 // **Two surfaces, swapped, nothing copied.** The alternate
                 // screen is its own buffer at the pitch; the view takes it
                 // and the primary rides as `other` until the exit swaps them
@@ -1075,8 +1081,10 @@ impl Paint<'_, '_> {
                 }
                 self.cold.screen = Screen::Normal;
                 self.cold.epoch = self.cold.epoch.next();
-                // Restore the primary screen's kitty stack; see the enter arm.
+                // Restore the primary screen's kitty stack and prompt state;
+                // see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
+                core::mem::swap(&mut self.cold.shell, &mut self.cold.shell_other);
                 // Surface first, then the cursor: `restore` clamps against the
                 // geometry and moves the cursor, and it should be moving over
                 // the screen the application is about to see. A resize taken

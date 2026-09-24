@@ -217,18 +217,18 @@ impl Paint<'_, '_> {
                 // are later lines of the same one. A mark in the prompt zone
                 // is the shell redrawing the block it has.
                 if matches!(mark, Semantic::PromptStart(PromptKind::Initial)) {
-                    if self.cold.zone == crate::term::Zone::Prompt {
+                    if self.cold.shell.zone == crate::term::Zone::Prompt {
                         self.replace_prompt_block();
                     }
                     self.open_prompt_block();
                 }
-                self.cold.zone = match mark {
+                self.cold.shell.zone = match mark {
                     Semantic::PromptStart(_) | Semantic::CommandStart => crate::term::Zone::Prompt,
                     // `D` closes it as `C` does: Enter on an empty line sends
                     // no `C`, and the `P` after `D` is a fresh prompt, not a
                     // redraw -- and so is anything a `precmd` prints first.
                     Semantic::OutputStart | Semantic::CommandDone => crate::term::Zone::Output,
-                    Semantic::Other => self.cold.zone,
+                    Semantic::Other => self.cold.shell.zone,
                 };
                 self.semantic_marks += 1;
             }
