@@ -41,6 +41,11 @@ struct Server {
 
 impl Server {
     fn new(sock: UnixStream) -> Server {
+        // A request the client never sends fails the test instead of hanging
+        // it: `next` reads until a whole request is in, and without a timeout
+        // a missing one blocks in `recv` forever.
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
         let mut objects = HashMap::new();
         objects.insert(ObjectId::DISPLAY, Interface::named("wl_display").unwrap());
         Server {
@@ -489,7 +494,7 @@ fn a_window_opens_shows_a_frame_and_types() {
         );
     }
     pump(&mut conn, &mut w);
-    use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, Modifiers};
+    use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, KeyEventKind, Modifiers};
     let got: Vec<Event> = std::iter::from_fn(|| w.next_event()).collect();
     assert_eq!(
         got,
@@ -506,6 +511,12 @@ fn a_window_opens_shows_a_frame_and_types() {
                 KeyCode::Char(Codepoint::from_char('q')),
                 Modifiers::CTRL
             )),
+            // The release of the Control-q, delivered as one: the core sends
+            // it only where kitty's event types asked for releases.
+            Event::Key(KeyEvent {
+                kind: KeyEventKind::Release,
+                ..KeyEvent::press(KeyCode::Char(Codepoint::from_char('q')), Modifiers::CTRL)
+            }),
             Event::Key(KeyEvent::press(KeyCode::Up, Modifiers::NONE)),
             Event::Key(KeyEvent::press(KeyCode::Enter, Modifiers::NONE)),
             Event::Key(KeyEvent::press(
@@ -522,6 +533,291 @@ fn a_window_opens_shows_a_frame_and_types() {
     let r = server.expect("xdg_wm_base", "pong");
     assert!(matches!(r.args[0], Val::Uint(99)));
     assert_eq!(w.next_event(), Some(Event::Closed));
+}
+
+/// A session as far as a keyboard with the `us` keymap: the globals bound,
+/// the surface made, the seat's keyboard created and its keymap sent. Returns
+/// the keyboard and the surface, which `enter` and `leave` name.
+fn keyboard_session() -> (Connection, Server, Window, ObjectId, ObjectId) {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+        (4, "wl_seat", 9),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let mut seat = None;
+    let mut surface = None;
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, _, id)]) if i == "wl_seat" => {
+                seat = Some(*id);
+            }
+            ("wl_compositor", "create_surface", [Val::New(id)]) => surface = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    let (seat, surface) = (seat.expect("the seat"), surface.expect("the surface"));
+    server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(protocol::wl_seat::capability::KEYBOARD)],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_seat", "get_keyboard");
+    let Val::New(keyboard) = r.args[0] else {
+        panic!()
+    };
+    send_keymap(&mut server, keyboard);
+    pump(&mut conn, &mut w);
+    (conn, server, w, keyboard, surface)
+}
+
+fn send_keymap(server: &mut Server, keyboard: ObjectId) {
+    let keymap = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-xkb/tests/fixtures/keymap-us.xkb"
+    ))
+    .unwrap();
+    let mut kf = tempfile();
+    kf.write_all(&keymap).unwrap();
+    kf.write_all(&[0]).unwrap();
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "keymap",
+        &[
+            Arg::Uint(protocol::wl_keyboard::keymap_format::XKB_V1),
+            Arg::Fd(kf.as_fd()),
+            Arg::Uint(u32::try_from(keymap.len() + 1).unwrap()),
+        ],
+    );
+}
+
+// evdev codes, which the wire carries.
+const KEY_Q: u32 = 16;
+const KEY_UP: u32 = 103;
+const KEY_LEFTSHIFT: u32 = 42;
+
+fn key(server: &mut Server, keyboard: ObjectId, code: u32, state: u32) {
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "key",
+        &[
+            Arg::Uint(1),
+            Arg::Uint(0),
+            Arg::Uint(code),
+            Arg::Uint(state),
+        ],
+    );
+}
+
+fn depressed(server: &mut Server, keyboard: ObjectId, mask: u32) {
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "modifiers",
+        &[
+            Arg::Uint(1),
+            Arg::Uint(mask),
+            Arg::Uint(0),
+            Arg::Uint(0),
+            Arg::Uint(0),
+        ],
+    );
+}
+
+fn repeat_info(server: &mut Server, keyboard: ObjectId, rate: i32, delay: i32) {
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "repeat_info",
+        &[Arg::Int(rate), Arg::Int(delay)],
+    );
+}
+
+fn drain(w: &mut Window) -> Vec<Event> {
+    std::iter::from_fn(|| w.next_event()).collect()
+}
+
+fn typed(c: char, mods: baud_domain::Modifiers, kind: baud_domain::KeyEventKind) -> Event {
+    use baud_domain::{Codepoint, KeyCode, KeyEvent};
+    Event::Key(KeyEvent {
+        kind,
+        ..KeyEvent::press(KeyCode::Char(Codepoint::from_char(c)), mods)
+    })
+}
+
+const MS: std::time::Duration = std::time::Duration::from_millis(1);
+const PRESSED: u32 = protocol::wl_keyboard::key_state::PRESSED;
+const RELEASED: u32 = protocol::wl_keyboard::key_state::RELEASED;
+
+/// **A held key repeats at the compositor's rate, after its delay, as the
+/// modifiers now in force make it, until it is released.** Wayland leaves
+/// repeat to the client: `repeat_info` gives the rate and the delay, and the
+/// seat is bound below version 10, whose "repeated" key state is the only
+/// way a compositor repeats a key itself. The deadline the window reports is
+/// the anchor, so nothing here depends on how long the test takes.
+#[test]
+fn a_held_key_repeats_until_it_is_released() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    repeat_info(&mut server, kb, 25, 600);
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [typed('q', Modifiers::NONE, KeyEventKind::Press)]
+    );
+    let due = w.repeat_deadline().expect("a held q repeats");
+    w.tick(due - MS);
+    assert!(drain(&mut w).is_empty(), "nothing before the delay");
+    w.tick(due + 80 * MS);
+    assert_eq!(
+        drain(&mut w),
+        (0..3)
+            .map(|_| typed('q', Modifiers::NONE, KeyEventKind::Repeat))
+            .collect::<Vec<_>>(),
+        "at the deadline and every 40 ms after it"
+    );
+    // Shift pressed while q is held: the repeat is the shifted key.
+    depressed(&mut server, kb, 1);
+    pump(&mut conn, &mut w);
+    w.tick(due + 120 * MS);
+    assert_eq!(
+        drain(&mut w),
+        [typed('Q', Modifiers::NONE, KeyEventKind::Repeat)]
+    );
+    key(&mut server, kb, KEY_Q, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [typed('Q', Modifiers::NONE, KeyEventKind::Release)],
+        "the release is delivered"
+    );
+    assert_eq!(w.repeat_deadline(), None, "and the repeat stops");
+    w.tick(due + std::time::Duration::from_secs(5));
+    assert!(drain(&mut w).is_empty());
+}
+
+/// **What else stops a repeat, each on its own:** another key's press takes
+/// the repeat over, a release of a key that is not the held one leaves it,
+/// a key the keymap does not repeat (a modifier) leaves nothing repeating,
+/// the keyboard leaving the surface, a new keymap, and a rate of zero.
+#[test]
+fn a_repeat_stops_where_a_keyboard_stops_it() {
+    use baud_domain::{KeyCode, KeyEvent, KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, surface) = keyboard_session();
+    repeat_info(&mut server, kb, 25, 600);
+
+    // Another key takes over, and releasing the first leaves it.
+    key(&mut server, kb, KEY_Q, PRESSED);
+    key(&mut server, kb, KEY_UP, PRESSED);
+    key(&mut server, kb, KEY_Q, RELEASED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let due = w.repeat_deadline().expect("Up repeats");
+    w.tick(due);
+    assert_eq!(
+        drain(&mut w),
+        [Event::Key(KeyEvent {
+            kind: KeyEventKind::Repeat,
+            ..KeyEvent::press(KeyCode::Up, Modifiers::NONE)
+        })]
+    );
+
+    // A modifier does not repeat: pressing it leaves nothing repeating.
+    key(&mut server, kb, KEY_LEFTSHIFT, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    assert_eq!(w.repeat_deadline(), None, "Shift does not repeat");
+    key(&mut server, kb, KEY_LEFTSHIFT, RELEASED);
+
+    // The keyboard leaving the surface.
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert!(w.repeat_deadline().is_some());
+    server.send(
+        kb,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(2), Arg::Object(surface)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "leave stops it");
+
+    // A new keymap.
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert!(w.repeat_deadline().is_some());
+    send_keymap(&mut server, kb);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "a new keymap stops it");
+
+    // A rate of zero stops it, and keeps a later press from repeating.
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert!(w.repeat_deadline().is_some());
+    repeat_info(&mut server, kb, 0, 600);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "rate zero stops it");
+    key(&mut server, kb, KEY_Q, RELEASED);
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "and nothing repeats after");
+}
+
+/// **Before `repeat_info` there is no repeat**, and a loop blocked past many
+/// periods types at most one second's worth, then waits a period from now.
+#[test]
+fn no_repeat_before_its_rate_and_no_burst_after_a_stall() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "no rate, no repeat");
+    key(&mut server, kb, KEY_Q, RELEASED);
+    repeat_info(&mut server, kb, 25, 600);
+    key(&mut server, kb, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let due = w.repeat_deadline().expect("repeats now");
+    let late = due + std::time::Duration::from_secs(5);
+    w.tick(late);
+    assert_eq!(
+        drain(&mut w),
+        (0..25)
+            .map(|_| typed('q', Modifiers::NONE, KeyEventKind::Repeat))
+            .collect::<Vec<_>>(),
+        "one second at 25 a second"
+    );
+    assert_eq!(w.repeat_deadline(), Some(late + 40 * MS));
 }
 
 fn tempfile() -> std::fs::File {

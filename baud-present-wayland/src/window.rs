@@ -10,13 +10,14 @@
 
 use crate::keys;
 use crate::shm::{Pool, Px};
-use baud_domain::{Focus, KeyEvent};
+use baud_domain::{Focus, KeyEvent, KeyEventKind};
 use baud_wayland::{
     Arg, Connection, Event as Wire, Handler, Interface, ObjectId, Opcode, Read, Sender, protocol,
 };
 use baud_xkb::{Keycode, Keymap, Mods, State};
 use std::collections::VecDeque;
 use std::io;
+use std::time::{Duration, Instant};
 
 /// What the window reports to the app.
 #[derive(Debug, PartialEq, Eq)]
@@ -42,6 +43,26 @@ pub enum Presented {
     /// Not configured yet, a frame still in flight, no buffer free, or the
     /// frame is smaller than the window.
     No,
+}
+
+/// `wl_keyboard.repeat_info`: the time between repeats of a held key, and the
+/// wait before the first. **Repeat is the client's job**: the protocol's
+/// "repeated" key state is version 10's, and the seat is bound at 9, so no
+/// compositor repeats a key for baud. A rate of zero is the compositor turning
+/// repeat off. Until the event arrives there is none: the protocol guarantees
+/// it before any key press on a keyboard of version 4 or later, and below that
+/// the client chooses -- baud chooses no repeat rather than invent a rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RepeatInfo {
+    period: Option<Duration>,
+    delay: Duration,
+}
+
+/// The key held down and repeating, and when it next repeats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Held {
+    key: Keycode,
+    next: Instant,
 }
 
 #[derive(Default)]
@@ -71,6 +92,8 @@ pub struct Window {
     keymap: Option<Keymap>,
     mods: Mods,
     group: usize,
+    repeat: RepeatInfo,
+    held: Option<Held>,
     events: VecDeque<Event>,
 }
 
@@ -114,6 +137,11 @@ impl Window {
             keymap: None,
             mods: Mods::default(),
             group: 0,
+            repeat: RepeatInfo {
+                period: None,
+                delay: Duration::ZERO,
+            },
+            held: None,
             events: VecDeque::new(),
         })
     }
@@ -128,6 +156,45 @@ impl Window {
 
     pub fn in_flight(&self) -> bool {
         self.callback.is_some()
+    }
+
+    /// When the held key next repeats, for the loop to wait no longer than;
+    /// `None` when no key is repeating.
+    pub fn repeat_deadline(&self) -> Option<Instant> {
+        self.held.map(|h| h.next)
+    }
+
+    /// A repeat of the held key for every period elapsed by `now`, each
+    /// re-derived from the modifiers in force now, as a keyboard's own repeat
+    /// would be: Shift pressed during a held `q` repeats `Q`. **At most one
+    /// second's worth**, then the next is a period from `now`: a loop that
+    /// was blocked longer does not type a burst the user never saw.
+    pub fn tick(&mut self, now: Instant) {
+        let (Some(mut held), Some(period)) = (self.held, self.repeat.period) else {
+            return;
+        };
+        let mut owed = Duration::ZERO;
+        while held.next <= now {
+            if let Some(e) = self.key_event(held.key, KeyEventKind::Repeat) {
+                self.events.push_back(Event::Key(e));
+            }
+            owed += period;
+            held.next += period;
+            if owed >= Duration::from_secs(1) {
+                held.next = now + period;
+                break;
+            }
+        }
+        self.held = Some(held);
+    }
+
+    /// The key event `code` produces under the modifiers in force, as `kind`;
+    /// `None` without a keymap, or for a key that produces none.
+    fn key_event(&self, code: Keycode, kind: KeyEventKind) -> Option<KeyEvent> {
+        let km = self.keymap.as_ref()?;
+        let mut st = State::new(km);
+        st.update(self.mods, self.group);
+        keys::press(&st, code).map(|e| KeyEvent { kind, ..e })
     }
 
     fn bind(
@@ -377,8 +444,23 @@ impl Handler for Window {
             ("wl_keyboard", "keymap", [Read::Uint(format), Read::Fd(fd), Read::Uint(size)])
                 if *format == protocol::wl_keyboard::keymap_format::XKB_V1 =>
             {
+                // A new keymap names keys afresh; a key held under the old
+                // one is not one this keymap was asked to repeat.
+                self.held = None;
                 if let Ok(dup) = fd.try_clone() {
                     self.keymap = Window::keymap_from(dup, *size).ok();
+                }
+            }
+            ("wl_keyboard", "repeat_info", [Read::Int(rate), Read::Int(delay)]) => {
+                self.repeat = RepeatInfo {
+                    period: u32::try_from(*rate)
+                        .ok()
+                        .filter(|&r| r > 0)
+                        .map(|r| Duration::from_secs(1) / r),
+                    delay: Duration::from_millis(u64::try_from(*delay).unwrap_or(0)),
+                };
+                if self.repeat.period.is_none() {
+                    self.held = None;
                 }
             }
             (
@@ -408,19 +490,51 @@ impl Handler for Window {
                     Read::Uint(key),
                     Read::Uint(state),
                 ],
-            ) if *state == protocol::wl_keyboard::key_state::PRESSED => {
-                if let Some(km) = &self.keymap {
-                    let mut st = State::new(km);
-                    st.update(self.mods, self.group);
-                    if let Some(e) = keys::press(&st, Keycode(*key + 8)) {
-                        self.events.push_back(Event::Key(e));
+            ) => {
+                let code = Keycode(*key + 8);
+                match *state {
+                    protocol::wl_keyboard::key_state::PRESSED => {
+                        if let Some(e) = self.key_event(code, KeyEventKind::Press) {
+                            self.events.push_back(Event::Key(e));
+                        }
+                        // A press takes the repeat over, whatever was held;
+                        // a key the keymap does not repeat -- a modifier --
+                        // leaves nothing repeating.
+                        let repeats = self.keymap.as_ref().is_some_and(|km| {
+                            let mut st = State::new(km);
+                            st.update(self.mods, self.group);
+                            st.repeats(code)
+                        });
+                        self.held = match (repeats, self.repeat.period) {
+                            (true, Some(_)) => Some(Held {
+                                key: code,
+                                next: Instant::now() + self.repeat.delay,
+                            }),
+                            _ => None,
+                        };
                     }
+                    // Delivered as a release, which the core sends only
+                    // where kitty's event types asked for one.
+                    protocol::wl_keyboard::key_state::RELEASED => {
+                        if self.held.is_some_and(|h| h.key == code) {
+                            self.held = None;
+                        }
+                        if let Some(e) = self.key_event(code, KeyEventKind::Release) {
+                            self.events.push_back(Event::Key(e));
+                        }
+                    }
+                    _ => {}
                 }
             }
             // The keymap's `enter` carries the keys already down as an array;
             // neither event's payload beyond its meaning is needed here.
             ("wl_keyboard", "enter", _) => self.events.push_back(Event::Focus(Focus::Gained)),
-            ("wl_keyboard", "leave", _) => self.events.push_back(Event::Focus(Focus::Lost)),
+            // A keyboard that left the surface delivers no release for what
+            // it held, so the repeat stops here.
+            ("wl_keyboard", "leave", _) => {
+                self.held = None;
+                self.events.push_back(Event::Focus(Focus::Lost));
+            }
             ("wl_buffer", "release", _) => {
                 if let Some(p) = self.pool.as_mut() {
                     p.released(ev.object);

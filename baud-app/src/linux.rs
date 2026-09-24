@@ -170,7 +170,17 @@ pub fn run() {
         return;
     }
     loop {
-        let timeout = d.sync_since.map(|s| SYNC_MAX.saturating_sub(s.elapsed()));
+        // The loop wakes for a held key's next repeat as well as for the
+        // synchronised update's cap, whichever is sooner.
+        let sync = d.sync_since.map(|s| SYNC_MAX.saturating_sub(s.elapsed()));
+        let repeat = d
+            .window
+            .repeat_deadline()
+            .map(|t| t.saturating_duration_since(Instant::now()));
+        let timeout = match (sync, repeat) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), timeout) {
             Ok(r) => r,
             Err(e) => {
@@ -201,6 +211,9 @@ pub fn run() {
                 Chunk::Bytes(bytes) => d.feed(&bytes),
             }
         }
+        // After a timeout as much as after readiness: a repeat is due on
+        // the clock, not on an event.
+        d.window.tick(Instant::now());
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),

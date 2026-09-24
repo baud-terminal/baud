@@ -138,6 +138,8 @@ created the demand.
   it as the press everywhere but `[[source: kitty-keyboard]]`'s event types,
   which report it as `:2`: "Normally only key press events are reported and
   key repeat events are treated as key press events." A release sends nothing
-  outside event types. `baud-app` on macOS delivers AppKit's repeats; nothing
-  delivers a release yet. `?8` DECARM does not filter repeats, as xterm's
+  outside event types. `baud-app` on macOS delivers AppKit's repeats, and
+  `baud-present-wayland` repeats a held key itself, as Wayland leaves it to
+  the client, and delivers releases; macOS delivers none, because the window
+  crate has no `keyUp:`. `?8` DECARM does not filter repeats, as xterm's
   does not.
