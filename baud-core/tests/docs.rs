@@ -366,6 +366,18 @@ fn every_test_named_in_the_docs_exists() {
             "zwp_linux_buffer_params",
             "a Wayland interface name, cited in note J for the dmabuf swapchain              a pure-protocol client has to build itself",
         ),
+        (
+            "grid_resize_and_reflow",
+            "foot's re-cut, cited in note U's table of where each terminal              re-cuts",
+        ),
+        (
+            "grid_resize_without_reflow",
+            "foot's truncating resize for the alternate screen, cited in note U",
+        ),
+        (
+            "stable_row_index_offset",
+            "wezterm's field that a rewrap never adjusts, cited in note U as why              its viewport goes stale",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

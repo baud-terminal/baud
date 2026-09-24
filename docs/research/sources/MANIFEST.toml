@@ -30,6 +30,7 @@
 #   L  the scrollbar, and the window over the history it indicates
 #   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
+#   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
 
 [sources.simdjson]
 key    = "simdjson"
@@ -6850,3 +6851,530 @@ sha256 = "5a70b5bfe95d2fd6789001e457396a68f2ed9aa076ae2612f0d717ce88eb77a4"
 bytes  = 15730
 status = "external"
 group  = "L"
+
+# ── Group U: who holds the window over the history across a resize ──────────
+# Six implementations surveyed for docs/research/notes/u-resize-and-the-window.md,
+# each file re-hashed against the local copy the survey read. External: the
+# licences vary (kitty is GPL-3.0) and the issue snapshots are API responses.
+# `alacritty-term-term-mod` is reused, not repeated: its file hashes the same at
+# the 0.26.0 vcs sha 94e7c88.
+
+[sources.alacritty-grid-resize-0-26]
+key    = "alacritty-grid-resize-0-26"
+title  = "alacritty_terminal 0.26.0, grid/resize.rs -- the height and width routines Term::resize runs, and display_offset across them"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "alacritty_terminal 0.26.0 (vcs 94e7c88)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/94e7c8874e526b1e67b349d9ba30ddf81669119e/alacritty_terminal/src/grid/resize.rs"
+file   = ""
+sha256 = "a9a9a285ed28d75b547f86554174c192f74f2a0fb1b331f43a5d2433bcd5d9d7"
+bytes  = 16060
+status = "external"
+group  = "U"
+
+[sources.alacritty-grid-mod-0-26]
+key    = "alacritty-grid-mod-0-26"
+title  = "alacritty_terminal 0.26.0, grid/mod.rs -- display_offset, one per grid"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "alacritty_terminal 0.26.0 (vcs 94e7c88); the crate copy and the GitHub raw at that sha hash alike"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/94e7c8874e526b1e67b349d9ba30ddf81669119e/alacritty_terminal/src/grid/mod.rs"
+file   = ""
+sha256 = "e523b4702a62c699461586955d54a441b86edc3c0f753a30c05493d75b2e2caa"
+bytes  = 20391
+status = "external"
+group  = "U"
+
+[sources.alacritty-issue-2408]
+key    = "alacritty-issue-2408"
+title  = "alacritty #2408, comments -- prompt duplication on resize, called unfixable in the terminal"
+author = "Alacritty issue tracker"
+year   = 2026
+venue  = "github.com/alacritty/alacritty, snapshot of the comments endpoint"
+url    = "https://api.github.com/repos/alacritty/alacritty/issues/2408/comments"
+file   = ""
+sha256 = "c13827c327b2ea4c346d5aa5480c56e27b477584a629f3249a8f23b9deb63523"
+bytes  = 5259
+status = "external"
+group  = "U"
+
+[sources.alacritty-issue-4424]
+key    = "alacritty-issue-4424"
+title  = "alacritty #4424, comments -- a proposal to make reflow optional, closed"
+author = "Alacritty issue tracker"
+year   = 2026
+venue  = "github.com/alacritty/alacritty, snapshot of the comments endpoint"
+url    = "https://api.github.com/repos/alacritty/alacritty/issues/4424/comments"
+file   = ""
+sha256 = "432db1652de90d6805bed3167596cee1d70a1d8d1c26ece432d5d9405439c690"
+bytes  = 35411
+status = "external"
+group  = "U"
+
+[sources.alacritty-issue-4966]
+key    = "alacritty-issue-4966"
+title  = "alacritty #4966, comments -- a second proposal to make reflow optional, closed"
+author = "Alacritty issue tracker"
+year   = 2026
+venue  = "github.com/alacritty/alacritty, snapshot of the comments endpoint"
+url    = "https://api.github.com/repos/alacritty/alacritty/issues/4966/comments"
+file   = ""
+sha256 = "b08b430f1059a0c31dab1d824356e357613345b6c3be4c2470aed3ac78a095b7"
+bytes  = 13095
+status = "external"
+group  = "U"
+
+[sources.foot-grid-c-1-21]
+key    = "foot-grid-c-1-21"
+title  = "foot 1.21.0, grid.c -- grid_resize_and_reflow and its tracking points"
+author = "Daniel Eklof (MIT)"
+year   = 2025
+venue  = "foot terminal emulator, tag 1.21.0"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/grid.c"
+file   = ""
+sha256 = "efa71eb8bf5905cb5b6dbbf12ff3e35465b2bdc09ce9a17b38bff7ad511bf2c9"
+bytes  = 55267
+status = "external"
+group  = "U"
+
+[sources.foot-render-1-21]
+key    = "foot-render-1-21"
+title  = "foot 1.21.0, render.c -- render_resize and the interactive-resize delay"
+author = "Daniel Eklof (MIT)"
+year   = 2025
+venue  = "foot terminal emulator, tag 1.21.0"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/render.c"
+file   = ""
+sha256 = "dcd280e226b1e3730548bb8b197d043d7103a6386e842df41bda7a922be85eb2"
+bytes  = 177087
+status = "external"
+group  = "U"
+
+[sources.foot-terminal-h-1-21]
+key    = "foot-terminal-h-1-21"
+title  = "foot 1.21.0, terminal.h -- grid.view, the viewport per grid"
+author = "Daniel Eklof (MIT)"
+year   = 2025
+venue  = "foot terminal emulator, tag 1.21.0"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.h"
+file   = ""
+sha256 = "ec324ca9782dd90ede606231bc2e6a7ab834d2e3757b7d3c8ca23a689b75ec69"
+bytes  = 27583
+status = "external"
+group  = "U"
+
+[sources.foot-issue-939]
+key    = "foot-issue-939"
+title  = "foot #939 -- where the prompt should land after a resize, open"
+author = "foot issue tracker"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, snapshot of the issue endpoint"
+url    = "https://codeberg.org/api/v1/repos/dnkl/foot/issues/939"
+file   = ""
+sha256 = "aa0da0e78300c212d622389e87f5eae0e5a33dca9e1eea1c19bcec4588459f4d"
+bytes  = 3182
+status = "external"
+group  = "U"
+
+[sources.foot-issue-2011]
+key    = "foot-issue-2011"
+title  = "foot #2011 -- blank rows above a bottom-row prompt dropped on resize"
+author = "foot issue tracker"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, snapshot of the issue endpoint"
+url    = "https://codeberg.org/api/v1/repos/dnkl/foot/issues/2011"
+file   = ""
+sha256 = "d464308c264e3f6e927c19c179f21b7951256d30a152dd61a1f3ec7410118841"
+bytes  = 2694
+status = "external"
+group  = "U"
+
+[sources.ghostty-pagelist-9bbb9b2]
+key    = "ghostty-pagelist-9bbb9b2"
+title  = "ghostty, terminal/PageList.zig -- resize, resizeCols and the tracked viewport pin"
+author = "Ghostty contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/terminal/PageList.zig"
+file   = ""
+sha256 = "ea2b64c49a6214102ed84fe92aa48a9f5acc42277697aba9fb8fcd93f627cbc4"
+bytes  = 717626
+status = "external"
+group  = "U"
+
+[sources.ghostty-terminal-9bbb9b2]
+key    = "ghostty-terminal-9bbb9b2"
+title  = "ghostty, terminal/Terminal.zig -- resize, the alternate screen and the prompt redraw"
+author = "Ghostty contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/terminal/Terminal.zig"
+file   = ""
+sha256 = "c39b749ce345139bf0061d0a44d669cc783afa2d60406dfa9c59ea8615627dff"
+bytes  = 578262
+status = "external"
+group  = "U"
+
+[sources.ghostty-termio-thread-9bbb9b2]
+key    = "ghostty-termio-thread-9bbb9b2"
+title  = "ghostty, termio/Thread.zig -- the 25 ms resize throttle"
+author = "Ghostty contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/termio/Thread.zig"
+file   = ""
+sha256 = "e49ed4f996f37ee5dc64ab6f14b49e93d19488795ffb7febb049382bd1d7b593"
+bytes  = 18182
+status = "external"
+group  = "U"
+
+[sources.ghostty-termio-9bbb9b2]
+key    = "ghostty-termio-9bbb9b2"
+title  = "ghostty, termio/Termio.zig -- the pty size set before the terminal mutex"
+author = "Ghostty contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ 9bbb9b2"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/termio/Termio.zig"
+file   = ""
+sha256 = "7bcc6b8bac04aa8075f087f5c8457e1623f583b865216b149b5f36fedab8a03c"
+bytes  = 30255
+status = "external"
+group  = "U"
+
+[sources.kitty-screen-0-49]
+key    = "kitty-screen-0-49"
+title  = "kitty v0.49.0, screen.c -- screen_resize, resize_screen_buffers and scrolled_by"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty, tag v0.49.0 (07ed6aa)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/screen.c"
+file   = ""
+sha256 = "5e8c23dfe18c7cfe15829bbeabc1646e21910aebeb17301d36cfa4bd9f393d5f"
+bytes  = 300663
+status = "external"
+group  = "U"
+
+[sources.kitty-child-monitor-0-49]
+key    = "kitty-child-monitor-0-49"
+title  = "kitty v0.49.0, child-monitor.c -- the OS-window resize debounce"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty, tag v0.49.0 (07ed6aa)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/child-monitor.c"
+file   = ""
+sha256 = "d1fe1e37a2cd0e58b4fedde6dbb57b488c0d2f1a43fa9d4563c6ff683fbacf8f"
+bytes  = 99360
+status = "external"
+group  = "U"
+
+[sources.kitty-boss-0-49]
+key    = "kitty-boss-0-49"
+title  = "kitty v0.49.0, boss.py -- a split-border drag holds SIGWINCH to its end"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty, tag v0.49.0 (07ed6aa)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/boss.py"
+file   = ""
+sha256 = "471fb3f66a0bbb3333b21134d0ee6e789efdf48e933d62f458147f04ea74312e"
+bytes  = 174017
+status = "external"
+group  = "U"
+
+[sources.kitty-history-0-49]
+key    = "kitty-history-0-49"
+title  = "kitty v0.49.0, history.c -- the pager ring rewrapped at read"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty, tag v0.49.0 (07ed6aa)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/history.c"
+file   = ""
+sha256 = "7b9bcfc450728f8b1c07468d992589c7a00703c9106f3bff8056965736216c0e"
+bytes  = 27342
+status = "external"
+group  = "U"
+
+[sources.kitty-lineops-0-49]
+key    = "kitty-lineops-0-49"
+title  = "kitty v0.49.0, lineops.h -- the prompt rows pasted back un-reflowed, truncated when narrower"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty, tag v0.49.0 (07ed6aa)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/07ed6aa3de28af2a01e521f18c56ed292aa34cfc/kitty/lineops.h"
+file   = ""
+sha256 = "515eb894b7985df8bebcf33cca51cc4d0351aab33840fc6789fb3f45ad972cd1"
+bytes  = 6610
+status = "external"
+group  = "U"
+
+[sources.wezterm-screen-b09b56c]
+key    = "wezterm-screen-b09b56c"
+title  = "wezterm, term/src/screen.rs -- Screen::resize and rewrap_lines"
+author = "Wez Furlong and contributors (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ b09b56c"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/term/src/screen.rs"
+file   = ""
+sha256 = "2d3b9e1985ab1f9d5bb1c5002f47062846488f30c886771e1a285faf5d56cbb4"
+bytes  = 41786
+status = "external"
+group  = "U"
+
+[sources.wezterm-localpane-b09b56c]
+key    = "wezterm-localpane-b09b56c"
+title  = "wezterm, mux/src/localpane.rs -- the pty resized before the lock"
+author = "Wez Furlong and contributors (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ b09b56c"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/mux/src/localpane.rs"
+file   = ""
+sha256 = "99da17fcaf3350b1fe38ce93fc50c0320935c72f3c12e196dc13d07ae4ba6a0e"
+bytes  = 40381
+status = "external"
+group  = "U"
+
+[sources.wezterm-gui-resize-b09b56c]
+key    = "wezterm-gui-resize-b09b56c"
+title  = "wezterm, wezterm-gui/src/termwindow/resize.rs -- every OS resize event reaches the pane"
+author = "Wez Furlong and contributors (MIT)"
+year   = 2026
+venue  = "github.com/wezterm/wezterm @ b09b56c"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/wezterm-gui/src/termwindow/resize.rs"
+file   = ""
+sha256 = "eff862b056f6e981c471e3a53a17698ff0a337adb7e0672b1d3ab084595cec87"
+bytes  = 22889
+status = "external"
+group  = "U"
+
+[sources.wezterm-issue-2162]
+key    = "wezterm-issue-2162"
+title  = "wezterm #2162 -- prompt duplication on resize, open"
+author = "wezterm issue tracker"
+year   = 2026
+venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/2162"
+file   = ""
+sha256 = "5a0ab8c4b29a06008698b62f8b39cca3946581c6b9f99d40c5e53c613d72d4b0"
+bytes  = 4572
+status = "external"
+group  = "U"
+
+[sources.wezterm-issue-2987]
+key    = "wezterm-issue-2987"
+title  = "wezterm #2987 -- prompt handling on resize, open"
+author = "wezterm issue tracker"
+year   = 2026
+venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/2987"
+file   = ""
+sha256 = "b728dd76860161d4b86d87ee3ba3cd30dd60c7b836d581134e97f247febe7930"
+bytes  = 8069
+status = "external"
+group  = "U"
+
+[sources.wezterm-issue-4995]
+key    = "wezterm-issue-4995"
+title  = "wezterm #4995 -- the viewport and kitty placements go stale across a rewrap, open"
+author = "wezterm issue tracker"
+year   = 2026
+venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/4995"
+file   = ""
+sha256 = "ee5514444b6cbac9fc48c89da69e992abb0cf323764dd918cc78d0ca5919e4bf"
+bytes  = 6135
+status = "external"
+group  = "U"
+
+[sources.wezterm-issue-6669]
+key    = "wezterm-issue-6669"
+title  = "wezterm #6669 -- the saved cursor is not remapped by a rewrap, open"
+author = "wezterm issue tracker"
+year   = 2026
+venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/6669"
+file   = ""
+sha256 = "591ab93aef274cb51cd291a10ffc1b33deb85f3f6fb801774c6326b071d20336"
+bytes  = 5157
+status = "external"
+group  = "U"
+
+[sources.wezterm-issue-7853]
+key    = "wezterm-issue-7853"
+title  = "wezterm #7853 -- OSC 133 prompt handling on resize, unmerged"
+author = "wezterm issue tracker"
+year   = 2026
+venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/7853"
+file   = ""
+sha256 = "62a49b77095824db63f3d2e0f3635d784fe8ace325d5dc08138b533ac35d3358"
+bytes  = 6587
+status = "external"
+group  = "U"
+
+[sources.vte-vte-cc-0-84]
+key    = "vte-vte-cc-0-84"
+title  = "VTE 0.84.1, vte.cc -- set_size, screen_set_size and the viewport marker"
+author = "The GNOME VTE contributors (LGPL-3.0)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, tag 0.84.1"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.84.1/src/vte.cc"
+file   = ""
+sha256 = "a3ca4fed21b69467845eea7a77a7ae5e853a9b21b9d06535f81aec476e50f16d"
+bytes  = 433239
+status = "external"
+group  = "U"
+
+[sources.vte-ring-0-84]
+key    = "vte-ring-0-84"
+title  = "VTE 0.84.1, ring.cc -- Ring::rewrap and the regenerated row stream"
+author = "The GNOME VTE contributors (LGPL-3.0)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, tag 0.84.1"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.84.1/src/ring.cc"
+file   = ""
+sha256 = "3182394867d2f0af809a3d7ae4a82d80d39ff1582a6edf4b4a486b69259ded93"
+bytes  = 57949
+status = "external"
+group  = "U"
+
+[sources.vte-internal-hh-0-84]
+key    = "vte-internal-hh-0-84"
+title  = "VTE 0.84.1, vteinternal.hh -- VteScreen.scroll_delta"
+author = "The GNOME VTE contributors (LGPL-3.0)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, tag 0.84.1"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.84.1/src/vteinternal.hh"
+file   = ""
+sha256 = "26e0a35f4cdd44c49627d0fb4a35f05b5232587db4b36be6bf9d06cc822adf16"
+bytes  = 77409
+status = "external"
+group  = "U"
+
+[sources.vte-rewrap-txt-0-84]
+key    = "vte-rewrap-txt-0-84"
+title  = "VTE 0.84.1, doc/rewrap.txt -- the rewrap design, its cost and what it cannot do"
+author = "The GNOME VTE contributors (LGPL-3.0)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, tag 0.84.1"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.84.1/doc/rewrap.txt"
+file   = ""
+sha256 = "c24cc6ebe043db7e89b4eb44cbf39536f74387dbff4ae60c1083d0deded47c28"
+bytes  = 21708
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2154]
+key    = "vte-issue-2154"
+title  = "VTE #2154 -- rewrap only the visible part on demand, open"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the issue endpoint"
+url    = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Fvte/issues/2154"
+file   = ""
+sha256 = "3e39154554a0216d3df37b3e02eb17d979226a1ac389d22d493317528049b1e0"
+bytes  = 4143
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2294]
+key    = "vte-issue-2294"
+title  = "VTE #2294 -- a prompt misdrawn after a resize"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the issue endpoint"
+url    = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Fvte/issues/2294"
+file   = ""
+sha256 = "564542e9464927837bdd9cc299bcc589de2f4b222fc6d72d280ebec879cbee2c"
+bytes  = 3235
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2294-discussion]
+key    = "vte-issue-2294-discussion"
+title  = "VTE #2294, discussion"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the discussions endpoint"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/issues/2294/discussions.json"
+file   = ""
+sha256 = "1adce72e5ce89d6cb783b5543fe49bc1b835a12fbbf38f56f20bf3e48815e1cb"
+bytes  = 20463
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2374]
+key    = "vte-issue-2374"
+title  = "VTE #2374 -- a resize artefact whose final diagnosis is rewrap, not timing"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the issue endpoint"
+url    = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Fvte/issues/2374"
+file   = ""
+sha256 = "7363f98650efd1fb625b4e7b6f62c2c4078de0c9b87de411a4ac536b104bab83"
+bytes  = 3843
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2374-discussion]
+key    = "vte-issue-2374-discussion"
+title  = "VTE #2374, discussion"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the discussions endpoint"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/issues/2374/discussions.json"
+file   = ""
+sha256 = "34566ffe801812f92fb2fcfd78f8552669b8d9dd7d7f0e77514c9953bd5f4ace"
+bytes  = 97770
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2701]
+key    = "vte-issue-2701"
+title  = "VTE #2701 -- a scrollbar-jump regression, with lines lost to a narrow rewrap as its setup"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the issue endpoint"
+url    = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Fvte/issues/2701"
+file   = ""
+sha256 = "6cdbd41bfd3b7c19bbfa4539b3eaff08537efcc0ff5a6c7f1e78bd23d5589357"
+bytes  = 2877
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2919]
+key    = "vte-issue-2919"
+title  = "VTE #2919 -- resize and rewrap ordering against the child"
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the issue endpoint"
+url    = "https://gitlab.gnome.org/api/v4/projects/GNOME%2Fvte/issues/2919"
+file   = ""
+sha256 = "89a7e70c292d016b8894006ea9023a6c8228b3355a3260aac1b800dcf5034462"
+bytes  = 3242
+status = "external"
+group  = "U"
+
+[sources.vte-issue-2919-discussion]
+key    = "vte-issue-2919-discussion"
+title  = "VTE #2919, discussion -- "resizing-rewrapping is an atomic step""
+author = "VTE issue tracker"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the discussions endpoint"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/issues/2919/discussions.json"
+file   = ""
+sha256 = "4835645ad07b8d0b3a7bc21045bcb55db9a872c06a84f3618f3435e0fe6c90a4"
+bytes  = 83132
+status = "external"
+group  = "U"
+
+[sources.foot-c8470f40]
+key    = "foot-c8470f40"
+title  = "foot c8470f40 -- keep the blank rows above a bottom-row prompt on resize (in 1.22.0)"
+author = "Daniel Eklof (MIT)"
+year   = 2025
+venue  = "codeberg.org/dnkl/foot, commit c8470f40c1f5a850048a5b296a944e07abae716a"
+url    = "https://codeberg.org/dnkl/foot/commit/c8470f40.diff"
+file   = ""
+sha256 = "eb2c7742bd66964e05b2bdd97ff55b5b179f1e1dc9bcbb34ce159a5ca7dc612e"
+bytes  = 1344
+status = "external"
+group  = "U"
