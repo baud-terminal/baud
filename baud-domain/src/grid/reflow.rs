@@ -175,17 +175,26 @@ impl<'a> View<'a> {
         self.cells[p * self.stride.index() + d % c.new] = cell;
     }
 
-    /// The marks and the tail of a line copied to `dst`.
+    /// The marks and the tail of a line copied to `dst`, and **nothing past
+    /// the new width**. A destination row held other cells before the copy
+    /// -- a line the re-cut moved, or a tail hidden past the old width -- and
+    /// the copy writes only `[0, new)`; left there, what the row held showed
+    /// again when the screen grew back without a re-cut, the second half of
+    /// one line with another's tail after it. Every row the copy wrote is
+    /// blank past the new width to the pitch: its reads are all behind it,
+    /// by the order the module's head states.
     fn finish_line(&mut self, c: Cut, l: &Line, dst: usize) {
-        let new = c.new;
+        let (new, s) = (c.new, self.stride.index());
         for j in 0..l.dest - 1 {
             let p = self.lin(c, dst + j);
             self.used[p] = RowExtent::ZERO.wrapping(new);
+            self.cells[p * s + new..p * s + s].fill(PackedCell::EMPTY);
         }
         let mark = l.cells + l.spacers - (l.dest - 1) * new;
         let p = self.lin(c, dst + l.dest - 1);
-        let at = p * self.stride.index();
+        let at = p * s;
         self.cells[at + mark..at + new].fill(l.tail);
+        self.cells[at + new..at + s].fill(PackedCell::EMPTY);
         self.used[p] = RowExtent::of(mark);
     }
 

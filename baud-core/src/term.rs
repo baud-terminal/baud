@@ -1103,18 +1103,35 @@ impl<'b> Term<'b> {
                     }
                 }
             }
-            if cols.index() > old_cols.index() {
-                View::new(
-                    self.store.alt.cells,
-                    self.store.alt.used,
-                    self.stride,
-                    cols,
-                    rows,
-                    self.store.row_capacity(),
-                    self.store.alt.rot,
-                )
-                .widened(old_cols);
-            }
+        }
+        // **A growth keeps both screens' marks honest, whatever the zone.**
+        // Only the primary's *re-cut* waits on its zone; this sat inside the
+        // same gate, so at a shell prompt a growth raised no mark on the
+        // primary -- a band erased in a colour while narrow survived the next
+        // default erase -- and left the alternate screen's revealed columns
+        // and marks as they were, so the next program's entry clear skipped
+        // them and a frame drawn at the old width showed under the new one.
+        if cols.index() > old_cols.index() {
+            View::new(
+                self.store.vp,
+                self.store.used,
+                self.stride,
+                cols,
+                rows,
+                self.store.ring_rows(),
+                self.rot,
+            )
+            .settle_growth(old_cols);
+            View::new(
+                self.store.alt.cells,
+                self.store.alt.used,
+                self.stride,
+                cols,
+                rows,
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            )
+            .widened(old_cols);
         }
 
         self.rows = rows;

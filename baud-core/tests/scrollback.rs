@@ -180,6 +180,163 @@ fn growing_past_the_history_shows_blank_rows() {
     });
 }
 
+/// **Which cut rows a growth reveals is decided by the row's mark, and a
+/// mark is not a picture of the row.** The height rule reveals the cut rows
+/// "as far as the last one that holds anything" and pulls history after --
+/// the owner's "pull down to the bottom, and blank-fill only when nothing is
+/// left to pull" -- and it asks a cut row whether it holds anything by
+/// reading its mark. A mark says where a row stops being uniform, which is
+/// neither "shows something" nor its converse, so the test misfires both
+/// ways. The three below are pinned at what the core does, not at what the
+/// rule's words ask: what a cut row has to hold to count is the owner's to
+/// define, it is on the list, and each of these goes red the day it moves.
+///
+/// Sixty numbered lines on the corpus screen (eleven in the history), the
+/// rows below row 25 reshaped by `cut`, the cursor on row 20, a shrink to 25
+/// rows that cuts them, and a growth by one.
+fn grow_over_cut_rows(t: &mut Term<'_>, cut: impl FnOnce(&mut Term<'_>)) {
+    let lines: Vec<u8> = (0..60)
+        .flat_map(|i| format!("line {i:03}\r\n").into_bytes())
+        .collect();
+    support::feed(t, &lines);
+    cut(t);
+    support::feed(t, b"\x1b[21;1H");
+    let (cols, _) = t.geometry();
+    let at = |rows: u16| WinSize {
+        ws_row: rows,
+        ws_col: u16::try_from(cols.index()).unwrap(),
+    };
+    support::shrink(t, &at(25));
+    assert_eq!(
+        t.scrollback().len(),
+        11,
+        "the shrink cut, it retired nothing"
+    );
+    assert_eq!(t.resize(&at(26)), Resized::Ok);
+}
+
+/// Rows 26 to 50 of the corpus screen, one-based, each reshaped by `row`.
+fn each_cut_row(t: &mut Term<'_>, row: impl Fn(usize) -> String) {
+    let bytes: Vec<u8> = (26..=50).flat_map(|y| row(y).into_bytes()).collect();
+    support::feed(t, &bytes);
+}
+
+/// The control: cut rows that hold text come back before any history does.
+#[test]
+fn a_growth_reveals_a_cut_row_of_text_before_pulling_history() {
+    support::with_corpus(|t| {
+        grow_over_cut_rows(t, |_| {});
+        assert_eq!(t.scrollback().len(), 11, "nothing pulled");
+        assert_eq!(row_text(t, 0, 8), "line 011");
+        assert_eq!(
+            row_text(t, 25, 8),
+            "line 036",
+            "the first cut row came back"
+        );
+    });
+}
+
+/// **Pinned: a cut row of invisible blanks is revealed as content.** Each cut
+/// row is default blanks and then ten blanks erased in a foreground-only
+/// rendition -- red text colour, default background, no attribute -- which
+/// draw nothing. The mark sits past them, so the row counts, and the growth
+/// shows a row that looks blank while a history line was left to pull.
+#[test]
+fn pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content() {
+    support::with_corpus(|t| {
+        grow_over_cut_rows(t, |t| {
+            each_cut_row(t, |y| {
+                format!("\x1b[{y};1H\x1b[2K\x1b[{y};5H\x1b[31m\x1b[10X\x1b[0m")
+            })
+        });
+        assert_eq!(t.scrollback().len(), 11, "no history pulled");
+        assert_eq!(row_text(t, 0, 8), "line 011");
+        assert!(
+            row_text(t, 25, 200).trim().is_empty(),
+            "the revealed row holds no character"
+        );
+    });
+}
+
+/// **Pinned: a cut row in a visible colour is left cut.** Each cut row is
+/// erased whole in a red background, which is uniform, so its mark is zero,
+/// the row does not count, and the growth pulls a history line over a red
+/// band that stays below the window.
+#[test]
+fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
+    support::with_corpus(|t| {
+        grow_over_cut_rows(t, |t| {
+            each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[41m\x1b[2K\x1b[0m"))
+        });
+        assert_eq!(t.scrollback().len(), 10, "a history line was pulled");
+        assert_eq!(row_text(t, 0, 8), "line 010");
+        assert_eq!(
+            row_text(t, 25, 8),
+            "line 035",
+            "and the red row is still cut"
+        );
+    });
+}
+
+/// **Pinned: a band past the old edge counts once a width growth has raised
+/// its mark**, which is the owner's live drag at steps 641 to 654. At a prompt
+/// the shell erases to the line's end in a foreground-only rendition while
+/// the screen is 36 wide, then from column 0 in the default at 22, which
+/// leaves the invisible band at columns 22 to 36 with a mark of zero -- a mark
+/// true up to the live edge and not past it. A growth to 27 columns raises
+/// the mark to 22, so a later erase clears the band, and that makes the row
+/// count: the height growth after it reveals the blank-looking row. Without
+/// the width growth the mark stays zero and the same height growth pulls a
+/// history line, which is the contrast this test carries in one binary.
+#[test]
+fn pinned_a_band_past_the_old_edge_counts_once_a_growth_raised_its_mark() {
+    fn band(widen: bool) -> (usize, String, String) {
+        support::with_corpus(|t| {
+            let at = |rows: u16, cols: u16| WinSize {
+                ws_row: rows,
+                ws_col: cols,
+            };
+            let lines: Vec<u8> = (0..60)
+                .flat_map(|i| format!("line {i:03}\r\n").into_bytes())
+                .collect();
+            support::feed(t, &lines);
+            support::feed(t, b"\x1b]133;A\x07");
+            assert_eq!(t.resize(&at(50, 36)), Resized::Ok);
+            each_cut_row(t, |y| {
+                format!("\x1b[{y};1H\x1b[2K\x1b[{y};14H\x1b[31m\x1b[K\x1b[0m")
+            });
+            assert_eq!(t.resize(&at(50, 22)), Resized::Ok);
+            each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[K"));
+            support::feed(t, b"\x1b[21;1H");
+            assert_eq!(t.resize(&at(25, 22)), Resized::Ok);
+            assert_eq!(
+                t.scrollback().len(),
+                11,
+                "the shrink cut, it retired nothing"
+            );
+            let cols = if widen { 27 } else { 22 };
+            assert_eq!(t.resize(&at(25, cols)), Resized::Ok);
+            assert_eq!(t.resize(&at(26, cols)), Resized::Ok);
+            assert_eq!(t.primary_zone(), Zone::Prompt, "no re-cut ran");
+            (
+                t.scrollback().len(),
+                row_text(t, 0, 8),
+                row_text(t, 25, usize::from(cols)),
+            )
+        })
+    }
+    let (hist, first, revealed) = band(true);
+    assert_eq!(hist, 11, "after the width growth nothing was pulled");
+    assert_eq!(first, "line 011");
+    assert!(
+        revealed.trim().is_empty(),
+        "the revealed row holds no character"
+    );
+    let (hist, first, _) = band(false);
+    assert_eq!(hist, 10, "without it a history line was pulled");
+    assert_eq!(first, "line 010");
+}
+
 /// A storage built with no depth retains nothing from a scroll: its ring is
 /// the screen, so the row that leaves the top is the row that comes in at
 /// the bottom. A shorter window still keeps the rows it cut -- they are in

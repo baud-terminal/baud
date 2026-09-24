@@ -548,3 +548,243 @@ fn the_alternate_screen_blanks_the_columns_a_grow_reveals() {
         );
     });
 }
+
+// **A width growth keeps the marks honest at a prompt too, and a re-cut
+// leaves nothing past its width.** The whole width half of `resize` -- the
+// primary's re-cut and the alternate screen's `widened` -- sat behind one
+// test of the primary's zone, so at a shell prompt a growth maintained no
+// marks on either screen; and a narrowing re-cut wrote only the new width
+// into its destination rows, so what the rows held before stayed past it.
+// Each of the three is shown red first, with the same bytes and no prompt
+// mark as its control where one exists.
+
+fn resize_ok(t: &mut Term<'_>, cols: u16) {
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 50,
+            ws_col: cols,
+        }),
+        Resized::Ok,
+        "{cols} columns is inside the provisioned grid"
+    );
+}
+
+/// The template test above, with the shell at a prompt when the screen
+/// grows: no re-cut runs, and the marks were not raised either, so the
+/// default erase trusted a mark of zero and left the red band.
+#[test]
+fn at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge() {
+    for (mark, arm) in [
+        (&b""[..], "the control, no prompt"),
+        (&b"\x1b]133;P;k=i\x07"[..], "at a prompt"),
+    ] {
+        support::with_corpus(|t| {
+            resize_ok(t, 100);
+            support::feed(t, b"\x1b[3;1H\x1b[41m\x1b[2K\x1b[0m");
+            support::feed(t, b"\x1b[50;1H");
+            support::feed(t, mark);
+            resize_ok(t, 200);
+            support::feed(t, b"\x1b[3;1H\x1b[2K");
+            let row = t.row(Row::from_index(2));
+            let red = row[..200]
+                .iter()
+                .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
+                .count();
+            assert_eq!(red, 0, "{arm}: the red band to the old edge is erased");
+        });
+    }
+}
+
+/// The alternate screen grows whatever the shell's zone. A program drawn in
+/// a background colour at 100 columns leaves every alternate row red to
+/// 100; the shell is at a prompt when the screen grows to 200; the next
+/// program's entry clears the alternate screen -- and trusted marks of zero,
+/// leaving the band, because `widened` never ran.
+#[test]
+fn the_alternate_screen_grows_whatever_the_shells_zone() {
+    for (mark, arm) in [
+        (&b""[..], "the control, no prompt"),
+        (&b"\x1b]133;P;k=i\x07"[..], "at a prompt"),
+    ] {
+        support::with_corpus(|t| {
+            resize_ok(t, 100);
+            support::feed(t, b"\x1b[?1049h\x1b[41m\x1b[2J\x1b[0m\x1b[?1049l");
+            support::feed(t, mark);
+            resize_ok(t, 200);
+            support::feed(t, b"\x1b[?1049h");
+            let red: usize = (0..50)
+                .map(|y| {
+                    t.row(Row::from_index(y))[..200]
+                        .iter()
+                        .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
+                        .count()
+                })
+                .sum();
+            assert_eq!(
+                red, 0,
+                "{arm}: the entry cleared the whole alternate screen"
+            );
+        });
+    }
+}
+
+/// The same gate, live: a program started from the prompt with no `C` --
+/// the shell's zone parked as `Prompt` -- draws a full frame at 200
+/// columns, the window narrows to 100 and grows back, and the columns the
+/// growth reveals are blank rather than the frame drawn when it was last
+/// this wide.
+#[test]
+fn a_wider_alternate_screen_blanks_what_it_reveals_while_the_shell_is_at_a_prompt() {
+    for (mark, arm) in [
+        (&b""[..], "the control, no prompt"),
+        (&b"\x1b]133;P;k=i\x07"[..], "at a prompt"),
+    ] {
+        support::with_corpus(|t| {
+            support::feed(t, mark);
+            support::feed(t, b"\x1b[?1049h");
+            for y in 0..50 {
+                support::feed(
+                    t,
+                    format!("\x1b[{};1H{}", y + 1, "#".repeat(200)).as_bytes(),
+                );
+            }
+            resize_ok(t, 100);
+            resize_ok(t, 200);
+            let stale: usize = (0..50)
+                .map(|y| {
+                    t.row(Row::from_index(y))[100..200]
+                        .iter()
+                        .filter(|c| c.content.as_codepoint().is_some())
+                        .count()
+                })
+                .sum();
+            assert_eq!(stale, 0, "{arm}: the revealed columns are blank");
+        });
+    }
+}
+
+/// A narrowing re-cut writes each line's cells at the new width, and the
+/// destination rows held other lines' cells past it. A later growth at a
+/// prompt re-cuts nothing and shows every column, so those stale tails came
+/// back beside the re-cut text: the second half of a line with a first
+/// half's tail after it. Every row after the round trip is a line's head or
+/// its tail at 50 columns, and nothing longer.
+#[test]
+fn a_narrowing_re_cut_leaves_nothing_past_its_width() {
+    support::with_corpus(|t| {
+        resize_ok(t, 100);
+        for i in 0..30 {
+            support::feed(t, format!("L{i:02}{}\r\n", "x".repeat(87)).as_bytes());
+        }
+        resize_ok(t, 50);
+        support::feed(t, b"\x1b]133;P;k=i\x07$ ");
+        resize_ok(t, 100);
+        let long: Vec<(usize, String)> = (0..50)
+            .map(|y| {
+                let text: String = t.row(Row::from_index(y))[..100]
+                    .iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|p| char::from_u32(p.value()))
+                            .unwrap_or(' ')
+                    })
+                    .collect();
+                (y, text.trim_end().to_string())
+            })
+            .filter(|(_, s)| s.len() > 50)
+            .collect();
+        assert!(
+            long.is_empty(),
+            "rows longer than the re-cut width: {long:?}"
+        );
+    });
+}
+
+/// **And a growth at a prompt must not lengthen the lines a later re-cut
+/// reads.** Raising every mark to the old width -- the rule before the
+/// ring -- makes a three-character line read as a hundred cells, and the
+/// next narrowing cuts it into rows of blanks. The mark is raised only
+/// where the revealed columns are not the row's uniform blank.
+#[test]
+fn a_growth_at_a_prompt_does_not_lengthen_the_lines_a_later_re_cut_reads() {
+    support::with_corpus(|t| {
+        resize_ok(t, 100);
+        for i in 0..10 {
+            support::feed(t, format!("s{i}\r\n").as_bytes());
+        }
+        support::feed(t, b"\x1b]133;P;k=i\x07$ ");
+        resize_ok(t, 200);
+        support::feed(t, b"\r\n\x1b]133;C\x07");
+        resize_ok(t, 40);
+        let rows: Vec<String> = (0..11)
+            .map(|y| {
+                t.row(Row::from_index(y))[..40]
+                    .iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|p| char::from_u32(p.value()))
+                            .unwrap_or(' ')
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        let want: Vec<String> = (0..10)
+            .map(|i| format!("s{i}"))
+            .chain(["$".to_string()])
+            .collect();
+        assert_eq!(
+            rows, want,
+            "one row a short line, no rows of blanks between"
+        );
+    });
+}
+
+/// **The seam between the primary's two width models, pinned as it is.**
+/// At a prompt a narrowing re-cuts nothing and a line's tail is hidden past
+/// the live edge; a later narrowing out of the prompt re-cuts, and the
+/// re-cut reads a row only to the width it had, so the hidden tail is not
+/// part of the line any more. It used to stay where it was and come back as
+/// stale bytes on the next growth at a prompt; the re-cut clears its rows
+/// past the new width now, so it is dropped cleanly. The drop itself is the
+/// open question of re-cutting by prompt scope, and the count is pinned so
+/// it moves when that is decided.
+#[test]
+fn a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut() {
+    support::with_corpus(|t| {
+        support::feed(t, format!("L{}\r\n", "x".repeat(190)).as_bytes());
+        support::feed(t, b"\x1b]133;P;k=i\x07$ ");
+        resize_ok(t, 100);
+        support::feed(t, b"\r\n\x1b]133;C\x07");
+        resize_ok(t, 50);
+        support::feed(t, b"\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
+        resize_ok(t, 200);
+        let rows: Vec<String> = (0..50)
+            .map(|y| {
+                t.row(Row::from_index(y))[..200]
+                    .iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|p| char::from_u32(p.value()))
+                            .unwrap_or(' ')
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            rows.iter().all(|r| r.len() <= 50),
+            "a row carries bytes past the re-cut width: {rows:?}"
+        );
+        let x: usize = rows.iter().map(|r| r.matches('x').count()).sum();
+        assert_eq!(
+            x, 99,
+            "the hidden tail's 91 characters are dropped: the open seam"
+        );
+    });
+}

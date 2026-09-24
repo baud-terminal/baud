@@ -609,6 +609,46 @@ impl<'a> View<'a> {
         }
     }
 
+    /// After the live width grew from `old`: make every row's mark true of
+    /// the wider screen. A mark says the row is uniform from it to the live
+    /// edge -- the fill shortcut trusts `cells[cols - 1]` to be that uniform
+    /// cell and stops at the mark -- and at the old width that held to the
+    /// old edge only. Where the columns the growth reveals are not that
+    /// uniform cell, the mark rises to where the row's uniform suffix
+    /// begins, the wrap kept; a row that already is uniform keeps its mark,
+    /// so a short line is not read as a line of blanks by a later re-cut, the
+    /// way raising every mark to the old width would have it. Over the whole
+    /// ring, because the history, the rows below the window and the free rows
+    /// are all cells a scroll or a growth brings into view. Returns the rows
+    /// raised.
+    pub fn settle_growth(&mut self, old: Cols) -> usize {
+        let (old, new, s) = (old.index(), self.cols.index(), self.stride.index());
+        if new <= old || old == 0 {
+            return 0;
+        }
+        let mut raised = 0;
+        for p in 0..self.ring.index() {
+            let m = self.used[p].index();
+            if m >= new {
+                continue;
+            }
+            let base = p * s;
+            let from = m.max(old);
+            let u = self.cells[base + if m < old { old - 1 } else { m }];
+            if self.cells[base + from..base + new].iter().all(|c| *c == u) {
+                continue;
+            }
+            let last = self.cells[base + new - 1];
+            let mut k = new;
+            while k > m && self.cells[base + k - 1] == last {
+                k -= 1;
+            }
+            self.used[p] = self.used[p].raised_to(k);
+            raised += 1;
+        }
+        raised
+    }
+
     /// The row `ahead` rows past the window's end -- `ahead == 0` is the row
     /// the next scroll brings in, `1` the one after -- as its `cols` live
     /// cells, or nothing when the ring has no such row past the screen. What
