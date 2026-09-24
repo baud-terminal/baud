@@ -491,9 +491,10 @@ the owner (Q5).
    - Row 10's per-step figures (0.19-0.56 us; a width change in
      `Zone::Output` 1.5-7.0 us) come from fixtures with 0-19 retained
      lines, and are from before `27afdd9`: since, `live-drag`'s resize is
-     2.28 us a step. The `Zone::Output` control moved on `drag`, 5.9 to 7.9
-     us, disjoint, and not on `live-drag`, 8.8 against 8.4; both builds read
-     above 7.0 there, so that part predates `27afdd9`.
+     1.44 us a step. The `Zone::Output` control moved on both gestures,
+     `drag` 5.67 to 7.02 us and `live-drag` 4.88 to 6.58, disjoint
+     (interleaved, at one build path; a first reading from one launch a
+     build had `live-drag` at 2.28 and its control overlapping).
    - A full-ring drag in `Zone::Output` is **unmeasured**, and so is any
      depth past the default. The cost scales with the ring.
 2. **~~Fix D1 and D2 first, each red before it is fixed.~~ Done in
