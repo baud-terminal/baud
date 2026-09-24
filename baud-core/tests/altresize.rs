@@ -75,10 +75,11 @@ fn a_taller_alternate_screen_does_not_move_what_is_on_it() {
 /// alternate screen keeps no history and has nothing to pull, which is why
 /// the report above still governs it.
 ///
-/// So this pins the rule in force, on the path the other growth tests do
-/// not take: the lines pulled back are ones that **scrolled** off, not ones
-/// a shrink retired. The bottom row stays the bottom row, the rows above it
-/// are the history in order, and the history is shorter by what came back.
+/// So this pins the rule in force, on a path most growth tests do not take:
+/// the lines pulled back are ones that **scrolled** off, not ones a shrink
+/// retired (two pins in `scrollback.rs` pull scrolled lines too). The bottom
+/// row stays the bottom row, the rows above it are the history in order, and
+/// the history is shorter by what came back.
 #[test]
 fn a_taller_primary_screen_pulls_the_scrolled_lines_back_above_it() {
     support::with_room(60, |t| {

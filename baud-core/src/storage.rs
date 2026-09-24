@@ -47,15 +47,16 @@ pub const STRIDE_MAX: usize = 32;
 /// Cells in the widest, tallest viewport: the ceiling on the *live* grid.
 ///
 /// Not the allocation behind it, which is `rows * stride` -- and the pitch
-/// [`grid_stride`] chooses exceeds `MAX_COLS` by about 10 KB of cells a row,
-/// so a caller sizing memory asks [`RowBlock::leading`] with the pitch rather
-/// than multiplying these two.
+/// [`grid_stride`] chooses follows the provisioned width rather than
+/// `MAX_COLS` (208 cells for the corpus on a 128-byte line, 2096 for
+/// `MAX_COLS` itself), so a caller sizing memory asks [`RowBlock::leading`]
+/// with the pitch rather than multiplying these two.
 pub const GRID: usize = MAX_ROWS * MAX_COLS;
 
 /// The row pitch a terminal's grid is laid out at, for the cache hierarchy
 /// `geom` describes and the width a caller provisions: an odd number of
 /// lines so it is a multiple of no power-of-two way at any level and no
-/// page, at a total a search chose so rows spread over the sets. The width
+/// page, stepped clear of a wrap of every L1 way and no wider. The width
 /// rather than `MAX_COLS`, because with the grid as the scrollback ring every
 /// line costs one row of the pitch. See [`store_stride`].
 ///
@@ -88,10 +89,10 @@ pub struct Storage<'b> {
     pub(crate) depth: Depth,
     /// The pitch `vp` and `alt` are laid out at: row `p` begins at
     /// `p * stride` cells. **Fixed for the life of the storage** and at least
-    /// `MAX_COLS`, so a resize is a change of how many cells in each row are
-    /// live and moves none of them. Chosen by [`grid_stride`] from the cache
-    /// geometry a host detected -- an odd number of lines, so it aliases no
-    /// way, at a step that spreads the rows over every set -- or by
+    /// the provisioned width, so a resize is a change of how many cells in
+    /// each row are live and moves none of them. Chosen by [`grid_stride`]
+    /// from the cache geometry a host detected -- an odd number of lines, so
+    /// it aliases no way, stepped clear of a wrap of every L1 way -- or by
     /// [`Stride::of_cells`] in a bench arm reproducing another layout.
     pub(crate) stride: Stride,
     /// How far each physical row stops being uniform. Blanking stops here, so
@@ -120,6 +121,15 @@ pub struct Storage<'b> {
     pub(crate) tmpl: &'b mut [Option<StyleWord>],
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
+    /// Interned grapheme clusters, indexed **from the cell**.
+    ///
+    /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
+    /// the cell moves -- which is what makes it survive `RowRot`, a frame's read
+    /// and the alternate screen without a parallel structure to keep in step,
+    /// and is exactly what `baud-core2`'s position key does not.
+    pub(crate) clusters: ClusterStore<'b>,
+    /// Everything a control string writes. See [`StrBuf`].
+    pub(crate) strs: StrBuf<'b>,
     /// **The alternate screen's own surface**: its cells, its extents and its
     /// rotation, whichever screen is up. `vp`, `used` and the terminal's
     /// rotation are always the primary's, and this is always the alternate
@@ -138,15 +148,6 @@ pub struct Storage<'b> {
     ///
     /// The per-character loop still never learns which screen is up:
     /// `View` is built **once per read**, over whichever surface is live.
-    /// Interned grapheme clusters, indexed **from the cell**.
-    ///
-    /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
-    /// the cell moves -- which is what makes it survive `RowRot`, a frame's read
-    /// and the alternate screen without a parallel structure to keep in step,
-    /// and is exactly what `baud-core2`'s position key does not.
-    pub(crate) clusters: ClusterStore<'b>,
-    /// Everything a control string writes. See [`StrBuf`].
-    pub(crate) strs: StrBuf<'b>,
     pub(crate) alt: AltBuf<'b>,
     /// The primary ring's bookkeeping; see [`Book`].
     pub(crate) book: Book,

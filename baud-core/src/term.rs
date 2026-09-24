@@ -766,8 +766,10 @@ impl<'b> Term<'b> {
     /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
     /// number, and asking for more returns `Truncated` rather than clamping in
     /// silence. Columns are free to the pitch, which `store_stride` derives
-    /// from the provisioned width -- 208 cells for the corpus, 400 for the app
-    /// -- so a width past what was provisioned is `Truncated` too.
+    /// from the provisioned width and the cache line -- 208 cells for the
+    /// corpus and 400 for the app on a 128-byte line -- so a width past the
+    /// pitch or past `MAX_COLS` is `Truncated` too, and one between the
+    /// provisioned width and both is not.
     ///
     /// **A change of width re-cuts the primary and not the alternate
     /// screen.** Between output and output the primary's lines are re-cut to
@@ -778,9 +780,12 @@ impl<'b> Term<'b> {
     /// narrower screen stops addressing what lies past its edge, and a wider
     /// one blanks the columns it reveals ([`View::widened`]) because the
     /// program owns them and redraws. What keeps the fixed pitch sound is that
-    /// a row's mark bounds its content over the whole pitch, and a clear runs
-    /// through the mark, so a line erased while the screen was narrow does not
-    /// come back with a tail. The height's half is the rotation moving over
+    /// a clear runs through a mark that lies past the live edge, so a line
+    /// erased while the screen was narrow does not come back with a tail --
+    /// and a mark is true to the live edge and no further, so a growth has to
+    /// raise it where the columns it reveals are not the row's uniform cell
+    /// (`View::settle_growth` on the primary, whatever the zone). The
+    /// height's half is the rotation moving over
     /// the ring, below. [`Term::resize_holding`] is this with a window over
     /// the history held on its line.
     ///
@@ -1106,12 +1111,14 @@ impl<'b> Term<'b> {
             }
         }
         // **A growth keeps both screens' marks honest, whatever the zone.**
-        // Only the primary's *re-cut* waits on its zone; this sat inside the
-        // same gate, so at a shell prompt a growth raised no mark on the
-        // primary -- a band erased in a colour while narrow survived the next
-        // default erase -- and left the alternate screen's revealed columns
-        // and marks as they were, so the next program's entry clear skipped
-        // them and a frame drawn at the old width showed under the new one.
+        // Only the primary's *re-cut* waits on its zone. The alternate
+        // screen's `widened` sat inside the same gate and nothing raised a
+        // primary mark outside it, so at a shell prompt a growth raised no
+        // mark on the primary -- a band erased in a colour while narrow
+        // survived the next default erase -- and left the alternate screen's
+        // revealed columns and marks as they were, so the next program's
+        // entry clear skipped them and the frame drawn when the screen was
+        // last that wide showed under the new one.
         if cols.index() > old_cols.index() {
             View::new(
                 self.store.vp,
@@ -1188,8 +1195,8 @@ impl<'b> Term<'b> {
             *stop = i % 8 == 0 && i != 0;
         }
         let (cols, rows) = ws.geometry();
-        // The pitch admits `MAX_COLS` by construction; a bench arm that lays
-        // the grid out narrower bounds the width with it.
+        // The pitch admits the provisioned width by construction and not
+        // `MAX_COLS`, so the width is bounded by both.
         let stride = store.stride;
         let (cols, rows) = (
             cols.clamp(MAX_COLS).clamp(stride.index()),
@@ -1320,8 +1327,8 @@ impl<'b> Term<'b> {
         (y.index() < self.rows.index()).then(|| self.row(y))
     }
 
-    /// Which surface is live. `baud-core` parks the primary rather than
-    /// keeping two buffers, so this says which one the single grid holds.
+    /// Which surface is live. Each screen is a surface of its own, swapped
+    /// into a read's `View` rather than parked, and this says which one is up.
     pub fn screen(&self) -> Screen {
         self.cold.screen
     }

@@ -62,6 +62,36 @@ awk '
   END { if (key != "") print key "\t" file "\t" sha "\t" status }
 ' "$MANIFEST" >"$tmp/entries"
 
+# ── 0: the manifest is TOML, and both readers see the same keys ──────────────
+# The awk above reads four fields by line prefix and never parses the file, so
+# a title with unescaped quotes -- `"VTE #2919, discussion -- "resizing-
+# rewrapping is an atomic step""`, which note U's commit added -- left the
+# manifest unreadable by any TOML parser while every check below passed. So
+# parse it, and require the parser's `[sources.*]` keys to be exactly the
+# awk's: a header the awk misreads, or one only a parser sees, is the same
+# drift between two readers of one file. The byte order is `LC_ALL=C`'s,
+# because Python's `sorted` orders by code point and a UTF-8 locale's collation
+# does not: under glibc's it ignores `-`, and the two lists would differ on an
+# unchanged manifest.
+cut -f1 "$tmp/entries" | LC_ALL=C sort >"$tmp/awk-keys"
+command -v python3 >/dev/null || {
+  echo "  FAIL python3 is not on PATH, so the manifest cannot be parsed; devenv provides it"
+  exit 1
+}
+if ! python3 - "$MANIFEST" >"$tmp/toml-keys" 2>"$tmp/toml-err" <<'PY'; then
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    print("\n".join(sorted(tomllib.load(f)["sources"])))
+PY
+  echo "  FAIL $MANIFEST is not valid TOML: $(tail -n 1 "$tmp/toml-err")"
+  exit 1
+fi
+if ! cmp -s "$tmp/awk-keys" "$tmp/toml-keys"; then
+  echo "  FAIL the awk and a TOML parser read different [sources.*] keys:"
+  diff "$tmp/awk-keys" "$tmp/toml-keys" | head -5 | sed 's/^/       /'
+  fail=1
+fi
+
 # ── 1 & 2: retrieved entries must exist and still hash ───────────────────────
 while IFS=$'\t' read -r key file sha status; do
   [ "$status" = "retrieved" ] || continue

@@ -13,19 +13,25 @@ reader re-checked each survey before this note used it.
 - **baud** was read at `1413048`, and every baud line number below is that
   commit's. Two later commits act on this note, which is why some items
   below are marked done:
-  - `27afdd9` fixed D1 and D2, and made `altresize.rs` able to fail. A
-    review of the same code found that a growth at a prompt raised no mark
-    on the *primary* either, and the commit fixed that too. Making the marks
+  - `27afdd9` fixed D1 and D2, and made `altresize.rs` able to fail. It
+    also found and fixed that a growth at a prompt raised no mark on the
+    *primary* either: nothing but the gated re-cut touched the primary's
+    marks. Making the marks
     honest exposed that the height step's content test reads a mark, which
     is the owner's question 9 below. The record is CLAUDE.md, "A width growth
     keeps the marks honest at a prompt".
-  - `a10b440` corrected the stale passages this read found. They were the
-    draft's appendix, which is gone for that reason.
+  - `a10b440` corrected the four stale passages this read found, which
+    were the draft's appendix and are gone for that reason, but missed one
+    of the three places the second of them named: `Term::screen`'s doc,
+    still calling the primary parked. The commit that corrects this note
+    fixed it, with the alternate screen's surface doc in `Storage`, which
+    sat above `clusters` rather than `alt`.
 - **Prior art.** A claim that stands on a verifier's correction is marked
   **[corr]**. A claim that stands on reading alone, never run, is marked
   **[read]**. Every file and issue the tables cite is pinned in
-  `docs/research/sources/MANIFEST.toml` as group U, re-hashed against the
-  copy the survey read:
+  `docs/research/sources/MANIFEST.toml`, re-hashed against the copy the
+  survey read: forty entries as group U, and `alacritty-term-term-mod`
+  reused from group J, whose copy is byte-identical at `94e7c88`:
 
 | implementation | pin | sources |
 |---|---|---|
@@ -85,7 +91,7 @@ record itself was not read.
 | **foot** | `grid.view`, one per grid (`terminal.h:233`) | Exact: a tracking point is carried cell by cell (`grid.c:874-882`), then clamped | Tracking points: cursor, saved cursor, selection ends, viewport. URI and underline ranges. **[corr]** `prompt_marker` is copied per character, so it is duplicated on narrowing and can be cleared on widening. Sixels | Search match not tracked. URL mode exited. Tabs reset. **[corr]** Blank rows directly above a bottom-row prompt are dropped in 1.21.0 (#2011, fixed in 1.22.0 by `c8470f40`) | Truncated (`grid_resize_without_reflow`); no history | None; relies on the shell's redraw. #939 (open) asks where the prompt should land |
 | **ghostty** | `PageList.viewport` plus a pre-tracked pin (`PageList.zig:469-474`) | Exact: the pin moves cell by cell (`:1747-1757`), and snaps to `.active` if it lands there | Tracked pins: cursor, saved cursor, selection, kitty placements. `semantic_prompt` is copied onto every split row | Search is rebuilt. Scroll region, tabs and synchronized output are reset | Truncated; no history (`Terminal.zig:4094-4105`) | Re-cuts the prompt, then blanks from its start to the bottom (`redraw=true`) or just the cursor's row (`last`). **[corr]** After a narrowing the clear can start mid-prompt, because every split row is marked `.prompt` |
 | **kitty** | `Screen.scrolled_by`, in the core | **Not re-anchored**: it keeps its number and is only clamped (`screen.c:4087`) | **[corr]** Cursors: the rewrap moves the main screen's; the alternate screen's are only clamped. `prompt_kind` goes to the first new row | Selections, URL ranges and the last-visited prompt are cleared. Ordinary image placements move only when the width is unchanged | Truncated. **[corr]** Its widen branch that extends the style is dead code | Blanks the prompt rows before the rewrap and pastes them back un-reflowed at the old width, truncated when narrower. Relies on the shell's redraw. `redraw=0` opts out |
-| **wezterm** | **The GUI**: `PaneState.viewport: Option<StableRowIndex>` | **Stale** **[read]**. The rewrap never adjusts `stable_row_index_offset`, so the same number names other content (PR #4995, open) | Cursor. The *inactive* screen's saved cursor. OSC 133, OSC 8 and image tiles travel in the cells; **[corr, read]** rows holding only an image are not re-cut and can be pre-pruned | The active screen's DECSC is not remapped (#6669, open). Kitty placements go stale (#4995). The selection goes stale, and is cleared only if dirty in the visible range | Truncated when narrower; only dirtied when wider | None. #2162 and #2987 are open; #7853 is unmerged |
+| **wezterm** | **The GUI**: `PaneState.viewport: Option<StableRowIndex>` | **Stale** **[read]**. The rewrap never adjusts `stable_row_index_offset`, so the same number names other content (read from the code; draft PR #4995, open, reports the same staleness for kitty placements) | Cursor. The *inactive* screen's saved cursor. OSC 133, OSC 8 and image tiles travel in the cells; **[corr, read]** rows holding only an image are not re-cut and can be pre-pruned | The active screen's DECSC is not remapped (#6669, open). Kitty placements go stale (#4995). The selection goes stale, and is cleared only if dirty in the visible range | Truncated when narrower; only dirtied when wider | None. #2162 and #2987 are open. (#7853, unmerged, is about output cleared with Ctrl+L coming back on a resize, not about prompts.) |
 | **VTE** | `VteScreen.scroll_delta` (`vteinternal.hh:159`) | Exact: the cell below the viewport's bottom-left corner is a marker carried through the rewrap, plus snaps to top and bottom (`vte.cc:8113-8195`) | Markers: cursor, saved cursor, selection ends, the end of the cursor's paragraph. Attributes, hyperlinks and OSC 133 bits stay in the untouched streams | Block selection deselected. Region and DECOM reset | Never rewrapped, and it cannot be: that ring has no streams | None: "There's not much VTE could do here" (`doc/rewrap.txt:189-193`). #2919, #2294, and #2374 (**[corr]** the final diagnosis is rewrap, not timing) |
 | **baud** | **The app**: `App::back` (`app.rs:341-345`) | Exact, but only because the app passes it in. `resize_holding` maps the window's first row through the re-cut and returns it (`term.rs:1039-1091`) | The cursor (the primary's own, or `alt_saved`). Images, via the `Follow` hook. The prompt block, as a ring row | DECSC (`cold.saved`) is never remapped; it is clamped at restore (`ops.rs:67-70`). The app clears the selection, predictions and slide (`app.rs:4146-4198`). Margins reset | Cell-addressed at the fixed pitch: narrower hides columns, wider blanks the revealed ones (`widened`). D1 was here, fixed in `27afdd9` | In `Zone::Prompt` the primary is not re-cut at all. The block is tracked as a ring row and replaced at the redraw mark |
 
@@ -114,7 +120,8 @@ record itself was not read.
      alacritty approximately. All four hold it in the layer that performs
      the re-cut.
    - kitty holds it there and does not re-anchor it.
-   - wezterm holds it in the GUI, and it goes stale (#4995).
+   - wezterm holds it in the GUI, and it goes stale **[read]** (#4995
+     shows the same for kitty placements).
    - baud holds it in the app but anchors it exactly, which works only
      because resize takes it as a parameter.
 5. **Nobody reflows the alternate screen.**
@@ -191,7 +198,7 @@ proved red first; the tests are named below.
   (`the_alternate_screen_grows_whatever_the_shells_zone`,
   `a_wider_alternate_screen_blanks_what_it_reveals_while_the_shell_is_at_a_prompt`).
   The same gate also kept a growth at a prompt from raising any mark on the
-  *primary*, which a review found and `View::settle_growth` fixes
+  *primary*, which `27afdd9` found and `View::settle_growth` fixes
   (`at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge`).
 
 **D2. A narrowing re-cut leaves other lines' bytes past the new width.**
@@ -292,8 +299,8 @@ asserts `Ok`, and its primary half is rewritten to the rule in force since
 
   Several paths move `top` back, or shrink `hist`, under an anchor:
   - a height-growth pull (`term.rs:926-937`);
-  - the prompt retreat (`replace_prompt_block`, HEAD `prompt.rs:89ff`);
-  - a full-screen scroll down on the primary (`unretire`, HEAD
+  - the prompt retreat (`replace_prompt_block`, `prompt.rs:89ff`);
+  - a full-screen scroll down on the primary (`unretire`,
     `ops.rs:238ff`);
   - a re-cut whose held row lands on the live screen
     (`term.rs:1086-1091`);
@@ -470,18 +477,30 @@ the owner (Q5).
      round trip disagree by about 2x: ~0.6 ms plus ~0.7 ms
      (CLAUDE.md:11969-11972), against 654.5 us for the whole round trip
      (:17180-17184). A third scratch bench, taken for `27afdd9`, reads the
-     narrowing at 304 us and the widening at 350 us before that change, so
+     narrowing at 299 us and the widening at 347 us before that change, so
      it agrees with the second. The ~0.6 ms plus ~0.7 ms is the odd one out
-     and is unexplained. None of the three benches is kept runnable.
+     and is unexplained. One candidate: a lone, non-interleaved run of the
+     third bench's changed build read 457 and 597 us, where the interleaved
+     sweep reads 317 and 412, so a run by itself has read high at least
+     once. None
+     of the three benches is kept runnable. After `27afdd9` the third reads
+     317 us and 412 us, ranges disjoint from before, and a 100-column growth
+     at a
+     prompt, which cost nothing, costs 46-54 us (CLAUDE.md, "A width growth
+     keeps the marks honest at a prompt").
    - Row 10's per-step figures (0.19-0.56 us; a width change in
      `Zone::Output` 1.5-7.0 us) come from fixtures with 0-19 retained
-     lines.
+     lines, and are from before `27afdd9`: since, `live-drag`'s resize is
+     2.28 us a step. The `Zone::Output` control moved on `drag`, 5.9 to 7.9
+     us, disjoint, and not on `live-drag`, 8.8 against 8.4; both builds read
+     above 7.0 there, so that part predates `27afdd9`.
    - A full-ring drag in `Zone::Output` is **unmeasured**, and so is any
      depth past the default. The cost scales with the ring.
 2. **~~Fix D1 and D2 first, each red before it is fixed.~~ Done in
    `27afdd9`.** E1, splitting `resize_holding` into per-screen steps, was
-   not done with them: the fix moved the two growth calls out of the zone
-   gate, which is the nesting bug, and left the function whole. G3 waits for
+   not done with them: the fix moved the alternate screen's `widened` out
+   of the zone gate, which is the nesting bug, added `View::settle_growth`
+   for the primary beside it, and left the function whole. G3 waits for
    Q4.
 3. **Move the window into the core (B).** Ownership should follow
    knowledge:
@@ -547,12 +566,12 @@ the owner (Q5).
    ships. Separately: accept that a drag through a narrow width drops old
    lines, as every eager terminal does, or pursue C4.
 6. **Which rule governs the top line across a resize?** The record carries
-   a sequence, and the code follows the last. Confirm which one governs;
-   this note does not settle it.
+   a sequence, the code follows the last, and the record calls the last the
+   owner's rule for the primary since 2026-09-18. Confirm it.
    1. "when resizing the current first row changes and it should not -- we
       should not change the scroll ever, we should only re-arrange the grid
       of what is visible, not go to history" (`app.rs:1767`,
-      `altresize.rs:3-5`);
+      `altresize.rs:3-6`);
    2. "A resize never changes the top line. Only feeding bytes may."
       (`resize_recorded.rs:18-20`);
    3. the refinements: "what the first line is changes when the content
@@ -562,9 +581,10 @@ the owner (Q5).
       and blank-fill only when nothing is left to pull" (M note 306-308,
       `term.rs:900-903`).
 
-   `27afdd9` rewrote `altresize.rs`'s primary test to the third, the rule the
-   code follows, because the test encoding the first had never been able to
-   fail. If the owner confirms the first, that test is the one to flip.
+   `27afdd9` found that `altresize.rs`'s primary test, which encoded the
+   first, had never been able to fail, and rewrote it to the third, which
+   its record calls the owner's rule for the primary since 2026-09-18. If
+   the owner means the first, that test is the one to flip.
 7. **Re-cut by prompt scope (E2)?** It re-wraps long lines of finished
    output while the user sits at a prompt, and it narrows the D2 seam. It
    costs a new in-place ordering proof.

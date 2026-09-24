@@ -279,15 +279,18 @@ fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
 }
 
 /// **Pinned: a band past the old edge counts once a width growth has raised
-/// its mark**, which is the owner's live drag at steps 641 to 654. At a prompt
-/// the shell erases to the line's end in a foreground-only rendition while
-/// the screen is 36 wide, then from column 0 in the default at 22, which
-/// leaves the invisible band at columns 22 to 36 with a mark of zero -- a mark
-/// true up to the live edge and not past it. A growth to 27 columns raises
-/// the mark to 22, so a later erase clears the band, and that makes the row
-/// count: the height growth after it reveals the blank-looking row. Without
-/// the width growth the mark stays zero and the same height growth pulls a
-/// history line, which is the contrast this test carries in one binary.
+/// its mark**, which is the owner's live drag at steps 641 to 654, in
+/// miniature. At a prompt the shell erases to the line's end in a
+/// foreground-only rendition while the screen is 36 wide; later a default
+/// erase from column 0 at a narrower width leaves the invisible band past the
+/// edge with a mark of zero -- a mark true up to the live edge and not past
+/// it. (The drag reaches that in two steps, a mark of 14 at 22 columns and 0
+/// at 21; this test takes one, at 22.) A growth to 27 columns raises the mark
+/// to 22, which is what lets a later erase clear the band, and it also makes
+/// the row count: the height growth after it reveals the blank-looking row.
+/// Without the width growth the mark stays zero and the same height growth
+/// pulls a history line, which is the contrast this test carries in one
+/// binary.
 #[test]
 fn pinned_a_band_past_the_old_edge_counts_once_a_growth_raised_its_mark() {
     fn band(widen: bool) -> (usize, String, String) {

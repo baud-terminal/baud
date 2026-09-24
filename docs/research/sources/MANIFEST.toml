@@ -7173,7 +7173,7 @@ group  = "U"
 
 [sources.wezterm-issue-4995]
 key    = "wezterm-issue-4995"
-title  = "wezterm #4995 -- the viewport and kitty placements go stale across a rewrap, open"
+title  = "wezterm #4995 -- draft PR: kitty image placements (StableRowIndex) go stale when a resize changes the columns, open"
 author = "wezterm issue tracker"
 year   = 2026
 venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
@@ -7199,7 +7199,7 @@ group  = "U"
 
 [sources.wezterm-issue-7853]
 key    = "wezterm-issue-7853"
-title  = "wezterm #7853 -- OSC 133 prompt handling on resize, unmerged"
+title  = "wezterm #7853 -- a clear boundary so output erased by Ctrl+L does not come back on a resize, unmerged PR"
 author = "wezterm issue tracker"
 year   = 2026
 venue  = "github.com/wezterm/wezterm, snapshot of the issue endpoint"
@@ -7355,7 +7355,7 @@ group  = "U"
 
 [sources.vte-issue-2919-discussion]
 key    = "vte-issue-2919-discussion"
-title  = "VTE #2919, discussion -- "resizing-rewrapping is an atomic step""
+title  = "VTE #2919, discussion -- \"resizing-rewrapping is an atomic step\""
 author = "VTE issue tracker"
 year   = 2026
 venue  = "gitlab.gnome.org/GNOME/vte, snapshot of the discussions endpoint"
