@@ -243,6 +243,22 @@ bytes  = 21048
 status = "retrieved"
 group  = "C"
 
+# DECARM's default, which `Modes::default()` follows: "Default: Repeat
+# (set)". xterm ignores the mode ([[source: xterm-reset]]'s file, `srm_DECARM`)
+# and states no default; this is DEC's.
+[sources.vt510-decarm]
+key    = "vt510-decarm"
+title  = "DECARM — Autorepeat Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECARM.html"
+file   = "vt510-DECARM.html"
+sha256 = "cbfe6f944d1d389653344c06f1a6348dee565d9595b916a765e65804c816089d"
+bytes  = 20975
+status = "retrieved"
+group  = "C"
+
 [sources.vt510-decslrm]
 key    = "vt510-decslrm"
 title  = "DECSLRM — Set Left and Right Margins (VT510 Programmer Information)"

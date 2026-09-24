@@ -1523,7 +1523,9 @@ impl<'b> Term<'b> {
         self.cold.modes.is_set(ModeBit::SmoothScroll)
     }
 
-    /// `?8` DECARM. Auto-repeat -- keyboard policy, recorded and exposed.
+    /// `?8` DECARM. Whether a held key repeats: set at power-on, as
+    /// `[[source: vt510-decarm]]` gives it, and [`Term::key`] drops a repeat
+    /// while it is reset.
     pub fn auto_repeat(&self) -> bool {
         self.cold.modes.is_set(ModeBit::AutoRepeat)
     }
@@ -2052,6 +2054,13 @@ impl<'b> Term<'b> {
     ///   `ESC A` -- a gap that opened the moment the *parser* gained a feature
     ///   the *encoder* had carried all along.
     pub fn key(&mut self, e: KeyEvent) -> bool {
+        // **DECARM reset: a held key does not repeat.** `[[source: vt510-decarm]]`:
+        // "Reset: keys do not autorepeat". The embedder delivers what its
+        // keyboard does, and the terminal decides what a repeat is worth --
+        // nothing here, on every layer, kitty's event types included.
+        if e.kind == KeyEventKind::Repeat && !self.cold.modes.is_set(ModeBit::AutoRepeat) {
+            return false;
+        }
         let s = KeyState {
             modes: self.cold.modes,
             keypad: self.cold.keypad,

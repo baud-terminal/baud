@@ -34,12 +34,14 @@ fn with(bytes: &[u8], f: impl Fn(&Term) -> bool) -> bool {
 /// Every one of these is off at power-on and toggles both ways.
 ///
 /// Table-driven because the property is the same for all of them and writing it
-/// six times invites one to be subtly different. `?1`, `?4`, `?5`, `?8` and
-/// `?1034` are pure state; the interesting ones get their own test below.
+/// six times invites one to be subtly different. `?1`, `?4`, `?5` and `?1034`
+/// are pure state; the interesting ones get their own test below.
 ///
 /// `?1036` and `?1039` are *not* here, and that is the point: they default
 /// **set**, so a table that asserts "off at power-on" would have to special-case
-/// them. `key_encode.rs` covers them with the reason for the default.
+/// them. `key_encode.rs` covers them with the reason for the default. `?8` is
+/// not here for the same reason: `[[source: vt510-decarm]]` gives "Default:
+/// Repeat (set)", and `key_encode.rs` covers it with what it does to a key.
 #[test]
 fn each_mode_defaults_off_and_toggles() {
     type Get = fn(&Term) -> bool;
@@ -47,7 +49,6 @@ fn each_mode_defaults_off_and_toggles() {
         ("?1 DECCKM", b"\x1b[?1", |t| t.cursor_keys_application()),
         ("?4 DECSCLM", b"\x1b[?4", |t| t.smooth_scroll()),
         ("?5 DECSCNM", b"\x1b[?5", |t| t.reverse_video()),
-        ("?8 DECARM", b"\x1b[?8", |t| t.auto_repeat()),
         ("?1034 eightBitInput", b"\x1b[?1034", |t| {
             t.eight_bit_input()
         }),
@@ -72,7 +73,12 @@ fn the_modes_do_not_alias_each_other() {
     assert!(with(all, |t| t.cursor_keys_application()));
     assert!(!with(all, |t| t.smooth_scroll()), "?1 must not set ?4");
     assert!(!with(all, |t| t.reverse_video()), "?1 must not set ?5");
-    assert!(!with(all, |t| t.auto_repeat()), "?1 must not set ?8");
+    // `?8` is set at power-on, so the alias it can show is a *set*: reset it
+    // first.
+    assert!(
+        !with(b"\x1b[?8l\x1b[?1h", |t| t.auto_repeat()),
+        "?1 must not set ?8"
+    );
     assert!(!with(all, |t| t.eight_bit_input()));
     // And the reverse direction.
     let m = b"\x1b[?1034h";
@@ -184,6 +190,8 @@ fn decrqm_reports_each_mode() {
     assert_eq!(ask(b"\x1b[?1h\x1b[?1$p"), b"\x1b[?1;1$y");
     assert_eq!(ask(b"\x1b[?5h\x1b[?5$p"), b"\x1b[?5;1$y");
     assert_eq!(ask(b"\x1b[?8h\x1b[?8$p"), b"\x1b[?8;1$y");
+    assert_eq!(ask(b"\x1b[?8$p"), b"\x1b[?8;1$y", "?8 set at power-on");
+    assert_eq!(ask(b"\x1b[?8l\x1b[?8$p"), b"\x1b[?8;2$y");
     assert_eq!(ask(b"\x1b[?45h\x1b[?45$p"), b"\x1b[?45;1$y");
     assert_eq!(ask(b"\x1b[?1034h\x1b[?1034$p"), b"\x1b[?1034;1$y");
 }
@@ -220,7 +228,6 @@ fn ris_clears_them_all() {
     assert!(!with(after, |t| t.cursor_keys_application()));
     assert!(!with(after, |t| t.smooth_scroll()));
     assert!(!with(after, |t| t.reverse_video()));
-    assert!(!with(after, |t| t.auto_repeat()));
     assert!(!with(after, |t| t.eight_bit_input()));
     assert!(!with(after, |t| t.column_mode()));
     // RIS restores, and restoring is not the same as clearing: `?1036` and
@@ -230,4 +237,6 @@ fn ris_clears_them_all() {
     let after = b"\x1b[?1036;1039l\x1bc";
     assert!(with(after, |t| t.meta_sends_escape()));
     assert!(with(after, |t| t.alt_sends_escape()));
+    // And `?8`: `[[source: vt510-decarm]]` gives "Default: Repeat (set)".
+    assert!(with(b"\x1b[?8l\x1bc", |t| t.auto_repeat()));
 }

@@ -174,6 +174,45 @@ fn a_modified_cursor_key_uses_csi_even_in_application_mode() {
     );
 }
 
+/// **DECARM reset stops a held key repeating, and a fresh terminal repeats.**
+/// `[[source: vt510-decarm]]`: "Reset: keys do not autorepeat", and "Default:
+/// Repeat (set)". So `?8l` drops a repeat and still sends a press, on the
+/// base layer and under kitty's event types alike; `?8h` and a full reset
+/// restore it. A soft reset restores it too: DEC's table for DECSTR leaves
+/// DECARM out, and baud's soft reset restores every mode to its default.
+#[test]
+fn a_repeat_is_dropped_while_autorepeat_is_reset() {
+    let sent = |setup: &[u8], e: KeyEvent| -> Vec<u8> {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed(&mut t, setup);
+        t.clear_reply();
+        t.key(e);
+        t.reply().to_vec()
+    };
+    let a = KeyEvent::press(KeyCode::Char(Codepoint::from_char('a')), Modifiers::NONE);
+    let repeat = KeyEvent {
+        kind: KeyEventKind::Repeat,
+        ..a
+    };
+    assert_eq!(sent(b"", repeat), b"a", "a fresh terminal repeats");
+    assert!(sent(b"\x1b[?8l", repeat).is_empty(), "?8l stops the repeat");
+    assert_eq!(sent(b"\x1b[?8l", a), b"a", "and a press still types");
+    assert_eq!(sent(b"\x1b[?8l\x1b[?8h", repeat), b"a", "?8h restores it");
+    assert_eq!(sent(b"\x1b[?8l\x1bc", repeat), b"a", "RIS restores it");
+    assert_eq!(sent(b"\x1b[?8l\x1b[!p", repeat), b"a", "DECSTR restores it");
+    let up = KeyEvent {
+        kind: KeyEventKind::Repeat,
+        ..KeyEvent::press(KeyCode::Up, Modifiers::NONE)
+    };
+    assert_eq!(sent(b"\x1b[=3u", up), b"\x1b[1;1:2A", "kitty reports it");
+    assert!(
+        sent(b"\x1b[=3u\x1b[?8l", up).is_empty(),
+        "and reports none while it is reset"
+    );
+}
+
 /// **A repeat is a press on this layer, and a release is nothing.**
 ///
 /// `[[source: kitty-keyboard]]`: "Normally only key press events are reported

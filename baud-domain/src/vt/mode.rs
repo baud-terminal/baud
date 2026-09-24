@@ -250,12 +250,17 @@ impl Default for Modes {
     /// constructor and the reset path. baud follows it, because the
     /// alternative the table offers -- adding 128 -- cannot work under UTF-8,
     /// where a byte above 127 is a continuation byte rather than a character.
+    ///
+    /// **`?8` DECARM is set at power-on**, as `[[source: vt510-decarm]]`
+    /// gives it: "Default: Repeat (set)". It was left reset, so DECRQM told
+    /// an application keys do not repeat while the keyboard repeated them.
     fn default() -> Modes {
         Modes(
             ModeBit::AutoWrap.bit()
                 | ModeBit::CursorVisible.bit()
                 | ModeBit::MetaSendsEscape.bit()
-                | ModeBit::AltSendsEscape.bit(),
+                | ModeBit::AltSendsEscape.bit()
+                | ModeBit::AutoRepeat.bit(),
         )
     }
 }

@@ -566,7 +566,7 @@ renderer has.
 | `?5` | DECSCNM reverse video | done — `Term::reverse_video()` |
 | `?6` | DECOM origin | done |
 | `?7` | DECAWM autowrap | done |
-| `?8` | DECARM auto-repeat | done — `Term::auto_repeat()`, recorded and exposed; no key is filtered on it, as xterm filters none (its `srm_DECARM` case: "ignore autorepeat") |
+| `?8` | DECARM auto-repeat | done — set at power-on, as `[[source: vt510-decarm]]` gives it ("Default: Repeat (set)"); `Term::key` drops a repeat while it is reset, on every layer. xterm ignores the mode (its `srm_DECARM` case: "ignore autorepeat"). `DECSTR` restores it to set, because baud's soft reset restores every mode, where DEC's DECSTR table leaves DECARM out. `a_repeat_is_dropped_while_autorepeat_is_reset` |
 | `?12` | cursor blink | done — the blink axis of DECSCUSR, reached by another route |
 | `?25` | DECTCEM cursor visible | done |
 | `?45` | reverse wraparound | done |

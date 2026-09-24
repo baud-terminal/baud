@@ -141,5 +141,5 @@ created the demand.
   outside event types. `baud-app` on macOS delivers AppKit's repeats, and
   `baud-present-wayland` repeats a held key itself, as Wayland leaves it to
   the client, and delivers releases; macOS delivers none, because the window
-  crate has no `keyUp:`. `?8` DECARM does not filter repeats, as xterm's
-  does not.
+  crate has no `keyUp:`. `?8` DECARM is set at power-on, and `Term::key`
+  drops a repeat while an application has reset it.
