@@ -289,6 +289,20 @@ mod tests {
         }
     }
 
+    /// **The opener is handed exactly the URI the policy admitted**: the
+    /// target carries the bytes it was given, not a rebuilt or trimmed form.
+    /// Perturbation: make `as_str` answer anything else -- fails alone.
+    #[test]
+    fn the_admitted_target_is_the_uri_it_was_given() {
+        for uri in [
+            "https://h/p?q#f",
+            "mailto:a@b?subject=s",
+            "file:///Applications/Foo.app",
+        ] {
+            assert_eq!(ok(uri).as_str(), uri);
+        }
+    }
+
     /// Only `file` reveals; the three web-ish schemes open. Perturbation:
     /// make `action` answer `Open` for `File` -- fails alone.
     #[test]
@@ -386,6 +400,25 @@ mod tests {
 
     fn armed(clicks: Clicks) -> Option<Armed> {
         Some(Armed { link: L(), clicks })
+    }
+
+    /// **An armed click holds through a drag and through an event that is
+    /// neither a press nor a release**, so a pointer moving inside the link
+    /// or a stray event between the down and the up does not lose the click.
+    /// Perturbation: drop on `Press::Other` -- fails alone.
+    #[test]
+    fn an_armed_click_holds_through_a_drag_and_any_other_event() {
+        for press in [Press::Dragged, Press::Other] {
+            let g = gesture(
+                press,
+                Chord::Cmd,
+                Clicks::Single,
+                Focus::Gained,
+                armed(Clicks::Single),
+                Some(L()),
+            );
+            assert_eq!(g, Gesture::Hold, "{press:?}");
+        }
     }
 
     /// Perturbation: require `Chord::Cmd` on the Up -- the second case

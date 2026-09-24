@@ -100,7 +100,7 @@ in
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
     echo "=== linux ==="
-    cargo clippy --quiet -p baud-app --target ${linuxTarget} -- -D warnings || { echo "FAILED: linux"; exit 1; }
+    cargo clippy --quiet -p baud-app --target ${linuxTarget} --all-targets -- -D warnings || { echo "FAILED: linux"; exit 1; }
     echo "=== sources ==="
     bash ./scripts/check-sources.sh || { echo "FAILED: sources"; exit 1; }
     echo "=== audit ==="
@@ -297,7 +297,7 @@ in
     # The Linux wiring, type-checked under clippy for a target this Mac
     # cannot run, so the driver cannot rot unbuilt between Linux sessions.
     "test:linux" = {
-      exec = "cargo clippy --quiet -p baud-app --target ${linuxTarget} -- -D warnings";
+      exec = "cargo clippy --quiet -p baud-app --target ${linuxTarget} --all-targets -- -D warnings";
       after = [ "test:bare" ];
     };
 
