@@ -1662,6 +1662,14 @@ impl<'b> Term<'b> {
         self.cold.region_scrolls
     }
 
+    /// The scrolling region DECSTBM set, as its first and last screen row:
+    /// the whole screen when none is set. An embedder that holds screen rows
+    /// across a read needs it to know which rows a region scroll left where
+    /// they were.
+    pub fn scroll_region(&self) -> (Row, Row) {
+        (self.cold.top, self.cold.bot)
+    }
+
     /// Drop every placement whose row is gone, on either screen: the
     /// primary's outside the rows its ring retains, the alternate's outside
     /// its window. Counted in `ImageStore::placements_expired`.

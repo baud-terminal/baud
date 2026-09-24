@@ -382,6 +382,14 @@ fn every_test_named_in_the_docs_exists() {
             "scroll_up_within_margins",
             "wezterm's method, cited where a region narrower than the screen keeps nothing in the history",
         ),
+        (
+            "selection_on_top_region",
+            "foot's check, cited where a selection on the rows a partial scroll left is cancelled",
+        ),
+        (
+            "selection_on_bottom_region",
+            "foot's check, cited where a selection on the rows a partial scroll left is cancelled",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

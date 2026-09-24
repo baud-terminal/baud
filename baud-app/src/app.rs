@@ -1836,6 +1836,37 @@ impl Before {
     }
 }
 
+/// Whether a read's region scrolls left `sel` naming rows that did not move.
+/// A selection is numbered by the lines the primary retired, which is right
+/// for the region's rows and the history -- they moved -- and wrong for the
+/// rows under a region, which stayed: renumbered, a selection there would
+/// land on the rows above it. foot cancels a selection touching rows a
+/// partial scroll left (`term_scroll_partial`); this does the same, and only
+/// for those rows, so a selection in the history survives every line a
+/// progress bar's region prints. The rows are the ones under the region in
+/// force at the read's end, numbered by `scrolled` from before it; a read that
+/// reset its region leaves none to read, and then every live row counts.
+fn stale_under_region(
+    sel: &Selection,
+    term: &Term<'_>,
+    before: Before,
+    scrolled: Scrolled,
+) -> bool {
+    if whole_screen_scrolled(term, before) {
+        return false;
+    }
+    let (top, bot) = term.scroll_region();
+    let last = Row::from_index(term.geometry().1.index().saturating_sub(1));
+    let first = match top == Row::ZERO && bot < last {
+        true => Row::from_index(bot.index() + 1),
+        false => Row::ZERO,
+    };
+    sel.touches(
+        scrolled.line(Rows::ZERO, first),
+        scrolled.line(Rows::ZERO, last),
+    )
+}
+
 /// Whether every line a read retired left with the whole screen: no scroll
 /// of a region smaller than the screen sent one to the history. A region
 /// anchored at the top retires its line the way the whole screen does, and
@@ -1946,7 +1977,7 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 mod alt_window_tests {
     use super::{
         Before, Hold, Ring, after_read, hold_after, live_cursor, live_moved, looking, oldest,
-        resized_window, snapped, switched, whole_screen_scrolled, window_of,
+        resized_window, snapped, stale_under_region, switched, whole_screen_scrolled, window_of,
     };
     use baud_core::Zone;
     use baud_core::{Owned, Term};
@@ -2099,6 +2130,51 @@ mod alt_window_tests {
             let before = Before::of(t);
             feed(t, b"\x1b[6;8r\x1b[8;1He\r\nf\r\n\x1b[r");
             assert!(whole_screen_scrolled(t, before));
+        });
+    }
+
+    /// **A region retire drops a selection on the rows under the region, and
+    /// only there.** The rows under it stayed, so the count that numbers a
+    /// selection is wrong for them alone; a selection in the region moved with
+    /// its rows. A whole-screen scroll moves every row, and a read that reset
+    /// its region leaves none to read, so every live row counts then.
+    #[test]
+    fn a_region_retire_drops_a_selection_only_on_the_rows_under_it() {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        with_history(|t| {
+            feed(t, b"\x1b[1;5r\x1b[7;1Hdash\x1b[3;1Hpane");
+            let scrolled = Scrolled::START;
+            let sel = |t: &Term<'_>, y: usize| {
+                let r = Row::from_index(y);
+                Selection::at(
+                    Span::cell(t.row(r), scrolled.line(Rows::ZERO, r), Col::ZERO),
+                    Grain::Cell,
+                )
+            };
+            let (under, pane) = (sel(t, 6), sel(t, 2));
+            let before = Before::of(t);
+            feed(t, b"\x1b[5;1Hx\r\ny\r\n");
+            assert!(
+                !whole_screen_scrolled(t, before),
+                "the control: a region retired"
+            );
+            assert!(stale_under_region(&under, t, before, scrolled), "under it");
+            assert!(!stale_under_region(&pane, t, before, scrolled), "in it");
+            feed(t, b"\x1b[r");
+            let before = Before::of(t);
+            feed(t, b"\x1b[10;1Hz\r\n");
+            assert!(whole_screen_scrolled(t, before), "the control: the screen");
+            assert!(
+                !stale_under_region(&under, t, before, scrolled),
+                "every row moved"
+            );
+            let before = Before::of(t);
+            feed(t, b"\x1b[1;5r\x1b[5;1Hw\r\n\x1b[r");
+            assert!(
+                stale_under_region(&pane, t, before, scrolled),
+                "no region left"
+            );
         });
     }
 
@@ -2890,6 +2966,13 @@ impl Driver {
         let screen = self.app.term.screen();
         match moved {
             Ring::Retired(n) => {
+                // Numbered before the count advances: the rows under a
+                // region were those lines before this read.
+                if self.app.selection.as_ref().is_some_and(|s| {
+                    stale_under_region(s, &self.app.term, before, self.app.scrolled)
+                }) {
+                    self.app.selection = None;
+                }
                 self.app.scrolled = self.app.scrolled.advanced(n);
                 // Smooth scroll: output scrolled the live screen up on the
                 // primary surface, so start (or extend) a slide. The offset

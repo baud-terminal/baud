@@ -225,6 +225,23 @@ fn the_alternate_screen_copies_a_short_top_region() {
     });
 }
 
+/// **The region is reported as DECSTBM set it**, and as the whole screen when
+/// none is: an embedder reads it to know which rows a region scroll left in
+/// place.
+#[test]
+fn the_scroll_region_is_reported() {
+    support::with_corpus(|t| {
+        let last = Row::from_index(49);
+        assert_eq!(t.scroll_region(), (Row::ZERO, last), "none set");
+        support::feed(t, b"\x1b[1;5r");
+        assert_eq!(t.scroll_region(), (Row::ZERO, Row::from_index(4)));
+        support::feed(t, b"\x1b[3;40r");
+        assert_eq!(t.scroll_region(), (Row::from_index(2), Row::from_index(39)));
+        support::feed(t, b"\x1b[r");
+        assert_eq!(t.scroll_region(), (Row::ZERO, last), "reset");
+    });
+}
+
 /// **A top log pane over a fixed dashboard**, the shape a program draws when
 /// it keeps its output in a few rows and a status display below them on the
 /// primary screen. Thirty log lines through a five-row pane: twenty-five

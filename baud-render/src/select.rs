@@ -298,6 +298,12 @@ impl Selection {
         }
     }
 
+    /// Whether any line from `from` through `to` holds part of the selection.
+    pub fn touches(&self, from: AbsLine, to: AbsLine) -> bool {
+        let (start, end) = self.ordered();
+        start.line <= to && end.line >= from
+    }
+
     /// Move any endpoint older than `oldest` -- a line the ring has
     /// recycled -- to the oldest line: a stream's to its first column, a
     /// block's in the column it had, since a block's columns do not depend
@@ -680,6 +686,25 @@ mod tests {
             (AbsLine::at(Rows::of_count(7)), 0)
         );
         assert_eq!(s.clip(AbsLine::at(Rows::of_count(9))), Clip::Cleared);
+    }
+
+    /// A selection over lines 5 to 8 touches any range that shares a line
+    /// with it, at either end, and none that ends before it or starts after.
+    #[test]
+    fn a_selection_touches_the_lines_it_shares() {
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let s = Selection::at(
+            Span {
+                start: Point::new(line(5), Col::at_index(3)),
+                end: Point::new(line(8), Col::at_index(2)),
+            },
+            Grain::Cell,
+        );
+        assert!(s.touches(line(8), line(20)), "shares its last line");
+        assert!(s.touches(line(0), line(5)), "shares its first line");
+        assert!(s.touches(line(6), line(6)), "inside it");
+        assert!(!s.touches(line(9), line(20)), "after it");
+        assert!(!s.touches(line(0), line(4)), "before it");
     }
 
     #[test]
