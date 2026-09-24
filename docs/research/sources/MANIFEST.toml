@@ -6677,3 +6677,38 @@ sha256 = "f5b8b8955b09c93c34af9af02b2a336a81459b43c5bb70331270e6013b95b596"
 bytes  = 121433
 status = "retrieved"
 group  = "L"
+
+# What AppKit documents about overlay scrollers, and what it leaves out. The
+# header says `preferredScrollerStyle` follows "the Appearance preference
+# panel's 'Show scroll bars' setting" and changes over time, posting
+# NSPreferredScrollerStyleDidChangeNotification (NSScroller.h 66-94), and that
+# `flashScrollers` shows Overlay knobs "momentarily" (NSScrollView.h 79-81),
+# and that a scroller subclass draws its parts so AppKit can apply "separate
+# knob and track fade in/out" (NSScroller.h 55). No duration, width or
+# colour is documented anywhere in either; those are measured by
+# scripts/scroller-probe.swift and quoted in the scrollbar note.
+[sources.macos-sdk-nsscroller-h]
+key    = "macos-sdk-nsscroller-h"
+title  = "NSScroller.h -- NSScrollerStyle, preferredScrollerStyle and its change notification, knob styles, scrollerWidthForControlSize:scrollerStyle:"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSScroller.h"
+file   = ""
+sha256 = "e9d763f1d76cc7dd9b5ab64c5caa6ad65422ff7d8a682f23cff96a1fad7941a3"
+bytes  = 9122
+status = "external"
+group  = "L"
+
+[sources.macos-sdk-nsscrollview-h]
+key    = "macos-sdk-nsscrollview-h"
+title  = "NSScrollView.h -- scrollerStyle set from the user's 'Show scroll bars' setting, flashScrollers, legacy scrollers tiled beside the content"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSScrollView.h"
+file   = ""
+sha256 = "5a70b5bfe95d2fd6789001e457396a68f2ed9aa076ae2612f0d717ce88eb77a4"
+bytes  = 15730
+status = "external"
+group  = "L"

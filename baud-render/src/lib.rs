@@ -63,7 +63,9 @@ pub use renderer::{
     ImageUpload, PairRole, Pairs, Renderer, Single,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
-pub use scrollbar::{Thumb, Window, back_for, thumb};
+pub use scrollbar::{
+    Bar, Hover, Look, Place, Scroll, Thumb, Widths, Window, back_for, bar, place, thumb, track,
+};
 pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };

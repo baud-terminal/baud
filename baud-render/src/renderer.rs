@@ -8,7 +8,7 @@ use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
 use crate::picture::{Pictured, Pictures};
-use crate::scrollbar::{self, Thumb, Window};
+use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::trail::{self, Ghost, Trail};
@@ -383,10 +383,11 @@ pub struct Renderer<'f, 'a> {
     /// share of it changed is dirty, the cursor's own rule.
     highlight: Option<Highlight>,
     last_highlight: Option<Highlight>,
-    /// The scrollbar's thumb on this frame and the last, and its one solid
-    /// instance: a row the thumb covered or covers is dirty, the same rule.
-    bar: Option<Thumb>,
-    last_bar: Option<Thumb>,
+    /// The scrollbar on this frame and the last -- the knob, the track when
+    /// widened, and how much of both is seen -- and its solids: a row whose
+    /// slice of the bar changed is dirty (`Bar::slice`).
+    bar: Option<Bar>,
+    last_bar: Option<Bar>,
     bar_inst: Vec<Instance>,
     /// The cursor trail's ghost on this frame and the last, and its one
     /// solid instance: a row the ghost is over or was over is dirty, the
@@ -581,25 +582,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.highlight = highlight;
     }
 
-    /// The scrollbar for the next frame, from where the window sits, or
-    /// none: the thumb's geometry is the spec's, its instance is one solid
-    /// in the theme's foreground, and every path draws it -- the CPU and
+    /// The scrollbar for the next frame, or none: where the window sits,
+    /// how much of the thumb is seen and whether the pointer widened it,
+    /// each the driver's. Its solids are the knob and, widened, the track,
+    /// in the theme's foreground, and every path draws them -- the CPU and
     /// instance paths from the instance list, the cell path from
     /// [`Renderer::scrollbar`] appended to its records.
-    pub fn set_scrollbar(&mut self, win: Option<Window>) {
+    pub fn set_scrollbar(&mut self, scroll: Option<Scroll>) {
         let size = self.pixel_size();
-        self.bar =
-            win.and_then(|w| scrollbar::thumb(w, size, self.metrics.cell_w, self.metrics.cell_h));
+        self.bar = scroll.and_then(|s| scrollbar::bar(s, size, self.metrics.cell_h));
         self.bar_inst.clear();
-        if let Some(t) = self.bar {
-            self.bar_inst.push(scrollbar::instance(t, self.theme.fg));
+        if let Some(b) = self.bar {
+            self.bar_inst.extend(scrollbar::instances(b, self.theme.fg));
         }
-    }
-
-    /// The scrollbar's thumb, if one is drawn: what a press is tested
-    /// against.
-    pub fn thumb(&self) -> Option<Thumb> {
-        self.bar
     }
 
     /// The scrollbar's instances, for a path that draws records of its own.
@@ -665,22 +660,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// which is the same shape as the blink phase needing a forced repaint
     /// because a blink changes no cell content either.
     ///
-    /// The scrollbar's instance caches [`Theme::fg`] at the moment
-    /// [`Renderer::set_scrollbar`] ran, so it is rebuilt here rather than
+    /// The scrollbar's solids cache [`Theme::fg`] at the moment
+    /// [`Renderer::set_scrollbar`] ran, so they are rebuilt here rather than
     /// left drawing the old foreground until the window next scrolls.
-    /// The theme in force, so a driver can tell the core what the defaults
-    /// draw as (`Term::set_default_colors`) from the one place that knows.
-    pub fn theme(&self) -> &Theme {
-        &self.theme
-    }
-
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
         self.known = Prev::Unknown;
         self.bar_inst.clear();
-        if let Some(t) = self.bar {
-            self.bar_inst.push(scrollbar::instance(t, self.theme.fg));
+        if let Some(b) = self.bar {
+            self.bar_inst.extend(scrollbar::instances(b, self.theme.fg));
         }
+    }
+
+    /// The theme in force, so a driver can tell the core what the defaults
+    /// draw as (`Term::set_default_colors`) from the one place that knows.
+    pub fn theme(&self) -> &Theme {
+        &self.theme
     }
 
     /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`,
@@ -1010,9 +1005,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
             let selection_moved = selected(self.highlight) != selected(self.last_highlight);
             let band = self.band(row);
-            let under_bar = |b: Option<Thumb>| b.is_some_and(|t| t.overlaps(band.top, band.bottom));
-            let bar_moved = under_bar(self.bar) != under_bar(self.last_bar)
-                || (under_bar(self.bar) && self.bar != self.last_bar);
+            let slice = |b: Option<Bar>| b.and_then(|b| b.slice(band.top, band.bottom));
+            let bar_moved = slice(self.bar) != slice(self.last_bar);
             let under_trail =
                 |g: Option<Ghost>| g.is_some_and(|g| g.overlaps(band.top, band.bottom));
             let trail_moved = under_trail(self.trail) != under_trail(self.last_trail)

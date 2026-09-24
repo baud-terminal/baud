@@ -8,6 +8,7 @@ use crate::host::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Pty, Stream, Wrote, host_now};
+use crate::reveal::{Drag, Knob, Motion, Over, Reveal, Scale, Takes};
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
@@ -21,10 +22,12 @@ use baud_present_macos::{
     Presented, Presenter, StylesBuffer, SurfaceSpace,
     journal::{Reshape, Wheel},
 };
+use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
-    MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scrolled, Selection, Slide, Span,
-    Stack, Tally, Target, Theme, Trail, Transition, Window, back_for,
+    Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
+    Scrolled, Selection, Slide, Span, Stack, Tally, Target, Theme, Thumb, Trail, Transition,
+    Window, back_for, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -345,6 +348,18 @@ struct App {
     /// since launch that numbers those lines.
     selection: Option<Selection>,
     scrolled: Scrolled,
+    /// When the scrollbar's thumb is seen, off the display link: revealed
+    /// by a scroll, held, faded, widened while hovered (`reveal`).
+    reveal: Reveal,
+    /// The thumb's look as last drawn: the tick forces a frame only when the
+    /// look it computes differs, so a held, hovered or hidden thumb builds
+    /// nothing; and a press is tested against it, what is on the screen.
+    drawn_look: Look,
+    /// Where the pointer last was: the hover is re-evaluated from it on
+    /// every tick, so a window that reaches the live screen under a still
+    /// pointer -- a wheel, a key, a paste, a jump -- drops the hover there,
+    /// and one that leaves it takes the hover up.
+    pointer: Place,
     /// Wheel travel not yet a whole line, in points.
     scroll_accum: f64,
     frames: Tally,
@@ -776,6 +791,9 @@ impl App {
             back: Rows::ZERO,
             selection: None,
             scrolled: Scrolled::START,
+            reveal: Reveal::HIDDEN,
+            drawn_look: Look::HIDDEN,
+            pointer: Place::Grid,
             scroll_accum: 0.0,
             frames: Tally::default(),
             ticks: Tally::default(),
@@ -893,9 +911,16 @@ impl App {
                 .and_then(|s| s.highlight(top, view.rows(), view.cols()))
         };
         self.renderer.set_highlight(highlight);
-        // The scrollbar's thumb, where the window sits in the ring; none on
-        // the live screen.
-        self.renderer.set_scrollbar(Some(self.window()));
+        // The scrollbar's thumb, where the window sits in the ring, seen as
+        // much as the reveal says at the display link's last target.
+        let look =
+            HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.reveal.look(now));
+        self.drawn_look = look;
+        self.renderer.set_scrollbar(Some(ScrollBar {
+            window: self.window(),
+            look,
+            widths: crate::reveal::widths(Scale(self.scale)),
+        }));
         // The cursor trail: a fading ghost sweeping from the cell the
         // cursor left to the cell it reached. Spawned here, where the
         // post-feed cursor is known and before any path converts; advanced
@@ -1807,7 +1832,11 @@ fn looking(term: &Term<'_>, back: Rows) -> Rows {
 /// Where the window sits in the ring, for the scrollback's thumb.
 fn window_of(term: &Term<'_>, back: Rows) -> Window {
     Window {
-        retained: Rows::of_count(term.scrollback().len()),
+        // What the live surface can reach, by the same clamp: nothing on the
+        // alternate screen, so no thumb is drawn there even at the bottom
+        // of its travel, where a reveal would otherwise show one over the
+        // primary's history.
+        retained: term.looking_back(Rows::of_count(term.scrollback().len())),
         back: looking(term, back),
         rows: term.viewport().rows(),
     }
@@ -1855,7 +1884,7 @@ mod alt_window_tests {
     use baud_domain::{BytePos, ReadLen, Rows, WinSize};
     use baud_font::Px;
     use baud_render::Scrolled;
-    use baud_render::thumb;
+    use baud_render::{Hover, thumb};
 
     const WS: WinSize = WinSize {
         ws_col: 20,
@@ -1881,13 +1910,9 @@ mod alt_window_tests {
     }
 
     fn drawn(t: &Term<'_>, back: Rows) -> bool {
-        thumb(
-            window_of(t, back),
-            (Px::of(800), Px::of(500)),
-            Px::of(8),
-            Px::of(10),
-        )
-        .is_some()
+        let widths = crate::reveal::widths(crate::reveal::Scale(2.0));
+        let size = (Px::of(800), Px::of(500));
+        thumb(window_of(t, back), size, Px::of(10), widths, Hover::Rest).is_some()
     }
 
     #[test]
@@ -2978,6 +3003,12 @@ impl Responder for Driver {
             return;
         }
         self.app.back = back;
+        // A wheel that moved the window reveals the thumb, as AppKit's
+        // does -- the one that lands on the live screen too, which shows it
+        // at the bottom of its travel and fades it.
+        if let Some(now) = HostTime::of_secs(self.app.tick_target) {
+            self.app.reveal.reveal(now);
+        }
         // The view left the live screen for history: a slide names rows of
         // the live screen, so settle it. The scrolled-back frame is drawn
         // un-panned regardless (`sliding` checks `back == 0`); this only
@@ -3049,6 +3080,22 @@ impl Responder for Driver {
         // firing, so an idle screen returns to no frames.
         if self.app.trail.is_some() || self.app.transition.is_some() {
             self.app.pending = Pending::Dirty;
+        }
+        // The scrollbar's reveal steps off the same clock, and forces a
+        // frame only when the look it gives differs from the one drawn: a
+        // fade's frames, and nothing while held, hovered or hidden.
+        if let Some(now) = HostTime::of_secs(target) {
+            // The hover follows the window as well as the pointer
+            // (`Reveal::tick`).
+            let back = looking(&self.app.term, self.app.back);
+            let drag = match self.bar_drag {
+                Some(_) => Drag::Dragging,
+                None => Drag::Idle,
+            };
+            self.app.reveal.tick(now, self.app.pointer, back, drag);
+            if self.app.reveal.look(now) != self.app.drawn_look {
+                self.app.pending = Pending::Dirty;
+            }
         }
         // Smooth scroll: advance the slide toward settled off the display
         // link's own clock, at one row per SLIDE_SECS_PER_ROW, and force a
@@ -3565,6 +3612,11 @@ impl Driver {
             self.app.back = back;
             self.app.scroll_accum = 0.0;
             self.app.pending = Pending::Dirty;
+            // A programmatic scroll, which AppKit reveals: the thumb shows
+            // at the bottom and fades.
+            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
+                self.app.reveal.reveal(now);
+            }
         }
     }
 
@@ -3752,9 +3804,12 @@ impl Driver {
         self.pump(Trigger::Wake);
     }
 
-    /// The scrollbar's strip, while the thumb is visible: a press on the
-    /// thumb starts a drag, a press off it in the strip jumps the thumb to
-    /// the pointer, and the window follows through the inverse geometry.
+    /// The scrollbar's strip, the overlay scroller's frame at the grid's
+    /// right edge. The pointer over it while scrolled back widens the thumb
+    /// and holds it (`reveal`); a press in it while the thumb is drawn is
+    /// the scrollbar's -- on the widened knob it starts a drag, off it it
+    /// jumps the thumb to the pointer -- and the window follows through the
+    /// inverse geometry. With nothing drawn it is cells.
     fn scrollbar(&mut self, event: &Mouse) -> Took {
         let scale = self.app.scale;
         let at = |v: f64| Px::of(u32::try_from((v * scale).max(0.0) as i64).unwrap_or(0));
@@ -3764,38 +3819,82 @@ impl Driver {
         let (px, py) = self.app.pad_px;
         let x = Px::of(at(event.x).value().saturating_sub(px.value()));
         let y = Px::of(at(event.y).value().saturating_sub(py.value()));
-        let Some(t) = self.app.renderer.thumb() else {
-            self.bar_drag = None;
-            return Took::No;
-        };
         let win = self.app.window();
         let size = self.app.renderer.pixel_size();
         let cell_h = self.app.renderer.metrics().cell_h;
-        let top = match event.kind {
-            ViewMouseKind::Down if event.button == ViewButton::Left && t.in_strip(x) => {
-                if t.covers_y(y) {
+        let widths = crate::reveal::widths(crate::reveal::Scale(scale));
+        let strip = place(x, size.0, widths);
+        self.app.pointer = match event.kind {
+            ViewMouseKind::Exited => Place::Grid,
+            _ => strip,
+        };
+        let Some(now) = HostTime::of_secs(self.app.tick_target) else {
+            return Took::No;
+        };
+        // The hover, on every event but a drag's, which holds its own.
+        if self.bar_drag.is_none() {
+            let motion = match event.kind {
+                ViewMouseKind::Exited => Motion::Leaving,
+                _ => Motion::Within,
+            };
+            let over = crate::reveal::over(strip, win.back, motion);
+            let before = self.app.reveal;
+            self.app.reveal.hover(over, now);
+            if self.app.reveal != before {
+                self.app.pending = Pending::Dirty;
+            }
+        }
+        // A press is tested against what is on the screen: the look the
+        // last frame drew, not the one the hover update above will draw.
+        let look = self.app.drawn_look;
+        let knob = thumb(win, size, cell_h, widths, look.hover);
+        let takes = |t: Thumb| {
+            let knob = if t.covers_y(y) { Knob::On } else { Knob::Off };
+            crate::reveal::press(strip, look.shown, knob)
+        };
+        let top = match (event.kind, knob) {
+            (ViewMouseKind::Down, Some(t)) if event.button == ViewButton::Left => match takes(t) {
+                Takes::Cells => return Took::No,
+                Takes::Drag => {
                     self.bar_drag = Some(BarDrag {
                         grab_y: y,
                         top: t.top,
                     });
+                    self.app.reveal.hover(Over::Strip, now);
                     return Took::Yes;
                 }
-                Px::of(y.value().saturating_sub(t.height.value() / 2))
-            }
-            ViewMouseKind::Dragged => {
+                Takes::Jump => Px::of(y.value().saturating_sub(t.height.value() / 2)),
+            },
+            (ViewMouseKind::Dragged, _) => {
                 let Some(d) = self.bar_drag else {
                     return Took::No;
                 };
+                // The window can no longer scroll -- the alternate screen
+                // came up mid-drag, which keeps no history -- so the drag
+                // ends rather than write the primary's window from a
+                // geometry with nothing behind it.
+                if win.retained.index() == 0 {
+                    self.bar_drag = None;
+                    return Took::No;
+                }
                 let moved = i64::from(y.value()) - i64::from(d.grab_y.value());
                 Px::of(u32::try_from((i64::from(d.top.value()) + moved).max(0)).unwrap_or(0))
             }
-            ViewMouseKind::Up if self.bar_drag.is_some() => {
+            (ViewMouseKind::Up, _) if self.bar_drag.is_some() => {
                 self.bar_drag = None;
+                // The end of a drag: still over the strip it stays widened,
+                // anywhere else it is a reveal that holds and fades.
+                let over = crate::reveal::over(strip, win.back, Motion::Within);
+                self.app.reveal.hover(over, now);
+                self.app.reveal.reveal(now);
+                self.app.pending = Pending::Dirty;
+                self.pump(Trigger::Wake);
                 return Took::Yes;
             }
             _ => return Took::No,
         };
         let back = back_for(win, size, cell_h, top);
+        self.app.reveal.reveal(now);
         if back.index() != self.app.back.index() {
             self.app.back = back;
             // Dragging the thumb into history settles a slide, as the wheel

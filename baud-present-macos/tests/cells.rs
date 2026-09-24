@@ -15,15 +15,15 @@
 use baud_core::{DynamicColor, Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{
-    BytePos, Col, Cols, Depth, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+    BytePos, Chan, Col, Cols, Depth, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Candidate, Damage, GlyphMap, Highlight, Instance, Overlay, PxSize, Region, Renderer,
-    Resolved, Scene, Stack, Theme, Trail, Transition, Window,
+    Blend, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize, Region,
+    Renderer, Resolved, Scene, Scroll, Stack, Theme, Trail, Transition, Widths, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -98,8 +98,9 @@ struct Arms<'f, 'a> {
     back: Rows,
     /// The selection both arms draw, or none.
     highlight: Option<Highlight>,
-    /// Where the window sits, for the scrollbar both arms draw.
-    window: Option<Window>,
+    /// Where the window sits and how the thumb is seen, for the scrollbar
+    /// both arms draw.
+    window: Option<Scroll>,
     /// The cursor trail both arms draw, or none.
     trail: Option<Trail>,
     /// The alternate-screen fade both arms draw, or none.
@@ -549,20 +550,61 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the copy three lines back is not the live screen"
     );
     // The scrollbar's thumb, three lines up a ring with history behind
-    // it: one solid on the instance list and on the cell path's records,
-    // equal between the arms and a change to the pixels.
-    arms.window = Some(Window {
+    // it: solids on the instance list and on the cell path's records, equal
+    // between the arms and a change to the pixels -- held at full, halfway
+    // through its fade, and widened over a track under the pointer. The
+    // widths are AppKit's at 2x, measured.
+    let widths = Widths {
+        rest: Px::of(12),
+        hovered: Px::of(22),
+        inset: Px::of(6),
+        strip: Px::of(34),
+    };
+    let window = Window {
         retained: Rows::of_count(t.scrollback().len()),
         back: Rows::of_count(3),
         rows: t.viewport().rows(),
-    });
-    let (bar_a, bar_b) = arms.draw(&mut t);
-    assert_eq!(
-        differing(&bar_a, &bar_b),
-        0,
-        "the arms disagree with a scrollbar"
+    };
+    let scroll = |shown: u8, hover: Hover| Scroll {
+        window,
+        look: Look {
+            shown: Chan::from_u8(shown),
+            hover,
+        },
+        widths,
+    };
+    let mut frames = Vec::new();
+    for (shown, hover, what) in [
+        (255, Hover::Rest, "held"),
+        (128, Hover::Rest, "halfway faded"),
+        (255, Hover::Hovered, "hovered, with its track"),
+    ] {
+        arms.window = Some(scroll(shown, hover));
+        let (bar_a, bar_b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&bar_a, &bar_b),
+            0,
+            "the arms disagree with a scrollbar {what}"
+        );
+        assert!(
+            differing(&bar_a, &a) > 0,
+            "the thumb {what} reached the pixels"
+        );
+        frames.push(bar_a);
+    }
+    // Three looks, three pictures: a fade and a hover are seen, not just
+    // drawn.
+    assert!(
+        differing(&frames[0], &frames[1]) > 0,
+        "the fade changed nothing"
     );
-    assert!(differing(&bar_a, &a) > 0, "the thumb reached the pixels");
+    assert!(
+        differing(&frames[0], &frames[2]) > 0,
+        "the hover changed nothing"
+    );
+    // A thumb faded to nothing is not a scene here: its solids would carry
+    // no alpha, so no pixel could tell it from the frame without it. The
+    // scrollbar's geometry test holds that no bar is built at all.
     arms.window = None;
     arms.back = Rows::ZERO;
     // A selection over the marked and ligature rows, with the block cursor

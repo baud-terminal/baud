@@ -35,6 +35,10 @@ mod linux;
 mod log;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
+// The scrollbar's reveal is pure and its tests run on every platform; only
+// the macOS driver draws a scrollbar, so the bin builds it there alone.
+#[cfg(any(target_os = "macos", test))]
+mod reveal;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
 

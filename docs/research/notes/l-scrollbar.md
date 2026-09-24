@@ -10,9 +10,10 @@ the right edge, and nothing else -- no track, no arrows. It is visible
 while the window is off the live screen -- the window by the core's clamp,
 below, so never on the alternate screen -- and absent otherwise,
 because the wheel is how a reader leaves the live screen and the thumb's
-job is to say how far up they are and to let them move fast. That is the
-convention of overlay scrollbars on this platform, without the hover and
-the fade, which are a follow-on.
+job is to say how far up they are and to let them move fast. That was the
+first version; the platform's fade and hover, and the system's "Show scroll
+bars" setting, are the sections at the end -- measured from AppKit rather
+than recalled, because its headers document none of the numbers.
 
 ## Geometry
 
@@ -110,13 +111,173 @@ settled, and the selection's line count takes no movement from it. A read
 on one surface keeps the live movement, which is what numbers the lines
 of the surface the user is selecting on.
 
+## What AppKit's overlay scroller does, measured
+
+`[[source: macos-sdk-nsscroller-h]]` says `preferredScrollerStyle` follows
+the user's "Show scroll bars" setting and changes over time, posting
+`NSPreferredScrollerStyleDidChangeNotification`; `[[source:
+macos-sdk-nsscrollview-h]]` says `flashScrollers` shows the knobs
+"momentarily". Neither gives a duration, a width or a colour.
+`scripts/scroller-probe.swift` measures them on a scroll view of its own,
+captured with ScreenCaptureKit at 1/120 s against each frame's
+`displayTime`, triggering only in-process: nothing is posted to the
+desktop. Six trials a case, the first discarded, median [range] of five, on
+this Mac (Show scroll bars left at its default, Reduce Motion off, 2x); a
+second run agreed with every row within its ranges:
+
+| trigger | appears | last frame at 97% of the peak | first frame below it | gone |
+|---|---|---|---|---|
+| `flashScrollers()` | 28 ms | 1029 [1023-1035] | 1038 [1037-1044] | 1248 [1245-1251] |
+| one wheel click | 28 ms | 524 [517-535] | 538 [533-546] | 748 [744-754] |
+| a programmatic scroll | 27 ms | 532 [526-535] | 541 [535-544] | 751 [744-754] |
+| the document grows, the view stays | -- | -- | -- | never revealed |
+
+* **A scroll holds the knob about 0.50 s and fades it over about 0.25 s**;
+  `flashScrollers` holds about a second. A programmatic scroll is a scroll.
+  The hold ends where the fade's fit starts, 23 ms before the last frame at
+  97% of the peak -- the frames between read 0.99 and are below the
+  threshold rather than invisible -- and the fade then ends at 748 ms,
+  which is the wheel's measured "gone" to the millisecond.
+* **The document growing under a view that stays on its lines reveals
+  nothing.** Its peak is 1.5% of a knob's ink, a transient that returns to
+  the baseline after about a second in most trials. What draws it is not
+  known -- the knob is at its 26 pt minimum length here, so growing the
+  document cannot change it -- but it is not the knob shown. That is a
+  terminal scrolled back while output arrives.
+* **The fade is Core Animation's ease-in-ease-out.** As a fraction of the
+  peak's ink, which is linear in the knob's alpha over a black document, a
+  flash's 26 frames from the last near full read 0.95 at 10 ms past it,
+  0.79 at 55, 0.47 at 102, 0.14 at 163 and 0.02 at 215. They are from the
+  run whose frames all arrived; the second run's capture dropped some
+  twenty frames mid-fade, and its shape is not used. Fitted with a free
+  start and length, the `easeInEaseOut` Bezier (0.42, 0) (0.58, 1) starting
+  23 ms before that frame and lasting 247 ms is within 0.020 of every one
+  (RMS 0.014); a smoothstep is within 0.027 at best (12 ms, 226 ms, RMS
+  0.018), and a linear fade 0.05. The better fit is the curve one would
+  expect an AppKit animation to use, and baud takes it.
+* **The knob at rest is 6 pt wide, 3 pt in from the edge**: white at 0.55
+  alpha in the dark appearance, black at 0.50 in the light.
+* **A legacy scroller is an 11 pt band, 3 pt in**: a track of the knob's
+  colour at 0.047 (12 of 255), and the knob over it reading 0.56 and 0.51
+  as a composite -- 0.53 and 0.49 of its own. It is tiled beside the
+  content: a 240 pt frame's content is 223 pt under it, and the full 240
+  under an overlay scroller, whose 17 pt frame lies over the content's
+  edge.
+* **AppKit fades the knob and the track separately.**
+  `[[source: macos-sdk-nsscroller-h]]` line 55 requires a custom scroller
+  to draw through `drawKnob` and `drawKnobSlotInRect:highlight:` "to allow
+  for separate knob and track fade in/out", AppKit applying the fade alpha
+  to each. The track's own fade is not measured: the probe cannot hover.
+
+**What the probe could not drive, stated rather than guessed.** A phased
+trackpad gesture built in-process revealed the knob once and never again,
+so it is no measurement. Hover cannot be sent in-process -- neither view
+exposes a tracking area -- and a real move would take the owner's cursor,
+so the hovered knob's geometry is **the legacy scroller's, assumed**: the
+headers document no hovered geometry, the 17 pt frame is the only width
+they support, and that an overlay knob widens to the legacy band is an
+assumption from how the two look, not a measurement. The hover-exit delay
+and the track's fade are unmeasured; the exit is taken as a scroll's hold,
+and the track appears and goes with the hover at once.
+
+## Fade and hover (the owner's calls, 2026-09-23)
+
+Follow the platform: the thumb fades to nothing, the timings are the
+measured ones, and the pointer widens it and shows a track. Two calls
+narrow the platform for a terminal: under **Always** the scroller takes its
+own column, and hovering reveals the thumb **only while scrolled back**, so
+at the live screen the rightmost columns stay the terminal's -- its clicks,
+its selection, and a tracking program's reports.
+
+**The thumb exists wherever there is history; whether it is seen is an
+alpha.** Its geometry is the geometry above at any `back`, the live screen
+included, and the app hands the renderer an alpha and a hover state; the
+renderer interpolates nothing. The app's state is one of four, driven off
+the display link's `tick_target` as blink and the trail are:
+
+* **hidden** -- alpha 0;
+* **held** until a time -- alpha 1;
+* **fading** from a time -- alpha falls along the ease-in-ease-out curve
+  over 0.25 s;
+* **hovered** -- alpha 1 for as long as the pointer is over the strip while
+  scrolled back, or a drag is in progress.
+
+A **reveal** -- a wheel that moved the window, a jump, the end of a drag,
+the pointer leaving the strip -- holds for 0.50 s and then fades. The
+wheel that brings the window to the live screen reveals the thumb there, at
+the bottom of its travel, and it fades like any other; so does a key or a
+paste snapping the window to the live screen, which is a programmatic
+scroll, and AppKit reveals those. **Output arriving
+while scrolled back reveals nothing**, which is what AppKit measured, and
+neither does any output at the live screen.
+
+**Hovered, the thumb widens and a track appears**: the knob 11 pt wide,
+the track the same band down the whole height at 12 of 255 of the theme's
+foreground, both 3 pt in; at rest the knob is 6 pt, 3 pt in. The knob stays
+the theme's foreground at half alpha, which the measured 0.50-0.56 agrees
+with. Widths are points times the backing scale.
+
+**The strip is the overlay scroller's frame, 17 pt from the grid's right
+edge.** The pointer over it while scrolled back hovers, and the hover is
+re-evaluated on every tick from where the pointer last was, so the window
+reaching the live screen under a still pointer -- a wheel, a key, a paste,
+a jump -- ends the hover there, and leaving it takes the hover up. A press
+in it is the scrollbar's when the last frame drew the thumb -- alpha above
+zero, in the geometry that frame drew -- and on the knob it drags, off it
+it jumps. With the thumb gone it is cells again, so at the live screen a
+press there reaches the terminal once the fade that followed a scroll is
+over. A drag in progress when the window can no longer scroll -- the
+alternate screen coming up mid-drag -- ends, rather than write the
+primary's window from a geometry with nothing behind it.
+
+**Damage covers the alpha, a row at a time.** A row is dirty when what
+the bar draws inside its band changed -- the knob and the track clipped to
+it, and the alpha. So a fade dirties the rows the knob covers each frame, a
+hover's start and end dirty every row once, because the track is the whole
+height, and a knob that output moves under a hover dirties only the rows it
+entered or left: the rows the track alone covers are the same before and
+after.
+
+**Idle builds nothing.** Held, hovered and hidden are constant: the tick
+forces a frame only while fading, about 30 frames at 120 Hz, and once
+hidden it forces none. A test counts the forced frames over a timeline.
+
+## Always: a column of its own
+
+Under the legacy style -- "Show scroll bars: Always", or Automatically with
+a mouse -- the scroller is tiled beside the grid, as AppKit tiles it: the
+grid is laid out in the view less a 17 pt gutter on the right, and the
+gutter holds an 11 pt track, 3 pt in, always drawn, with the knob in it
+whenever there is history. No fade and no hover. The style is read from
+`NSScroller::preferredScrollerStyle` when the window is laid out and when
+the thumb would be revealed; a change of the setting applies at the next
+of those, re-laying the grid, which the shell sees as a resize.
+
 ## Tests
 
-The geometry is a pure function with tests: no thumb on the live screen or
-with no history; at the top when fully scrolled back; the minimum length
-on a deep history; the inverse landing where the forward mapping put it.
-The pixel oracle draws the thumb through both GPU arms and requires them
-equal and different from the frame without it.
+The geometry is a pure function with tests: no thumb with no history, and
+at the live screen at the bottom of its travel; at the top when fully
+scrolled back; the minimum length on a deep history; the knob widening and
+the track spanning the height under the pointer; a bar seen not at all
+drawing nothing and a fade scaling both alphas; the strip as the overlay
+scroller's frame; the inverse landing where the forward mapping put it.
+
+The reveal is a pure state machine with tests: a hold then the measured
+fade to nothing; a reveal during a fade bringing it back; the pointer
+over the strip widening and holding until it leaves; the look changing
+only while it fades, which is the idle rule; the strip hovering only while
+scrolled back and taking a press only while seen; the widths as AppKit's
+points at the backing scale.
+
+The pixel oracle draws the thumb through both GPU arms held, half faded
+and hovered with its track, and requires them equal, each different from
+the frame without it and from each other. A thumb faded to nothing draws
+nothing by construction -- its solids have no alpha -- so no pixel can
+gate it; the geometry test holds that no bar is built at all. The CPU
+path, which the oracle cannot see, has three tests of its own: an
+incremental frame after a fade or a hover equals a fresh full frame, a
+hover changes pixels only in the widened band, down every row, and a knob
+that moves under a hover repaints only the rows it touched.
 
 The window's half: the core's clamp is the history on the primary and
 nothing on the alternate screen, beside a history count that still reports
