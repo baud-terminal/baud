@@ -1317,21 +1317,23 @@ impl<'b> Term<'b> {
         self.cold.modes.is_set(ModeBit::SynchronizedOutput)
     }
 
-    /// Which half of the screen's life this is, from `OSC 133`.
+    /// Which half of the **live screen's** life this is, from `OSC 133`.
     ///
     /// [`Zone::Output`] until a mark says otherwise, so a stream with no
-    /// shell integration reads as output -- which is what it is. Read by
-    /// `Term::resize` to decide whether a width change may re-cut, and
-    /// exposed so an embedder can see which rule is in force rather than
-    /// having to infer it from what the screen did.
+    /// shell integration reads as output -- which is what it is. Each screen
+    /// has its own, so on the alternate screen this is the program's, and a
+    /// fresh one on each entry. What decides whether a width change re-cuts
+    /// is the primary's: [`Term::primary_zone`].
     pub fn zone(&self) -> Zone {
         self.cold.shell.zone
     }
 
     /// The **primary's** zone, whichever screen is up: what decides whether
-    /// a change of width re-cuts the primary. It was the live screen's, so a
-    /// mark on the alternate screen stopped the primary re-cutting.
-    fn primary_zone(&self) -> Zone {
+    /// a change of width re-cuts the primary, exposed so an embedder or an
+    /// instrument can see which rule a resize is in. It was the live
+    /// screen's, so a mark on the alternate screen stopped the primary
+    /// re-cutting.
+    pub fn primary_zone(&self) -> Zone {
         match self.cold.screen {
             Screen::Normal => self.cold.shell.zone,
             Screen::Alternate => self.cold.shell_other.zone,

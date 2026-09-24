@@ -293,7 +293,9 @@ fn cost(path: &str, steps: &[Step], reps: usize) {
             let changes_width = t.geometry().0.index() != usize::from(ws.ws_col);
             if changes_width {
                 wide = wide.plus(1);
-                if t.zone() == Zone::Output {
+                // The primary's zone, which is what the resize reads: the live
+                // one is the alternate screen's while a program is up.
+                if t.primary_zone() == Zone::Output {
                     wide_in_output = wide_in_output.plus(1);
                 }
             }

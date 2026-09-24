@@ -732,8 +732,9 @@ fn a_mark_on_the_alternate_screen_does_not_redraw_the_primarys_block() {
     }
 }
 
-/// The same mark once the primary has scrolled, so its block starts past
-/// the alternate screen's ring: the redraw subtracted the primary's ring
+/// The same mark once the primary has scrolled, so its block starts at a ring
+/// row past the alternate screen's cursor row plus its ring: the redraw
+/// subtracted the primary's ring
 /// row from the alternate ring's position, which underflows -- a panic in a
 /// debug build -- and in a release build wraps to a row count that erased
 /// whatever it landed on.
@@ -747,8 +748,8 @@ fn a_mark_on_the_alternate_screen_after_the_primary_scrolled() {
             },
             |t| {
                 // Sixty lines on twenty rows: the primary's ring has turned
-                // forty rows, twice the alternate ring's size, and the
-                // block opens on the last row.
+                // forty-one rows and the block opens on the last row, ring
+                // row sixty, past the alternate screen's five plus twenty.
                 let mut s = numbered("line", 0, 60);
                 s.extend_from_slice(b"\x1b]133;P;k=i\x07$ ");
                 feed_in(t, &s, n);
@@ -769,6 +770,58 @@ fn a_mark_on_the_alternate_screen_after_the_primary_scrolled() {
                 feed_in(t, b"\x1b[?1049l", n);
                 assert_eq!(t.prompt_row(), Some(Row::from_index(19)), "read size {n}");
                 assert_eq!(row_text(t, 18), "line 59", "read size {n}");
+            },
+        );
+    }
+}
+
+/// The other direction of the same gate: the primary at a prompt, a program
+/// taking the alternate screen from the line editor with no `C` -- a
+/// full-screen fzf, `edit-command-line` -- and the window narrowed while it
+/// runs. The primary's zone is the one parked, and it is `Prompt`, so its
+/// prompt row is not re-cut; the zone the program's screen has is `Output`,
+/// and reading that one re-cut it. `Term::primary_zone` answers the
+/// question the resize asks, and `Term::zone` the live screen's.
+#[test]
+fn a_prompt_on_the_primary_stops_the_re_cut_while_a_program_is_up() {
+    for n in [1, 4096] {
+        support::with_term(
+            &WinSize {
+                ws_col: 40,
+                ws_row: 8,
+            },
+            |t| {
+                let mut s = b"\x1b]133;P;k=i\x07".to_vec();
+                s.extend_from_slice(long_line(36).as_bytes());
+                feed_in(t, &s, n);
+                let before = row_text(t, 0);
+                assert_eq!(
+                    before.len(),
+                    36,
+                    "read size {n}: the control, the prompt line"
+                );
+                feed_in(t, b"\x1b[?1049h", n);
+                assert_eq!(
+                    t.zone(),
+                    Zone::Output,
+                    "read size {n}: the program's screen"
+                );
+                assert_eq!(t.primary_zone(), Zone::Prompt, "read size {n}: the shell's");
+                let _ = t.resize(&WinSize {
+                    ws_col: 20,
+                    ws_row: 8,
+                });
+                feed_in(t, b"\x1b[?1049l", n);
+                assert_eq!(
+                    row_text(t, 0),
+                    before[..20],
+                    "read size {n}: the prompt row keeps its layout"
+                );
+                assert!(
+                    row_text(t, 1).is_empty(),
+                    "read size {n}: the prompt was re-cut onto a second row: {:?}",
+                    row_text(t, 1)
+                );
             },
         );
     }
@@ -872,7 +925,7 @@ fn a_block_opened_on_the_alternate_screen_is_not_redrawn_on_the_primary() {
 /// it asked the zone whichever screen had last written a mark -- so the
 /// program's mark left the primary's long line cut at the narrow edge,
 /// its tail hidden past it, where the same resize with no mark there
-/// re-wraps it. Both arms are asked, and the control is the second.
+/// re-wraps it. Both arms are asked, and the control is the first.
 #[test]
 fn a_mark_on_the_alternate_screen_does_not_stop_the_primary_re_cutting() {
     for (mark, what) in [

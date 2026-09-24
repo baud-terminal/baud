@@ -48,7 +48,9 @@ impl PromptBlock {
 /// block start is a row of one surface's ring, so read against the other
 /// ring it names rows the shell never drew: a redraw on the alternate
 /// screen erased its rows by the primary's block start (a subtraction that
-/// underflows once the primary has turned past the alternate ring), a
+/// underflows whenever that start, a primary ring row, lies past the
+/// alternate screen's cursor row plus its ring -- a primary turned three
+/// rows with its prompt on the last of twenty is enough), a
 /// block opened there was redrawn on the primary against the alternate
 /// ring's numbers and took the history with it, and a mark there stopped
 /// the *primary* re-cutting, because `Term::resize` asked the zone of
