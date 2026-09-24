@@ -6644,6 +6644,81 @@ group  = "C"
 # answer, else nothing -- and with nothing, `yazi-adapter`'s `max_pixel`
 # falls back to the configured 600x900 whatever the pane.
 
+# What a full reset does, in xterm, which the rest follow. `ESC c` is
+# `CASE_RIS`, which calls `VTReset(xw, True, True)` (charproc.c 6149-6151);
+# `DECSTR` calls it with `False, False` (6154-6156). `ReallyReset`'s third
+# argument is "clear savedLines" in its own trace line, and with it set
+# `screen->savedlines = 0` (14372-14375) -- so RIS empties the scrollback and
+# DECSTR keeps it. Its `if (full)` branch holds what DECSTR must not touch:
+# the mouse mode and its coordinate encoding (14438-14444), and
+# `FromAlternate` beside `ClearScreen` (14503-14504). **Cited as xterm's**: the
+# reference implementation `[[source: ctlseqs]]` describes, and one answer.
+[sources.xterm-reset]
+key    = "xterm-reset"
+title  = "xterm 411, charproc.c -- CASE_RIS and CASE_DECSTR, and ReallyReset's hard branch"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charproc.c"
+file   = "xterm-charproc.c"
+sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
+bytes  = 413144
+status = "retrieved"
+group  = "C"
+
+# What a full reset does to the history and the view in foot. `ESC c` is
+# `term_reset(term, true)` (vt.c 480-481), and the hard path -- everything past
+# `if (!hard) return;` at terminal.c 2147 -- sets both grids' `offset` and
+# `view` to zero (2179-2180), erases the first `rows` rows of each (2181-2188)
+# and frees every row past them (2189-2196): the history is gone and the view is
+# the live screen. xterm and alacritty's `reset_state` agree (`Grid::reset`
+# calls `clear_history`); the Linux console and sfte keep the history. **Cited as
+# foot's**: one implementation's answer, and the two keys scope the dispatch
+# and the body separately because they are two files.
+[sources.foot-vt-ris]
+key    = "foot-vt-ris"
+title  = "foot 1.21.0, vt.c -- ESC c dispatches term_reset(term, true)"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/vt.c"
+file   = "foot-vt.c"
+sha256 = "175fb492205947ef0388471dbe4390ec05d71eb08e2e70aacd08b8c530c1ab66"
+bytes  = 42549
+status = "retrieved"
+group  = "C"
+
+[sources.foot-term-reset]
+key    = "foot-term-reset"
+title  = "foot 1.21.0, terminal.c -- term_reset's hard path: offset and view to zero, every row past the screen freed"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "C"
+
+# `term_linefeed` (terminal.c 3193-3203): scroll when the cursor is on the
+# region's last row, whatever row that is, and otherwise move down clamped to
+# the screen. Four citations named it under `foot-terminal`, which is foot's
+# terminal.h at another commit and not committed: the key the claim rests on
+# has to be the file the function is in.
+[sources.foot-linefeed]
+key    = "foot-linefeed"
+title  = "foot 1.21.0, terminal.c -- term_linefeed: scroll at the region's last row, else move down"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "C"
+
 # Where a scrolled-back view goes when the alternate screen is entered. foot
 # keeps `view` and `offset` per grid (`[[source: foot-vt100-0]]`'s terminal.c
 # resets both, 2179-2180), and these two say what the switch and a keystroke

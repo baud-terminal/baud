@@ -415,3 +415,51 @@ fn a_program_that_forwards_marks_does_not_decide_the_shells_reflow() {
         });
     }
 }
+
+#[test]
+fn a_reset_leaves_no_history_for_a_resize_to_bring_back() {
+    // The owner's zsh runs `reset` after a long listing, and the window
+    // is then made shorter and taller again. The reset's bytes are the
+    // real ones (`tests/reset/`); the prompt it leaves stays at the top,
+    // and no line from before it comes back -- the history is gone, and a
+    // growth has nothing to pull. It pulled the reset's stale history
+    // count: the prompt slid down twenty-seven rows over blanks.
+    let raw = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/reset/seq-reset.raw"
+    ))
+    .expect("the capture");
+    let at = raw
+        .windows(2)
+        .position(|w| w == b"\x1bc")
+        .expect("the capture's ESC c");
+    // From the tab-stop reset before `ESC c` to the output after the modes.
+    let start = raw[..at]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |i| i + 1);
+    let end = at + raw[at..].iter().position(|&b| b == b'>').expect("ESC >") + 1;
+    let reset = &raw[start..end];
+    support::with_room(60, |t| {
+        after_a_command(t, 70);
+        assert!(
+            !t.scrollback().is_empty(),
+            "the control: the listing scrolled"
+        );
+        support::feed(t, b"\r\n\x1b]133;C\x07");
+        support::feed(t, reset);
+        support::feed(t, b"\x1b]133;D\x07");
+        prompt(t);
+        let (cols, rows) = t.geometry();
+        let want = screen(t);
+        assert_eq!(want[1], "zsh prompt", "the prompt is at the top");
+        resize(t, cols.index(), 10);
+        resize(t, cols.index(), rows.index());
+        assert_eq!(screen(t), want, "the screen moved over nothing");
+        assert_eq!(t.scrollback().len(), 0, "the reset cleared the history");
+        assert!(
+            !screen(t).iter().any(|l| l.starts_with("file-")),
+            "a line from before the reset came back"
+        );
+    });
+}

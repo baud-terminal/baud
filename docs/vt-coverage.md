@@ -498,7 +498,7 @@ without these.
 | `ESC D` | IND index | done — column preserved (was resetting it); scrolls the region at its bottom and nothing on the last row below it, as DECSTBM's row says |
 | `ESC E` | NEL next line | done |
 | `ESC M` | RI reverse index | done |
-| `ESC c` | RIS full reset | done |
+| `ESC c` | RIS full reset | done — and it **empties the history**: xterm's `CASE_RIS` clears its saved lines where `DECSTR` keeps them (`[[source: xterm-reset]]`), and alacritty and foot (`[[source: foot-vt-ris]]`, `[[source: foot-term-reset]]`) do the same; the Linux console and sfte keep it. The rotation stays, so a reset scrolls nothing, and rows a shrink hid below the screen go with the history (`a_full_reset_clears_the_history_and_the_next_lines_refill_it`, `a_full_reset_leaves_nothing_hidden_below_the_window`, `a_full_reset_scrolls_nothing`, the captured `reset(1)` in `a_captured_reset_leaves_no_history`). It left the counts and reset the rotation until 2026-09-23, so the scrollback read rows the reset never wrote |
 | `ESC H` | HTS set tab stop | done |
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
 | `CSI ? 2 l` | DECANM — enter VT52 | done — see [protocols/vt52.md](protocols/vt52.md) |
@@ -548,7 +548,7 @@ Final bytes from `[[source: ctlseqs]]` § "Functions using CSI".
 | `CSI l` | RM reset mode | done — as SM |
 | `CSI m` | SGR character attributes | done — see SGR below |
 | `CSI n` | DSR device status report | done — 5 and 6; others unanswered, not guessed |
-| `CSI r` | DECSTBM scroll region | done — an `LF`, `IND` or wrap at a region's bottom scrolls the region whatever row that is, a region ending on the last row included (`lf_at_the_bottom_of_a_region_ending_on_the_last_row_scrolls_only_the_region`: it rotated the whole screen and retired the header rows above it), and on the last row *below* a region it neither scrolls nor moves (`lf_on_the_last_row_below_a_region_does_not_scroll`), both as `[[source: foot-terminal]]`'s `term_linefeed` and alacritty do; `baud-difftest` carries both cases |
+| `CSI r` | DECSTBM scroll region | done — an `LF`, `IND` or wrap at a region's bottom scrolls the region whatever row that is, a region ending on the last row included (`lf_at_the_bottom_of_a_region_ending_on_the_last_row_scrolls_only_the_region`: it rotated the whole screen and retired the header rows above it), and on the last row *below* a region it neither scrolls nor moves (`lf_on_the_last_row_below_a_region_does_not_scroll`), both as `[[source: foot-linefeed]]`'s `term_linefeed` and alacritty do; `baud-difftest` carries both cases |
 | `CSI s` / `CSI u` | SCOSC / SCORC | done |
 | `CSI ? h` / `CSI ? l` | DECSET / DECRST | done — every parameter of a multi-parameter form is applied |
 
@@ -633,7 +633,7 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 
 | seq | name | status |
 |---|---|---|
-| `CSI ! p` | DECSTR soft reset | done — resets the DEC-defined state and **not** the alternate screen, `alt_saved`, mouse tracking or its encoding. Those are xterm extensions, so a DEC list cannot mention them and xterm decides: in `ReallyReset` all four are inside the `if (full)` RIS branch, `FromAlternate` next to `ClearScreen`. baud reset them until 2026-08-27, so a full-screen application recovering with `CSI ! p` was dropped onto the primary screen and lost what `?1049 h` had saved. See `tests/xterm/soft_reset_scope.rs` |
+| `CSI ! p` | DECSTR soft reset | done — resets the DEC-defined state and **not** the alternate screen, `alt_saved`, mouse tracking or its encoding. Those are xterm extensions, so a DEC list cannot mention them and xterm decides: in `ReallyReset` all four are inside the `if (full)` RIS branch, `FromAlternate` next to `ClearScreen` (`[[source: xterm-reset]]`). baud reset them until 2026-08-27, so a full-screen application recovering with `CSI ! p` was dropped onto the primary screen and lost what `?1049 h` had saved. See `tests/xterm/soft_reset_scope.rs` |
 | `CSI SP q` | DECSCUSR cursor style | done |
 | `CSI " q` | DECSCA character protection | done |
 | `CSI ? J` | DECSED selective erase display | done |

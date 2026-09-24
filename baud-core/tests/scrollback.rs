@@ -533,3 +533,182 @@ fn the_screen_epoch_moves_on_every_switch_and_nothing_else() {
         );
     });
 }
+
+// **A full reset clears the history, and leaves nothing to reveal below the
+// window.** `RIS` reset the primary's rotation and left its history counts,
+// so the scrollback read rows the reset had not written at the old length --
+// never-written rows on a ring that had not wrapped, stale lines on one that
+// had -- a taller window pulled the window back over them, and rows a shrink
+// had hidden below it came back after the reset that should have erased
+// them. xterm's `ESC c` clears its saved lines where `DECSTR` keeps them
+// (`[[source: xterm-reset]]`); alacritty clears the history on both grids and
+// returns the view to the live screen (`Grid::reset` calls `clear_history`);
+// and foot's `ESC c` is `term_reset(term, true)` (`[[source: foot-vt-ris]]`),
+// whose hard path sets the ring's offset and view to zero and frees every row
+// past the screen (`[[source: foot-term-reset]]`). The Linux console keeps
+// the history on `ESC c` and so does sfte, and no pinned specification says.
+// The reference implementation and the two terminals this repo compares
+// against agree, and that is what is followed.
+
+/// Every line in the primary's history and on its screen, as text.
+fn everything(t: &Term<'_>) -> Vec<String> {
+    let sb = t.scrollback();
+    let rows = t.geometry().1.index();
+    (0..sb.len())
+        .rev()
+        .map(|n| {
+            let (c, _) = sb.line(Back::of(n)).expect("a retained line");
+            text_of(c).trim_end().to_string()
+        })
+        .chain((0..rows).map(|y| text_of(t.row(Row::from_index(y))).trim_end().to_string()))
+        .collect()
+}
+
+/// The real `reset(1)`, captured: `seq 1 45; reset; seq 101 105` on a
+/// twenty-row pty. Tab stops, `ESC c`, `DECSTR`, the modes, then output.
+/// `tests/reset/README.md` says how it was made.
+#[test]
+fn a_captured_reset_leaves_no_history() {
+    let raw = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/reset/seq-reset.raw"
+    ))
+    .expect("the capture");
+    assert!(
+        raw.windows(2).any(|w| w == b"\x1bc"),
+        "the control: the capture carries an ESC c"
+    );
+    let ws = WinSize {
+        ws_col: 60,
+        ws_row: 20,
+    };
+    for n in [1, 2, 3, 17, 4096] {
+        support::with_term(&ws, |t| {
+            for chunk in raw.chunks(n) {
+                support::feed(t, chunk);
+            }
+            assert_eq!(
+                t.scrollback().len(),
+                0,
+                "read size {n}: the reset cleared the history"
+            );
+            let all = everything(t);
+            let want: Vec<String> = (101..106)
+                .map(|i| i.to_string())
+                .chain((0..15).map(|_| String::new()))
+                .collect();
+            assert_eq!(all, want, "read size {n}: only what came after the reset");
+        });
+    }
+}
+
+#[test]
+fn a_full_reset_clears_the_history_and_the_next_lines_refill_it() {
+    for n in [1, 4096] {
+        support::with_corpus(|t| {
+            let lines = |tag: &str| -> Vec<u8> {
+                (0..60)
+                    .flat_map(|i| format!("{tag} {i}\r\n").into_bytes())
+                    .collect()
+            };
+            for c in lines("old").chunks(n) {
+                support::feed(t, c);
+            }
+            assert_eq!(t.scrollback().len(), 11, "read size {n}: the control");
+            for c in b"\x1bc".chunks(n) {
+                support::feed(t, c);
+            }
+            assert_eq!(t.scrollback().len(), 0, "read size {n}: cleared");
+            assert!(t.scrollback().line(Back::NEWEST).is_none(), "read size {n}");
+            assert_eq!(
+                t.looking_back(Rows::of_count(5)),
+                Rows::ZERO,
+                "read size {n}: a window scrolled back has nowhere to be"
+            );
+            for c in lines("new").chunks(n) {
+                support::feed(t, c);
+            }
+            assert_eq!(t.scrollback().len(), 11, "read size {n}");
+            let all = everything(t);
+            assert!(
+                all.iter().all(|l| !l.starts_with("old")),
+                "read size {n}: a line from before the reset came back:\n{all:#?}"
+            );
+            assert_eq!(all[0], "new 0", "read size {n}");
+            assert_eq!(all[59], "new 59", "read size {n}");
+        });
+    }
+}
+
+/// Rows a shrink cut below the cursor are content a taller window brings
+/// back -- until a reset erases the screen they belonged to.
+#[test]
+fn a_full_reset_leaves_nothing_hidden_below_the_window() {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..30)
+            .flat_map(|i| format!("old {i}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        support::feed(t, b"\x1b[6;1H");
+        support::shrink(
+            t,
+            &WinSize {
+                ws_row: 20,
+                ws_col: 200,
+            },
+        );
+        assert_eq!(t.cursor().0.index(), 5, "the cursor kept its row");
+        support::feed(t, b"\x1bc");
+        assert_eq!(
+            t.resize(&WinSize {
+                ws_row: 50,
+                ws_col: 200,
+            }),
+            Resized::Ok
+        );
+        let all = everything(t);
+        assert!(
+            all.iter().all(|l| l.is_empty()),
+            "a row hidden before the reset came back after it:\n{all:#?}"
+        );
+        // The control: the same shrink and growth with no reset between
+        // brings the cut rows back, so the rows were really there.
+        support::feed(t, &lines);
+        support::feed(t, b"\x1b[6;1H");
+        support::shrink(
+            t,
+            &WinSize {
+                ws_row: 20,
+                ws_col: 200,
+            },
+        );
+        let _ = t.resize(&WinSize {
+            ws_row: 50,
+            ws_col: 200,
+        });
+        assert_eq!(
+            text_of(t.row(Row::from_index(29))).trim_end(),
+            "old 29",
+            "the control: without a reset the cut rows come back"
+        );
+    });
+}
+
+/// A reset erases; it does not scroll. The window's movement across one is
+/// none, so an embedder anchoring a selection or a scrolled-back window by
+/// the rotation reads nothing -- where resetting the rotation read a row
+/// count the short way round a ring.
+#[test]
+fn a_full_reset_scrolls_nothing() {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..73)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        let (live, mark) = (t.rotation(), t.history_mark());
+        assert_ne!(live, RowRot::NONE, "the control: the ring has turned");
+        support::feed(t, b"\x1bc");
+        assert_eq!(t.moved_since(live), Moved::Retired(Rows::ZERO));
+        assert_eq!(t.history_moved_since(mark), Moved::Retired(Rows::ZERO));
+    });
+}

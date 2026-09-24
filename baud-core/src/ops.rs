@@ -1153,7 +1153,29 @@ impl Paint<'_, '_> {
         // longer exist.
         self.link = LinkId::NONE;
         self.refresh_flags();
-        self.view.reset_rot();
+        // **The history goes, and the rotation stays.** A reset erases; it
+        // does not scroll. It reset the rotation and left the history counts,
+        // so the scrollback read rows the reset had not written at the old
+        // length, a taller window pulled the window back over them, and rows
+        // a shrink had hidden below the screen came back after the reset
+        // that erased the screen they were part of. xterm's `ESC c` clears
+        // its saved lines where `DECSTR` keeps them (`[[source: xterm-reset]]`),
+        // alacritty clears the history on both grids, and foot's hard reset
+        // frees every row past the screen (`[[source: foot-term-reset]]`); the
+        // Linux console and sfte, which keep it, are recorded where the
+        // tests are. Keeping the rotation is what makes the window's movement
+        // across a reset nothing: reset, it read a row count the short way
+        // round the ring, which an embedder anchoring a selection or a
+        // scrolled-back window took for rows scrolled. The rows past the
+        // screen still hold their bytes and nothing can reach them: no
+        // history reads them and no growth reveals or pulls them.
+        self.book.hist = Rows::ZERO;
+        self.book.hidden = Rows::ZERO;
+        // And what the marks said: the block start names rows the reset
+        // erased, and the shell is at no prompt after one. This is the
+        // primary's -- `set_alt_screen` above came back to it -- and the
+        // alternate screen's starts fresh on its next entry, as its cells do.
+        self.cold.shell = crate::prompt::Shell::FRESH;
         self.clear_screen();
         // **Here and not in `clear_screen`, and the difference is the
         // alternate screen.** Entering it clears the grid while the primary's

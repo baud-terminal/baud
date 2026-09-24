@@ -154,7 +154,7 @@ fn lf_at_region_bottom_scrolls_only_the_region() {
 /// 5..50 and leaves the four header rows above it. The full-screen fast
 /// path tested only the bottom, so this shape rotated the whole screen and
 /// retired the headers into the history. foot scrolls the region here
-/// (`[[source: foot-terminal]]`, `term_linefeed` at `scroll_region.end - 1`),
+/// (`[[source: foot-linefeed]]`, `term_linefeed` at `scroll_region.end - 1`),
 /// and so does alacritty, which is what `baud-difftest` compares against.
 #[test]
 fn lf_at_the_bottom_of_a_region_ending_on_the_last_row_scrolls_only_the_region() {

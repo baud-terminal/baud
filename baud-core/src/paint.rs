@@ -1055,7 +1055,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // region ending on the last row but starting below the top --
         // `DECSTBM 5 ; 50` -- took the rotation and retired its header rows
         // into the history. foot scrolls the region at its bottom whatever
-        // row that is (`[[source: foot-terminal]]`, `term_linefeed`).
+        // row that is (`[[source: foot-linefeed]]`, `term_linefeed`).
         if self.cy == self.cold.bot {
             if self.cold.top != Row::ZERO || self.cold.bot.index() != last {
                 self.row_changed();
