@@ -970,13 +970,17 @@ fn a_mark_on_the_alternate_screen_does_not_stop_the_primary_re_cutting() {
     }
 }
 
-/// A full reset forgets what the marks said, on both screens: the shell is
-/// at no prompt after one, and its block start names rows the reset erased.
-/// So the next prompt mark is a fresh block, not a redraw of the old one.
-/// foot's hard reset erases every row's prompt marks
-/// (`[[source: foot-term-reset]]`); alacritty keeps no prompt state.
+/// A full reset forgets what the marks said, from either screen: the shell
+/// is at no prompt after one, and its block start names rows the reset
+/// erased. So the next prompt mark is a fresh block, not a redraw of the old
+/// one. The new lines put the cursor on row 8, below the stale start on
+/// row 5, where a kept block start would be taken for a redraw and erase
+/// `new 5` to `new 7` -- above it, the redraw refuses a start below the
+/// cursor, and the behavioural half could not fail. foot's hard reset erases
+/// every row's prompt marks (`[[source: foot-term-reset]]`); alacritty keeps
+/// no prompt state.
 #[test]
-fn a_full_reset_forgets_the_prompt_on_both_screens() {
+fn a_full_reset_forgets_the_prompt_from_either_screen() {
     for from_alt in [false, true] {
         support::with_term(
             &WinSize {
@@ -991,13 +995,18 @@ fn a_full_reset_forgets_the_prompt_on_both_screens() {
                 }
                 assert_eq!(t.zone(), Zone::Prompt, "alt {from_alt}: the control");
                 support::feed(t, b"\x1bc");
-                assert_eq!(t.zone(), Zone::Output, "alt {from_alt}");
-                assert_eq!(t.prompt_row(), None, "alt {from_alt}");
-                support::feed(t, &numbered("new", 0, 3));
+                let (zone, row) = (t.zone(), t.prompt_row());
+                support::feed(t, &numbered("new", 0, 8));
                 support::feed(t, b"\x1b]133;P;k=i\x07$ ");
                 assert_eq!(t.prompt_erases, 0, "alt {from_alt}: a fresh prompt");
-                let rows: Vec<String> = (0..5).map(|y| row_text(t, y)).collect();
-                assert_eq!(rows, ["new 0", "new 1", "new 2", "$", ""], "alt {from_alt}");
+                let rows: Vec<String> = (0..10).map(|y| row_text(t, y)).collect();
+                let want: Vec<String> = (0..8)
+                    .map(|i| format!("new {i}"))
+                    .chain(["$".to_string(), String::new()])
+                    .collect();
+                assert_eq!(rows, want, "alt {from_alt}");
+                assert_eq!(zone, Zone::Output, "alt {from_alt}");
+                assert_eq!(row, None, "alt {from_alt}");
             },
         );
     }

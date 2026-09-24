@@ -542,11 +542,13 @@ fn the_screen_epoch_moves_on_every_switch_and_nothing_else() {
 // had hidden below it came back after the reset that should have erased
 // them. xterm's `ESC c` clears its saved lines where `DECSTR` keeps them
 // (`[[source: xterm-reset]]`); alacritty clears the history on both grids and
-// returns the view to the live screen (`Grid::reset` calls `clear_history`);
-// and foot's `ESC c` is `term_reset(term, true)` (`[[source: foot-vt-ris]]`),
-// whose hard path sets the ring's offset and view to zero and frees every row
-// past the screen (`[[source: foot-term-reset]]`). The Linux console keeps
-// the history on `ESC c` and so does sfte, and no pinned specification says.
+// returns the view to the live screen (`[[source: alacritty-reset-state]]`,
+// `[[source: alacritty-grid-reset]]`); and foot's `ESC c` is
+// `term_reset(term, true)` (`[[source: foot-vt-ris]]`), whose hard path sets
+// the ring's offset and view to zero and frees every row past the screen
+// (`[[source: foot-term-reset]]`). The Linux console
+// (`[[source: linux-vt-ris]]`) and sfte (`[[source: sfte-ris]]`) keep the
+// history on `ESC c`, and no pinned specification says.
 // The reference implementation and the two terminals this repo compares
 // against agree, and that is what is followed.
 
@@ -582,7 +584,21 @@ fn a_captured_reset_leaves_no_history() {
         ws_col: 60,
         ws_row: 20,
     };
-    for n in [1, 2, 3, 17, 4096] {
+    // The control: the capture had a history to clear. Everything before its
+    // `ESC c` retires twenty-six lines on twenty rows.
+    let at = raw
+        .windows(2)
+        .position(|w| w == b"\x1bc")
+        .expect("the capture's ESC c");
+    support::with_term(&ws, |t| {
+        support::feed(t, &raw[..at]);
+        assert_eq!(
+            t.scrollback().len(),
+            26,
+            "the control: history before the reset"
+        );
+    });
+    for n in [1, 2, 3, 4, 5, 8, 17, 4096] {
         support::with_term(&ws, |t| {
             for chunk in raw.chunks(n) {
                 support::feed(t, chunk);
@@ -711,4 +727,67 @@ fn a_full_reset_scrolls_nothing() {
         assert_eq!(t.moved_since(live), Moved::Retired(Rows::ZERO));
         assert_eq!(t.history_moved_since(mark), Moved::Retired(Rows::ZERO));
     });
+}
+
+/// Every row of the text in the ring, as the core holds it.
+fn ring_text(t: &Term<'_>) -> Vec<String> {
+    t.cells()
+        .chunks(t.stride().index())
+        .map(|r| text_of(r).trim_end().to_string())
+        .collect()
+}
+
+/// **Nothing from before a full reset is left in the ring.** The history
+/// count going to zero makes the lines unreadable through the scrollback,
+/// and `Term::cells` hands the whole ring to a reader that applies the
+/// rotation itself -- so a ring whose rows kept their bytes still held what
+/// the user ran `reset` to erase, and a narrowing re-cut that spills into
+/// those rows can bring their tails back on screen. foot frees every row
+/// past the screen and xterm empties its saved lines; the ring here is
+/// erased. The first arm is a ring that has not wrapped, the second one that
+/// has, where the rows behind rotation zero hold real text rather than rows
+/// nothing wrote -- the face of the defect the first arm cannot show.
+#[test]
+fn a_full_reset_leaves_nothing_of_the_old_text_in_the_ring() {
+    let ws = WinSize {
+        ws_col: 60,
+        ws_row: 20,
+    };
+    for (depth, lines, arm) in [
+        (Depth::DEFAULT, 45usize, "a ring that has not wrapped"),
+        (Depth::of(20), 100, "a ring that has wrapped"),
+    ] {
+        let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, depth);
+        let mut t = Term::new(owned.storage(), &ws);
+        let old: Vec<u8> = (0..lines)
+            .flat_map(|i| format!("old {i}\r\n").into_bytes())
+            .collect();
+        support::feed(&mut t, &old);
+        assert!(
+            ring_text(&t).iter().any(|l| l.starts_with("old")),
+            "{arm}: the control, the ring holds the old text"
+        );
+        support::feed(&mut t, b"\x1bc");
+        let left: Vec<String> = ring_text(&t)
+            .into_iter()
+            .filter(|l| !l.is_empty())
+            .collect();
+        assert!(left.is_empty(), "{arm}: the ring kept {left:?}");
+        let new: Vec<u8> = (0..lines)
+            .flat_map(|i| format!("new {i}\r\n").into_bytes())
+            .collect();
+        support::feed(&mut t, &new);
+        let sb = t.scrollback();
+        let back: Vec<String> = (0..sb.len())
+            .map(|n| {
+                text_of(sb.line(Back::of(n)).expect("a retained line").0)
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        assert!(
+            back.iter().all(|l| l.starts_with("new")),
+            "{arm}: a line from before the reset is in the history: {back:?}"
+        );
+    }
 }

@@ -15,5 +15,8 @@ columns), `ESC c`, `DECSTR` (`CSI ! p`), `CSI ? 3 ; 4 l`, `CSI 4 l` and
 `ESC >`: xterm-256color's `rs1` and `rs2`. Forty-five lines on twenty rows put
 twenty-six in the history before the reset, and five after it put none.
 
-`baud-core/tests/scrollback.rs` replays it at every read size from one byte up
-and requires the history empty and only the five later lines on the screen.
+`baud-core/tests/scrollback.rs` replays it at read sizes 1, 2, 3, 4, 5, 8, 17
+and 4096 and requires the history empty and only the five later lines on the
+screen. It first feeds everything before the `ESC c` and requires the
+twenty-six lines of history the reset has to clear, so the capture cannot pass
+by never having scrolled.

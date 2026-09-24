@@ -657,6 +657,18 @@ impl<'a> View<'a> {
         self.rot = RowRot::NONE;
     }
 
+    /// Erase every row of the ring at the whole pitch, and every mark: the
+    /// surface as it was built, with the rotation where it is. What a full
+    /// reset leaves, because the rows behind and below the window are cells
+    /// too -- a reader of the whole ring reaches them, and a re-cut that spills
+    /// past the screen writes into them without clearing past its width.
+    /// Returns the cells written.
+    pub fn erase_ring(&mut self) -> usize {
+        self.cells.fill(PackedCell::EMPTY);
+        self.used.fill(RowExtent::ZERO);
+        self.cells.len()
+    }
+
     /// Copy screen row `from` over screen row `to`, extent included.
     ///
     /// **For repairing the rows a rotation moved that should not have moved.**

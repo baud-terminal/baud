@@ -189,9 +189,10 @@ impl Paint<'_, '_> {
                         // -- a wrong cluster is not a wrong colour -- and it
                         // bounds the table at 127 distinct targets for the
                         // storage's life, which `links_refused` says when it
-                        // is reached. Not reset on `RIS`: history survives
-                        // one, and a freed slot taken by a new link would give
-                        // the old cells in it that link's target.
+                        // is reached. Freed only by `RIS`, which erases every
+                        // cell that could name a slot first: freed while one
+                        // did, a slot taken by a new link would give that cell
+                        // the new target.
                         self.link = LinkId::NONE;
                         self.links_refused += 1;
                     }

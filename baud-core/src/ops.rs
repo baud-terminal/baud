@@ -1134,10 +1134,17 @@ impl Paint<'_, '_> {
 
     /// RIS. **Everything a soft reset does, and the screen as well.**
     pub(crate) fn hard_reset(&mut self) {
-        self.soft_reset();
         // **`RIS` returns to the normal screen and `DECSTR` does not**, which
-        // is why this is here rather than in `soft_reset`.
+        // is why this is here rather than in `soft_reset` -- and **first**,
+        // because leaving restores what `?1049 h` saved: the rendition, the
+        // charsets, DECAWM, DECOM and DECSCA's protection. After the soft
+        // reset it put all of that back over it, and a reset issued from the
+        // alternate screen left the shell's state rather than the power-on
+        // one. xterm's hard branch leaves and then restores the initial flags
+        // (`[[source: xterm-reset]]`); leaving first and resetting after is
+        // the same order.
         self.set_alt_screen(ModeChange::Reset);
+        self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
         // mouse tracking and the keypad alone deliberately -- a full-screen
         // application recovering with `CSI ! p` must not have them pulled out
@@ -1160,15 +1167,17 @@ impl Paint<'_, '_> {
         // a shrink had hidden below the screen came back after the reset
         // that erased the screen they were part of. xterm's `ESC c` clears
         // its saved lines where `DECSTR` keeps them (`[[source: xterm-reset]]`),
-        // alacritty clears the history on both grids, and foot's hard reset
-        // frees every row past the screen (`[[source: foot-term-reset]]`); the
-        // Linux console and sfte, which keep it, are recorded where the
-        // tests are. Keeping the rotation is what makes the window's movement
-        // across a reset nothing: reset, it read a row count the short way
-        // round the ring, which an embedder anchoring a selection or a
-        // scrolled-back window took for rows scrolled. The rows past the
-        // screen still hold their bytes and nothing can reach them: no
-        // history reads them and no growth reveals or pulls them.
+        // alacritty clears the history on both grids
+        // (`[[source: alacritty-reset-state]]`, `[[source: alacritty-grid-reset]]`),
+        // and foot's hard reset frees every row past the screen
+        // (`[[source: foot-term-reset]]`). The Linux console
+        // (`[[source: linux-vt-ris]]`) and sfte (`[[source: sfte-ris]]`)
+        // keep it. The rotation stays because a reset scrolls no row: reset,
+        // it read as a row count the short way round the ring, and what an
+        // embedder should do across a reset -- drop a selection, bring a
+        // scrolled-back window to the live screen -- is not a count of rows.
+        // (baud-app dropped the selection only by that accident, reading a
+        // rotation under half the ring as rows restored; see the TODO.)
         self.book.hist = Rows::ZERO;
         self.book.hidden = Rows::ZERO;
         // And what the marks said: the block start names rows the reset
@@ -1176,7 +1185,17 @@ impl Paint<'_, '_> {
         // primary's -- `set_alt_screen` above came back to it -- and the
         // alternate screen's starts fresh on its next entry, as its cells do.
         self.cold.shell = crate::prompt::Shell::FRESH;
-        self.clear_screen();
+        // **The whole ring, not the window.** Zeroing the counts made the old
+        // lines unreadable through the scrollback and left their bytes: a
+        // reader of the whole ring (`Term::cells`) still found what the user
+        // ran `reset` to erase, and a narrowing re-cut that spills past the
+        // screen writes only its new width into those rows, so their tails
+        // came back when the screen grew again at a prompt. foot frees every
+        // row past the screen and xterm empties its saved lines. The parked
+        // alternate surface is left as it is: entering it clears it before
+        // anything can read it.
+        let n = self.view.erase_ring();
+        self.cells = self.cells.plus(n);
         // **Here and not in `clear_screen`, and the difference is the
         // alternate screen.** Entering it clears the grid while the primary's
         // cells wait in `AltBuf` still naming their clusters, so a reset there
@@ -1184,8 +1203,17 @@ impl Paint<'_, '_> {
         // overwrites them meanwhile: the store *refuses* a colliding cluster
         // rather than evicting one, so the alternate screen can be denied a
         // slot but cannot take an occupied one. `RIS` is the one point where
-        // every cell really is gone.
+        // every cell a reader can reach is gone: the ring is erased above,
+        // and the parked alternate surface is cleared on entry before it is
+        // shown.
         self.clusters.reset();
+        // The link table for the same reason. It refuses rather than evicts,
+        // because a slot a cell still names must not take another target; no
+        // cell names one now, so a table filled before the reset takes links
+        // after it.
+        for len in self.strs.link_len.iter_mut() {
+            *len = ByteLen::ZERO;
+        }
         // Images go with the clusters and for the same reason: `RIS` is the one
         // point where every cell is gone, so a placement outliving a mere clear
         // is correct -- an image is content a program may redraw over -- and

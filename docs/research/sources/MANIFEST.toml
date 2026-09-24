@@ -6666,6 +6666,68 @@ bytes  = 413144
 status = "retrieved"
 group  = "C"
 
+# alacritty's full reset. `reset_state` (term/mod.rs 1835) swaps back from the
+# alternate screen, resets both grids (1841-1842) and drops the selection
+# (1847); `Grid::reset` (grid/mod.rs 336) calls `clear_history` (341) and puts
+# the view on the live screen (345). Two files at two pinned revisions, each
+# read and hash-checked for this claim. **Cited as alacritty's.**
+[sources.alacritty-reset-state]
+key    = "alacritty-reset-state"
+title  = "alacritty: term/mod.rs -- reset_state resets both grids and drops the selection"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ d692748d"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/d692748d3f61253ebe9f5094320120d22f6a046f/alacritty_terminal/src/term/mod.rs"
+file   = ""
+sha256 = "94be91817bec509ddb229fc83093fcbc044bd0929fb8758b236c939cb21df647"
+bytes  = 112720
+status = "external"
+group  = "C"
+
+[sources.alacritty-grid-reset]
+key    = "alacritty-grid-reset"
+title  = "alacritty 0.15.1, grid/mod.rs -- Grid::reset clears the history and the display offset"
+author = "Joe Wilm, Christian Duerr and the Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/grid/mod.rs"
+file   = "alacritty-grid.rs"
+sha256 = "2e2a02d105a1b3e5b8d462824254b1d6c3b782c66271a465f95588db73017eaa"
+bytes  = 19764
+status = "external"
+group  = "C"
+
+# The two that keep the history on `ESC c`. The Linux console's is
+# `reset_terminal(vc, 1)` (vt.c 2496-2497), which clears with ED 2, the visible
+# screen only (2313-2314); sfte's `ESC c` (sfte.h 35007-35008) is DECSTR plus a
+# clear of `cols * rows` cells (34728-34732). The same files as
+# `linux-vt-console` and `sfte`, under keys scoped to this claim.
+[sources.linux-vt-ris]
+key    = "linux-vt-ris"
+title  = "Linux vt.c -- ESC c is reset_terminal(vc, 1), which clears the visible screen only"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "torvalds/linux @ cf72cbb3"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
+file   = "linux-vt-console.c"
+sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
+bytes  = 124238
+status = "retrieved"
+group  = "C"
+
+[sources.sfte-ris]
+key    = "sfte-ris"
+title  = "sfte -- ESC c is DECSTR plus a clear of the visible cells"
+author = "nihiL7331"
+year   = 2026
+venue  = "github.com/nihiL7331/sfte @ 5d7ac25a"
+url    = "https://raw.githubusercontent.com/nihiL7331/sfte/5d7ac25a4180a4adbb049ec228dc89e03dae2690/sfte.h"
+file   = "sfte.h"
+sha256 = "23b3314dff301e25977197ec402f688708a69d3366c9c613d99b268a46d9f23c"
+bytes  = 1462190
+status = "retrieved"
+group  = "C"
+
 # What a full reset does to the history and the view in foot. `ESC c` is
 # `term_reset(term, true)` (vt.c 480-481), and the hard path -- everything past
 # `if (!hard) return;` at terminal.c 2147 -- sets both grids' `offset` and
@@ -6702,8 +6764,9 @@ status = "retrieved"
 group  = "C"
 
 # `term_linefeed` (terminal.c 3193-3203): scroll when the cursor is on the
-# region's last row, whatever row that is, and otherwise move down clamped to
-# the screen. Four citations named it under `foot-terminal`, which is foot's
+# region's last row, whatever row that is, and otherwise `term_cursor_down`,
+# which clamps (2944-2951) to the screen under absolute origin and to the
+# region's end under DECOM. Four citations named it under `foot-terminal`, which is foot's
 # terminal.h at another commit and not committed: the key the claim rests on
 # has to be the file the function is in.
 [sources.foot-linefeed]

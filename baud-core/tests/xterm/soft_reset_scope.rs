@@ -528,3 +528,103 @@ fn a_shrink_after_scrolling_the_alternate_screen_does_not_panic() {
         );
     }
 }
+
+/// **A full reset issued on the alternate screen is the power-on state, not
+/// the state the shell had before the program started.** `RIS` soft-reset
+/// first and then left the alternate screen, and leaving restores what
+/// `?1049 h` saved -- the rendition, the charsets, DECAWM, DECOM and DECSCA's
+/// protection -- over the reset it had just done, and cleared the primary in
+/// the restored rendition. xterm's hard branch leaves the alternate screen
+/// and then puts the flags back to their initial values
+/// (`[[source: xterm-reset]]`), so nothing the entry saved survives it. Each
+/// arm runs from the primary as the control, where there is nothing to
+/// restore.
+#[test]
+fn a_hard_reset_on_the_alternate_screen_leaves_the_power_on_state() {
+    for (enter, arm) in [
+        (&b""[..], "from the primary"),
+        (&b"\x1b[?1049h"[..], "from the alternate screen"),
+    ] {
+        let ws = support::CORPUS;
+        let with = |setup: &[u8], after: &[u8], f: &dyn Fn(&Term<'_>, &[PackedCell])| {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            support::feed(&mut t, setup);
+            support::feed(&mut t, enter);
+            support::feed(&mut t, b"\x1bc");
+            support::feed(&mut t, after);
+            let screen = support::screen(&t);
+            f(&t, &screen);
+        };
+        // The rendition: blue set before the program, then the reset.
+        with(b"\x1b[44m", b"x", &|t, s| {
+            assert_eq!(
+                s[0].content.as_codepoint().map(|c| c.value()),
+                Some(u32::from('x'))
+            );
+            assert_eq!(
+                t.style_of(s[0]),
+                StyleWord::DEFAULT,
+                "{arm}: the next character is in the default rendition"
+            );
+            assert_eq!(
+                t.style_of(s[1]),
+                StyleWord::DEFAULT,
+                "{arm}: the reset cleared the screen in the default rendition"
+            );
+        });
+        // The charset: DEC line drawing in G0.
+        with(b"\x1b(0", b"q", &|_, s| {
+            assert_eq!(
+                s[0].content.as_codepoint().map(|c| c.value()),
+                Some(u32::from('q')),
+                "{arm}: G0 is ASCII again"
+            );
+        });
+        // DECAWM off.
+        with(b"\x1b[?7l", &[b'a'; 205], &|_, s| {
+            let stride = s.len() / usize::from(ws.ws_row);
+            assert_eq!(
+                s[stride].content.as_codepoint().map(|c| c.value()),
+                Some(u32::from('a')),
+                "{arm}: autowrap is on again, so the run wraps onto row 1"
+            );
+        });
+        // DECSCA protection: a selective erase spares a protected cell only.
+        with(b"\x1b[1\"q", b"p\x1b[?2J", &|_, s| {
+            assert_eq!(
+                s[0].content.as_codepoint(),
+                None,
+                "{arm}: protection is off, so the selective erase took the cell"
+            );
+        });
+    }
+}
+
+/// **`DECSTR` keeps the history, and so does `?1049`.** A full reset empties
+/// it; a soft reset is the one a full-screen program sends to recover, and
+/// it must not erase what the user had scrolled. With the clear placed in the
+/// soft reset -- which the full one calls first -- every `RIS` test stays
+/// green; this is the test that says where it belongs.
+#[test]
+fn a_soft_reset_keeps_the_history() {
+    let ws = WinSize {
+        ws_col: 60,
+        ws_row: 20,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let lines: Vec<u8> = (1..=45)
+        .flat_map(|i| format!("{i}\r\n").into_bytes())
+        .collect();
+    support::feed(&mut t, &lines);
+    assert_eq!(t.scrollback().len(), 26, "the control: twenty-six retired");
+    support::feed(&mut t, b"\x1b[!p");
+    assert_eq!(t.scrollback().len(), 26, "DECSTR kept the history");
+    support::feed(&mut t, b"\x1b[?1049h\x1b[!p\x1b[?1049l");
+    assert_eq!(
+        t.scrollback().len(),
+        26,
+        "and so did one on the alternate screen"
+    );
+}

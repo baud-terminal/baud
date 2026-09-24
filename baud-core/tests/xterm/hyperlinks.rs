@@ -288,6 +288,41 @@ fn ris_closes_the_link() {
     assert_eq!(s.uris[0], None);
 }
 
+/// **A full reset frees the link table.** It is bounded at 127 targets and
+/// refuses past them rather than evicting, because a slot a cell still names
+/// must not be taken by another target. A full reset erases every cell a
+/// reader can reach -- the screen and the history -- so nothing names a slot
+/// after one, and a table filled before it must take new links after it.
+#[test]
+fn a_full_reset_frees_the_link_table() {
+    let mut v = Vec::new();
+    for i in 0..(NLINK * 4) {
+        v.extend_from_slice(
+            format!("\x1b]8;;http://example.com/{i}\x1b\\x\x1b]8;;\x1b\\").as_bytes(),
+        );
+    }
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, &v);
+    let refused = t.links_refused;
+    assert!(refused > 0, "the control: the table filled");
+    support::feed(
+        &mut t,
+        b"\x1bc\x1b]8;;http://after.example/\x1b\\y\x1b]8;;\x1b\\",
+    );
+    let cells = support::screen(&t);
+    assert_eq!(
+        t.links_refused, refused,
+        "the link after the reset was taken"
+    );
+    assert_eq!(
+        t.link_uri(cells[0].flags.link()),
+        Some(&b"http://after.example/"[..]),
+        "and resolves to its own target"
+    );
+}
+
 /// Links behave identically however the read boundaries fall.
 #[test]
 fn hyperlinks_are_chunk_invariant() {
