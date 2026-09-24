@@ -1913,9 +1913,10 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Ring, after_read, live_cursor, live_moved, looking, oldest, resized_window,
-        snapped, switched, window_of,
+        Before, Hold, Ring, after_read, hold_after, live_cursor, live_moved, looking, oldest,
+        resized_window, snapped, switched, window_of,
     };
+    use baud_core::Zone;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, ReadLen, Rows, WinSize};
     use baud_font::Px;
@@ -2158,6 +2159,40 @@ mod alt_window_tests {
                 assert_eq!(resized_window(&mut t, &ws(from), Rows::ZERO), Rows::ZERO);
             }
         }
+    }
+
+    /// **A full-screen program started from the prompt is not a prompt
+    /// opening.** A contradicted prediction holds prediction until the
+    /// shell's next prompt, and the hold is released when the zone turns to
+    /// `Prompt`. Each screen has its own zone, so a program a line-editor
+    /// widget opens with no `C` -- fzf full-screen, `edit-command-line` --
+    /// turned the live zone to `Output` and back, which read as a prompt
+    /// opening when it closed. The control is a real next prompt, which
+    /// releases the hold.
+    #[test]
+    fn an_alternate_screen_round_trip_is_not_a_prompt_opening() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b]133;P;k=i\x07$ ");
+        let (mut hold, mut last) = hold_after(&t, Hold::Open, Zone::Output);
+        assert!(hold == Hold::Open, "the control: a prompt opened");
+        // A prediction the echo contradicted.
+        hold = Hold::UntilNextPrompt;
+        for read in [&b"\x1b[?1049h\x1b[Hpicker"[..], b"\x1b[?1049l"] {
+            (hold, last) = hold_after(&t, hold, last);
+            feed(&mut t, read);
+            (hold, last) = hold_after(&t, hold, last);
+            assert!(
+                hold == Hold::UntilNextPrompt,
+                "{read:?}: the program's screen opened no prompt"
+            );
+        }
+        // The command the user runs, then its next prompt.
+        feed(&mut t, b"\r\n\x1b]133;C\x07");
+        (hold, last) = hold_after(&t, hold, last);
+        feed(&mut t, b"out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
+        (hold, _) = hold_after(&t, hold, last);
+        assert!(hold == Hold::Open, "the next prompt released the hold");
     }
 
     /// **The driver's calls into these are AppKit-bound**, so no test above
@@ -2467,6 +2502,22 @@ enum Hold {
     UntilNextPrompt,
 }
 
+/// The hold after a read, and the zone to remember for the next: a prompt
+/// opening -- the zone turning to `Prompt` -- releases a hold a contradicted
+/// prediction set. **The primary's zone, not the live screen's.** Each
+/// screen has its own, so a full-screen program a line-editor widget opens
+/// with no `C` turned the live zone to `Output` and back, and its closing
+/// read as a prompt opening. The primary's stays `Prompt` across it, and on
+/// the primary the two are one.
+fn hold_after(term: &Term<'_>, hold: Hold, last: Zone) -> (Hold, Zone) {
+    let zone = term.primary_zone();
+    let hold = match zone == Zone::Prompt && last != Zone::Prompt {
+        true => Hold::Open,
+        false => hold,
+    };
+    (hold, zone)
+}
+
 /// A prediction outstanding this long is dropped as contradicted: a shell
 /// that did not echo a printable at its prompt in this time is a shell
 /// whose widgets are eating keys, and the glyph must not outlive that.
@@ -2677,11 +2728,7 @@ impl Driver {
                 app.guess = Guess::None;
             }
         }
-        let zone = app.term.zone();
-        if zone == Zone::Prompt && app.last_zone != Zone::Prompt {
-            app.hold = Hold::Open;
-        }
-        app.last_zone = zone;
+        (app.hold, app.last_zone) = hold_after(&app.term, app.hold, app.last_zone);
     }
 
     /// Row 9: predictions outstanding past `PREDICT_MAX` are dropped as
