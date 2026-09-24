@@ -628,3 +628,80 @@ fn a_soft_reset_keeps_the_history() {
         "and so did one on the alternate screen"
     );
 }
+
+/// The DECRQM answer for each mode after `bytes`: `1` set, `2` reset.
+fn modes_after(bytes: &[u8], modes: &[&str]) -> Vec<(String, u8)> {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, bytes);
+    modes
+        .iter()
+        .map(|m| {
+            t.clear_reply();
+            support::feed(&mut t, format!("\x1b[{m}$p").as_bytes());
+            let r = String::from_utf8(t.reply().to_vec()).unwrap();
+            let v = r
+                .strip_prefix(&format!("\x1b[{m};"))
+                .and_then(|r| r.strip_suffix("$y"))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| panic!("{m}: {r:?}"));
+            (m.to_string(), v)
+        })
+        .collect()
+}
+
+/// **`DECSTR` restores the modes xterm's soft reset restores, and leaves the
+/// rest.** `ReallyReset` with `full` false, in the pinned `xterm-charproc.c`:
+/// DECTCEM on, DECLRMM off (`resetMarginMode`), DECOM off, DECCKM, DECAWM and
+/// reverse wraparound to their power-on values, IRM off. Everything else in
+/// the mode word is in its `if (full)` branch or nowhere: LNM, `?4`, `?5`,
+/// `?8`, `?1004`, `?1034`, `?1036`, `?1039` and `?2004` stay as the program set
+/// them. `?2026` has no xterm precedent -- xterm has no synchronised update --
+/// and a soft reset is a recovery, so a held frame is released.
+#[test]
+fn decstr_restores_the_modes_xterm_restores_and_keeps_the_rest() {
+    let set = b"\x1b[?1h\x1b[?6h\x1b[4h\x1b[?7l\x1b[?45h\x1b[?69h\x1b[?25l\x1b[?2026h\
+                \x1b[20h\x1b[?4h\x1b[?5h\x1b[?8l\x1b[?1004h\x1b[?1034h\x1b[?1036l\
+                \x1b[?1039l\x1b[?2004h";
+    let restored = ["?1", "?6", "4", "?7", "?45", "?69", "?25", "?2026"];
+    let kept = [
+        "20", "?4", "?5", "?8", "?1004", "?1034", "?1036", "?1039", "?2004",
+    ];
+    let power_on = modes_after(b"", &restored);
+    let before = modes_after(set, &kept);
+    let mut reset = set.to_vec();
+    reset.extend_from_slice(b"\x1b[!p");
+    assert_eq!(modes_after(&reset, &restored), power_on, "restored");
+    assert_eq!(modes_after(&reset, &kept), before, "kept");
+    // The control: every mode here was moved off its power-on value, so each
+    // assertion above can fail.
+    assert_ne!(modes_after(set, &restored), power_on);
+    assert_ne!(before, modes_after(b"", &kept));
+}
+
+/// **`DECSTR` puts the keypad back to numeric and `modifyOtherKeys` back to
+/// its first value**, as xterm's soft and full resets both do -- in
+/// `ReallyReset`'s common path, `UIntClr(..., MODE_DECKPAM)` and
+/// `modify_now = modify_1st` -- and as `[[source: vt510-decstr]]` gives DECNKM:
+/// "Numeric characters". `RIS` does both too. At level 2, shift-Tab is
+/// `CSI 27 ; 2 ; 9 ~`; back at its first value it is `CSI Z`.
+#[test]
+fn decstr_and_ris_restore_the_keypad_and_modify_other_keys() {
+    let tab = KeyEvent::press(KeyCode::Tab, Modifiers::SHIFT);
+    for (reset, name) in [(&b"\x1b[!p"[..], "DECSTR"), (&b"\x1bc"[..], "RIS")] {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        support::feed(&mut t, b"\x1b=\x1b[>4;2m");
+        assert_eq!(t.keypad(), KeypadMode::Application, "the control");
+        t.clear_reply();
+        t.key(tab);
+        assert_eq!(t.reply(), b"\x1b[27;2;9~", "the control: level 2");
+        support::feed(&mut t, reset);
+        assert_eq!(t.keypad(), KeypadMode::Numeric, "{name}: the keypad");
+        t.clear_reply();
+        t.key(tab);
+        assert_eq!(t.reply(), b"\x1b[Z", "{name}: modifyOtherKeys");
+    }
+}

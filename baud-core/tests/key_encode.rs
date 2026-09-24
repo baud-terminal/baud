@@ -178,8 +178,8 @@ fn a_modified_cursor_key_uses_csi_even_in_application_mode() {
 /// `[[source: vt510-decarm]]`: "Reset: keys do not autorepeat", and "Default:
 /// Repeat (set)". So `?8l` drops a repeat and still sends a press, on the
 /// base layer and under kitty's event types alike; `?8h` and a full reset
-/// restore it. A soft reset restores it too: DEC's table for DECSTR leaves
-/// DECARM out, and baud's soft reset restores every mode to its default.
+/// restore it. A soft reset leaves it: DEC's table for DECSTR does not list
+/// DECARM, and xterm's soft reset does not touch it.
 #[test]
 fn a_repeat_is_dropped_while_autorepeat_is_reset() {
     let sent = |setup: &[u8], e: KeyEvent| -> Vec<u8> {
@@ -201,7 +201,10 @@ fn a_repeat_is_dropped_while_autorepeat_is_reset() {
     assert_eq!(sent(b"\x1b[?8l", a), b"a", "and a press still types");
     assert_eq!(sent(b"\x1b[?8l\x1b[?8h", repeat), b"a", "?8h restores it");
     assert_eq!(sent(b"\x1b[?8l\x1bc", repeat), b"a", "RIS restores it");
-    assert_eq!(sent(b"\x1b[?8l\x1b[!p", repeat), b"a", "DECSTR restores it");
+    assert!(
+        sent(b"\x1b[?8l\x1b[!p", repeat).is_empty(),
+        "DECSTR leaves it reset"
+    );
     let up = KeyEvent {
         kind: KeyEventKind::Repeat,
         ..KeyEvent::press(KeyCode::Up, Modifiers::NONE)

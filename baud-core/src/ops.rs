@@ -1169,13 +1169,16 @@ impl Paint<'_, '_> {
         self.set_alt_screen(ModeChange::Reset);
         self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
-        // mouse tracking and the keypad alone deliberately -- a full-screen
-        // application recovering with `CSI ! p` must not have them pulled out
-        // from under it -- and a power-on reset has no such caller to protect.
+        // mouse tracking alone deliberately -- a full-screen application
+        // recovering with `CSI ! p` must not have it pulled out from under it,
+        // and xterm clears it only in `ReallyReset`'s `if (full)` branch -- and
+        // the modes xterm's soft reset keeps. A power-on reset has no such
+        // caller to protect. The keypad was here as well, and is in
+        // `soft_reset` now: xterm resets it on both paths.
+        self.cold.modes = Modes::default();
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
         self.cold.highlight = HighlightTracking::Off;
-        self.cold.keypad = KeypadMode::Numeric;
         self.cold.terminal = TerminalMode::Ansi;
         self.cold.vt52_row = Vt52Coord::ZERO;
         // The open hyperlink is content rather than mode: a `RIS` clears the
@@ -1258,7 +1261,36 @@ impl Paint<'_, '_> {
         // primary mid-draw -- which is the same bug `baud-core2` fixed and
         // this file records under "DECSTR was leaving the alternate screen".
         // Found by `soft_reset_stays_on_the_alternate_screen`, ported.
-        self.cold.modes = Modes::default();
+        //
+        // **Only the modes xterm's soft reset restores**, not the whole mode
+        // word: `ReallyReset` with `full` false sets DECTCEM, clears DECLRMM
+        // (`resetMarginMode`) and DECOM, copies DECCKM, DECAWM and reverse
+        // wraparound from their power-on values and clears IRM. LNM, `?4`,
+        // `?5`, `?8`, focus reporting, the paste brackets and the meta and
+        // eight-bit input modes are RIS-only there, and this reset them all --
+        // so a program recovering with `CSI ! p` lost its bracketed paste.
+        // `?2026` has no xterm precedent, and a held frame is released: a soft
+        // reset is a recovery.
+        let power_on = Modes::default();
+        for m in [
+            ModeBit::CursorVisible,
+            ModeBit::SideMargins,
+            ModeBit::Origin,
+            ModeBit::CursorKeys,
+            ModeBit::AutoWrap,
+            ModeBit::ReverseWrap,
+            ModeBit::InsertReplace,
+            ModeBit::SynchronizedOutput,
+        ] {
+            self.cold.modes.apply(m, power_on.is_set(m));
+        }
+        // The keypad and the key-modifier resources, in `ReallyReset`'s
+        // common path -- `MODE_DECKPAM` cleared and `modify_now = modify_1st`
+        // -- so both resets restore them. `[[source: vt510-decstr]]` gives the
+        // keypad the same: DECNKM "Numeric characters".
+        self.cold.keypad = KeypadMode::Numeric;
+        self.cold.other_keys = OtherKeys::default();
+        self.cold.other_keys_format = OtherKeysFormat::default();
         self.reset_side_margins();
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);

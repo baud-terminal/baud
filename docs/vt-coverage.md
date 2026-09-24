@@ -566,7 +566,7 @@ renderer has.
 | `?5` | DECSCNM reverse video | done — `Term::reverse_video()` |
 | `?6` | DECOM origin | done |
 | `?7` | DECAWM autowrap | done |
-| `?8` | DECARM auto-repeat | done — set at power-on, as `[[source: vt510-decarm]]` gives it ("Default: Repeat (set)"); `Term::key` drops a repeat while it is reset, on every layer. xterm ignores the mode (its `srm_DECARM` case: "ignore autorepeat"). `DECSTR` restores it to set, because baud's soft reset restores every mode, where DEC's DECSTR table leaves DECARM out. `a_repeat_is_dropped_while_autorepeat_is_reset` |
+| `?8` | DECARM auto-repeat | done — set at power-on, as `[[source: vt510-decarm]]` gives it ("Default: Repeat (set)"); `Term::key` drops a repeat while it is reset, on every layer. xterm ignores the mode (its `srm_DECARM` case: "ignore autorepeat"). `DECSTR` leaves it, as DEC's DECSTR table and xterm's soft reset both do. `a_repeat_is_dropped_while_autorepeat_is_reset` |
 | `?12` | cursor blink | done — the blink axis of DECSCUSR, reached by another route |
 | `?25` | DECTCEM cursor visible | done |
 | `?45` | reverse wraparound | done |
@@ -633,7 +633,7 @@ In scope. Needed by real applications (vim, tmux, htop) but not by every one.
 
 | seq | name | status |
 |---|---|---|
-| `CSI ! p` | DECSTR soft reset | done — resets the DEC-defined state and **not** the alternate screen, `alt_saved`, mouse tracking or its encoding. Those are xterm extensions, so a DEC list cannot mention them and xterm decides: in `ReallyReset` all four are inside the `if (full)` RIS branch, `FromAlternate` next to `ClearScreen` (`[[source: xterm-reset]]`). baud reset them until 2026-08-27, so a full-screen application recovering with `CSI ! p` was dropped onto the primary screen and lost what `?1049 h` had saved. See `tests/xterm/soft_reset_scope.rs` |
+| `CSI ! p` | DECSTR soft reset | done — resets the DEC-defined state and **not** the alternate screen, `alt_saved`, mouse tracking or its encoding. Those are xterm extensions, so a DEC list cannot mention them and xterm decides: in `ReallyReset` all four are inside the `if (full)` RIS branch, `FromAlternate` next to `ClearScreen` (`[[source: xterm-reset]]`). baud reset them until 2026-08-27, so a full-screen application recovering with `CSI ! p` was dropped onto the primary screen and lost what `?1049 h` had saved. **Of the mode word it restores only what xterm's soft reset restores**: DECTCEM, DECLRMM, DECOM, DECCKM, DECAWM, reverse wraparound and IRM, and releases `?2026`, which xterm lacks; LNM, `?4`, `?5`, `?8`, `?1004`, `?1034`, `?1036`, `?1039` and `?2004` stay, as they do there. It restores the keypad to numeric and `modifyOtherKeys` to its first value, which xterm does on both resets and RIS here did not. Until 2026-09-24 it restored the whole mode word, so a program recovering with `CSI ! p` lost its bracketed paste (`decstr_restores_the_modes_xterm_restores_and_keeps_the_rest`, `decstr_and_ris_restore_the_keypad_and_modify_other_keys`). See `tests/xterm/soft_reset_scope.rs` |
 | `CSI SP q` | DECSCUSR cursor style | done |
 | `CSI " q` | DECSCA character protection | done |
 | `CSI ? J` | DECSED selective erase display | done |

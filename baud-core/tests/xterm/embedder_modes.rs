@@ -70,10 +70,18 @@ fn ris_clears_both() {
     assert_eq!(term(b"\x1b[?2004h\x1b[?2026h\x1bc"), (false, false));
 }
 
-/// DECSTR clears them too.
+/// DECSTR releases a held frame and keeps the paste brackets. xterm's soft
+/// reset leaves `paste_brackets` alone -- it is cleared only in `ReallyReset`'s
+/// `if (full)` branch -- and xterm has no synchronised update, so releasing the
+/// frame is baud's own choice: a soft reset is a recovery.
 #[test]
-fn decstr_clears_both() {
-    assert_eq!(term(b"\x1b[?2004h\x1b[?2026h\x1b[!p"), (false, false));
+fn decstr_releases_the_frame_and_keeps_the_brackets() {
+    assert_eq!(
+        term(b"\x1b[?2004h\x1b[?2026h"),
+        (true, true),
+        "the control: both set"
+    );
+    assert_eq!(term(b"\x1b[?2004h\x1b[?2026h\x1b[!p"), (true, false));
 }
 
 /// DECRQM now reports them, because they are implemented.
