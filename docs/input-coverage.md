@@ -131,6 +131,13 @@ created the demand.
 * **DECUDK** — user-defined keys. `vt-coverage.md` lists it `out` as
   input-side; it stops being out once there is an input side, and it needs the
   DCS payload the parser already collects.
-* **Key repeat, compose, dead keys, IME** — these belong to the platform layer
-  above baud, which has no event source. Recording them here would be a bit set
-  and never read.
+* **Compose, dead keys, IME** — these belong to the platform layer above
+  baud's core. Recording them here would be a bit set and never read.
+* **Key repeat is the platform's to generate and the core's to encode.** An
+  embedder delivers a held key as `KeyEventKind::Repeat`, and the encoder sends
+  it as the press everywhere but `[[source: kitty-keyboard]]`'s event types,
+  which report it as `:2`: "Normally only key press events are reported and
+  key repeat events are treated as key press events." A release sends nothing
+  outside event types. `baud-app` on macOS delivers AppKit's repeats; nothing
+  delivers a release yet. `?8` DECARM does not filter repeats, as xterm's
+  does not.

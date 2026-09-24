@@ -200,3 +200,42 @@ fn a_press_is_the_default_kind() {
     // a terminal that reports presses alone produces -- and is the default.
     assert_eq!(KeyEventKind::default(), KeyEventKind::Press);
 }
+
+/// **The encoder treats a repeat as a press and never sends a release, on the
+/// base layer.** `[[source: kitty-keyboard]]`: "Normally only key press events
+/// are reported and key repeat events are treated as key press events." This is
+/// the encoder itself, with a fresh terminal's state and no enhancement; the
+/// core's `Term::key` tests reach it through the mode state they build.
+#[test]
+fn the_base_encoder_sends_a_repeat_as_a_press_and_no_release() {
+    let s = KeyState {
+        modes: Modes::default(),
+        keypad: KeypadMode::default(),
+        other_keys: OtherKeys::default(),
+        other_keys_format: OtherKeysFormat::default(),
+        c1: C1Transmit::default(),
+        terminal: TerminalMode::default(),
+        encoding: InputEncoding::default(),
+        kitty: KittyFlags::NONE,
+    };
+    let bytes = |e: KeyEvent| encode_key(e, s).map(|k| k.as_bytes().to_vec());
+    for code in [
+        KeyCode::Up,
+        KeyCode::Backspace,
+        KeyCode::Char(Codepoint::from_char('x')),
+    ] {
+        let press = KeyEvent::press(code, Modifiers::NONE);
+        let pressed = bytes(press);
+        assert!(pressed.is_some(), "{code:?} has a legacy encoding");
+        let repeat = KeyEvent {
+            kind: KeyEventKind::Repeat,
+            ..press
+        };
+        assert_eq!(bytes(repeat), pressed, "{code:?}: a repeat is the press");
+        let release = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..press
+        };
+        assert_eq!(bytes(release), None, "{code:?}: no release");
+    }
+}

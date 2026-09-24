@@ -612,10 +612,13 @@ impl KeyCode {
 
 /// Whether a key went down, came up, or repeated.
 ///
-/// An enum and not a pair of `bool`s. Only `[[source: kitty-keyboard]]` reports
-/// anything but `Press`, and only when an application has asked for event
-/// types -- so a terminal that reports presses alone is complete, and this
-/// records which kind it *is* rather than two flags that can both be set.
+/// An enum and not a pair of `bool`s: it records which kind the event *is*
+/// rather than two flags that can both be set. Only
+/// `[[source: kitty-keyboard]]`'s event types report the kind; everywhere else
+/// "key repeat events are treated as key press events" and a release sends
+/// nothing. So an embedder delivers every kind it knows, and the encoder
+/// decides what each is worth: a repeat delivered as a press loses only the
+/// `:2` an application asked for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum KeyEventKind {
     #[default]

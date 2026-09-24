@@ -566,7 +566,7 @@ renderer has.
 | `?5` | DECSCNM reverse video | done — `Term::reverse_video()` |
 | `?6` | DECOM origin | done |
 | `?7` | DECAWM autowrap | done |
-| `?8` | DECARM auto-repeat | done — `Term::auto_repeat()` |
+| `?8` | DECARM auto-repeat | done — `Term::auto_repeat()`, recorded and exposed; no key is filtered on it, as xterm filters none (its `srm_DECARM` case: "ignore autorepeat") |
 | `?12` | cursor blink | done — the blink axis of DECSCUSR, reached by another route |
 | `?25` | DECTCEM cursor visible | done |
 | `?45` | reverse wraparound | done |

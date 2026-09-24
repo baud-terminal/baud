@@ -146,6 +146,35 @@ fn the_worked_forms_are_what_baud_sends() {
     );
 }
 
+/// **A key that produces text keeps its legacy bytes, and a repeat of it is a
+/// press.** `[[source: kitty-keyboard]]`: "Key events that result in text are
+/// reported as plain UTF-8 text, so events are not supported for them, unless
+/// the application requests key report mode". So under disambiguation alone,
+/// and with event types too, a plain `a` held down types `a` again, and its
+/// release sends nothing. The same for Enter, which the spec gives no release
+/// event without all-keys-as-escapes. A text key reaches the base encoder
+/// here, which dropped every repeat -- so a held `a` typed once.
+#[test]
+fn a_text_keys_repeat_is_its_text_and_its_release_is_nothing() {
+    let a = KeyEvent::press(KeyCode::Char(Codepoint::from_char('a')), Modifiers::NONE);
+    let enter = KeyEvent::press(KeyCode::Enter, Modifiers::NONE);
+    for setup in [&b"\x1b[=1u"[..], &b"\x1b[=3u"[..]] {
+        for (key, text) in [(a, &b"a"[..]), (enter, &b"\r"[..])] {
+            assert_eq!(pressed(setup, key), text, "a press");
+            let repeat = KeyEvent {
+                kind: KeyEventKind::Repeat,
+                ..key
+            };
+            assert_eq!(pressed(setup, repeat), text, "a repeat is the press");
+            let release = KeyEvent {
+                kind: KeyEventKind::Release,
+                ..key
+            };
+            assert!(pressed(setup, release).is_empty(), "no release");
+        }
+    }
+}
+
 /// Event types add a `:2` (repeat) or `:3` (release) sub-field, and the
 /// modifier field defaults to `1` to carry it when nothing is held. Without the
 /// enhancement, a release is not reported at all.

@@ -12,8 +12,8 @@ use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal,
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
-    Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, ReadLen,
-    Row, RowRot, Rows, WinSize,
+    KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
+    PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -1511,6 +1511,17 @@ fn mods(m: macos_liquid_glass::drawable::Modifiers) -> Modifiers {
     out
 }
 
+/// What kind of key event AppKit delivered: a key the system repeats while it
+/// is held is marked, and the core reports it as a repeat only where
+/// `[[source: kitty-keyboard]]`'s event types asked for one -- everywhere else
+/// the encoder sends it as the press it replays.
+fn kind_of(key: &KeyPress) -> KeyEventKind {
+    match key.repeat {
+        true => KeyEventKind::Repeat,
+        false => KeyEventKind::Press,
+    }
+}
+
 /// The keys a macOS virtual key code names outright, before any text.
 fn special(key: &KeyPress) -> Option<KeyCode> {
     Some(match key.key_code {
@@ -1706,6 +1717,14 @@ struct Driver {
     /// The button a drag reports: the one that went down, until it comes
     /// up. AppKit's motion events name no button.
     held: Option<MouseButton>,
+    /// The kind of the key being handled, from `key()` to the `typed()` it
+    /// reaches. A printable key goes through the input manager, whose
+    /// `text()` and `command()` carry no repeat flag, so `key()` notes it
+    /// here first and `typed()` takes it, so a repeat marks one event. A
+    /// repeating key that types nothing leaves it set until the next `key()`
+    /// resets it, and only a `text()` from outside a key press -- an input
+    /// method committing on a click -- could take it in between.
+    key_kind: KeyEventKind,
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
@@ -2597,6 +2616,10 @@ impl Driver {
     /// returned. The wheel on the alternate screen sends arrow keys through
     /// `App::send` directly: it is not a keystroke and is not stamped.
     fn typed(&mut self, e: KeyEvent) {
+        let e = KeyEvent {
+            kind: std::mem::take(&mut self.key_kind),
+            ..e
+        };
         self.app.latency.key(current_event_time, host_now);
         let (text, held) = (e.text, e.mods);
         match self.app.send(e) {
@@ -2970,6 +2993,7 @@ impl Driver {
 
 impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
+        self.key_kind = kind_of(key);
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
             // here, and one it does not sends nothing to the child.
@@ -3675,6 +3699,7 @@ pub fn run() {
             DockIcon::Ours => icon.clone(),
         },
         held: None,
+        key_kind: KeyEventKind::Press,
         armed: None,
         focused: baud_core::Focus::Lost,
         bar_drag: None,
@@ -4555,6 +4580,22 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A key AppKit marks as repeated reaches the core as a repeat, which it
+    /// sends as the press unless an application asked for kitty's event
+    /// types; an unmarked key is a press.
+    #[test]
+    fn a_repeated_key_is_a_repeat_and_a_fresh_one_a_press() {
+        let key = |repeat| KeyPress {
+            key_code: 0x7E,
+            characters: String::new(),
+            unmodified: String::new(),
+            modifiers: macos_liquid_glass::drawable::Modifiers::default(),
+            repeat,
+        };
+        assert_eq!(kind_of(&key(true)), KeyEventKind::Repeat);
+        assert_eq!(kind_of(&key(false)), KeyEventKind::Press);
+    }
 
     #[test]
     fn option_starts_a_block_and_wins_over_shift() {

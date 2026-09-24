@@ -174,27 +174,43 @@ fn a_modified_cursor_key_uses_csi_even_in_application_mode() {
     );
 }
 
-/// Releases and repeats are not sent on this layer.
+/// **A repeat is a press on this layer, and a release is nothing.**
 ///
-/// Only `[[source: kitty-keyboard]]` reports them, and only once an
-/// application has asked. A terminal that volunteered them would be sending
-/// bytes nothing requested.
+/// `[[source: kitty-keyboard]]`: "Normally only key press events are reported
+/// and key repeat events are treated as key press events." A held key on a
+/// terminal that reports no event types is the key pressed again, which is
+/// what every terminal sends while a key is held. A release is the event-types
+/// enhancement's alone. This test used to pin the opposite -- a repeat sent
+/// nothing, as "bytes nothing requested" -- which would have made holding a
+/// key type it once the day an embedder delivered a repeat. None did, so the
+/// rule had never run.
 #[test]
-fn only_presses_are_encoded() {
+fn a_repeat_is_a_press_and_a_release_is_nothing() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
-        let e = KeyEvent {
-            code: KeyCode::Up,
-            mods: Modifiers::NONE,
-            kind,
-            text: None,
-            shifted: None,
-            base_layout: None,
+    for code in [
+        KeyCode::Up,
+        KeyCode::Enter,
+        KeyCode::Char(Codepoint::from_char('a')),
+    ] {
+        let press = KeyEvent::press(code, Modifiers::NONE);
+        assert!(t.key(press), "{code:?} pressed");
+        let pressed = t.reply().to_vec();
+        t.clear_reply();
+        let repeat = KeyEvent {
+            kind: KeyEventKind::Repeat,
+            ..press
         };
-        assert!(!t.key(e), "{kind:?} must not be encoded");
-        assert!(t.reply().is_empty(), "and must write nothing");
+        assert!(t.key(repeat), "{code:?} repeated is sent");
+        assert_eq!(t.reply(), &pressed[..], "{code:?} repeated is the press");
+        t.clear_reply();
+        let release = KeyEvent {
+            kind: KeyEventKind::Release,
+            ..press
+        };
+        assert!(!t.key(release), "{code:?} released is not encoded");
+        assert!(t.reply().is_empty(), "and writes nothing");
     }
 }
 
@@ -993,17 +1009,16 @@ proptest! {
         }
     }
 
-    /// **A release is never encoded, whatever the mode.**
+    /// **A release is never encoded on this layer, whatever the mode.**
     ///
-    /// `[[source: kitty-keyboard]]` is what reports releases, and it is not
-    /// implemented. An application that has not asked for them must never see
-    /// one -- it would read the release as a second press.
+    /// `[[source: kitty-keyboard]]`'s event types are what report releases.
+    /// An application that has not asked for them must never see one -- it
+    /// would read the release as a second press.
     #[test]
-    fn releases_and_repeats_are_never_sent(
+    fn a_release_is_never_sent(
         code in any_key(),
         bits in 0u8..16,
         setup in any_modes(),
-        release in any::<bool>(),
     ) {
         let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
         let ws = support::CORPUS;
@@ -1013,10 +1028,33 @@ proptest! {
             feed(&mut t, m);
         }
         t.clear_reply();
-        let kind = if release { KeyEventKind::Release } else { KeyEventKind::Repeat };
+        let kind = KeyEventKind::Release;
         let sent = t.key(KeyEvent { code, mods, kind, text: None, shifted: None, base_layout: None });
         prop_assert!(!sent);
         prop_assert!(t.reply().is_empty());
+    }
+
+    /// **A repeat sends exactly what a press of the same key sends**, under
+    /// every mode this suite reaches: `[[source: kitty-keyboard]]` treats a
+    /// repeat as a press wherever event types are not reported.
+    #[test]
+    fn a_repeat_sends_what_a_press_sends(
+        code in any_key(),
+        bits in 0u8..16,
+        setup in any_modes(),
+    ) {
+        let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
+        let pressed = encode(code, mods, &setup);
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for m in &setup {
+            feed(&mut t, m);
+        }
+        t.clear_reply();
+        let kind = KeyEventKind::Repeat;
+        let sent = t.key(KeyEvent { kind, ..KeyEvent::press(code, mods) });
+        prop_assert_eq!((sent, t.reply().to_vec()), pressed);
     }
 
     /// **A modified key never uses `SS3`.**

@@ -380,10 +380,15 @@ pub fn encode_key(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
 
 /// The base layer, `[[source: ctlseqs]]`'s legacy encoding.
 fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
-    // Only presses exist on this layer. `[[source: kitty-keyboard]]` is what
-    // reports releases and repeats, and an application that has not enabled it
-    // must not start seeing them.
-    if e.kind != KeyEventKind::Press {
+    // A repeat is a press here and a release is nothing.
+    // `[[source: kitty-keyboard]]`: "Normally only key press events are
+    // reported and key repeat events are treated as key press events." A held
+    // key on this layer is the key pressed again, which every terminal sends;
+    // only the event-types enhancement reports a release, and an application
+    // that has not enabled it would read one as a second press. This used to
+    // drop repeats as well, which would have typed a held key once the day an
+    // embedder delivered one.
+    if e.kind == KeyEventKind::Release {
         return None;
     }
     let mut o = KeyBytes::new();
