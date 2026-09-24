@@ -120,33 +120,24 @@ pub struct Storage<'b> {
     pub(crate) tmpl: &'b mut [Option<StyleWord>],
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
-    /// **Where the primary screen waits while the alternate screen is up.**
+    /// **The alternate screen's own surface**: its cells, its extents and its
+    /// rotation, whichever screen is up. `vp`, `used` and the terminal's
+    /// rotation are always the primary's, and this is always the alternate
+    /// screen's.
     ///
-    /// One buffer and not a second live surface, and the difference is worth
-    /// stating because `baud-core2` made the other choice. `[[source:
-    /// ctlseqs]]`'s `?1049` *clears* the alternate screen on entry, so its
-    /// content never has to survive an exit -- which is what makes "two
-    /// surfaces, pick one per operation" and "park the primary, hand the grid
-    /// over" render the same screen.
+    /// This was once where the primary waited: `?1049` copied the primary out
+    /// and back and the grid was handed over, which is also why `?47` --
+    /// which switches buffers *without* clearing, so its alternate content
+    /// has to survive an exit -- could not be expressed. Since the grid became
+    /// the scrollback ring the two screens are two surfaces, and a read that
+    /// runs on the alternate screen swaps them inside its `View`
+    /// (`View::swap_surface`), so a transition copies nothing and
+    /// `Term::set_rots` puts each rotation back where it belongs. `?47` is
+    /// still routed nowhere (`PrivateMode::AltScreenLegacy`), so it is
+    /// unimplemented rather than wrong; what made it inexpressible is gone.
     ///
-    /// **`?1049` is the only alternate screen this core implements, and that
-    /// is load-bearing rather than incidental.** `?47` is the pre-1049 form
-    /// and it *switches buffers without clearing*, so its alternate content
-    /// does have to survive an exit -- which parking cannot express, because
-    /// the one grid is handed over and the parked copy holds the primary.
-    /// `baud-core` routes `PrivateMode::AltScreenLegacy` nowhere, so `?47` is
-    /// unimplemented here rather than wrong; `baud-core2` implements it with
-    /// two live surfaces, which is the shape it needs. Implementing `?47` here
-    /// means giving up parking, and this note is so that trade is made
-    /// deliberately.
-    ///
-    /// Parking is what costs nothing on the path that matters. core2 branches
-    /// on `screen` at every site that builds a `View`; here `View` is built
-    /// **once per read** and always addresses `vp`, so the per-character loop
-    /// never learns the alternate screen exists. What it costs instead is one
-    /// copy of the grid per transition -- ~78 KB at the corpus geometry,
-    /// microseconds, on a path a session takes a handful of times. The whole
-    /// corpus contains **one** alt-screen exit.
+    /// The per-character loop still never learns which screen is up:
+    /// `View` is built **once per read**, over whichever surface is live.
     /// Interned grapheme clusters, indexed **from the cell**.
     ///
     /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
@@ -186,19 +177,15 @@ pub struct Storage<'b> {
     pub(crate) sixel_body: &'b mut [u8],
 }
 
-/// The parked primary screen: its cells, its extents and its rotation.
+/// The alternate screen's surface: its cells, its extents and its rotation.
 ///
-/// **One struct rather than three fields, so they cannot be parked
+/// **One struct rather than three fields, so they cannot be swapped
 /// separately.** `RowExtent` is indexed by *physical* row and `RowRot` is what
 /// makes a physical row out of a screen row, so the three are one value; a
-/// restore missing either gives a grid whose rows are in the wrong order or
-/// whose blanking stops at the other surface's marks. `View::save_to` and
-/// `View::restore_from` take all three in one call for the same reason.
-///
-/// It is also why `Paint` carries **one** word for this rather than two
-/// slices: this file records a thin reference recovering most of the cost of
-/// carrying a slice through the inlined loop, and the grouping was chosen for
-/// correctness first and gets that for free.
+/// swap missing either gives a grid whose rows are in the wrong order or
+/// whose blanking stops at the other surface's marks. `View::swap_surface`
+/// exchanges all three, and the ring, in one call for the same reason, and
+/// `Paint` carries the screen that is not up as one `Surface`.
 pub struct AltBuf<'b> {
     pub(crate) cells: &'b mut [PackedCell],
     pub(crate) used: &'b mut [RowExtent],

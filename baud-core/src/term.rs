@@ -765,8 +765,9 @@ impl<'b> Term<'b> {
     /// grid is caller-provided, so this can shrink freely and can only grow
     /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
     /// number, and asking for more returns `Truncated` rather than clamping in
-    /// silence. Columns are free to the pitch, which is `MAX_COLS` or more by
-    /// construction.
+    /// silence. Columns are free to the pitch, which `store_stride` derives
+    /// from the provisioned width -- 208 cells for the corpus, 400 for the app
+    /// -- so a width past what was provisioned is `Truncated` too.
     ///
     /// **A change of width re-cuts the primary and not the alternate
     /// screen.** Between output and output the primary's lines are re-cut to
