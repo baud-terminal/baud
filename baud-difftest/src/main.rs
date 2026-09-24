@@ -272,6 +272,16 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
             "LF below region",
             b"\x1b[1;1HH1\x1b[1;49r\x1b[50;1HST\nXY".to_vec(),
         ),
+        // A status line in a colour under a top region that scrolls sixty
+        // times: the repair puts it back each time, to the edge, colour and
+        // all, over rows that held something else.
+        ("status under region", {
+            let mut v = b"\x1b[50;1H\x1b[44mstatus\x1b[K\x1b[0m\x1b[1;49r\x1b[49;1H".to_vec();
+            for i in 0..60 {
+                v.extend(format!("line {i:02} of the log\n\r").as_bytes());
+            }
+            v
+        }),
     ]
 }
 

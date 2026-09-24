@@ -339,6 +339,7 @@ impl Paint<'_, '_> {
             {
                 self.scroll_rot += k;
             }
+            let mut moved = 0;
             for _ in 0..k {
                 self.retire();
                 self.view.advance_rot(1);
@@ -346,7 +347,8 @@ impl Paint<'_, '_> {
                 self.warm_incoming();
                 // **Descending, so a row is read before it is overwritten.**
                 for y in (bot.index() + 1..=last).rev() {
-                    self.view
+                    moved += self
+                        .view
                         .copy_row(Row::from_index(y - 1), Row::from_index(y));
                 }
                 self.fill_row_counted(bot);
@@ -364,7 +366,7 @@ impl Paint<'_, '_> {
                     );
                 }
             }
-            self.cells = self.cells.plus(k * below * self.cols.index());
+            self.cells = self.cells.plus(moved);
             return;
         }
         #[cfg(feature = "diag")]

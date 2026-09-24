@@ -709,19 +709,31 @@ impl<'a> View<'a> {
         self.cells.len()
     }
 
-    /// Copy screen row `from` over screen row `to`, extent included.
+    /// Copy screen row `from` over screen row `to` to the live edge, extent
+    /// included, and return the cells written.
     ///
     /// **For repairing the rows a rotation moved that should not have moved.**
     /// A scrolling region that does not span the screen cannot be a whole-grid
     /// rotation -- but it can be one *plus* putting the few rows outside the
     /// region back, and for the usual shape (a full-height region with a
     /// status line under it) that is one row instead of forty-nine.
-    pub fn copy_row(&mut self, from: Row, to: Row) {
+    ///
+    /// **Only as far as the larger of the two rows' marks.** Past its mark a
+    /// row is uniform to the live edge -- every cell its last -- so past the
+    /// larger mark the destination already holds the source's cells when the
+    /// two rows end in the same cell, and one fill from the source's last cell
+    /// makes it hold them when they do not. A log pane over a dashboard copies
+    /// every dashboard row on every scroll, and a dashboard row uses a quarter
+    /// of a 200-column screen. A mark past the live edge copies the whole
+    /// width, which is what this did for every row before; the cells past the
+    /// edge stay the destination's, as they did.
+    pub fn copy_row(&mut self, from: Row, to: Row) -> usize {
         let (a, b) = (self.phys(from), self.phys(to));
         if a == b {
-            return;
+            return 0;
         }
         let w = self.cols.index();
+        let n = self.used[a].index().max(self.used[b].index()).min(w);
         let stride = self.stride.index();
         let (lo, hi) = match a < b {
             true => (a, b),
@@ -732,8 +744,21 @@ impl<'a> View<'a> {
             true => (&head[lo * stride..lo * stride + w], &mut tail[..w]),
             false => (&tail[..w], &mut head[lo * stride..lo * stride + w]),
         };
-        dst.copy_from_slice(src);
+        dst[..n].copy_from_slice(&src[..n]);
         self.used[b] = self.used[a];
+        if n == w {
+            return n;
+        }
+        let last = src[w - 1];
+        debug_assert!(
+            src[n..].iter().all(|&c| c == last) && dst[n..].iter().all(|&c| c == dst[w - 1]),
+            "a row is not uniform past its mark"
+        );
+        if dst[w - 1] == last {
+            return n;
+        }
+        dst[n..].fill(last);
+        w
     }
 
     /// The mark for screen row `r`.

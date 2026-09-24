@@ -220,3 +220,123 @@ fn reading_the_viewport_between_scrolls_keeps_the_marks_aligned() {
         );
     }
 }
+
+/// Where screen row `y` stops being uniform, measured: the first column from
+/// which every cell to the live edge equals the row's last cell -- content,
+/// rendition and flags, the whole eight bytes.
+fn uniform_from(t: &Term, y: usize) -> usize {
+    let row = t.row(Row::from_index(y));
+    let Some(last) = row.last() else { return 0 };
+    row.iter().rposition(|c| c != last).map_or(0, |p| p + 1)
+}
+
+/// Feed `bytes` in reads of `chunk` and, after every read, require each screen
+/// row's mark to reach at least where the row stops being uniform.
+fn feed_checking(name: &str, t: &mut Term, bytes: &[u8], chunk: usize) {
+    let mut i = 0;
+    while i < bytes.len() {
+        let n = chunk.min(READ_CHUNK).min(bytes.len() - i);
+        t.write_at(BytePos::ZERO, &bytes[i..i + n]);
+        t.feed(BytePos::ZERO, ReadLen::from_index(n));
+        i += n;
+        let (_, rows) = t.geometry();
+        for y in 0..rows.index() {
+            let want = uniform_from(t, y);
+            let got = t.row_extent(Row::from_index(y)).index();
+            assert!(
+                got >= want,
+                "{name}, reads of {chunk}, after byte {i}: row {y} is not \
+                 uniform to the edge until column {want}, but its mark says \
+                 {got}"
+            );
+        }
+    }
+}
+
+fn recording(name: &str) -> Vec<u8> {
+    std::fs::read(format!(
+        "{}/../tests/recordings/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect(name)
+}
+
+/// **Past its mark a row is uniform: every cell to the live edge is the row's
+/// last cell.** That is what the mark means -- "where the row stops being
+/// uniform", not where the glyphs are -- and the test above checks only its
+/// weaker half, the glyphs. Two readers depend on the stronger one. `fill_row`
+/// stops at the mark when the row already ends in the blank it would write,
+/// which leans on it only for rows ending in that blank; the region repair's
+/// `copy_row` copies only to the larger of two rows' marks and fills past it
+/// from the source's last cell, which leans on it for every row, a coloured
+/// or styled tail included. So this checks every cell's eight bytes, after
+/// every read, on every recording, the mixed stream, and a script of the
+/// operations that write a styled tail.
+#[test]
+fn every_row_is_uniform_past_its_mark() {
+    let names = [
+        "ascii/cat-scroll.raw",
+        "utf8/btop.raw",
+        "ascii/git-log.raw",
+        "utf8/cat-cjk.raw",
+        "ascii/asciiquarium.raw",
+        "utf8/vim-unicode.raw",
+        "ascii/less-pager.raw",
+        "utf8/less-cjk.raw",
+        "utf8/cava.raw",
+    ];
+    for name in names {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed_checking(name, &mut t, &recording(name), READ_CHUNK);
+    }
+    // The mixed stream, in `ingest2`'s order: the one corpus payload that
+    // scrolls a region anchored at the top with rows under it.
+    let mix: Vec<u8> = names[..8].iter().flat_map(|n| recording(n)).collect();
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    feed_checking("mix", &mut t, &mix, READ_CHUNK);
+}
+
+/// The same over the operations that leave a styled or protected tail, and a
+/// log pane scrolling over a dashboard of coloured rows, at four read sizes.
+#[test]
+fn a_styled_tail_leaves_every_row_uniform_past_its_mark() {
+    let mut b: Vec<u8> = Vec::new();
+    for y in 1..=50 {
+        b.extend_from_slice(format!("\x1b[{y};1H\x1b[3{}mrow{y:02} text", y % 8).as_bytes());
+    }
+    for seq in [
+        "\x1b[0m\x1b[3;1H\x1b[44m\x1b[K",         // EL in a colour, mid-row
+        "\x1b[4;5H\x1b[41m\x1b[3X",               // ECH in a colour, inside the text
+        "\x1b[5;200H\x1b[42m\x1b[1X",             // ECH at the last column
+        "\x1b[6;3H\x1b[43m\x1b[2@",               // ICH in a colour
+        "\x1b[7;3H\x1b[45m\x1b[2P",               // DCH in a colour
+        "\x1b[0m\x1b[8;1H\x1b[1\"qprot\x1b[0\"q", // DECSCA-protected text
+        "\x1b[46m\x1b[8;1H\x1b[?K",               // DECSEL spares it
+        "\x1b[9;1H\x1b[?2K",                      // DECSEL the whole line
+        "\x1b[10;198H\x1b[0m\u{65e5}",            // a wide character at the edge
+        "\x1b[11;199H\u{65e5}",                   // one that cannot fit
+        "\x1b[12;1He\u{301}\u{301}",              // a mark on a cell
+        "\x1b[47m\x1b[13;1H\x1b[?1J",             // DECSED above
+        "\x1b[0m\x1b[30;1Hshort\x1b[30;30H\x1b[41m\x1b[3X", // ECH past the text
+        "\x1b[0m\x1b[1;20r\x1b[20;1H",            // a top region over the rest
+    ] {
+        b.extend_from_slice(seq.as_bytes());
+    }
+    for i in 0..60 {
+        b.extend_from_slice(format!("\x1b[3{}mlog {i:02} line\r\n", i % 8).as_bytes());
+    }
+    for chunk in [1, 3, 17, READ_CHUNK] {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed_checking("the styled-tail script", &mut t, &b, chunk);
+        // **The probe sees a styled tail.** Row 30 holds `short text` and
+        // three red blanks at columns 29-31, under the region and so repaired
+        // on every scroll; a check that read glyphs alone would put it at 10.
+        assert_eq!(uniform_from(&t, 29), 32, "reads of {chunk}");
+    }
+}

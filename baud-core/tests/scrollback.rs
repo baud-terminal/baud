@@ -258,6 +258,102 @@ fn a_top_log_pane_keeps_every_line_it_scrolls_off() {
     });
 }
 
+/// **The rows under a top region come back cell for cell, whatever row takes
+/// them.** The repair copies each row under the region onto the row below it
+/// only as far as the larger of the two rows' marks, and past that fills with
+/// the source's last cell when the two rows' last cells differ. The rows here
+/// need both halves: a status line erased in blue, whose mark is zero and
+/// whose tail is not the default blank, lands on a line of red text and then
+/// a short line lands on it; and a short last line lands, once the ring has
+/// wrapped, on a recycled history line longer than it. The ring is three
+/// lines deep so it wraps inside the test.
+#[test]
+fn the_rows_under_a_top_region_come_back_cell_for_cell() {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(3));
+    let mut t = Term::new(owned.storage(), &ws);
+    support::feed(
+        &mut t,
+        b"\x1b[1;6r\x1b[7;1Hdash 07\x1b[8;1H\x1b[44m\x1b[2K\x1b[0m\
+          \x1b[9;1H\x1b[31mred text\x1b[0m\x1b[10;1Hend",
+    );
+    let under = |t: &Term<'_>| {
+        (6..10)
+            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .collect::<Vec<_>>()
+    };
+    let want = under(&t);
+    assert_eq!(want[0].len(), 40, "rows are read to the live edge");
+    let mut s = String::from("\x1b[1;1H");
+    for i in 0..40 {
+        s.push_str(&format!("log {i:02} {}\r\n", "x".repeat(30)));
+    }
+    support::feed(&mut t, s.as_bytes());
+    assert_eq!(t.scrollback().len(), 3, "the ring wrapped");
+    assert_eq!(under(&t), want);
+}
+
+/// **A mark past the live edge is not a width.** At a prompt a narrower
+/// screen is not re-cut, so a row written wide keeps its tail past the edge
+/// and a mark there. The repair copies that row whole to the live edge, as it
+/// always has, and does not read past the row.
+#[test]
+fn a_row_with_a_hidden_tail_under_a_top_region_survives_a_scroll() {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let narrow = WinSize {
+        ws_row: 10,
+        ws_col: 20,
+    };
+    let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &ws);
+    let mut s = String::from("\x1b[9;1H");
+    s.push_str(&"S".repeat(30));
+    s.push_str("\x1b[10;1H\x1b]133;A\x07");
+    support::feed(&mut t, s.as_bytes());
+    assert_eq!(t.resize(&narrow), Resized::Ok);
+    support::feed(&mut t, b"\x1b[1;6r");
+    assert_eq!(
+        t.row_extent(Row::from_index(8)).index(),
+        30,
+        "at a prompt the narrower screen did not re-cut, so the tail is hidden"
+    );
+    let want = (6..10)
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect::<Vec<_>>();
+    let before = t.region_scrolls();
+    support::feed(&mut t, b"\x1b[6;1H\n\n\n\n\n");
+    assert_ne!(t.region_scrolls(), before, "the region rotated");
+    let got = (6..10)
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect::<Vec<_>>();
+    assert_eq!(got, want);
+    assert_eq!(t.row_extent(Row::from_index(8)).index(), 30);
+}
+
+/// **The repair counts the cells it writes**, which is the rows under the
+/// region to their marks, not to the width. Three rows of four glyphs under a
+/// top region, one scroll: each row is copied to a mark of four, and the
+/// region's new bottom row is blanked to its mark of four.
+#[test]
+fn the_repair_counts_the_cells_it_writes() {
+    support::with_corpus(|t| {
+        support::feed(
+            t,
+            b"\x1b[48;1Hdash\x1b[49;1Hdash\x1b[50;1Hdash\x1b[1;47r\x1b[47;1H",
+        );
+        let (_, before) = t.amplification();
+        support::feed(t, b"\n");
+        let (_, after) = t.amplification();
+        assert_eq!(after - before, 3 * 4 + 4);
+    });
+}
+
 /// **A shorter primary screen retires its top rows so the cursor's stay.**
 /// Fifty numbered rows, cursor on the last; shrink to ten: the screen shows
 /// rows 40..49, the cursor is on row 9, and the forty rows are in history.
