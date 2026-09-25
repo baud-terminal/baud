@@ -318,6 +318,24 @@ group  = "C"
 # A $TERM value is a capability *profile*, not a protocol -- xterm-256color
 # is xterm with a different colour capability, not a different parser.
 
+# The terminfo(5) page of the same ncurses, for the grammar of a string
+# capability's `$<..>` delay: "a number with at most one decimal place of
+# precision; it may be followed by suffixes `*` or `/` or both". baud reads
+# the `flash` capability's delay out of the entry it advertises as $TERM, at
+# build time, into a bounded type (`baud_domain::terminfo::Delay`).
+[sources.terminfo-man5]
+key    = "terminfo-man5"
+title  = "terminfo(5): terminal capability data base"
+author = "ncurses 6.0.20150808 (terminfo.head 1.21, terminfo.tail 1.69)"
+year   = 2015
+venue  = "ncurses manual pages, /usr/share/man/man5/terminfo.5 on macOS"
+url    = "https://invisible-island.net/ncurses/man/terminfo.5.html"
+file   = "terminfo/terminfo.5"
+sha256 = "229b3f5cd16826ed0d9dddd1ee7b14f86f9893521738a6328f58b2487c40d836"
+bytes  = 96313
+status = "retrieved"
+group  = "C"
+
 [sources.terminfo-ansi]
 key    = "terminfo-ansi"
 title  = "terminfo entry: ansi"

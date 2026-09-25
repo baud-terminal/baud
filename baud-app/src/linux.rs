@@ -19,6 +19,7 @@
 //! window binds no fractional-scale global -- and the report every five
 //! seconds.
 
+use crate::bell::{Bell, Update, UpdateClock};
 use crate::config::Config;
 use crate::host::{
     FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
@@ -72,7 +73,11 @@ struct Driver {
     margin: Argb,
     pending: Pending,
     damage: Damage,
-    sync_since: Option<Instant>,
+    /// When the synchronised update open now opened, for `SYNC_MAX`.
+    updates: UpdateClock<Instant>,
+    /// The visual bell no frame drew, ended on the `poll` timeout
+    /// (`bell.rs`).
+    bell: Bell<Instant>,
     /// The title the toplevel was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than every read.
     titles: crate::title::Shown,
@@ -157,7 +162,9 @@ pub fn run() {
             std::process::exit(1);
         }
     };
+    let bell = Bell::new(&term, crate::bell::LENGTH);
     let mut d = Driver {
+        bell,
         conn,
         window,
         term,
@@ -168,7 +175,7 @@ pub fn run() {
         margin,
         pending: Pending::Clean,
         damage: Damage::Full,
-        sync_since: None,
+        updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
     };
     if let Err(e) = d.conn.flush() {
@@ -177,16 +184,29 @@ pub fn run() {
     }
     loop {
         // The loop wakes for a held key's next repeat as well as for the
-        // synchronised update's cap, whichever is sooner.
-        let sync = d.sync_since.map(|s| SYNC_MAX.saturating_sub(s.elapsed()));
+        // synchronised update's cap and a flash's end, whichever is sooner --
+        // each only while it is ahead. One already reached is owed a frame,
+        // and what stops that frame -- a frame in flight, a held update, no
+        // free buffer -- ends on an event this wait already has; bounding the
+        // wait by a past deadline would spin `poll(0)` until it did. The
+        // update's cap did exactly that, from before the bell, once an
+        // update outlived it.
+        let now = Instant::now();
+        let sync = d
+            .updates
+            .deadline()
+            .filter(|&t| t > now)
+            .map(|t| t.saturating_duration_since(now));
         let repeat = d
             .window
             .repeat_deadline()
-            .map(|t| t.saturating_duration_since(Instant::now()));
-        let timeout = match (sync, repeat) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
+            .map(|t| t.saturating_duration_since(now));
+        let flash = d
+            .bell
+            .deadline()
+            .filter(|&t| t > now)
+            .map(|t| t.saturating_duration_since(now));
+        let timeout = [sync, repeat, flash].into_iter().flatten().min();
         let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), timeout) {
             Ok(r) => r,
             Err(e) => {
@@ -218,8 +238,12 @@ pub fn run() {
             }
         }
         // After a timeout as much as after readiness: a repeat is due on
-        // the clock, not on an event.
-        d.window.tick(Instant::now());
+        // the clock, not on an event, and so is a flash's end.
+        let now = Instant::now();
+        d.window.tick(now);
+        if d.bell.is_due(now) {
+            d.pending = Pending::Dirty;
+        }
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
@@ -325,14 +349,17 @@ impl Driver {
         {
             return;
         }
-        if self.term.synchronized_output() {
-            let since = *self.sync_since.get_or_insert_with(Instant::now);
-            if since.elapsed() < SYNC_MAX {
-                return;
-            }
-        } else {
-            self.sync_since = None;
+        // Each update is timed from its own opening (`UpdateClock`).
+        let update = self.updates.observe(&self.term, Instant::now());
+        if update == Update::Honoured {
+            // Honoured: what the update changes of `?5` is its to hide.
+            self.bell.hold(&self.term);
+            return;
         }
+        // The visual bell, before the margin: the flash moves it too. Kept
+        // only if the frame reaches the compositor, below.
+        let bell = self.bell.plan(&self.term, Instant::now(), update);
+        self.renderer.set_flash(bell.flash);
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;
@@ -353,6 +380,7 @@ impl Driver {
             == Presented::Yes
         {
             startup_first("first present", &FIRST_PRESENT);
+            self.bell.commit(bell);
             self.pending = Pending::Clean;
         }
     }

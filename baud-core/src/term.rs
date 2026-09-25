@@ -167,6 +167,42 @@ impl RegionScrolls {
     }
 }
 
+/// A count of `?5` DECSCNM changes, as a reading to compare. The core keeps
+/// two: the changes made where a frame could show them
+/// ([`Term::reverse_flips`]), and the changes made inside a synchronised
+/// update ([`Term::reverse_flips_held`]), which the application asked not to
+/// be seen. A driver that reads a count at two frames, finds it moved, and
+/// finds the mode reading the same at both knows the other video came and
+/// went with no frame drawing it -- a visual bell sent in one read, the way
+/// `tput flash` sends it. The held count is for a driver that has stopped
+/// honouring an update left open, which then shows what it holds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ReverseFlips(u32);
+
+impl ReverseFlips {
+    pub(crate) const FIRST: ReverseFlips = ReverseFlips(0);
+
+    pub(crate) fn next(self) -> ReverseFlips {
+        ReverseFlips(self.0.wrapping_add(1))
+    }
+}
+
+/// Which opening of a synchronised update (`?2026`) the terminal is at: it
+/// moves when the mode goes from reset to set, and on nothing else. A driver
+/// that bounds how long it honours an update times each one from its
+/// opening, and a close and a reopen in one read would otherwise leave it
+/// timing the new update from the old one's start.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct UpdatesOpened(u32);
+
+impl UpdatesOpened {
+    pub(crate) const FIRST: UpdatesOpened = UpdatesOpened(0);
+
+    pub(crate) fn next(self) -> UpdatesOpened {
+        UpdatesOpened(self.0.wrapping_add(1))
+    }
+}
+
 /// A Sixel's requested background, from its `Pb`/`P2` parameter. `Opaque`
 /// (`P2` = 0 or 2) asks for unpainted pixels to be filled rather than left
 /// transparent; baud renders them transparent and counts the request, so this
@@ -331,6 +367,12 @@ pub struct Cold {
     /// Moves on every region scroll that advances a ring, on either screen:
     /// [`Term::region_scrolls`].
     pub(crate) region_scrolls: RegionScrolls,
+    /// Moves on every change of `?5` outside a synchronised update, and
+    /// inside one: [`Term::reverse_flips`], [`Term::reverse_flips_held`].
+    pub(crate) flips: ReverseFlips,
+    pub(crate) flips_held: ReverseFlips,
+    /// Moves on every opening of `?2026`: [`Term::updates_opened`].
+    pub(crate) updates_opened: UpdatesOpened,
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<Saved>,
     /// Which mode put the alternate screen up, while it is up: `?1049` saved
@@ -379,10 +421,14 @@ pub struct Cold {
 // zone and one block were -- written once per `OSC 133` mark and swapped once
 // per `?1049` transition, never on the write path. `region_scrolls` took it
 // to 328: a `u32` bumped once per region scroll that retires a line, which the
-// per-byte loop reaches only through a scroll.
+// per-byte loop reaches only through a scroll. The two `?5` counts took it to
+// 336 -- the first `u32` landed in padding and the second did not -- and the
+// count of `?2026` openings landed in padding again. Each `?5` change bumps
+// one of the two, and each opening the third, all on control sequences the
+// per-byte loop reaches only through its dispatch.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 328);
+const _: () = assert!(core::mem::size_of::<Cold>() == 336);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -423,6 +469,9 @@ impl Cold {
             top: Row::ZERO,
             bot: Row::from_index(rows.index() - 1),
             region_scrolls: RegionScrolls::FIRST,
+            flips: ReverseFlips::FIRST,
+            flips_held: ReverseFlips::FIRST,
+            updates_opened: UpdatesOpened::FIRST,
             saved: None,
             alt_saved: None,
             alt_entry: crate::ops::AltSwitch::SaveAndClear,
@@ -1607,6 +1656,25 @@ impl<'b> Term<'b> {
     /// cursor homes and the screen clears.
     pub fn column_mode(&self) -> bool {
         self.cold.modes.is_set(ModeBit::Column132)
+    }
+
+    /// How many times `?5` has changed outside a synchronised update, as a
+    /// reading to compare: see [`ReverseFlips`].
+    pub fn reverse_flips(&self) -> ReverseFlips {
+        self.cold.flips
+    }
+
+    /// How many times `?5` has changed inside a synchronised update. A driver
+    /// honouring the update leaves these unseen; one that has stopped
+    /// honouring it, because it stayed open too long, draws what they left.
+    pub fn reverse_flips_held(&self) -> ReverseFlips {
+        self.cold.flips_held
+    }
+
+    /// How many times a synchronised update has opened, as a reading to
+    /// compare: see [`UpdatesOpened`].
+    pub fn updates_opened(&self) -> UpdatesOpened {
+        self.cold.updates_opened
     }
 
     /// `?5` DECSCNM, reverse video. The core records it; `baud-render` draws

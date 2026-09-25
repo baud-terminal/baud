@@ -21,6 +21,10 @@
 
 #[cfg(target_os = "macos")]
 mod app;
+// The visual bell's state is pure and its tests run on every platform; both
+// drivers read it, and so does the pty, for the one spelling of `TERM`.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod bell;
 mod config;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;

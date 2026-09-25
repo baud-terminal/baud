@@ -58,6 +58,7 @@ mod sixel;
 mod source;
 mod store;
 mod style;
+pub mod terminfo;
 mod time;
 pub mod unchecked;
 mod vt;

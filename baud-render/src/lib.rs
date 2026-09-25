@@ -60,7 +60,7 @@ pub use overlay::{MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, Blinking, ClusterGlyph, Converted, Damage, Exceptions, Frame, ImagePlacement,
-    ImageUpload, PairRole, Pairs, Renderer, Single,
+    ImageUpload, PairRole, Pairs, Renderer, Single, VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{

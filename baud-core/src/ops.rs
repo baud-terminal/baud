@@ -35,6 +35,15 @@ pub(crate) enum AltSwitch {
     SaveAndClear,
 }
 
+/// Whether a synchronised update (`?2026`) is open, for where a `?5` change is
+/// counted: a frame could show one made while it is released, and the
+/// application asked for one made while it is held not to be seen.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Update {
+    Released,
+    Held,
+}
+
 impl Paint<'_, '_> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
@@ -905,6 +914,39 @@ impl Paint<'_, '_> {
         csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change, node));
     }
 
+    /// `?5`, counted where it happens.
+    fn set_reverse_video(&mut self, change: ModeChange) {
+        let during = self.update();
+        self.flip_reverse_video(change, during);
+    }
+
+    /// Whether a synchronised update is open now.
+    fn update(&self) -> Update {
+        if self.cold.modes.is_set(ModeBit::SynchronizedOutput) {
+            Update::Held
+        } else {
+            Update::Released
+        }
+    }
+
+    /// `?5`, and the count of its changes a driver reads to see a flip no
+    /// frame drew ([`crate::ReverseFlips`]): a change made `during` an open
+    /// update goes in the held count, any other in the shown one. Every
+    /// change of the bit goes through here -- `hard_reset`'s `Modes::default`
+    /// after it writes the value this has already set -- and a change made
+    /// around this would be a flash nothing could see.
+    fn flip_reverse_video(&mut self, change: ModeChange, during: Update) {
+        let was = self.cold.modes.is_set(ModeBit::ReverseVideo);
+        let on = change == ModeChange::Set;
+        self.cold.modes.apply(ModeBit::ReverseVideo, on);
+        if was != on {
+            match during {
+                Update::Released => self.cold.flips = self.cold.flips.next(),
+                Update::Held => self.cold.flips_held = self.cold.flips_held.next(),
+            }
+        }
+    }
+
     fn set_private_mode(
         &mut self,
         m: PrivateMode,
@@ -974,6 +1016,9 @@ impl Paint<'_, '_> {
             PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),
             PrivateMode::FocusReporting => self.cold.modes.apply(ModeBit::FocusReporting, on),
             PrivateMode::SynchronizedOutput => {
+                if on && !self.cold.modes.is_set(ModeBit::SynchronizedOutput) {
+                    self.cold.updates_opened = self.cold.updates_opened.next();
+                }
                 self.cold.modes.apply(ModeBit::SynchronizedOutput, on)
             }
             // **Enabling it reports at once.** The specification requires
@@ -1001,7 +1046,7 @@ impl Paint<'_, '_> {
             PrivateMode::AltSendsEscape => self.cold.modes.apply(ModeBit::AltSendsEscape, on),
             PrivateMode::EightBitInput => self.cold.modes.apply(ModeBit::EightBitInput, on),
             PrivateMode::CursorVisible => self.cold.modes.apply(ModeBit::CursorVisible, on),
-            PrivateMode::ReverseVideo => self.cold.modes.apply(ModeBit::ReverseVideo, on),
+            PrivateMode::ReverseVideo => self.set_reverse_video(change),
             // **Mouse tracking is a level, not three flags.** `[[source:
             // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
             // `?1003` is a superset of `?1002` which is a superset of `?1000`
@@ -1241,6 +1286,9 @@ impl Paint<'_, '_> {
         // the same order.
         // This takes a save `?47 l` left pending as well, on the primary: see
         // `set_alt_screen`'s `(false, Normal)` arm.
+        // Whether an update was open when the reset arrived, for `?5`'s count
+        // below; the soft reset releases it.
+        let during = self.update();
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
@@ -1250,6 +1298,12 @@ impl Paint<'_, '_> {
         // the modes xterm's soft reset keeps. A power-on reset has no such
         // caller to protect. The keypad was here as well, and is in
         // `soft_reset` now: xterm resets it on both paths.
+        // `?5` goes back to normal through the one writer that counts a
+        // change, as of *before* the reset: `soft_reset` above has released
+        // `?2026` by now, and a reset abandons an open update rather than
+        // committing it, so a reverse video that only ever existed inside one
+        // is not a flip anything could have shown.
+        self.flip_reverse_video(ModeChange::Reset, during);
         self.cold.modes = Modes::default();
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;

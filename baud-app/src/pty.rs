@@ -183,7 +183,8 @@ const OUTER: &[&str] = &[
 /// program's table knows is the honest answer: yazi then decides from
 /// baud's own replies, and chafa from `COLORTERM`.
 const OURS: [(&str, &str); 4] = [
-    ("TERM", "xterm-256color"),
+    // The entry whose `flash` length the bell reads, spelled once there.
+    ("TERM", crate::bell::TERM),
     ("COLORTERM", "truecolor"),
     ("TERM_PROGRAM", "baud"),
     ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION")),
@@ -554,9 +555,13 @@ pub fn wait(
             revents: 0,
         },
     ];
+    // Rounded up to whole milliseconds, not down, from the nanoseconds: a
+    // deadline 0.8 ms -- or 0.8 us -- ahead truncated to `poll(0)` returns
+    // at once, and a caller waiting for that deadline asks again, spinning
+    // until the clock reaches it.
     let ms = match timeout {
         None => -1,
-        Some(d) => i32::try_from(d.as_millis()).unwrap_or(i32::MAX),
+        Some(d) => i32::try_from(d.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX),
     };
     // SAFETY: two initialised records and their count; the kernel writes
     // only `revents`, and the array outlives the call.

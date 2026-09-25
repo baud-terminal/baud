@@ -23,7 +23,8 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize, Region,
-    Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition, Widths, Window,
+    Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition, VideoFlash,
+    Widths, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -827,6 +828,22 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "?5 l draws the frame before the flip"
     );
+    // A visual bell no frame drew: the other video with `?5` untouched.
+    // Both arms draw it from the one resolved table, and it is the frame
+    // `?5 h` drew, pixel for pixel -- one rule, not a second spelling.
+    arms.renderer.set_flash(VideoFlash::On);
+    let (flash_a, flash_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&flash_a, &flash_b),
+        0,
+        "the arms disagree under a flash"
+    );
+    assert_eq!(
+        differing(&flash_a, &rev_a),
+        0,
+        "a flash draws what reverse video draws"
+    );
+    arms.renderer.set_flash(VideoFlash::Off);
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

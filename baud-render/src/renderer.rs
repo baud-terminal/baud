@@ -48,6 +48,20 @@ pub enum Blink {
     Hidden,
 }
 
+/// Whether this frame shows the video `?5` does not say: a visual bell whose
+/// two halves no frame drew separately, which a driver sees through
+/// `Term::reverse_flips` and holds for as long as the entry it advertised
+/// asks. **It is the opposite of the mode, not reverse video**, so a flash
+/// over a screen in reverse video shows it normal for the length, as xterm's
+/// two repaints would. Like [`Blink`], a frame property the driver sets
+/// before a convert or a resolve, and never the core's state.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum VideoFlash {
+    #[default]
+    Off,
+    On,
+}
+
 /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`, so a
 /// driver repaints on a phase flip only when something blinks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -237,8 +251,9 @@ pub struct Frame {
     pub exceptions: Exceptions,
 }
 
-/// An FNV-1a fold over the 256 palette entries the core carries.
-fn palette_digest(term: &Term<'_>) -> Digest {
+/// An FNV-1a fold over the 256 palette entries the core carries, and the
+/// video the frame draws in.
+fn palette_digest(term: &Term<'_>, video: Video) -> Digest {
     let mut d = Digest::start();
     for i in 0..=u8::MAX {
         let (r, g, b) = term.palette(Chan::from_u8(i)).unwrap_or((0, 0, 0));
@@ -253,17 +268,18 @@ fn palette_digest(term: &Term<'_>) -> Digest {
         let set = u8::from(term.dynamic_color(which).is_some());
         d = d.fold_bytes(&[r, g, b, set]);
     }
-    // And so does `?5`: a flip moves no cell word and no style slot either,
-    // and a program flashes it as a visual bell.
-    d.fold_bytes(&[u8::from(term.reverse_video())])
+    // And so does the video: a `?5` flip, or a flash starting or ending,
+    // moves no cell word and no style slot either, and a program flashes it
+    // as a visual bell.
+    d.fold_bytes(&[u8::from(video == Video::Reverse)])
 }
 
-/// The video the screen's `?5` asks for.
-fn video_of(term: &Term<'_>) -> Video {
-    if term.reverse_video() {
-        Video::Reverse
-    } else {
-        Video::Normal
+/// The video a frame draws in: the one the screen's `?5` asks for, or under
+/// a flash the other one.
+fn video_of(term: &Term<'_>, flash: VideoFlash) -> Video {
+    match (term.reverse_video(), flash) {
+        (true, VideoFlash::Off) | (false, VideoFlash::On) => Video::Reverse,
+        (false, VideoFlash::Off) | (true, VideoFlash::On) => Video::Normal,
     }
 }
 
@@ -400,10 +416,11 @@ pub struct Renderer<'f, 'a> {
     singles: std::collections::HashMap<u32, Option<(FaceIx, Placed)>>,
     metrics: Metrics,
     theme: Theme,
-    /// The screen's `?5`, read once a frame by `refresh_screen`.
+    /// The video this frame draws in: the screen's `?5`, or under a flash the
+    /// other one, read once a frame by `refresh_screen`.
     video: Video,
     /// The default foreground and background the screen draws this frame --
-    /// the theme's, moved by `OSC 10`/`11` and swapped by `?5`. What is drawn
+    /// the theme's, moved by `OSC 10`/`11` and swapped by the video. What is drawn
     /// "in the foreground" or "in the background" takes these: the margin,
     /// the scrollbar, a cursor trail and a screen fade.
     defaults: (Argb, Argb),
@@ -460,6 +477,10 @@ pub struct Renderer<'f, 'a> {
     /// driver repaints on a phase flip only when something actually blinks.
     blink: Blink,
     blink_seen: Blinking,
+    /// Whether this frame shows the other video, set by
+    /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
+    /// phase is.
+    flash: VideoFlash,
     /// The visible image placements this frame, screen rects in device
     /// pixels, computed once by [`Renderer::set_images`] and consumed by
     /// both the CPU `paint_images` and the two GPU arms -- one description
@@ -587,6 +608,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fade_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
+            flash: VideoFlash::default(),
             image_places: Vec::new(),
             last_image_places: Vec::new(),
             image_uploads: Vec::new(),
@@ -647,7 +669,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// how much of the thumb is seen and whether the pointer widened it,
     /// each the driver's. Its solids are the knob and, widened, the track,
     /// in the default foreground the screen draws -- the theme's, or
-    /// `OSC 10`'s, or under `?5` the background -- and every path draws them -- the CPU and
+    /// `OSC 10`'s, or in reverse video the background, whether `?5` or a
+    /// flash put it there -- and every path draws them -- the CPU and
     /// instance paths from the instance list, the cell path from
     /// [`Renderer::scrollbar`] appended to its records.
     pub fn set_scrollbar(&mut self, scroll: Option<Scroll>) {
@@ -690,7 +713,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The alternate-screen fade for the next frame, or none: one
     /// full-screen translucent solid in the default background the screen
-    /// draws -- `?5` and `OSC 11` included -- that every
+    /// draws -- the video and `OSC 11` included -- that every
     /// path draws on top of everything else, so the new screen appears out
     /// of the background. The driver hands a `progress` it computed from the
     /// display link's timestamp; this only interpolates, so the pixel oracle
@@ -715,6 +738,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.blink = blink;
     }
 
+    /// Show the other video this frame, or stop. Nothing is rebuilt here:
+    /// the next convert or resolve reads it (`refresh_screen`), which is
+    /// where a `?5` flip is read too, so the two take the same path.
+    pub fn set_flash(&mut self, flash: VideoFlash) {
+        self.flash = flash;
+    }
+
     /// Replace the palette every rendition resolves against.
     ///
     /// **Every cell's colour changes, so the damage cache has to go**: row
@@ -737,13 +767,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.rebuild_overlays();
     }
 
-    /// Reads the screen's own colours for this frame -- `?5` and the
-    /// `OSC 10`/`11` defaults -- and, when they moved, rebuilds the solids
-    /// already built in the old ones. **They are set before a convert**, so
-    /// without the rebuild the frame a program flips `?5` on would draw its
-    /// scrollbar, trail and fade in the colours of the frame before.
+    /// Reads the screen's own colours for this frame -- the video, `?5` or a
+    /// flash's other one, and the `OSC 10`/`11` defaults -- and, when they
+    /// moved, rebuilds the solids already built in the old ones. **They are
+    /// set before a convert**, so without the rebuild the frame a program
+    /// flips `?5` on, or a flash starts on, would draw its scrollbar, trail
+    /// and fade in the colours of the frame before.
     fn refresh_screen(&mut self, term: &Term<'_>) {
-        self.video = video_of(term);
+        self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
         if defaults != self.defaults {
             self.defaults = defaults;
@@ -794,7 +825,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// presenter to clear the margin around the grid to -- so the gutter is
     /// the terminal's own background rather than a see-through edge. It is
     /// what a default cell resolves to, as of the last convert or resolve:
-    /// the theme's background, or `OSC 11`'s, or under `?5` the foreground,
+    /// the theme's background, or `OSC 11`'s, or in reverse video -- `?5`'s,
+    /// or a flash's -- the foreground,
     /// at the window's alpha. It was the theme's whatever `OSC 11` said, so a
     /// program that moved the background got a frame of the old colour.
     pub fn clear_color(&self) -> Argb {
@@ -805,9 +837,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// it, for a driver that fills a margin the renderer never paints
     /// before it renders -- the Linux frame is the window's size, and the
     /// strips past the grid are filled once, so a `?5` or an `OSC 11` would
-    /// leave them the old colour.
+    /// leave them the old colour. It reads the flash already set, so a driver
+    /// sets that first.
     pub fn clear_color_of(&self, term: &Term<'_>) -> Argb {
-        let video = video_of(term);
+        let video = video_of(term, self.flash);
         let (_, bg) = self.theme.defaults(video, |d| term.dynamic_color(d));
         bg.with_alpha(self.theme.bg_alpha)
     }
@@ -1140,7 +1173,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let (r, c) = term.cursor();
             (r, c, term.cursor_style())
         });
-        let palette = palette_digest(term);
+        let palette = palette_digest(term, self.video);
         // The screen fade veils every row, so a change to it -- spawned,
         // stepped or cleared -- makes the whole frame dirty. It is not a
         // per-row predicate like the trail's band overlap.

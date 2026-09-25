@@ -1,6 +1,7 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
+use crate::bell::{Bell, Update, UpdateClock};
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
     FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
@@ -410,17 +411,22 @@ struct App {
     hold: Hold,
     last_zone: Zone,
     last_tick: Option<f64>,
-    /// When the terminal opened a synchronised update (`?2026`) that has not
-    /// closed. A frame is held while one is open, so a half-drawn screen --
+    /// When the synchronised update (`?2026`) open now opened, timed from its
+    /// own opening. A frame is held while one is open, so a half-drawn screen --
     /// btop's menu redraws inside one -- is never presented; but only up to
-    /// [`SYNC_MAX`], so a program that opens one and stalls cannot freeze the
-    /// window, which `RIS` does not clear.
-    sync_since: Option<Instant>,
+    /// [`SYNC_MAX`], so a program that opens one and stalls -- or dies inside
+    /// it, leaving it open until a `?2026l`, `DECSTR` or `RIS` -- cannot
+    /// freeze the window.
+    updates: UpdateClock<Instant>,
     /// The blink phase this frame draws with, whether any cell blinks, and
     /// whether the phase just flipped -- which forces a full repaint, since a
     /// blink changes no cell content and row damage would not catch it.
     blink: Blink,
     blink_present: Blinking,
+    /// The visual bell no frame drew: a `?5` pair in one read, shown as the
+    /// other video until a deadline the display link's clock reaches
+    /// (`bell.rs`).
+    bell: Bell<HostTime>,
     /// The damage the next frame draws with -- `Full` for the frame after a
     /// blink flip, since a blink changes no cell and row damage would miss it.
     next_damage: Damage,
@@ -781,7 +787,9 @@ impl App {
         // the cell height in pixels; re-set on every `rescale`.
         term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
         term.set_sixel_claim(sixel);
+        let bell = Bell::new(&term, crate::bell::LENGTH);
         App {
+            bell,
             term,
             renderer,
             presenter: None,
@@ -827,7 +835,7 @@ impl App {
             hold: Hold::Open,
             last_zone: Zone::Output,
             last_tick: None,
-            sync_since: None,
+            updates: UpdateClock::new(SYNC_MAX),
             blink: Blink::default(),
             blink_present: Blinking::default(),
             next_damage: Damage::Incremental,
@@ -1081,6 +1089,18 @@ impl App {
             self.wrote_in_flight.bump();
         }
         self.renderer.set_blink(self.blink);
+        // The visual bell, decided before any path reads the video, at the
+        // moment the frame can first be seen: the display link's target if
+        // it is still ahead, or now. Kept by `commit` if an arm shows the
+        // frame, and in part by `refused` if its present fails, below. The
+        // update state is the clock's as the pump last left it: a resize or a
+        // zoom draws from outside the pump's hold check, and the clock is what
+        // says whether the update open now is honoured.
+        let now = host_now();
+        let seen_at = HostTime::of_secs(self.tick_target).map_or(now, |t| t.max(now));
+        let update = self.updates.state(&self.term, Instant::now());
+        let bell = self.bell.plan(&self.term, seen_at, update);
+        self.renderer.set_flash(bell.flash);
         // Image placements for this view, for the two GPU arms: both read the
         // one list `set_images` builds, so an image lands where its line is.
         // The CPU arm's `render_at` places them itself, without the upload
@@ -1093,6 +1113,10 @@ impl App {
         let damage = self.next_damage;
         self.next_damage = Damage::Incremental;
         let waker = self.waker;
+        // Whether this frame reached the screen, for the bell: a present
+        // that failed drops the frame's content, and a flash it planned
+        // with it.
+        let mut shown = Presented::No;
         match (
             self.presenter.as_ref().map(Presenter::mode),
             self.cell.as_mut(),
@@ -1283,6 +1307,7 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
+                            shown = Presented::Yes;
                             self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
@@ -1318,6 +1343,7 @@ impl App {
                     };
                     match drawn {
                         Some(Drawn::Frame(g)) => {
+                            shown = Presented::Yes;
                             self.latency.committed(|| before);
                             startup_first("first commit", &FIRST_COMMIT);
                             if show == Show::Now {
@@ -1344,6 +1370,7 @@ impl App {
                 let clear = self.renderer.clear_color();
                 if let Some(p) = &mut self.presenter {
                     if p.present(screen, &self.frame, w, clear) == Presented::Yes {
+                        shown = Presented::Yes;
                         self.latency.shown_cpu(host_now);
                         startup_first("first present", &FIRST_PRESENT);
                         if FIRST_BYTES.load(Ordering::Relaxed) {
@@ -1354,6 +1381,10 @@ impl App {
             }
         }
         self.blink_present = self.renderer.blink_seen();
+        match shown {
+            Presented::Yes => self.bell.commit(bell),
+            Presented::No => self.bell.refused(bell),
+        }
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
         // A fed echo is drawn by this commit; a wanted one is still owed,
@@ -3101,16 +3132,17 @@ impl Driver {
         // a partial redraw is never shown -- btop wraps its menu redraw in
         // one, and presenting between the `?2026h` and the `?2026l` flickered
         // 89 times over a ten-second run. Not past SYNC_MAX, or an update that
-        // opens and stalls would freeze the window, which `RIS` does not
-        // clear. The closing `?2026l` feeds in and wakes us, and this call
-        // then presents the finished screen.
-        if self.app.term.synchronized_output() {
-            let since = *self.app.sync_since.get_or_insert_with(Instant::now);
-            if since.elapsed() < SYNC_MAX {
-                return;
-            }
-        } else {
-            self.app.sync_since = None;
+        // opens and stalls -- or a program that dies inside one -- would
+        // freeze the window until something closes it. The closing `?2026l`
+        // feeds in and wakes us, and this call then presents the finished
+        // screen.
+        // Each update is timed from its own opening: a close and a reopen in
+        // one read restart the clock (`UpdateClock`), where an instant kept
+        // across them let the new update inherit the old one's start.
+        if self.app.updates.observe(&self.app.term, Instant::now()) == Update::Honoured {
+            // Honoured: what the update changes of `?5` is its to hide.
+            self.app.bell.hold(&self.app.term);
+            return;
         }
         // **One frame in flight -- D14 -- and now that is all the gate
         // says.** Before the copy landed, `busy` also meant "do not feed";
@@ -3437,6 +3469,13 @@ impl Responder for Driver {
                 self.app.next_damage = Damage::Full;
                 self.app.pending = Pending::Dirty;
             }
+        }
+        // A flash on screen ends on this clock: the tick whose target
+        // reaches its deadline owes the frame that takes it down, and the
+        // frame's own plan reads the same target (`present`), so it is one
+        // frame, not one a tick until the wall clock catches up.
+        if HostTime::of_secs(target).is_some_and(|now| self.app.bell.is_due(now)) {
+            self.app.pending = Pending::Dirty;
         }
         // A trail keeps building frames while it sweeps, the way a blink
         // flip does -- but incrementally: the ghost's bounded damage is the
