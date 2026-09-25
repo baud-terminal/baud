@@ -1014,6 +1014,13 @@ impl App {
             self.frame_w = w;
             self.frame_h = h;
             self.frame = vec![0; slots(w) * slots(h)];
+            // **A new frame holds nothing, so it is painted whole.** The CPU
+            // arm paints only the rows its damage names, and a sub-cell resize
+            // reallocates the frame without changing the grid, which is the
+            // one thing `relayout` forces a full frame for: every row that
+            // did not change was presented as zeros, transparent. Read below
+            // in this same call.
+            self.next_damage = Damage::Full;
             self.presenter = match (self.wanted, self.gpu.take(), self.presenter.take()) {
                 // A presenter that exists keeps its GPU across a resize.
                 (Path::Instances | Path::Cells, _, Some(mut p)) if p.mode() == Mode::Gpu => {
@@ -1074,10 +1081,15 @@ impl App {
             self.wrote_in_flight.bump();
         }
         self.renderer.set_blink(self.blink);
-        // Image placements for this view: both GPU arms and the CPU path read
-        // the one list `set_images` builds, so an image lands where its line is.
-        self.renderer
-            .set_images(&self.term, looking(&self.term, self.back));
+        // Image placements for this view, for the two GPU arms: both read the
+        // one list `set_images` builds, so an image lands where its line is.
+        // The CPU arm's `render_at` places them itself, without the upload
+        // snapshots a GPU needs and it does not -- a second converted copy of
+        // every visible image, kept for nothing.
+        if self.presenter.as_ref().map(Presenter::mode) == Some(Mode::Gpu) {
+            self.renderer
+                .set_images(&self.term, looking(&self.term, self.back));
+        }
         let damage = self.next_damage;
         self.next_damage = Damage::Incremental;
         let waker = self.waker;

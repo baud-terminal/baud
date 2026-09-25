@@ -345,3 +345,149 @@ fn a_static_image_is_snapshotted_once_not_per_frame() {
         "and their snapshots were dropped, not retained"
     );
 }
+
+/// The frame an incremental render leaves, against a fresh full repaint of
+/// the same terminal by a second renderer: the two must be pixel for pixel
+/// equal, or incremental damage left something stale or drew something
+/// twice. The rule `incremental_frames_equal_full_repaints_at_every_read_boundary`
+/// holds the CPU path to, with an image.
+fn equals_a_full_repaint(t: &mut Term, c: &Canvas, faces: &[Face]) -> bool {
+    let mut fresh = renderer(faces);
+    let mut f = Canvas::for_renderer(&fresh);
+    {
+        let mut target = f.target();
+        fresh.render(t, &mut target, Damage::Full);
+    }
+    c.pixels == f.pixels
+}
+
+/// **An image that arrives mid-session is drawn on the next incremental
+/// frame.** The CPU path drew images only on a full frame, and a live
+/// terminal renders incrementally after its first frame -- so on Linux, whose
+/// driver is CPU-only, and on the macOS CPU path, a Sixel a program printed
+/// did not appear until a resize.
+#[test]
+fn an_image_that_arrives_mid_session_is_drawn_on_an_incremental_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    assert_eq!(painted_in_image_rect(&c), 0, "the control: nothing yet");
+    feed(&mut t, SWIRL);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental);
+    }
+    let painted = painted_in_image_rect(&c);
+    assert!(
+        painted > 64 * 48 / 2,
+        "the swirl drew on the incremental frame, {painted} pixels"
+    );
+    assert!(equals_a_full_repaint(&mut t, &c, &faces));
+}
+
+/// **And an image that moves or goes is repainted where it was.** Scrolling
+/// the swirl up a row, then off the screen, on incremental frames: each frame
+/// must equal a full repaint, so the rows it left are the cells again and the
+/// rows it is on show it once, not composited over its last position.
+#[test]
+fn an_image_moving_on_incremental_frames_equals_a_full_repaint() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l\x1b[6;1Hunder\x1b[6;1H");
+    feed(&mut t, SWIRL);
+    feed(&mut t, b"\x1b[50;1H");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
+    let bg = Theme::dark().bg.0;
+    let drawn = (0..48)
+        .flat_map(|y| c.pixels[(5 * ch + y) * c.width..][..64].to_vec())
+        .filter(|&p| p != bg)
+        .count();
+    assert!(
+        drawn > 64 * 48 / 2,
+        "the control: the swirl drew on row 5 before it moves, {drawn} pixels"
+    );
+    for step in 0..12 {
+        feed(&mut t, b"\n");
+        {
+            let mut target = c.target();
+            r.render(&mut t, &mut target, Damage::Incremental);
+        }
+        assert!(
+            equals_a_full_repaint(&mut t, &c, &faces),
+            "after {} line feeds the incremental frame is not the full one",
+            step + 1
+        );
+    }
+}
+
+/// **A still image costs no repaint.** The rows under a placement are
+/// repainted when it arrives, leaves or moves; a frame whose only change is
+/// elsewhere repaints that change and not the image's rows, which is what a
+/// keystroke's echo beside a preview is. The blit on the frame after is
+/// idempotent, so the pixels stay equal to a full repaint.
+#[test]
+fn a_still_image_costs_no_repaint() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    feed(&mut t, SWIRL);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    feed(&mut t, b"\x1b[40;1Hx");
+    let frame = {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental)
+    };
+    assert_eq!(
+        frame.rows_dirty.value(),
+        1,
+        "only the row that changed, not the swirl's"
+    );
+    assert!(equals_a_full_repaint(&mut t, &c, &faces));
+}
+
+/// **And the CPU path keeps no upload snapshots.** It blits from the
+/// terminal's own pixels, so a converted copy of each visible image, which a
+/// GPU uploads, is a second copy it never reads.
+#[test]
+fn the_cpu_path_keeps_no_upload_snapshots() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, SWIRL);
+    for damage in [Damage::Full, Damage::Incremental, Damage::Incremental] {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, damage);
+    }
+    assert!(
+        painted_in_image_rect(&c) > 64 * 48 / 2,
+        "the control: it drew"
+    );
+    assert_eq!(r.image_snapshots().value(), 0);
+    assert!(r.image_uploads().is_empty());
+}

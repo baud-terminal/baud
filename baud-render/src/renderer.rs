@@ -297,10 +297,43 @@ enum Prev {
     Known,
 }
 
+/// Whether a convert repaints the rows the frame's image placements cover.
+/// The CPU path blits images over the rows it painted, so it needs them
+/// repainted; a GPU path draws images in their own pass and does not.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ImageRows {
+    Ignored,
+    Repainted,
+}
+
+/// Whether a placement's pixel rows meet the band's.
+fn covers(p: &ImagePlacement, band: Band) -> bool {
+    let top = i64::from(p.y);
+    top < i64::from(band.bottom.value()) && top + i64::from(p.h) > i64::from(band.top.value())
+}
+
+/// Whether the last CPU frame blitted a placement over the band that this
+/// frame does not: an image left or moved from there, or another took its
+/// rect. Whole placements are compared -- image, epoch and rect -- so a
+/// different image in the same rect still counts. One that *arrives* needs no
+/// repaint: its blit lands on the cells, which is what a repaint would give.
+fn left_from(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
+    last.iter().any(|p| covers(p, band) && !now.contains(p))
+}
+
+/// Whether [`Renderer::set_images`] keeps a copy of each image's pixels for a
+/// GPU to upload. The CPU path blits from the terminal's own pixels, so it
+/// asks for placements alone.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Snapshots {
+    Kept,
+    Skipped,
+}
+
 /// One visible image to draw: which image (and the store epoch it was seen
 /// at, the GPU texture-cache key), and where on screen at what size, in device
 /// pixels. The origin is signed, so a partly-scrolled image hangs off the top.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ImagePlacement {
     /// Which stored image this draws.
     pub id: ImageId,
@@ -414,6 +447,9 @@ pub struct Renderer<'f, 'a> {
     /// both the CPU `paint_images` and the two GPU arms -- one description
     /// of where an image goes, not three.
     image_places: Vec<ImagePlacement>,
+    /// The placements the last CPU frame drew, so the next one repaints the
+    /// rows an image left as well as the rows it is on.
+    last_image_places: Vec<ImagePlacement>,
     /// Each referenced image's pixels, premultiplied, for a GPU to upload
     /// once. Keyed by id and store epoch; the CPU path reads the term's
     /// pixels directly instead. **Kept across frames** and refreshed only for a
@@ -531,6 +567,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blink: Blink::default(),
             blink_seen: Blinking::default(),
             image_places: Vec::new(),
+            last_image_places: Vec::new(),
             image_uploads: Vec::new(),
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
@@ -791,18 +828,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
         target: &mut Target<'_>,
         damage: Damage,
     ) -> Frame {
-        let converted = self.convert(term, back, damage);
+        // **Images draw on every frame, and the rows one left are repainted.**
+        // They drew only on a full frame, and a live terminal renders
+        // incrementally after its first, so on the Linux driver, which is
+        // CPU-only, and on the macOS CPU path, a Sixel a program printed did
+        // not appear until a resize. Blitting every frame is sound because
+        // the blit is idempotent -- an image pixel is opaque or clear, so
+        // blitting it again over the pixel it left changes nothing -- and the
+        // one hazard is an image never erased where it moved from. So the
+        // placements are computed first, and the rows under a placement the
+        // last CPU frame blitted and this one does not are repainted; a still
+        // image's rows are not, and a new one's need not be, since its blit
+        // lands on the cells. A format with partial alpha would need its rows
+        // repainted every frame, and the core produces none.
+        self.fit(term);
+        self.place_images(term, back, Snapshots::Skipped);
+        let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
         let frame = self.paint(target, converted);
-        // **Images draw only on a full frame.** `paint` touches only the rows
-        // it marked dirty, and this pass blits unconditionally, so on an
-        // incremental frame an image would composite over rows that were not
-        // repainted -- correct-looking until something underneath changes.
-        // Per-placement damage (dirtying the rows a placement moved over, the
-        // `bar_moved` precedent) is the follow-on; a full frame is honest now.
-        if damage == Damage::Full {
-            self.set_images(term, back);
-            self.paint_images(term, target);
-        }
+        self.paint_images(term, target);
         frame
     }
 
@@ -831,6 +874,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// `z` below the glyphs, ties broken by image id -- is the follow-on;
     /// nothing in the corpus places two overlapping images.
     pub fn set_images(&mut self, term: &Term<'_>, back: Rows) {
+        self.place_images(term, back, Snapshots::Kept);
+    }
+
+    /// [`Renderer::set_images`], with or without the upload snapshots: the
+    /// CPU path blits from the terminal's pixels and skips them, which kept a
+    /// second converted copy of every visible image -- two megabytes for a
+    /// 600x800 preview -- for a GPU that path does not have.
+    fn place_images(&mut self, term: &Term<'_>, back: Rows, snap: Snapshots) {
         self.image_places.clear();
         let imgs = term.images();
         let epoch = imgs.generation();
@@ -882,10 +933,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // resolves to RGB is opaque; a `DEFAULT` (unpainted Sixel) pixel is
             // `0x00000000`, transparent, which the fragment's premultiplied OVER
             // leaves the cell showing through.
-            if !self
-                .image_uploads
-                .iter()
-                .any(|u| u.id == p.image && u.epoch == epoch)
+            if snap == Snapshots::Kept
+                && !self
+                    .image_uploads
+                    .iter()
+                    .any(|u| u.id == p.image && u.epoch == epoch)
             {
                 let pixels = view
                     .pixels
@@ -913,9 +965,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // frames reintroduces it unless the leavers are pruned. An image that
         // oscillates on and off screen re-snapshots on each re-entry, which is
         // the price of not holding it, and far cheaper than a rebuild a frame.
-        let places = &self.image_places;
-        self.image_uploads
-            .retain(|u| places.iter().any(|p| p.id == u.id));
+        if snap == Snapshots::Kept {
+            let places = &self.image_places;
+            self.image_uploads
+                .retain(|u| places.iter().any(|p| p.id == u.id));
+        }
     }
 
     /// The visible image placements this frame, in device-pixel screen rects.
@@ -966,6 +1020,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     pub fn convert(&mut self, term: &Term<'_>, back: Rows, damage: Damage) -> Converted {
+        self.convert_with(term, back, damage, ImageRows::Ignored)
+    }
+
+    fn convert_with(
+        &mut self,
+        term: &Term<'_>,
+        back: Rows,
+        damage: Damage,
+        images: ImageRows,
+    ) -> Converted {
         let t0 = Instant::now();
         self.blink_seen = Blinking::Unseen;
         self.fit(term);
@@ -1037,13 +1101,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // A picture is the block's, so a row can move in or out of one
             // without a cell of its own changing.
             let pictured = self.pictures.row_changed(row);
+            // An image the CPU path blitted over this row last frame is not
+            // there now: see `render_at`.
+            let imaged = images == ImageRows::Repainted
+                && left_from(&self.image_places, &self.last_image_places, band);
             self.dirty[r] = full
                 || changed
                 || cursor_moved
                 || selection_moved
                 || bar_moved
                 || trail_moved
-                || pictured;
+                || pictured
+                || imaged;
+        }
+        if images == ImageRows::Repainted {
+            self.last_image_places.clone_from(&self.image_places);
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
