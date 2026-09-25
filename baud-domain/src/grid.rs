@@ -599,14 +599,27 @@ impl<'a> View<'a> {
     /// for the fill shortcut; the difference is that the cells are now blank
     /// rather than merely marked stale. This is the width half of a grow; the
     /// primary reflows instead, so it is never revealed stale.
+    ///
+    /// **Every row of the ring, not only the screen's.** A row a shorter
+    /// alternate screen cut, or one that scrolled off its top, stays in the
+    /// ring past the window with a mark true only to the width it was left
+    /// at; a later growth reveals it, and the blank that clears it trusts the
+    /// mark. Walking only the screen's rows left such a row's band past its
+    /// old edge standing, under a mark of zero that the next erase then
+    /// trusted too (`a_band_on_a_cut_row_is_blanked_when_a_growth_reveals_it`).
+    /// So for the walk the view's rows are the ring, and screen row `y` of
+    /// `0..ring` is every physical row once under the rotation.
     pub fn widened(&mut self, old_cols: Cols) {
         let (from, to) = (
             Col::at_index(old_cols.index()),
             Col::at_index(self.cols.index()),
         );
-        for y in 0..self.rows.index() {
+        let rows = self.rows;
+        self.rows = self.ring;
+        for y in 0..self.ring.index() {
             self.fill(Row::from_index(y), from, to, PackedCell::EMPTY);
         }
+        self.rows = rows;
     }
 
     /// After the live width grew from `old`: make every row's mark true of

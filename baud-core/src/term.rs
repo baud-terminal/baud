@@ -1165,6 +1165,34 @@ impl<'b> Term<'b> {
             )
             .widened(old_cols);
         }
+        // **And a taller alternate screen blanks the rows it reveals**, the
+        // height half of `widened`. Its ring is the provisioned height, so a
+        // line that scrolled off its top, or a row a shorter screen cut off
+        // its bottom, is still in the ring past the window; a growth moved
+        // the window's bottom edge over them, and the lines a program had
+        // scrolled away showed under its next frame until it repainted
+        // (`a_taller_alternate_screen_reveals_blank_rows_not_scrolled_ones`).
+        // A rule of baud's own, stated as one: what xterm's resize does to
+        // its alternate buffer is in `screen.c`, which is not pinned. Blanked
+        // to the wider of the two widths, as the primary's revealed rows
+        // are, and trusting marks that `widened` keeps true over the whole
+        // ring, so a tail past a narrower edge goes with them.
+        if rows.index() > old_rows.index() {
+            let mut v = View::new(
+                self.store.alt.cells,
+                self.store.alt.used,
+                self.stride,
+                Cols::of_index(old_cols.index().max(cols.index())),
+                rows,
+                self.store.row_capacity(),
+                self.store.alt.rot,
+            );
+            let mut n = 0;
+            for y in old_rows.index()..rows.index() {
+                n += v.fill_row(Row::from_index(y), PackedCell::EMPTY).index();
+            }
+            self.cells_written += n;
+        }
 
         self.rows = rows;
         self.cols = cols;
