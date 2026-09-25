@@ -1,4 +1,4 @@
-//! The alternate-screen transition: a veil in the theme's background colour
+//! The alternate-screen transition: a veil in the default background colour
 //! over the new screen, fading to reveal it, when the terminal switches
 //! between the primary and alternate screen. Off by default; sfte's
 //! `SFTE_TERM_ANIMATE_SCREEN`, built to baud's blink standard.
@@ -52,7 +52,7 @@ pub fn veil(t: Transition, w: Px, h: Px) -> Veil {
     }
 }
 
-/// The veil as one translucent solid every path draws, in the theme's
+/// The veil as one translucent solid every path draws, in the default
 /// background `bg` at its faded alpha, at the frame origin.
 pub fn instance(v: Veil, bg: Argb) -> Instance {
     Instance {

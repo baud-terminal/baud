@@ -52,7 +52,7 @@ pub use cellmap::{
     Candidate, CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
     Resolved, Shapes,
 };
-pub use color::{AppBg, Argb, PictureBg, Theme};
+pub use color::{AppBg, Argb, PictureBg, Theme, Video};
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};

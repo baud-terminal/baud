@@ -60,13 +60,15 @@ struct Driver {
     pty: Pty,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
-    /// last frame, with the cells' margin filled with the theme's
-    /// background.
+    /// last frame, with the cells' margin filled with the default
+    /// background the screen draws.
     frame: Vec<u32>,
     /// The frame's row pitch: the window's width.
     stride: Px,
-    /// The theme's background at the window's opacity, for the margin
-    /// past the last whole cell.
+    /// The default background at the window's opacity, for the margin
+    /// past the last whole cell: the theme's, or `OSC 11`'s, or under `?5`
+    /// the foreground. The renderer paints only the grid, so a change here
+    /// refills the frame and repaints it whole.
     margin: Argb,
     pending: Pending,
     damage: Damage,
@@ -330,6 +332,12 @@ impl Driver {
             }
         } else {
             self.sync_since = None;
+        }
+        let margin = self.renderer.clear_color_of(&self.term);
+        if margin != self.margin {
+            self.margin = margin;
+            self.frame.fill(margin.0);
+            self.damage = Damage::Full;
         }
         let (w, h) = self.renderer.frame_size();
         let Some(mut target) = Target::new(&mut self.frame, self.stride, w, h) else {

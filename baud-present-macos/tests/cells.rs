@@ -57,14 +57,18 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 /// what a text-drawn image is made of -- block elements, a space and a
 /// box-drawing stroke on a set background, and a reversed block -- which
 /// the theme's `AppBg::Opaque` keeps opaque, as it does the fourth row's
-/// `blue bg` and `reverse` spans.
+/// `blue bg` and `reverse` spans. That row ends on palette entries 0, 7, 8
+/// and 15 -- the four `?5` swaps -- so the reverse-video scene draws the
+/// palette swap through both arms and not only the defaults. Both read it
+/// from one resolved table, so this compares their drawing of it; the
+/// swap's own rule is gated in `baud-render/tests/reverse_video.rs`.
 fn scene(t: &mut Term<'_>) {
     feed(
         t,
         b"Hello, world. 0123456789 abc XYZ (x) [y] {z}\r\n\
           \x1b[31mred \x1b[1;32mbold green\x1b[0m \x1b[4munderline\x1b[0m \x1b[9mstrike\x1b[0m\r\n\
           \x1b[4:3mcurly\x1b[0m \x1b[4:4mdotted\x1b[0m \x1b[4:5mdashed\x1b[0m \x1b[58;5;196;4:3mred curl\x1b[0m\r\n\
-          \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done\r\n\
+          \x1b[44m blue bg \x1b[7m reverse \x1b[0m \x1b[2mdim\x1b[0m \x1b[8mhidden\x1b[0m done \x1b[30;47m ink \x1b[90;107m pale \x1b[0m\r\n\
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
           box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end \x1b[38;2;200;0;0;48;2;0;0;200m\xe2\x96\x80\xe2\x96\x80 \xe2\x94\x80\x1b[0;7;32m\xe2\x96\x84\x1b[0m image\r\n\
           \xe2\x94\x8f\xe2\x94\x81\xe2\x94\xb3\xe2\x94\x93 \xe2\x95\x94\xe2\x95\x90\xe2\x95\xa6\xe2\x95\x97 \xe2\x95\xad\xe2\x94\x80\xe2\x95\xae \xe2\x95\xb1\xe2\x95\xb2\xe2\x95\xb3 \xe2\x94\x84\xe2\x94\x8c\xe2\x95\x8c \xe2\x96\x80\xe2\x96\x84\xe2\x96\x88\xe2\x96\x8c\xe2\x96\x90\xe2\x96\x91\xe2\x96\x92\xe2\x96\x93\xe2\x96\x9a\xe2\x96\x9f \xe2\xa0\x81\xe2\xa0\xbf\xe2\xa3\x80\xe2\xa2\xb2 \x1b[31m\xe2\x94\x8f\xe2\x94\x81\xe2\x94\x93\x1b[0m\r\n\
@@ -793,6 +797,36 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the fade veiled the screen"
     );
     arms.fade = None;
+    // `?5`, reverse video: every rendition resolves under the swap, the
+    // default background at the window's dim like any other. Both arms draw
+    // the flip from the one resolved table, the fade over it takes the
+    // reversed background, and the frame is not the one before it.
+    feed(&mut t, b"\x1b[?5h");
+    let (rev_a, rev_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&rev_a, &rev_b),
+        0,
+        "the arms disagree under reverse video"
+    );
+    assert!(
+        differing(&rev_a, &unveiled) > 0,
+        "reverse video reached the pixels"
+    );
+    arms.fade = Some(Transition { progress: 0.5 });
+    let (rev_fade_a, rev_fade_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&rev_fade_a, &rev_fade_b),
+        0,
+        "the arms disagree under a screen fade in reverse video"
+    );
+    arms.fade = None;
+    feed(&mut t, b"\x1b[?5l");
+    let (back_a, _) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&back_a, &unveiled),
+        0,
+        "?5 l draws the frame before the flip"
+    );
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

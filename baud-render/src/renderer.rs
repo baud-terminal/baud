@@ -3,7 +3,7 @@
 use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 use crate::cellmap::{Resolved, Shapes};
-use crate::color::{Argb, Theme};
+use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
@@ -253,7 +253,18 @@ fn palette_digest(term: &Term<'_>) -> Digest {
         let set = u8::from(term.dynamic_color(which).is_some());
         d = d.fold_bytes(&[r, g, b, set]);
     }
-    d
+    // And so does `?5`: a flip moves no cell word and no style slot either,
+    // and a program flashes it as a visual bell.
+    d.fold_bytes(&[u8::from(term.reverse_video())])
+}
+
+/// The video the screen's `?5` asks for.
+fn video_of(term: &Term<'_>) -> Video {
+    if term.reverse_video() {
+        Video::Reverse
+    } else {
+        Video::Normal
+    }
 }
 
 fn px_i32(p: Px) -> i32 {
@@ -389,6 +400,13 @@ pub struct Renderer<'f, 'a> {
     singles: std::collections::HashMap<u32, Option<(FaceIx, Placed)>>,
     metrics: Metrics,
     theme: Theme,
+    /// The screen's `?5`, read once a frame by `refresh_screen`.
+    video: Video,
+    /// The default foreground and background the screen draws this frame --
+    /// the theme's, moved by `OSC 10`/`11` and swapped by `?5`. What is drawn
+    /// "in the foreground" or "in the background" takes these: the margin,
+    /// the scrollbar, a cursor trail and a screen fade.
+    defaults: (Argb, Argb),
     blend: Blend,
     cache: RunCache,
     atlas: Atlas,
@@ -524,6 +542,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|f| f.gsub().and_then(|g| g.extent(Features::GRID)))
             .collect();
         let faces = stack.each().collect();
+        let defaults = (theme.fg, theme.bg);
         let mut r = Renderer {
             stack,
             scales,
@@ -537,6 +556,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             digests,
             metrics,
             theme,
+            video: Video::Normal,
+            defaults,
             blend,
             cache: RunCache::new(),
             atlas: Atlas::new(),
@@ -625,7 +646,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The scrollbar for the next frame, or none: where the window sits,
     /// how much of the thumb is seen and whether the pointer widened it,
     /// each the driver's. Its solids are the knob and, widened, the track,
-    /// in the theme's foreground, and every path draws them -- the CPU and
+    /// in the default foreground the screen draws -- the theme's, or
+    /// `OSC 10`'s, or under `?5` the background -- and every path draws them -- the CPU and
     /// instance paths from the instance list, the cell path from
     /// [`Renderer::scrollbar`] appended to its records.
     pub fn set_scrollbar(&mut self, scroll: Option<Scroll>) {
@@ -633,7 +655,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.bar = scroll.and_then(|s| scrollbar::bar(s, size, self.metrics.cell_h));
         self.bar_inst.clear();
         if let Some(b) = self.bar {
-            self.bar_inst.extend(scrollbar::instances(b, self.theme.fg));
+            self.bar_inst
+                .extend(scrollbar::instances(b, self.defaults.0));
         }
     }
 
@@ -644,8 +667,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// The cursor trail for the next frame, or none: a fading ghost
     /// sweeping from where the cursor was to where it is. Like the
-    /// scrollbar its instance is one translucent solid in the theme's
-    /// foreground that every path draws -- the CPU and instance paths from
+    /// scrollbar its instance is one translucent solid in the default
+    /// foreground the screen draws, and every path draws it -- the CPU and instance paths from
     /// the instance list, the cell path from [`Renderer::trail`] appended
     /// to its records. The driver hands a `progress` it computed from the
     /// display link's timestamp and this only interpolates, so the frame is
@@ -655,7 +678,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.trail = trail.map(|t| trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h));
         self.trail_inst.clear();
         if let Some(g) = self.trail {
-            self.trail_inst.push(trail::instance(g, self.theme.fg));
+            self.trail_inst.push(trail::instance(g, self.defaults.0));
         }
     }
 
@@ -666,7 +689,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The alternate-screen fade for the next frame, or none: one
-    /// full-screen translucent solid in the theme's background that every
+    /// full-screen translucent solid in the default background the screen
+    /// draws -- `?5` and `OSC 11` included -- that every
     /// path draws on top of everything else, so the new screen appears out
     /// of the background. The driver hands a `progress` it computed from the
     /// display link's timestamp; this only interpolates, so the pixel oracle
@@ -676,7 +700,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fade = fade.map(|t| transition::veil(t, w, h));
         self.fade_inst.clear();
         if let Some(v) = self.fade {
-            self.fade_inst.push(transition::instance(v, self.theme.bg));
+            self.fade_inst
+                .push(transition::instance(v, self.defaults.1));
         }
     }
 
@@ -700,15 +725,48 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// which is the same shape as the blink phase needing a forced repaint
     /// because a blink changes no cell content either.
     ///
-    /// The scrollbar's solids cache [`Theme::fg`] at the moment
-    /// [`Renderer::set_scrollbar`] ran, so they are rebuilt here rather than
-    /// left drawing the old foreground until the window next scrolls.
+    /// The scrollbar, the trail and the fade cache the defaults at the
+    /// moment they were set, so they are rebuilt here rather than left
+    /// drawing the old colours until they are next set. The `OSC 10`/`11`
+    /// half of the defaults is the terminal's, which this cannot read, so
+    /// the next convert or resolve puts it back (`refresh_screen`).
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
         self.known = Prev::Unknown;
+        self.defaults = self.theme.defaults(self.video, |_| None);
+        self.rebuild_overlays();
+    }
+
+    /// Reads the screen's own colours for this frame -- `?5` and the
+    /// `OSC 10`/`11` defaults -- and, when they moved, rebuilds the solids
+    /// already built in the old ones. **They are set before a convert**, so
+    /// without the rebuild the frame a program flips `?5` on would draw its
+    /// scrollbar, trail and fade in the colours of the frame before.
+    fn refresh_screen(&mut self, term: &Term<'_>) {
+        self.video = video_of(term);
+        let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
+        if defaults != self.defaults {
+            self.defaults = defaults;
+            self.rebuild_overlays();
+        }
+    }
+
+    /// The scrollbar, the trail and the fade, rebuilt in the defaults in
+    /// force from the geometry each was last set with.
+    fn rebuild_overlays(&mut self) {
         self.bar_inst.clear();
         if let Some(b) = self.bar {
-            self.bar_inst.extend(scrollbar::instances(b, self.theme.fg));
+            self.bar_inst
+                .extend(scrollbar::instances(b, self.defaults.0));
+        }
+        self.trail_inst.clear();
+        if let Some(g) = self.trail {
+            self.trail_inst.push(trail::instance(g, self.defaults.0));
+        }
+        self.fade_inst.clear();
+        if let Some(v) = self.fade {
+            self.fade_inst
+                .push(transition::instance(v, self.defaults.1));
         }
     }
 
@@ -735,10 +793,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The default-background colour, straight (not premultiplied), for a
     /// presenter to clear the margin around the grid to -- so the gutter is
     /// the terminal's own background rather than a see-through edge. It is
-    /// what a default cell resolves to: the theme background at its alpha,
-    /// the one colour the glass shows through.
+    /// what a default cell resolves to, as of the last convert or resolve:
+    /// the theme's background, or `OSC 11`'s, or under `?5` the foreground,
+    /// at the window's alpha. It was the theme's whatever `OSC 11` said, so a
+    /// program that moved the background got a frame of the old colour.
     pub fn clear_color(&self) -> Argb {
-        self.theme.bg.with_alpha(self.theme.bg_alpha)
+        self.defaults.1.with_alpha(self.theme.bg_alpha)
+    }
+
+    /// [`Renderer::clear_color`] as the next convert of `term` will answer
+    /// it, for a driver that fills a margin the renderer never paints
+    /// before it renders -- the Linux frame is the window's size, and the
+    /// strips past the grid are filled once, so a `?5` or an `OSC 11` would
+    /// leave them the old colour.
+    pub fn clear_color_of(&self, term: &Term<'_>) -> Argb {
+        let video = video_of(term);
+        let (_, bg) = self.theme.defaults(video, |d| term.dynamic_color(d));
+        bg.with_alpha(self.theme.bg_alpha)
     }
 
     /// The pixels past the grid's right edge the frame keeps for the
@@ -1033,6 +1104,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let t0 = Instant::now();
         self.blink_seen = Blinking::Unseen;
         self.fit(term);
+        self.refresh_screen(term);
         let (cols, rows) = term.geometry();
         let ncols = cols.index();
         // Each row read where the core holds it, through the rotation and
@@ -1390,13 +1462,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// returned.
     pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
         self.blink_seen = Blinking::Unseen;
+        self.refresh_screen(term);
         let table = term.styles();
         let mut n = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
             let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
-            let (mut fg, mut bg) =
-                self.theme
-                    .resolve(style, |ch| term.palette(ch), |d| term.dynamic_color(d));
+            let (mut fg, mut bg) = self.theme.resolve(
+                style,
+                self.video,
+                |ch| term.palette(ch),
+                |d| term.dynamic_color(d),
+            );
             bg = bg.with_alpha(self.theme.bg_alpha);
             let attrs = style.attrs();
             let blink_hidden = if attrs.has(Attrs::BLINK) {
@@ -1437,7 +1513,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if !blink_hidden && attrs.has(Attrs::STRIKE) {
                 shapes = shapes.with(Shapes::STRIKE);
             }
-            let underline = self.theme.underline(style, fg, |ch| term.palette(ch));
+            let underline = self
+                .theme
+                .underline(style, self.video, fg, |ch| term.palette(ch));
             if underline == fg && style.underline().is_default() {
                 shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
             }
@@ -1476,9 +1554,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
         for (c, cell) in row.iter().enumerate() {
             let style = term.style_of(*cell);
-            let (mut fg, mut bg) =
-                self.theme
-                    .resolve(style, |ch| term.palette(ch), |d| term.dynamic_color(d));
+            let (mut fg, mut bg) = self.theme.resolve(
+                style,
+                self.video,
+                |ch| term.palette(ch),
+                |d| term.dynamic_color(d),
+            );
             // **Every background is translucent, not only the default
             // one.** The rendering register's item 6 asked whether alpha is
             // a *window* property (the default background only) or a
@@ -1559,7 +1640,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     || attrs.has(Attrs::DOTTED_UNDERLINE)
                     || attrs.has(Attrs::DASHED_UNDERLINE))
             {
-                let color = self.theme.underline(style, fg, |ch| term.palette(ch));
+                let color = self
+                    .theme
+                    .underline(style, self.video, fg, |ch| term.palette(ch));
                 let ul = px_i32(self.metrics.underline);
                 let th = px_i32(self.metrics.thickness).max(1);
                 let w = px_i32(self.metrics.cell_w);
@@ -1591,7 +1674,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
             if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || double) {
-                let color = self.theme.underline(style, fg, |ch| term.palette(ch));
+                let color = self
+                    .theme
+                    .underline(style, self.video, fg, |ch| term.palette(ch));
                 let ul = px_i32(self.metrics.underline);
                 shapes.push(solid(
                     screen(x),
@@ -1865,7 +1950,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .fg
             .get(range.start + col.index())
             .copied()
-            .unwrap_or(self.theme.fg);
+            .unwrap_or(self.defaults.0);
         let x = i32::try_from(col.index()).unwrap_or(0) * cell_w + slot.left;
         let y = top + baseline + slot.top;
         out.push(Instance {
@@ -1896,7 +1981,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .fg
                 .get(range.start + col)
                 .copied()
-                .unwrap_or(self.theme.fg);
+                .unwrap_or(self.defaults.0);
             let dx = scale.px(f32::from(p.dx)).round() as i32;
             let dy = scale.px(f32::from(p.dy)).round() as i32;
             let x = i32::try_from(col).unwrap_or(0) * cell_w + dx + slot.left;

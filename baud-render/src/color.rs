@@ -108,6 +108,43 @@ pub enum PictureBg {
     Dimmed,
 }
 
+/// Whether the screen is drawn in reverse video: `?5`, DECSCNM.
+///
+/// **The rule is xterm's `ReverseVideo`** (util.c 3269-3345, the file
+/// `[[source: xterm-scroll]]` pins): the default foreground and
+/// background swap, and so do palette entries 0 and 7 and entries 8 and 15 --
+/// "by convention, these are the colors assigned to black and white" -- while
+/// every other entry, and every truecolour, is left alone. xterm swaps the
+/// colours the table *holds*, so an `OSC 4` override set before the flip
+/// travels with its entry; here the index is mapped before the table is read,
+/// which is the same answer. A cell's own `SGR 7` still swaps after that, so
+/// reverse inside reverse video draws a normal cell.
+///
+/// **Every background keeps the window's alpha under it**, the reversed
+/// default one included: the owner's call, 2026-09-25, "same alpha for all".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Video {
+    #[default]
+    Normal,
+    Reverse,
+}
+
+impl Video {
+    /// The palette entry a colour index reads under this video: 0 and 7, and
+    /// 8 and 15, trade places.
+    pub fn entry(self, i: Chan) -> Chan {
+        let swapped = match (self, i.get()) {
+            (Video::Normal, n) => n,
+            (Video::Reverse, 0) => 7,
+            (Video::Reverse, 7) => 0,
+            (Video::Reverse, 8) => 15,
+            (Video::Reverse, 15) => 8,
+            (Video::Reverse, n) => n,
+        };
+        Chan::from_u8(swapped)
+    }
+}
+
 impl Default for Theme {
     fn default() -> Self {
         Theme::dark()
@@ -186,31 +223,24 @@ impl Theme {
 
     /// The foreground and background a rendition draws with, after the
     /// attribute rules: reverse swaps, bold brightens the first eight
-    /// palette entries, dim halves, hidden hides.
+    /// palette entries, dim halves, hidden hides -- all under `video`, the
+    /// screen's `?5`.
     pub fn resolve(
         &self,
         style: StyleWord,
+        video: Video,
         palette: impl Fn(Chan) -> Option<(u8, u8, u8)>,
         dynamic: impl Fn(DynamicColor) -> Option<(u8, u8, u8)>,
     ) -> (Argb, Argb) {
         let attrs = style.attrs();
-        // The default foreground and background are the theme's unless the
-        // application moved them with `OSC 10`/`11` -- consulted first, the
-        // way `palette` is consulted before the theme's own table.
-        let fg_default =
-            dynamic(DynamicColor::Foreground).map_or(self.fg, |(r, g, b)| triple(r, g, b));
-        let bg_default =
-            dynamic(DynamicColor::Background).map_or(self.bg, |(r, g, b)| triple(r, g, b));
+        let (fg_default, bg_default) = self.defaults(video, &dynamic);
         let pick = |w: ColorWord, default: Argb, bright: bool| -> Argb {
             if let Some((r, g, b)) = w.as_rgb() {
                 return triple(r, g, b);
             }
             if let Some(i) = w.as_index() {
                 let i = if bright && i < 8 { i + 8 } else { i };
-                return match palette(Chan::from_u8(i)) {
-                    Some((r, g, b)) => triple(r, g, b),
-                    None => self.palette[usize::from(i)],
-                };
+                return self.entry(video.entry(Chan::from_u8(i)), &palette);
             }
             default
         };
@@ -228,6 +258,35 @@ impl Theme {
         }
         (fg, bg)
     }
+
+    /// The default foreground and background the screen draws under `video`:
+    /// the theme's unless the application moved them with `OSC 10`/`11` --
+    /// consulted first, the way `palette` is consulted before the theme's own
+    /// table -- and swapped under reverse video, so the default a program
+    /// moved is the one `?5` puts on the other side. What a margin, a
+    /// scrollbar or a fade drawn "in the foreground" or "in the background"
+    /// takes.
+    pub fn defaults(
+        &self,
+        video: Video,
+        dynamic: impl Fn(DynamicColor) -> Option<(u8, u8, u8)>,
+    ) -> (Argb, Argb) {
+        let fg = dynamic(DynamicColor::Foreground).map_or(self.fg, |(r, g, b)| triple(r, g, b));
+        let bg = dynamic(DynamicColor::Background).map_or(self.bg, |(r, g, b)| triple(r, g, b));
+        match video {
+            Video::Normal => (fg, bg),
+            Video::Reverse => (bg, fg),
+        }
+    }
+
+    /// Palette entry `i`: the application's `OSC 4` override, else the
+    /// theme's table.
+    fn entry(&self, i: Chan, palette: impl Fn(Chan) -> Option<(u8, u8, u8)>) -> Argb {
+        match palette(i) {
+            Some((r, g, b)) => triple(r, g, b),
+            None => self.palette[usize::from(i.get())],
+        }
+    }
 }
 
 impl Theme {
@@ -236,6 +295,7 @@ impl Theme {
     pub fn underline(
         &self,
         style: StyleWord,
+        video: Video,
         fg: Argb,
         palette: impl Fn(Chan) -> Option<(u8, u8, u8)>,
     ) -> Argb {
@@ -244,10 +304,7 @@ impl Theme {
             return triple(r, g, b);
         }
         if let Some(i) = w.as_index() {
-            return match palette(Chan::from_u8(i)) {
-                Some((r, g, b)) => triple(r, g, b),
-                None => self.palette[usize::from(i)],
-            };
+            return self.entry(video.entry(Chan::from_u8(i)), palette);
         }
         fg
     }

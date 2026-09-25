@@ -1609,8 +1609,8 @@ impl<'b> Term<'b> {
         self.cold.modes.is_set(ModeBit::Column132)
     }
 
-    /// `?5` DECSCNM, reverse video. Recorded and exposed, not drawn: which
-    /// pixels invert is the renderer's.
+    /// `?5` DECSCNM, reverse video. The core records it; `baud-render` draws
+    /// it, by xterm's `ReverseVideo` rule (`Video` in its `color.rs`).
     pub fn reverse_video(&self) -> bool {
         self.cold.modes.is_set(ModeBit::ReverseVideo)
     }
