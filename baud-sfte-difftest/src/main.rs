@@ -137,14 +137,15 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             b"main\x1b[?1049halt\x1b[?1049l".to_vec(),
         ),
         ("BEL-terminated OSC", b"\x1b]0;title\x07AFTER".to_vec()),
-        // `?1049 h` while already on the alternate screen. xterm's own text
-        // says nothing about re-entry; both of baud's oracles answer it the
-        // same way -- baud matches on `(Set, Screen::Normal)` and alacritty
-        // gates `swap_alt` on `!ALT_SCREEN`, so a second enter is a no-op and
-        // the screen survives. sfte clears it. No recording re-enters, which
-        // is why this is a fixture: it was found by `multibench` replaying
+        // `?1049 h` while already on the alternate screen. xterm's set arm is
+        // `CursorSave; ToAlternate; ClearScreen`, and `ClearScreen` runs
+        // whatever buffer is up, so a second enter clears -- which sfte does
+        // and baud has done since `96949c2`. alacritty gates `swap_alt` on
+        // `!ALT_SCREEN` and keeps the screen. No recording re-enters, which is
+        // why this is a fixture: it was found by `multibench` replaying
         // `less-pager.raw`, which never leaves the alternate screen, so its
-        // second pass re-entered.
+        // second pass re-entered. The screens agree now, and the cursor is
+        // the pinned difference -- see `MUST_DIFFER`.
         (
             "alt screen re-entry",
             b"\x1b[?1049hHELLO\x1b[?1049h".to_vec(),
@@ -179,13 +180,12 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   (`docs/vt-coverage.md:542`): an application parses whatever arrives as
 ///   the report it asked for, and claiming a VT220's feature set would be a
 ///   lie it then acts on. Both replies are pinned byte for byte.
-/// * **`alt screen re-entry` -- sfte clears the alternate screen on a second
-///   `?1049 h`.** baud and alacritty both treat entering it while already in
-///   it as a no-op, so `HELLO` survives on both of baud's oracles and not on
-///   sfte. Found by replay: `less-pager.raw` never leaves the alternate
-///   screen, so `multibench`'s second pass over it re-enters, and the harness
-///   gate read "different screen" on a recording the boundary differential
-///   had passed at every read.
+/// * **`alt screen re-entry` -- sfte homes the cursor on a second `?1049 h`,
+///   and baud leaves it.** Both clear the screen, so every cell agrees; baud
+///   clears without homing because xterm's `ClearScreen` does not home
+///   (`xterm-util.c`), so after `HELLO` baud's cursor is at (0, 5) and sfte's
+///   at (0, 0). Until `96949c2` baud did not clear at all, and the five cells
+///   of `HELLO` were the difference pinned here.
 /// * **`OSC 11 set then query` -- sfte's dynamic-colour setter is a no-op.**
 ///   It answers every query with its compile-time default (`SFTE_COLOR_BG`,
 ///   black, as `rgb:0000/0000/0000`), whatever `OSC 11` set before; baud
@@ -219,16 +219,7 @@ const MUST_DIFFER: &[(&str, Control)] = &[
     ),
     ("DA reply", Control::Reply(b"\x1b[?6c", b"\x1b[?62c")),
     ("alt screen in/out", Control::Cursor((0, 4), (1, 0))),
-    (
-        "alt screen re-entry",
-        Control::Cells(&[
-            (0, 0, 'H', ' '),
-            (0, 1, 'E', ' '),
-            (0, 2, 'L', ' '),
-            (0, 3, 'L', ' '),
-            (0, 4, 'O', ' '),
-        ]),
-    ),
+    ("alt screen re-entry", Control::Cursor((0, 5), (0, 0))),
     (
         "OSC 11 set then query",
         Control::Reply(
@@ -632,18 +623,22 @@ mod replay {
     /// **A recording played twice is a case no single pass can reach.** Every
     /// recording here is truncated mid-session, so a second pass opens where
     /// the first left off -- inside whatever mode, screen or region the
-    /// program was in. `less-pager.raw` never leaves the alternate screen, so
-    /// its second pass re-enters it, and sfte clears on re-entry where baud
-    /// and alacritty do not (the `alt screen re-entry` control pins that in
-    /// isolation).
+    /// program was in. `less-pager.raw` and `btop.raw` never leave the
+    /// alternate screen, so their second passes re-enter it.
     ///
-    /// **And the screen consequence is only visible mid-pass.** Two *whole*
-    /// passes agree on all six non-clustering recordings, less-pager
-    /// included -- the pager redraws everything the clear removed before the
-    /// pass ends. What `multibench` saw was its 32 MiB total cutting the last
-    /// pass at byte 1,934, where 155 cells of the cleared screen had not yet
-    /// been redrawn. So this test pins two things: whole second passes at
-    /// zero, and less-pager cut 1,934 bytes into its second pass at 155.
+    /// **Until `96949c2` sfte cleared on re-entry and baud did not**, and the
+    /// consequence showed only mid-pass: two whole passes agreed, and
+    /// `multibench`'s 32 MiB total cut less-pager's last pass at byte 1,934,
+    /// where 155 cells of sfte's cleared screen had not yet been redrawn.
+    /// baud clears on re-entry now, as xterm does, and that cut agrees.
+    ///
+    /// **What differs now is the colour the clear fills with, and only on
+    /// btop.** xterm's `ClearScreen` fills with `ClearCurBackground` -- the
+    /// background in force -- and so does baud's; sfte's fills with the
+    /// default. btop's first pass ends inside a coloured rendition, so its
+    /// second pass re-enters under a set background, and 2,800 cells differ
+    /// in their background and in no character. The other five re-enter
+    /// under the default, or not at all, and agree.
     #[test]
     fn a_second_pass_over_every_recording_is_pinned() {
         set_locale();
@@ -657,28 +652,36 @@ mod replay {
         ];
         let mut bad = Vec::new();
         for path in whole {
+            // `(cells differing, of which in their character)`.
+            let pin = if *path == "utf8/btop.raw" {
+                (2_800, 0)
+            } else {
+                (0, 0)
+            };
             let got = replayed(path, 2, None);
-            if got != 0 {
+            if got != pin {
                 bad.push(format!(
-                    "{path}: {got} cells differ after two whole passes (pin 0)"
+                    "{path}: {got:?} cells differ after two whole passes (pin {pin:?})"
                 ));
             }
         }
         // The cut multibench's replay lands on: 1,113 whole passes and then
         // 1,934 bytes. One whole pass plus the cut reproduces it exactly, and
-        // the count was stable from 1 to 1,113 passes when bisected.
+        // the count was stable from 1 to 1,113 passes when bisected. 155 cells
+        // until `96949c2`, when baud began clearing on re-entry as sfte does.
         let cut = replayed("ascii/less-pager.raw", 1, Some(1_934));
-        if cut != 155 {
+        if cut != (0, 0) {
             bad.push(format!(
-                "ascii/less-pager.raw: {cut} cells differ one pass plus 1,934 bytes in (pin 155)"
+                "ascii/less-pager.raw: {cut:?} cells differ one pass plus 1,934 bytes in (pin (0, 0))"
             ));
         }
         assert!(bad.is_empty(), "second-pass pins:\n  {}", bad.join("\n  "));
     }
 
     /// Feed `passes` whole passes of a recording, then `extra` bytes of the
-    /// next, and count the cells that differ.
-    fn replayed(path: &str, passes: usize, extra: Option<usize>) -> usize {
+    /// next, and count the cells that differ, and of those the ones whose
+    /// character differs.
+    fn replayed(path: &str, passes: usize, extra: Option<usize>) -> (usize, usize) {
         let bytes = recording(path);
         let mut owned = Owned::new(&WS);
         let mut ours = Ours::new(&mut owned);
@@ -700,10 +703,13 @@ mod replay {
             feed(&bytes[..e]);
         }
         let (a, b) = (ours.screen(), theirs.screen(&mut norm));
-        a.cells
-            .iter()
-            .zip(b.cells.iter())
-            .filter(|(x, y)| x != y)
-            .count()
+        let differ = |f: fn(&Cell, &Cell) -> bool| {
+            a.cells
+                .iter()
+                .zip(b.cells.iter())
+                .filter(|(x, y)| f(x, y))
+                .count()
+        };
+        (differ(|x, y| x != y), differ(|x, y| x.ch != y.ch))
     }
 }

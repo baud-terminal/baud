@@ -131,12 +131,12 @@ program and is not quoted as a ratio.
 
 | recording | baud-core | sfte | sfte, damage marking removed | same screen? |
 |---|---|---|---|---|
-| `utf8/btop.raw` | 864.5 | **359.1** [354-362] | 359.3 | yes |
+| `utf8/btop.raw` | 864.5 | **359.1** [354-362] | 359.3 | yes -- **no** since `96949c2`, see below |
 | `utf8/cava.raw` | 553.7 | **347.6** [344-355] | 364.0 | yes |
 | `ascii/asciiquarium.raw` | 527.7 | **341.4** [336-344] | 344.3 | yes |
 | `ascii/git-log.raw` | 1645.4 | **17.2** [17-17] | **110.1** [104-111] | yes |
 | `ascii/cat-scroll.raw` | 1423.6 | **11.2** [11-12] | **82.9** [78-84] | yes |
-| `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry |
+| `ascii/less-pager.raw` | 1706.3 | 14.3 | 115.9 | **no** -- alt-screen re-entry; yes since `96949c2`, see below |
 | `utf8/vim-unicode.raw` | 651.7 | 162.3 | -- | **no** -- clustering |
 | `utf8/less-cjk.raw` | 505.1 | 22.5 | -- | **no** -- clustering |
 | `utf8/cat-cjk.raw` | 474.1 | 20.9 | -- | **no** -- clustering |
@@ -181,6 +181,21 @@ no-op. By the end of a whole pass the pager has redrawn what the clear
 removed; at the cut it has not, and 155 cells differ. That is pinned twice
 in `baud-sfte-difftest` -- as an isolated five-cell control and as the cut
 -- and it is the case a single pass structurally cannot see.
+
+**Since `96949c2` baud clears on re-entry too, and the gate moved on two
+rows.** xterm's `?1049 h` set arm clears whatever buffer is up, and baud
+follows it now. The harness's own replay -- `baud-sfte-difftest`'s `cut`
+example, 32 MiB in 4096-byte reads, which is multibench's -- was re-run on
+2026-09-25 over all nine recordings. less-pager agrees at 0 cells.
+**btop now differs in 2,800 cells, every one in its background and none in
+its character**: its first pass ends inside a coloured rendition, so each
+later pass re-enters under a set background, and xterm and baud clear in
+the background in force (`ClearCurBackground`) where sfte clears to the
+default. cava, asciiquarium, git-log and cat-scroll still agree, and the
+three clustering rows still differ (vim 135 cells, less-cjk 147, cat-cjk
+178). **The throughput columns above were not re-taken**; the verdicts are
+what moved, and the btop row is now a figure for two programs that draw
+different screens.
 
 ## cava, and every implementation on it
 

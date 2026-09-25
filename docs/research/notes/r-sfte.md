@@ -95,10 +95,15 @@ not. The numbers and the mechanism are in `MEASUREMENTS.md`.
 Two things came out of the row that the single-pass differential could not
 have found. **A replay re-enters whatever the recording left open**: every
 recording is truncated mid-session, `less-pager.raw` never leaves the
-alternate screen, and sfte clears the screen on a second `?1049 h` where
-baud and alacritty treat it as a no-op. Two whole passes still agree, because
-the pager redraws everything; the harness's cut 1,934 bytes into a pass is
-where 155 cells show. Both are pinned. And **sfte's scroll-heavy rows are
+alternate screen, and sfte cleared the screen on a second `?1049 h` where
+baud and alacritty treated it as a no-op. Two whole passes still agreed,
+because the pager redraws everything; the harness's cut 1,934 bytes into a
+pass was where 155 cells showed. **Since `96949c2` baud clears on re-entry
+too**, as xterm's set arm does, and that cut agrees. What differs now is the
+fill: xterm and baud clear in the background in force (`ClearCurBackground`),
+sfte in the default, and `btop.raw`'s second pass re-enters under a coloured
+rendition -- 2,800 cells, in background only. And sfte homes the cursor on
+re-entry where xterm and baud do not. All three are pinned. And **sfte's scroll-heavy rows are
 85-88% damage marking, not parsing**: its grid-scroll routine marks every
 cell of the whole region dirty on every one-line scroll (10,000 byte stores
 at stride 36), and `patches/ceiling-no-dirty-rows.md` -- applied only when
