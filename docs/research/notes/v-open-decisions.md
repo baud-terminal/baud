@@ -1,7 +1,42 @@
 # V. The owner's open decisions, researched
 
 Taken at `0987b98`, 2026-09-25. **Nothing in this note is built.** Each
-decision waits on the owner's answer.
+decision waited on the owner's answer; the answers are the next section.
+
+## Decisions taken, 2026-09-25
+
+The owner's answers, in their words where they gave any. Each overrides the
+section's recommendation where the two differ.
+
+- **A standing rule.** "We need to support such protocols fully, always ...
+  we want baud to be the best VT." A half-built protocol feature is finished
+  to the spec, not switched off. A refusal stands only where answering is
+  itself unsafe, as with clipboard reads.
+- **V10: F.** Finish left and right margins: a full VT420-class terminal.
+- **V13: copy-on-select on by default**, with a config key to turn it off.
+  The selection colour is as recommended: a setting that defaults to reverse
+  video, chosen after a side-by-side look.
+- **V12, V14, V18, V19: built to the spec**, overriding their
+  recommendations. `?1001` highlight tracking, the ambiguous-width switch
+  with `?1021`, the Sixel modes `?80` and `?1070`, and the kitty graphics
+  protocol.
+- **V16: research first.** The owner's words: "the terminal has LS_COLORS I
+  think or something like that, what other VTs are doing? as I know there
+  are a bunch like base16/24/ansi/etc and I have also vogix16, so maybe
+  research here is needed." The `[palette]` recommendation is withdrawn
+  until that research is done.
+- **V24: not yet.** Nothing is deleted.
+- **V23**: the corpus question had no default and is still open.
+- **Every other decision: as recommended.** V1-V9, V11, V15, V17, V20-V22
+  and V25.
+
+Two requests arrived with the answers, and are not decisions from this note:
+
+- **The cursor trail on by default**, with `[cursor] trail = false` to turn
+  it off.
+- **The cursor's shape and blink set in the config**, blinking block by
+  default. The core has defaulted to a blinking block all along; no renderer
+  path draws the blink.
 
 ## What this is
 
