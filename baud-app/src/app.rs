@@ -1763,6 +1763,9 @@ struct Driver {
     /// observer is deliberately `forget`ten for.
     glass: GlassSurface,
     window: GlassWindow,
+    /// The title the window was last given, so a program's `OSC 0` or
+    /// `OSC 2` reaches it once rather than on every read.
+    titles: crate::title::Shown,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -2949,6 +2952,15 @@ impl Driver {
                 self.app.echo = Echo::Fed;
             }
             self.judge();
+            // A program's title: only a read can set one, so this is the
+            // one place it can have changed.
+            if let Some(t) = self.titles.next(
+                self.app.term.title(),
+                self.app.term.input_encoding(),
+                "baud",
+            ) {
+                self.window.set_title(&t);
+            }
         }
         // Looking back while output scrolls: the window stays on the lines
         // it was showing, which means it moves up the history by however
@@ -3794,6 +3806,7 @@ pub fn run() {
         glass_cfg,
         glass: glass.clone(),
         window: window.clone(),
+        titles: crate::title::Shown::new(),
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,

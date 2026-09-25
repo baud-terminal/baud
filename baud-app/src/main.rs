@@ -41,6 +41,10 @@ mod pty;
 mod reveal;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
+// What a program's title becomes on the window: pure, so its tests run on
+// every platform, and both drivers read it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod title;
 
 fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]

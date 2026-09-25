@@ -158,6 +158,27 @@ impl Window {
         self.callback.is_some()
     }
 
+    /// Set the window's title, as a program's `OSC 0` or `OSC 2` asks.
+    ///
+    /// Kept as well as sent, so a title set before the toplevel exists is
+    /// the one its role is created with. After that `xdg_toplevel.set_title`
+    /// takes effect when the compositor receives it: the pinned xdg-shell
+    /// does not double-buffer the title, where it says so of the state it
+    /// does. The driver's loop flushes it at the end of the iteration that
+    /// set it. Where it is shown is the compositor's: a titlebar only under
+    /// server-side decorations, which baud does not negotiate, else a task
+    /// bar or window list.
+    pub fn set_title(&mut self, s: &mut Sender<'_>, title: &str) {
+        self.title = title.to_string();
+        if let Some(top) = self.toplevel {
+            let _ = s.request(
+                top,
+                Opcode(protocol::xdg_toplevel::request::SET_TITLE),
+                &[Arg::Str(Some(&self.title))],
+            );
+        }
+    }
+
     /// When the held key next repeats, for the loop to wait no longer than;
     /// `None` when no key is repeating.
     pub fn repeat_deadline(&self) -> Option<Instant> {

@@ -836,3 +836,64 @@ fn tempfile() -> std::fs::File {
     std::fs::remove_file(&path).unwrap();
     f
 }
+
+/// **A title a program sets reaches the toplevel**, as `xdg_toplevel.set_title`
+/// on the object the role created. And one set before the toplevel exists is
+/// the one the role is created with, rather than the name the window opened
+/// under.
+#[test]
+fn a_title_set_after_the_role_reaches_the_toplevel() {
+    let (mut conn, mut server, mut w, _keyboard, _surface) = keyboard_session();
+    w.set_title(&mut conn.sender(), "vim — main.rs");
+    conn.flush().unwrap();
+    let r = server.expect("xdg_toplevel", "set_title");
+    assert!(
+        matches!(&r.args[0], Val::Str(Some(t)) if t == "vim — main.rs"),
+        "{:?}",
+        r.args
+    );
+}
+
+#[test]
+fn a_title_set_before_the_role_is_the_one_it_is_created_with() {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    w.set_title(&mut conn.sender(), "ssh host");
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    loop {
+        let r = server.next();
+        if (r.iface, r.name) == ("xdg_toplevel", "set_title") {
+            assert!(
+                matches!(&r.args[0], Val::Str(Some(t)) if t == "ssh host"),
+                "{:?}",
+                r.args
+            );
+            break;
+        }
+    }
+}

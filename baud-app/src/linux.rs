@@ -71,6 +71,9 @@ struct Driver {
     pending: Pending,
     damage: Damage,
     sync_since: Option<Instant>,
+    /// The title the toplevel was last given, so a program's `OSC 0` or
+    /// `OSC 2` reaches it once rather than every read.
+    titles: crate::title::Shown,
 }
 
 pub fn run() {
@@ -164,6 +167,7 @@ pub fn run() {
         pending: Pending::Clean,
         damage: Damage::Full,
         sync_since: None,
+        titles: crate::title::Shown::new(),
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -248,6 +252,12 @@ impl Driver {
         self.term
             .feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         self.pending = Pending::Dirty;
+        if let Some(t) = self
+            .titles
+            .next(self.term.title(), self.term.input_encoding(), "baud")
+        {
+            self.window.set_title(&mut self.conn.sender(), &t);
+        }
     }
 
     /// Whatever the core answered -- a key, a query -- to the child.
