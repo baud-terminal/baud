@@ -22,9 +22,9 @@ use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize, Region,
-    Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition, VideoFlash,
-    Widths, Window,
+    Blend, Blink, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize,
+    Region, Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition,
+    VideoFlash, Widths, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -142,10 +142,12 @@ impl Arms<'_, '_> {
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
-        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
-            let (r, c) = t.cursor();
-            (r, c, t.cursor_style())
-        });
+        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0)
+            .then(|| {
+                let (r, c) = t.cursor();
+                (r, c, t.cursor_style())
+            })
+            .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         self.renderer.resolve_styles_into(t, self.styles_mem);
         self.exceptions.ensure(
             &Scene {
@@ -242,10 +244,12 @@ impl Arms<'_, '_> {
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
-        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
-            let (r, c) = t.cursor();
-            (r, c, t.cursor_style())
-        });
+        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0)
+            .then(|| {
+                let (r, c) = t.cursor();
+                (r, c, t.cursor_style())
+            })
+            .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         let input = CellInput {
             set: baud_present_macos::journal::SetIx(0),
             grid: &self.copy,
@@ -507,6 +511,43 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     }
     // Reset, so the rotation and selection cases below draw the default cursor.
     feed(&mut t, b"\x1b]112\x07");
+    // **A blinking cursor's off phase.** Neither arm draws it: the cell arm's
+    // cursor goes through `Renderer::cursor_drawn` above, as the app's does,
+    // and the instance arm's through `convert`. The arms must agree, the off
+    // phase must be exactly the frame `?25l` draws, and it must differ from
+    // the on phase -- or a rule lost on both arms at once passes here.
+    for (shape, name) in [
+        (b"\x1b[1 q", "block"),
+        (b"\x1b[3 q", "underline"),
+        (b"\x1b[5 q", "bar"),
+    ] {
+        feed(&mut t, shape);
+        let (on_a, _) = arms.draw(&mut t);
+        arms.renderer.set_cursor_blink(Blink::Hidden);
+        let (off_a, off_b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&off_a, &off_b),
+            0,
+            "the arms disagree on a {name} cursor's off phase"
+        );
+        assert_ne!(
+            differing(&on_a, &off_a),
+            0,
+            "a {name} cursor's off phase reached no pixel"
+        );
+        arms.renderer.set_cursor_blink(Blink::Shown);
+        feed(&mut t, b"\x1b[?25l");
+        let (none_a, _) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&off_a, &none_a),
+            0,
+            "a {name} cursor's off phase is not the frame without a cursor"
+        );
+        feed(&mut t, b"\x1b[?25h");
+    }
+    // Back to the steady bar the `OSC 12` loop left, which is the cursor
+    // the cases below were written against.
+    feed(&mut t, b"\x1b[6 q");
     // Scroll the scene so the grid is under a rotation, and compare again:
     // the cell arm reads it rotated, the instance arm turns it.
     // From the last row, so the two newlines scroll whatever the grid's

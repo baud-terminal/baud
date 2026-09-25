@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::bell::{Bell, Update, UpdateClock};
+use crate::caret::{Caret, Owes};
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
     FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
@@ -423,6 +424,12 @@ struct App {
     /// blink changes no cell content and row damage would not catch it.
     blink: Blink,
     blink_present: Blinking,
+    /// The cursor's blink, on the display link's clock (`caret.rs`): xterm's
+    /// times, only while the window is key, restarted by a key sent or output
+    /// read. `focus` is whether the window is key, as the last focus callback
+    /// or poll said.
+    caret: Caret<HostTime>,
+    focus: baud_core::Focus,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
     /// other video until a deadline the display link's clock reaches
     /// (`bell.rs`).
@@ -479,6 +486,9 @@ struct Boot {
     glass: crate::config::Glass,
     /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`.
     cursor_trail: crate::config::CursorTrail,
+    /// The cursor the terminal powers on with, from `[cursor] shape` and
+    /// `blink`.
+    cursor: baud_core::CursorStyle,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -619,6 +629,7 @@ impl Boot {
             theme: cfg.theme,
             glass: cfg.glass,
             cursor_trail: cfg.cursor_trail,
+            cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink),
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             images: cfg.images,
@@ -648,6 +659,7 @@ impl App {
             theme: _,
             glass: _,
             cursor_trail,
+            cursor,
             screen_transition,
             scroll,
             images,
@@ -787,6 +799,7 @@ impl App {
         // the cell height in pixels; re-set on every `rescale`.
         term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
         term.set_sixel_claim(sixel);
+        term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         App {
             bell,
@@ -838,6 +851,8 @@ impl App {
             updates: UpdateClock::new(SYNC_MAX),
             blink: Blink::default(),
             blink_present: Blinking::default(),
+            caret: Caret::new(host_now()),
+            focus: baud_core::Focus::Lost,
             next_damage: Damage::Incremental,
             cursor_trail,
             trail: None,
@@ -888,6 +903,9 @@ impl App {
     /// for no echo, and the instrument must not wait for one.
     fn send(&mut self, e: KeyEvent) -> Sent {
         self.term.key(e);
+        // A key shows the cursor and restarts its blink, whether or not the
+        // child echoes it back (`caret.rs`).
+        self.caret.restart(host_now());
         self.flush_reply()
     }
 
@@ -1101,6 +1119,15 @@ impl App {
         let update = self.updates.state(&self.term, Instant::now());
         let bell = self.bell.plan(&self.term, seen_at, update);
         self.renderer.set_flash(bell.flash);
+        // The cursor's blink phase at the same moment, kept with the bell's
+        // plan when an arm shows the frame.
+        let blinks = crate::caret::blinks(
+            self.term.cursor_style(),
+            self.focus,
+            live_cursor(&self.term, self.back),
+        );
+        let caret = self.caret.plan(seen_at, blinks);
+        self.renderer.set_cursor_blink(caret);
         // Image placements for this view, for the two GPU arms: both read the
         // one list `set_images` builds, so an image lands where its line is.
         // The CPU arm's `render_at` places them itself, without the upload
@@ -1154,7 +1181,8 @@ impl App {
                     .live
                     .ensure(view, &mut self.renderer, &mut cell.candidates);
                 let cursor = live_cursor(&self.term, self.back)
-                    .map(|(r, c)| (r, c, self.term.cursor_style()));
+                    .map(|(r, c)| (r, c, self.term.cursor_style()))
+                    .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
                 // Row 9: the drawn cursor sits after the last predicted
                 // glyph, for the shader and for the overlay's own paint.
                 let cursor = match (cursor, self.predictions.last()) {
@@ -1385,6 +1413,12 @@ impl App {
             Presented::Yes => self.bell.commit(bell),
             Presented::No => self.bell.refused(bell),
         }
+        // The blink's phase is taken either way. A present that failed drops
+        // the frame, and the next flip -- at most `caret::ON` away -- draws
+        // the phase again; not taking it would owe a frame on every tick for
+        // as long as presents keep failing, the defect the bell's review
+        // found in `refused`.
+        self.caret.commit(caret);
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
         // A fed echo is drawn by this commit; a wanted one is still owed,
@@ -1771,9 +1805,6 @@ struct Driver {
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
-    /// Whether the window is key, as the last focus callback said. A press
-    /// into a background window arms nothing.
-    focused: baud_core::Focus,
     /// A drag of the scrollbar's thumb: where it was grabbed, in frame
     /// pixels, and where its top was.
     bar_drag: Option<BarDrag>,
@@ -3027,6 +3058,9 @@ impl Driver {
         }
         if !drained.chunks.is_empty() {
             self.app.latency.fed(host_now);
+            // Output shows the cursor and restarts its blink: foot's "prevent
+            // blinking while typing" (`caret.rs`).
+            self.app.caret.restart(host_now());
             // The first read after a key's write is that key's echo -- the
             // instrument's rule, and the loop's: it is owed a frame now.
             if self.app.echo == Echo::Wanted {
@@ -3470,6 +3504,20 @@ impl Responder for Driver {
                 self.app.pending = Pending::Dirty;
             }
         }
+        // The cursor's blink owes a frame at each flip, and when it stops in
+        // the off phase -- focus lost, a steady style, hidden, looked away
+        // from -- the frame that shows it (`caret.rs`). Nothing while it does
+        // not blink, so an idle steady cursor builds no frame.
+        if let Some(now) = HostTime::of_secs(target) {
+            let blinks = crate::caret::blinks(
+                self.app.term.cursor_style(),
+                self.app.focus,
+                live_cursor(&self.app.term, self.app.back),
+            );
+            if self.app.caret.due(now, blinks) == Owes::Frame {
+                self.app.pending = Pending::Dirty;
+            }
+        }
         // A flash on screen ends on this clock: the tick whose target
         // reaches its deadline owes the frame that takes it down, and the
         // frame's own plan reads the same target (`present`), so it is one
@@ -3886,7 +3934,6 @@ pub fn run() {
         held: None,
         key_kind: KeyEventKind::Press,
         armed: None,
-        focused: baud_core::Focus::Lost,
         bar_drag: None,
         grab: Grab::Free,
         deferred: Deferred::Nothing,
@@ -4058,10 +4105,10 @@ impl Driver {
     /// Record a focus transition and report it if the application asked.
     /// Only a *change* reaches the core, so polling cannot repeat `CSI I`.
     fn set_focus(&mut self, f: baud_core::Focus) {
-        if self.focused == f {
+        if self.app.focus == f {
             return;
         }
-        self.focused = f;
+        self.app.focus = f;
         if self.app.term.focus(f) {
             self.app.flush_reply();
         }
@@ -4095,7 +4142,7 @@ impl Driver {
             let id = view.row(row)[col.index()].flags.link();
             self.app.term.link_uri(id).map(|_| id)
         };
-        match crate::link::gesture(press, chord, clicks, self.focused, self.armed, under) {
+        match crate::link::gesture(press, chord, clicks, self.app.focus, self.armed, under) {
             Gesture::Pass => Took::No,
             Gesture::Arm(a) => {
                 self.armed = Some(a);

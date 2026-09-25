@@ -25,6 +25,10 @@ mod app;
 // drivers read it, and so does the pty, for the one spelling of `TERM`.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod bell;
+// The cursor's blink clock: pure, so its tests run on every platform; both
+// drivers read it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod caret;
 mod config;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;

@@ -356,6 +356,10 @@ pub struct Cold {
     /// drawing its text fallback, so the claim is the embedder's to make.
     pub(crate) sixel_claim: SixelClaim,
     pub(crate) cursor_style: CursorStyle,
+    /// The style `DECSCUSR 0` and `7`, `DECSTR` and `RIS` restore: the
+    /// embedder's ([`Term::set_initial_cursor_style`]), a blinking block
+    /// until it says otherwise.
+    pub(crate) initial_cursor: CursorStyle,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -425,10 +429,12 @@ pub struct Cold {
 // 336 -- the first `u32` landed in padding and the second did not -- and the
 // count of `?2026` openings landed in padding again. Each `?5` change bumps
 // one of the two, and each opening the third, all on control sequences the
-// per-byte loop reaches only through its dispatch.
+// per-byte loop reaches only through its dispatch. The initial cursor style
+// took it to 344: one byte, set by the embedder and read by `DECSCUSR 0` and
+// `7` and by both resets, none of them on the write path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 336);
+const _: () = assert!(core::mem::size_of::<Cold>() == 344);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -462,6 +468,7 @@ impl Cold {
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
             cursor_style: CursorStyle::BlinkingBlock,
+            initial_cursor: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
@@ -1615,6 +1622,21 @@ impl<'b> Term<'b> {
     /// `DECSCUSR`. The cursor shape an application asked for.
     pub fn cursor_style(&self) -> CursorStyle {
         self.cold.cursor_style
+    }
+
+    /// The cursor style this terminal powers on in, and the one `DECSCUSR 0`
+    /// and `7`, `DECSTR` and `RIS` restore -- xterm's resources, which
+    /// `DECSCUSR 7` names "initial resources" (`[[source: ctlseqs]]`). Sets the
+    /// style in force too, so an embedder calls it once, before the child
+    /// writes anything. A blinking block until it is called.
+    pub fn set_initial_cursor_style(&mut self, s: CursorStyle) {
+        self.cold.initial_cursor = s;
+        self.cold.cursor_style = s;
+    }
+
+    /// What [`Term::set_initial_cursor_style`] last set.
+    pub fn initial_cursor_style(&self) -> CursorStyle {
+        self.cold.initial_cursor
     }
 
     /// The `[[source: kitty-keyboard]]` enhancement flags in force on the

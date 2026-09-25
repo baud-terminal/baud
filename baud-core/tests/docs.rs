@@ -343,6 +343,12 @@ fn every_test_named_in_the_docs_exists() {
             "VTE's C accessor, quoted in note F where it returns NULL past the              row's stored length",
         ),
         (
+            "term_cursor_blink_update",
+            "foot's C function that arms its cursor blink timer only while the \
+             window has focus, quoted in `baud-app/src/caret.rs` and in \
+             CLAUDE.md's cursor section as the rule baud's blink follows",
+        ),
+        (
             "n_tty_receive_buf_common",
             "the Linux N_TTY function that keeps one byte of the read ring free,              quoted in note E and in `SLOT_BYTES`'s doc comment as the line the              4095-byte read bound comes from",
         ),

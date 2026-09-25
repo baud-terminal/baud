@@ -60,11 +60,19 @@ fonts = [
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
-# Whether a cursor move leaves a fading trail sweeping from the cell it left
-# to the cell it reached. Off by default -- it is opt-in polish, and an idle
-# terminal pays nothing for it, so the low-latency default is unchanged.
+# The cursor: its shape -- "block", "underline" or "bar" -- and whether it
+# blinks. This is the cursor the terminal starts with and the one it returns
+# to when an application resets it; an application can still ask for another.
+# A blinking cursor shows for 600 ms and hides for 300 (xterm's times), blinks
+# only while the window has focus, and shows at once on a key or on output.
+#
+# `trail`: whether a cursor move leaves a fading trail sweeping from the cell
+# it left to the cell it reached. On by default; an idle terminal pays nothing
+# for it, because only a cursor that moved leaves one.
 [cursor]
-trail = false
+shape = "block"
+blink = true
+trail = true
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the

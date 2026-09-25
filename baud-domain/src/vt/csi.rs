@@ -585,8 +585,8 @@ pub enum Csi {
         mode: AnsiMode,
     },
     Sgr,
-    /// DECSCUSR, `CSI Ps SP q`. Cursor shape and blink.
-    CursorStyle(CursorStyle),
+    /// DECSCUSR, `CSI Ps SP q`. Cursor shape and blink, or the initial style.
+    CursorStyle(CursorPick),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
     /// XTMODKEYS, `CSI > 4 ; Pv m` -- `modifyOtherKeys`.

@@ -20,6 +20,8 @@
 //! none is found or a field is absent, the defaults are the built-in Menlo
 //! stack -- so the app runs with no config at all.
 
+use baud_domain::{CursorBlink, CursorShape};
+
 /// A face is a file and, for a collection (`.ttc`), which face in it: the
 /// path may carry `@N`, so `Menlo.ttc@0`.
 pub struct FaceSpec {
@@ -53,11 +55,18 @@ pub struct Config {
     /// signal wired yet and resolves it to dark.
     pub theme: ThemeChoice,
     /// `[cursor] trail`: whether a cursor move leaves a fading ghost
-    /// sweeping to the new cell. Off by default -- sfte ships its own
-    /// `SFTE_CURSOR_TRAIL` off too, and it is opt-in polish, so an idle
-    /// terminal pays nothing for it and the low-latency default is
-    /// unchanged.
+    /// sweeping to the new cell. **On by default**, the owner's call on
+    /// 2026-09-25, where sfte ships its own `SFTE_CURSOR_TRAIL` off: an idle
+    /// terminal pays nothing for it, because only a cursor that moved spawns
+    /// one. `false` turns it off.
     pub cursor_trail: CursorTrail,
+    /// `[cursor] shape` and `[cursor] blink`: the cursor the terminal powers
+    /// on with, and the one an application's reset (`DECSCUSR 0` or `7`,
+    /// `DECSTR`, `RIS`) returns to. A blinking block by default, the owner's
+    /// call on 2026-09-25 and `DECSCUSR`'s own default. Two keys and two
+    /// fields, because the keys may come in either order.
+    pub cursor_shape: CursorShape,
+    pub cursor_blink: CursorBlink,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
@@ -214,8 +223,8 @@ pub enum ThemeChoice {
 /// other config choices (`Shadow`, `Material`) already are.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum CursorTrail {
-    #[default]
     Off,
+    #[default]
     On,
 }
 
@@ -260,7 +269,9 @@ impl Config {
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
-            cursor_trail: CursorTrail::Off,
+            cursor_trail: CursorTrail::On,
+            cursor_shape: CursorShape::Block,
+            cursor_blink: CursorBlink::Blinking,
             screen_transition: ScreenTransition::Off,
             scroll: ScrollMode::Smooth,
             glass: Glass::defaults(),
@@ -350,9 +361,36 @@ impl Config {
                         other => {
                             said.push(format!(
                                 "config: [cursor] trail {other:?} is not true or false; \
-                                 using false"
+                                 using true"
                             ));
-                            CursorTrail::Off
+                            CursorTrail::On
+                        }
+                    };
+                }
+                ("cursor", "shape") => {
+                    self.cursor_shape = match value.trim().trim_matches('"') {
+                        "block" => CursorShape::Block,
+                        "underline" => CursorShape::Underline,
+                        "bar" => CursorShape::Bar,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] shape {other:?} is not block, underline \
+                                 or bar; using block"
+                            ));
+                            CursorShape::Block
+                        }
+                    };
+                }
+                ("cursor", "blink") => {
+                    self.cursor_blink = match value.trim() {
+                        "true" => CursorBlink::Blinking,
+                        "false" => CursorBlink::Steady,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] blink {other:?} is not true or false; \
+                                 using true"
+                            ));
+                            CursorBlink::Blinking
                         }
                     };
                 }
@@ -825,12 +863,12 @@ mod reader {
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
     }
 
-    /// The cursor trail is off unless `[cursor] trail = true`, and a value
-    /// that is neither `true` nor `false` leaves it off with a warning
-    /// rather than being read as truthy.
+    /// The cursor trail is on unless `[cursor] trail = false`, and a value
+    /// that is neither `true` nor `false` leaves it at the default with a
+    /// warning rather than being read as either.
     #[test]
-    fn the_cursor_trail_is_off_unless_asked_for() {
-        assert_eq!(Config::defaults().cursor_trail, CursorTrail::Off);
+    fn the_cursor_trail_is_on_unless_turned_off() {
+        assert_eq!(Config::defaults().cursor_trail, CursorTrail::On);
         assert_eq!(
             read("[cursor]\ntrail = true\n").cursor_trail,
             CursorTrail::On
@@ -841,8 +879,54 @@ mod reader {
         );
         assert_eq!(
             read("[cursor]\ntrail = yes\n").cursor_trail,
-            CursorTrail::Off
+            CursorTrail::On
         );
+        assert_eq!(
+            Config::defaults().apply("[cursor]\ntrail = yes\n").len(),
+            1,
+            "an unreadable value is said"
+        );
+    }
+
+    /// The cursor is a blinking block unless the config names another shape
+    /// or turns the blink off, and either key alone keeps the other axis.
+    /// A value the reader does not know keeps the default and says so.
+    #[test]
+    fn the_cursor_is_a_blinking_block_unless_configured() {
+        let d = Config::defaults();
+        assert_eq!(
+            (d.cursor_shape, d.cursor_blink),
+            (CursorShape::Block, CursorBlink::Blinking)
+        );
+        let c = read("[cursor]\nshape = \"bar\"\nblink = false\n");
+        assert_eq!(
+            (c.cursor_shape, c.cursor_blink),
+            (CursorShape::Bar, CursorBlink::Steady)
+        );
+        // Either order, and unquoted.
+        let c = read("[cursor]\nblink = false\nshape = underline\n");
+        assert_eq!(
+            (c.cursor_shape, c.cursor_blink),
+            (CursorShape::Underline, CursorBlink::Steady)
+        );
+        let c = read("[cursor]\nshape = \"bar\"\n");
+        assert_eq!(
+            (c.cursor_shape, c.cursor_blink),
+            (CursorShape::Bar, CursorBlink::Blinking)
+        );
+        let c = read("[cursor]\nshape = \"box\"\nblink = maybe\n");
+        assert_eq!(
+            (c.cursor_shape, c.cursor_blink),
+            (CursorShape::Block, CursorBlink::Blinking)
+        );
+        assert_eq!(
+            Config::defaults()
+                .apply("[cursor]\nshape = \"box\"\nblink = maybe\n")
+                .len(),
+            2
+        );
+        // Not at the top level: `shape` there is nobody's key.
+        assert_eq!(read("shape = \"bar\"\n").cursor_shape, CursorShape::Block);
     }
 
     /// The screen transition is off unless `[screen] transition = true`, and
@@ -1064,8 +1148,12 @@ shadow     = "never"
         // above would catch.
         assert_eq!(
             c.cursor_trail,
-            CursorTrail::Off,
+            CursorTrail::On,
             "the [cursor] section did not land"
+        );
+        assert_eq!(
+            (c.cursor_shape, c.cursor_blink),
+            (CursorShape::Block, CursorBlink::Blinking)
         );
         assert_eq!(
             c.screen_transition,

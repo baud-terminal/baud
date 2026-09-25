@@ -20,13 +20,14 @@
 //! seconds.
 
 use crate::bell::{Bell, Update, UpdateClock};
+use crate::caret::{Blinks, Caret, Owes};
 use crate::config::Config;
 use crate::host::{
     FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
     startup_mark,
 };
 use crate::pty::{Chunk, Pty, Ready, wait};
-use baud_core::{Owned, Resized, Term};
+use baud_core::{Focus, Owned, Resized, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Event, Presented, Window};
@@ -78,6 +79,11 @@ struct Driver {
     /// The visual bell no frame drew, ended on the `poll` timeout
     /// (`bell.rs`).
     bell: Bell<Instant>,
+    /// The cursor's blink, ended and restarted on the `poll` timeout
+    /// (`caret.rs`), and whether the keyboard is ours -- the blink stops in
+    /// a window without it.
+    caret: Caret<Instant>,
+    focus: Focus,
     /// The title the toplevel was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than every read.
     titles: crate::title::Shown,
@@ -143,6 +149,10 @@ pub fn run() {
         cell_px(renderer.metrics().cell_h),
     );
     term.set_sixel_claim(cfg.sixel);
+    term.set_initial_cursor_style(baud_core::CursorStyle::of(
+        cfg.cursor_shape,
+        cfg.cursor_blink,
+    ));
     startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST, renderer.metrics().cell_w, renderer.metrics().cell_h)
         .expect("pty");
@@ -165,6 +175,10 @@ pub fn run() {
     let bell = Bell::new(&term, crate::bell::LENGTH);
     let mut d = Driver {
         bell,
+        caret: Caret::new(Instant::now()),
+        // Until `wl_keyboard.enter`: a window the compositor has not given
+        // the keyboard holds a steady cursor.
+        focus: Focus::Lost,
         conn,
         window,
         term,
@@ -206,7 +220,12 @@ pub fn run() {
             .deadline()
             .filter(|&t| t > now)
             .map(|t| t.saturating_duration_since(now));
-        let timeout = [sync, repeat, flash].into_iter().flatten().min();
+        // The cursor's next flip, while it blinks: always ahead of `now`.
+        let caret = d
+            .caret
+            .next_change(now, d.blinks())
+            .map(|t| t.saturating_duration_since(now));
+        let timeout = [sync, repeat, flash, caret].into_iter().flatten().min();
         let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), timeout) {
             Ok(r) => r,
             Err(e) => {
@@ -244,17 +263,27 @@ pub fn run() {
         if d.bell.is_due(now) {
             d.pending = Pending::Dirty;
         }
+        let blinks = d.blinks();
+        if d.caret.due(now, blinks) == Owes::Frame {
+            d.pending = Pending::Dirty;
+        }
         while let Some(e) = d.window.next_event() {
             match e {
                 Event::Configured { width, height } => d.configure(width, height),
                 Event::Frame => {}
                 Event::Key(k) => {
                     d.term.key(k);
+                    // A key shows the cursor and restarts its blink.
+                    d.caret.restart(Instant::now());
                 }
                 // Reported to the child only if it asked with `?1004`; the
-                // reply is flushed with the keys' below.
+                // reply is flushed with the keys' below. Kept for the blink,
+                // which stops without the keyboard: a cursor hidden when it
+                // leaves is owed the frame below that shows it.
                 Event::Focus(f) => {
                     d.term.focus(f);
+                    d.focus = f;
+                    d.pending = Pending::Dirty;
                 }
                 Event::Closed => return,
             }
@@ -269,6 +298,16 @@ pub fn run() {
 }
 
 impl Driver {
+    /// Whether the cursor blinks now: a style that asks to, the keyboard, and
+    /// a cursor on the screen (`caret.rs`).
+    fn blinks(&self) -> Blinks {
+        crate::caret::blinks(
+            self.term.cursor_style(),
+            self.focus,
+            self.term.cursor_visible().then(|| self.term.cursor()),
+        )
+    }
+
     /// One read's worth of the child's output into the core.
     fn feed(&mut self, bytes: &[u8]) {
         if bytes.is_empty() {
@@ -278,6 +317,8 @@ impl Driver {
         self.term
             .feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         self.pending = Pending::Dirty;
+        // Output shows the cursor and restarts its blink (`caret.rs`).
+        self.caret.restart(Instant::now());
         if let Some(t) = self
             .titles
             .next(self.term.title(), self.term.input_encoding(), "baud")
@@ -360,6 +401,9 @@ impl Driver {
         // only if the frame reaches the compositor, below.
         let bell = self.bell.plan(&self.term, Instant::now(), update);
         self.renderer.set_flash(bell.flash);
+        let blinks = self.blinks();
+        let caret = self.caret.plan(Instant::now(), blinks);
+        self.renderer.set_cursor_blink(caret);
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;
@@ -381,6 +425,7 @@ impl Driver {
         {
             startup_first("first present", &FIRST_PRESENT);
             self.bell.commit(bell);
+            self.caret.commit(caret);
             self.pending = Pending::Clean;
         }
     }

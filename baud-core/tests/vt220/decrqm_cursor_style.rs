@@ -130,11 +130,109 @@ fn decscusr_zero_one_and_default_agree() {
     assert_eq!(style(b"\x1b[ q"), CursorStyle::BlinkingBlock, "omitted");
 }
 
-/// `Ps = 7` restores the power-on style. baud has no resources to restore from,
-/// so that is the default.
+/// `Ps = 7` restores the power-on style, which unconfigured is the default.
+/// What it restores when the embedder configured another is the next test's.
 #[test]
 fn decscusr_seven_restores_the_default() {
     assert_eq!(style(b"\x1b[5 q\x1b[7 q"), CursorStyle::BlinkingBlock);
+}
+
+/// A terminal whose embedder configured a steady bar, fed `bytes`: the style
+/// in force and the replies. Every test of what a reset restores runs here,
+/// because under the default -- a blinking block, which `Ps = 1` also names
+/// -- a reset that fell back to the blinking block and one that restored the
+/// configured style read the same.
+fn configured(bytes: &[u8]) -> (CursorStyle, Vec<u8>) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    t.set_initial_cursor_style(CursorStyle::SteadyBar);
+    support::feed(&mut t, bytes);
+    (t.cursor_style(), t.reply().to_vec())
+}
+
+/// The configured style is the power-on style, and the one the embedder can
+/// read back.
+#[test]
+fn the_configured_style_is_the_power_on_style() {
+    assert_eq!(configured(b"").0, CursorStyle::SteadyBar);
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    assert_eq!(t.initial_cursor_style(), CursorStyle::BlinkingBlock);
+    t.set_initial_cursor_style(CursorStyle::BlinkingUnderline);
+    assert_eq!(t.initial_cursor_style(), CursorStyle::BlinkingUnderline);
+    assert_eq!(t.cursor_style(), CursorStyle::BlinkingUnderline);
+}
+
+/// `Ps = 7`, "initial resources" (`[[source: ctlseqs]]`), restores the
+/// configured style, and so does `Ps = 0` -- foot's reading, where xterm's is
+/// a blinking block (`CursorPick` records both). `Ps = 1` stays the blinking
+/// block the spec names, whatever is configured.
+#[test]
+fn zero_and_seven_restore_the_configured_style_and_one_is_the_blinking_block() {
+    assert_eq!(configured(b"\x1b[3 q\x1b[7 q").0, CursorStyle::SteadyBar);
+    assert_eq!(configured(b"\x1b[3 q\x1b[0 q").0, CursorStyle::SteadyBar);
+    assert_eq!(
+        configured(b"\x1b[3 q\x1b[ q").0,
+        CursorStyle::SteadyBar,
+        "omitted"
+    );
+    assert_eq!(configured(b"\x1b[1 q").0, CursorStyle::BlinkingBlock);
+    assert_eq!(configured(b"\x1b[2 q").0, CursorStyle::SteadyBlock);
+}
+
+/// Both resets restore the configured style: xterm's `ReallyReset` restores
+/// the shape and the blink from its resources on both (`[[source:
+/// xterm-reset]]`'s file).
+#[test]
+fn both_resets_restore_the_configured_style() {
+    assert_eq!(
+        configured(b"\x1b[3 q\x1b[!p").0,
+        CursorStyle::SteadyBar,
+        "DECSTR"
+    );
+    assert_eq!(
+        configured(b"\x1b[3 q\x1bc").0,
+        CursorStyle::SteadyBar,
+        "RIS"
+    );
+}
+
+/// DECRQSS reports the style in force: the configured one before anything
+/// asks for another, and after a reset to it.
+#[test]
+fn decrqss_reports_the_configured_style() {
+    assert_eq!(configured(b"\x1bP$q q\x1b\\").1, b"\x1bP1$r6 q\x1b\\");
+    assert_eq!(
+        configured(b"\x1b[3 q\x1b[0 q\x1bP$q q\x1b\\").1,
+        b"\x1bP1$r6 q\x1b\\"
+    );
+}
+
+/// A configuration names a shape and a blink apart; together they are each of
+/// the six styles, and none twice.
+#[test]
+fn a_shape_and_a_blink_name_each_style() {
+    use CursorBlink::*;
+    use CursorShape::*;
+    let all = [
+        (Block, Blinking, CursorStyle::BlinkingBlock),
+        (Block, Steady, CursorStyle::SteadyBlock),
+        (Underline, Blinking, CursorStyle::BlinkingUnderline),
+        (Underline, Steady, CursorStyle::SteadyUnderline),
+        (Bar, Blinking, CursorStyle::BlinkingBar),
+        (Bar, Steady, CursorStyle::SteadyBar),
+    ];
+    for (shape, blink, want) in all {
+        assert_eq!(CursorStyle::of(shape, blink), want, "{shape:?} {blink:?}");
+    }
+}
+
+/// `?12` moves the blink axis of the configured style and leaves its shape.
+#[test]
+fn private_mode_twelve_moves_the_configured_styles_blink() {
+    assert_eq!(configured(b"\x1b[?12h").0, CursorStyle::BlinkingBar);
 }
 
 /// The blink axis is recoverable even though the wire encodes it with shape.
@@ -162,7 +260,8 @@ fn decscusr_and_decsca_do_not_collide() {
     assert_eq!(style(b"\x1b[2 q"), CursorStyle::SteadyBlock);
 }
 
-/// RIS returns the cursor style to power-on.
+/// RIS returns the cursor style to power-on; configured, to the configured
+/// style, which `both_resets_restore_the_configured_style` holds.
 #[test]
 fn ris_restores_the_cursor_style() {
     assert_eq!(style(b"\x1b[5 q\x1bc"), CursorStyle::BlinkingBlock);

@@ -316,22 +316,66 @@ pub enum CursorStyle {
     SteadyBar,
 }
 
+/// What a DECSCUSR asks for: one style, or the terminal's initial one.
+///
+/// **`Ps = 0` is read as the initial style, which is foot's reading and not
+/// xterm's.** `[[source: ctlseqs]]` makes 0 a blinking block and only 7
+/// "initial resources"; xterm's `charproc.c` does the same, resolving
+/// `INITIAL_CURSOR` to `screen->initial_cursor` and 0 to `BLINK_BLOCK`
+/// (`[[source: xterm-reset]]`'s file, `CASE_DECSCUSR`). foot's `csi.c` makes 0
+/// reset "to configured default" (`[[source: foot-csi]]`'s file, 1751). The two
+/// agree while the initial style is a blinking block, which is baud's default,
+/// and differ only for a reader who configured another -- and an application
+/// that resets the cursor with 0 should land that reader on their choice. `1`
+/// stays the blinking block the spec names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorPick {
+    Style(CursorStyle),
+    Initial,
+}
+
+/// A cursor's shape, the axis of [`CursorStyle`] a configuration names apart
+/// from its blink.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorShape {
+    #[default]
+    Block,
+    Underline,
+    Bar,
+}
+
+/// Whether a cursor blinks, the other axis.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum CursorBlink {
+    #[default]
+    Blinking,
+    Steady,
+}
+
 impl CursorStyle {
-    /// `Ps = 7` ("initial resources") means the power-on style, which for baud
-    /// is the default -- there are no resources to restore from.
-    pub fn from_param(p: Option<Param>) -> Option<CursorStyle> {
-        Some(match p.map_or(0, |x| x.0) {
-            0 | 1 | 7 => CursorStyle::BlinkingBlock,
+    /// The style `Ps` selects, or [`CursorPick::Initial`] for 0 and 7; `None`
+    /// for a `Ps` no specification names.
+    pub fn from_param(p: Option<Param>) -> Option<CursorPick> {
+        Some(CursorPick::Style(match p.map_or(0, |x| x.0) {
+            0 | 7 => return Some(CursorPick::Initial),
+            1 => CursorStyle::BlinkingBlock,
             2 => CursorStyle::SteadyBlock,
             3 => CursorStyle::BlinkingUnderline,
             4 => CursorStyle::SteadyUnderline,
             5 => CursorStyle::BlinkingBar,
             6 => CursorStyle::SteadyBar,
             _ => return None,
-        })
+        }))
     }
-    /// Does this style blink? A renderer needs the two axes even though the
-    /// wire encodes them together.
+    /// The style a configuration names: a shape, blinking or steady.
+    pub fn of(shape: CursorShape, blink: CursorBlink) -> CursorStyle {
+        let steady = match shape {
+            CursorShape::Block => CursorStyle::SteadyBlock,
+            CursorShape::Underline => CursorStyle::SteadyUnderline,
+            CursorShape::Bar => CursorStyle::SteadyBar,
+        };
+        steady.with_blink(blink == CursorBlink::Blinking)
+    }
     /// The `Ps` that selects this style, for reporting it back via DECRQSS.
     pub fn wire(self) -> u8 {
         match self {
@@ -358,6 +402,8 @@ impl CursorStyle {
             (BlinkingBar | SteadyBar, false) => SteadyBar,
         }
     }
+    /// Does this style blink? A renderer needs the two axes even though the
+    /// wire encodes them together.
     pub fn blinks(self) -> bool {
         matches!(
             self,

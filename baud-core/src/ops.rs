@@ -1444,8 +1444,11 @@ impl Paint<'_, '_> {
         // extension and xterm's soft path leaves it alone -- which is the
         // reason mouse tracking *is* excluded here. `baud-core2` sets it in
         // both, and it is the oracle; the argument was mine and the code was
-        // not checked against it.
-        self.cold.cursor_style = CursorStyle::BlinkingBlock;
+        // not checked against it. xterm's `ReallyReset` agrees since it was
+        // pinned: its common path, both resets', restores the shape and the
+        // blink from the resources (`[[source: xterm-reset]]`'s file) -- the
+        // configured style, which is what this restores.
+        self.cold.cursor_style = self.cold.initial_cursor;
         self.invoke();
         self.refresh_flags();
         self.goto(Row::ZERO, Col::ZERO);

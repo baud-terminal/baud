@@ -477,6 +477,10 @@ pub struct Renderer<'f, 'a> {
     /// driver repaints on a phase flip only when something actually blinks.
     blink: Blink,
     blink_seen: Blinking,
+    /// This frame's cursor blink phase, set by [`Renderer::set_cursor_blink`]:
+    /// a phase of its own, because a blinking cursor keeps xterm's timing and
+    /// restarts on input where `SGR 5` text keeps neither.
+    cursor_blink: Blink,
     /// Whether this frame shows the other video, set by
     /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
     /// phase is.
@@ -608,6 +612,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fade_inst: Vec::new(),
             blink: Blink::default(),
             blink_seen: Blinking::default(),
+            cursor_blink: Blink::Shown,
             flash: VideoFlash::default(),
             image_places: Vec::new(),
             last_image_places: Vec::new(),
@@ -736,6 +741,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     pub fn set_blink(&mut self, blink: Blink) {
         self.blink = blink;
+    }
+
+    /// The cursor's blink phase this frame. The driver owns the clock and
+    /// the rules for when a cursor blinks at all -- focused, visible, on the
+    /// live screen -- and hands [`Blink::Shown`] whenever it does not, so a
+    /// steady cursor is never hidden.
+    pub fn set_cursor_blink(&mut self, phase: Blink) {
+        self.cursor_blink = phase;
+    }
+
+    /// Whether a cursor of `style` is drawn this frame: always, unless it
+    /// blinks and the phase is off. The one spelling of the rule, which the
+    /// CPU and instance paths apply in [`Renderer::convert`] and a cell-path
+    /// driver applies to the cursor it hands the shader.
+    pub fn cursor_drawn(&self, style: CursorStyle) -> bool {
+        !(style.blinks() && self.cursor_blink == Blink::Hidden)
     }
 
     /// Show the other video this frame, or stop. Nothing is rebuilt here:
@@ -1169,10 +1190,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         // No cursor while looking back: it belongs to the live screen, which
         // is `back` lines below the window.
-        let cursor: Cursor = (term.cursor_visible() && back.index() == 0).then(|| {
-            let (r, c) = term.cursor();
-            (r, c, term.cursor_style())
-        });
+        let cursor: Cursor =
+            (term.cursor_visible() && back.index() == 0 && self.cursor_drawn(term.cursor_style()))
+                .then(|| {
+                    let (r, c) = term.cursor();
+                    (r, c, term.cursor_style())
+                });
         let palette = palette_digest(term, self.video);
         // The screen fade veils every row, so a change to it -- spawned,
         // stepped or cleared -- makes the whole frame dirty. It is not a

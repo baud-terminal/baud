@@ -1591,7 +1591,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         // be confused here; the arity is the discriminator and it is one line
         // above in a crate both cores share.
         DomCsi::HighlightMouseTracking(r) => p.cold.highlight_region = r,
-        DomCsi::CursorStyle(c) => p.cold.cursor_style = c,
+        DomCsi::CursorStyle(CursorPick::Style(c)) => p.cold.cursor_style = c,
+        DomCsi::CursorStyle(CursorPick::Initial) => p.cold.cursor_style = p.cold.initial_cursor,
         // **DECRQM, answered from the modes this core actually stores.**
         // `Paint::mode_state` returns `NotRecognized` for everything else,
         // which is the rule `docs/vt-coverage.md` states: answering `Reset`
