@@ -24,6 +24,17 @@ pub(crate) enum Scroll {
     Down,
 }
 
+/// Which alternate-screen mode is switching buffers. `?1049` saves the
+/// cursor and clears the alternate screen on the way in and restores the
+/// cursor on the way out; `?47` switches and does nothing else.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AltSwitch {
+    /// `?47`: the buffer, and nothing else.
+    Bare,
+    /// `?1049`: the buffer, with DECSC and a clear on entry and DECRC on exit.
+    SaveAndClear,
+}
+
 impl Paint<'_, '_> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
@@ -1030,7 +1041,15 @@ impl Paint<'_, '_> {
                     TerminalMode::Vt52 => crate::graph::Node::Vt52Ground,
                 };
             }
-            PrivateMode::AltScreen => self.set_alt_screen(change),
+            PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
+            // **`?47` switches buffers and does nothing else.** xterm's
+            // `srm_ALTBUF` is `ToAlternate(xw, False)` in and
+            // `FromAlternate(xw, False)` out (`xterm-charproc.c`, the
+            // `srm_ALTBUF` case): no cursor save or restore, and no clear, so
+            // the alternate screen shows what it held when it was last left.
+            // It was routed nowhere while `docs/vt-coverage.md` called it
+            // done, and its one test passed on a no-op.
+            PrivateMode::AltScreenLegacy => self.set_alt_screen(change, AltSwitch::Bare),
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request
             // `vim-unicode.raw` sends on its first line arrived and vanished
@@ -1054,11 +1073,20 @@ impl Paint<'_, '_> {
     /// the protocol, and this repo's audit exists to stop that name being
     /// thrown away at a call site -- `set_alt_screen(true)` reads as nothing
     /// in particular where `ModeChange::Set` reads as DECSET.
-    fn set_alt_screen(&mut self, change: ModeChange) {
+    ///
+    /// **What differs between `?1049` and `?47` is the [`AltSwitch`], and
+    /// nothing else.** Both swap the surfaces, the kitty stacks and the prompt
+    /// state, move the epoch and delete the alternate screen's images on the
+    /// way out; only `?1049` saves the cursor and clears on the way in and
+    /// restores it on the way out.
+    fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
         use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
-                self.cold.alt_saved = Some(self.save());
+                if how == AltSwitch::SaveAndClear {
+                    self.cold.alt_saved = Some(self.save());
+                }
+                self.cold.alt_entry = how;
                 self.cold.screen = Screen::Alternate;
                 self.cold.epoch = self.cold.epoch.next();
                 // **The kitty keyboard stacks are per-screen.** The active one
@@ -1068,9 +1096,11 @@ impl Paint<'_, '_> {
                 // the exit arm each fire once per transition.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
                 // **And so is what the prompt marks said.** The primary's
-                // zone and block park; the alternate screen's start fresh,
-                // because the screen does -- it is cleared below -- and a
-                // block start left from its last visit names rows gone.
+                // zone and block park; the alternate screen's start fresh on
+                // every entry. `?1049` clears the screen below; `?47` keeps
+                // its rows, and still does not carry a block start across
+                // visits, because what a program left there is not a prompt
+                // the shell will redraw by counting rows.
                 core::mem::swap(&mut self.cold.shell, &mut self.cold.shell_other);
                 self.cold.shell = crate::prompt::Shell::FRESH;
                 // **Two surfaces, swapped, nothing copied.** The alternate
@@ -1081,14 +1111,19 @@ impl Paint<'_, '_> {
                 // back, which was the one thing standing between the grid
                 // and being the GPU's in place on both screens.
                 self.view.swap_surface(&mut self.other);
-                // The alternate screen is cleared on entry, so a rotation left
-                // from the last time an application was in it describes
+                // `?1049` clears the alternate screen on entry, so a rotation
+                // left from the last time an application was in it describes
                 // nothing. Blanks rotate to blanks, so this is tidiness rather
                 // than a fix -- and an invariant that holds only by accident is
-                // one the next change breaks.
-                self.view.reset_rot();
-                self.clear_screen();
-                self.goto(Row::ZERO, Col::ZERO);
+                // one the next change breaks. **`?47` does none of the three**:
+                // it shows the rows as they were left, so resetting the
+                // rotation would put them out of order, and the cursor stays
+                // where it is, as xterm's `SwitchBufs` leaves it.
+                if how == AltSwitch::SaveAndClear {
+                    self.view.reset_rot();
+                    self.clear_screen();
+                    self.goto(Row::ZERO, Col::ZERO);
+                }
                 // Its image numbering starts again with the screen. No image
                 // can be on it: leaving is the only way off it, and leaving
                 // deletes them.
@@ -1112,13 +1147,45 @@ impl Paint<'_, '_> {
                 // geometry and moves the cursor, and it should be moving over
                 // the screen the application is about to see. A resize taken
                 // while the alternate screen was up was applied to the
-                // primary as it happened, around the cursor it was saved
-                // with, so there is nothing to catch up on here.
+                // primary as it happened, around the cursor it will have --
+                // the one `?1049` saved, or under `?47` the one both screens
+                // share (`Term::primary_cursor`) -- so there is nothing to
+                // catch up on here.
                 self.view.swap_surface(&mut self.other);
-                let s = self.cold.alt_saved.take();
-                self.restore(s);
+                // **`?47` restores nothing, and leaves the save alone.** A
+                // cursor `?1049 h` saved outlives a `?47 l` exit, as the
+                // cursor xterm saves outlives `FromAlternate`.
+                if how == AltSwitch::SaveAndClear {
+                    let s = self.cold.alt_saved.take();
+                    self.restore(s);
+                }
             }
-            _ => {}
+            // **`?1049 h` while the alternate screen is up clears it**, as
+            // xterm's does: its set arm is `CursorSave; ToAlternate;
+            // ClearScreen`, and `ToAlternate` is a no-op on the alternate
+            // buffer while the clear is not (`xterm-charproc.c`, the
+            // `srm_OPT_ALTBUF_CURSOR` case). It saves nothing here, because
+            // the save is the primary's and this cursor is the alternate
+            // screen's; and it does not home, because xterm's `ClearScreen`
+            // does not (`xterm-util.c`). `?47 h` then `?1049 h` used to
+            // leave the `?47` screen's text under the program that asked for
+            // a cleared one.
+            (true, Screen::Alternate) => {
+                if how == AltSwitch::SaveAndClear {
+                    self.clear_screen();
+                }
+            }
+            // **`?1049 l` on the primary restores what `?1049 h` saved**, as
+            // xterm's `CursorRestore` runs whatever `FromAlternate` did. The
+            // primary can be up with a save pending only since `?47`: a
+            // `?1049 h ... ?47 l` leaves it, and a later `?1049 l`, or `RIS`,
+            // which leaves the alternate screen first, takes it here.
+            (false, Screen::Normal) => {
+                if how == AltSwitch::SaveAndClear {
+                    let s = self.cold.alt_saved.take();
+                    self.restore(s);
+                }
+            }
         }
     }
 
@@ -1166,7 +1233,9 @@ impl Paint<'_, '_> {
         // one. xterm's hard branch leaves and then restores the initial flags
         // (`[[source: xterm-reset]]`); leaving first and resetting after is
         // the same order.
-        self.set_alt_screen(ModeChange::Reset);
+        // This takes a save `?47 l` left pending as well, on the primary: see
+        // `set_alt_screen`'s `(false, Normal)` arm.
+        self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
         // mouse tracking alone deliberately -- a full-screen application
@@ -1217,21 +1286,31 @@ impl Paint<'_, '_> {
         // ran `reset` to erase, and a narrowing re-cut that spills past the
         // screen writes only its new width into those rows, so their tails
         // came back when the screen grew again at a prompt. foot frees every
-        // row past the screen and xterm empties its saved lines. The parked
-        // alternate surface is left as it is: entering it clears it before
-        // anything can read it.
+        // row past the screen and xterm empties its saved lines.
+        //
+        // **And the parked alternate surface, which `?47` shows as it was
+        // left.** This relied on every entry clearing it, which `?1049` does
+        // and `?47` does not, so a `?47 h` after a reset showed what the
+        // reset was sent to erase -- and, worse, cells naming clusters and
+        // links the reset frees below, which the next new cluster would take
+        // and those cells would then read. xterm clears the alternate buffer
+        // only when the reset is issued from it (`FromAlternate(xw, True)`);
+        // baud clears it from either screen, because its slots are freed on
+        // the promise that no cell a reader can reach still names one.
         let n = self.view.erase_ring();
-        self.cells = self.cells.plus(n);
+        self.other.cells.fill(PackedCell::EMPTY);
+        self.other.used.fill(RowExtent::ZERO);
+        self.cells = self.cells.plus(n + self.other.cells.len());
         // **Here and not in `clear_screen`, and the difference is the
-        // alternate screen.** Entering it clears the grid while the primary's
-        // cells wait in `AltBuf` still naming their clusters, so a reset there
+        // alternate screen.** Entering it with `?1049` clears the grid while
+        // the primary's cells wait parked, still naming their clusters, so a
+        // reset there
         // would lose exactly the marks the parking exists to keep. Nothing
         // overwrites them meanwhile: the store *refuses* a colliding cluster
         // rather than evicting one, so the alternate screen can be denied a
         // slot but cannot take an occupied one. `RIS` is the one point where
-        // every cell a reader can reach is gone: the ring is erased above,
-        // and the parked alternate surface is cleared on entry before it is
-        // shown.
+        // every cell a reader can reach is gone: the ring and the parked
+        // alternate surface are both erased above.
         self.clusters.reset();
         // The link table for the same reason. It refuses rather than evicts,
         // because a slot a cell still names must not take another target; no
@@ -1403,7 +1482,13 @@ impl Paint<'_, '_> {
             },
             // The alternate screen is a whole buffer rather than a flag, and it
             // is implemented, so `DECRQM` must not deny it.
-            PrivateMode::AltScreen => match self.cold.screen {
+            //
+            // `?47` answers the same, from which buffer is shown, whichever
+            // mode switched it. That is baud's choice: the pinned
+            // `xterm-charproc.c` records both modes from `whichBuf` in
+            // `savemodes`, which is XTSAVE, and xterm's `DECRQM` handler is
+            // not pinned.
+            PrivateMode::AltScreen | PrivateMode::AltScreenLegacy => match self.cold.screen {
                 Screen::Alternate => ModeState::Set,
                 Screen::Normal => ModeState::Reset,
             },

@@ -157,6 +157,11 @@ fn cursor_blink_does_not_change_the_cursor_shape() {
 ///
 /// `?1049` exists because applications kept getting `?47` wrong, so the two are
 /// deliberately not aliases.
+///
+/// **This passed on a no-op for as long as `?47` was routed nowhere**: with
+/// both mode changes ignored, `CUP 1;1` leaves the cursor at home, which is
+/// what it expects. `baud-core/tests/legacy_alt_screen.rs` is where `?47` is
+/// tested now, each test establishing first that the buffer switched.
 #[test]
 fn legacy_alt_screen_does_not_save_the_cursor() {
     let pos = |b: &[u8]| {

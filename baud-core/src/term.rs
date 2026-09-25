@@ -18,6 +18,19 @@ pub enum Screen {
     Alternate,
 }
 
+/// Which cursor a resize anchors the primary on; see
+/// [`Term::primary_cursor`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PrimaryCursor {
+    /// The primary is up, and the cursor is its own.
+    Live,
+    /// `?1049`'s alternate screen is up, and the primary's cursor is saved.
+    Saved,
+    /// `?47`'s alternate screen is up, and the primary has the one shared
+    /// cursor, which the step moves nothing of.
+    Shared,
+}
+
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
 pub struct Saved {
@@ -319,6 +332,11 @@ pub struct Cold {
     pub(crate) region_scrolls: RegionScrolls,
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<Saved>,
+    /// Which mode put the alternate screen up, while it is up: `?1049` saved
+    /// the primary's cursor in `alt_saved`, `?47` saved nothing and shares
+    /// the one cursor. Read by a resize, which anchors the primary on
+    /// whichever cursor the primary will have when the alternate screen goes.
+    pub(crate) alt_entry: crate::ops::AltSwitch,
     pub(crate) modes: Modes,
     /// **The kitty keyboard flag stacks, one per screen.** `kitty` is the
     /// active screen's and `kitty_alt` the parked one; the `?1049` transition
@@ -406,6 +424,7 @@ impl Cold {
             region_scrolls: RegionScrolls::FIRST,
             saved: None,
             alt_saved: None,
+            alt_entry: crate::ops::AltSwitch::SaveAndClear,
             kitty: KittyStack::new(),
             kitty_alt: KittyStack::new(),
             // **DECAWM defaults on**, which is xterm's behaviour rather than
@@ -839,6 +858,22 @@ impl<'b> Term<'b> {
         self.resize_holding(ws, Rows::ZERO).0
     }
 
+    /// Which cursor the primary has while a resize runs: its own on the
+    /// primary; the one `?1049` saved while that mode's alternate screen is
+    /// up; and under `?47`, which saves none, the one cursor both screens
+    /// share -- which is the primary's again when `?47 l` leaves, since it
+    /// restores nothing. Anchoring the primary on the save while `?47` was up
+    /// read row 0, or a row an earlier `?1049` left behind, and a shrink then
+    /// cut the primary's bottom rows where it should have retired its top
+    /// ones.
+    fn primary_cursor(&self) -> PrimaryCursor {
+        match (self.cold.screen, self.cold.alt_entry) {
+            (Screen::Normal, _) => PrimaryCursor::Live,
+            (Screen::Alternate, crate::ops::AltSwitch::SaveAndClear) => PrimaryCursor::Saved,
+            (Screen::Alternate, crate::ops::AltSwitch::Bare) => PrimaryCursor::Shared,
+        }
+    }
+
     /// [`Term::resize`], holding a window over the primary's history on the
     /// line it shows: `back` is how many lines above the primary window's
     /// top it starts, and the answer is where that line is afterwards, in
@@ -882,10 +917,10 @@ impl<'b> Term<'b> {
             let ring = self.store.ring_rows();
             let spare = ring.index() - rows.index();
             let (from, to) = (old_rows.index(), rows.index());
-            let live = self.cold.screen == Screen::Normal;
-            let mut cy = match live {
-                true => self.cy.index(),
-                false => self.cold.alt_saved.map_or(0, |s| s.cy.index()),
+            let at = self.primary_cursor();
+            let mut cy = match at {
+                PrimaryCursor::Live | PrimaryCursor::Shared => self.cy.index(),
+                PrimaryCursor::Saved => self.cold.alt_saved.map_or(0, |s| s.cy.index()),
             }
             .min(from - 1);
             let (mut hist, mut hidden) =
@@ -1002,13 +1037,16 @@ impl<'b> Term<'b> {
                 .filter(|b| b.index() > 0);
             self.store.book.hist = Rows::of_count(hist);
             self.store.book.hidden = Rows::of_count(hidden);
-            match live {
-                true => self.cy = Row::from_index(cy),
-                false => {
+            match at {
+                PrimaryCursor::Live => self.cy = Row::from_index(cy),
+                PrimaryCursor::Saved => {
                     if let Some(s) = self.cold.alt_saved.as_mut() {
                         s.cy = Row::from_index(cy.min(to - 1));
                     }
                 }
+                // The alternate screen's cursor too, and this step does not
+                // move the alternate screen's rows.
+                PrimaryCursor::Shared => {}
             }
         }
 
@@ -1034,10 +1072,10 @@ impl<'b> Term<'b> {
         // A stream that sends no marks is `Zone::Output` and reaches this
         // exactly as before.
         if cols.index() != old_cols.index() && self.primary_zone() == Zone::Output {
-            let live = self.cold.screen == Screen::Normal;
-            let cursor = match live {
-                true => (self.cy, self.cx),
-                false => self
+            let at = self.primary_cursor();
+            let cursor = match at {
+                PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx),
+                PrimaryCursor::Saved => self
                     .cold
                     .alt_saved
                     .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
@@ -1125,13 +1163,14 @@ impl<'b> Term<'b> {
             // The oldest retained line moved on by what the reflow dropped,
             // and the window's top is the history's depth after it.
             self.store.book.top = floor.plus(r.dropped).plus(r.hist);
-            match live {
-                true => (self.cy, self.cx) = r.cursor,
-                false => {
+            match at {
+                PrimaryCursor::Live => (self.cy, self.cx) = r.cursor,
+                PrimaryCursor::Saved => {
                     if let Some(s) = self.cold.alt_saved.as_mut() {
                         (s.cy, s.cx) = r.cursor;
                     }
                 }
+                PrimaryCursor::Shared => {}
             }
         }
         // **A growth keeps both screens' marks honest, whatever the zone.**

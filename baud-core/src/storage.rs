@@ -142,9 +142,9 @@ pub struct Storage<'b> {
     /// the scrollback ring the two screens are two surfaces, and a read that
     /// runs on the alternate screen swaps them inside its `View`
     /// (`View::swap_surface`), so a transition copies nothing and
-    /// `Term::set_rots` puts each rotation back where it belongs. `?47` is
-    /// still routed nowhere (`PrivateMode::AltScreenLegacy`), so it is
-    /// unimplemented rather than wrong; what made it inexpressible is gone.
+    /// `Term::set_rots` puts each rotation back where it belongs. So `?47`
+    /// is expressible, and it is routed: `?1049` clears this surface on
+    /// entry, and `?47` shows it as it was left, rows, marks and rotation.
     ///
     /// The per-character loop still never learns which screen is up:
     /// `View` is built **once per read**, over whichever surface is live.
@@ -191,8 +191,9 @@ pub struct AltBuf<'b> {
     pub(crate) cells: &'b mut [PackedCell],
     pub(crate) used: &'b mut [RowExtent],
     /// The alternate screen's rotation, into a ring of `used.len()` rows.
-    /// `RowRot::NONE` when it is not up: it is cleared on entry, so a
-    /// rotation left over from last time describes nothing.
+    /// Kept while it is not up: `?1049` resets it on entry, because it
+    /// clears the screen and blanks rotate to blanks, and `?47` keeps it,
+    /// because it shows the rows as they were left and in that order.
     pub(crate) rot: RowRot,
 }
 

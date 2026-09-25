@@ -55,7 +55,9 @@ impl PromptBlock {
 /// ring's numbers and took the history with it, and a mark there stopped
 /// the *primary* re-cutting, because `Term::resize` asked the zone of
 /// whichever screen last sent one. The alternate screen's state starts
-/// fresh on every entry, because the screen does: entry clears it.
+/// fresh on every entry: `?1049` clears the screen, and `?47`, which keeps
+/// it, keeps text a program drew, not a prompt the shell will count rows
+/// from -- a block start left from the last visit is not carried across.
 #[derive(Clone, Copy)]
 pub(crate) struct Shell {
     pub(crate) zone: crate::term::Zone,

@@ -579,7 +579,7 @@ renderer has.
 | `?12` | cursor blink | done — the blink axis of DECSCUSR, reached by another route |
 | `?25` | DECTCEM cursor visible | done |
 | `?45` | reverse wraparound | done |
-| `?47` | alternate screen, pre-1049 | done — switches buffers, does **not** save the cursor |
+| `?47` | alternate screen, pre-1049 | done — switches buffers and does nothing else: no cursor save or restore and no clear, so the alternate screen shows what it held when last left, and the cursor stays where it is (xterm's `srm_ALTBUF`, `[[source: xterm-reset]]`'s file). `DECRQM` answers from which buffer is shown, as for `?1049` -- baud's choice, since the pinned file records `whichBuf` only for XTSAVE and xterm's `DECRQM` code is not pinned. It was marked done while routed nowhere, and its one test passed on a no-op; every test in `baud-core/tests/legacy_alt_screen.rs` fails on a no-op. `RIS` erases the parked alternate surface, which xterm does not, because the reset frees the cluster and link slots its cells name. A resize while `?47` is up anchors the primary on the one shared cursor, which `?47 l` hands back. `?1047` and `?1048` are not implemented and are counted, and the saved cursor is one slot shared by both screens, where xterm is inferred to keep one per buffer |
 | `?69` | DECLRMM left/right margins | done |
 | `?1034` | eightBitInput — Alt/Meta add 128 | done — `Term::eight_bit_input()`, applied by `Term::key` under ISO 8859-1 only. What terminfo's `smm`/`rmm` send |
 | `?1036` | metaSendsEscape — Meta prefixes `ESC` | done — `Term::meta_sends_escape()`, **set** at power-on |

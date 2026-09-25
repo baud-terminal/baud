@@ -1880,8 +1880,9 @@ fn whole_screen_scrolled(term: &Term<'_>, before: Before) -> bool {
 
 /// Whether a read switched surfaces -- by the core's epoch, not by the
 /// screen at its two ends: a read that left the alternate screen and
-/// entered it again ends where it began, on a surface the entry cleared,
-/// and a selection or a slide from before names rows that are gone.
+/// entered it again ends where it began, on a surface `?1049` cleared or
+/// `?47` showed as it was left some time before, and a selection or a slide
+/// from before names rows it cannot vouch for.
 fn switched(term: &Term<'_>, before: Before) -> bool {
     term.screen_epoch() != before.epoch
 }
