@@ -845,7 +845,12 @@ so subtracting the printed walls gives 34.4 where the difference reads
 **A cold launch is 256 ms faster.** The warm arms overlap, so nothing is
 claimed there; every other pair is disjoint. The cold pipelines are
 **28.5 ms dearer** from a shipped library than from a source-built one,
-reproduced in every settled launch and **unexplained**.
+reproduced in every settled launch. ~~Unexplained.~~ Timed one pipeline at a
+time since (`Build::each`), all of it is the *first* pipeline build of the
+process, its function lookups and its pipeline state together. It follows the
+position rather than the shader: built last, `bg` costs what the others do,
+and the one built first pays instead. Why `newLibraryWithData` defers that
+work to the first pipeline is still not known. CLAUDE.md, "Row 1 shipped".
 
 **The 34 ms of wall is not the 73.6 ms of pipelines**, and the gap is the
 GPU probe running on its own thread under AppKit's initialisation, so

@@ -293,11 +293,16 @@ claim the opposite of the paragraph after it indefinitely.
 **Combining marks used to be discarded outright.** `put_cp` returned early on
 `Width::ZERO`, so `e` + `U+0301` stored `e` and the accent was gone — not
 mis-measured, *absent*, and unrecoverable by a renderer, a selection or a copy.
-A terminal must not lose a character it was sent. They are stored now, keyed on
-the cell they attach to, in a bounded table that evicts on collision for the
-reason the style and link tables do: the key is attacker-supplied, and a page
-can emit as many marks as it likes. `Term::marks` is what a renderer reads;
-`marks_dropped` and `marks_evicted` are how the bound stays visible.
+A terminal must not lose a character it was sent. They are stored now, in
+`ClusterStore`: **keyed on the cluster's own content**, with its index riding in
+the cell's `CellFlags`, so it moves with the cell through every rotation,
+reflow and screen switch. ~~Keyed on the cell they attach to, in a table that
+evicts on collision~~ was `baud-core2`'s design, and one `viewport()` call made
+it lose a cell's marks (CLAUDE.md, "The cluster store is content-keyed, and the
+index rides in the cell"). It is bounded at 63 clusters and **refuses** rather
+than evicts, because a wrong cluster puts somebody else's accent on your
+character; repeats share a slot. `Term::cluster_marks` is what a renderer
+reads, and `marks_dropped` counts the refusals.
 
 **And the same table answers full cluster semantics, which needed no cell bits
 at all.** The reasoning that said otherwise was looking at the wrong
@@ -315,7 +320,7 @@ lookup rather than a special case. This is the question the deleted
 `EmojiWidth` config was gesturing at, answerable now only because the cluster's
 base is known.
 
-**The segmentation half is done and measured; full cluster storage is not.**
+**The segmentation half is done and measured, and so is the storage.**
 `ClusterBreak` implements the boundary rules and passes all 766 cases of
 `GraphemeBreakTest.txt`, which is Unicode's own suite written by the people who
 wrote the rules. So the question is no longer "can baud find cluster
@@ -335,12 +340,16 @@ segmentation would cost nothing on it. The number that matters is CJK — **169 
 57 Mcp/s, about 3x on the non-ASCII decode path**, which at three bytes per
 codepoint is roughly 500 MB/s down to 170.
 
-That is a real cost and not a disqualifying one. What still has no number is
-**storage**: `PackedCell` is eight measured bytes and a cluster does not fit, so
-it means a side table keyed per cell — the shape `OSC 8` links already use, with
-the index riding in spare `CellFlags` bits — and the cost of that against the
-working-set rule is untested. That is the remaining blocker, and it is now
-stated precisely rather than as "unmeasured" covering both halves.
+That is a real cost and not a disqualifying one. **The table priced
+`baud-domain`'s boundary machine alone**, in a bench deleted with `baud-core2`
+and before `ClusterBreak` became a transition table, so it is kept as the
+ordering it was measured for rather than as a live number. ~~What still has no number is
+storage~~ -- it has one: `ClusterStore` is the side table this paragraph
+described, its index in the six `CellFlags` bits that were spare, and it costs
+**about 9%** on cat-cjk and less-cjk and **about 2.5%** on vim-unicode, the
+three recordings that carry clusters, and nothing measurable on the rest
+(CLAUDE.md, "It costs 9%, on the two recordings it serves"). It is no longer a blocker; the bound, 63 distinct
+clusters freed only by `RIS`, is what it costs.
 
 `docs/research/notes/g-text-encoding.md` § 4.4 sets out where the bytes would
 come from and § 4.5 why there is no consensus to conform to: mode 2027 is a
@@ -575,7 +584,7 @@ renderer has.
 | `?1034` | eightBitInput — Alt/Meta add 128 | done — `Term::eight_bit_input()`, applied by `Term::key` under ISO 8859-1 only. What terminfo's `smm`/`rmm` send |
 | `?1036` | metaSendsEscape — Meta prefixes `ESC` | done — `Term::meta_sends_escape()`, **set** at power-on |
 | `?1039` | altSendsEscape — Alt prefixes `ESC` | done — `Term::alt_sends_escape()`, **set** at power-on |
-| `?1001` | highlight tracking | done — recorded via `Term::highlight_tracking()`; the region via `highlight_region()`. Not drawn: that needs a selection model |
+| `?1001` | highlight tracking | done — recorded via `Term::highlight_tracking()`; the region via `highlight_region()`. Not drawn. ~~That needs a selection model~~ -- the reason expired when stream and block selection landed; drawing the region through the selection's highlight is unbuilt |
 
 ### SGR
 
@@ -678,13 +687,13 @@ In scope because applications assume them, not because DEC specified them.
 | `CSI ? 1049 h/l` | alternate screen buffer | done |
 | `CSI ? 2048 h/l` | in-band resize notifications | done — reports `CSI 48 ; rows ; cols ; height_px ; width_px t` on enablement, on re-enablement, after every resize, and **after a cell-size change even when the grid did not move**, carrying what the terminal **has** rather than what was asked for. The pixel fields are the text area -- the grid times the cell size `Term::set_cell_size` was given -- and zero until one is given, which `[[source: inband-resize]]` defines as the answer of a terminal that cannot report them; "A terminal MUST report pixel sizes if it is capable", and "Font size changes can also affect the text area size", which is why a zoom reports. Until 2026-09-22 the fields were always zero. `the_inband_report_carries_pixels_once_the_cell_is_known`, `a_cell_size_change_reports_even_with_the_grid_unchanged` |
 | `CSI 14 t`, `CSI 16 t`, `CSI 18 t` | XTWINOPS text-area and cell size | done — `CSI 4 ; h ; w t` (text area in pixels), `CSI 6 ; h ; w t` (one cell in pixels) and `CSI 8 ; rows ; cols t` (text area in cells), in `[[source: ctlseqs]]`'s shapes, height first. **The two pixel answers need the cell size and are silence and a count without it**, the way an unanswerable `DSR` is; the cell count is always answered. Only the exact one-parameter forms: `CSI 14 ; 2 t` is the *window* with its frame, which this core is never handed, and stays counted. This is the reply an image client sizes its pictures from -- yazi sends `CSI 16 t` in its detection burst and read nothing back before 2026-09-22, so it drew every Sixel at a fixed 600x900. `the_window_queries_answer_from_the_cell_size_and_the_grid`, `without_a_cell_size_only_the_cell_count_is_answered`, `yazi_reads_the_cell_size_from_its_detection_burst`, `every_other_t_is_refused_or_not_xtwinops` |
-| `DCS Pa ; Pb ; Ph q ... ST` | Sixel graphics | done — decoded into caller memory with no external decoder (`[[source: vt3xx-sixel]]` is the raster grammar, `[[source: ctlseqs]]` the DCS envelope), placed at the cursor and drawn by all three render paths. **An image follows the row it was placed on**: scrolling into the history, a shorter screen retiring its row and a taller one pulling it back, a narrower screen re-cutting the lines above it, and a reader scrolled back to it. Its column is kept, and it is cropped at the edge rather than moved. It goes when its row does -- past the far end of the history, blanked by a reverse scroll, dropped by a reflow that did not fit -- and each is counted in `placements_expired`. **Each screen owns its images**: the shell's are not drawn over a full-screen program, and the program's are deleted when it leaves. Text over an image frees it. Gates: `baud-core/tests/sixel.rs` (decode and place, chunk invariance, refuse-and-count, text over an image), `baud-core/tests/image_anchor.rs` (every resize and scroll case, asserted by the text beside the image, including foot's blank-line trap and WezTerm's text-on-the-row trap), `baud-render/tests/image.rs` (a pinned frame digest, the one-row scroll, a view scrolled back after a shrink, the per-screen rule) and the pixel oracle. **It follows its row inside the screen too**: a scrolling region, `IL` and `DL` move rows without moving the window, so each moves the images on the rows it moves, and one whose row the operation deletes -- off the top of a region that copies, which is a middle region or a top-anchored one with at least as many rows under it as in it, or past a region's bottom -- goes and is counted; a top-anchored region that rotates retires its top line, image and all, to the history. A status line under a region keeps its image while the region scrolls, on either screen. **One stated gap**: an image anchored on a wrapped continuation row -- placed after text that wrapped onto its row -- comes back a row higher from a narrow-then-widen round trip, pinned by `an_anchor_on_a_wrapped_row_lands_a_row_higher_after_a_round_trip`; an image printed after a newline starts its line and round-trips exactly. |
+| `DCS Pa ; Pb ; Ph q ... ST` | Sixel graphics | done — decoded into caller memory with no external decoder (`[[source: vt3xx-sixel]]` is the raster grammar, `[[source: ctlseqs]]` the DCS envelope), placed at the cursor and drawn by all three render paths. **An image follows the row it was placed on**: scrolling into the history, a shorter screen retiring its row and a taller one pulling it back, a narrower screen re-cutting the lines above it, and a reader scrolled back to it. Its column is kept, and it is cropped at the edge rather than moved. It goes when its row does -- past the far end of the history, blanked by a reverse scroll, dropped by a reflow that did not fit -- and each is counted in `placements_expired`. **Each screen owns its images**: the shell's are not drawn over a full-screen program, and the program's are deleted when it leaves. Text over an image frees it. Gates: `baud-core/tests/sixel.rs` (decode and place, chunk invariance, refuse-and-count, text over an image), `baud-core/tests/image_anchor.rs` (every resize and scroll case, asserted by the text beside the image, including foot's blank-line trap and WezTerm's text-on-the-row trap), `baud-render/tests/image.rs` (a pinned frame digest, the one-row scroll, a view scrolled back after a shrink, the per-screen rule) and the pixel oracle. **It follows its row inside the screen too**: a scrolling region, `IL` and `DL` move rows without moving the window, so each moves the images on the rows it moves, and one whose row the operation deletes -- off the top of a region that copies, which is a middle region, or a top-anchored one on the alternate screen or under side margins with at least as many rows under it as in it, or past a region's bottom -- goes and is counted; a top-anchored region that rotates on the primary retires its top line, image and all, to the history; on the alternate screen, which keeps none, the image goes and is counted. A status line under a region keeps its image while the region scrolls, on either screen. **One stated gap**: an image anchored on a wrapped continuation row -- placed after text that wrapped onto its row -- comes back a row higher from a narrow-then-widen round trip, pinned by `an_anchor_on_a_wrapped_row_lands_a_row_higher_after_a_round_trip`; an image printed after a newline starts its line and round-trips exactly. |
 | `CSI ? 2004 h/l` | bracketed paste | done — recorded and exposed as `Term::bracketed_paste()` |
 | `CSI ? 1004 h/l` | focus reporting | done — `Term::focus` queues `CSI I` on gain and `CSI O` on loss only while the mode is set, and nothing otherwise, because an application that did not ask reads `CSI I` as a keypress. The macOS app polls the window's key status on the tick and before a mouse event and forwards a change (`Driver::poll_focus`), because the window crate's hook reports the *view's* first-responder status, which fired once at `show()` before the driver was installed and never on an app switch -- so **no transition was ever reported on macOS until 2026-09-20**, found by the OSC 8 live check, and a live check reads `CSI I`, `CSI O`, `CSI I` around an app switch now. The Linux app calls it from its keyboard hook. **Dropped uncounted until 2026-09-20**: `1004` was named nowhere in the code and had no row here, while `vim-unicode.raw` sends it on its first line; `set_private_mode`'s wildcard counts now, as the ANSI table's always did. `gain_sends_csi_i_and_loss_sends_csi_o`, `nothing_is_sent_unless_the_application_asked`, `the_vim_recording_enables_it` |
 | `CSI ? 1000/1002/1003 h/l` | mouse tracking | done |
 | `CSI ? 1006 h/l` | SGR mouse encoding | done — no ordinate limit; see below |
 | X10 mouse encoding (`ESC [ M Cb Cx Cy`) | the default, what `?1000` gives without `?1006` | done — positions past 223 refused and counted, not truncated |
-| `CSI ? 1001 h/l` | highlight tracking | done — recorded in both cores; see the mode table. The "xterm will hang" warning describes an event loop, and neither core has one |
+| `CSI ? 1001 h/l` | highlight tracking | done — recorded; see the mode table. The "xterm will hang" warning describes an event loop, and `baud-core` has none |
 | `CSI ? 2026 h/l` | synchronised output | done — exposed as `Term::synchronized_output()` |
 | `CSI ? 25 h/l` | DECTCEM cursor visibility | done — state exposed via `cursor_visible()` |
 | `CSI > 4 ; 2 m` | XTMODKEYS `modifyOtherKeys` | done — `Pv` is the level, 0-2, read by `Term::key`. **Level 3 and the other six resources are refused and counted**, not rounded down: an application that asked for a level it did not get must be able to find out, which is the contract `DECRQM` keeps by answering `0` rather than `2`. See `the_worked_examples_are_what_baud_sends` and `an_unrepresentable_level_is_refused_and_counted` |

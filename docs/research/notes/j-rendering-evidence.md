@@ -749,6 +749,10 @@ pure-Rust XKB ports; the udmabuf-to-DRI3 CPU path on X11; MicrosoftDocs'
 licence on the OpenType HTML; any shaping cost in ns per cell beyond ghostty's
 96% anecdote; Windows Terminal's 20-byte record, which is field arithmetic
 with no `static_assert`; ghostty's frame rate; contour's dirty tracking;
-whether Core Animation's legibility treatment for a glass `contentView`
-recolours Metal or IOSurface content (Apple's WWDC 2025 session 310 describes
-the treatment for ordinary views and is video, not pinned).
+~~whether Core Animation's legibility treatment for a glass `contentView`
+recolours Metal or IOSurface content~~ -- measured since, in part: on baud's
+IOSurface set as `CALayer.contents`, under the `Regular` material, with
+opaque cells, seven bands captured byte for byte and luma exact, so there it
+does not (CLAUDE.md, "Luma under glass, measured"). A `CAMetalLayer`, the
+`Clear` material that is the default since 2026-09-19, and translucent cells
+are unmeasured.

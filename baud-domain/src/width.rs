@@ -6,12 +6,13 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 ///
 /// One field, not two. It carried an `emoji: EmojiWidth` as well — whether
 /// `U+FE0F` presentation makes an emoji two columns — and that cannot be
-/// answered per codepoint: `U+FE0F` is `Cf` and therefore zero-width, so the
+/// answered per codepoint: `U+FE0F` is `Mn` and therefore zero-width, so the
 /// question is whether the *preceding* character is upgraded, which is a
-/// grapheme-cluster property. baud does not do grapheme clustering yet
-/// (`docs/research/notes/g-text-encoding.md` § 5, recommendation 6, records
-/// why), so the field could never have been read. A setting nothing can act on
-/// is the failure this project already refuses for modes.
+/// grapheme-cluster property. baud did not cluster when the field was
+/// removed, so it could never have been read. It clusters now (UAX #29, GB11
+/// included), and a `U+FE0F` attaches to its base without changing the
+/// base's width: the question is answerable and not answered, which is
+/// recorded rather than reintroduced as a setting nothing acts on.
 #[derive(Clone, Copy, Default)]
 pub struct WidthTable {
     pub ambiguous: AmbiguousWidth,

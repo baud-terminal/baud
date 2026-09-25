@@ -45,9 +45,14 @@ from `ESCAPE = 27 u` through `ISO_LEVEL5_SHIFT = 57454 u`. It carries its own
 positive control (`ESCAPE`, `CAPS_LOCK` and `ISO_LEVEL5_SHIFT` at known values,
 and a floor on the row count) so a broken extraction fails loudly rather than
 reporting a plausible subset. It is the source of truth the kitty encoder's
-functional-key table will be gated against, the way the base rows above are
-gated against `extract-keys.py`. The encoder that consumes it is not built yet
--- see the kitty row below.
+functional-key table is gated against, the way the base rows above are gated
+against `extract-keys.py`. ~~The encoder that consumes it is not built yet.~~
+It is built, and three tests in `baud-core/tests/kitty_encode.rs` read the
+table: `functional_keys_match_the_source` (Esc, the arrows, the editing keys
+and F1-F20), `keypad_keys_match_the_source` and `pua_keys_match_the_source`
+(the locks, F21-F35, the media and modifier keys). The `KP_LEFT` to
+`KP_BEGIN` navigation rows are gated by none, because the keypad does not
+model them.
 
 | ctlseqs line | table | rows | status |
 |---|---|---|---|
@@ -124,13 +129,14 @@ created the demand.
 | `?2004` bracketed paste | `bracketed_paste` | wraps pasted text in `CSI 200 ~` / `CSI 201 ~` |
 | `?1000`-`?1003`, `?1006` | `mouse_tracking` | **done** — the only input baud already generates |
 | `?1004` focus reporting | `Term::focus` | **done** — `CSI I` / `CSI O`, sent only while the mode is set; the second input baud generates on its own |
-| `?1001` highlight tracking | `highlight_tracking`, `highlight_region` | recorded, and needs a selection model to answer |
+| `?1001` highlight tracking | `highlight_tracking`, `highlight_region` | recorded, and the region is not drawn. ~~Needs a selection model to answer~~ -- that reason expired when stream and block selection landed; drawing the region through the selection's highlight is unbuilt |
 
 ## Not in scope yet, and why
 
-* **DECUDK** — user-defined keys. `vt-coverage.md` lists it `out` as
-  input-side; it stops being out once there is an input side, and it needs the
-  DCS payload the parser already collects.
+* **DECUDK** — user-defined keys. ~~It stops being out once there is an
+  input side.~~ There is one, and `vt-coverage.md` keeps DECUDK `out` on
+  scope rather than on absence: it redefines what a key sends, which needs a
+  table of user-programmable strings and a policy for who may set them.
 * **Compose, dead keys, IME** — these belong to the platform layer above
   baud's core. Recording them here would be a bit set and never read.
 * **Key repeat is the platform's to generate and the core's to encode.** An

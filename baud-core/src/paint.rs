@@ -650,7 +650,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // machine.** A combining mark, a ZWJ or a variation selector took a
         // full cell here and advanced the cursor a column, so everything after
         // it on the row sat one place right of where `baud-core2` puts it --
-        // which is what 84% of the pinned glyph divergence is.
+        // which was about a third of the pinned glyph divergence.
         //
         // `baud-core2` reaches the same answer through a *second* arm that
         // fires whatever the break decision was (`put_cp_classified`, and
@@ -658,8 +658,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         // this reproduces its cell output exactly rather than approximately,
         // for every input, with no state and no 24 KB transition table.
         //
-        // What it does not reproduce is *storing* the codepoint. core2
-        // attaches it to the base cell; this drops it, and says so.
+        // It stores the codepoint too, since the cluster store landed:
+        // `attach` puts it in `ClusterStore`, keyed on content, not position.
         if w == Width::ZERO {
             self.attach(cp);
             return;

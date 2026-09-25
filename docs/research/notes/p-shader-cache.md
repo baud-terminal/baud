@@ -277,8 +277,12 @@ and warm-pass controls flat in both arms.
   re-took precisely because these numbers move.
 * **The pipelines are dearer from a shipped library**, 45.1 ms cold from a
   source-built one against 73.6 from `baud.metallib`, reproduced in every
-  settled launch. Nothing here explains it; the arm that would is one
-  timing each of the five `newRenderPipelineState` calls under both.
+  settled launch. ~~Nothing here explains it.~~ The arm this line asked for
+  was built (`Build::each`, one timing per pipeline build -- its function
+  lookups and its pipeline state -- under both): the whole difference is the *first* pipeline of the process, and
+  building `bg` last moves the cost to whichever is built first, so it
+  follows the position and not the shader. What `newLibraryWithData` defers
+  to that first pipeline is still not known. CLAUDE.md, "Row 1 shipped".
 * **"This box does not have it: `xcrun metal` answers ..." was two errors
   wearing one sentence**, and the correction is in the section above:
   `xcrun` cannot reach the compiler on this box at all, and Xcode's `metal`
