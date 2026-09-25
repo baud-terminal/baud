@@ -1,3 +1,9 @@
+# `profile-rustflags` is what lets the release profile carry a codegen flag:
+# devenv exports `RUSTFLAGS`, and an environment `RUSTFLAGS` replaces every
+# `rustflags` a `.cargo/config.toml` sets, while a profile's are added to it.
+# The toolchain is nightly already, for `portable_simd`.
+cargo-features = ["profile-rustflags"]
+
 [workspace]
 resolver = "2"
 members = ["baud-domain", "baud-core", "baud-bench",
@@ -55,3 +61,12 @@ repository = "https://github.com/i-am-logger/baud"
 opt-level = 3
 lto = true
 codegen-units = 1
+# **Every function starts on a 64-byte boundary.** Without it a function's
+# offset in its cache line moves whenever anything linked before it changes
+# size, and `cat` read -8%, -9% and +3% across three builds of one change whose
+# ingest loop was instruction for instruction the same -- a layout lottery this
+# repo had recorded on `cat` several times before. Aligned, all three equalled the
+# base. The cost and the corpus sweep are in CLAUDE.md, "Every function starts
+# on a 64-byte boundary". `bench` inherits this profile, and `test:unit` builds
+# it, so the measurements and the tests run the code that ships.
+rustflags = ["-C", "llvm-args=-align-all-functions=6"]
