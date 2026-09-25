@@ -343,9 +343,15 @@ impl Paint<'_, '_> {
             && self.cold.left == Col::ZERO
             && self.cold.right.index() == self.cols.index() - 1;
         if top.index() == 0 && (keeps || below < height) {
-            if self.cold.screen == Screen::Normal {
-                self.cold.region_scrolls = self.cold.region_scrolls.next();
-            }
+            // **On either screen.** The count says the ring advanced through a
+            // region rather than with the whole screen, which is what a
+            // reader numbering rows by the ring's advance has to know: the
+            // rows under the region did not move. It counted the primary
+            // only, because the alternate screen keeps no history, and so on
+            // the alternate screen, where vim's `1 ; 45` rotates, a
+            // selection on the status line under it was renumbered as if it
+            // had scrolled.
+            self.cold.region_scrolls = self.cold.region_scrolls.next();
             #[cfg(feature = "diag")]
             {
                 self.scroll_rot += k;

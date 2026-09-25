@@ -2194,6 +2194,44 @@ mod alt_window_tests {
         });
     }
 
+    /// **And the same on the alternate screen**, where vim's tall region
+    /// rotates the ring and the status line under it stays. The core counted
+    /// region scrolls on the primary only, so here the read looked like a
+    /// whole-screen scroll and a selection on the status line was renumbered
+    /// onto the row above it.
+    #[test]
+    fn a_region_rotation_on_the_alternate_screen_drops_a_selection_under_it() {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        with_history(|t| {
+            // A tall region on this ten-row screen, `1;8`, so it rotates on
+            // the alternate screen as vim's `1;45` does on fifty.
+            feed(t, b"\x1b[?1049h\x1b[1;8r\x1b[9;1Hstat\x1b[3;1Hpane");
+            let scrolled = Scrolled::START;
+            let sel = |t: &Term<'_>, y: usize| {
+                let r = Row::from_index(y);
+                Selection::at(
+                    Span::cell(t.row(r), scrolled.line(Rows::ZERO, r), Col::ZERO),
+                    Grain::Cell,
+                )
+            };
+            let (under, pane) = (sel(t, 8), sel(t, 2));
+            let before = Before::of(t);
+            let rot = t.rotation();
+            feed(t, b"\x1b[8;1Hx\r\ny\r\n");
+            assert!(
+                t.rotation() != rot,
+                "the control: the region rotated the alternate ring"
+            );
+            assert!(
+                !whole_screen_scrolled(t, before),
+                "and that was a region, not the whole screen"
+            );
+            assert!(stale_under_region(&under, t, before, scrolled), "under it");
+            assert!(!stale_under_region(&pane, t, before, scrolled), "in it");
+        });
+    }
+
     /// A read that leaves the alternate screen and enters it again ends on
     /// the screen it began on, so the screen read at its two ends cannot see
     /// the switch -- and the entry cleared the screen and reset its ring, so

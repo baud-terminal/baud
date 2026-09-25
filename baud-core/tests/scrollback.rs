@@ -177,11 +177,14 @@ fn il_dl_and_sd_in_a_top_region_leave_the_history_alone() {
     });
 }
 
-/// **`Term::region_scrolls` moves on a region scroll that retires and on
-/// nothing else**: not on the whole screen scrolling, not on a region in the
-/// middle, not on the alternate screen.
+/// **`Term::region_scrolls` moves on a region scroll that advances the ring
+/// and on nothing else**: not on the whole screen scrolling, not on a region
+/// in the middle, and on a tall top region on the alternate screen too, which
+/// rotates there. It did not move on the alternate screen, which keeps no
+/// history, and a selection under vim's region there was renumbered as if
+/// the rows under it had scrolled.
 #[test]
-fn the_region_count_moves_only_when_a_region_retires_a_line() {
+fn the_region_count_moves_only_when_a_region_advances_the_ring() {
     support::with_corpus(|t| {
         let start = t.region_scrolls();
         let lines: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
@@ -196,14 +199,20 @@ fn the_region_count_moves_only_when_a_region_retires_a_line() {
         support::feed(t, b"\x1b[S");
         assert_ne!(t.region_scrolls(), once, "and again for SU");
         let twice = t.region_scrolls();
-        // A short region and a tall one: the tall one rotates on the
-        // alternate screen too, and must not move the count either.
+        // A short region and a tall one on the alternate screen: the short
+        // one copies there and does not move the count; the tall one
+        // rotates, and does.
         support::feed(t, b"\x1b[r\x1b[?1049h\x1b[1;3r\x1b[3;1H\n\n\x1b[S");
-        support::feed(t, b"\x1b[1;40r\x1b[40;1H\n\n\x1b[S");
         assert_eq!(
             t.region_scrolls(),
             twice,
-            "the alternate screen keeps nothing"
+            "a short region on the alternate screen copies"
+        );
+        support::feed(t, b"\x1b[1;40r\x1b[40;1H\n");
+        assert_ne!(
+            t.region_scrolls(),
+            twice,
+            "a tall one rotates there, and the rows under it stayed"
         );
     });
 }

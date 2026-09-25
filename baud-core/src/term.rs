@@ -328,7 +328,8 @@ pub struct Cold {
     /// The scrolling region, inclusive at both ends.
     pub(crate) top: Row,
     pub(crate) bot: Row,
-    /// Moves on every region scroll that retires: [`Term::region_scrolls`].
+    /// Moves on every region scroll that advances a ring, on either screen:
+    /// [`Term::region_scrolls`].
     pub(crate) region_scrolls: RegionScrolls,
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<Saved>,
@@ -1720,11 +1721,13 @@ impl<'b> Term<'b> {
         self.cold.epoch
     }
 
-    /// Which region scroll the primary last retired a line through: it moves
-    /// on every scroll of a region smaller than the screen that sends a line
-    /// to the history, and on nothing else. A read whose two ends carry one
-    /// reading retired only whole-screen scrolls, so the rows the history
-    /// took moved every row on the screen with them.
+    /// Which region scroll last advanced the live ring: it moves on every
+    /// scroll of a region smaller than the screen that rotates the ring --
+    /// on the primary, sending a line to the history; on the alternate
+    /// screen, which keeps none -- and on nothing else. A read whose two ends
+    /// carry one reading advanced the ring only with the whole screen, so
+    /// every row on the screen moved with it; a read that moved it advanced
+    /// through a region, and the rows under that region did not move.
     pub fn region_scrolls(&self) -> RegionScrolls {
         self.cold.region_scrolls
     }
