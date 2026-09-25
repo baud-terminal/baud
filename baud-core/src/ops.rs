@@ -70,7 +70,6 @@ impl Paint<'_, '_> {
         Saved {
             cy: self.cy,
             cx: self.cx,
-            style: self.style,
             style_raw: self.style_raw,
             flags: self.flags,
             g: self.cold.g,
@@ -88,7 +87,12 @@ impl Paint<'_, '_> {
         let Some(s) = s else { return };
         let r = Row::from_index(s.cy.index().min(self.rows.index() - 1));
         self.goto(r, Col::at_index(s.cx.index().min(self.cols.index() - 1)));
-        self.style = s.style;
+        // **Interned again, not the saved id.** An eviction between the save
+        // and the restore can give the saved id's slot to another rendition,
+        // and writing under the old id would draw in its colours. The
+        // rendition is what was saved; the id was where it happened to be.
+        // A hit, in the ordinary case.
+        self.style = self.intern_style(s.style_raw);
         self.style_raw = s.style_raw;
         self.flags = s.flags;
         self.cold.g = s.g;
@@ -627,6 +631,12 @@ impl Paint<'_, '_> {
     /// can show. Eviction remains only for a session that mints more than a
     /// screenful of *distinct* renditions over its life -- an animation cycling
     /// colours, not a still image -- and that is recorded rather than paid for.
+    ///
+    /// **Inlined, because `restore` is its second caller.** With one caller
+    /// LLVM inlined it into `apply_sgr`; when `DECRC` began interning the
+    /// saved rendition again it outlined it, and every `SGR` paid a call.
+    /// Forced, `apply_sgr` compiles as it did with one caller.
+    #[inline(always)]
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
         // `len` is a screen's worth of slots -- a power of two, always at least
@@ -638,7 +648,9 @@ impl Paint<'_, '_> {
         core::hint::black_box(StyleId::bucket(raw, len));
         #[cfg(feature = "probe-double-intern-full")]
         {
-            let k2 = StyleId::bucket(raw, len);
+            // Slot 0 is the reserved default (`Term::new`), which this arm
+            // must not overwrite any more than the eviction below may.
+            let k2 = StyleId::bucket(raw, len).max(1);
             self.tmpl[k2] = Some(raw);
         }
         let base = StyleId::bucket(raw, len);
@@ -658,9 +670,13 @@ impl Paint<'_, '_> {
             }
         }
         // Every slot holds a live style: evict at the bucket, the only case a
-        // fixed table cannot serve exactly, and the read stays one load.
-        self.tmpl[base] = Some(raw);
-        StyleId::from_index(base)
+        // fixed table cannot serve exactly, and the read stays one load --
+        // except slot 0, the default every blank cell names without
+        // interning it (`Term::new`), whose eviction would recolour them all.
+        // Its bucket's victim is the slot after it.
+        let victim = base.max(1);
+        self.tmpl[victim] = Some(raw);
+        StyleId::from_index(victim)
     }
 
     /// SGR. **The single-parameter form first**, because that is what a

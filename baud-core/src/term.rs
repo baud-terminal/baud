@@ -36,7 +36,9 @@ enum PrimaryCursor {
 pub struct Saved {
     pub(crate) cy: Row,
     pub(crate) cx: Col,
-    pub(crate) style: StyleId,
+    /// The rendition, and not the id it was interned at: an eviction between
+    /// the save and the restore can give that id to another rendition, so
+    /// `restore` interns this again.
     pub(crate) style_raw: StyleWord,
     pub(crate) flags: CellFlags,
     /// **The four slots and which one `GL` invokes, not the resolved set.**
@@ -551,7 +553,7 @@ pub struct Term<'b> {
     pub(crate) style: StyleId,
     /// The rendition being *built*. SGR folds into this and interns the
     /// result: a fold reads the previous value, and an index cannot be read
-    /// back through a table that evicts on collision.
+    /// back through a table that evicts once it is full.
     ///
     /// **Beside `style` rather than inside `cold`.** `asciiquarium.raw` folds
     /// into it 876,840 times a rep, which is nearly once a character.
@@ -1337,6 +1339,15 @@ impl<'b> Term<'b> {
     pub fn new(store: Storage<'b>, ws: &WinSize) -> Term<'b> {
         let mut store = store;
         Term::fill_cells3(&mut store);
+        // **Slot 0 is the default rendition, reserved.** A cell carries
+        // `StyleId::DEFAULT` without anything being interned -- an empty
+        // cell, an erased one, every cell written before the first `SGR` --
+        // so the slot has to hold the default for the table's whole life.
+        // Left empty, the first rendition to probe into it took it and every
+        // default cell took that rendition's colours. The default's key is 0,
+        // so this is the slot it would take anyway; `intern_style` never
+        // evicts it.
+        store.tmpl[StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
         // **Every eighth column, and not column zero.** A tab stop at 0 makes
         // `CBT` from column 3 land where the cursor already was.
         for (i, stop) in store.tabs.iter_mut().enumerate() {
@@ -1723,8 +1734,8 @@ impl<'b> Term<'b> {
 
     /// The rendition a cell's [`StyleId`] stands for.
     ///
-    /// **Read the slot back rather than trusting the id.** The table evicts on
-    /// collision, so an id can outlive the rendition it was minted for; a
+    /// **Read the slot back rather than trusting the id.** A full table
+    /// evicts, so an id can outlive the rendition it was minted for; a
     /// renderer that trusted it would paint a stale colour.
     pub fn style_of(&self, cell: PackedCell) -> StyleWord {
         self.store.tmpl[cell.style.index()].unwrap_or(StyleWord::DEFAULT)

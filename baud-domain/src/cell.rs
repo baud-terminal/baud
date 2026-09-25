@@ -573,7 +573,7 @@ impl ClusterSlot {
 /// A bounded, content-addressed store of clusters, indexed from the cell.
 ///
 /// **It refuses rather than evicts, and that is the whole difference from the
-/// rendition table.** `StyleId` into `StyleWord` evicts on collision because a
+/// rendition table.** `StyleId` into `StyleWord` evicts once full because a
 /// wrong colour renders wrong and is rewritten next frame; a wrong *cluster*
 /// puts somebody else's accent on your character and is unrecoverable by a
 /// renderer, a selection or a copy. So a collision is refused and counted, the

@@ -111,9 +111,12 @@ pub struct Storage<'b> {
     /// of the index bytes. Storing it is how you stop computing it.
     pub(crate) cells3: &'b mut [PackedCell],
     /// The rendition table. A cell holds a [`StyleId`] *index* into this;
-    /// **bounded by construction and evicting on collision**, which is the
-    /// contract every content-keyed table in this project carries -- a
-    /// growable one is the content-addressing failure mode this repo records.
+    /// **bounded by construction**, open-addressed, and evicting only when
+    /// every slot is live, which is the contract every content-keyed table in
+    /// this project carries -- a growable one is the content-addressing
+    /// failure mode this repo records. **Slot 0 is reserved for the default**
+    /// (`Term::new`), which every blank cell names without interning it, and
+    /// is never evicted.
     ///
     /// `Option` rather than a parallel validity array: absent and occupied are
     /// two states of one thing, and a `bool` beside it is the missing enum the
