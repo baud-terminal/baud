@@ -994,7 +994,10 @@ impl App {
         // `tick_target`, the display link's own clock, so the renderer only
         // draws what it is handed and the frame is a pure function of it.
         // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
-        let cursor_cell = live_cursor(&self.term, self.back);
+        // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
+        // program placed a cursor it hid and draws its own.
+        let followed = trail_cursor(&self.term, self.back);
+        let cursor_cell = followed.map(TrailCursor::cell);
         if self.cursor_trail == crate::config::CursorTrail::Ghost {
             if let (Some(from), Some(to)) = (self.last_cursor_cell, cursor_cell) {
                 if from != to {
@@ -1039,7 +1042,10 @@ impl App {
                     self.chase.snap();
                 }
                 let style = self.term.cursor_style();
-                let rect = cursor_cell.map(|(r, c)| self.renderer.cursor_rect(r, c, style));
+                let rect = followed.map(|f| {
+                    let (r, c) = f.cell();
+                    self.renderer.cursor_rect(r, c, f.style(style))
+                });
                 let m = self.renderer.metrics();
                 let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
                 let cell = (side(m.cell_w), side(m.cell_h));
@@ -2062,6 +2068,55 @@ fn live_cursor(term: &Term<'_>, back: Rows) -> Option<(Row, Col)> {
     (term.cursor_visible() && looking(term, back).index() == 0).then(|| term.cursor())
 }
 
+/// The cursor a trail follows, while the window is on the live screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum TrailCursor {
+    /// The cursor as it is drawn.
+    Shown(Row, Col),
+    /// Where a program put the cursor before it hid it
+    /// (`Term::placed_cursor`): helix's selection, where helix draws its own
+    /// block. Never drawn here -- the program hid it.
+    Placed(Row, Col),
+}
+
+impl TrailCursor {
+    fn cell(self) -> (Row, Col) {
+        match self {
+            TrailCursor::Shown(r, c) | TrailCursor::Placed(r, c) => (r, c),
+        }
+    }
+
+    /// The shape the trail arrives at: the drawn cursor's own, and the whole
+    /// cell for a placement, because the program draws a block there whatever
+    /// shape the terminal's cursor is configured to -- the smear's hole has to
+    /// be that block, or a bar-shaped hole leaves the trail over it.
+    fn style(self, drawn: baud_core::CursorStyle) -> baud_core::CursorStyle {
+        match self {
+            TrailCursor::Shown(..) => drawn,
+            TrailCursor::Placed(..) => baud_core::CursorStyle::SteadyBlock,
+        }
+    }
+}
+
+/// **The cursor a trail follows**: the one drawn, and while it is hidden,
+/// where a program placed it before hiding it. Helix hides the terminal's
+/// cursor for good and draws its own at the selection, moving the hidden one
+/// there first on every frame, so a trail that followed only the drawn cursor
+/// drew nothing on `gg` or `ge`. A hidden cursor no program placed is not
+/// followed: the trail keeps where it last was (`trail.rs`).
+fn trail_cursor(term: &Term<'_>, back: Rows) -> Option<TrailCursor> {
+    if looking(term, back).index() != 0 {
+        return None;
+    }
+    match term.cursor_visible() {
+        true => {
+            let (r, c) = term.cursor();
+            Some(TrailCursor::Shown(r, c))
+        }
+        false => term.placed_cursor().map(|(r, c)| TrailCursor::Placed(r, c)),
+    }
+}
+
 /// A window over the history after a read or a resize moved the rings
 /// under it: anchored by the **primary's** movement, which holds the history
 /// whatever screen is up. The live rotation is the alternate screen's while
@@ -2503,9 +2558,10 @@ mod alt_window_tests {
     #[test]
     fn every_reader_of_the_window_asks_the_clamp() {
         const SRC: &str = include_str!("app.rs");
-        const HELPERS: [&str; 6] = [
+        const HELPERS: [&str; 7] = [
             "looking(",
             "live_cursor(",
+            "trail_cursor(",
             "window_of(",
             "snapped(",
             "after_read(",
@@ -2587,6 +2643,227 @@ mod alt_window_tests {
                  which is already at the bottom"
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod trail_cursor_tests {
+    //! The cursor a trail follows, and helix, which hides the terminal's for
+    //! good and draws its own at the selection. The rule is the core's
+    //! (`Term::placed_cursor`); what is the app's is that a placement is
+    //! followed, never drawn, and arrived at as a block.
+    use super::{TrailCursor, live_cursor, trail_cursor};
+    use crate::trail::{Chase, Style};
+    use baud_core::{CursorStyle, Owned, Term};
+    use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
+    use baud_render::{Rect, Shape, TrailLook};
+    use std::time::{Duration, Instant};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+    const CELL: (f32, f32) = (10.0, 20.0);
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// The cell at row `r` and column `c`, from zero.
+    macro_rules! cell {
+        ($r:expr, $c:expr) => {
+            (Row::from_index($r), Col::at_index($c))
+        };
+    }
+
+    /// One of helix's frames, on its alternate screen: text drawn with the
+    /// cursor hidden, then the cursor moved to the selection at `at` and
+    /// hidden (`baud-core/tests/placed_cursor.rs`).
+    fn frame((r, c): (Row, Col)) -> String {
+        let (r, c) = (r.index() + 1, c.index() + 1);
+        format!("\x1b[1;1Hline 001\x1b[10;1Hstatus\x1b[{r};{c}H\x1b[?25l")
+    }
+
+    /// The whole cell a cursor stands on, at `CELL`: what `Renderer::
+    /// cursor_rect` gives a block.
+    fn block((r, c): (Row, Col)) -> Rect {
+        let (w, h) = CELL;
+        let (x, y) = (c.index() as f32 * w, r.index() as f32 * h);
+        Rect {
+            left: x,
+            top: y,
+            right: x + w,
+            bottom: y + h,
+        }
+    }
+
+    #[test]
+    fn a_placed_cursor_is_followed_and_never_drawn() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, frame(cell!(1, 7)).as_bytes());
+        assert_eq!(live_cursor(&t, Rows::ZERO), None, "the program hid it");
+        let (r, c) = cell!(1, 7);
+        assert_eq!(
+            trail_cursor(&t, Rows::ZERO),
+            Some(TrailCursor::Placed(r, c))
+        );
+        feed(&mut t, frame(cell!(8, 7)).as_bytes());
+        let (r, c) = cell!(8, 7);
+        assert_eq!(
+            trail_cursor(&t, Rows::ZERO),
+            Some(TrailCursor::Placed(r, c)),
+            "ge"
+        );
+        // A hidden cursor no program placed is followed by nothing.
+        feed(&mut t, b"\x1b[5;5Hab\x1b[?25l");
+        assert_eq!(trail_cursor(&t, Rows::ZERO), None, "a hide after text");
+        // Shown, it is the drawn cursor again.
+        feed(&mut t, b"\x1b[?25h");
+        let (r, c) = cell!(4, 6);
+        assert_eq!(live_cursor(&t, Rows::ZERO), Some((r, c)));
+        assert_eq!(trail_cursor(&t, Rows::ZERO), Some(TrailCursor::Shown(r, c)));
+    }
+
+    #[test]
+    fn a_placement_is_not_followed_while_looking_back() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        feed(&mut t, b"\x1b[3;4H\x1b[?25l");
+        let (r, c) = cell!(2, 3);
+        assert_eq!(
+            trail_cursor(&t, Rows::ZERO),
+            Some(TrailCursor::Placed(r, c)),
+            "the control: placed on the live screen"
+        );
+        assert_eq!(trail_cursor(&t, Rows::of_count(3)), None);
+    }
+
+    /// **On the alternate screen the window is the live screen**, whatever
+    /// the primary's window was left at -- `looking`'s clamp, which the source
+    /// gate trusts `trail_cursor` to ask. A primary left scrolled back when
+    /// helix starts must not take its trail away.
+    #[test]
+    fn a_placement_on_the_alternate_screen_is_followed_whatever_the_primarys_window() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        let back = Rows::of_count(3);
+        assert_eq!(
+            trail_cursor(&t, back),
+            None,
+            "the control: looking back on the primary"
+        );
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, frame(cell!(1, 7)).as_bytes());
+        let (r, c) = cell!(1, 7);
+        assert_eq!(trail_cursor(&t, back), Some(TrailCursor::Placed(r, c)));
+    }
+
+    #[test]
+    fn a_placed_cursor_is_arrived_at_as_a_block_whatever_the_style() {
+        let (r, c) = cell!(1, 1);
+        for style in [
+            CursorStyle::BlinkingBlock,
+            CursorStyle::SteadyBlock,
+            CursorStyle::BlinkingUnderline,
+            CursorStyle::SteadyUnderline,
+            CursorStyle::BlinkingBar,
+            CursorStyle::SteadyBar,
+        ] {
+            assert_eq!(
+                TrailCursor::Placed(r, c).style(style),
+                CursorStyle::SteadyBlock
+            );
+            assert_eq!(TrailCursor::Shown(r, c).style(style), style, "{style:?}");
+        }
+    }
+
+    /// **Helix's `ge` and `gg` trail**, through the same chase the app runs:
+    /// its frames on the alternate screen, each seen once a frame, the cursor
+    /// followed where `trail_cursor` says. The control is the rule before this
+    /// change -- the drawn cursor alone -- which follows nothing here, since
+    /// these frames never show one (helix shows it for its command line). A
+    /// move of a cell or two still snaps.
+    #[test]
+    fn helix_trails_on_ge_and_gg() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut chase: Chase<Instant> = Chase::new(Style::Smear(Shape::Quad));
+        let mut before: Chase<Instant> = Chase::new(Style::Smear(Shape::Quad));
+        let mut seen = |t: &Term<'_>, ms: u64| {
+            let now = trail_cursor(t, Rows::ZERO).map(|f| block(f.cell()));
+            let old = live_cursor(t, Rows::ZERO).map(block);
+            (
+                chase.frame(now, at(ms), CELL).is_some(),
+                before.frame(old, at(ms), CELL).is_some(),
+            )
+        };
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, frame(cell!(1, 7)).as_bytes());
+        assert_eq!(seen(&t, 0), (false, false), "the first sighting");
+        // `ge`: a frame at the last line, seen, then seen again once the
+        // cursor has rested out the dwell.
+        feed(&mut t, frame(cell!(8, 7)).as_bytes());
+        assert_eq!(seen(&t, 100), (false, false), "ge first seen");
+        assert_eq!(seen(&t, 105), (false, false), "inside the dwell");
+        assert_eq!(seen(&t, 120), (true, false), "ge trails");
+        assert_eq!(seen(&t, 2000), (false, false), "landed");
+        // `gg`, back to the first line.
+        feed(&mut t, frame(cell!(1, 7)).as_bytes());
+        assert_eq!(seen(&t, 2100), (false, false), "gg first seen");
+        assert_eq!(seen(&t, 2120), (true, false), "gg trails");
+        assert_eq!(seen(&t, 4000), (false, false), "landed");
+        // `l`, a column on: a short move from rest snaps.
+        feed(&mut t, frame(cell!(1, 8)).as_bytes());
+        let (r, c) = cell!(1, 8);
+        assert_eq!(
+            trail_cursor(&t, Rows::ZERO),
+            Some(TrailCursor::Placed(r, c)),
+            "the control: l placed the cursor a column on"
+        );
+        assert_eq!(seen(&t, 4100), (false, false), "l first seen");
+        assert_eq!(seen(&t, 4120), (false, false), "l snaps");
+    }
+
+    /// **A fire keeps burning at a placed cursor**, where a hidden one puts
+    /// it out: helix hides its cursor for good, so under the old rule a fire
+    /// on `ge` could not even light, and a placement is a cursor to burn at.
+    #[test]
+    fn a_fire_burns_at_a_placed_cursor() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let mut chase: Chase<Instant> = Chase::new(Style::Fire);
+        let mut fire = |t: &Term<'_>, ms: u64| {
+            let now = trail_cursor(t, Rows::ZERO).map(|f| block(f.cell()));
+            matches!(chase.frame(now, at(ms), CELL), Some(TrailLook::Fire(_)))
+        };
+        feed(&mut t, b"\x1b[?1049h");
+        feed(&mut t, frame(cell!(1, 7)).as_bytes());
+        assert!(!fire(&t, 0), "the first sighting");
+        feed(&mut t, frame(cell!(8, 7)).as_bytes());
+        assert!(!fire(&t, 100), "ge first seen");
+        assert!(!fire(&t, 105), "inside the dwell");
+        assert!(fire(&t, 120), "ge lights it");
+        // The next frame, the cursor hidden and placed where it was: burning.
+        feed(&mut t, frame(cell!(8, 7)).as_bytes());
+        assert!(fire(&t, 200), "a placed cursor keeps it burning");
+        // A hide that places nothing puts it out, as a hidden cursor does.
+        feed(&mut t, b"\x1b[5;5Hab\x1b[?25l");
+        assert!(!fire(&t, 210), "a cursor not placed puts it out");
     }
 }
 
@@ -3185,8 +3462,12 @@ impl Driver {
             // settle it rather than carry it across.
             self.app.slide.snap();
             // Nor does a trail cross it: the cursor it would come from was
-            // the other screen's.
+            // the other screen's. The ghost forgets its last cell and any
+            // sweep in flight for the same reason; it never did, and a
+            // placement made helix reach it from the prompt.
             self.app.chase.snap();
+            self.app.last_cursor_cell = None;
+            self.app.trail = None;
             // The alternate screen swapped: fade the new one in from the
             // background, off `tick_target` the way the trail is spawned.
             if self.app.screen_transition == crate::config::ScreenTransition::On {

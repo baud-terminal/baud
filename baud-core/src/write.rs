@@ -658,7 +658,7 @@ pub(crate) fn act(
             // The graph only names `CsiFinal` for `0x40..=0x7e`, and
             // `FinalByte` is the type that carries that proof.
             let b = StreamByte::from_stream(p.arena[from.index()]);
-            csi_final(p, csi, FinalByte::of_final(b), node);
+            csi_final(p, csi, FinalByte::of_final(b), node, from);
             ReadLen::ONE
         }
         Act::EscFinal => {
@@ -1444,10 +1444,10 @@ pub(crate) const fn csi_op_of(f: FinalByte) -> CsiOp {
 /// a per-byte body costs every payload whether or not it executes.
 #[cold]
 #[inline(never)]
-fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
+fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at: BytePos) {
     #[cfg(feature = "probe-no-csi-op")]
     {
-        let _ = (&p, &csi, f, &node);
+        let _ = (&p, &csi, f, &node, at);
         return;
     }
     #[allow(unreachable_code)]
@@ -1514,7 +1514,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node) {
         DomCsi::CursorForwardTab(c) => p.tab_forward(c),
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
-        DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node),
+        DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node, at),
         DomCsi::Mode { change, mode } => p.apply_ansi_mode(change, mode),
         DomCsi::SelectProtection { protect } => {
             p.cold.protect = CellFlags::protection(protect.is_protected());
@@ -2136,7 +2136,7 @@ fn fast_csi(
             }
             p.apply_sgr(csi)
         }
-        false => csi_final(p, csi, f, node),
+        false => csi_final(p, csi, f, node, BytePos::from_index(body.index() + off)),
     }
     // The `[`, the parameters, and the final byte.
     // **The one place this path commits.** `fast_hit` was declared, summed and

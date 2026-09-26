@@ -144,3 +144,29 @@ fn a_flip_repaints_incrementally_to_what_a_full_frame_paints() {
         );
     }
 }
+
+/// **A cursor a program placed and hid is not drawn.** The trail follows it
+/// (`Term::placed_cursor`), and that is the only reader it has: helix draws its
+/// own block there, and a second one drawn by the terminal would sit on it.
+/// The frame is the one with the cursor hidden where no program placed it.
+#[test]
+fn a_placed_hidden_cursor_is_not_drawn() {
+    let placed = b"ab\x1b[1;2H\x1b[?25l";
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, placed);
+    assert!(
+        t.placed_cursor().is_some(),
+        "the control: the program placed it"
+    );
+    assert_eq!(
+        frame(placed, Blink::Shown),
+        frame(b"ab\x1b[?25l", Blink::Shown),
+        "a placed cursor was drawn"
+    );
+    assert_ne!(
+        frame(b"ab\x1b[1;2H", Blink::Shown),
+        frame(placed, Blink::Shown),
+        "the control: the same cursor shown is drawn"
+    );
+}

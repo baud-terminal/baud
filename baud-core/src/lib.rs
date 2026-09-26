@@ -55,6 +55,7 @@ pub use graph::Hist;
 mod ops;
 mod osc;
 mod paint;
+mod placed;
 mod prompt;
 mod sixel;
 mod storage;

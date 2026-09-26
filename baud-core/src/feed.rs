@@ -34,6 +34,9 @@ impl Term<'_> {
     #[inline(always)]
     pub fn feed(&mut self, base: BytePos, n: ReadLen) {
         self.bytes_in += n.index();
+        // Where this read starts, for a hide looking back past it
+        // (`placed.rs`).
+        self.cold.placement.begin(base);
         let mut p = Paint::new(
             &mut self.store,
             self.cy,
@@ -296,6 +299,10 @@ impl Term<'_> {
         self.utf8 = utf8;
         self.utf8_min = min;
         self.set_rots(rots);
+        // The read's last bytes, for a hide in the next one to look back into:
+        // one short copy a read (`placed.rs`).
+        let read = &self.store.arena[base.index()..base.index() + n.index()];
+        self.cold.placement.end(StreamByte::slice_from(read));
     }
 }
 

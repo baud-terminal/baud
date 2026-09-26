@@ -925,16 +925,19 @@ impl Paint<'_, '_> {
 
     // ---- modes ----------------------------------------------------------
 
+    /// `at` is where the sequence's final byte is in the arena, which a `?25l`
+    /// looks back from (`placed.rs`).
     pub(crate) fn apply_private_modes(
         &mut self,
         csi: &crate::write::Csi,
         change: ModeChange,
         node: &mut crate::graph::Node,
+        at: BytePos,
     ) {
         // **Every parameter, not the first.** `CSI ? 1 ; 3 ; 4 ; 6 l` sets
         // four modes and rxvt's own reset string is exactly that; reading one
         // left the rest silently unset.
-        csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change, node));
+        csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change, node, at));
     }
 
     /// `?5`, counted where it happens.
@@ -975,6 +978,7 @@ impl Paint<'_, '_> {
         m: PrivateMode,
         change: ModeChange,
         node: &mut crate::graph::Node,
+        at: BytePos,
     ) {
         let on = change == ModeChange::Set;
         match m {
@@ -1068,7 +1072,20 @@ impl Paint<'_, '_> {
             PrivateMode::MetaSendsEscape => self.cold.modes.apply(ModeBit::MetaSendsEscape, on),
             PrivateMode::AltSendsEscape => self.cold.modes.apply(ModeBit::AltSendsEscape, on),
             PrivateMode::EightBitInput => self.cold.modes.apply(ModeBit::EightBitInput, on),
-            PrivateMode::CursorVisible => self.cold.modes.apply(ModeBit::CursorVisible, on),
+            // **Every hide decides where a program placed the cursor**, a hide
+            // of a hidden cursor too, and a show forgets it (`placed.rs`).
+            PrivateMode::CursorVisible => {
+                self.cold.modes.apply(ModeBit::CursorVisible, on);
+                match on {
+                    true => self.cold.placement.forget(),
+                    false => {
+                        let cursor = (self.cy, self.cx);
+                        self.cold
+                            .placement
+                            .hidden(self.arena, at, cursor, self.cols)
+                    }
+                }
+            }
             PrivateMode::ReverseVideo => self.set_reverse_video(change),
             // **Mouse tracking is a level, not three flags.** `[[source:
             // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
@@ -1155,6 +1172,12 @@ impl Paint<'_, '_> {
     /// restores it on the way out.
     fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
         use crate::term::Screen;
+        // A placement names a position on the screen it was made on, and a
+        // switch leaves that screen, clears it or restores a saved cursor
+        // (`placed.rs`). The calls that do none of these -- `?47 l` on the
+        // primary, `?47 h` while it is up -- forget it too, at no cost that
+        // matters: a hide after any of them is not right after a move.
+        self.cold.placement.forget();
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
                 if how == AltSwitch::SaveAndClear {
@@ -1472,6 +1495,9 @@ impl Paint<'_, '_> {
         // blink from the resources (`[[source: xterm-reset]]`'s file) -- the
         // configured style, which is what this restores.
         self.cold.cursor_style = self.cold.initial_cursor;
+        // DECTCEM is shown above, and a shown cursor has no placement
+        // (`placed.rs`).
+        self.cold.placement.forget();
         self.invoke();
         self.refresh_flags();
         self.goto(Row::ZERO, Col::ZERO);

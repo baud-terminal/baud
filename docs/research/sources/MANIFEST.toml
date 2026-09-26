@@ -7498,3 +7498,42 @@ sha256 = "56d850fe262faa93daf96c31c609a095e430b913929401075ef5e314e8a7db1b"
 bytes  = 22925
 status = "retrieved"
 group  = "V"
+
+[sources.helix-editor]
+key    = "helix-editor"
+title  = "helix 25.07.1, helix-term/src/ui/editor.rs -- every block cursor drawn by helix, the terminal cursor hidden"
+author = "the helix contributors"
+year   = 2025
+venue  = "helix editor"
+url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-term/src/ui/editor.rs"
+file   = "helix-editor.rs"
+sha256 = "9019515fed59f910fac91ebb67996f0c634de0dc74dda84b14e7bf91124a8798"
+bytes  = 63034
+status = "retrieved"
+group  = "V"
+
+[sources.helix-tui-terminal]
+key    = "helix-tui-terminal"
+title  = "helix 25.07.1, helix-tui/src/terminal.rs -- draw: set_cursor to the selection, then hide_cursor"
+author = "the helix contributors"
+year   = 2025
+venue  = "helix editor"
+url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/terminal.rs"
+file   = "helix-tui-terminal.rs"
+sha256 = "978282129c7c01e8deb1c54ba201173f2d723d35a17a33102b50a515fc84dec4"
+bytes  = 7026
+status = "retrieved"
+group  = "V"
+
+[sources.helix-tui-crossterm]
+key    = "helix-tui-crossterm"
+title  = "helix 25.07.1, helix-tui/src/backend/crossterm.rs -- the cursor reset on exit: CSI 0 SP q, Se, cnorm"
+author = "the helix contributors"
+year   = 2025
+venue  = "helix editor"
+url    = "https://raw.githubusercontent.com/helix-editor/helix/a05c151bb6e8e9c65ec390b0ae2afe7a5efd619b/helix-tui/src/backend/crossterm.rs"
+file   = "helix-tui-crossterm.rs"
+sha256 = "eae2d4eebd20d22fd8cd95edd798557722e618fc74c3dd448bac6e996361a8a4"
+bytes  = 16251
+status = "retrieved"
+group  = "V"

@@ -412,6 +412,11 @@ pub struct Cold {
     /// reason `prompt::Shell` gives.
     pub(crate) shell: crate::prompt::Shell,
     pub(crate) shell_other: crate::prompt::Shell,
+    /// Where a program put the cursor before it hid it (`placed.rs`):
+    /// decided on every `?25l` by looking back at the bytes before it, with
+    /// the stream's last 31 bytes before the read kept for that, and read by
+    /// [`Term::placed_cursor`] for an embedder's cursor trail.
+    pub(crate) placement: crate::placed::Placement,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -441,10 +446,13 @@ pub struct Cold {
 // one of the two, and each opening the third, all on control sequences the
 // per-byte loop reaches only through its dispatch. The initial cursor style
 // took it to 344: one byte, set by the embedder and read by `DECSCUSR 0` and
-// `7` and by both resets, none of them on the write path.
+// `7` and by both resets, none of them on the write path. The placement took
+// it to 408: a placed position, the stream's last 31 bytes before the read --
+// copied once a read -- and where the read starts, all read on a `?25l` and
+// by the embedder, and none on the write path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 344);
+const _: () = assert!(core::mem::size_of::<Cold>() == 408);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -455,6 +463,7 @@ impl Cold {
             gl: GSlot::G0,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
+            placement: crate::placed::Placement::NONE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             defaults: [ColorWord::DEFAULT; 3],
@@ -963,6 +972,11 @@ impl<'b> Term<'b> {
         let rows = want_rows.clamp(MAX_ROWS).clamp(cap.index());
         let over = cols.index() != want_cols.index() || rows.index() != want_rows.index();
         let (old_rows, old_cols) = (self.rows, self.cols);
+        // A change of geometry moves or re-cuts the cells a placement names
+        // (`placed.rs`); the same geometry leaves it.
+        if (rows, cols) != (old_rows, old_cols) {
+            self.cold.placement.forget();
+        }
         // The window over the history, in lines from the window's top, as it
         // moves with the steps below; `None` is the live screen.
         let mut held = (back.index() > 0).then_some(back);
@@ -1683,6 +1697,27 @@ impl<'b> Term<'b> {
     /// `?25` DECTCEM. Whether the cursor should be drawn.
     pub fn cursor_visible(&self) -> bool {
         self.cold.modes.is_set(ModeBit::CursorVisible)
+    }
+
+    /// **Where a program put the cursor before it hid it**, while it is
+    /// hidden: the position of a hide that is exactly `ESC [ ? 2 5 l` with a
+    /// complete `CUP` or `HVP` straight before it. Helix ends every frame so,
+    /// drawing its own block cursor at the selection and hiding the
+    /// terminal's, and an embedder's cursor trail follows this where the
+    /// cursor itself is not shown. It is not a cursor to draw: the program hid
+    /// it. The rules, and what forgets it, are `placed.rs`'s.
+    ///
+    /// **It is the position the move put the cursor at**, which a `CUP` may
+    /// put right of a `DECSLRM` right margin -- where [`Term::cursor`], whose
+    /// clamp is for the pending-wrap column, reports the margin. A program
+    /// that draws its own cursor draws it where the move put it.
+    pub fn placed_cursor(&self) -> Option<(Row, Col)> {
+        let placed = self.cold.placement.placed();
+        debug_assert!(
+            placed.is_none() || !self.cursor_visible(),
+            "a placement outlived the cursor being shown"
+        );
+        placed
     }
 
     /// `?4` DECSCLM. Smooth scroll -- renderer policy, recorded and exposed.
