@@ -929,6 +929,136 @@ mod reader {
         assert_eq!(CursorTrail::Quad.style(), Style::Smear(Shape::Quad));
     }
 
+    /// Every trail, and the name `[cursor] trail` reads it by. The `match`
+    /// is exhaustive, so a new trail does not compile until it is named
+    /// here, beside the list it has to join.
+    const TRAILS: [CursorTrail; 5] = [
+        CursorTrail::Off,
+        CursorTrail::Ghost,
+        CursorTrail::Sweep,
+        CursorTrail::Quad,
+        CursorTrail::Fire,
+    ];
+    fn trail_name(t: CursorTrail) -> &'static str {
+        match t {
+            CursorTrail::Off => "off",
+            CursorTrail::Ghost => "ghost",
+            CursorTrail::Sweep => "sweep",
+            CursorTrail::Quad => "quad",
+            CursorTrail::Fire => "fire",
+        }
+    }
+
+    /// **docs/cursor.md shows every trail the reader knows, and nothing
+    /// else.** Each trail but `off` has its `trail = "<name>"` and its still
+    /// in the page, a clip and a still in `docs/cursor/`, and both named by
+    /// docs/cursor.html; the default is the one both pages mark as it. So a
+    /// new trail fails here until scripts/trail-clips.sh has recorded it and
+    /// both pages show it, and a clip or a page entry for a trail that is
+    /// gone fails too. The files themselves are checked by name and size,
+    /// not by content; the recording script checks the content.
+    #[test]
+    fn the_cursor_page_shows_every_trail() {
+        let docs = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../docs"));
+        let md = std::fs::read_to_string(docs.join("cursor.md")).expect("docs/cursor.md");
+        let html = std::fs::read_to_string(docs.join("cursor.html")).expect("docs/cursor.html");
+        // `TRAILS` is a list kept by hand, so it is held to the names the
+        // reader lists when it refuses one: a trail the reader learns and the
+        // list misses fails here rather than passing without a clip.
+        let said = Config::defaults().apply("[cursor]\ntrail = bogus\n");
+        let mut listed: Vec<&str> = said
+            .first()
+            .and_then(|s| s.split_once("is not "))
+            .and_then(|(_, rest)| rest.split_once(';'))
+            .map(|(names, _)| {
+                names
+                    .split([',', ' '])
+                    .filter(|w| !w.is_empty() && *w != "or")
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut named: Vec<&str> = TRAILS.iter().map(|&t| trail_name(t)).collect();
+        listed.sort_unstable();
+        named.sort_unstable();
+        assert_eq!(named, listed, "TRAILS and the reader's own list disagree");
+        let mut shown = Vec::new();
+        for t in TRAILS {
+            let name = trail_name(t);
+            assert_eq!(
+                read(&format!("[cursor]\ntrail = \"{name}\"\n")).cursor_trail,
+                t,
+                "the reader does not read {name:?} as {t:?}"
+            );
+            if t == CursorTrail::Off {
+                continue;
+            }
+            shown.push(name);
+            assert!(
+                md.contains(&format!("`trail = \"{name}\"`")),
+                "cursor.md: no trail = {name:?}"
+            );
+            assert!(
+                md.contains(&format!("](cursor/{name}.png)")),
+                "cursor.md: no still of {name}"
+            );
+            assert!(
+                html.contains(&format!("src=\"cursor/{name}.mp4\"")),
+                "cursor.html: no clip of {name}"
+            );
+            assert!(
+                html.contains(&format!("poster=\"cursor/{name}.png\"")),
+                "cursor.html: no still of {name}"
+            );
+            for (ext, floor) in [("mp4", 10_000), ("png", 5_000)] {
+                let len = std::fs::metadata(docs.join(format!("cursor/{name}.{ext}")))
+                    .map_or(0, |m| m.len());
+                assert!(len >= floor, "docs/cursor/{name}.{ext} is {len} bytes");
+            }
+        }
+        // Nothing in the directory or on the page names a trail that is gone.
+        let mut files = 0;
+        for e in std::fs::read_dir(docs.join("cursor")).expect("docs/cursor/") {
+            let file = e
+                .expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("a name");
+            let known = file
+                .rsplit_once('.')
+                .is_some_and(|(n, ext)| shown.contains(&n) && matches!(ext, "mp4" | "png"));
+            assert!(known, "docs/cursor/{file} is no trail's clip or still");
+            files += 1;
+        }
+        for clip in html.split("cursor/").skip(1) {
+            let name = clip.split(['.', '"']).next().unwrap_or("");
+            assert!(
+                shown.contains(&name),
+                "cursor.html names cursor/{name}, no trail's"
+            );
+        }
+        // The default is the one both pages mark. The page's article is found
+        // by its class: the stylesheet names `is-default` first, and a search
+        // for the bare word read the first article whatever was marked.
+        let default = trail_name(Config::defaults().cursor_trail);
+        assert!(
+            md.contains(&format!("## {default}, the default")),
+            "cursor.md: {default} is not marked the default"
+        );
+        let marked = html
+            .split_once("class=\"trail is-default\"")
+            .and_then(|(_, rest)| rest.split_once("trail = \""))
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(name, _)| name);
+        assert_eq!(
+            marked,
+            Some(default),
+            "cursor.html marks another trail the default"
+        );
+        // The controls: the scan read the pages and the directory at all.
+        assert_eq!(shown.len(), TRAILS.len() - 1);
+        assert_eq!(files, 2 * shown.len());
+    }
+
     /// The cursor is a blinking block unless the config names another shape
     /// or turns the blink off, and either key alone keeps the other axis.
     /// A value the reader does not know keeps the default and says so.

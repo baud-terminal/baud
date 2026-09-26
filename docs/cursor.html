@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>baud cursor trails</title>
+<!-- The page docs/cursor.md links: the four trail clips side by side. The
+     facts and their sources are in cursor.md; the clips and stills are
+     recorded by scripts/trail-clips.sh. Open it from a checkout -- GitHub
+     shows this file's source, not the page. -->
+<style>
+  :root {
+    --ground: #f4f5f6;
+    --surface: #ffffff;
+    --line: #dfe1e4;
+    --text: #15171a;
+    --muted: #5d626a;
+    --accent: #9a5a06;
+    --accent-soft: #f6ead8;
+    --screen: #121314;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0f1011;
+      --surface: #17191b;
+      --line: #2a2d31;
+      --text: #e8e6e1;
+      --muted: #979ba2;
+      --accent: #e9a23b;
+      --accent-soft: #2c2213;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0f1011;
+    --surface: #17191b;
+    --line: #2a2d31;
+    --text: #e8e6e1;
+    --muted: #979ba2;
+    --accent: #e9a23b;
+    --accent-soft: #2c2213;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 40px 56px;
+    display: grid;
+    gap: 32px;
+  }
+
+  header { display: grid; gap: 14px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0;
+  }
+  .eyebrow b { color: var(--accent); font-weight: 500; }
+  h1 {
+    margin: 0;
+    font-size: clamp(28px, 4.2vw, 40px);
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; max-width: 68ch; color: var(--muted); }
+  .lede code, p code, li code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    color: var(--text);
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+  }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .seg button, .btn {
+    font: 500 13px/1 var(--mono);
+    color: var(--text);
+    background: transparent;
+    border: 0;
+    padding: 9px 13px;
+    cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+  .btn {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .seg button:focus-visible, .btn:focus-visible, video:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .label { font-size: 13px; color: var(--muted); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
+  }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .trail {
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 12px;
+    padding: 14px 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .trail.is-default { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .screen {
+    background: var(--screen);
+    border-radius: 8px;
+    overflow: hidden;
+    aspect-ratio: 1552 / 976;
+    max-width: 100%;
+  }
+  .screen video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    cursor: pointer;
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+  }
+  .head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.005em; }
+  .head .key { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .pill {
+    font: 500 11px/1 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 5px 8px;
+    border-radius: 999px;
+  }
+  .trail p { margin: 0; max-width: 62ch; }
+  .facts {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 14px;
+    font-size: 13px;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+  .shared {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+    border-top: 1px solid var(--line);
+    padding-top: 28px;
+  }
+  @media (max-width: 760px) { .shared { grid-template-columns: 1fr; } }
+  .shared h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; }
+  .shared ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 62ch; }
+  pre {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--screen);
+    color: #d9d6cf;
+    border-radius: 8px;
+    font: 13px/1.6 var(--mono);
+    overflow-x: auto;
+  }
+  pre .c { color: #7d8189; }
+  pre .s { color: #e9a23b; }
+  .note { margin: 10px 0 0; font-size: 13px; color: var(--muted); max-width: 62ch; }
+  a { color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seg button, .btn { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="eyebrow"><b>baud</b> · <code>[cursor] trail</code> · recorded at <code>8e51cf5</code></p>
+    <h1>The four cursor trails baud has today</h1>
+    <p class="lede">Each clip is baud's own window, captured at up to 120&nbsp;Hz while a child program jumps the cursor between the four <code>+</code> marks: right, down, left, up, then the two diagonals, 1.15&nbsp;s apart. Same binary, same 80&times;24 grid, Menlo at 16&nbsp;pt, blink off, the system in Dark mode. Only the <code>trail</code> key changes.</p>
+    <p class="lede">Ice, liquid, lightning, plasma, orb and ufo are wanted and not built yet: each starts with reading prior art, then a shader held to a Rust reference the way fire is. The facts and their sources are in <a href="cursor.md">cursor.md</a>.</p>
+    <div class="controls" role="group" aria-label="Playback">
+      <span class="label" id="speed-label">Speed</span>
+      <div class="seg" role="group" aria-labelledby="speed-label">
+        <button type="button" data-rate="1" aria-pressed="true">1&times;</button>
+        <button type="button" data-rate="0.5" aria-pressed="false">&frac12;&times;</button>
+        <button type="button" data-rate="0.25" aria-pressed="false">&frac14;&times;</button>
+        <button type="button" data-rate="0.1" aria-pressed="false">&#8530;&times;</button>
+      </div>
+      <button type="button" class="btn" id="restart">Restart together</button>
+      <button type="button" class="btn" id="toggle">Pause</button>
+    </div>
+  </header>
+
+  <section class="grid" aria-label="Trails">
+    <article class="trail is-default">
+      <div class="head"><h2>fire</h2><span class="key">trail = "fire"</span><span class="pill">default</span></div>
+      <div class="screen"><video src="cursor/fire.mp4" poster="cursor/fire.png" muted loop playsinline preload="auto" aria-label="The fire trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A flame rises off a collapsing quad, burns out from the tail toward the cursor and sheds embers along the path. It is drawn in the cursor's own colour, with heat as opacity, and keeps burning at the cursor after the corners land.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.45–0.85 s, until the last ember dies</dd>
+        <dt>Built on</dt><dd>kitty's quad, plus a noise-driven flame and embers</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
+      <div class="head"><h2>quad</h2><span class="key">trail = "quad"</span></div>
+      <div class="screen"><video src="cursor/quad.mp4" poster="cursor/quad.png" muted loop playsinline preload="auto" aria-label="The quad trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A four-cornered shape whose corners each chase the matching corner of the cursor. The corners facing the move arrive fast and the ones behind it lag, so the shape stretches and snaps shut. The cursor's own cell is left bare.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.36 s for a 30-column jump</dd>
+        <dt>From</dt><dd>kitty's <code>cursor_trail</code>, in closed form</dd>
+        <dt>Timing</dt><dd>0.1 s leading corners, 0.4 s trailing</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
+      <div class="head"><h2>sweep</h2><span class="key">trail = "sweep"</span></div>
+      <div class="screen"><video src="cursor/sweep.mp4" poster="cursor/sweep.png" muted loop playsinline preload="auto" aria-label="The sweep trail following six cursor jumps" tabindex="0"></video></div>
+      <p>The cursor's box swept from a tail that chases it, fading from nothing at the tail to half the cursor's colour at the cursor. Hard-edged, and the slowest to fold in.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.69 s for a 30-column jump</dd>
+        <dt>From</dt><dd>sfte's swept box, pixel for pixel</dd>
+        <dt>Timing</dt><dd>Tail closes 1% of the gap a millisecond (100 ms e-fold)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
+      <div class="head"><h2>ghost</h2><span class="key">trail = "ghost"</span></div>
+      <div class="screen"><video src="cursor/ghost.mp4" poster="cursor/ghost.png" muted loop playsinline preload="auto" aria-label="The ghost trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A single cursor-sized box that slides from the cell the cursor left toward the cell it reached, fading as it goes. The quietest of the four; at full speed it reads as a flicker, so try ¼×.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.1 s, whatever the distance</dd>
+        <dt>From</dt><dd>baud's first trail</dd>
+        <dt>Timing</dt><dd>A straight line from old cell to new</dd>
+      </dl>
+    </article>
+  </section>
+
+  <section class="shared" aria-label="Rules every trail shares">
+    <div>
+      <h3>What every trail shares</h3>
+      <ul>
+        <li>A move of two cells or fewer snaps with no trail, so typing never trails. A short move while a trail is still in flight folds it in fast.</li>
+        <li>The cursor has to rest 10&nbsp;ms at its new place before a trail starts, so streaming output that moves the cursor every read starts none.</li>
+        <li>Hiding the cursor ends a trail. Scrolling back into the history, resizing, zooming or switching screens forget where the cursor was.</li>
+        <li>A hidden cursor that a program moves and hides straight away is followed, which is how helix's <code>gg</code> and <code>ge</code> trail.</li>
+        <li>The fire, the quad and the sweep are drawn in the cursor's colour &mdash; the foreground, unless a program sets another with <code>OSC 12</code> &mdash; and the ghost in the foreground. None uses a colour of its own.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Choose one</h3>
+      <pre><span class="c"># ~/.config/baud/config.toml, after every top-level key</span>
+[cursor]
+trail = <span class="s">"fire"</span>   <span class="c"># fire | quad | sweep | ghost | off</span></pre>
+      <p class="note"><code>true</code> reads as the default (fire) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const videos = Array.from(document.querySelectorAll("video"));
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let rate = 1;
+  let playing = !reduce;
+  const toggle = document.getElementById("toggle");
+
+  function sync() {
+    toggle.textContent = playing ? "Pause" : "Play";
+    for (const v of videos) {
+      v.playbackRate = rate;
+      if (playing) v.play().catch(() => {}); else v.pause();
+    }
+  }
+
+  for (const v of videos) {
+    // A played clip can reset its rate when it loads; set it again then.
+    v.addEventListener("loadeddata", () => { v.playbackRate = rate; });
+    v.addEventListener("click", () => {
+      if (v.paused) v.play().catch(() => {}); else v.pause();
+    });
+    v.addEventListener("keydown", e => {
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        if (v.paused) v.play().catch(() => {}); else v.pause();
+      }
+    });
+  }
+
+  for (const b of document.querySelectorAll("[data-rate]")) {
+    b.addEventListener("click", () => {
+      rate = Number(b.dataset.rate);
+      for (const o of document.querySelectorAll("[data-rate]")) {
+        o.setAttribute("aria-pressed", String(o === b));
+      }
+      for (const v of videos) v.playbackRate = rate;
+    });
+  }
+
+  document.getElementById("restart").addEventListener("click", () => {
+    playing = true;
+    for (const v of videos) v.currentTime = 0;
+    sync();
+  });
+  toggle.addEventListener("click", () => { playing = !playing; sync(); });
+  sync();
+})();
+</script>
+</body>
+</html>

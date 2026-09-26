@@ -79,7 +79,7 @@ fonts = [
 # one-cell box sweeping from the cell the cursor left to the cell it reached.
 # "off" is none; true and false still mean the default and "off". An idle
 # terminal pays nothing for any of them, because only a cursor that moved
-# leaves one.
+# leaves one. docs/cursor.md shows each, and docs/cursor.html plays them.
 [cursor]
 shape = "block"
 blink = true
