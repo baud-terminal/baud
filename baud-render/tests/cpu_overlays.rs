@@ -451,6 +451,7 @@ fn the_cpu_path_draws_an_effect_as_its_emitter() {
                     effect,
                     emitter,
                     ignition: Ignition::ignite(tail, emitter.hole, Seed(5), unit).at(t),
+                    axis: Pt { x: 1.0, y: 0.0 },
                 }
             };
             let mut quad = vec![0u32; width * height];

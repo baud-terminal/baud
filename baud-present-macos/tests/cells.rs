@@ -23,6 +23,7 @@ use baud_present_macos::{
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
+use baud_render::plasma;
 use baud_render::{
     Argb, Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Kind,
     Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
@@ -424,6 +425,97 @@ fn fire_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// `px_wave`: sin(2 pi x) with the argument folded into [-1, 1) first, by
+/// MSL's `fract` -- `x - floor(x)`, below one -- which `f32::fract` is not
+/// for a negative `x`.
+fn px_wave(x: f32) -> f32 {
+    let f = (x + 0.5 - (x + 0.5).floor()).min(1.0 - f32::EPSILON / 2.0);
+    (core::f32::consts::PI * (2.0 * f - 1.0)).sin()
+}
+
+/// The filaments' table, spelled as the shader spells it: cycles a cell and
+/// a second of each wave and harmonic, the harmonic's share, the width in
+/// cells and the gain.
+const PX_K: [f32; 3] = [0.23, 0.31, 0.17];
+const PX_F: [f32; 3] = [1.10, 1.35, 0.80];
+const PX_K2: [f32; 3] = [0.71, 0.93, 0.53];
+const PX_F2: [f32; 3] = [-0.85, -1.05, -1.20];
+const PX_M: [f32; 3] = [0.22, 0.20, 0.25];
+const PX_W: [f32; 3] = [0.040, 0.034, 0.050];
+const PX_G: [f32; 3] = [1.00, 0.85, 0.65];
+
+/// The plasma's parts at `p`: the envelope, the tube with its sheath, the
+/// filaments, and how far behind the head the pixel is along the axis in
+/// cells -- `None` where the fragment function draws nothing.
+fn plasma_parts(vfx: &Vfx, p: Pt) -> Option<(f32, f32, f32, f32)> {
+    let (e, f) = (vfx.emitter, vfx.ignition);
+    if e.hole.contains(p) {
+        return None;
+    }
+    let k = f.age / plasma::LIFE;
+    if k >= 1.0 {
+        return None;
+    }
+    let c = f.unit;
+    let d0 = fx_distance(p, &e.corners) / c;
+    if d0 > plasma::REACH {
+        return None;
+    }
+    let q = vfx.params();
+    let env = (1.0 - k) * (1.0 - k);
+    let inside = 1.0 - smoothstep(-0.03, 0.03, d0);
+    let tube = q[3] * inside + q[4] * (-q[5] * (1.0 + 1.5 * k) * d0.max(0.0)).exp();
+    let (ax, ay) = (q[1], q[2]);
+    let (rx, ry) = (
+        p.x - 0.5 * (e.hole.left + e.hole.right),
+        p.y - 0.5 * (e.hole.top + e.hole.bottom),
+    );
+    let s = -(rx * ax + ry * ay) / c;
+    let mut fil = 0.0f32;
+    if d0 < 0.15 {
+        let w = (ax * ry - ay * rx) / c;
+        let amp = q[0] * 0.62 * smoothstep(0.0, 2.0, s);
+        let salt = Word(f.seed.0 ^ 0xA511_E9B3);
+        let kn = salt.plus(Word(8)).hash().unit();
+        for i in 0..3usize {
+            let n = u32::try_from(i).unwrap();
+            let ph = salt.plus(Word(n)).hash().unit();
+            let ph2 = salt.plus(Word(16 + n)).hash().unit();
+            let along = amp
+                * ((1.0 - PX_M[i]) * px_wave(PX_K[i] * s + ph + PX_F[i] * f.age)
+                    + PX_M[i] * px_wave(PX_K2[i] * s + ph2 + PX_F2[i] * f.age));
+            let wid = (PX_W[i] * (1.0 - 0.5 * k)).max(1.1 / c);
+            let x = (w - along) / wid;
+            let knot = 0.72 + 0.28 * px_wave(0.45 * s + kn + n as f32 / 3.0 + q[7] * f.age);
+            fil += PX_G[i] * (-x * x).exp() * knot;
+        }
+        fil = fil.clamp(0.0, 1.0)
+            * q[6]
+            * (1.0 - smoothstep(-0.02, 0.15, d0))
+            * smoothstep(0.0, 0.3, s);
+    }
+    Some((env, tube, fil, s))
+}
+
+/// The plasma's tube and sheath without its filaments: what must be all
+/// there is ahead of the cursor.
+fn plasma_sheath(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let Some((env, tube, _, _)) = plasma_parts(vfx, p) else {
+        return [0.0; 4];
+    };
+    let a = color[3] * (env * tube).clamp(0.0, 1.0);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
+/// **The plasma's reference**: `plasma_tube` for the pixel centred at `p`.
+fn plasma_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let Some((env, tube, fil, _)) = plasma_parts(vfx, p) else {
+        return [0.0; 4];
+    };
+    let a = color[3] * (env * (tube + (1.0 - tube) * fil)).clamp(0.0, 1.0);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -442,8 +534,8 @@ fn over(src: [f32; 4], dst: u32) -> u32 {
     (mix(src[3], a) << 24) | (mix(src[0], r) << 16) | (mix(src[1], g) << 8) | mix(src[2], b)
 }
 
-/// `fire_ember`: a soft disc over its record, at `uv` -1 to 1 on each axis.
-fn fire_ember(uv: Pt, color: [f32; 4]) -> [f32; 4] {
+/// `fx_particle`: a soft disc over its record, at `uv` -1 to 1 on each axis.
+fn fx_particle(uv: Pt, color: [f32; 4]) -> [f32; 4] {
     let a = 1.0 - smoothstep(0.15, 1.0, (uv.x * uv.x + uv.y * uv.y).sqrt());
     let a = color[3] * a * a;
     [color[0] * a, color[1] * a, color[2] * a, a]
@@ -463,7 +555,11 @@ fn reference(effect: Effect) -> Reference {
     match effect {
         Effect::Fire => Reference {
             band: fire_reference,
-            particle: fire_ember,
+            particle: fx_particle,
+        },
+        Effect::Plasma => Reference {
+            band: plasma_reference,
+            particle: fx_particle,
         },
     }
 }
@@ -479,7 +575,18 @@ fn effect_frame(
     width: Px,
     origin: (usize, usize),
 ) -> Vec<u32> {
-    let rule = reference(vfx.effect);
+    effect_frame_by(reference(vfx.effect), vfx, records, plain, width, origin)
+}
+
+/// The same, by any rule: the plasma's sheath alone is one.
+fn effect_frame_by(
+    rule: Reference,
+    vfx: &Vfx,
+    records: &[Instance],
+    plain: &[u32],
+    width: Px,
+    origin: (usize, usize),
+) -> Vec<u32> {
     let tw = usize::try_from(width.value()).unwrap();
     let mut out = plain.to_vec();
     for r in records {
@@ -539,31 +646,49 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let width = Px::of(fw.value() + 14);
     let tw = usize::try_from(width.value()).unwrap();
     let dump = std::env::var("BAUD_FX_DUMP").ok();
+    let bar = |r: Rect| Rect {
+        top: r.bottom - 2.0,
+        ..r
+    };
     for effect in Effect::ALL {
-        for (name, from, to, ages) in [
-            (
-                "across",
-                cell_at(98.0, 2.0),
-                cell_at(116.0, 3.0),
-                [0.04f32, 0.12, 0.25, 0.4],
-            ),
-            (
-                "down",
-                cell_at(104.0, 0.0),
-                cell_at(106.0, 8.0),
-                [0.04, 0.12, 0.25, 0.4],
-            ),
+        // Each scene: the ignition's move, the move the quad is making, the
+        // cursor it arrives at and the unit, in the oracle's cells. The
+        // underline scene narrows the cursor to two pixels across a
+        // horizontal move; the retarget keeps the ignition's first move
+        // while the quad heads somewhere else. The large scene is the move
+        // across at two and a half times the unit, a zoomed cell: at the
+        // oracle's own the plasma's filaments sit on their 1.1-pixel floor
+        // and its width table is never read.
+        let across = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
+        let down = (cell_at(104.0, 0.0), cell_at(106.0, 8.0));
+        let line = (bar(cell_at(98.0, 4.0)), bar(cell_at(116.0, 4.0)));
+        for (name, (from, to), (quad_from, hole), scale) in [
+            ("across", across, across, 1.0f32),
+            ("down", down, down, 1.0),
+            ("underline", line, line, 1.0),
+            ("retarget", across, (across.1, cell_at(104.0, 8.0)), 1.0),
+            ("large", across, across, 2.5),
         ] {
-            let seg = Segment::new(from.corners(), to);
+            let ages = [0.04f32, 0.12, 0.25, 0.4];
+            let seg = Segment::new(quad_from.corners(), hole);
+            let axis = {
+                let (a, b) = (centre(quad_from), centre(hole));
+                let l = (b.x - a.x).hypot(b.y - a.y);
+                Pt {
+                    x: (b.x - a.x) / l,
+                    y: (b.y - a.y) / l,
+                }
+            };
             for age in ages {
                 let vfx = Vfx {
                     effect,
                     emitter: Smear {
                         corners: seg.at(age),
-                        hole: to,
+                        hole,
                         shape: Shape::Quad,
                     },
-                    ignition: Ignition::ignite(centre(from), to, Seed(7), ch).at(age),
+                    ignition: Ignition::ignite(centre(from), to, Seed(7), ch * scale).at(age),
+                    axis,
                 };
                 arms.trail = Some(TrailLook::Vfx(vfx));
                 let (a, b) = arms.draw(t);
@@ -608,7 +733,50 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     );
                 }
                 assert!(off <= 20, "{at}: {off} pixels a step off the reference");
-                assert!(lit > 300, "{at}: only {lit} pixels lit");
+                if effect == Effect::Plasma {
+                    // Nothing but the sheath ahead of the cursor: the
+                    // filaments lie on the axis there, and ungated they
+                    // poked a spike out of its leading edge.
+                    let sheath = effect_frame_by(
+                        Reference {
+                            band: plasma_sheath,
+                            particle: fx_particle,
+                        },
+                        &vfx,
+                        records,
+                        &plain,
+                        width,
+                        origin,
+                    );
+                    let mut ahead = 0usize;
+                    for (i, (&x, &y)) in a.iter().zip(&sheath).enumerate() {
+                        let fx = (i % tw) as f32 - origin.0 as f32 + 0.5;
+                        let fy = (i / tw) as f32 - origin.1 as f32 + 0.5;
+                        let Some((.., s)) = plasma_parts(&vfx, Pt { x: fx, y: fy }) else {
+                            continue;
+                        };
+                        if s > 0.0 {
+                            continue;
+                        }
+                        ahead += 1;
+                        let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
+                        let d = (0..4).map(|k| ch(x, k).abs_diff(ch(y, k))).max().unwrap();
+                        assert!(
+                            d <= 1,
+                            "{at}: pixel {i} ahead of the cursor is {x:08x}, the sheath {y:08x}"
+                        );
+                    }
+                    assert!(ahead > 100, "{at}: only {ahead} pixels ahead of the cursor");
+                }
+                // A retarget's fire burns on the path the quad left, and the
+                // plasma starves as (1 - k)^2: at the last age both are
+                // mostly out.
+                let least = if name == "retarget" || age >= 0.4 {
+                    150
+                } else {
+                    300
+                };
+                assert!(lit > least, "{at}: only {lit} pixels lit");
                 if age < 0.2 {
                     assert!(
                         records.iter().any(|r| r.kind == Kind::Particle),

@@ -238,17 +238,80 @@ static inline float4 fire_flame(float2 p, float4 color, constant EffectU& f) {
     return float4(color.rgb * a, a);
 }
 
-// **An ember**: a soft disc filling its record, the cursor's colour at the
-// ember's glow, which the record's alpha carries.
-static inline float4 fire_ember(GOut in) {
+// **A particle** -- an ember, an ion: a soft disc filling its record, the
+// cursor's colour at the particle's glow, which the record's alpha carries.
+static inline float4 fx_particle(GOut in) {
     float a = 1.0 - smoothstep(0.15, 1.0, length(in.uv));
     a = in.color.a * a * a;
     return float4(in.color.rgb * a, a);
 }
 
 fragment float4 fire_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
-    if (in.kind == KIND_PARTICLE) return fire_ember(in);
+    if (in.kind == KIND_PARTICLE) return fx_particle(in);
     return fire_flame(in.pos.xy - f.origin, in.color, f);
+}
+
+// ---- The plasma, `baud-render/src/plasma.rs`: a tube filling the quad, a
+// sheath around it, and three filaments braided along the axis into the
+// cursor. Its own numbers, `plasma::params`: `k[0]` the braid's half width in
+// cells, `k[1..3]` the axis, `k[3]` the tube, `k[4]` the sheath, `k[5]` its
+// decay, `k[6]` the filaments' gain, `k[7]` the knots' rate. The filaments'
+// shapes are the table below, the same one `plasma_reference` reads.
+
+// sin(2 pi x), its argument folded into [-1, 1) first.
+static inline float px_wave(float x) { return sinpi(2.0 * fract(x + 0.5) - 1.0); }
+
+// Per filament: cycles a cell and a second of its wave, of its harmonic, the
+// harmonic's share, its width in cells and its gain.
+constant float3 PX_K  = float3(0.23, 0.31, 0.17);
+constant float3 PX_F  = float3(1.10, 1.35, 0.80);
+constant float3 PX_K2 = float3(0.71, 0.93, 0.53);
+constant float3 PX_F2 = float3(-0.85, -1.05, -1.20);
+constant float3 PX_M  = float3(0.22, 0.20, 0.25);
+constant float3 PX_W  = float3(0.040, 0.034, 0.050);
+constant float3 PX_G  = float3(1.00, 0.85, 0.65);
+
+// **The plasma at `p`**: the tube and its sheath dimming together, and the
+// braid behind the head -- nothing ahead of it -- converging into the cursor.
+static inline float4 plasma_tube(float2 p, float4 color, constant EffectU& f) {
+    if (fx_in_hole(p, f)) return float4(0.0);
+    float k = f.age / f.life;
+    if (k >= 1.0) return float4(0.0);
+    float c = f.unit;
+    float d0 = fx_distance(p, f) / c;
+    if (d0 > f.reach) return float4(0.0);
+    float env = (1.0 - k) * (1.0 - k);
+    float inside = 1.0 - smoothstep(-0.03, 0.03, d0);
+    float tube = f.k[3] * inside + f.k[4] * exp(-f.k[5] * (1.0 + 1.5 * k) * max(d0, 0.0));
+    float fil = 0.0;
+    if (d0 < 0.15) {
+        float2 a = float2(f.k[1], f.k[2]);
+        float2 r = p - 0.5 * (f.hole.xy + f.hole.zw);
+        float s = -dot(r, a) / c;
+        float w = (a.x * r.y - a.y * r.x) / c;
+        float amp = f.k[0] * 0.62 * smoothstep(0.0, 2.0, s);
+        uint salt = f.seed ^ 0xA511E9B3u;
+        float kn = fx_unit(fx_hash(salt + 8u));
+        for (uint i = 0u; i < 3u; i++) {
+            float ph  = fx_unit(fx_hash(salt + i));
+            float ph2 = fx_unit(fx_hash(salt + 16u + i));
+            float along = amp * ((1.0 - PX_M[i]) * px_wave(PX_K[i] * s + ph + PX_F[i] * f.age)
+                               + PX_M[i] * px_wave(PX_K2[i] * s + ph2 + PX_F2[i] * f.age));
+            float wid = max(PX_W[i] * (1.0 - 0.5 * k), 1.1 / c);
+            float e = (w - along) / wid;
+            float knot = 0.72 + 0.28 * px_wave(0.45 * s + kn + float(i) / 3.0 + f.k[7] * f.age);
+            fil += PX_G[i] * exp(-e * e) * knot;
+        }
+        fil = saturate(fil) * f.k[6] * (1.0 - smoothstep(-0.02, 0.15, d0))
+            * smoothstep(0.0, 0.3, s);
+    }
+    float alpha = color.a * saturate(env * (tube + (1.0 - tube) * fil));
+    return float4(color.rgb * alpha, alpha);
+}
+
+fragment float4 plasma_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) return fx_particle(in);
+    return plasma_tube(in.pos.xy - f.origin, in.color, f);
 }
 
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.

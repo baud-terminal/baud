@@ -69,7 +69,10 @@ fonts = [
 # `trail`: what a cursor move leaves behind. "fire", the default, is a flame
 # in the cursor's colour rising off kitty's trail as it collapses onto the
 # cursor, burning out from the tail and shedding embers along the path; on the
-# CPU path it draws kitty's trail alone. "quad" is kitty's trail: a
+# CPU path it draws kitty's trail alone. "plasma" is a faint tube over the
+# same trail with three filaments braided into the cursor and ions curling off
+# the path, dimming out over about half a second; it too is kitty's trail
+# alone on the CPU path. "quad" is kitty's trail: a
 # quadrilateral whose four corners chase the cursor's, the ones facing the
 # move leading and the ones behind it lagging, over about half a second. Both
 # follow a move of more than two cells once the cursor has rested for 10 ms,

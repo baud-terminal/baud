@@ -233,6 +233,7 @@ pub enum CursorTrail {
     Quad,
     #[default]
     Fire,
+    Plasma,
 }
 
 impl CursorTrail {
@@ -246,6 +247,7 @@ impl CursorTrail {
         use baud_render::effect::Effect;
         match self {
             CursorTrail::Fire => Style::Effect(Effect::Fire),
+            CursorTrail::Plasma => Style::Effect(Effect::Plasma),
             CursorTrail::Sweep => Style::Smear(Shape::Sweep),
             CursorTrail::Off | CursorTrail::Ghost | CursorTrail::Quad => Style::Smear(Shape::Quad),
         }
@@ -381,14 +383,15 @@ impl Config {
                 ("cursor", "trail") => {
                     self.cursor_trail = match value.trim().trim_matches('"') {
                         "fire" | "true" => CursorTrail::Fire,
+                        "plasma" => CursorTrail::Plasma,
                         "quad" => CursorTrail::Quad,
                         "sweep" => CursorTrail::Sweep,
                         "ghost" => CursorTrail::Ghost,
                         "off" | "false" => CursorTrail::Off,
                         other => {
                             said.push(format!(
-                                "config: [cursor] trail {other:?} is not fire, quad, sweep, \
-                                 ghost or off; using fire"
+                                "config: [cursor] trail {other:?} is not fire, plasma, \
+                                 quad, sweep, ghost or off; using fire"
                             ));
                             CursorTrail::Fire
                         }
@@ -900,6 +903,8 @@ mod reader {
         for (value, want) in [
             ("fire", CursorTrail::Fire),
             ("\"fire\"", CursorTrail::Fire),
+            ("plasma", CursorTrail::Plasma),
+            ("\"plasma\"", CursorTrail::Plasma),
             ("quad", CursorTrail::Quad),
             ("\"quad\"", CursorTrail::Quad),
             ("ghost", CursorTrail::Ghost),
@@ -927,6 +932,7 @@ mod reader {
         use baud_render::Shape;
         use baud_render::effect::Effect;
         assert_eq!(CursorTrail::Fire.style(), Style::Effect(Effect::Fire));
+        assert_eq!(CursorTrail::Plasma.style(), Style::Effect(Effect::Plasma));
         assert_eq!(CursorTrail::Sweep.style(), Style::Smear(Shape::Sweep));
         assert_eq!(CursorTrail::Quad.style(), Style::Smear(Shape::Quad));
     }
@@ -934,12 +940,13 @@ mod reader {
     /// Every trail, and the name `[cursor] trail` reads it by. The `match`
     /// is exhaustive, so a new trail does not compile until it is named
     /// here, beside the list it has to join.
-    const TRAILS: [CursorTrail; 5] = [
+    const TRAILS: [CursorTrail; 6] = [
         CursorTrail::Off,
         CursorTrail::Ghost,
         CursorTrail::Sweep,
         CursorTrail::Quad,
         CursorTrail::Fire,
+        CursorTrail::Plasma,
     ];
     fn trail_name(t: CursorTrail) -> &'static str {
         match t {
@@ -948,6 +955,7 @@ mod reader {
             CursorTrail::Sweep => "sweep",
             CursorTrail::Quad => "quad",
             CursorTrail::Fire => "fire",
+            CursorTrail::Plasma => "plasma",
         }
     }
 

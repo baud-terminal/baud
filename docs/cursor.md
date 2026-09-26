@@ -1,7 +1,7 @@
 # Cursor trails
 
 A long cursor move leaves a trail, and `[cursor] trail` in the config picks
-which. This page shows each one: a still here, and the four clips side by side
+which. This page shows each one: a still here, and the clips side by side
 in [cursor.html](cursor.html), with a speed control and a button that restarts
 them together. Open that page in a browser from a checkout; GitHub shows an
 HTML file's source rather than the page.
@@ -10,7 +10,7 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = true
-trail = "fire"    # fire | quad | sweep | ghost | off
+trail = "fire"    # fire | plasma | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
@@ -42,6 +42,25 @@ device -- draws the quad alone. Both GPU paths run one shader, so they agree
 about any flame, a wrong one included; what holds the shader is a port of the
 flame to Rust, which the pixel oracle requires both paths to match to within
 one step of 255.
+
+## plasma
+
+`trail = "plasma"`
+
+![The plasma trail on the diagonal move](cursor/plasma.png)
+
+A faint tube of ionised gas fills the quad as it collapses, with three thin
+filaments braided along it and crawling into the cursor, and ions peeling off
+the path in tight spirals, half curling one way and half the other. It starves
+rather than burns: everything dims together and the filaments thin, over
+0.55 s, and the last ion is gone by 0.65 s. Nothing is drawn ahead of the
+cursor. It is the cursor's colour, with intensity as opacity.
+
+The braid lies along the move the quad is making, which the driver hands on,
+so it follows a retarget and does not turn when the corners land. It is as
+wide as the cursor across the move, so a bar or underline cursor narrows it
+to one line. GPU only, like the fire, and held to a Rust port of its shader
+the same way.
 
 ## quad
 
@@ -112,7 +131,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- **Ice, liquid, lightning, plasma, orb and ufo** are wanted and not built. Each
+- **Ice, liquid, lightning, orb and ufo** are wanted and not built. Each
   starts with reading prior art at source, then a shader in the cursor's colour
   held to a Rust reference the way the fire's is.
 - baud does not read macOS's Reduce Motion setting yet, and a trail does not

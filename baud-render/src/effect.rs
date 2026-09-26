@@ -4,7 +4,8 @@
 //! lights (the path, the age, the seed and the cell's height), the records a
 //! GPU path draws an effect with -- one band a cell row over the effect's
 //! reach, then one soft disc a live particle -- and the uniform its fragment
-//! function reads. What each effect draws is its own module: [`crate::fire`].
+//! function reads. What each effect draws is its own module: [`crate::fire`],
+//! [`crate::plasma`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -23,6 +24,7 @@ use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
 use crate::fire;
 use crate::instance::{Instance, Screen};
+use crate::plasma;
 use crate::trail::{Pt, Rect, Smear};
 use baud_domain::Chan;
 use baud_font::Px;
@@ -35,11 +37,14 @@ pub enum Effect {
     /// A flame rising off the quad, burning out from the tail toward the
     /// cursor and shedding embers: [`crate::fire`].
     Fire,
+    /// A tube of ionised gas with three filaments braided into the cursor,
+    /// shedding ions in cyclotron spirals: [`crate::plasma`].
+    Plasma,
 }
 
 impl Effect {
     /// Every effect, in the order a GPU path indexes its pipelines by.
-    pub const ALL: [Effect; 1] = [Effect::Fire];
+    pub const ALL: [Effect; 2] = [Effect::Fire, Effect::Plasma];
 
     /// How many effects there are: a GPU path keeps one pipeline each.
     pub const COUNT: usize = Effect::ALL.len();
@@ -48,6 +53,7 @@ impl Effect {
     pub const fn fragment(self) -> &'static str {
         match self {
             Effect::Fire => "fire_fragment",
+            Effect::Plasma => "plasma_fragment",
         }
     }
 
@@ -57,6 +63,7 @@ impl Effect {
     pub const fn reach(self) -> f32 {
         match self {
             Effect::Fire => fire::REACH,
+            Effect::Plasma => plasma::REACH,
         }
     }
 
@@ -65,14 +72,7 @@ impl Effect {
     pub const fn life(self) -> f32 {
         match self {
             Effect::Fire => fire::LIFE,
-        }
-    }
-
-    /// The effect's own numbers, `k` in the shader's `EffectU`: Rust owns
-    /// them, so the shader and the particles built here read one spelling.
-    pub const fn params(self) -> [f32; PARAMS] {
-        match self {
-            Effect::Fire => fire::PARAMS,
+            Effect::Plasma => plasma::LIFE,
         }
     }
 
@@ -81,6 +81,7 @@ impl Effect {
     pub fn end(self, ignition: &Ignition) -> f32 {
         match self {
             Effect::Fire => fire::end(ignition),
+            Effect::Plasma => plasma::end(ignition),
         }
     }
 
@@ -88,6 +89,7 @@ impl Effect {
     pub fn particles(self, ignition: &Ignition, mut each: impl FnMut(Particle)) {
         match self {
             Effect::Fire => fire::embers(ignition).for_each(&mut each),
+            Effect::Plasma => plasma::ions(ignition).for_each(&mut each),
         }
     }
 }
@@ -168,13 +170,19 @@ pub struct Particle {
 }
 
 /// **An effect as the renderer holds it for a frame**: which one, the
-/// emitter -- kitty's quad this frame, whose hole is the cursor -- and the
-/// ignition it gives off.
+/// emitter -- kitty's quad this frame, whose hole is the cursor -- the
+/// ignition it gives off, and the axis the quad is moving along.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Vfx {
     pub effect: Effect,
     pub emitter: Smear,
     pub ignition: Ignition,
+    /// The unit direction of the move the quad is making: from where the
+    /// segment the driver last took started to where it ends. The
+    /// ignition's direction is its first move's, which a retarget inside
+    /// the driver's reignite window keeps; this turns only when the quad turns,
+    /// and stays when its corners land.
+    pub axis: Pt,
 }
 
 /// The floats in an effect's own numbers, `k` in `EffectU`.
@@ -263,7 +271,7 @@ impl Vfx {
         let c = self.emitter.corners.0;
         let h = self.emitter.hole;
         let f = self.ignition;
-        let k = self.effect.params();
+        let k = self.params();
         [
             c[0].x,
             c[0].y,
@@ -298,6 +306,16 @@ impl Vfx {
             k[6],
             k[7],
         ]
+    }
+
+    /// **The effect's own numbers this frame**, `k` in the shader's
+    /// `EffectU`: Rust owns them, so the shader and the particles built here
+    /// read one spelling.
+    pub fn params(&self) -> [f32; PARAMS] {
+        match self.effect {
+            Effect::Fire => fire::PARAMS,
+            Effect::Plasma => plasma::params(self),
+        }
     }
 
     /// Seconds from ignition to when this effect is out.
@@ -398,6 +416,7 @@ pub(crate) mod tests {
                         shape: Shape::Quad,
                     },
                     ignition: ignition(from, to, Seed(3)).at(t),
+                    axis: ignition(from, to, Seed(3)).dir,
                 };
                 let mut bands = Vec::new();
                 vfx.instances(frame, Argb(0xFF10_2030), &mut bands);
@@ -451,6 +470,7 @@ pub(crate) mod tests {
                     shape: Shape::Quad,
                 },
                 ignition: ignition(from, to, Seed(9)).at(t),
+                axis: ignition(from, to, Seed(9)).dir,
             };
             let fill = Argb(0x80C0_4020);
             let mut records = Vec::new();
@@ -486,6 +506,7 @@ pub(crate) mod tests {
                     shape: Shape::Quad,
                 },
                 ignition: ignition(cell(10.0, 5.0), to, Seed(0xDEAD_BEEF)).at(0.1),
+                axis: Pt { x: 1.0, y: 0.0 },
             };
             let u = vfx.uniform([3.0, 5.0]);
             assert_eq!(core::mem::size_of_val(&u), 128);
@@ -495,7 +516,7 @@ pub(crate) mod tests {
             assert_eq!(u[21], effect.life());
             assert_eq!(u[22].to_bits(), 0xDEAD_BEEF);
             assert_eq!(u[23], effect.reach());
-            assert_eq!(&u[24..32], &effect.params());
+            assert_eq!(&u[24..32], &vfx.params());
         }
     }
 

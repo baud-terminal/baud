@@ -1033,7 +1033,8 @@ impl App {
             crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
             crate::config::CursorTrail::Quad
             | crate::config::CursorTrail::Sweep
-            | crate::config::CursorTrail::Fire => {
+            | crate::config::CursorTrail::Fire
+            | crate::config::CursorTrail::Plasma => {
                 // Looking back forgets where the cursor was, as a resize
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw

@@ -37,6 +37,7 @@ mod instance;
 mod metrics;
 mod overlay;
 mod picture;
+pub mod plasma;
 mod renderer;
 mod scroll;
 mod scrollbar;
