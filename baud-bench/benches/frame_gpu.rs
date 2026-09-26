@@ -124,6 +124,18 @@ fn main() {
         ws_row: 50,
         ws_col: 200,
     };
+    // `FRAME_GRID=400x150`: provision the storage, and so the rendition
+    // table and the GPU's grid, at that size while the screen stays 200x50.
+    // The app provisions `MAX_GRID`, 400x150, which sizes the table to
+    // 65,536 slots where the screen alone gives 16,384 -- so without this the
+    // bench prices a quarter of the app's style resolve.
+    let prov = std::env::var("FRAME_GRID").map_or(WinSize { ..ws }, |g| {
+        let (c, r) = g.split_once('x').expect("FRAME_GRID is COLSxROWS");
+        WinSize {
+            ws_row: r.parse().expect("rows"),
+            ws_col: c.parse().expect("cols"),
+        }
+    });
     let fresh = || {
         Renderer::new(
             Stack::new(&faces).unwrap(),
@@ -193,6 +205,22 @@ fn main() {
         /// is what says it ran: zero under `FRAME_GLASS=off`.
         pict: Tally,
         wait: Duration,
+        /// Where the cell arms' CPU goes, a frame after a read and a frame
+        /// with nothing read (`FRAME_IDLE`), apart.
+        parts: [Parts; 2],
+    }
+    /// One kind of cell-path frame, split by what it does: the glyph-map
+    /// walk, the rendition table resolved, the overlay walk, the window
+    /// copied (the `copied` arm only; the app copies every frame), and the
+    /// bind plus commit.
+    #[derive(Default, Clone, Copy)]
+    struct Parts {
+        frames: Tally,
+        map: Duration,
+        resolve: Duration,
+        overlay: Duration,
+        copy: Duration,
+        draw: Duration,
     }
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Arm {
@@ -241,6 +269,13 @@ fn main() {
     let wanted = std::env::var("FRAME_ARMS").ok();
     // `FRAME_FIRST=n` reports the first n frames of every replay apart:
     // their convert a frame and the map misses they took, beside the rest.
+    // `FRAME_IDLE=n`: after the replay, n more frames on the cell arms with
+    // nothing read -- the frame a caret blink or a trail step draws, where
+    // nothing in the grid, the table or the palette changed. Reported apart.
+    let idle_n: usize = std::env::var("FRAME_IDLE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let first_n: usize = std::env::var("FRAME_FIRST")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -266,12 +301,12 @@ fn main() {
     // The pitch every grid here is laid out at, the storage's and the GPU's,
     // so the copied arm's second buffer is the shape of the first.
     let geom = baud_bench::host_geometry();
-    let stride = grid_stride(&geom, Cols::of_index(usize::from(ws.ws_col)));
+    let stride = grid_stride(&geom, Cols::of_index(usize::from(prov.ws_col)));
     // The primary ring is the screen plus the scrollback; the copied arm's
     // buffer holds the screen alone, in screen order, because that is what
     // its copy is: the window, contiguous, under no rotation.
     let rows = Rows::of_index(usize::from(ws.ws_row));
-    let ring = Owned::without_surfaces(&ws, &geom, Depth::DEFAULT).ring();
+    let ring = Owned::without_surfaces(&prov, &geom, Depth::DEFAULT).ring();
     let (copy_grid, copy_mem) = gpu.grid(rows, stride).expect("a second shared grid");
     let (map_buffer, map_mem) = gpu.map().expect("a shared map");
     let mut map = GlyphMap::over(map_mem);
@@ -321,15 +356,16 @@ fn main() {
             );
             let (grid, shared) = if cell_arm {
                 let (g, cells) = gpu.grid(ring, stride).expect("a shared grid");
-                let (_, alt) = gpu.grid(rows, stride).expect("a shared alternate");
+                let prows = Rows::of_index(usize::from(prov.ws_row));
+                let (_, alt) = gpu.grid(prows, stride).expect("a shared alternate");
                 (Some(g), Some((cells, alt)))
             } else {
                 (None, None)
             };
             let mut owned = if cell_arm {
-                Owned::without_surfaces(&ws, &geom, Depth::DEFAULT)
+                Owned::without_surfaces(&prov, &geom, Depth::DEFAULT)
             } else {
-                Owned::with_geometry(&ws, &geom)
+                Owned::with_geometry(&prov, &geom)
             };
             let mut t = match shared {
                 Some((cells, alt)) => Term::new(owned.storage_over(cells, alt), &ws),
@@ -343,7 +379,13 @@ fn main() {
             let mut s = Sums::default();
             let mut at = 0usize;
             let t0 = Instant::now();
-            while at < data.len() {
+            let mut idle_left = if cell_arm { idle_n } else { 0 };
+            while at < data.len() || idle_left > 0 {
+                let idle = at >= data.len();
+                if idle {
+                    idle_left -= 1;
+                }
+                let part = usize::from(idle);
                 if cell_arm {
                     // The bench's stand-in for the frame loop's gate: no
                     // feed while the GPU reads the grid.
@@ -353,10 +395,12 @@ fn main() {
                     }
                     s.wait += tw.elapsed();
                 }
-                let n = 4096.min(data.len() - at);
-                t.write_at(BytePos::ZERO, &data[at..at + n]);
-                t.feed(BytePos::ZERO, ReadLen::from_index(n));
-                at += n;
+                if !idle {
+                    let n = 4096.min(data.len() - at);
+                    t.write_at(BytePos::ZERO, &data[at..at + n]);
+                    t.feed(BytePos::ZERO, ReadLen::from_index(n));
+                    at += n;
+                }
                 if cell_arm {
                     let tc = Instant::now();
                     // Faithful to `present`'s slide branch: ensure the map
@@ -368,11 +412,15 @@ fn main() {
                         map.ensure(t.view(Rows::of_index(1)), &mut r, &mut candidates);
                     }
                     map.ensure(t.viewport(), &mut r, &mut candidates);
+                    s.parts[part].map += tc.elapsed();
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())
                     });
+                    let tr = Instant::now();
                     r.resolve_styles_into(&t, styles_mem);
+                    s.parts[part].resolve += tr.elapsed();
+                    let to = Instant::now();
                     exceptions.ensure(
                         &Scene {
                             term: &t,
@@ -391,12 +439,14 @@ fn main() {
                         overlay_mem,
                         &mut records,
                     );
+                    s.parts[part].overlay += to.elapsed();
                     s.cand.add(Tally::of(candidates.len()));
                     s.win.add(exceptions.stats().windows);
                     s.wcells.add(exceptions.stats().window_cells);
                     s.wmiss.add(exceptions.stats().window_misses);
                     s.rec.add(exceptions.stats().records);
                     s.pict.add(exceptions.stats().pictured);
+                    let tp = Instant::now();
                     if arm == Arm::Copied {
                         let vp = t.viewport();
                         for y in 0..rows.index() {
@@ -404,8 +454,12 @@ fn main() {
                                 .copy_from_slice(vp.row(Row::from_index(y)));
                         }
                     }
+                    s.parts[part].copy += tp.elapsed();
                     let dt = tc.elapsed();
-                    s.convert += dt;
+                    s.parts[part].frames.bump();
+                    if !idle {
+                        s.convert += dt;
+                    }
                     if s.frames < first_n {
                         s.first_frames.bump();
                         s.first_convert += dt;
@@ -471,6 +525,13 @@ fn main() {
                         // bumps the generation, and every frame committed
                         // against the old set is superseded from here.
                         epoch.bump();
+                    }
+                    s.parts[part].draw += g.upload + g.submit;
+                    if idle {
+                        // An idle frame's GPU time and the idle wait are not
+                        // the replay's: they are reported with the parts.
+                        async_gpu.swap(0, Ordering::Relaxed);
+                        continue;
                     }
                     s.frames += 1;
                     s.draw += g.upload + g.submit;
@@ -558,6 +619,23 @@ fn main() {
                 s.pict.value() as f64 / s.frames as f64,
                 per(s.wait),
             );
+            for (kind, p) in ["after a read", "nothing read"].iter().zip(s.parts) {
+                if p.frames.value() == 0 {
+                    continue;
+                }
+                let n = u32::try_from(p.frames.value()).unwrap_or(u32::MAX);
+                let us = |d: Duration| (d / n).as_secs_f64() * 1e6;
+                println!(
+                    "      {kind}: {} frames; map {:.1}, resolve {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1} us/frame",
+                    p.frames.value(),
+                    us(p.map),
+                    us(p.resolve),
+                    us(p.overlay),
+                    us(p.copy),
+                    us(p.draw),
+                    us(p.map + p.resolve + p.overlay + p.copy + p.draw),
+                );
+            }
             let first_frames = usize::try_from(s.first_frames.value()).unwrap_or(usize::MAX);
             if first_n > 0 && first_frames > 0 && s.frames > first_frames {
                 // Ratios without a cast: a `Duration` divides by a `u32`, and a
