@@ -258,7 +258,18 @@ struct CellUniforms {
     /// 1 in `SGR 5`'s off phase, the frame's: the shader hides blinking
     /// text itself, since a resolved slot is the same in both phases.
     blink_hidden: Uni,
+    /// `CU` is 8-aligned by its `uint2`s, so its size is a multiple of eight
+    /// and the bytes bound must be too: 29 words were 116 bytes against the
+    /// shader's 120, which Metal's validation layer refused.
+    pad: Uni,
 }
+
+// **The bytes bound are the shader's struct**: `CU` rounds up to its 8-byte
+// alignment, so a word count that is odd binds four bytes short of it.
+const _: () = assert!(
+    core::mem::size_of::<CellUniforms>().is_multiple_of(8),
+    "CellUniforms must fill CU's 8-byte alignment"
+);
 
 /// What the cell path draws from: the grid in place, under its rotation
 /// and at its stride, modulo its ring, the rendition table resolved, the
@@ -1518,6 +1529,7 @@ impl Gpu {
             cursor_color: Uni(input
                 .cursor_color
                 .map_or(0, |(r, g, b)| u32::from_be_bytes([0xFF, r, g, b]))),
+            pad: Uni(0),
             blink_hidden: Uni(match renderer.blink() {
                 Blink::Shown => 0,
                 Blink::Hidden => 1,

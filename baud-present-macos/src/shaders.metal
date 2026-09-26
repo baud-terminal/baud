@@ -111,6 +111,9 @@ struct CU {
     // 1 in `SGR 5`'s off phase: the frame's, not a slot's, so a resolved
     // style is the same in both phases.
     uint blink_hidden;
+    // The struct is 8-aligned by its `uint2`s, so it is 120 bytes and the
+    // Rust side binds that many: `CellUniforms`, which checks it.
+    uint pad;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
