@@ -49,6 +49,10 @@ mod pty;
 mod reveal;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
+// The quad trail's driver is pure and its tests run on every platform; only
+// the macOS driver draws a trail today, so the bin builds it there alone.
+#[cfg(any(target_os = "macos", test))]
+mod trail;
 // What a program's title becomes on the window: pure, so its tests run on
 // every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

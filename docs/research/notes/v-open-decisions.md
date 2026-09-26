@@ -38,6 +38,27 @@ Two requests arrived with the answers, and are not decisions from this note:
   default. The core has defaulted to a blinking block all along; no renderer
   path draws the blink.
 
+Later the same day the owner answered the cursor's questions, and these steer
+the builds that follow them:
+
+- **Every trail style is config**: kitty's four-corner quad, sfte's fading
+  swept box, baud's first ghost, and a fire trail drawn on the GPU, which is
+  **the default** -- chosen over the recommended quad. On the CPU path, Linux
+  today, `fire` draws the quad.
+- **The flame is opaque over glass**, and the light theme gets a darker
+  variant that is not additive.
+- **Reduce Motion means no trail**, unless the config names one.
+- **The trail rides smooth scroll** by default, with an option to stay put.
+- **The blink reads the OS**: macOS's per-phase insertion-point keys, and
+  AppKit's 650 ms on, 350 off when they are unset; the system's
+  non-blinking-caret switch is honoured unless the config says otherwise.
+  It never stops by default, with an option to stop after a time.
+- **The per-frame cost first**: the resolved rendition table kept as a cache
+  in baud's own idiom, then the trail styles one commit each.
+
+Built since: the rendition cache (`fe776c9`), and the quad trail, the interim
+default until fire lands.
+
 ## What this is
 
 The TODO list and the research notes leave these twenty-five decisions to

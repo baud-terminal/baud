@@ -71,6 +71,6 @@ pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };
 pub use stack::{FaceIx, Stack};
-pub use trail::Trail;
+pub use trail::{Corners, Pt, Rect, Segment, Smear, Trail, TrailLook, coverage as quad_coverage};
 pub use transition::Transition;
 pub use units::{Band, Coverage, Digest, Tally};

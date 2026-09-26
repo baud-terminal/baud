@@ -218,14 +218,17 @@ pub enum ThemeChoice {
     Light,
 }
 
-/// Whether a cursor move leaves a fading trail. A two-state enum rather
-/// than a `bool`, which the audit counts as a missing one -- and which the
-/// other config choices (`Shadow`, `Material`) already are.
+/// Which trail a cursor move leaves, from `[cursor] trail`: kitty's quad,
+/// whose four corners chase the cursor's -- the default -- or baud's first
+/// trail, a one-cell ghost sweeping between the cells, or none. `true` is
+/// the default and `false` is `off`, so a config written when the key was a
+/// switch reads as it did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum CursorTrail {
     Off,
+    Ghost,
     #[default]
-    On,
+    Quad,
 }
 
 /// Whether switching to or from the alternate screen fades the new screen
@@ -269,7 +272,7 @@ impl Config {
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
-            cursor_trail: CursorTrail::On,
+            cursor_trail: CursorTrail::Quad,
             cursor_shape: CursorShape::Block,
             cursor_blink: CursorBlink::Blinking,
             screen_transition: ScreenTransition::Off,
@@ -355,15 +358,16 @@ impl Config {
                     };
                 }
                 ("cursor", "trail") => {
-                    self.cursor_trail = match value.trim() {
-                        "true" => CursorTrail::On,
-                        "false" => CursorTrail::Off,
+                    self.cursor_trail = match value.trim().trim_matches('"') {
+                        "quad" | "true" => CursorTrail::Quad,
+                        "ghost" => CursorTrail::Ghost,
+                        "off" | "false" => CursorTrail::Off,
                         other => {
                             said.push(format!(
-                                "config: [cursor] trail {other:?} is not true or false; \
-                                 using true"
+                                "config: [cursor] trail {other:?} is not quad, ghost or off; \
+                                 using quad"
                             ));
-                            CursorTrail::On
+                            CursorTrail::Quad
                         }
                     };
                 }
@@ -863,24 +867,30 @@ mod reader {
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
     }
 
-    /// The cursor trail is on unless `[cursor] trail = false`, and a value
-    /// that is neither `true` nor `false` leaves it at the default with a
-    /// warning rather than being read as either.
+    /// The cursor trail is the quad unless `[cursor] trail` names another,
+    /// quoted or not; `true` and `false` read as they did when the key was a
+    /// switch, and a value that names no trail leaves the default with a
+    /// warning rather than being read as one.
     #[test]
-    fn the_cursor_trail_is_on_unless_turned_off() {
-        assert_eq!(Config::defaults().cursor_trail, CursorTrail::On);
-        assert_eq!(
-            read("[cursor]\ntrail = true\n").cursor_trail,
-            CursorTrail::On
-        );
-        assert_eq!(
-            read("[cursor]\ntrail = false\n").cursor_trail,
-            CursorTrail::Off
-        );
-        assert_eq!(
-            read("[cursor]\ntrail = yes\n").cursor_trail,
-            CursorTrail::On
-        );
+    fn the_cursor_trail_is_the_quad_unless_named() {
+        assert_eq!(Config::defaults().cursor_trail, CursorTrail::Quad);
+        for (value, want) in [
+            ("quad", CursorTrail::Quad),
+            ("\"quad\"", CursorTrail::Quad),
+            ("ghost", CursorTrail::Ghost),
+            ("\"ghost\"", CursorTrail::Ghost),
+            ("off", CursorTrail::Off),
+            ("\"off\"", CursorTrail::Off),
+            ("true", CursorTrail::Quad),
+            ("false", CursorTrail::Off),
+            ("yes", CursorTrail::Quad),
+        ] {
+            assert_eq!(
+                read(&format!("[cursor]\ntrail = {value}\n")).cursor_trail,
+                want,
+                "trail = {value}"
+            );
+        }
         assert_eq!(
             Config::defaults().apply("[cursor]\ntrail = yes\n").len(),
             1,
@@ -1148,7 +1158,7 @@ shadow     = "never"
         // above would catch.
         assert_eq!(
             c.cursor_trail,
-            CursorTrail::On,
+            CursorTrail::Quad,
             "the [cursor] section did not land"
         );
         assert_eq!(

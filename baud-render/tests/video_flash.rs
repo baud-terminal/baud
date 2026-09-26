@@ -17,7 +17,7 @@ use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
     Argb, Blend, Damage, Hover, Look, PxSize, Renderer, Resolved, Scroll, Scroller, Stack, Theme,
-    Trail, Transition, VideoFlash, Widths, Window,
+    Trail, TrailLook, Transition, VideoFlash, Widths, Window,
 };
 use support::font;
 
@@ -229,11 +229,11 @@ fn the_overlays_follow_the_flash() {
         },
         scroller: Scroller::Overlay,
     }));
-    r.set_trail(Some(Trail {
+    r.set_trail(Some(TrailLook::Ghost(Trail {
         from: (Row::from_index(1), Col::at_index(1)),
         to: (Row::from_index(4), Col::at_index(20)),
         progress: 0.5,
-    }));
+    })));
     r.set_screen_fade(Some(Transition { progress: 0.5 }));
     let colours = |r: &Renderer<'_, '_>| {
         let fg: Vec<u32> = r

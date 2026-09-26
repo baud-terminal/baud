@@ -29,7 +29,7 @@ use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
     Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
     Scrolled, Scroller, Selection, Slide, Span, Stack, StyleStamp, Tally, Target, Theme, Trail,
-    Transition, Window, back_for, gutter, place, thumb,
+    TrailLook, Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -452,6 +452,8 @@ struct App {
     /// the `blink_seen` equivalent for this animation.
     cursor_trail: crate::config::CursorTrail,
     trail: Option<TrailState>,
+    /// The quad trail's state between frames (`trail.rs`).
+    quad: crate::trail::Quad<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
@@ -863,6 +865,7 @@ impl App {
             next_damage: Damage::Incremental,
             cursor_trail,
             trail: None,
+            quad: crate::trail::Quad::new(),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -974,14 +977,13 @@ impl App {
             widths: crate::reveal::widths(Scale(self.scale)),
             scroller: self.scroller,
         }));
-        // The cursor trail: a fading ghost sweeping from the cell the
-        // cursor left to the cell it reached. Spawned here, where the
-        // post-feed cursor is known and before any path converts; advanced
-        // and cleared off `tick_target`, the display link's own clock, so
-        // the renderer only interpolates and the frame is a pure function
-        // of the progress. Off unless `[cursor] trail`.
+        // The cursor trail, spawned here, where the post-feed cursor is
+        // known and before any path converts; advanced and cleared off
+        // `tick_target`, the display link's own clock, so the renderer only
+        // draws what it is handed and the frame is a pure function of it.
+        // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
         let cursor_cell = live_cursor(&self.term, self.back);
-        if self.cursor_trail == crate::config::CursorTrail::On {
+        if self.cursor_trail == crate::config::CursorTrail::Ghost {
             if let (Some(from), Some(to)) = (self.last_cursor_cell, cursor_cell) {
                 if from != to {
                     self.trail = Some(TrailState {
@@ -1012,7 +1014,28 @@ impl App {
             }
             None => None,
         };
-        self.renderer.set_trail(ghost);
+        let look = match self.cursor_trail {
+            crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
+            crate::config::CursorTrail::Quad => {
+                // Looking back forgets where the cursor was, as a resize
+                // does: output may have moved it meanwhile, and a trail on
+                // the way back would come from a place the reader never saw
+                // it leave. A hidden cursor keeps it -- `trail.rs`.
+                if looking(&self.term, self.back).index() != 0 {
+                    self.quad.snap();
+                }
+                let style = self.term.cursor_style();
+                let rect = cursor_cell.map(|(r, c)| self.renderer.cursor_rect(r, c, style));
+                let m = self.renderer.metrics();
+                let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+                let cell = (side(m.cell_w), side(m.cell_h));
+                HostTime::of_secs(self.tick_target)
+                    .and_then(|now| self.quad.frame(rect, now, cell))
+                    .map(TrailLook::Quad)
+            }
+            crate::config::CursorTrail::Off => None,
+        };
+        self.renderer.set_trail(look);
         // The alternate-screen fade: a veil over the new screen ramping to
         // nothing, advanced and cleared off `tick_target` like the trail.
         let veil = match self.transition {
@@ -3148,6 +3171,9 @@ impl Driver {
             // surface does not have (the alternate screen keeps no ring), so
             // settle it rather than carry it across.
             self.app.slide.snap();
+            // Nor does a trail cross it: the cursor it would come from was
+            // the other screen's.
+            self.app.quad.snap();
             // The alternate screen swapped: fade the new one in from the
             // background, off `tick_target` the way the trail is spawned.
             if self.app.screen_transition == crate::config::ScreenTransition::On {
@@ -3544,6 +3570,12 @@ impl Responder for Driver {
         // When the sweep lands the trail clears itself and this stops
         // firing, so an idle screen returns to no frames.
         if self.app.trail.is_some() || self.app.transition.is_some() {
+            self.app.pending = Pending::Dirty;
+        }
+        // The quad owes every frame while it is in flight, and the one a
+        // move's dwell runs out on: after a lone keystroke's echo nothing
+        // else would draw it (`trail.rs`).
+        if HostTime::of_secs(target).is_some_and(|now| self.app.quad.owes(now) == Owes::Frame) {
             self.app.pending = Pending::Dirty;
         }
         // The scrollbar's reveal steps off the same clock, and forces a
@@ -4456,6 +4488,9 @@ impl Driver {
         // The atlas is the one thing here that still has no ring, and a
         // resize does not touch it: only a rescale does, which is why
         // `Deferred::Zoom` still waits.
+        // A resize or a zoom moves every cell's pixels under the quad trail,
+        // which names them; the next sighting starts afresh (`trail.rs`).
+        self.app.quad.snap();
         let (cw, ch) = self.app.metrics_cell();
         let px_w = size.width * scale;
         let px_h = size.height * scale;

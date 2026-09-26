@@ -8,7 +8,10 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
-use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme, Trail, Transition};
+use baud_render::{
+    Blend, Damage, Pt, PxSize, Renderer, Segment, Smear, Stack, Target, Theme, Trail, TrailLook,
+    Transition, quad_coverage,
+};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -43,12 +46,12 @@ fn paint(r: &mut Renderer<'_, '_>, t: &mut Term<'_>, pixels: &mut [u32], damage:
     r.render(t, &mut target, damage);
 }
 
-fn trail(from: (usize, usize), to: (usize, usize), progress: f32) -> Trail {
-    Trail {
+fn trail(from: (usize, usize), to: (usize, usize), progress: f32) -> TrailLook {
+    TrailLook::Ghost(Trail {
         from: (Row::from_index(from.0), Col::at_index(from.1)),
         to: (Row::from_index(to.0), Col::at_index(to.1)),
         progress,
-    }
+    })
 }
 
 /// A screen with text on every row, so an overlay has something to cover.
@@ -174,5 +177,108 @@ fn a_sweeping_trail_repaints_incrementally_what_a_full_frame_paints() {
         full.set_trail(Some(trail((1, 3), (8, 20), 0.5)));
         paint(&mut full, t, &mut mid, Damage::Full);
         assert!(bare != mid, "the sweep drew nothing");
+    });
+}
+
+/// A quad 50 ms into a move from `from` to the block cursor at `to`, on the
+/// renderer's own cells.
+fn quad(r: &Renderer<'_, '_>, from: (usize, usize), to: (usize, usize), t: f32) -> Smear {
+    let style = baud_core::CursorStyle::SteadyBlock;
+    let rect =
+        |(row, col): (usize, usize)| r.cursor_rect(Row::from_index(row), Col::at_index(col), style);
+    let hole = rect(to);
+    Smear {
+        corners: Segment::new(rect(from).corners(), hole).at(t),
+        hole,
+    }
+}
+
+/// **The CPU path draws the quad by the rule**: every pixel the quad covers
+/// whole changes, every one it leaves bare -- the cursor's own rectangle
+/// included -- does not.
+#[test]
+fn the_cpu_path_draws_the_quad_by_its_rule() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    with_text(|t| {
+        let mut r = renderer(&faces);
+        let (w, h) = r.pixel_size();
+        let (width, height) = (px(w), px(h));
+        let mut bare = vec![0u32; width * height];
+        r.set_trail(None);
+        paint(&mut r, t, &mut bare, Damage::Full);
+        let s = quad(&r, (8, 25), (1, 2), 0.05);
+        let mut drawn = vec![0u32; width * height];
+        r.set_trail(Some(TrailLook::Quad(s)));
+        paint(&mut r, t, &mut drawn, Damage::Full);
+        let (x0, y0, x1, y1) = s.bounds();
+        let (mut inside, mut outside, mut changed) = (0usize, 0usize, 0usize);
+        let mut fills = None;
+        for y in px(y0)..px(y1).min(height) {
+            for x in px(x0)..px(x1).min(width) {
+                let at = y * width + x;
+                let p = Pt {
+                    x: x as f32 + 0.5,
+                    y: y as f32 + 0.5,
+                };
+                let c = quad_coverage(&s, p);
+                if c >= 1.0 {
+                    // Covered whole, opaque: the fill, whatever was under it
+                    // -- a glyph's ink is the same colour, so compare the
+                    // fill rather than a change.
+                    inside += 1;
+                    let fill = *fills.get_or_insert(drawn[at]);
+                    assert_eq!(drawn[at], fill, "({x}, {y}) is inside and not the fill");
+                    changed += usize::from(drawn[at] != bare[at]);
+                } else if c <= 0.0 {
+                    outside += 1;
+                    assert_eq!(drawn[at], bare[at], "({x}, {y}) is outside and drawn");
+                }
+                if s.hole.contains(p) {
+                    assert_eq!(drawn[at], bare[at], "({x}, {y}) is the cursor's and drawn");
+                }
+            }
+        }
+        assert!(inside > 300 && outside > 300, "{inside} in, {outside} out");
+        assert!(changed > 300, "the quad changed {changed} pixels");
+    });
+}
+
+/// **A moving quad repaints incrementally what a full frame paints**, at
+/// every step of a move across rows and back: the rows it leaves are
+/// cleared, the rows it reaches drawn.
+#[test]
+fn a_moving_quad_repaints_incrementally_what_a_full_frame_paints() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    with_text(|t| {
+        let mut inc = renderer(&faces);
+        let mut full = renderer(&faces);
+        let (w, h) = inc.pixel_size();
+        let (width, height) = (px(w), px(h));
+        let mut a = vec![0u32; width * height];
+        let mut b = vec![0u32; width * height];
+        inc.set_trail(None);
+        paint(&mut inc, t, &mut a, Damage::Full);
+        let mut drew = false;
+        for (i, &time) in [0.0f32, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5].iter().enumerate() {
+            let s = quad(&inc, (8, 26), (1, 3), time);
+            let look = (time < 0.5).then_some(TrailLook::Quad(s));
+            inc.set_trail(look);
+            full.set_trail(look);
+            paint(&mut inc, t, &mut a, Damage::Incremental);
+            paint(&mut full, t, &mut b, Damage::Full);
+            assert!(
+                a == b,
+                "step {i} ({time} s): incremental differs from full at {:?}",
+                diff_box(&a, &b, width)
+            );
+            let mut bare = vec![0u32; width * height];
+            let mut plain = renderer(&faces);
+            plain.set_trail(None);
+            paint(&mut plain, t, &mut bare, Damage::Full);
+            drew |= look.is_some() && b != bare;
+        }
+        assert!(drew, "the move drew nothing");
     });
 }

@@ -177,6 +177,26 @@ struct RowBytes(usize);
 #[derive(Clone, Copy)]
 struct Span(usize);
 
+/// A record's place in its buffer: the one the trail's quad is, or where the
+/// records end.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct At(usize);
+
+/// The quad trail's own pipeline: built the first frame one is drawn, so a
+/// launch pays nothing for a trail it may never show.
+enum QuadPipe {
+    Unbuilt,
+    Built(Retained<ProtocolObject<dyn MTLRenderPipelineState>>),
+    Failed,
+}
+
+/// What the quad draw needs beyond the glyph pipeline's bindings: its
+/// pipeline and the corners, hole and frame origin `quad_fragment` reads.
+struct QuadDraw {
+    pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    uniform: [f32; 16],
+}
+
 /// A sheet's texel format, and so its bytes a texel.
 #[derive(Clone, Copy)]
 enum Texel {
@@ -382,6 +402,9 @@ pub struct Gpu {
     cell_bg_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     cell_glyph_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     cell_shape_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
+    /// The library the pipelines came from, kept for the one built late.
+    library: Retained<ProtocolObject<dyn MTLLibrary>>,
+    quad_pipe: QuadPipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     instances: Vec<Buffer>,
     ring: Ring,
@@ -720,6 +743,8 @@ impl Gpu {
             cell_bg_pipe,
             cell_glyph_pipe,
             cell_shape_pipe,
+            library,
+            quad_pipe: QuadPipe::Unbuilt,
             sampler,
             instances,
             ring: Ring(0),
@@ -1113,6 +1138,125 @@ impl Gpu {
         Some(())
     }
 
+    /// The quad trail's draw for this frame, if the renderer has one and its
+    /// pipeline could be built: `glyph_vertex` over the record,
+    /// `quad_fragment` over the corners. Built once, the first time.
+    fn quad_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<QuadDraw> {
+        let smear = renderer.smear()?;
+        if let QuadPipe::Unbuilt = self.quad_pipe {
+            self.quad_pipe = match pipeline(
+                &self.device,
+                &self.library,
+                "glyph_vertex",
+                "quad_fragment",
+                Blend::Over,
+            ) {
+                Some(p) => QuadPipe::Built(p),
+                None => {
+                    eprintln!("baud-present-macos: the quad trail's pipeline would not build");
+                    QuadPipe::Failed
+                }
+            };
+        }
+        let QuadPipe::Built(pipe) = &self.quad_pipe else {
+            return None;
+        };
+        let c = smear.uniform();
+        let mut uniform = [0.0f32; 16];
+        uniform[..12].copy_from_slice(&c);
+        uniform[12] = pad[0];
+        uniform[13] = pad[1];
+        Some(QuadDraw {
+            pipe: pipe.clone(),
+            uniform,
+        })
+    }
+
+    /// **Draws the records `0..end` of `buffer`**: the glyph pipeline for
+    /// each run of them, and the quad pipeline for the trail's one at
+    /// `quad`, so the trail stays where the renderer put it in the order --
+    /// over the cells and their records, under the scrollbar and the fade.
+    /// Without a quad draw the trail's record is left out, not drawn as a
+    /// solid over its whole bounds.
+    ///
+    /// # Safety
+    ///
+    /// `buffer` holds at least `end` records, and the bindings match
+    /// `glyph_vertex`, `glyph_fragment` and `quad_fragment`.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn draw_records(
+        &self,
+        enc: &Encoder,
+        buffer: &Buffer,
+        end: At,
+        quad: Option<At>,
+        draw: Option<&QuadDraw>,
+        u: &[f32; UNIFORM_FLOATS],
+        mask: &Texture,
+        color: &Texture,
+    ) {
+        let ubytes = NonNull::from(u).cast::<c_void>();
+        let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
+        let run = |from: usize, to: usize| {
+            if to <= from {
+                return;
+            }
+            // SAFETY: the caller's -- `from..to` lies inside the buffer's
+            // `end` records, and the indices match the glyph shaders.
+            unsafe {
+                enc.setRenderPipelineState(&self.glyph_pipe);
+                enc.setVertexBuffer_offset_atIndex(
+                    Some(buffer),
+                    from.saturating_mul(Instance::BYTES),
+                    0,
+                );
+                enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
+                enc.setFragmentTexture_atIndex(Some(mask), 0);
+                enc.setFragmentTexture_atIndex(Some(color), 1);
+                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                    MTLPrimitiveType::TriangleStrip,
+                    0,
+                    4,
+                    to - from,
+                );
+            }
+        };
+        let At(n) = end;
+        match (quad, draw) {
+            (Some(At(q)), None) if q < n => {
+                run(0, q);
+                run(q + 1, n);
+            }
+            (Some(At(q)), Some(draw)) if q < n => {
+                run(0, q);
+                let qbytes = NonNull::from(&draw.uniform).cast::<c_void>();
+                let qlen = core::mem::size_of::<[f32; 16]>();
+                // SAFETY: record `q` is inside the buffer, and the quad
+                // pipeline reads the vertex bindings the glyph one does plus
+                // `quad_fragment`'s `buffer(0)`.
+                unsafe {
+                    enc.setRenderPipelineState(&draw.pipe);
+                    enc.setVertexBuffer_offset_atIndex(
+                        Some(buffer),
+                        q.saturating_mul(Instance::BYTES),
+                        0,
+                    );
+                    enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
+                    enc.setFragmentBytes_length_atIndex(qbytes, qlen, 0);
+                    enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                        MTLPrimitiveType::TriangleStrip,
+                        0,
+                        4,
+                        1,
+                    );
+                }
+                run(q + 1, n);
+            }
+            _ => run(0, n),
+        }
+    }
+
     /// A pass over `target`, cleared to `clear` -- the terminal's own
     /// background, so the margin around the grid is the same colour as a
     /// default cell rather than a see-through edge -- with the rasteriser
@@ -1193,6 +1337,7 @@ impl Gpu {
         let clear = clear_of(renderer.clear_color());
         let count = renderer.instances().count();
         let bytes = count.saturating_mul(Instance::BYTES);
+        let mut quad_at = None;
         let slot = self.ring.0;
         if self.instances[slot].length() < bytes {
             let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
@@ -1205,10 +1350,14 @@ impl Gpu {
             // its whole length, at least `bytes` after the check above, and
             // nothing is in flight, so the GPU is not reading it.
             let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
-            for (chunk, inst) in dst
+            for (i, (chunk, inst)) in dst
                 .chunks_exact_mut(Instance::BYTES)
                 .zip(renderer.instances())
+                .enumerate()
             {
+                if inst.kind == Kind::Quad {
+                    quad_at = Some(At(i));
+                }
                 chunk.copy_from_slice(&inst.to_bytes());
             }
         }
@@ -1233,6 +1382,7 @@ impl Gpu {
         // upload never touches a bound texture.
         let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, frame_px);
+        let quad = self.quad_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
             px_f32(frame_px.0),
             px_f32(frame_px.1),
@@ -1269,17 +1419,15 @@ impl Gpu {
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
             enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
             if count > 0 {
-                enc.setRenderPipelineState(&self.glyph_pipe);
-                enc.setVertexBuffer_offset_atIndex(Some(&self.instances[slot]), 0, 0);
-                enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
-                enc.setFragmentTexture_atIndex(Some(&mask), 0);
-                enc.setFragmentTexture_atIndex(Some(&color), 1);
-                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
-                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
-                    MTLPrimitiveType::TriangleStrip,
-                    0,
-                    4,
-                    count,
+                self.draw_records(
+                    &enc,
+                    &self.instances[slot],
+                    At(count),
+                    quad_at,
+                    quad.as_ref(),
+                    &uniforms,
+                    &mask,
+                    &color,
                 );
             }
             // Images last, over the text, the way the CPU compositor blits
@@ -1328,6 +1476,7 @@ impl Gpu {
         // Resolve images before the encoder, as the instance path does.
         let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, frame_px);
+        let quad = self.quad_draw(renderer, pad);
         let (cursor_row, cursor_col) = input
             .cursor
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
@@ -1409,6 +1558,7 @@ impl Gpu {
             // The records: the cells the overlay masked, drawn as the
             // instance path draws, after every cell pass.
             let n = input.records.len();
+            let mut quad_at = None;
             if n > 0 {
                 let bytes = n.saturating_mul(Instance::BYTES);
                 let slot = self.ring.0;
@@ -1420,7 +1570,14 @@ impl Gpu {
                     let buffer = &self.instances[slot];
                     let ptr = buffer.contents().cast::<u8>();
                     let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
-                    for (chunk, inst) in dst.chunks_exact_mut(Instance::BYTES).zip(input.records) {
+                    for (i, (chunk, inst)) in dst
+                        .chunks_exact_mut(Instance::BYTES)
+                        .zip(input.records)
+                        .enumerate()
+                    {
+                        if inst.kind == Kind::Quad {
+                            quad_at = Some(At(i));
+                        }
                         chunk.copy_from_slice(&inst.to_bytes());
                     }
                 }
@@ -1441,19 +1598,15 @@ impl Gpu {
                     pad[0],
                     pad[1],
                 ];
-                let ubytes = NonNull::from(&u).cast::<c_void>();
-                let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
-                enc.setRenderPipelineState(&self.glyph_pipe);
-                enc.setVertexBuffer_offset_atIndex(Some(&self.instances[slot]), 0, 0);
-                enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
-                enc.setFragmentTexture_atIndex(Some(&mask), 0);
-                enc.setFragmentTexture_atIndex(Some(&color), 1);
-                enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
-                enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
-                    MTLPrimitiveType::TriangleStrip,
-                    0,
-                    4,
-                    n,
+                self.draw_records(
+                    &enc,
+                    &self.instances[slot],
+                    At(n),
+                    quad_at,
+                    quad.as_ref(),
+                    &u,
+                    &mask,
+                    &color,
                 );
             }
             // Images last, over the records, matching the instance path and

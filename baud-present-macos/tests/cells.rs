@@ -22,9 +22,9 @@ use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
 use baud_render::{
-    Blend, Blink, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize,
-    Region, Renderer, Resolved, Scene, Scroll, Scroller, Stack, StyleStamp, Theme, Trail,
-    Transition, VideoFlash, Widths, Window,
+    Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay,
+    Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Smear, Stack,
+    StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -107,7 +107,7 @@ struct Arms<'f, 'a> {
     /// both arms draw.
     window: Option<Scroll>,
     /// The cursor trail both arms draw, or none.
-    trail: Option<Trail>,
+    trail: Option<TrailLook>,
     /// The alternate-screen fade both arms draw, or none.
     fade: Option<Transition>,
     /// The window copied flat, in screen order -- research decision D4's
@@ -913,15 +913,20 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "a block and a stream over the same corners drew the same"
     );
     arms.highlight = None;
+    // **The trails' own baseline, drawn over the screen as it now is.** The
+    // `plain` above predates the two watches written for the block, so a
+    // trail compared against it differed at the watches whether or not the
+    // trail drew anything: the ghost's "reached the pixels" could not fail.
+    let (plain, _) = arms.draw(&mut t);
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the
     // cell path's records -- and a change to the pixels. `plain` has the
     // same cursor and no trail, so the difference is the ghost alone.
-    arms.trail = Some(Trail {
+    arms.trail = Some(TrailLook::Ghost(Trail {
         from: (Row::from_index(1), Col::at_index(2)),
         to: (Row::from_index(4), Col::at_index(20)),
         progress: 0.5,
-    });
+    }));
     let (trail_a, trail_b) = arms.draw(&mut t);
     {
         let (w, _) = arms.renderer.frame_size();
@@ -946,6 +951,132 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&trail_a, &plain) > 0,
         "the trail reached the pixels"
     );
+    // The quad trail, 50 ms into a move from row 7 to the block cursor at
+    // row 1, column 2: both arms draw it -- the record's bounds, cut by
+    // `quad_fragment` -- and neither touches the cursor it is arriving at.
+    let (fw, _) = arms.renderer.frame_size();
+    let fw = usize::try_from(fw.value()).unwrap();
+    let (cr, cc) = t.cursor();
+    let hole = arms.renderer.cursor_rect(cr, cc, t.cursor_style());
+    let from = arms
+        .renderer
+        .cursor_rect(Row::from_index(7), Col::at_index(60), t.cursor_style())
+        .corners();
+    let seg = Segment::new(from, hole);
+    arms.trail = Some(TrailLook::Quad(Smear {
+        corners: seg.at(0.05),
+        hole,
+    }));
+    let (quad_a, quad_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&quad_a, &quad_b),
+        0,
+        "the arms disagree under a quad trail"
+    );
+    assert!(
+        differing(&quad_a, &plain) > 200,
+        "the quad reached the pixels"
+    );
+    // At 200 ms the quad has reached the cursor and lies over it: drawn with
+    // the cursor's rectangle as its hole it leaves the cursor as it was, and
+    // drawn with no hole it covers it -- so the hole is what spared it.
+    let px = |v: f32| usize::try_from(v as i64).unwrap();
+    let in_hole = |frame: &[u32]| -> Vec<u32> {
+        let mut out = Vec::new();
+        for y in px(hole.top)..px(hole.bottom) {
+            for x in px(hole.left)..px(hole.right) {
+                out.push(frame[y * fw + x]);
+            }
+        }
+        out
+    };
+    arms.trail = Some(TrailLook::Quad(Smear {
+        corners: seg.at(0.2),
+        hole,
+    }));
+    let (spared, spared_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&spared, &spared_b),
+        0,
+        "the arms disagree over the cursor"
+    );
+    assert_eq!(
+        in_hole(&spared),
+        in_hole(&plain),
+        "the quad covered the cursor"
+    );
+    arms.trail = Some(TrailLook::Quad(Smear {
+        corners: seg.at(0.2),
+        hole: Rect::default(),
+    }));
+    let (covered, _) = arms.draw(&mut t);
+    assert!(
+        differing(&in_hole(&covered), &in_hole(&plain)) > 0,
+        "the quad does not reach the cursor, so the hole spared nothing"
+    );
+    // A dart and a bowtie -- the shapes a retarget can twist the quad into,
+    // which a triangle fan draws wrong -- over the empty right half of the
+    // screen. Every pixel the Rust rule covers whole is drawn and every one
+    // it leaves bare is not, so the shader's rule is `trail::coverage`.
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value() as f32, m.cell_h.value() as f32);
+    let no_hole = Rect::default();
+    for (name, pts) in [
+        (
+            "dart",
+            [
+                (100.0 * cw, 0.5 * ch),
+                (100.0 * cw, 6.5 * ch),
+                (70.0 * cw, 6.5 * ch),
+                (95.0 * cw, 5.0 * ch),
+            ],
+        ),
+        (
+            "bowtie",
+            [
+                (118.0 * cw, 0.5 * ch),
+                (118.0 * cw, 6.5 * ch),
+                (104.0 * cw, 0.5 * ch),
+                (104.0 * cw, 6.5 * ch),
+            ],
+        ),
+    ] {
+        let smear = Smear {
+            corners: Corners(pts.map(|(x, y)| Pt { x, y })),
+            hole: no_hole,
+        };
+        arms.trail = Some(TrailLook::Quad(smear));
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree under a {name}");
+        let (x0, y0, x1, y1) = smear.bounds();
+        let (mut inside, mut outside) = (0usize, 0usize);
+        for y in y0.value()..y1.value() {
+            for x in x0.value()..x1.value() {
+                let at = usize::try_from(y).unwrap() * fw + usize::try_from(x).unwrap();
+                let c = quad_coverage(
+                    &smear,
+                    Pt {
+                        x: x as f32 + 0.5,
+                        y: y as f32 + 0.5,
+                    },
+                );
+                if c >= 1.0 {
+                    inside += 1;
+                    assert_ne!(
+                        a[at], plain[at],
+                        "{name}: ({x}, {y}) is inside and not drawn"
+                    );
+                } else if c <= 0.0 {
+                    outside += 1;
+                    assert_eq!(a[at], plain[at], "{name}: ({x}, {y}) is outside and drawn");
+                }
+            }
+        }
+        assert!(
+            inside > 500 && outside > 500,
+            "{name}: {inside} in, {outside} out"
+        );
+    }
     arms.trail = None;
     // The alternate-screen fade: a full-screen veil at mid-progress, drawn
     // by both arms as one translucent solid over everything, and a change to

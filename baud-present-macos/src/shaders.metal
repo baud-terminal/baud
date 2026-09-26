@@ -58,6 +58,40 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
     return float4(in.color.rgb * in.color.a, in.color.a);
 }
 
+// ---- The cursor trail's quad: `trail::coverage` in `baud-render`, the
+// same rule. The record is the quad's bounds, drawn by `glyph_vertex`; this
+// covers the pixels inside the corners by the non-zero winding rule, a pixel
+// of anti-aliasing across each edge, and leaves the cursor's own rectangle
+// bare. `origin` is where the frame sits in the target, so a pixel's centre
+// in the frame is its position less it.
+struct Quad { float2 c[4]; float4 hole; float2 origin; float2 pad; };
+
+fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)]]) {
+    float2 p = in.pos.xy - q.origin;
+    if (p.x >= q.hole.x && p.x < q.hole.z && p.y >= q.hole.y && p.y < q.hole.w) {
+        return float4(0.0);
+    }
+    float d = INFINITY;
+    int winding = 0;
+    for (uint i = 0u; i < 4u; i++) {
+        float2 a = q.c[i];
+        float2 b = q.c[(i + 1u) & 3u];
+        float2 ba = b - a;
+        float2 pa = p - a;
+        float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+        d = min(d, length(pa - ba * h));
+        float side = ba.x * pa.y - ba.y * pa.x;
+        if (a.y <= p.y) {
+            if (b.y > p.y && side > 0.0) winding += 1;
+        } else if (b.y <= p.y && side < 0.0) {
+            winding -= 1;
+        }
+    }
+    float s = winding != 0 ? -d : d;
+    float a = in.color.a * clamp(0.5 - s, 0.0, 1.0);
+    return float4(in.color.rgb * a, a);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {

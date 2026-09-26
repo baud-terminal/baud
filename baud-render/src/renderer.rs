@@ -11,7 +11,7 @@ use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
-use crate::trail::{self, Ghost, Trail};
+use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
 use baud_core::Term;
@@ -505,9 +505,13 @@ pub struct Renderer<'f, 'a> {
     /// solid instance: a row the ghost is over or was over is dirty, the
     /// scrollbar's rule, so the trail's damage stays bounded to the rows it
     /// sweeps rather than wiping the frame the way sfte's does.
-    trail: Option<Ghost>,
-    last_trail: Option<Ghost>,
+    trail: Option<Drawn>,
+    last_trail: Option<Drawn>,
     trail_inst: Vec<Instance>,
+    /// What the cursor is filled with, which a quad trail is drawn in: the
+    /// application's `OSC 12` colour, else the default foreground a block
+    /// cursor's reversed cell fills with.
+    cursor_fill: Argb,
     /// The alternate-screen fade's veil on this frame and the last, and its
     /// one full-screen solid: while it fades every row is dirty, because the
     /// veil covers the whole screen and the whole screen is what changed.
@@ -652,6 +656,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             trail: None,
             last_trail: None,
             trail_inst: Vec::new(),
+            cursor_fill: Argb::default(),
             fade: None,
             last_fade: None,
             fade_inst: Vec::new(),
@@ -739,20 +744,78 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
-    /// sweeping from where the cursor was to where it is. Like the
-    /// scrollbar its instance is one translucent solid in the default
-    /// foreground the screen draws, and every path draws it -- the CPU and instance paths from
-    /// the instance list, the cell path from [`Renderer::trail`] appended
-    /// to its records. The driver hands a `progress` it computed from the
-    /// display link's timestamp and this only interpolates, so the frame is
-    /// a pure function of the value and the pixel oracle can compare two
-    /// GPU arms on it.
-    pub fn set_trail(&mut self, trail: Option<Trail>) {
-        self.trail = trail.map(|t| trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h));
+    /// sweeping from where the cursor was to where it is, or the quad whose
+    /// corners chase the cursor's. Every path draws it -- the CPU compositor
+    /// in `paint`, the instance path from the instance list, the cell path
+    /// from [`Renderer::trail`] appended to its records. The driver hands a
+    /// ghost's `progress` or a quad's corners, each computed from the display
+    /// link's timestamp, and this only draws them, so the frame is a pure
+    /// function of the value and the pixel oracle can compare two GPU arms
+    /// on it.
+    pub fn set_trail(&mut self, look: Option<TrailLook>) {
+        self.trail = look.map(|l| match l {
+            TrailLook::Ghost(t) => {
+                Drawn::Ghost(trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h))
+            }
+            TrailLook::Quad(s) => Drawn::Quad(s),
+        });
+        self.build_trail();
+    }
+
+    /// The trail's one record, in the colours in force.
+    fn build_trail(&mut self) {
         self.trail_inst.clear();
-        if let Some(g) = self.trail {
-            self.trail_inst.push(trail::instance(g, self.defaults.0));
+        match self.trail {
+            Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(g, self.defaults.0)),
+            Some(Drawn::Quad(s)) => self
+                .trail_inst
+                .push(trail::quad_instance(&s, self.cursor_fill)),
+            None => {}
         }
+    }
+
+    /// The quad trail this frame draws, for a GPU path to hand its
+    /// fragment function the corners the record does not carry.
+    pub fn smear(&self) -> Option<Smear> {
+        match self.trail {
+            Some(Drawn::Quad(s)) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// The rectangle a cursor of `style` at `(row, col)` fills, in pixels
+    /// of the frame: the whole cell for a block, a line along its foot for
+    /// an underline, one along its left edge for a bar. **The one place
+    /// that rectangle is spelled** -- `convert_row` draws the cursor from
+    /// it and a quad trail chases and spares it, so the two cannot differ
+    /// by the pixel that would leave the landed trail a fringe.
+    pub fn cursor_rect(&self, row: Row, col: Col, style: CursorStyle) -> Rect {
+        let (left, top, w, h) = self.cursor_px(row, col, style);
+        let f = |v: u32| f32::from(u16::try_from(v).unwrap_or(u16::MAX));
+        Rect {
+            left: f(left.value()),
+            top: f(top.value()),
+            right: f(left.value() + w.value()),
+            bottom: f(top.value() + h.value()),
+        }
+    }
+
+    /// [`Renderer::cursor_rect`] in whole pixels: left, top, width, height.
+    fn cursor_px(&self, row: Row, col: Col, style: CursorStyle) -> (Px, Px, Px, Px) {
+        let x = u32::try_from(col.index())
+            .unwrap_or(0)
+            .saturating_mul(self.metrics.cell_w.value());
+        let top = self.band(row).top.value();
+        let (cw, ch) = (self.metrics.cell_w.value(), self.metrics.cell_h.value());
+        let line = self.metrics.thickness.value().max(2);
+        let (left, top, w, h) = match style {
+            CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
+                (x, top + ch.saturating_sub(line), cw, line)
+            }
+            CursorStyle::BlinkingBar | CursorStyle::SteadyBar => (x, top, line, ch),
+            _ => (x, top, cw, ch),
+        };
+        (Px::of(left), Px::of(top), Px::of(w), Px::of(h))
     }
 
     /// The cursor trail's instances, for a path that draws records of its
@@ -863,8 +926,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn refresh_screen(&mut self, term: &Term<'_>) {
         self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
-        if defaults != self.defaults {
+        let fill = term
+            .dynamic_color(DynamicColor::Cursor)
+            .map_or(defaults.0, |(r, g, b)| {
+                Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+            });
+        if defaults != self.defaults || fill != self.cursor_fill {
             self.defaults = defaults;
+            self.cursor_fill = fill;
             self.rebuild_overlays();
         }
     }
@@ -877,10 +946,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.bar_inst
                 .extend(scrollbar::instances(b, self.defaults.0));
         }
-        self.trail_inst.clear();
-        if let Some(g) = self.trail {
-            self.trail_inst.push(trail::instance(g, self.defaults.0));
-        }
+        self.build_trail();
         self.fade_inst.clear();
         if let Some(v) = self.fade {
             self.fade_inst
@@ -1295,7 +1361,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let slice = |b: Option<Bar>| b.and_then(|b| b.slice(band.top, band.bottom));
             let bar_moved = slice(self.bar) != slice(self.last_bar);
             let under_trail =
-                |g: Option<Ghost>| g.is_some_and(|g| g.overlaps(band.top, band.bottom));
+                |d: Option<Drawn>| d.is_some_and(|d| d.overlaps(band.top, band.bottom));
             let trail_moved = under_trail(self.trail) != under_trail(self.last_trail)
                 || (under_trail(self.trail) && self.trail != self.last_trail);
             // A picture is the block's, so a row can move in or out of one
@@ -1361,7 +1427,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 match inst.kind {
                     Kind::Color => frame.colored.bump(),
                     Kind::Solid => frame.solids.bump(),
-                    Kind::Mask => {}
+                    Kind::Mask | Kind::Quad => {}
                 }
             }
             if !self.dirty[r] {
@@ -1380,12 +1446,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // fade over everything. The trail and the fade dirtied these rows
             // (`trail_moved`, and a fade makes the frame full), so a row
             // repainted without them would draw them out.
-            for inst in self.per_row[r]
-                .iter()
-                .chain(&self.trail_inst)
-                .chain(&self.bar_inst)
-                .chain(&self.fade_inst)
-            {
+            for inst in &self.per_row[r] {
+                target.over(inst, &self.atlas, self.blend, band);
+            }
+            match self.trail {
+                Some(Drawn::Quad(s)) => target.quad(&s, self.cursor_fill, self.blend, band),
+                _ => {
+                    for inst in &self.trail_inst {
+                        target.over(inst, &self.atlas, self.blend, band);
+                    }
+                }
+            }
+            for inst in self.bar_inst.iter().chain(&self.fade_inst) {
                 target.over(inst, &self.atlas, self.blend, band);
             }
         }
@@ -1901,17 +1973,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // The bar or underline cursor draws in the application's cursor
             // colour (`OSC 12`) if it set one, else the cell's foreground.
             let cur = cursor_color.unwrap_or(fg);
-            match here {
-                Some((_, _, CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline)) => {
-                    let h = Px::of(self.metrics.thickness.value().max(2));
-                    let y = top + px_i32(self.metrics.cell_h) - px_i32(h);
-                    shapes.push(solid(screen(x), screen(y), self.metrics.cell_w, h, cur));
-                }
-                Some((_, _, CursorStyle::BlinkingBar | CursorStyle::SteadyBar)) => {
-                    let w = Px::of(self.metrics.thickness.value().max(2));
-                    shapes.push(solid(screen(x), screen(top), w, self.metrics.cell_h, cur));
-                }
-                _ => {}
+            if let Some((
+                _,
+                _,
+                style @ (CursorStyle::BlinkingUnderline
+                | CursorStyle::SteadyUnderline
+                | CursorStyle::BlinkingBar
+                | CursorStyle::SteadyBar),
+            )) = here
+            {
+                let (left, y, w, h) = self.cursor_px(r, col, style);
+                shapes.push(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));
             }
         }
         self.row_blinks[r.index()] = blinks;

@@ -7438,3 +7438,63 @@ sha256 = "3c3bc4ccc9c11e0946ad84b256fd180db7410256cac568a5a8635cdc902da2b1"
 bytes  = 166853
 status = "retrieved"
 group  = "C"
+
+# The quad trail follows kitty's `cursor_trail`: four corners each chasing the
+# cursor's with a per-corner decay (91-121), the half-pixel end (143-159) and
+# the start threshold (66-70); the defaults in `definition.py` (446, 466, 482);
+# and the fragment that leaves the cursor's rectangle bare (`trail.slang`,
+# 25-36).
+[sources.kitty-cursor-trail]
+key    = "kitty-cursor-trail"
+title  = "kitty 1e1486e, cursor_trail.c -- four corners chasing the cursor's, each with its own decay"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cursor_trail.c"
+file   = "kitty-cursor-trail.c"
+sha256 = "66b73c132a5b139fa297cd1d595331f8718b5c379cde40fe1008a769dfe37aed"
+bytes  = 7730
+status = "retrieved"
+group  = "V"
+
+[sources.kitty-options-definition]
+key    = "kitty-options-definition"
+title  = "kitty 1e1486e, options/definition.py -- cursor_trail, cursor_trail_decay and cursor_trail_start_threshold"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/options/definition.py"
+file   = "kitty-options-definition.py"
+sha256 = "322b4af9667818d1961e556a7c26f65a668da34e071f52f6acc1a4d819727533"
+bytes  = 163193
+status = "retrieved"
+group  = "V"
+
+[sources.kitty-trail-slang]
+key    = "kitty-trail-slang"
+title  = "kitty 1e1486e, shaders/trail.slang -- the trail's fragment, zero inside the cursor"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/shaders/trail.slang"
+file   = "kitty-trail.slang"
+sha256 = "16a752335c838b57278365593350820390571a587ce8f3fefc107bebd0e35e77"
+bytes  = 1303
+status = "retrieved"
+group  = "V"
+
+# A short move -- at most two columns and no row -- animates every corner over
+# the short length (`jump`, 158-177): the rule a quad trail's step in flight
+# takes, so typing after a jump folds the trail in.
+[sources.neovide-cursor-renderer]
+key    = "neovide-cursor-renderer"
+title  = "Neovide 105fd64, cursor_renderer/mod.rs -- four corners, and short jumps on the short animation length"
+author = "Neovide contributors"
+year   = 2026
+venue  = "Neovide"
+url    = "https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/src/renderer/cursor_renderer/mod.rs"
+file   = "neovide-cursor-renderer.rs"
+sha256 = "56d850fe262faa93daf96c31c609a095e430b913929401075ef5e314e8a7db1b"
+bytes  = 22925
+status = "retrieved"
+group  = "V"

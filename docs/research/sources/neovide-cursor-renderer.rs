@@ -1,0 +1,627 @@
+mod blink;
+mod cursor_vfx;
+
+use std::{collections::HashMap, sync::Arc};
+
+use approx::AbsDiffEq;
+use itertools::Itertools;
+use skia_safe::{Canvas, Paint, Path, PathBuilder, op};
+use winit::event::WindowEvent;
+
+use crate::{
+    bridge::EditorMode,
+    editor::{Cursor, CursorShape, Word},
+    profiling::{tracy_plot, tracy_zone},
+    renderer::{GridRenderer, RenderedWindow, animation_utils::*},
+    settings::{ParseFromValue, Settings},
+    units::{
+        GridPos, GridScale, GridSize, PixelPos, PixelRect, PixelSize, PixelVec, to_skia_point,
+    },
+    window::ShouldRender,
+};
+
+use blink::*;
+
+const DEFAULT_CELL_PERCENTAGE: f32 = 1.0 / 8.0;
+
+const STANDARD_CORNERS: &[(f32, f32); 4] = &[(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)];
+
+#[cfg(feature = "profiling")]
+use std::ffi::{CStr, c_char};
+#[cfg(feature = "profiling")]
+static PLOT_NAMES_X: [&CStr; 4] = [
+    unsafe { CStr::from_ptr(b"Cursor top left x\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor top right x\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor bottom right x\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor bottom left x\0".as_ptr() as *const c_char) },
+];
+
+#[cfg(feature = "profiling")]
+static PLOT_NAMES_Y: [&CStr; 4] = [
+    unsafe { CStr::from_ptr(b"Cursor top left y\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor top right y\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor bottom right y\0".as_ptr() as *const c_char) },
+    unsafe { CStr::from_ptr(b"Cursor bottom left y\0".as_ptr() as *const c_char) },
+];
+
+#[derive(SettingGroup)]
+#[setting_prefix = "cursor"]
+#[derive(Clone)]
+pub struct CursorSettings {
+    antialiasing: bool,
+    animation_length: f32,
+    short_animation_length: f32,
+    animate_in_insert_mode: bool,
+    animate_command_line: bool,
+    trail_size: f32,
+    unfocused_outline_width: f32,
+    smooth_blink: bool,
+    cell_color_fallback: bool,
+
+    vfx_mode: cursor_vfx::VfxModeList,
+    vfx_opacity: f32,
+    vfx_particle_lifetime: f32,
+    vfx_particle_highlight_lifetime: f32,
+    vfx_particle_density: f32,
+    vfx_particle_speed: f32,
+    vfx_particle_phase: f32,
+    vfx_particle_curl: f32,
+}
+
+impl Default for CursorSettings {
+    fn default() -> Self {
+        CursorSettings {
+            antialiasing: true,
+            animation_length: 0.150,
+            short_animation_length: 0.04,
+            animate_in_insert_mode: true,
+            animate_command_line: true,
+            trail_size: 1.0,
+            unfocused_outline_width: 1.0 / 8.0,
+            smooth_blink: false,
+            cell_color_fallback: false,
+            vfx_mode: cursor_vfx::VfxModeList::default(),
+            vfx_opacity: 200.0,
+            vfx_particle_lifetime: 0.5,
+            vfx_particle_highlight_lifetime: 0.2,
+            vfx_particle_density: 0.7,
+            vfx_particle_speed: 10.0,
+            vfx_particle_phase: 1.5,
+            vfx_particle_curl: 1.0,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Corner {
+    current_position: PixelPos<f32>,
+    relative_position: GridPos<f32>,
+    previous_destination: PixelPos<f32>,
+    animation_x: CriticallyDampedSpringAnimation,
+    animation_y: CriticallyDampedSpringAnimation,
+    animation_length: f32,
+    #[cfg(feature = "profiling")]
+    id: usize,
+}
+
+impl Corner {
+    pub fn new() -> Corner {
+        Corner {
+            current_position: PixelPos::default(),
+            relative_position: GridPos::<f32>::default(),
+            previous_destination: PixelPos::new(-1000.0, -1000.0),
+            animation_x: CriticallyDampedSpringAnimation::new(),
+            animation_y: CriticallyDampedSpringAnimation::new(),
+            animation_length: 0.0,
+            #[cfg(feature = "profiling")]
+            id: 0,
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        cursor_dimensions: GridScale,
+        destination: PixelPos<f32>,
+        dt: f32,
+        immediate_movement: bool,
+    ) -> bool {
+        let corner_destination = self.get_destination(destination, cursor_dimensions);
+        if corner_destination != self.previous_destination {
+            let delta = corner_destination - self.current_position;
+
+            self.animation_x.position = delta.x;
+            self.animation_y.position = delta.y;
+            self.previous_destination = corner_destination;
+        }
+
+        if immediate_movement {
+            self.animation_x.reset();
+            self.animation_y.reset();
+            self.current_position = corner_destination;
+            return false;
+        }
+
+        let mut animating = self.animation_x.update(dt, self.animation_length);
+        animating |= self.animation_y.update(dt, self.animation_length);
+        self.current_position.x = corner_destination.x - self.animation_x.position;
+        self.current_position.y = corner_destination.y - self.animation_y.position;
+
+        #[cfg(feature = "profiling")]
+        {
+            tracy_plot!(PLOT_NAMES_X[self.id], self.current_position.x.into());
+            tracy_plot!(PLOT_NAMES_Y[self.id], self.current_position.y.into());
+        }
+
+        animating
+    }
+
+    fn jump(
+        &mut self,
+        settings: &CursorSettings,
+        destination: PixelPos<f32>,
+        cursor_dimensions: GridScale,
+        alignment: f32,
+    ) {
+        let corner_destination = self.get_destination(destination, cursor_dimensions);
+        let jump_vec = (corner_destination - self.previous_destination) / cursor_dimensions;
+
+        self.animation_length = if jump_vec.x.abs() <= 2.001 && jump_vec.y.abs_diff_eq(&0.0, 0.001)
+        {
+            // Use a fast animation time for short jumps less than two characters, typically when
+            // typing or holding a key in insert mode
+            settings.animation_length.min(settings.short_animation_length)
+        } else {
+            let leading = settings.animation_length * (1.0 - settings.trail_size).clamp(0.0, 1.0);
+            let trailing = settings.animation_length;
+            lerp(trailing, leading, alignment)
+        }
+    }
+
+    fn get_destination(
+        &self,
+        destination: PixelPos<f32>,
+        cursor_dimensions: GridScale,
+    ) -> PixelPos<f32> {
+        // Calculate window-space destination for corner
+        let relative_scaled_position = self.relative_position * cursor_dimensions;
+
+        destination + relative_scaled_position.to_vector()
+    }
+
+    fn calculate_direction_alignment(
+        &self,
+        cursor_dimensions: GridScale,
+        destination: PixelPos<f32>,
+    ) -> f32 {
+        // Calculate how much a corner will be lagging behind based on how much it's aligned
+        // with the direction of motion. Corners in front will move faster than corners in the
+        // back
+        let relative_scaled_position = self.relative_position * cursor_dimensions;
+        let corner_destination = destination + relative_scaled_position.to_vector();
+        //(center_destination- corner.current_position).length()
+        let corner_direction = self.relative_position.as_vector().normalize().cast();
+        let travel_direction = {
+            let d = corner_destination - self.previous_destination;
+            d.normalize()
+        };
+        travel_direction.dot(corner_direction)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CmdlineCtx {
+    Inactive,
+    Active { window: u64 },
+    Exiting { window: u64 },
+}
+
+impl CmdlineCtx {
+    fn active(current_window: u64) -> Self {
+        Self::Active { window: current_window }
+    }
+
+    fn exiting_or_inactive(window: u64, current_window: u64) -> Self {
+        if current_window == window { Self::Exiting { window } } else { Self::Inactive }
+    }
+
+    fn advance(self, current_mode: &EditorMode, current_window: u64) -> Self {
+        let in_cmdline = matches!(current_mode, EditorMode::CmdLine);
+
+        if in_cmdline {
+            return Self::active(current_window);
+        }
+
+        match self {
+            Self::Inactive => Self::Inactive,
+            Self::Active { window } | Self::Exiting { window } => {
+                Self::exiting_or_inactive(window, current_window)
+            }
+        }
+    }
+}
+
+pub struct CursorRenderer {
+    pub corners: Vec<Corner>,
+    cursor: Cursor,
+    destination: PixelPos<f32>,
+    blink_status: BlinkStatus,
+    previous_cursor_position: Option<(u64, GridPos<u64>)>,
+    previous_cursor_shape: Option<CursorShape>,
+    cmdline_ctx: CmdlineCtx,
+    cursor_vfxs: Vec<Box<dyn cursor_vfx::CursorVfx>>,
+    previous_vfx_mode: cursor_vfx::VfxModeList,
+    window_has_focus: bool,
+    jumped: bool,
+
+    settings: Arc<Settings>,
+}
+
+impl CursorRenderer {
+    pub fn new(settings: Arc<Settings>) -> CursorRenderer {
+        let mut renderer = CursorRenderer {
+            corners: vec![Corner::new(); 4],
+            cursor: Cursor::new(),
+            destination: (0.0, 0.0).into(),
+            blink_status: BlinkStatus::new(),
+            previous_cursor_position: None,
+            previous_cursor_shape: None,
+            cmdline_ctx: CmdlineCtx::Inactive,
+            cursor_vfxs: vec![],
+            previous_vfx_mode: cursor_vfx::VfxModeList::default(),
+            window_has_focus: true,
+            jumped: false,
+
+            settings,
+        };
+        renderer.set_cursor_shape(&CursorShape::Block, DEFAULT_CELL_PERCENTAGE);
+        renderer
+    }
+
+    pub fn handle_event(&mut self, event: &WindowEvent) {
+        if let WindowEvent::Focused(is_focused) = event {
+            self.window_has_focus = *is_focused;
+        }
+    }
+
+    pub fn update_cursor(&mut self, new_cursor: Cursor) {
+        self.cursor = new_cursor;
+    }
+
+    fn set_cursor_shape(&mut self, cursor_shape: &CursorShape, cell_percentage: f32) {
+        self.corners = self
+            .corners
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(i, corner)| {
+                let (x, y) = STANDARD_CORNERS[i];
+
+                Corner {
+                    relative_position: match cursor_shape {
+                        CursorShape::Block => (x, y).into(),
+                        // Transform the x position so that the right side is translated over to
+                        // the BAR_WIDTH position
+                        CursorShape::Vertical => ((x + 0.5) * cell_percentage - 0.5, y).into(),
+                        // Do the same as above, but flip the y coordinate and then flip the result
+                        // so that the horizontal bar is at the bottom of the character space
+                        // instead of the top.
+                        CursorShape::Horizontal => {
+                            (x, -((-y + 0.5) * cell_percentage - 0.5)).into()
+                        }
+                    },
+                    #[cfg(feature = "profiling")]
+                    id: i,
+                    ..corner
+                }
+            })
+            .collect::<Vec<Corner>>();
+    }
+
+    pub fn update_cursor_destination(
+        &mut self,
+        grid_scale: GridScale,
+        windows: &HashMap<u64, RenderedWindow>,
+    ) {
+        let cursor_grid_position = GridPos::<u64>::from(self.cursor.grid_position);
+        let cursor_grid_position_f = cursor_grid_position.try_cast().unwrap();
+        let previous_destination = self.destination;
+        let mut scroll_delta = PixelVec::ZERO;
+        let new_cursor_pos = if let Some(window) = windows.get(&self.cursor.parent_window_id) {
+            let destination_at = |scroll: f32| {
+                let mut grid = cursor_grid_position_f + window.grid_current_position.to_vector();
+                grid.y -= scroll;
+
+                let top_border = window.viewport_margins.top as f32;
+                let bottom_border = window.viewport_margins.bottom as f32;
+
+                // Prevent the cursor from targeting a position outside its current window. Since only
+                // the vertical direction is effected by scrolling, we only have to clamp the vertical
+                // grid position.
+                grid.y = grid.y.max(window.grid_current_position.y + top_border).min(
+                    window.grid_current_position.y + window.grid_size.height as f32
+                        - 1.0
+                        - bottom_border,
+                );
+
+                grid * grid_scale
+            };
+
+            let scroll = window.scroll_animation.position;
+            self.destination = destination_at(scroll);
+            scroll_delta =
+                self.destination - destination_at(scroll - window.scroll_animation_delta);
+            Some((window.id, cursor_grid_position))
+        } else {
+            self.destination = cursor_grid_position_f * grid_scale;
+            Some((0, cursor_grid_position))
+        };
+
+        for corner in self.corners.iter_mut() {
+            corner.current_position += scroll_delta;
+            corner.previous_destination += scroll_delta;
+        }
+
+        let motion = self.destination - previous_destination - scroll_delta;
+        self.jumped |= motion.x.abs() > 0.01 || motion.y.abs() > 0.01;
+
+        if new_cursor_pos != self.previous_cursor_position {
+            self.previous_cursor_position = new_cursor_pos;
+            for vfx in self.cursor_vfxs.iter_mut() {
+                vfx.cursor_jumped(self.destination);
+            }
+        }
+    }
+
+    pub fn prepare_frame(&mut self) -> ShouldRender {
+        self.blink_status.update_status(&self.cursor)
+    }
+
+    pub fn draw(&mut self, grid_renderer: &mut GridRenderer, canvas: &Canvas) {
+        tracy_zone!("cursor_draw");
+        let settings = self.settings.get::<CursorSettings>();
+        let render = self.blink_status.should_render() || settings.smooth_blink;
+        let opacity = match settings.smooth_blink {
+            true => self.blink_status.opacity(),
+            false => 1.0,
+        };
+        let alpha = self.cursor.alpha() as f32;
+
+        let mut paint = Paint::new(skia_safe::colors::WHITE, None);
+        paint.set_anti_alias(settings.antialiasing);
+
+        let character = self.cursor.grid_cell.0.clone();
+
+        if !(self.cursor.enabled && render) {
+            return;
+        }
+        // Draw Background
+        let background_color = self
+            .cursor
+            .background(&grid_renderer.default_style.colors, settings.cell_color_fallback)
+            .to_color()
+            .with_a((opacity * alpha) as u8);
+        paint.set_color(background_color);
+
+        let path = if self.window_has_focus || self.cursor.shape != CursorShape::Block {
+            self.draw_rectangle(canvas, &paint)
+        } else {
+            let outline_width = settings.unfocused_outline_width * grid_renderer.em_size;
+            self.draw_rectangular_outline(canvas, &paint, outline_width)
+        };
+
+        // Draw foreground
+        let foreground_color = self
+            .cursor
+            .foreground(&grid_renderer.default_style.colors, settings.cell_color_fallback)
+            .to_color()
+            .with_a((opacity * alpha) as u8);
+        paint.set_color(foreground_color);
+
+        canvas.save();
+        canvas.clip_path(&path, None, Some(false));
+
+        let baseline_offset = grid_renderer.shaper.baseline_offset();
+        let style = &self.cursor.grid_cell.1;
+        let coarse_style = style.as_ref().map(|style| style.into()).unwrap_or_default();
+
+        let box_char_drawn = grid_renderer.box_char_renderer.draw_glyph(
+            &character,
+            canvas,
+            PixelRect::from_origin_and_size(
+                self.destination,
+                GridSize::new(1, 1) * grid_renderer.grid_scale,
+            ),
+            foreground_color,
+            PixelPos::default(),
+        );
+        if !box_char_drawn {
+            let pos = (self.destination.x, self.destination.y + baseline_offset);
+            let blobs = &grid_renderer
+                .shaper
+                .shape_cached(Word::new(&character, &[character.len() as u8]), coarse_style);
+            for blob in blobs.iter() {
+                canvas.draw_text_blob(blob, pos, &paint);
+            }
+        }
+
+        canvas.restore();
+
+        for vfx in self.cursor_vfxs.iter() {
+            vfx.render(&settings, canvas, grid_renderer, &self.cursor);
+        }
+    }
+
+    pub fn animate(
+        &mut self,
+        current_mode: &EditorMode,
+        grid_renderer: &GridRenderer,
+        dt: f32,
+    ) -> bool {
+        tracy_zone!("cursor_animate");
+        if !self.cursor.enabled {
+            return false;
+        }
+        let settings = self.settings.get::<CursorSettings>();
+
+        if settings.vfx_mode != self.previous_vfx_mode {
+            self.cursor_vfxs = cursor_vfx::new_cursor_vfxs(&settings.vfx_mode);
+            self.previous_vfx_mode = settings.vfx_mode.clone();
+        }
+
+        let mut cursor_width = grid_renderer.grid_scale.width();
+        if self.cursor.double_width && self.cursor.shape == CursorShape::Block {
+            cursor_width *= 2.0;
+        }
+
+        let cursor_dimensions = PixelSize::new(cursor_width, grid_renderer.grid_scale.height());
+
+        let in_insert_mode = matches!(current_mode, EditorMode::Insert);
+
+        let next_cmdline_ctx = self.cmdline_ctx.advance(current_mode, self.cursor.parent_window_id);
+        let changed_to_from_cmdline = !matches!(self.cmdline_ctx, CmdlineCtx::Inactive)
+            ^ !matches!(next_cmdline_ctx, CmdlineCtx::Inactive);
+
+        let center_destination = self.destination + cursor_dimensions.to_vector() * 0.5;
+
+        if self.previous_cursor_shape.as_ref() != Some(&self.cursor.shape) {
+            self.previous_cursor_shape = Some(self.cursor.shape.clone());
+            self.set_cursor_shape(
+                &self.cursor.shape.clone(),
+                self.cursor.cell_percentage.unwrap_or(DEFAULT_CELL_PERCENTAGE),
+            );
+
+            for vfx in self.cursor_vfxs.iter_mut() {
+                vfx.restart(center_destination);
+            }
+        }
+
+        let mut animating = false;
+
+        if center_destination != PixelPos::ZERO {
+            let immediate_movement = !settings.animate_in_insert_mode && in_insert_mode
+                || !settings.animate_command_line && changed_to_from_cmdline;
+            if self.jumped {
+                let alignments = self
+                    .corners
+                    .iter()
+                    .map(|corner| {
+                        corner.calculate_direction_alignment(
+                            cursor_dimensions.into(),
+                            center_destination,
+                        )
+                    })
+                    .collect_array::<4>()
+                    .unwrap();
+                let min = alignments.iter().copied().fold(f32::INFINITY, f32::min);
+                let max = alignments.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                let range = max - min;
+                for (id, corner) in self.corners.iter_mut().enumerate() {
+                    let alignment = (alignments[id] - min) / range;
+                    let alignment =
+                        if alignment.is_finite() { alignment.clamp(0.0, 1.0) } else { 1.0 };
+                    corner.jump(&settings, center_destination, cursor_dimensions.into(), alignment)
+                }
+            }
+            for corner in self.corners.iter_mut() {
+                let corner_animating = corner.update(
+                    cursor_dimensions.into(),
+                    center_destination,
+                    dt,
+                    immediate_movement,
+                );
+
+                animating |= corner_animating;
+            }
+
+            let mut vfx_animating = false;
+            let vfx_base_color = self
+                .cursor
+                .background(&grid_renderer.default_style.colors, settings.cell_color_fallback)
+                .to_color();
+
+            for vfx in self.cursor_vfxs.iter_mut() {
+                let ret = vfx.update(
+                    &settings,
+                    vfx_base_color,
+                    center_destination,
+                    cursor_dimensions,
+                    immediate_movement,
+                    dt,
+                );
+                if !vfx_animating {
+                    vfx_animating = ret;
+                }
+            }
+
+            animating |= vfx_animating;
+        }
+        self.jumped = false;
+        self.cmdline_ctx = next_cmdline_ctx;
+
+        let blink_animating = settings.smooth_blink && self.blink_status.should_animate();
+
+        animating |= blink_animating;
+        tracy_plot!("cursor animating", animating as u8 as f64);
+        animating
+    }
+
+    fn snapped_corner(&self, index: usize) -> skia_safe::Point {
+        let fract = self.destination.fract().to_vector();
+        to_skia_point((self.corners[index].current_position - fract).round() + fract)
+    }
+
+    fn draw_rectangle(&self, canvas: &Canvas, paint: &Paint) -> Path {
+        // The cursor is made up of four points, so I create a path with each of the four
+        // corners.
+        let mut builder = PathBuilder::new();
+        builder
+            .move_to(self.snapped_corner(0))
+            .line_to(self.snapped_corner(1))
+            .line_to(self.snapped_corner(2))
+            .line_to(self.snapped_corner(3))
+            .close();
+
+        let path = builder.detach();
+        canvas.draw_path(&path, paint);
+        path
+    }
+
+    fn draw_rectangular_outline(&self, canvas: &Canvas, paint: &Paint, outline_width: f32) -> Path {
+        let mut rectangle_builder = PathBuilder::new();
+        rectangle_builder
+            .move_to(self.snapped_corner(0))
+            .line_to(self.snapped_corner(1))
+            .line_to(self.snapped_corner(2))
+            .line_to(self.snapped_corner(3))
+            .close();
+        let rectangle = rectangle_builder.detach();
+
+        let offsets: [PixelVec<f32>; 4] = [
+            (outline_width, outline_width).into(),
+            (-outline_width, outline_width).into(),
+            (-outline_width, -outline_width).into(),
+            (outline_width, -outline_width).into(),
+        ];
+
+        let mut subtract_builder = PathBuilder::new();
+        subtract_builder
+            .move_to(to_skia_point(self.corners[0].current_position + offsets[0]))
+            .line_to(to_skia_point(self.corners[1].current_position + offsets[1]))
+            .line_to(to_skia_point(self.corners[2].current_position + offsets[2]))
+            .line_to(to_skia_point(self.corners[3].current_position + offsets[3]))
+            .close();
+
+        let subtract = subtract_builder.detach();
+
+        // We have two "rectangles"; create an outline path by subtracting the smaller rectangle
+        // from the larger one. This can fail in which case we return a full "rectangle".
+        let path = op(&rectangle, &subtract, skia_safe::PathOp::Difference).unwrap_or(rectangle);
+
+        canvas.draw_path(&path, paint);
+        path
+    }
+
+    pub fn get_destination(&self) -> PixelPos<f32> {
+        self.destination
+    }
+}

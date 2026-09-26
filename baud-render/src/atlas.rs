@@ -60,6 +60,11 @@ pub enum Kind {
     /// No texels at all: every pixel fully covered, in the instance's
     /// colour. Underlines, strikes and cursor shapes.
     Solid = 2,
+    /// The cursor trail's quad: the record is its bounds, and the pixels
+    /// inside the quad are covered, anti-aliased at its edges and bare in
+    /// the cursor's own rectangle (`trail::coverage`). Drawn by its own
+    /// fragment function, `quad_fragment`, which reads the corners.
+    Quad = 3,
 }
 
 /// A kind's discriminant as the shader reads it.
@@ -76,6 +81,7 @@ impl Kind {
             Kind::Mask => 0,
             Kind::Color => 1,
             Kind::Solid => 2,
+            Kind::Quad => 3,
         })
     }
 }

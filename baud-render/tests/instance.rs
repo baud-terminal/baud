@@ -36,7 +36,12 @@ fn the_record_is_twenty_little_endian_bytes() {
 /// `Kind::code` -- and the shader switches on these numbers.
 #[test]
 fn every_kind_has_the_code_the_shader_switches_on() {
-    for (kind, code) in [(Kind::Mask, 0u32), (Kind::Color, 1), (Kind::Solid, 2)] {
+    for (kind, code) in [
+        (Kind::Mask, 0u32),
+        (Kind::Color, 1),
+        (Kind::Solid, 2),
+        (Kind::Quad, 3),
+    ] {
         assert_eq!(kind.code().0, code, "{kind:?}");
         assert_eq!(&sample(kind).to_bytes()[16..20], &code.to_le_bytes());
     }

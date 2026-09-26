@@ -11,6 +11,7 @@
 use crate::atlas::{Atlas, Kind};
 use crate::color::Argb;
 use crate::instance::Instance;
+use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
 use baud_domain::{Chan, ImageView};
 use baud_font::Px;
@@ -117,6 +118,9 @@ impl<'p> Target<'p> {
                         blend.over(color, dst, Coverage(cov))
                     }
                     Kind::Solid => blend.over(color, dst, Coverage(255)),
+                    // A quad's record is only its bounds; the pixels come
+                    // from its corners, which `Target::quad` is handed.
+                    Kind::Quad => continue,
                     Kind::Color => {
                         let src = Argb(atlas.argb()[(v + my) * color_side + u + mx]);
                         if src.a().get() == 0 {
@@ -126,6 +130,30 @@ impl<'p> Target<'p> {
                     }
                 };
                 row[x] = out.0;
+            }
+        }
+    }
+
+    /// Paints the trail's quad over the pixels in `fill`, clipped to its
+    /// bounds, the buffer and the rows of `band`: each pixel as much as
+    /// [`crate::trail::coverage`] says the quad covers its centre.
+    pub fn quad(&mut self, s: &Smear, fill: Argb, blend: Blend, band: Band) {
+        let (x0, y0, x1, y1) = s.bounds();
+        let rows = self.rows_of(band);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        let ys = slots(y0).max(rows.start)..slots(y1).min(rows.end);
+        let xs = slots(x0)..slots(x1).min(width);
+        for y in ys {
+            let row = &mut self.pixels[y * stride..y * stride + width];
+            let cy = f32::from(u16::try_from(y).unwrap_or(u16::MAX)) + 0.5;
+            for x in xs.clone() {
+                let cx = f32::from(u16::try_from(x).unwrap_or(u16::MAX)) + 0.5;
+                let cover = crate::trail::coverage(s, Pt { x: cx, y: cy });
+                if cover <= 0.0 {
+                    continue;
+                }
+                let c = u8::try_from((cover * 255.0).round() as i64).unwrap_or(u8::MAX);
+                row[x] = blend.over(fill, Argb(row[x]), Coverage(c)).0;
             }
         }
     }

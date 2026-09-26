@@ -66,13 +66,18 @@ fonts = [
 # A blinking cursor shows for 600 ms and hides for 300 (xterm's times), blinks
 # only while the window has focus, and shows at once on a key or on output.
 #
-# `trail`: whether a cursor move leaves a fading trail sweeping from the cell
-# it left to the cell it reached. On by default; an idle terminal pays nothing
-# for it, because only a cursor that moved leaves one.
+# `trail`: what a cursor move leaves behind. "quad", the default, is kitty's
+# trail: a quadrilateral whose four corners chase the cursor's, the ones facing
+# the move leading and the ones behind it lagging, over about half a second.
+# It follows a move of more than two cells once the cursor has rested for
+# 10 ms, so typing and streaming output leave none. "ghost" is a one-cell box
+# sweeping from the cell the cursor left to the cell it reached. "off" is none;
+# true and false still mean "quad" and "off". An idle terminal pays nothing
+# for either, because only a cursor that moved leaves one.
 [cursor]
 shape = "block"
 blink = true
-trail = true
+trail = "quad"
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the
