@@ -2,12 +2,12 @@
 
 use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
-use crate::cellmap::{Resolved, Shapes};
+use crate::cellmap::{BlockCursor, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
-use crate::picture::{Pictured, Pictures};
+use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
@@ -444,6 +444,14 @@ pub struct Renderer<'f, 'a> {
     cur_styles: Vec<Digest>,
     bg: Vec<Argb>,
     fg: Vec<Argb>,
+    /// Per cell, whether its text draws, beside its colours: the glyphs
+    /// emitted for a hidden cell are dropped where they are emitted, so a
+    /// run shapes the same in both blink phases.
+    text: Vec<Text>,
+    /// Per row, whether the last convert of it saw blinking text. A row a
+    /// frame does not convert is unchanged, so its answer still holds, and
+    /// `blink_seen` is the whole screen's.
+    row_blinks: Vec<Blinking>,
     per_row: Vec<Vec<Instance>>,
     last_cursor: Cursor,
     /// The selection on this frame's view, set by [`Renderer::set_highlight`]
@@ -477,6 +485,10 @@ pub struct Renderer<'f, 'a> {
     /// driver repaints on a phase flip only when something actually blinks.
     blink: Blink,
     blink_seen: Blinking,
+    /// How many slots of the rendition table the last resolve found
+    /// blinking. The cell path's walk tests a cell for blinking only while
+    /// this is not zero.
+    blink_slots: Tally,
     /// This frame's cursor blink phase, set by [`Renderer::set_cursor_blink`]:
     /// a phase of its own, because a blinking cursor keeps xterm's timing and
     /// restarts on input where `SGR 5` text keeps neither.
@@ -596,6 +608,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cur_styles: Vec::new(),
             bg: Vec::new(),
             fg: Vec::new(),
+            text: Vec::new(),
+            row_blinks: Vec::new(),
             per_row: Vec::new(),
             last_cursor: None,
             highlight: None,
@@ -611,6 +625,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_fade: None,
             fade_inst: Vec::new(),
             blink: Blink::default(),
+            blink_slots: Tally::default(),
             blink_seen: Blinking::default(),
             cursor_blink: Blink::Shown,
             flash: VideoFlash::default(),
@@ -743,6 +758,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.blink = blink;
     }
 
+    /// This frame's `SGR 5` phase, for the cell shader, which hides blinking
+    /// text itself: a resolved slot is the same in both phases.
+    pub fn blink(&self) -> Blink {
+        self.blink
+    }
+
+    /// Whether the rendition table holds a blinking slot at all, as of the
+    /// last resolve: the cell path's walk tests cells only then.
+    pub(crate) fn blink_slots(&self) -> Blinking {
+        match self.blink_slots.value() {
+            0 => Blinking::Unseen,
+            _ => Blinking::Seen,
+        }
+    }
+
+    /// The cell path's answer to [`Renderer::blink_seen`], from its walk.
+    pub(crate) fn set_blink_seen(&mut self, seen: Blinking) {
+        self.blink_seen = seen;
+    }
+
     /// The cursor's blink phase this frame. The driver owns the clock and
     /// the rules for when a cursor blinks at all -- focused, visible, on the
     /// live screen -- and hands [`Blink::Shown`] whenever it does not, so a
@@ -828,8 +863,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.theme
     }
 
-    /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`,
-    /// so a driver repaints on a phase flip only when something blinks.
+    /// Whether blinking text is on screen as of the last frame, so a driver
+    /// repaints on a phase flip only when something blinks: a cell on screen
+    /// with `Attrs::BLINK`, over the whole screen and not only the rows the
+    /// frame converted. The CPU and instance paths answer from `convert`;
+    /// the cell path from the overlay's walk (`Overlay::ensure`), since a
+    /// slot in the table that no cell on screen names is not on screen.
     pub fn blink_seen(&self) -> Blinking {
         self.blink_seen
     }
@@ -912,6 +951,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur_styles = vec![Digest::default(); rows.index()];
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
+        self.text = vec![Text::Drawn; cells];
+        self.row_blinks = vec![Blinking::Unseen; rows.index()];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
         self.dirty = vec![false; rows.index()];
         self.known = Prev::Unknown;
@@ -1156,7 +1197,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         images: ImageRows,
     ) -> Converted {
         let t0 = Instant::now();
-        self.blink_seen = Blinking::Unseen;
         self.fit(term);
         self.refresh_screen(term);
         let (cols, rows) = term.geometry();
@@ -1251,6 +1291,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 rows_dirty.bump();
             }
         }
+        self.blink_seen = if self.row_blinks.contains(&Blinking::Seen) {
+            Blinking::Seen
+        } else {
+            Blinking::Unseen
+        };
         core::mem::swap(&mut self.prev, &mut self.cur);
         core::mem::swap(&mut self.prev_styles, &mut self.cur_styles);
         self.known = Prev::Known;
@@ -1510,80 +1555,85 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The terminal's rendition table resolved through the theme and the
-    /// live palette into `out`, one entry a slot, by the same rules
-    /// `convert` applies a cell at a time -- so the cell path draws a
-    /// rendition the way the instance path does, without a second spelling
+    /// live palette into `out`, one entry a slot, by [`Renderer::resolve_slot`]
+    /// -- the rules `convert` applies a cell at a time, so the cell path draws
+    /// a rendition the way the instance path does, without a second spelling
     /// of them. `out` is the memory a shader reads, so nothing is copied
     /// after this. Slots past `out` are not resolved; the count written is
     /// returned.
+    ///
+    /// **A slot is the same in both blink phases** (`Shapes::BLINK`), and
+    /// whether blinking text is on screen is not this table's answer: a slot
+    /// no cell names is not on screen, and the table never frees one. It
+    /// counts the blinking slots, and the overlay's walk answers.
     pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
-        self.blink_seen = Blinking::Unseen;
         self.refresh_screen(term);
         let table = term.styles();
         let mut n = Tally::default();
+        let mut blinking = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
-            let style = slot.unwrap_or(baud_domain::StyleWord::DEFAULT);
-            let (mut fg, mut bg) = self.theme.resolve(
-                style,
-                self.video,
-                |ch| term.palette(ch),
-                |d| term.dynamic_color(d),
-            );
-            bg = bg.with_alpha(self.theme.bg_alpha);
-            let attrs = style.attrs();
-            let blink_hidden = if attrs.has(Attrs::BLINK) {
-                self.blink_seen = Blinking::Seen;
-                self.blink == Blink::Hidden
-            } else {
-                false
-            };
-            if blink_hidden {
-                fg = bg;
+            *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
+            if dst.shapes.has(Shapes::BLINK) {
+                blinking.bump();
             }
-            let mut shapes = Shapes::default();
-            if self.theme.opaque_bg(style) {
-                shapes = shapes.with(Shapes::OPAQUE_BG);
-            }
-            // Any underline style asks for the base line's colour plumbing;
-            // which line is drawn is the style's own bit below. The three colon
-            // styles *replace* the straight line rather than adding to it, so
-            // the straight-line bit is set only for the two that draw one.
-            let styled = attrs.has(Attrs::UNDERLINES);
-            let straight = attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE);
-            if !blink_hidden && straight {
-                shapes = shapes.with(Shapes::UNDERLINE);
-            }
-            if !blink_hidden && attrs.has(Attrs::DOUBLE_UNDERLINE) {
-                shapes = shapes.with(Shapes::DOUBLE_UNDERLINE);
-            }
-            if !blink_hidden && attrs.has(Attrs::CURLY_UNDERLINE) {
-                shapes = shapes.with(Shapes::CURLY_UNDERLINE);
-            }
-            if !blink_hidden && attrs.has(Attrs::DOTTED_UNDERLINE) {
-                shapes = shapes.with(Shapes::DOTTED_UNDERLINE);
-            }
-            if !blink_hidden && attrs.has(Attrs::DASHED_UNDERLINE) {
-                shapes = shapes.with(Shapes::DASHED_UNDERLINE);
-            }
-            let _ = styled;
-            if !blink_hidden && attrs.has(Attrs::STRIKE) {
-                shapes = shapes.with(Shapes::STRIKE);
-            }
-            let underline = self
-                .theme
-                .underline(style, self.video, fg, |ch| term.palette(ch));
-            if underline == fg && style.underline().is_default() {
-                shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
-            }
-            *dst = Resolved {
-                fg,
-                bg,
-                underline,
-                shapes,
-            };
             n.bump();
         }
+        self.blink_slots = blinking;
         n
+    }
+
+    /// One rendition resolved through the theme and the live palette to what
+    /// a cell draws with, before anything a frame lays over it -- the
+    /// selection, the cursor, the blink's phase ([`Resolved::drawn`]). The one
+    /// spelling of the rendition rules: the cell path's table holds it a slot
+    /// at a time and the CPU and instance paths take it a cell at a time.
+    fn resolve_slot(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+        let (fg, bg) = self.theme.resolve(
+            style,
+            self.video,
+            |ch| term.palette(ch),
+            |d| term.dynamic_color(d),
+        );
+        // **Every background is translucent, not only the default one**:
+        // the owner's call of 2026-09-20. A picture's and an opaque
+        // rendition's are made solid by `Resolved::drawn`.
+        let bg = bg.with_alpha(self.theme.bg_alpha);
+        let attrs = style.attrs();
+        let mut shapes = Shapes::default();
+        if self.theme.opaque_bg(style) {
+            shapes = shapes.with(Shapes::OPAQUE_BG);
+        }
+        // Which underline is drawn is the style's own bit. The three colon
+        // styles *replace* the straight line rather than adding to it, so the
+        // straight-line bit is set only for the two that draw one.
+        if attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE) {
+            shapes = shapes.with(Shapes::UNDERLINE);
+        }
+        for (attr, shape) in [
+            (Attrs::DOUBLE_UNDERLINE, Shapes::DOUBLE_UNDERLINE),
+            (Attrs::CURLY_UNDERLINE, Shapes::CURLY_UNDERLINE),
+            (Attrs::DOTTED_UNDERLINE, Shapes::DOTTED_UNDERLINE),
+            (Attrs::DASHED_UNDERLINE, Shapes::DASHED_UNDERLINE),
+            (Attrs::STRIKE, Shapes::STRIKE),
+            (Attrs::BLINK, Shapes::BLINK),
+            (Attrs::HIDDEN, Shapes::CONCEAL),
+        ] {
+            if attrs.has(attr) {
+                shapes = shapes.with(shape);
+            }
+        }
+        let underline = self
+            .theme
+            .underline(style, self.video, fg, |ch| term.palette(ch));
+        if underline == fg && style.underline().is_default() {
+            shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
+        }
+        Resolved {
+            fg,
+            bg,
+            underline,
+            shapes,
+        }
     }
 
     /// Resolves one row's colours and glyphs.
@@ -1608,97 +1658,54 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor_color = term
             .dynamic_color(DynamicColor::Cursor)
             .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
+        let mut blinks = Blinking::Unseen;
         for (c, cell) in row.iter().enumerate() {
-            let style = term.style_of(*cell);
-            let (mut fg, mut bg) = self.theme.resolve(
-                style,
-                self.video,
-                |ch| term.palette(ch),
-                |d| term.dynamic_color(d),
-            );
-            // **Every background is translucent, not only the default
-            // one.** The rendering register's item 6 asked whether alpha is
-            // a *window* property (the default background only) or a
-            // *rendition* property (any SGR background too), and the owner
-            // chose the second on 2026-09-20. It is visible rather than
-            // theoretical: 72% of `btop.raw`'s final screen and 100% of
-            // `asciiquarium.raw`'s carry a background the application set,
-            // so under the other answer those screens were opaque where a
-            // shell was not. Every other recording in the corpus is 0%.
-            //
-            // The margin keeps the same alpha through `clear_color`, and
-            // both background passes *replace* rather than blend -- the CPU
-            // one fills, the GPU one has blending disabled -- so a cell's
-            // alpha reaches the compositor once rather than compounding
-            // with the clear under it.
-            bg = bg.with_alpha(self.theme.bg_alpha);
-            // A picture drawn in text keeps its backgrounds solid under the
-            // dim: its glyphs are solid, and a dimmed background beside
-            // each one splits the picture into slivers and holes. Must match
-            // the cell shader's `cell_bg_vertex`.
-            if self.theme.opaque_bg(style) || self.pictures.at(r, Col::at_index(c)) == Pictured::Yes
-            {
-                bg = bg.with_alpha(Chan::from_u8(0xFF));
+            let col = Col::at_index(c);
+            let res = self.resolve_slot(term, term.style_of(*cell));
+            if res.shapes.has(Shapes::BLINK) {
+                blinks = Blinking::Seen;
             }
             // A wide tail follows its lead, so a block's edge never cuts a
             // character in two: `Highlight::selects`.
-            if self
+            let selected = if self
                 .highlight
-                .is_some_and(|h| h.selects(r, Col::at_index(c), cell.content))
+                .is_some_and(|h| h.selects(r, col, cell.content))
             {
-                // Opaque on both sides of the swap. `bg` becomes the old
-                // foreground, which is the block a reader has to see; `fg`
-                // becomes the old *background*, which now carries the dim,
-                // and a glyph drawn at 0.22 alpha over its own selection
-                // block is barely there. A foreground is never translucent.
-                core::mem::swap(&mut fg, &mut bg);
-                bg = bg.with_alpha(Chan::from_u8(0xFF));
-                fg = fg.with_alpha(Chan::from_u8(0xFF));
-            }
-            let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == Col::at_index(c));
-            if matches!(
-                here,
-                Some((_, _, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock))
-            ) {
-                core::mem::swap(&mut fg, &mut bg);
-                bg = bg.with_alpha(Chan::from_u8(0xFF));
-                fg = fg.with_alpha(Chan::from_u8(0xFF));
-                // `OSC 12`: the block fills with the application's cursor
-                // colour instead of the swapped foreground. The glyph under
-                // it stays `fg` (the cell's own background), so it reads
-                // against whatever colour was chosen.
-                if let Some(cc) = cursor_color {
-                    bg = cc;
-                }
-            }
-            let attrs = style.attrs();
-            // Blink hides the whole foreground -- glyph, underline, strike --
-            // on the off phase, by drawing it in the cell's own background.
-            let blink_hidden = if attrs.has(Attrs::BLINK) {
-                self.blink_seen = Blinking::Seen;
-                self.blink == Blink::Hidden
+                Selected::Yes
             } else {
-                false
+                Selected::No
             };
-            if blink_hidden {
-                fg = bg;
-            }
+            let here = cursor.filter(|&(cr, cc, _)| cr == r && cc == col);
+            let block = match here {
+                Some((_, _, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock)) => {
+                    BlockCursor::Yes(cursor_color)
+                }
+                _ => BlockCursor::No,
+            };
+            let d = res.drawn(Swaps {
+                pictured: self.pictures.at(r, col),
+                selected,
+                block,
+                blink: self.blink,
+            });
+            let (fg, hidden) = (d.fg, d.text == Text::Hidden);
             self.fg[range.start + c] = fg;
-            self.bg[range.start + c] = bg;
+            self.bg[range.start + c] = d.bg;
+            self.text[range.start + c] = d.text;
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
-            let double = attrs.has(Attrs::DOUBLE_UNDERLINE);
+            // The underline's own colour, or the foreground after the swaps.
+            let ul_color = if res.shapes.has(Shapes::UNDERLINE_FOLLOWS_FG) {
+                fg
+            } else {
+                res.underline
+            };
             // The three colon styles, `[[source: kitty-underlines]]`, drawn as
             // runs of solid quads so they need no texel and composite exactly
             // as the straight line does. Amplitude and period are the line's
             // thickness, which is what keeps them legible at every size.
-            if !blink_hidden
-                && (attrs.has(Attrs::CURLY_UNDERLINE)
-                    || attrs.has(Attrs::DOTTED_UNDERLINE)
-                    || attrs.has(Attrs::DASHED_UNDERLINE))
-            {
-                let color = self
-                    .theme
-                    .underline(style, self.video, fg, |ch| term.palette(ch));
+            let curly = res.shapes.has(Shapes::CURLY_UNDERLINE);
+            let dotted = res.shapes.has(Shapes::DOTTED_UNDERLINE);
+            if !hidden && (curly || dotted || res.shapes.has(Shapes::DASHED_UNDERLINE)) {
                 let ul = px_i32(self.metrics.underline);
                 let th = px_i32(self.metrics.thickness).max(1);
                 let w = px_i32(self.metrics.cell_w);
@@ -1707,10 +1714,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let mut dx = 0;
                 let mut k = 0;
                 while dx < w {
-                    let (on, dy) = if attrs.has(Attrs::CURLY_UNDERLINE) {
+                    let (on, dy) = if curly {
                         // A zigzag: up for a thickness, down for a thickness.
                         (true, if k % 2 == 0 { 0 } else { th })
-                    } else if attrs.has(Attrs::DOTTED_UNDERLINE) {
+                    } else if dotted {
                         (k % 2 == 0, 0)
                     } else {
                         (k % 3 != 2, 0)
@@ -1722,26 +1729,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                             screen(top + y),
                             seg,
                             self.metrics.thickness,
-                            color,
+                            ul_color,
                         ));
                     }
                     dx += th;
                     k += 1;
                 }
             }
-            if !blink_hidden && (attrs.has(Attrs::UNDERLINE) || double) {
-                let color = self
-                    .theme
-                    .underline(style, self.video, fg, |ch| term.palette(ch));
+            if !hidden && res.shapes.has(Shapes::UNDERLINE) {
                 let ul = px_i32(self.metrics.underline);
                 shapes.push(solid(
                     screen(x),
                     screen(top + ul),
                     self.metrics.cell_w,
                     self.metrics.thickness,
-                    color,
+                    ul_color,
                 ));
-                if double {
+                if res.shapes.has(Shapes::DOUBLE_UNDERLINE) {
                     // A second line below, one thickness of gap between them,
                     // clamped so it stays inside the cell.
                     let gap = i32::try_from(self.metrics.thickness.value().max(1)).unwrap_or(1) + 1;
@@ -1752,11 +1756,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         screen(top + y),
                         self.metrics.cell_w,
                         self.metrics.thickness,
-                        color,
+                        ul_color,
                     ));
                 }
             }
-            if !blink_hidden && attrs.has(Attrs::STRIKE) {
+            if !hidden && res.shapes.has(Shapes::STRIKE) {
                 shapes.push(solid(
                     screen(x),
                     screen(top + px_i32(self.metrics.strike)),
@@ -1781,6 +1785,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 _ => {}
             }
         }
+        self.row_blinks[r.index()] = blinks;
         // Then runs of cells shaped by one face.
         let mut c = 0usize;
         while c < row.len() {
@@ -2002,6 +2007,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0);
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
         let range = self.row_cells(r);
+        // A hidden cell draws nothing of its own (`Resolved::text`).
+        if self.text.get(range.start + col.index()) == Some(&Text::Hidden) {
+            return;
+        }
         let color = self
             .fg
             .get(range.start + col.index())
@@ -2033,6 +2042,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             };
             let col = start.index() + usize::from(p.cell.0);
+            // A glyph belongs to the cell it is placed at; a hidden cell's
+            // are dropped here rather than kept out of the run, so a run
+            // shapes the same in both blink phases.
+            if self.text.get(range.start + col) == Some(&Text::Hidden) {
+                continue;
+            }
             let color = self
                 .fg
                 .get(range.start + col)

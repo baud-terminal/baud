@@ -545,6 +545,124 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         );
         feed(&mut t, b"\x1b[?25h");
     }
+    // **Text that blinks, in its off phase, under a block cursor and a
+    // selection.** The cursor block and the selection block are drawn; the
+    // blinking glyph, its underline and its strike are not. So the blink's
+    // hide comes *after* the swaps: hidden first, the glyph takes the cell's
+    // background and the swap then paints the block in it, and the cursor
+    // disappears into the text around it.
+    feed(
+        &mut t,
+        "\x1b[2;60H\x1b[5mBLINK\x1b[0m \x1b[5;4;9;31mul-st\x1b[0m \x1b[5me\u{301}->\x1b[0m\x1b[2 q\x1b[2;62H"
+            .as_bytes(),
+    );
+    arms.renderer.set_blink(Blink::Hidden);
+    let (off_a, off_b) = arms.draw(&mut t);
+    {
+        let (w, _) = arms.renderer.frame_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let bx = diff_box(&off_a, &off_b, usize::try_from(w.value()).unwrap(), cell);
+        assert_eq!(
+            differing(&off_a, &off_b),
+            0,
+            "the arms disagree on blinking text's off phase under a block cursor, in cells {bx:?}"
+        );
+    }
+    feed(&mut t, b"\x1b[?25l");
+    let (none_a, none_b) = arms.draw(&mut t);
+    assert_ne!(
+        differing(&off_a, &none_a),
+        0,
+        "the block cursor over blinking text vanished in the off phase"
+    );
+    assert_eq!(differing(&none_a, &none_b), 0);
+    feed(&mut t, b"\x1b[?25h");
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(1), Col::at_index(58)),
+        to: (Row::from_index(1), Col::at_index(70)),
+        region: Region::Stream,
+    });
+    let (sel_a, sel_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&sel_a, &sel_b),
+        0,
+        "the arms disagree on blinking text's off phase under a selection"
+    );
+    arms.highlight = None;
+    // And on each arm the off phase is the frame of spaces in the text's
+    // background -- here the default's, translucent -- with the cursor where
+    // it was: a glyph drawn in its background's colour at another alpha
+    // leaves its silhouette, which agreeing arms would share.
+    feed(&mut t, b"\x1b[2;60H               \x1b[2;62H");
+    let (sp_a, sp_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&off_a, &sp_a),
+        0,
+        "the instance arm drew something of blinking text in its off phase"
+    );
+    assert_eq!(
+        differing(&off_b, &sp_b),
+        0,
+        "the cell arm drew something of blinking text in its off phase"
+    );
+    feed(
+        &mut t,
+        "\x1b[2;60H\x1b[5mBLINK\x1b[0m \x1b[5;4;9;31mul-st\x1b[0m \x1b[5me\u{301}->\x1b[0m\x1b[2;62H"
+            .as_bytes(),
+    );
+    // A bar cursor over blinking text in its off phase is still drawn: the
+    // cursor's shape is not the cell's text.
+    feed(&mut t, b"\x1b[6 q");
+    let (bar_a, bar_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&bar_a, &bar_b),
+        0,
+        "the arms disagree on a bar cursor over blinking text's off phase"
+    );
+    feed(&mut t, b"\x1b[?25l");
+    let (nobar_a, _) = arms.draw(&mut t);
+    assert_ne!(
+        differing(&bar_a, &nobar_a),
+        0,
+        "the bar cursor over blinking text vanished in the off phase"
+    );
+    feed(&mut t, b"\x1b[?25h\x1b[2 q");
+    arms.renderer.set_blink(Blink::Shown);
+    let (on_a, _) = arms.draw(&mut t);
+    assert_ne!(
+        differing(&on_a, &off_a),
+        0,
+        "blinking text's off phase reached no pixel"
+    );
+    // `SGR 8` the same way, in either phase: concealed text with an underline
+    // and a strike is the frame of its spaces, on each arm.
+    feed(
+        &mut t,
+        "\x1b[2;60H\x1b[8;4;9;31mconceal e\u{301}->\x1b[0m    \x1b[?25l".as_bytes(),
+    );
+    let (hid_a, hid_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&hid_a, &hid_b),
+        0,
+        "the arms disagree on concealed text"
+    );
+    feed(&mut t, b"\x1b[2;60H               ");
+    let (sp_a, sp_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&hid_a, &sp_a),
+        0,
+        "the instance arm drew something of concealed text"
+    );
+    assert_eq!(
+        differing(&hid_b, &sp_b),
+        0,
+        "the cell arm drew something of concealed text"
+    );
+    feed(&mut t, b"\x1b[?25h\x1b[2;60H\x1b[K");
     // Back to the steady bar the `OSC 12` loop left, which is the cursor
     // the cases below were written against.
     feed(&mut t, b"\x1b[6 q");

@@ -16,15 +16,15 @@
 //! makes over every cell: a byte test a cell, a lookup a marked cell.
 
 use crate::atlas::Code;
-use crate::cellmap::{Candidate, GlyphMap, Resolved};
+use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Resolved, Selected, Swaps, Text};
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
-use crate::renderer::{ClusterGlyph, Renderer};
+use crate::renderer::{Blink, Blinking, ClusterGlyph, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
-use baud_domain::{Chan, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
+use baud_domain::{Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
 use baud_font::Px;
 use std::collections::HashMap;
 
@@ -117,6 +117,8 @@ struct Paint<'p> {
     styles: &'p [Resolved],
     block: Option<(Row, Col, CursorStyle)>,
     highlight: Option<Highlight>,
+    /// The frame's `SGR 5` phase: a record for a hidden cell is not drawn.
+    blink: Blink,
 }
 
 /// Distinct window contents kept before the store starts over.
@@ -297,10 +299,22 @@ impl Overlay {
                 );
             }
         }
-        // The marked cells the windows did not cover.
+        // The marked cells the windows did not cover; and whether a cell on
+        // screen blinks, which is `Renderer::blink_seen`'s answer on this
+        // path. Tested only while the table holds a blinking slot at all,
+        // so a screen with none pays one compare a frame.
+        let blinks = r.blink_slots() == Blinking::Seen;
+        let mut seen = Blinking::Unseen;
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
+                if blinks
+                    && styles
+                        .get(cell.style.index())
+                        .is_some_and(|s| s.shapes.has(crate::cellmap::Shapes::BLINK))
+                {
+                    seen = Blinking::Seen;
+                }
                 if !cell.flags.is_marked() || mask[y * cols + x] & MASK_RECORD != 0 {
                     continue;
                 }
@@ -338,11 +352,13 @@ impl Overlay {
                         styles,
                         block,
                         highlight: scene.highlight,
+                        blink: r.blink(),
                     },
                     &geom,
                 );
             }
         }
+        r.set_blink_seen(seen);
     }
 
     /// One window of a row: its cells' clusters gathered, cut where the
@@ -391,6 +407,7 @@ impl Overlay {
                 styles: scene.styles,
                 block,
                 highlight: scene.highlight,
+                blink: r.blink(),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -542,6 +559,7 @@ impl Overlay {
                 styles,
                 block,
                 highlight,
+                blink: r.blink(),
             },
             &geom,
         );
@@ -591,18 +609,29 @@ impl Overlay {
         let selected = paint
             .highlight
             .is_some_and(|h| h.selects(Row::from_index(y), Col::at_index(x), cell.content));
-        // The selection swaps, then the cursor swaps again: both is
-        // neither. **Opaque either way**: `resolved.bg` carries the
-        // window's dim, and a mark or a ligature drawn at 0.22 over its
-        // own selection block is barely there -- the same rule
-        // `Renderer::convert_row` and the cell shader's `colors()` apply
-        // to a swapped foreground, and the pixel gate compares the two
-        // arms at a translucent alpha to say all three agree.
-        let color = if selected != under_cursor {
-            resolved.bg.with_alpha(Chan::from_u8(0xFF))
-        } else {
-            resolved.fg
-        };
+        // The selection swaps, then the cursor swaps again, and a hidden
+        // cell draws nothing of its own: `Resolved::drawn`, the one spelling
+        // `Renderer::convert_row` and the cell shader mirror, which the pixel
+        // gate compares at a translucent alpha. A record draws a glyph, so
+        // only the foreground is taken.
+        let d = resolved.drawn(Swaps {
+            pictured: Pictured::No,
+            selected: if selected {
+                Selected::Yes
+            } else {
+                Selected::No
+            },
+            block: if under_cursor {
+                BlockCursor::Yes(None)
+            } else {
+                BlockCursor::No
+            },
+            blink: paint.blink,
+        });
+        if d.text == Text::Hidden {
+            return;
+        }
+        let color = d.fg;
         let cell_w = i32::try_from(geom.m.cell_w.value()).unwrap_or(0);
         let cell_h = i32::try_from(geom.m.cell_h.value()).unwrap_or(0);
         let baseline = i32::try_from(geom.m.baseline.value()).unwrap_or(0);

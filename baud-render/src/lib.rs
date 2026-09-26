@@ -49,8 +49,8 @@ pub use atlas::{
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
-    Candidate, CellKey, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK,
-    Resolved, Shapes,
+    BlockCursor, Candidate, CellKey, Drawn, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration,
+    MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
 };
 pub use color::{AppBg, Argb, PictureBg, Theme, Video};
 pub use composite::{Blend, Target};

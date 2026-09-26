@@ -164,3 +164,29 @@ fn the_wide_tail_value_matches_the_shader() {
         "the shader tests {line:?} for a wide tail; it must be the grid's word"
     );
 }
+
+/// **`SHAPE_BLINK` and `SHAPE_CONCEAL` in the shader and `Shapes::BLINK` and
+/// `Shapes::CONCEAL` are one fact spelled twice.** The resolved table carries
+/// the bits and the shader tests them to hide a cell's text; a literal that
+/// drifted from its constant would draw blinking or concealed text on the
+/// cell path while the instance path hid it, or hide some other rendition.
+#[test]
+fn the_hidden_text_bits_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, want) in [
+        ("SHAPE_BLINK", baud_render::Shapes::BLINK.0),
+        ("SHAPE_CONCEAL", baud_render::Shapes::CONCEAL.0),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let got: u32 = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
+        assert_eq!(got, want, "{line:?} against Shapes' {name}");
+    }
+}

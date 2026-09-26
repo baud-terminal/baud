@@ -22,9 +22,10 @@
 use crate::atlas::{Code, Kind, Tex};
 use crate::color::Argb;
 use crate::instance::Screen;
-use crate::renderer::{PairRole, Renderer, Single};
+use crate::picture::Pictured;
+use crate::renderer::{Blink, PairRole, Renderer, Single};
 use crate::units::Tally;
-use baud_domain::{Codepoint, Col, Content, GlyphId, Row, Viewport};
+use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, Row, Viewport};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
 /// second of the two, on the screen the map was ensured for.
@@ -391,9 +392,22 @@ impl Shapes {
     /// dim: [`crate::Theme::opaque_bg`], resolved once a slot so the
     /// shader reads one bit.
     pub const OPAQUE_BG: Shapes = Shapes(128);
+    /// `SGR 5`: the text draws only in the blink's on phase. The phase is the
+    /// frame's and not the slot's, so a slot resolves the same in both and a
+    /// flip re-resolves nothing; each path hides the text where it draws it
+    /// ([`Resolved::text`]). `SHAPE_BLINK` in the cell shader, pinned by
+    /// `the_hidden_text_bits_match_the_shader`.
+    pub const BLINK: Shapes = Shapes(256);
+    /// `SGR 8`: the text never draws. `SHAPE_CONCEAL` in the cell shader.
+    pub const CONCEAL: Shapes = Shapes(512);
 
     pub fn with(self, s: Shapes) -> Shapes {
         Shapes(self.0 | s.0)
+    }
+
+    /// Whether every bit of `s` is set.
+    pub fn has(self, s: Shapes) -> bool {
+        self.0 & s.0 == s.0
     }
 }
 
@@ -412,4 +426,102 @@ pub struct Resolved {
 
 impl Resolved {
     pub const BYTES: usize = 16;
+
+    /// Whether the cell's own text draws: its glyph, its underline and its
+    /// strike. **Hidden text draws its background and nothing of its own**,
+    /// which is not the same as drawing the glyph in the background's colour
+    /// once backgrounds are translucent: the glyph lands on the background it
+    /// was meant to vanish into, at another alpha, and its silhouette shows.
+    /// xterm draws it in the background (`updatedXtermGC`, `fg_pix = bg_pix`
+    /// for `BLINK` off and `INVISIBLE`), over a background that is opaque.
+    pub fn text(self, blink: Blink) -> Text {
+        let off = self.shapes.has(Shapes::BLINK) && blink == Blink::Hidden;
+        if off || self.shapes.has(Shapes::CONCEAL) {
+            Text::Hidden
+        } else {
+            Text::Drawn
+        }
+    }
+
+    /// The cell as this frame draws it: the rendition, then the swaps the
+    /// frame lays over it, then whether its text shows. **The one spelling of
+    /// that order**, which the CPU and instance paths take a cell at a time,
+    /// the overlay's records take for the cells they draw, and the cell
+    /// shader's `colors()` and `hidden()` mirror -- the pixel oracle compares
+    /// the two GPU arms to say so.
+    ///
+    /// * **A picture's or an opaque rendition's background is solid.** Every
+    ///   background carries the window's dim; a picture drawn in text keeps
+    ///   its backgrounds solid under it, or it splits into slivers and holes.
+    /// * **The selection swaps, then a block cursor swaps again**, and both
+    ///   leave the two colours opaque: the foreground a swap hands back is
+    ///   the old background, which carries the dim, and a glyph at 0.22 over
+    ///   its own block is barely there. A block cursor fills with `OSC 12`'s
+    ///   colour when the application set one.
+    /// * **Hiding comes last**, after the swaps, as xterm's does: hidden
+    ///   first, a block cursor would paint its block in the colour the text
+    ///   vanished into and disappear with it.
+    pub fn drawn(self, s: Swaps) -> Drawn {
+        let (mut fg, mut bg) = (self.fg, self.bg);
+        let opaque = Chan::from_u8(0xFF);
+        if self.shapes.has(Shapes::OPAQUE_BG) || s.pictured == Pictured::Yes {
+            bg = bg.with_alpha(opaque);
+        }
+        if s.selected == Selected::Yes {
+            core::mem::swap(&mut fg, &mut bg);
+            (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
+        }
+        if let BlockCursor::Yes(fill) = s.block {
+            core::mem::swap(&mut fg, &mut bg);
+            (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
+            if let Some(c) = fill {
+                bg = c;
+            }
+        }
+        Drawn {
+            fg,
+            bg,
+            text: self.text(s.blink),
+        }
+    }
+}
+
+/// Whether a cell's own text -- its glyph, underline and strike -- draws.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Text {
+    #[default]
+    Drawn,
+    Hidden,
+}
+
+/// Whether the selection covers a cell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Selected {
+    No,
+    Yes,
+}
+
+/// Whether a block cursor sits on a cell, and the colour it fills with when
+/// the application set one with `OSC 12`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockCursor {
+    No,
+    Yes(Option<Argb>),
+}
+
+/// What a frame lays over a cell's resolved rendition.
+#[derive(Clone, Copy, Debug)]
+pub struct Swaps {
+    pub pictured: Pictured,
+    pub selected: Selected,
+    pub block: BlockCursor,
+    pub blink: Blink,
+}
+
+/// A cell as a frame draws it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Drawn {
+    pub fg: Argb,
+    pub bg: Argb,
+    pub text: Text,
 }

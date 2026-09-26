@@ -74,6 +74,9 @@ struct CU {
     uint pan; uint slide_rows;
     // `OSC 12` cursor colour, packed 0xFFRRGGBB, or 0 for none.
     uint cursor_color;
+    // 1 in `SGR 5`'s off phase: the frame's, not a slot's, so a resolved
+    // style is the same in both phases.
+    uint blink_hidden;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -108,6 +111,21 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // constant, because the two are one fact spelled twice.
 #define WIDE_TAIL 0x110001u
 
+// `Shapes::BLINK` and `Shapes::CONCEAL`, one fact spelled twice and pinned
+// by `the_hidden_text_bits_match_the_shader`.
+#define SHAPE_BLINK 256u
+#define SHAPE_CONCEAL 512u
+
+// Whether the cell's own text -- its glyph, underline and strike -- is
+// hidden: `SGR 8`, or `SGR 5` in its off phase. Hidden text draws its
+// background and nothing of its own, not a glyph in the background's colour,
+// which on glass lands at another alpha and shows. The cursor's shape still
+// draws. Must match `Resolved::text`.
+static bool hidden(constant CU& u, uint shapes) {
+    return (shapes & SHAPE_CONCEAL) != 0u ||
+           (u.blink_hidden != 0u && (shapes & SHAPE_BLINK) != 0u);
+}
+
 // Whether the cell is inside the selection, both ends inclusive: a stream
 // (`sel_on` 1) in row-major order, a block (`sel_on` 2) by its row range
 // and its column range apart. A wide tail takes its lead's answer, so a
@@ -127,7 +145,8 @@ static bool selected(constant CU& u, uint content, uint col, uint row) {
 
 // The cell's colours after the selection's swap and then the block
 // cursor's, which the CPU path applies in the same order after the
-// rendition rules and before anything is drawn.
+// rendition rules (`Resolved::drawn`). Hiding comes after both and is not a
+// colour: the glyph and shape passes skip a hidden cell's text.
 static void colors(constant CU& u, device const Style* styles, uint2 cell,
                    uint col, uint row, thread uint& fgw, thread uint& bgw) {
     Style s = styles[cell.y & 0xffffu];
@@ -200,6 +219,7 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint2 cell = cell_at(u, cells, col, dr);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
+    if (hidden(u, styles[cell.y & 0xffffu].shapes)) return o;
     uint mask = u.map_slots - 1u;
     uint i = (content * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;
@@ -246,6 +266,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
     uint2 cell = cell_at(u, cells, col, dr);
     Style s = styles[cell.y & 0xffffu];
+    if (which != 3u && hidden(u, s.shapes)) return o;
     uint fgw, bgw;
     colors(u, styles, cell, col, uint(lrow), fgw, bgw);
     float2 at; float2 wh; uint colw;

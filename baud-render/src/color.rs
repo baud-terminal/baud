@@ -223,8 +223,8 @@ impl Theme {
 
     /// The foreground and background a rendition draws with, after the
     /// attribute rules: reverse swaps, bold brightens the first eight
-    /// palette entries, dim halves, hidden hides -- all under `video`, the
-    /// screen's `?5`.
+    /// palette entries, dim halves -- all under `video`, the screen's `?5`.
+    /// Hiding is not a colour and is not here: `Resolved::text`.
     pub fn resolve(
         &self,
         style: StyleWord,
@@ -253,9 +253,10 @@ impl Theme {
         if attrs.has(Attrs::REVERSE) {
             core::mem::swap(&mut fg, &mut bg);
         }
-        if attrs.has(Attrs::HIDDEN) {
-            fg = bg;
-        }
+        // `SGR 8` is not a colour: concealed text keeps its foreground, so a
+        // block cursor over it is drawn in it, and draws nothing of its own
+        // (`Resolved::text`). Drawing it in the background's colour, as this
+        // did, left an opaque silhouette on every translucent background.
         (fg, bg)
     }
 
