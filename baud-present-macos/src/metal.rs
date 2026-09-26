@@ -191,7 +191,8 @@ enum QuadPipe {
 }
 
 /// What the quad draw needs beyond the glyph pipeline's bindings: its
-/// pipeline and the corners, hole and frame origin `quad_fragment` reads.
+/// pipeline and the corners, hole, frame origin and shape `quad_fragment`
+/// reads.
 struct QuadDraw {
     pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     uniform: [f32; 16],
@@ -1149,8 +1150,8 @@ impl Gpu {
         Some(())
     }
 
-    /// The quad trail's draw for this frame, if the renderer has one and its
-    /// pipeline could be built: `glyph_vertex` over the record,
+    /// The quad or sweep trail's draw for this frame, if the renderer has one
+    /// and its pipeline could be built: `glyph_vertex` over the record,
     /// `quad_fragment` over the corners. Built once, the first time.
     fn quad_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<QuadDraw> {
         let smear = renderer.smear()?;
@@ -1172,14 +1173,9 @@ impl Gpu {
         let QuadPipe::Built(pipe) = &self.quad_pipe else {
             return None;
         };
-        let c = smear.uniform();
-        let mut uniform = [0.0f32; 16];
-        uniform[..12].copy_from_slice(&c);
-        uniform[12] = pad[0];
-        uniform[13] = pad[1];
         Some(QuadDraw {
             pipe: pipe.clone(),
-            uniform,
+            uniform: smear.uniform(pad),
         })
     }
 

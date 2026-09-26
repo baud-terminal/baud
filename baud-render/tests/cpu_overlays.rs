@@ -9,8 +9,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    Blend, Damage, Pt, PxSize, Renderer, Segment, Smear, Stack, Target, Theme, Trail, TrailLook,
-    Transition, quad_coverage,
+    Blend, Damage, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Target, Theme, Trail,
+    TrailLook, Transition, quad_coverage,
 };
 use support::font;
 
@@ -180,16 +180,27 @@ fn a_sweeping_trail_repaints_incrementally_what_a_full_frame_paints() {
     });
 }
 
-/// A quad 50 ms into a move from `from` to the block cursor at `to`, on the
-/// renderer's own cells.
-fn quad(r: &Renderer<'_, '_>, from: (usize, usize), to: (usize, usize), t: f32) -> Smear {
+/// A quad or a sweep `t` seconds into a move from `from` to the block
+/// cursor at `to`, on the renderer's own cells.
+fn smear(
+    r: &Renderer<'_, '_>,
+    shape: Shape,
+    from: (usize, usize),
+    to: (usize, usize),
+    t: f32,
+) -> Smear {
     let style = baud_core::CursorStyle::SteadyBlock;
     let rect =
         |(row, col): (usize, usize)| r.cursor_rect(Row::from_index(row), Col::at_index(col), style);
     let hole = rect(to);
+    let seg = match shape {
+        Shape::Quad => Segment::new(rect(from).corners(), hole),
+        Shape::Sweep => Segment::sweep(rect(from).corners(), hole),
+    };
     Smear {
-        corners: Segment::new(rect(from).corners(), hole).at(t),
+        corners: seg.at(t),
         hole,
+        shape,
     }
 }
 
@@ -207,9 +218,9 @@ fn the_cpu_path_draws_the_quad_by_its_rule() {
         let mut bare = vec![0u32; width * height];
         r.set_trail(None);
         paint(&mut r, t, &mut bare, Damage::Full);
-        let s = quad(&r, (8, 25), (1, 2), 0.05);
+        let s = smear(&r, Shape::Quad, (8, 25), (1, 2), 0.05);
         let mut drawn = vec![0u32; width * height];
-        r.set_trail(Some(TrailLook::Quad(s)));
+        r.set_trail(Some(TrailLook::Smear(s)));
         paint(&mut r, t, &mut drawn, Damage::Full);
         let (x0, y0, x1, y1) = s.bounds();
         let (mut inside, mut outside, mut changed) = (0usize, 0usize, 0usize);
@@ -244,41 +255,127 @@ fn the_cpu_path_draws_the_quad_by_its_rule() {
     });
 }
 
-/// **A moving quad repaints incrementally what a full frame paints**, at
-/// every step of a move across rows and back: the rows it leaves are
-/// cleared, the rows it reaches drawn.
+/// **The CPU path draws the sweep by sfte's rule**, over the empty columns
+/// right of the text: every pixel away from its hard edge that the rule
+/// draws changes, by an amount in proportion to the rule's alpha -- none at
+/// the tail, half at the cursor -- and every one it leaves bare, the
+/// cursor's own cell among them, does not.
 #[test]
-fn a_moving_quad_repaints_incrementally_what_a_full_frame_paints() {
+fn the_cpu_path_draws_the_sweep_by_its_rule() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     with_text(|t| {
-        let mut inc = renderer(&faces);
-        let mut full = renderer(&faces);
-        let (w, h) = inc.pixel_size();
+        let mut r = renderer(&faces);
+        let (w, h) = r.pixel_size();
         let (width, height) = (px(w), px(h));
-        let mut a = vec![0u32; width * height];
-        let mut b = vec![0u32; width * height];
-        inc.set_trail(None);
-        paint(&mut inc, t, &mut a, Damage::Full);
-        let mut drew = false;
-        for (i, &time) in [0.0f32, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5].iter().enumerate() {
-            let s = quad(&inc, (8, 26), (1, 3), time);
-            let look = (time < 0.5).then_some(TrailLook::Quad(s));
-            inc.set_trail(look);
-            full.set_trail(look);
-            paint(&mut inc, t, &mut a, Damage::Incremental);
-            paint(&mut full, t, &mut b, Damage::Full);
-            assert!(
-                a == b,
-                "step {i} ({time} s): incremental differs from full at {:?}",
-                diff_box(&a, &b, width)
-            );
-            let mut bare = vec![0u32; width * height];
-            let mut plain = renderer(&faces);
-            plain.set_trail(None);
-            paint(&mut plain, t, &mut bare, Damage::Full);
-            drew |= look.is_some() && b != bare;
+        let mut bare = vec![0u32; width * height];
+        r.set_trail(None);
+        paint(&mut r, t, &mut bare, Damage::Full);
+        let s = smear(&r, Shape::Sweep, (0, 24), (8, 28), 0.0);
+        let mut drawn = vec![0u32; width * height];
+        r.set_trail(Some(TrailLook::Smear(s)));
+        paint(&mut r, t, &mut drawn, Damage::Full);
+        let alpha = |x: usize, y: usize| {
+            quad_coverage(
+                &s,
+                Pt {
+                    x: x as f32 + 0.5,
+                    y: y as f32 + 0.5,
+                },
+            ) * 255.0
+        };
+        let delta = |p: u32, q: u32| -> f32 {
+            (0..3)
+                .map(|k| ((p >> (8 * k)) & 0xff).abs_diff((q >> (8 * k)) & 0xff) as f32)
+                .sum()
+        };
+        let (x0, y0, x1, y1) = s.bounds();
+        let (mut inside, mut outside, mut hole) = (0usize, 0usize, 0usize);
+        let (mut faint, mut strong) = ((0.0f32, 0u32), (0.0f32, 0u32));
+        for y in px(y0) + 1..(px(y1) - 1).min(height - 1) {
+            for x in px(x0) + 1..(px(x1) - 1).min(width - 1) {
+                let c = alpha(x, y);
+                let near = [
+                    alpha(x - 1, y),
+                    alpha(x + 1, y),
+                    alpha(x, y - 1),
+                    alpha(x, y + 1),
+                ];
+                if near.iter().any(|&n| (n > 0.0) != (c > 0.0)) {
+                    continue;
+                }
+                let at = y * width + x;
+                if c >= 4.0 {
+                    inside += 1;
+                    let d = delta(drawn[at], bare[at]);
+                    assert!(d > 0.0, "({x}, {y}) is inside and not drawn");
+                    if (16.0..40.0).contains(&c) {
+                        faint = (faint.0 + d / c, faint.1 + 1);
+                    } else if c >= 100.0 {
+                        strong = (strong.0 + d / c, strong.1 + 1);
+                    }
+                } else if c <= 0.0 {
+                    outside += 1;
+                    let p = Pt {
+                        x: x as f32 + 0.5,
+                        y: y as f32 + 0.5,
+                    };
+                    hole += usize::from(s.hole.contains(p));
+                    assert_eq!(drawn[at], bare[at], "({x}, {y}) is outside and drawn");
+                }
+            }
         }
-        assert!(drew, "the move drew nothing");
+        assert!(
+            inside > 300 && outside > 300 && hole > 100,
+            "{inside} in, {outside} out, {hole} in the cursor's cell"
+        );
+        let (f, g) = (faint.0 / faint.1 as f32, strong.0 / strong.1 as f32);
+        assert!(
+            faint.1 > 20 && strong.1 > 20 && (f / g - 1.0).abs() < 0.15,
+            "the change is not in proportion to the alpha: {f} a step faint, {g} strong"
+        );
     });
+}
+
+/// **A moving quad or sweep repaints incrementally what a full frame
+/// paints**, at every step of a move across rows and back: the rows it
+/// leaves are cleared, the rows it reaches drawn.
+#[test]
+fn a_moving_smear_repaints_incrementally_what_a_full_frame_paints() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    for shape in [Shape::Quad, Shape::Sweep] {
+        with_text(|t| moving_smear(&faces, t, shape));
+    }
+}
+
+fn moving_smear(faces: &[Face<'_>], t: &mut Term<'_>, shape: Shape) {
+    let mut inc = renderer(faces);
+    let mut full = renderer(faces);
+    let (w, h) = inc.pixel_size();
+    let (width, height) = (px(w), px(h));
+    let mut a = vec![0u32; width * height];
+    let mut b = vec![0u32; width * height];
+    inc.set_trail(None);
+    paint(&mut inc, t, &mut a, Damage::Full);
+    let mut drew = false;
+    for (i, &time) in [0.0f32, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5].iter().enumerate() {
+        let s = smear(&inc, shape, (8, 26), (1, 3), time);
+        let look = (time < 0.5).then_some(TrailLook::Smear(s));
+        inc.set_trail(look);
+        full.set_trail(look);
+        paint(&mut inc, t, &mut a, Damage::Incremental);
+        paint(&mut full, t, &mut b, Damage::Full);
+        assert!(
+            a == b,
+            "{shape:?} step {i} ({time} s): incremental differs from full at {:?}",
+            diff_box(&a, &b, width)
+        );
+        let mut bare = vec![0u32; width * height];
+        let mut plain = renderer(faces);
+        plain.set_trail(None);
+        paint(&mut plain, t, &mut bare, Damage::Full);
+        drew |= look.is_some() && b != bare;
+    }
+    assert!(drew, "the {shape:?} move drew nothing");
 }

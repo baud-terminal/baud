@@ -70,10 +70,12 @@ fonts = [
 # trail: a quadrilateral whose four corners chase the cursor's, the ones facing
 # the move leading and the ones behind it lagging, over about half a second.
 # It follows a move of more than two cells once the cursor has rested for
-# 10 ms, so typing and streaming output leave none. "ghost" is a one-cell box
-# sweeping from the cell the cursor left to the cell it reached. "off" is none;
-# true and false still mean "quad" and "off". An idle terminal pays nothing
-# for either, because only a cursor that moved leaves one.
+# 10 ms, so typing and streaming output leave none. "sweep" is sfte's trail on
+# the same moves: the cursor's box swept from a tail chasing it, fading from
+# half the cursor's colour at the cursor to nothing at the tail. "ghost" is a
+# one-cell box sweeping from the cell the cursor left to the cell it reached.
+# "off" is none; true and false still mean "quad" and "off". An idle terminal
+# pays nothing for any of them, because only a cursor that moved leaves one.
 [cursor]
 shape = "block"
 blink = true

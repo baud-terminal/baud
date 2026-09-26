@@ -64,12 +64,32 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
 // of anti-aliasing across each edge, and leaves the cursor's own rectangle
 // bare. `origin` is where the frame sits in the target, so a pixel's centre
 // in the frame is its position less it.
-struct Quad { float2 c[4]; float4 hole; float2 origin; float2 pad; };
+// The trail's smear: `mode` 0 is kitty's quad, 1 sfte's sweep, whose tail
+// is the rectangle the corners hold and whose head is the hole.
+struct Quad { float2 c[4]; float4 hole; float2 origin; float mode; float pad; };
 
 fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)]]) {
     float2 p = in.pos.xy - q.origin;
     if (p.x >= q.hole.x && p.x < q.hole.z && p.y >= q.hole.y && p.y < q.hole.w) {
         return float4(0.0);
+    }
+    if (q.mode > 0.5) {
+        // sfte's `_sfte_render_trail`: the box swept from the tail's centre
+        // to the cursor's, at `128 t` of 255 -- `trail::coverage`'s sweep.
+        float2 c0 = (q.c[3] + q.c[1]) * 0.5;
+        float2 r = (q.hole.zw - q.hole.xy) * 0.5;
+        float2 ab = q.hole.xy + r - c0;
+        float l2 = dot(ab, ab);
+        if (l2 < 0.001) {
+            return float4(0.0);
+        }
+        float t = clamp(dot(p - c0, ab) / l2, 0.0, 1.0);
+        float2 off = abs(p - c0 - t * ab);
+        if (off.x > r.x || off.y > r.y) {
+            return float4(0.0);
+        }
+        float a = in.color.a * (128.0 * t / 255.0);
+        return float4(in.color.rgb * a, a);
     }
     float d = INFINITY;
     int winding = 0;

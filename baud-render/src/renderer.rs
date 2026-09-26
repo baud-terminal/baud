@@ -744,11 +744,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
-    /// sweeping from where the cursor was to where it is, or the quad whose
-    /// corners chase the cursor's. Every path draws it -- the CPU compositor
+    /// sweeping from where the cursor was to where it is, the quad whose
+    /// corners chase the cursor's, or the box swept from a tail chasing it. Every path draws it -- the CPU compositor
     /// in `paint`, the instance path from the instance list, the cell path
     /// from [`Renderer::trail`] appended to its records. The driver hands a
-    /// ghost's `progress` or a quad's corners, each computed from the display
+    /// ghost's `progress` or a smear's corners, each computed from the display
     /// link's timestamp, and this only draws them, so the frame is a pure
     /// function of the value and the pixel oracle can compare two GPU arms
     /// on it.
@@ -757,7 +757,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             TrailLook::Ghost(t) => {
                 Drawn::Ghost(trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h))
             }
-            TrailLook::Quad(s) => Drawn::Quad(s),
+            TrailLook::Smear(s) => Drawn::Smear(s),
         });
         self.build_trail();
     }
@@ -767,18 +767,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.trail_inst.clear();
         match self.trail {
             Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(g, self.defaults.0)),
-            Some(Drawn::Quad(s)) => self
+            Some(Drawn::Smear(s)) => self
                 .trail_inst
                 .push(trail::quad_instance(&s, self.cursor_fill)),
             None => {}
         }
     }
 
-    /// The quad trail this frame draws, for a GPU path to hand its
+    /// The quad or the sweep this frame draws, for a GPU path to hand its
     /// fragment function the corners the record does not carry.
     pub fn smear(&self) -> Option<Smear> {
         match self.trail {
-            Some(Drawn::Quad(s)) => Some(s),
+            Some(Drawn::Smear(s)) => Some(s),
             _ => None,
         }
     }
@@ -1450,7 +1450,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 target.over(inst, &self.atlas, self.blend, band);
             }
             match self.trail {
-                Some(Drawn::Quad(s)) => target.quad(&s, self.cursor_fill, self.blend, band),
+                Some(Drawn::Smear(s)) => target.quad(&s, self.cursor_fill, self.blend, band),
                 _ => {
                     for inst in &self.trail_inst {
                         target.over(inst, &self.atlas, self.blend, band);

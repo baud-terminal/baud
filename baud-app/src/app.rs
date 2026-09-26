@@ -452,8 +452,8 @@ struct App {
     /// the `blink_seen` equivalent for this animation.
     cursor_trail: crate::config::CursorTrail,
     trail: Option<TrailState>,
-    /// The quad trail's state between frames (`trail.rs`).
-    quad: crate::trail::Quad<HostTime>,
+    /// The quad or sweep trail's state between frames (`trail.rs`).
+    chase: crate::trail::Chase<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
@@ -865,7 +865,7 @@ impl App {
             next_damage: Damage::Incremental,
             cursor_trail,
             trail: None,
-            quad: crate::trail::Quad::new(),
+            chase: crate::trail::Chase::new(cursor_trail.shape()),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -1016,13 +1016,13 @@ impl App {
         };
         let look = match self.cursor_trail {
             crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
-            crate::config::CursorTrail::Quad => {
+            crate::config::CursorTrail::Quad | crate::config::CursorTrail::Sweep => {
                 // Looking back forgets where the cursor was, as a resize
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw
                 // it leave. A hidden cursor keeps it -- `trail.rs`.
                 if looking(&self.term, self.back).index() != 0 {
-                    self.quad.snap();
+                    self.chase.snap();
                 }
                 let style = self.term.cursor_style();
                 let rect = cursor_cell.map(|(r, c)| self.renderer.cursor_rect(r, c, style));
@@ -1030,8 +1030,8 @@ impl App {
                 let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
                 let cell = (side(m.cell_w), side(m.cell_h));
                 HostTime::of_secs(self.tick_target)
-                    .and_then(|now| self.quad.frame(rect, now, cell))
-                    .map(TrailLook::Quad)
+                    .and_then(|now| self.chase.frame(rect, now, cell))
+                    .map(TrailLook::Smear)
             }
             crate::config::CursorTrail::Off => None,
         };
@@ -3173,7 +3173,7 @@ impl Driver {
             self.app.slide.snap();
             // Nor does a trail cross it: the cursor it would come from was
             // the other screen's.
-            self.app.quad.snap();
+            self.app.chase.snap();
             // The alternate screen swapped: fade the new one in from the
             // background, off `tick_target` the way the trail is spawned.
             if self.app.screen_transition == crate::config::ScreenTransition::On {
@@ -3575,7 +3575,7 @@ impl Responder for Driver {
         // The quad owes every frame while it is in flight, and the one a
         // move's dwell runs out on: after a lone keystroke's echo nothing
         // else would draw it (`trail.rs`).
-        if HostTime::of_secs(target).is_some_and(|now| self.app.quad.owes(now) == Owes::Frame) {
+        if HostTime::of_secs(target).is_some_and(|now| self.app.chase.owes(now) == Owes::Frame) {
             self.app.pending = Pending::Dirty;
         }
         // The scrollbar's reveal steps off the same clock, and forces a
@@ -4490,7 +4490,7 @@ impl Driver {
         // `Deferred::Zoom` still waits.
         // A resize or a zoom moves every cell's pixels under the quad trail,
         // which names them; the next sighting starts afresh (`trail.rs`).
-        self.app.quad.snap();
+        self.app.chase.snap();
         let (cw, ch) = self.app.metrics_cell();
         let px_w = size.width * scale;
         let px_h = size.height * scale;

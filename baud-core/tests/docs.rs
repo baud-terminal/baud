@@ -396,6 +396,10 @@ fn every_test_named_in_the_docs_exists() {
             "selection_on_bottom_region",
             "foot's check, cited where a selection on the rows a partial scroll left is cancelled",
         ),
+        (
+            "_sfte_render_trail",
+            "sfte's C function that draws its cursor trail, cited where the sweep trail is its rule",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

@@ -23,8 +23,9 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay,
-    Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Smear, Stack,
-    StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
+    Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear,
+    Stack, StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
+    quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -963,9 +964,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         .cursor_rect(Row::from_index(7), Col::at_index(60), t.cursor_style())
         .corners();
     let seg = Segment::new(from, hole);
-    arms.trail = Some(TrailLook::Quad(Smear {
+    arms.trail = Some(TrailLook::Smear(Smear {
         corners: seg.at(0.05),
         hole,
+        shape: Shape::Quad,
     }));
     let (quad_a, quad_b) = arms.draw(&mut t);
     assert_eq!(
@@ -990,9 +992,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         }
         out
     };
-    arms.trail = Some(TrailLook::Quad(Smear {
+    arms.trail = Some(TrailLook::Smear(Smear {
         corners: seg.at(0.2),
         hole,
+        shape: Shape::Quad,
     }));
     let (spared, spared_b) = arms.draw(&mut t);
     assert_eq!(
@@ -1005,9 +1008,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         in_hole(&plain),
         "the quad covered the cursor"
     );
-    arms.trail = Some(TrailLook::Quad(Smear {
+    arms.trail = Some(TrailLook::Smear(Smear {
         corners: seg.at(0.2),
         hole: Rect::default(),
+        shape: Shape::Quad,
     }));
     let (covered, _) = arms.draw(&mut t);
     assert!(
@@ -1044,8 +1048,9 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         let smear = Smear {
             corners: Corners(pts.map(|(x, y)| Pt { x, y })),
             hole: no_hole,
+            shape: Shape::Quad,
         };
-        arms.trail = Some(TrailLook::Quad(smear));
+        arms.trail = Some(TrailLook::Smear(smear));
         let (a, b) = arms.draw(&mut t);
         assert_eq!(differing(&a, &b), 0, "the arms disagree under a {name}");
         let (x0, y0, x1, y1) = smear.bounds();
@@ -1075,6 +1080,102 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         assert!(
             inside > 500 && outside > 500,
             "{name}: {inside} in, {outside} out"
+        );
+    }
+    // sfte's sweep, over the same empty half, twice: once mostly across,
+    // where the band's height is what bounds it, and once mostly down,
+    // where its width is. Every pixel away from its hard edge that the Rust
+    // rule draws at more than a few steps of 255 is drawn, every one it
+    // leaves bare -- the cursor's own cell among them -- is not, and the
+    // drawing darkens toward the cursor, so the shader's ramp is
+    // `trail::coverage`'s. One diagonal is not enough: a band test that
+    // lost its test on one axis draws the same as long as the other binds.
+    let cell_at = |col: f32, row: f32| Rect {
+        left: col * cw,
+        top: row * ch,
+        right: (col + 1.0) * cw,
+        bottom: (row + 1.0) * ch,
+    };
+    let alpha = |smear: &Smear, x: u32, y: u32| {
+        quad_coverage(
+            smear,
+            Pt {
+                x: x as f32 + 0.5,
+                y: y as f32 + 0.5,
+            },
+        ) * 255.0
+    };
+    let delta = |p: u32, q: u32| -> u32 {
+        (0..3)
+            .map(|k| ((p >> (8 * k)) & 0xff).abs_diff((q >> (8 * k)) & 0xff))
+            .sum()
+    };
+    for (name, tail, head) in [
+        ("across", cell_at(100.0, 1.0), cell_at(118.0, 3.0)),
+        ("down", cell_at(102.0, 0.0), cell_at(104.0, 6.0)),
+    ] {
+        let smear = Smear {
+            corners: tail.corners(),
+            hole: head,
+            shape: Shape::Sweep,
+        };
+        arms.trail = Some(TrailLook::Smear(smear));
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree under a sweep {name}"
+        );
+        let (x0, y0, x1, y1) = smear.bounds();
+        let (mut inside, mut outside, mut hole_px) = (0usize, 0usize, 0usize);
+        let (mut faint, mut strong) = ((0u32, 0u32), (0u32, 0u32));
+        for y in y0.value() + 1..y1.value() - 1 {
+            for x in x0.value() + 1..x1.value() - 1 {
+                let c = alpha(&smear, x, y);
+                let near = [
+                    alpha(&smear, x - 1, y),
+                    alpha(&smear, x + 1, y),
+                    alpha(&smear, x, y - 1),
+                    alpha(&smear, x, y + 1),
+                ];
+                if near.iter().any(|&n| (n > 0.0) != (c > 0.0)) {
+                    continue;
+                }
+                let at = usize::try_from(y).unwrap() * fw + usize::try_from(x).unwrap();
+                if c >= 4.0 {
+                    inside += 1;
+                    assert_ne!(
+                        a[at], plain[at],
+                        "sweep {name}: ({x}, {y}) is inside and not drawn"
+                    );
+                    let d = delta(a[at], plain[at]);
+                    if (16.0..40.0).contains(&c) {
+                        faint = (faint.0 + d, faint.1 + 1);
+                    } else if c >= 100.0 {
+                        strong = (strong.0 + d, strong.1 + 1);
+                    }
+                } else if c <= 0.0 {
+                    outside += 1;
+                    if head.contains(Pt {
+                        x: x as f32 + 0.5,
+                        y: y as f32 + 0.5,
+                    }) {
+                        hole_px += 1;
+                    }
+                    assert_eq!(
+                        a[at], plain[at],
+                        "sweep {name}: ({x}, {y}) is outside and drawn"
+                    );
+                }
+            }
+        }
+        assert!(
+            inside > 500 && outside > 500 && hole_px as f32 * 2.0 > cw * ch,
+            "sweep {name}: {inside} in, {outside} out, {hole_px} in the cursor's cell"
+        );
+        assert!(
+            faint.1 > 20 && strong.1 > 20 && faint.0 * strong.1 < strong.0 * faint.1,
+            "sweep {name}: the faint end differs by {faint:?} and the strong by {strong:?}"
         );
     }
     arms.trail = None;
