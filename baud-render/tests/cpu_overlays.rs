@@ -111,6 +111,50 @@ fn the_cpu_path_draws_the_trail() {
     });
 }
 
+/// **The ghost is the cursor's colour**, as every other trail is: under
+/// `OSC 12` setting the cursor red, the ghost over empty cells draws red, and
+/// with no cursor colour set it draws the foreground -- the colour the cursor
+/// defaults to. The ghost was built in the foreground whatever `OSC 12` said.
+#[test]
+fn the_ghost_is_the_cursors_colour() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    // Red's share of the ghost's pixels over empty cells, right of the text.
+    let reddest = |set: &[u8]| {
+        let mut out = 0u32;
+        with_text(|t| {
+            feed(t, set);
+            let mut r = renderer(&faces);
+            let (w, h) = r.pixel_size();
+            let (width, height) = (px(w), px(h));
+            let mut bare = vec![0u32; width * height];
+            r.set_trail(None);
+            paint(&mut r, t, &mut bare, Damage::Full);
+            let mut ghosted = vec![0u32; width * height];
+            r.set_trail(Some(trail((2, 22), (2, 28), 0.5)));
+            paint(&mut r, t, &mut ghosted, Damage::Full);
+            let ch = |p: u32, k: u32| (p >> k) & 0xff;
+            let mut drawn = 0;
+            for (a, b) in bare.iter().zip(&ghosted) {
+                if a != b {
+                    drawn += 1;
+                    out = out.max(ch(*b, 16).saturating_sub(ch(*b, 8).max(ch(*b, 0))));
+                }
+            }
+            assert!(drawn > 100, "the ghost drew {drawn} pixels");
+        });
+        out
+    };
+    assert!(
+        reddest(b"\x1b]12;#ff0000\x07") > 40,
+        "under a red cursor the ghost is not red"
+    );
+    assert!(
+        reddest(b"") < 8,
+        "with no cursor colour the ghost is not the foreground"
+    );
+}
+
 /// **The screen fade reaches the CPU path's pixels**, over the whole frame:
 /// a frame under the veil differs from one without it from the first row of
 /// ink to the last.

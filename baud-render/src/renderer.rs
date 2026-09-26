@@ -770,7 +770,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.trail_inst.clear();
         let frame = self.pixel_size();
         match &mut self.trail {
-            Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(*g, self.defaults.0)),
+            Some(Drawn::Ghost(g)) => self.trail_inst.push(trail::instance(*g, self.cursor_fill)),
             Some(Drawn::Smear(s)) => self
                 .trail_inst
                 .push(trail::quad_instance(s, self.cursor_fill)),

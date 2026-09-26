@@ -286,7 +286,7 @@
         <li>The cursor has to rest 10&nbsp;ms at its new place before a trail starts, so streaming output that moves the cursor every read starts none.</li>
         <li>Hiding the cursor ends a trail. Scrolling back into the history, resizing, zooming or switching screens forget where the cursor was.</li>
         <li>A hidden cursor that a program moves and hides straight away is followed, which is how helix's <code>gg</code> and <code>ge</code> trail.</li>
-        <li>The fire, the quad and the sweep are drawn in the cursor's colour &mdash; the foreground, unless a program sets another with <code>OSC 12</code> &mdash; and the ghost in the foreground. None uses a colour of its own.</li>
+        <li>Every trail is drawn in the cursor's colour &mdash; the foreground, unless a program sets another with <code>OSC 12</code>. None uses a colour of its own.</li>
       </ul>
     </div>
     <div>

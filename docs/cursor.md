@@ -104,9 +104,8 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   followed. That is how helix trails on `gg` and `ge`: it draws its own block
   cursor and hides the terminal's for good, but moves the terminal's cursor to
   the selection before each hide [[source: helix-tui-terminal]].
-- The fire, the quad and the sweep are the cursor's colour -- the foreground,
-  unless a program sets another with `OSC 12` -- and the ghost is the
-  foreground.
+- Every trail is the cursor's colour: the foreground, unless a program sets
+  another with `OSC 12`.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
 
