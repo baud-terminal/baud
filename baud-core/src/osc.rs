@@ -98,6 +98,28 @@ impl Paint<'_, '_> {
         self.cold.sixel_len = ReadLen::ZERO;
     }
 
+    /// A palette entry written, and the colour epoch moved when it changed:
+    /// a renderer resolves the table again under a new epoch, and a write
+    /// that leaves the entry as it was must not make it.
+    fn set_palette(&mut self, i: Chan, w: ColorWord) {
+        if self.strs.palette[i.index()] != w {
+            self.strs.palette[i.index()] = w;
+            self.style_log.colors_moved();
+        }
+    }
+
+    /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
+    /// the cursor is drawn and no rendition resolves through it, so it moves
+    /// no epoch.
+    fn set_dynamic(&mut self, which: DynamicColor, w: ColorWord) {
+        if self.cold.dynamic[which.index()] != w {
+            self.cold.dynamic[which.index()] = w;
+            if which != DynamicColor::Cursor {
+                self.style_log.colors_moved();
+            }
+        }
+    }
+
     fn dispatch_osc(&mut self, term: StringTerm) {
         let n = self.cold.str_len.index();
         // Split the borrow: `Osc::parse` holds the payload while the setters
@@ -118,9 +140,7 @@ impl Paint<'_, '_> {
                 self.icon_len = copy_bounded(self.strs.icon, t);
             }
             Osc::SetColor { index, spec } => match spec {
-                XColor::Rgb(r, g, b) => {
-                    self.strs.palette[index.index()] = ColorWord::rgb(r, g, b);
-                }
+                XColor::Rgb(r, g, b) => self.set_palette(index, ColorWord::rgb(r, g, b)),
                 XColor::Query => self.report_color(index, term),
                 // A colour *name*. Resolving it needs X11's `rgb.txt` and this
                 // repo has no citable copy, so it is left alone rather than
@@ -132,15 +152,21 @@ impl Paint<'_, '_> {
                 // probes with exactly such a name.
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
-            Osc::ResetColor(Some(c)) => self.strs.palette[c.index()] = ColorWord::DEFAULT,
-            Osc::ResetColor(None) => self.strs.palette.fill(ColorWord::DEFAULT),
+            Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),
+            Osc::ResetColor(None) => {
+                // Every entry an `OSC 4` can name, which is every entry a
+                // rendition resolves through.
+                for v in 0..=u8::MAX {
+                    self.set_palette(Chan::from_u8(v), ColorWord::DEFAULT);
+                }
+            }
             Osc::SetDynamic { which, spec } => match spec {
-                XColor::Rgb(r, g, b) => self.cold.dynamic[which.index()] = ColorWord::rgb(r, g, b),
+                XColor::Rgb(r, g, b) => self.set_dynamic(which, ColorWord::rgb(r, g, b)),
                 XColor::Query => self.report_dynamic(which, term),
                 // Counted, as `OSC 4`'s unresolvable name is.
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
-            Osc::ResetDynamic(which) => self.cold.dynamic[which.index()] = ColorWord::DEFAULT,
+            Osc::ResetDynamic(which) => self.set_dynamic(which, ColorWord::DEFAULT),
             // **Inline, because the URI borrows the payload buffer.** Both
             // live in `strs`, so resolving the slot and the length first is
             // what lets the write happen at all -- the same borrow split

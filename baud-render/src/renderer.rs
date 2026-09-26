@@ -13,7 +13,7 @@ use crate::select::Highlight;
 use crate::stack::{FaceIx, Stack};
 use crate::trail::{self, Ghost, Trail};
 use crate::transition::{self, Transition, Veil};
-use crate::units::{Band, Digest, Tally};
+use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::{
     Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen, ImageId,
@@ -60,6 +60,60 @@ pub enum VideoFlash {
     #[default]
     Off,
     On,
+}
+
+/// Moves on every [`Renderer::set_theme`]: every resolved slot depends on
+/// the theme.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct ThemeGen(u32);
+
+/// What a resolved slot depends on besides the slot: the theme, the video --
+/// `?5` or a flash's -- and the colours the core holds, as an epoch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct StyleInputs {
+    theme: ThemeGen,
+    video: Video,
+    colors: baud_domain::ColorEpoch,
+}
+
+/// **Where one resolved copy of the rendition table stands**: which table it
+/// resolved, how many of the table's writes, and under which inputs, and how
+/// many of its slots blink. One a copy -- the CPU path's own, and one for each
+/// of the cell path's buffer sets, since a set the GPU is reading cannot be
+/// written and so falls behind the others by a frame.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StyleStamp {
+    table: Option<baud_domain::TableSerial>,
+    at: baud_domain::StyleWrites,
+    inputs: Option<StyleInputs>,
+    blinking: Tally,
+}
+
+/// How a sync resolved a copy: the slots written since it was stamped, or
+/// every live slot, because the table or an input changed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Pass {
+    #[default]
+    Replay,
+    Full,
+}
+
+/// Whether a sync replayed a write that evicted a slot a cell may name: the
+/// cell's word is the same and its colour is not, so row damage cannot see it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Evicted {
+    #[default]
+    No,
+    Yes,
+}
+
+/// What one [`Renderer::sync_styles`] did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct StyleSync {
+    /// Slots resolved: none on a frame in which nothing was minted.
+    pub resolved: Tally,
+    pub pass: Pass,
+    pub evicted: Evicted,
 }
 
 /// Whether the last convert or resolve saw a cell with `Attrs::BLINK`, so a
@@ -251,29 +305,6 @@ pub struct Frame {
     pub exceptions: Exceptions,
 }
 
-/// An FNV-1a fold over the 256 palette entries the core carries, and the
-/// video the frame draws in.
-fn palette_digest(term: &Term<'_>, video: Video) -> Digest {
-    let mut d = Digest::start();
-    for i in 0..=u8::MAX {
-        let (r, g, b) = term.palette(Chan::from_u8(i)).unwrap_or((0, 0, 0));
-        d = d.fold_bytes(&[r, g, b, 1]);
-    }
-    // The dynamic colours ride in the same digest: an `OSC 11` moves no cell
-    // word and no style slot, so without this a changed default background
-    // would repaint nothing, the way a theme swap did before `set_theme`
-    // dropped the damage cache.
-    for which in [DynamicColor::Foreground, DynamicColor::Background] {
-        let (r, g, b) = term.dynamic_color(which).unwrap_or((0, 0, 0));
-        let set = u8::from(term.dynamic_color(which).is_some());
-        d = d.fold_bytes(&[r, g, b, set]);
-    }
-    // And so does the video: a `?5` flip, or a flash starting or ending,
-    // moves no cell word and no style slot either, and a program flashes it
-    // as a visual bell.
-    d.fold_bytes(&[u8::from(video == Video::Reverse)])
-}
-
 /// The video a frame draws in: the one the screen's `?5` asks for, or under
 /// a flash the other one.
 fn video_of(term: &Term<'_>, flash: VideoFlash) -> Video {
@@ -437,11 +468,14 @@ pub struct Renderer<'f, 'a> {
     /// [`Theme::finds_pictures`]. Found over the whole screen, because a
     /// picture is a property of a block of cells rather than of one.
     pictures: Pictures,
-    /// Per row, a fold of the renditions its cells resolve to. A `StyleId`
-    /// indexes an evicting table, so an unchanged cell word can mean a
-    /// changed colour; the word comparison alone would miss it.
-    prev_styles: Vec<Digest>,
-    cur_styles: Vec<Digest>,
+    /// **The CPU and instance paths' resolved rendition table**, kept from
+    /// frame to frame and brought up to date by [`Renderer::sync_styles`]:
+    /// only the slots the core wrote since, or every live slot when the table
+    /// or an input changed. A cell's colours are one load from it.
+    styles: Vec<Resolved>,
+    styles_stamp: StyleStamp,
+    /// Moves on every [`Renderer::set_theme`].
+    theme_gen: ThemeGen,
     bg: Vec<Argb>,
     fg: Vec<Argb>,
     /// Per cell, whether its text draws, beside its colours: the glyphs
@@ -522,10 +556,6 @@ pub struct Renderer<'f, 'a> {
     image_snapshots: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
-    /// The palette the last frame resolved against: `OSC 4` repaints
-    /// cells whose words never change, so a different palette is a full
-    /// frame.
-    last_palette: Digest,
     storage: Vec<Glyph>,
 }
 
@@ -604,8 +634,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             known: Prev::Unknown,
             cur: Vec::new(),
             pictures: Pictures::new(),
-            prev_styles: Vec::new(),
-            cur_styles: Vec::new(),
+            styles: Vec::new(),
+            styles_stamp: StyleStamp::default(),
+            theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
             text: Vec::new(),
@@ -635,7 +666,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
             dirty: Vec::new(),
-            last_palette: Digest::default(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
         };
         r.resize(cols, rows);
@@ -818,6 +848,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the next convert or resolve puts it back (`refresh_screen`).
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+        self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
         self.known = Prev::Unknown;
         self.defaults = self.theme.defaults(self.video, |_| None);
         self.rebuild_overlays();
@@ -947,8 +978,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cells = cols.index() * rows.index();
         self.prev = vec![PackedCell::EMPTY; cells];
         self.cur = vec![PackedCell::EMPTY; cells];
-        self.prev_styles = vec![Digest::default(); rows.index()];
-        self.cur_styles = vec![Digest::default(); rows.index()];
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
         self.text = vec![Text::Drawn; cells];
@@ -1198,7 +1227,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ) -> Converted {
         let t0 = Instant::now();
         self.fit(term);
-        self.refresh_screen(term);
+        let mut styles = core::mem::take(&mut self.styles);
+        if styles.len() != term.styles().len() {
+            styles = vec![Resolved::default(); term.styles().len()];
+            self.styles_stamp = StyleStamp::default();
+        }
+        let mut stamp = self.styles_stamp;
+        let sync = self.sync_styles(term, &mut styles, &mut stamp);
+        (self.styles, self.styles_stamp) = (styles, stamp);
         let (cols, rows) = term.geometry();
         let ncols = cols.index();
         // Each row read where the core holds it, through the rotation and
@@ -1220,14 +1256,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         } else {
             self.pictures.clear(cols, rows);
         }
-        for r in 0..rows.index() {
-            let range = self.row_cells(Row::from_index(r));
-            let mut d = Digest::start();
-            for cell in &self.cur[range] {
-                d = d.fold(term.style_of(*cell).key());
-            }
-            self.cur_styles[r] = d;
-        }
         // No cursor while looking back: it belongs to the live screen, which
         // is `back` lines below the window.
         let cursor: Cursor =
@@ -1236,22 +1264,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     let (r, c) = term.cursor();
                     (r, c, term.cursor_style())
                 });
-        let palette = palette_digest(term, self.video);
+        // Every slot resolved again -- a theme, a video or a palette changed
+        // -- repaints every cell whose words did not change, and so does an
+        // eviction, which gives a slot some cell names another rendition. A
+        // slot filled since changes no drawn cell: no cell named it before,
+        // and a cell that names it now is a changed word.
+        //
         // The screen fade veils every row, so a change to it -- spawned,
         // stepped or cleared -- makes the whole frame dirty. It is not a
         // per-row predicate like the trail's band overlap.
         let full = damage == Damage::Full
             || self.known == Prev::Unknown
-            || palette != self.last_palette
+            || sync.pass == Pass::Full
+            || sync.evicted == Evicted::Yes
             || self.fade != self.last_fade;
-        self.last_palette = palette;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut rows_dirty = Tally::default();
         let mut exceptions = Exceptions::default();
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
-            let changed = self.cur[range.clone()] != self.prev[range]
-                || self.cur_styles[r] != self.prev_styles[r];
+            let changed = self.cur[range.clone()] != self.prev[range];
             let cursor_here = cursor_row(cursor) == Some(r);
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved =
@@ -1297,7 +1329,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Blinking::Unseen
         };
         core::mem::swap(&mut self.prev, &mut self.cur);
-        core::mem::swap(&mut self.prev_styles, &mut self.cur_styles);
         self.known = Prev::Known;
         self.last_cursor = cursor;
         self.last_highlight = self.highlight;
@@ -1582,6 +1613,92 @@ impl<'f, 'a> Renderer<'f, 'a> {
         n
     }
 
+    /// **Bring one resolved copy of the rendition table up to date**, and say
+    /// what that took. A copy resolved against this table, under the same
+    /// theme, video and colours, resolves only the slots the core wrote since
+    /// it was stamped (`Term::styles_written`) -- none, on a frame in which no
+    /// rendition was minted. A copy of another table, or under another input,
+    /// resolves every live slot. It never resolves a slot no cell can name.
+    ///
+    /// Where [`Renderer::resolve_styles_into`] resolved every slot of the
+    /// table a frame -- 159 us of a 190 us idle frame at the app's 65,536
+    /// slots -- this is a handful of compares on a steady screen. `out` is
+    /// the memory a reader reads: the CPU path's own table, or a buffer set
+    /// the GPU draws from, each with its own [`StyleStamp`].
+    pub fn sync_styles(
+        &mut self,
+        term: &Term<'_>,
+        out: &mut [Resolved],
+        stamp: &mut StyleStamp,
+    ) -> StyleSync {
+        self.refresh_screen(term);
+        let inputs = StyleInputs {
+            theme: self.theme_gen,
+            video: self.video,
+            colors: term.color_epoch(),
+        };
+        let table = term.style_table();
+        let now = term.style_writes();
+        let slots = term.styles();
+        // A copy of this table under these inputs replays; a reader ahead
+        // of the log, which only a copy of another table can be, is told
+        // every slot by `styles_written` itself.
+        let fresh = stamp.table == Some(table) && stamp.inputs == Some(inputs);
+        let mut sync = StyleSync::default();
+        if !fresh {
+            sync.pass = Pass::Full;
+            stamp.blinking = Tally::default();
+        }
+        let since = if fresh {
+            stamp.at
+        } else {
+            baud_domain::StyleWrites::NEVER
+        };
+        match term.styles_written(since) {
+            baud_core::Written::Slots(parts) => {
+                for &k in parts.iter().flat_map(|p| p.iter()) {
+                    let Some(dst) = out.get_mut(k.index()) else {
+                        continue;
+                    };
+                    let new = self.resolve_slot(
+                        term,
+                        slots[k.index()].unwrap_or(baud_domain::StyleWord::DEFAULT),
+                    );
+                    if fresh && dst.shapes.has(Shapes::BLINK) {
+                        stamp.blinking.lose();
+                    }
+                    if new.shapes.has(Shapes::BLINK) {
+                        stamp.blinking.bump();
+                    }
+                    *dst = new;
+                    sync.resolved.bump();
+                }
+            }
+            baud_core::Written::Every => {
+                sync.pass = Pass::Full;
+                stamp.blinking = Tally::default();
+                for (slot, dst) in slots.iter().zip(out.iter_mut()) {
+                    *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
+                    if dst.shapes.has(Shapes::BLINK) {
+                        stamp.blinking.bump();
+                    }
+                    sync.resolved.bump();
+                }
+            }
+        }
+        if fresh && now > stamp.at && now.past(slots.len()) {
+            sync.evicted = Evicted::Yes;
+        }
+        *stamp = StyleStamp {
+            table: Some(table),
+            at: now,
+            inputs: Some(inputs),
+            blinking: stamp.blinking,
+        };
+        self.blink_slots = stamp.blinking;
+        sync
+    }
+
     /// One rendition resolved through the theme and the live palette to what
     /// a cell draws with, before anything a frame lays over it -- the
     /// selection, the cursor, the blink's phase ([`Resolved::drawn`]). The one
@@ -1661,7 +1778,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut blinks = Blinking::Unseen;
         for (c, cell) in row.iter().enumerate() {
             let col = Col::at_index(c);
-            let res = self.resolve_slot(term, term.style_of(*cell));
+            // One load from the resolved table, which `sync_styles` keeps.
+            let res = self
+                .styles
+                .get(cell.style.index())
+                .copied()
+                .unwrap_or_default();
             if res.shapes.has(Shapes::BLINK) {
                 blinks = Blinking::Seen;
             }

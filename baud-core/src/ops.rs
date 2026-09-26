@@ -651,7 +651,7 @@ impl Paint<'_, '_> {
             // Slot 0 is the reserved default (`Term::new`), which this arm
             // must not overwrite any more than the eviction below may.
             let k2 = StyleId::bucket(raw, len).max(1);
-            self.tmpl[k2] = Some(raw);
+            self.intern_new(StyleId::from_index(k2), raw);
         }
         let base = StyleId::bucket(raw, len);
         // Probe for this style's own slot or the first free one. `len` is a
@@ -662,10 +662,7 @@ impl Paint<'_, '_> {
         for _ in 0..len {
             match self.tmpl[k] {
                 Some(w) if w == raw => return StyleId::from_index(k),
-                None => {
-                    self.tmpl[k] = Some(raw);
-                    return StyleId::from_index(k);
-                }
+                None => return self.intern_new(StyleId::from_index(k), raw),
                 Some(_) => k = (k + 1) & (len - 1),
             }
         }
@@ -674,9 +671,19 @@ impl Paint<'_, '_> {
         // except slot 0, the default every blank cell names without
         // interning it (`Term::new`), whose eviction would recolour them all.
         // Its bucket's victim is the slot after it.
-        let victim = base.max(1);
-        self.tmpl[victim] = Some(raw);
-        StyleId::from_index(victim)
+        self.intern_new(StyleId::from_index(base.max(1)), raw)
+    }
+
+    /// A rendition written into slot `id`, and the write logged: a miss, which
+    /// an `SGR` usually is not, so out of line where the hit stays inline.
+    /// Every write to the table goes through here, so the log holds every
+    /// slot a renderer has to resolve again (`Term::styles_written`).
+    #[cold]
+    #[inline(never)]
+    fn intern_new(&mut self, id: StyleId, raw: StyleWord) -> StyleId {
+        self.tmpl[id.index()] = Some(raw);
+        self.style_log.note(id);
+        id
     }
 
     /// SGR. **The single-parameter form first**, because that is what a

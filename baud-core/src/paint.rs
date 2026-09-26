@@ -166,6 +166,10 @@ pub(crate) struct Paint<'a, 'b> {
     /// and both recovered by a thin reference. `AltBuf` was grouped for the
     /// same reason one change earlier.
     pub(crate) clusters: &'a mut ClusterStore<'b>,
+    /// The rendition table's write log, reached on a table miss and on a
+    /// colour change -- never on the hit an `SGR` usually is. One word, the
+    /// `clusters` shape.
+    pub(crate) style_log: &'a mut crate::storage::StyleLog<'b>,
     /// Stored images and their placements. A completed Sixel decodes into this
     /// and places at the cursor; see [`ImageStore`].
     pub(crate) images: &'a mut ImageStore<'b>,
@@ -308,6 +312,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             used,
             cells3,
             tmpl,
+            style_log,
             tabs,
             reply,
             alt,
@@ -381,6 +386,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             other,
             book,
             clusters,
+            style_log,
             strs,
             images,
             sixel_body,

@@ -45,7 +45,7 @@ fn main() {
     use baud_present_macos::{CellInput, Done, Drawn, Gpu, InFlight, Landing};
     use baud_render::{
         Blend, Candidate, Damage, GlyphMap, Instance, Overlay, PxSize, Renderer, Scene, Stack,
-        Tally, Target, Theme,
+        StyleStamp, Tally, Target, Theme,
     };
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -210,7 +210,8 @@ fn main() {
         parts: [Parts; 2],
     }
     /// One kind of cell-path frame, split by what it does: the glyph-map
-    /// walk, the rendition table resolved, the overlay walk, the window
+    /// walk, the rendition table synced (`Renderer::sync_styles`, the slots
+    /// written since the last frame), the overlay walk, the window
     /// copied (the `copied` arm only; the app copies every frame), and the
     /// bind plus commit.
     #[derive(Default, Clone, Copy)]
@@ -372,6 +373,9 @@ fn main() {
                 None => Term::new(owned.storage(), &ws),
             };
             let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
+            // The resolved table kept as the app keeps a set's: synced from
+            // the core's log, so a frame resolves only what was written.
+            let mut stamp = StyleStamp::default();
             // A fresh map per arm per round, like the renderer: the entries
             // live in the shared buffer, so the map is remade over it.
             map = GlyphMap::over(map.into_entries());
@@ -418,7 +422,7 @@ fn main() {
                         (row, col, t.cursor_style())
                     });
                     let tr = Instant::now();
-                    r.resolve_styles_into(&t, styles_mem);
+                    r.sync_styles(&t, styles_mem, &mut stamp);
                     s.parts[part].resolve += tr.elapsed();
                     let to = Instant::now();
                     exceptions.ensure(
@@ -626,7 +630,7 @@ fn main() {
                 let n = u32::try_from(p.frames.value()).unwrap_or(u32::MAX);
                 let us = |d: Duration| (d / n).as_secs_f64() * 1e6;
                 println!(
-                    "      {kind}: {} frames; map {:.1}, resolve {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1} us/frame",
+                    "      {kind}: {} frames; map {:.1}, styles {:.1}, overlay {:.1}, copy {:.1}, draw {:.1}; cpu {:.1} us/frame",
                     p.frames.value(),
                     us(p.map),
                     us(p.resolve),

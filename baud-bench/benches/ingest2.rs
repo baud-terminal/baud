@@ -290,6 +290,8 @@ fn main() {
     #[cfg(not(feature = "cell-table"))]
     let mut cells3: Vec<PackedCell> = Vec::new();
     let mut tmpl = vec![None; NSTYLE];
+    let mut order = vec![baud_domain::StyleId::DEFAULT; NSTYLE];
+    let mut book = baud_core::StyleBook::new();
     let mut tabs = vec![false; MAX_COLS];
     let mut reply = vec![0u8; REPLY];
     let mut alt = vec![PackedCell::EMPTY; span.len()];
@@ -321,7 +323,11 @@ fn main() {
             &mut vp,
             &mut used,
             &mut cells3,
-            &mut tmpl,
+            baud_core::StyleTable {
+                slots: &mut tmpl,
+                order: &mut order,
+                book: &mut book,
+            },
             &mut tabs,
             &mut reply,
             &mut alt,

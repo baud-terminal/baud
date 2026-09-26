@@ -31,6 +31,14 @@ enum PrimaryCursor {
     Shared,
 }
 
+/// The rendition table's slots written since a count: up to two slices of
+/// the log, oldest first, or every slot. See [`Term::styles_written`].
+#[derive(Clone, Copy, Debug)]
+pub enum Written<'t> {
+    Slots([&'t [StyleId]; 2]),
+    Every,
+}
+
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
 pub struct Saved {
@@ -1347,7 +1355,16 @@ impl<'b> Term<'b> {
         // default cell took that rendition's colours. The default's key is 0,
         // so this is the slot it would take anyway; `intern_style` never
         // evicts it.
-        store.tmpl[StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
+        //
+        // Written and logged once, when the table is new: a storage lent again
+        // has slot 0 already, and its log already holds the write.
+        if store.style_log.book.writes == StyleWrites::NEVER {
+            store.tmpl[StyleId::DEFAULT.index()] = Some(StyleWord::DEFAULT);
+            store.style_log.note(StyleId::DEFAULT);
+        }
+        // The dynamic colours restart with `Cold`, and the palette does not:
+        // what a rendition resolves through may have changed.
+        store.style_log.colors_moved();
         // **Every eighth column, and not column zero.** A tab stop at 0 makes
         // `CBT` from column 3 land where the cursor already was.
         for (i, stop) in store.tabs.iter_mut().enumerate() {
@@ -1748,6 +1765,39 @@ impl<'b> Term<'b> {
     /// answers for it.
     pub fn styles(&self) -> &[Option<StyleWord>] {
         self.store.tmpl
+    }
+
+    /// Which rendition table this terminal writes: a renderer that caches
+    /// what it resolved keeps the serial it resolved against.
+    pub fn style_table(&self) -> TableSerial {
+        self.store.style_log.book.table
+    }
+
+    /// How many writes the rendition table has taken, for a reader to ask
+    /// later what changed since ([`Term::styles_written`]).
+    pub fn style_writes(&self) -> StyleWrites {
+        self.store.style_log.book.writes
+    }
+
+    /// **The slots written since a count**, oldest first, as up to two slices
+    /// of the log: or [`Written::Every`] when the reader is more than the
+    /// table's length behind, and the ring has overwritten what it missed. A
+    /// renderer resolves these and nothing else, so a frame in which no
+    /// rendition was minted resolves none. From [`StyleWrites::NEVER`] it is
+    /// every live slot until the table has filled.
+    pub fn styles_written(&self, since: StyleWrites) -> Written<'_> {
+        let log = &self.store.style_log;
+        match log.book.writes.replay(since, log.order.len()) {
+            Replay::Every => Written::Every,
+            Replay::Entries([a, b]) => Written::Slots([&log.order[a], &log.order[b]]),
+        }
+    }
+
+    /// Moves when a colour a rendition resolves through changes: a palette
+    /// entry, or the default foreground or background. A renderer resolves
+    /// the table again under a new epoch.
+    pub fn color_epoch(&self) -> ColorEpoch {
+        self.store.style_log.book.colors
     }
 
     /// The live surface's ring as the core holds it: [`Term::ring`] rows of

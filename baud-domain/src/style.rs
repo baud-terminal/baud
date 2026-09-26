@@ -256,6 +256,99 @@ impl StyleId {
     }
 }
 
+/// **How many writes the rendition table has taken** since it was allocated:
+/// every slot filled and every slot evicted, in order. A reader that resolved
+/// the table up to one count asks for the slots written since, and the table
+/// never frees a slot, so while the count is no more than the table's length
+/// the writes are exactly the live slots.
+///
+/// Zero is a table nothing has written; slot 0's reservation is write 1.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct StyleWrites(u64);
+
+/// What a reader behind the log replays.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Replay {
+    /// The log's entries at these index ranges, oldest first; the second
+    /// range is the wrap past the log's end, empty when there is none.
+    Entries([core::ops::Range<usize>; 2]),
+    /// More writes than the log holds: every slot may have changed.
+    Every,
+}
+
+impl StyleWrites {
+    pub const NEVER: StyleWrites = StyleWrites(0);
+
+    /// The count after one more write.
+    pub fn next(self) -> StyleWrites {
+        StyleWrites(self.0 + 1)
+    }
+
+    /// Where write number `self` sits in a log of `len` entries, a power of
+    /// two: write 1 at index 0.
+    pub fn index_in(self, len: usize) -> usize {
+        debug_assert!(len.is_power_of_two() && self.0 > 0);
+        (self.0 - 1) as usize & (len - 1)
+    }
+
+    /// Whether the table had taken more writes than it has slots, `len`: a
+    /// table fills each slot once and never frees one, so any write past its
+    /// length evicted a slot a cell may still name.
+    pub fn past(self, len: usize) -> bool {
+        self.0 > len as u64
+    }
+
+    /// The writes after `since` up to `self` in a log of `len` entries: the
+    /// index ranges to replay, or [`Replay::Every`] when the reader is more
+    /// than a log's length behind -- the ring has overwritten what it missed.
+    /// A reader ahead of the log, which only a reader of another table can
+    /// be, is told `Every` too.
+    pub fn replay(self, since: StyleWrites, len: usize) -> Replay {
+        if since > self || self.0 - since.0 > len as u64 {
+            return Replay::Every;
+        }
+        let n = (self.0 - since.0) as usize;
+        if n == 0 {
+            return Replay::Entries([0..0, 0..0]);
+        }
+        let start = since.next().index_in(len);
+        if start + n <= len {
+            Replay::Entries([start..start + n, 0..0])
+        } else {
+            Replay::Entries([start..len, 0..start + n - len])
+        }
+    }
+}
+
+/// **Which rendition table this is.** A reader that caches what it resolved
+/// keeps the serial it resolved against, and a table allocated where another
+/// was freed is still a different table. Minted once per table, from one
+/// counter for the process.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TableSerial(u64);
+
+impl TableSerial {
+    /// A serial no table in this process has had.
+    pub fn mint() -> TableSerial {
+        static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);
+        TableSerial(NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+/// **Moves when a colour a rendition resolves through changes**: a palette
+/// entry (`OSC 4`, `OSC 104`) or the default foreground or background (`OSC
+/// 10`/`11`, `110`/`111`), and never for a write that leaves the value as it
+/// was. A reader that resolved the table under one epoch resolves it again
+/// under another; nothing else it depends on lives in the core.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ColorEpoch(u32);
+
+impl ColorEpoch {
+    pub fn next(self) -> ColorEpoch {
+        ColorEpoch(self.0.wrapping_add(1))
+    }
+}
+
 /// One colour slot: default, a palette index, or 24-bit RGB.
 ///
 /// A tagged `u32` rather than an enum so the whole rendition stays a plain

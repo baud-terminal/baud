@@ -122,6 +122,10 @@ pub struct Storage<'b> {
     /// two states of one thing, and a `bool` beside it is the missing enum the
     /// audit exists to catch.
     pub(crate) tmpl: &'b mut [Option<StyleWord>],
+    /// Which slot each write to `tmpl` touched, and how many there have been:
+    /// what a renderer that caches the resolved table replays instead of
+    /// resolving every slot a frame. See [`StyleTable`].
+    pub(crate) style_log: StyleLog<'b>,
     /// Tab stops, one per column.
     pub(crate) tabs: &'b mut [bool],
     /// Interned grapheme clusters, indexed **from the cell**.
@@ -313,6 +317,8 @@ pub struct Owned {
     used: alloc::vec::Vec<RowExtent>,
     cells3: alloc::vec::Vec<PackedCell>,
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
+    order: alloc::vec::Vec<StyleId>,
+    book: StyleBook,
     tabs: alloc::vec::Vec<bool>,
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
@@ -364,6 +370,16 @@ impl Owned {
         let stride = grid_stride(geom, cols);
         let span = RowBlock::leading(rows, stride);
         let ring = RowBlock::leading(Rows::of_index(rows.index() + depth.lines()), stride);
+        // Sized to the whole primary screen (`span` is `rows * stride`), so
+        // a text-drawn image preview -- one distinct rendition per cell --
+        // never evicts a rendition a visible cell still references. A resize
+        // clamps `cols` to `stride` and `rows` to the provisioned capacity,
+        // so the largest screen this storage can display is `span.len()`
+        // cells, and the table holds it. The next power of two at or above
+        // it (so open addressing's `& (len - 1)` wraps), between the NSTYLE
+        // floor and the NSTYLE_MAX ceiling; the ceiling clamp precedes
+        // `next_power_of_two()`, which panics past 2^63.
+        let styles = span.len().min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
         Owned {
             stride,
             depth,
@@ -371,16 +387,9 @@ impl Owned {
             vp: vec![PackedCell::EMPTY; ring.len()],
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
-            // Sized to the whole primary screen (`span` is `rows * stride`), so
-            // a text-drawn image preview -- one distinct rendition per cell --
-            // never evicts a rendition a visible cell still references. A resize
-            // clamps `cols` to `stride` and `rows` to the provisioned capacity,
-            // so the largest screen this storage can display is `span.len()`
-            // cells, and the table holds it. The next power of two at or above
-            // it (so open addressing's `& (len - 1)` wraps), between the NSTYLE
-            // floor and the NSTYLE_MAX ceiling; the ceiling clamp precedes
-            // `next_power_of_two()`, which panics past 2^63.
-            tmpl: vec![None; span.len().min(NSTYLE_MAX).next_power_of_two().max(NSTYLE)],
+            tmpl: vec![None; styles],
+            order: vec![StyleId::DEFAULT; styles],
+            book: StyleBook::new(),
             tabs: vec![false; MAX_COLS],
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
@@ -467,7 +476,11 @@ impl Owned {
             vp,
             &mut self.used,
             &mut self.cells3,
-            &mut self.tmpl,
+            StyleTable {
+                slots: &mut self.tmpl,
+                order: &mut self.order,
+                book: &mut self.book,
+            },
             &mut self.tabs,
             &mut self.reply,
             alt,
@@ -499,7 +512,11 @@ impl Owned {
             &mut self.vp,
             &mut self.used,
             &mut self.cells3,
-            &mut self.tmpl,
+            StyleTable {
+                slots: &mut self.tmpl,
+                order: &mut self.order,
+                book: &mut self.book,
+            },
             &mut self.tabs,
             &mut self.reply,
             &mut self.alt,
@@ -626,6 +643,73 @@ pub const NIMAGE: usize = 32;
 #[cfg(feature = "alloc")]
 pub const NPLACEMENT: usize = 64;
 
+/// **The rendition table's bookkeeping, in the caller's memory beside the
+/// table**: which table it is, how many writes it has taken, and which colour
+/// epoch it is in. Caller memory, because the table is: a `Term` lent the same
+/// storage again finds the slots it left, and a count that restarted would say
+/// they were never written.
+#[derive(Debug)]
+pub struct StyleBook {
+    pub(crate) table: TableSerial,
+    pub(crate) writes: StyleWrites,
+    pub(crate) colors: ColorEpoch,
+}
+
+impl StyleBook {
+    /// A new table's book: its own serial, and nothing written.
+    pub fn new() -> StyleBook {
+        StyleBook {
+            table: TableSerial::mint(),
+            writes: StyleWrites::NEVER,
+            colors: ColorEpoch::default(),
+        }
+    }
+}
+
+impl Default for StyleBook {
+    fn default() -> StyleBook {
+        StyleBook::new()
+    }
+}
+
+/// **The rendition table and its write log**, lent to [`Storage::new`] as one
+/// argument so the three cannot be lent apart.
+///
+/// The log is a ring of `slots.len()` entries, one a write, naming the slot
+/// each write filled or evicted. The table fills each slot once and never
+/// frees one, so until it has taken as many writes as it has slots the log
+/// holds exactly the live slots, in the order they were filled; after that,
+/// every slot is live anyway. A renderer resolves each slot once and then
+/// only the slots written since (`Term::styles_written`), where it used to
+/// resolve all of them every frame: at the app's 65,536 slots that was 159 us
+/// of a 190 us idle frame.
+pub struct StyleTable<'b> {
+    pub slots: &'b mut [Option<StyleWord>],
+    /// One entry a slot.
+    pub order: &'b mut [StyleId],
+    pub book: &'b mut StyleBook,
+}
+
+/// The log half of a [`StyleTable`], which the write path carries.
+pub(crate) struct StyleLog<'b> {
+    pub(crate) order: &'b mut [StyleId],
+    pub(crate) book: &'b mut StyleBook,
+}
+
+impl StyleLog<'_> {
+    /// Records a write to slot `k`.
+    pub(crate) fn note(&mut self, k: StyleId) {
+        self.book.writes = self.book.writes.next();
+        let at = self.book.writes.index_in(self.order.len());
+        self.order[at] = k;
+    }
+
+    /// A colour a rendition resolves through changed.
+    pub(crate) fn colors_moved(&mut self) {
+        self.book.colors = self.book.colors.next();
+    }
+}
+
 impl<'b> Storage<'b> {
     /// How many rows the caller provisioned, which is not the live row count.
     ///
@@ -659,7 +743,7 @@ impl<'b> Storage<'b> {
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
         cells3: &'b mut [PackedCell],
-        tmpl: &'b mut [Option<StyleWord>],
+        styles: StyleTable<'b>,
         tabs: &'b mut [bool],
         reply: &'b mut [u8],
         alt: &'b mut [PackedCell],
@@ -720,9 +804,19 @@ impl<'b> Storage<'b> {
             cells3.len() == CELLS3 || cells3.is_empty(),
             "the three-byte cell table is 1024 x 256 entries, or absent"
         );
+        let tmpl = &styles.slots;
         assert!(
             tmpl.len().is_power_of_two() && tmpl.len() >= NSTYLE && tmpl.len() <= NSTYLE_MAX,
             "the rendition table is a power of two between NSTYLE and NSTYLE_MAX slots"
+        );
+        assert!(
+            styles.order.len() == tmpl.len(),
+            "the rendition table's log is one entry a slot"
+        );
+        assert!(
+            styles.book.writes == StyleWrites::NEVER
+                || tmpl[StyleId::DEFAULT.index()] == Some(StyleWord::DEFAULT),
+            "a written rendition table holds the default in slot 0"
         );
         assert!(tabs.len() >= MAX_COLS, "tab stops are one per column");
         assert!(reply.len() >= REPLY, "the reply buffer is REPLY bytes");
@@ -737,7 +831,11 @@ impl<'b> Storage<'b> {
             vp,
             used,
             cells3,
-            tmpl,
+            tmpl: styles.slots,
+            style_log: StyleLog {
+                order: styles.order,
+                book: styles.book,
+            },
             tabs,
             reply,
             clusters: ClusterStore::new(clusters),

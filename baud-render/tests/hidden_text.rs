@@ -19,7 +19,7 @@ use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows};
 use baud_font::{Face, Px};
 use baud_render::{
     Blend, Blink, Blinking, Damage, GlyphMap, Overlay, PxSize, Renderer, Resolved, Scene, Stack,
-    Theme,
+    StyleStamp, Theme,
 };
 use support::{Canvas, WS, font, paint};
 
@@ -189,9 +189,13 @@ fn a_blinking_slot_off_screen_is_not_seen() {
     let mut mask = vec![0u8; usize::from(WS.ws_col) * usize::from(WS.ws_row)];
     let mut records = Vec::new();
     let mut candidates = Vec::new();
+    // The table as the app keeps a set's: synced from the core's log, so a
+    // rendition minted after the first frame reaches the blink count by the
+    // replay rather than by a full resolve.
+    let mut stamp = StyleStamp::default();
     let mut seen = |t: &Term<'_>, r: &mut Renderer<'_, '_>| {
         map.ensure(t.view(Rows::ZERO), r, &mut candidates);
-        r.resolve_styles_into(t, &mut styles);
+        r.sync_styles(t, &mut styles, &mut stamp);
         overlay.ensure(
             &Scene {
                 term: t,
@@ -209,6 +213,8 @@ fn a_blinking_slot_off_screen_is_not_seen() {
         );
         r.blink_seen()
     };
+    feed(&mut t, b"plain");
+    assert_eq!(seen(&t, &mut r), Blinking::Unseen, "nothing blinks yet");
     feed(&mut t, b"\x1b[5mBLINK\x1b[0m");
     assert_eq!(
         seen(&t, &mut r),

@@ -29,6 +29,11 @@ impl Tally {
     pub fn inc(self) -> Tally {
         Tally(self.0.saturating_add(1))
     }
+
+    /// One fewer, saturating: a count of live things one of which went.
+    pub fn lose(&mut self) {
+        self.0 = self.0.saturating_sub(1);
+    }
 }
 
 /// A mask texel: how much of the pixel the glyph covers, 0 to 255.

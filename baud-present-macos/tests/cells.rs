@@ -23,8 +23,8 @@ use baud_present_macos::{
 };
 use baud_render::{
     Blend, Blink, Candidate, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay, PxSize,
-    Region, Renderer, Resolved, Scene, Scroll, Scroller, Stack, Theme, Trail, Transition,
-    VideoFlash, Widths, Window,
+    Region, Renderer, Resolved, Scene, Scroll, Scroller, Stack, StyleStamp, Theme, Trail,
+    Transition, VideoFlash, Widths, Window,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -118,6 +118,10 @@ struct Arms<'f, 'a> {
     /// Smooth scroll: the pixels the screen is shifted down, or none. Both
     /// cell arms draw one extra leaving row above the window when set.
     slide: Option<Px>,
+    /// Where the cell arm's resolved table stands: kept across scenes, as the
+    /// app keeps a set's, so each scene's frame resolves only what it wrote
+    /// or what an input moved -- the cache the app draws from.
+    stamp: StyleStamp,
 }
 
 impl Arms<'_, '_> {
@@ -148,7 +152,8 @@ impl Arms<'_, '_> {
                 (r, c, t.cursor_style())
             })
             .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
-        self.renderer.resolve_styles_into(t, self.styles_mem);
+        self.renderer
+            .sync_styles(t, self.styles_mem, &mut self.stamp);
         self.exceptions.ensure(
             &Scene {
                 term: t,
@@ -393,6 +398,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         copy,
         copy_mem,
         slide: None,
+        stamp: StyleStamp::default(),
     };
     scene(&mut t);
     // Every cursor shape, block first.

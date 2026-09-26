@@ -28,8 +28,8 @@ use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
     Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
-    Scrolled, Scroller, Selection, Slide, Span, Stack, Tally, Target, Theme, Trail, Transition,
-    Window, back_for, gutter, place, thumb,
+    Scrolled, Scroller, Selection, Slide, Span, Stack, StyleStamp, Tally, Target, Theme, Trail,
+    Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -215,6 +215,12 @@ struct CellMemory {
     copies_mem: Vec<&'static mut [PackedCell]>,
     styles: Vec<StylesBuffer>,
     styles_mem: Vec<&'static mut [Resolved]>,
+    /// Where each set's resolved table stands. A set is written only when no
+    /// frame in flight reads it, so it falls a frame behind the others, and
+    /// each is brought up to date from the core's log on its own
+    /// (`Renderer::sync_styles`): only the slots written since that set was
+    /// last built.
+    style_stamps: Vec<StyleStamp>,
     /// **Two, ping-ponged on a rescale, and not a set a frame.** Rotating
     /// per frame would be three caches each seeing every third frame and
     /// the miss rate would roughly triple. Per frame it needs no ring
@@ -747,6 +753,7 @@ impl App {
                         alt,
                         copies,
                         copies_mem,
+                        style_stamps: vec![StyleStamp::default(); styles_mem.len()],
                         styles,
                         styles_mem,
                         maps: Maps {
@@ -1226,8 +1233,14 @@ impl App {
                     let at = vrows * stride;
                     cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
                 }
-                self.renderer
-                    .resolve_styles_into(&self.term, &mut cell.styles_mem[set][..]);
+                // The set's resolved table, brought up to date from the core's
+                // log: only the slots written since this set was last built,
+                // which on a steady screen is none.
+                self.renderer.sync_styles(
+                    &self.term,
+                    &mut cell.styles_mem[set][..],
+                    &mut cell.style_stamps[set],
+                );
                 cell.exceptions.ensure(
                     &Scene {
                         term: &self.term,
