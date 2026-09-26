@@ -8,6 +8,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
+use baud_render::fire::{Fire, Flame, Seed};
 use baud_render::{
     Blend, Damage, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Target, Theme, Trail,
     TrailLook, Transition, quad_coverage,
@@ -378,4 +379,65 @@ fn moving_smear(faces: &[Face<'_>], t: &mut Term<'_>, shape: Shape) {
         drew |= look.is_some() && b != bare;
     }
     assert!(drew, "the {shape:?} move drew nothing");
+}
+
+/// **On the CPU a fire is its emitter**: the flame is the GPU's, so the CPU
+/// path paints exactly the quad the flame would rise off -- the same pixels
+/// as a quad trail with those corners -- and a fire moving between frames
+/// repaints incrementally what a full frame paints, its damage being the
+/// reach of its records.
+#[test]
+fn the_cpu_path_draws_a_fire_as_its_emitter() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    with_text(|t| {
+        let mut r = renderer(&faces);
+        let (w, h) = r.pixel_size();
+        let (width, height) = (px(w), px(h));
+        let fire = |r: &Renderer<'_, '_>, t: f32| {
+            let emitter = smear(r, Shape::Quad, (1, 2), (7, 20), t);
+            let from = emitter.corners.0;
+            let tail = Pt {
+                x: (from[2].x + from[0].x) * 0.5,
+                y: (from[0].y + from[1].y) * 0.5,
+            };
+            let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+            Fire {
+                emitter,
+                flame: Flame::ignite(tail, emitter.hole, Seed(5), unit).at(t),
+            }
+        };
+        let mut quad = vec![0u32; width * height];
+        let mut burning = vec![0u32; width * height];
+        let f = fire(&r, 0.05);
+        r.set_trail(Some(TrailLook::Smear(f.emitter)));
+        paint(&mut r, t, &mut quad, Damage::Full);
+        r.set_trail(Some(TrailLook::Fire(f)));
+        paint(&mut r, t, &mut burning, Damage::Full);
+        assert!(
+            quad.iter().zip(&burning).all(|(a, b)| a == b),
+            "the fire's frame is its emitter's, off at {:?}",
+            diff_box(&quad, &burning, width)
+        );
+        let mut bare = vec![0u32; width * height];
+        r.set_trail(None);
+        paint(&mut r, t, &mut bare, Damage::Full);
+        assert!(bare != burning, "the emitter reached the pixels");
+        // Moving, frame by frame: incremental equals full.
+        let mut inc = bare.clone();
+        for step in [0.02f32, 0.06, 0.12, 0.3] {
+            r.set_trail(Some(TrailLook::Fire(fire(&r, step))));
+            paint(&mut r, t, &mut inc, Damage::Incremental);
+            let mut full = vec![0u32; width * height];
+            paint(&mut r, t, &mut full, Damage::Full);
+            assert!(
+                inc == full,
+                "at {step}: incremental off at {:?}",
+                diff_box(&inc, &full, width)
+            );
+        }
+        r.set_trail(None);
+        paint(&mut r, t, &mut inc, Damage::Incremental);
+        assert!(inc == bare, "gone, the fire leaves nothing");
+    });
 }

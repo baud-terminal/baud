@@ -190,3 +190,30 @@ fn the_hidden_text_bits_match_the_shader() {
         assert_eq!(got, want, "{line:?} against Shapes' {name}");
     }
 }
+
+/// **`KIND_FIRE` and `KIND_EMBER` in the shader and `Kind::Fire` and
+/// `Kind::Ember` are one fact spelled twice.** `glyph_vertex` gives an
+/// ember's record its disc coordinates by the literal, and `fire_fragment`
+/// tells an ember from a flame's band by it; a literal that drifted would
+/// draw every ember as a band of flame, or a band as a disc, on both GPU arms
+/// alike -- which the pixel oracle's reference would catch only as pixels.
+#[test]
+fn the_fire_kinds_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, kind) in [
+        ("KIND_FIRE", baud_render::Kind::Fire),
+        ("KIND_EMBER", baud_render::Kind::Ember),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let got: u32 = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
+        assert_eq!(got, kind.code().0, "{line:?} against Kind::{kind:?}");
+    }
+}

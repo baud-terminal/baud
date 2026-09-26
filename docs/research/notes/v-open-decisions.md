@@ -56,8 +56,10 @@ the builds that follow them:
 - **The per-frame cost first**: the resolved rendition table kept as a cache
   in baud's own idiom, then the trail styles one commit each.
 
-Built since: the rendition cache (`fe776c9`), the quad trail, the interim
-default until fire lands, and sfte's swept box, `trail = "sweep"`.
+Built since: the rendition cache (`fe776c9`), the quad trail, sfte's swept
+box (`trail = "sweep"`), and the fire trail, now the default -- drawn in the
+cursor's colour, the owner's word mid-build: "the flame should not use a
+special color, we use the cursor color, default color".
 
 ## What this is
 

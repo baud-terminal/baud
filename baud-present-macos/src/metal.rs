@@ -56,6 +56,7 @@ use baud_domain::{
     Col, Cols, CursorStyle, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
 };
 use baud_font::Px;
+use baud_render::fire;
 use baud_render::{
     Argb, Atlas, Blink, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS,
     MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
@@ -182,20 +183,74 @@ struct Span(usize);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct At(usize);
 
-/// The quad trail's own pipeline: built the first frame one is drawn, so a
-/// launch pays nothing for a trail it may never show.
-enum QuadPipe {
+/// A trail's own pipeline -- the quad's and the sweep's, or the fire's:
+/// built the first frame one is drawn, so a launch pays nothing for a trail
+/// it may never show.
+enum LatePipe {
     Unbuilt,
     Built(Retained<ProtocolObject<dyn MTLRenderPipelineState>>),
     Failed,
 }
 
-/// What the quad draw needs beyond the glyph pipeline's bindings: its
-/// pipeline and the corners, hole, frame origin and shape `quad_fragment`
-/// reads.
-struct QuadDraw {
+impl LatePipe {
+    /// The pipeline, built now if it never was: `glyph_vertex` over the
+    /// records and `fragment` over them.
+    fn get(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        library: &ProtocolObject<dyn MTLLibrary>,
+        fragment: &str,
+    ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
+        if let LatePipe::Unbuilt = self {
+            *self = match pipeline(device, library, "glyph_vertex", fragment, Blend::Over) {
+                Some(p) => LatePipe::Built(p),
+                None => {
+                    eprintln!(
+                        "baud-present-macos: the trail's {fragment} pipeline would not build"
+                    );
+                    LatePipe::Failed
+                }
+            };
+        }
+        match self {
+            LatePipe::Built(p) => Some(p.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// The uniform a trail's fragment function reads beyond the records:
+/// `quad_fragment`'s corners, hole, frame origin and shape, or
+/// `fire_fragment`'s ignition.
+enum TrailUniform {
+    Quad([f32; 16]),
+    Fire([f32; fire::UNIFORM_FLOATS]),
+}
+
+impl TrailUniform {
+    fn bytes(&self) -> (NonNull<c_void>, usize) {
+        match self {
+            TrailUniform::Quad(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
+            TrailUniform::Fire(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
+        }
+    }
+}
+
+/// What a trail's draw needs beyond the glyph pipeline's bindings: its
+/// pipeline and its uniform.
+struct TrailDraw {
     pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
-    uniform: [f32; 16],
+    uniform: TrailUniform,
+}
+
+/// The records a trail draws with its own pipeline, a contiguous run of
+/// them: the quad's one, or a fire's bands and embers. `None` before one
+/// is seen; `at` extends it by record `i`.
+fn widen(at: Option<(At, At)>, i: usize) -> Option<(At, At)> {
+    Some(match at {
+        None => (At(i), At(i + 1)),
+        Some((a, _)) => (a, At(i + 1)),
+    })
 }
 
 /// A sheet's texel format, and so its bytes a texel.
@@ -416,7 +471,8 @@ pub struct Gpu {
     cell_shape_pipe: Retained<ProtocolObject<dyn MTLRenderPipelineState>>,
     /// The library the pipelines came from, kept for the one built late.
     library: Retained<ProtocolObject<dyn MTLLibrary>>,
-    quad_pipe: QuadPipe,
+    quad_pipe: LatePipe,
+    fire_pipe: LatePipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     instances: Vec<Buffer>,
     ring: Ring,
@@ -756,7 +812,8 @@ impl Gpu {
             cell_glyph_pipe,
             cell_shape_pipe,
             library,
-            quad_pipe: QuadPipe::Unbuilt,
+            quad_pipe: LatePipe::Unbuilt,
+            fire_pipe: LatePipe::Unbuilt,
             sampler,
             instances,
             ring: Ring(0),
@@ -1150,54 +1207,49 @@ impl Gpu {
         Some(())
     }
 
-    /// The quad or sweep trail's draw for this frame, if the renderer has one
-    /// and its pipeline could be built: `glyph_vertex` over the record,
-    /// `quad_fragment` over the corners. Built once, the first time.
-    fn quad_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<QuadDraw> {
-        let smear = renderer.smear()?;
-        if let QuadPipe::Unbuilt = self.quad_pipe {
-            self.quad_pipe = match pipeline(
-                &self.device,
-                &self.library,
-                "glyph_vertex",
-                "quad_fragment",
-                Blend::Over,
-            ) {
-                Some(p) => QuadPipe::Built(p),
-                None => {
-                    eprintln!("baud-present-macos: the quad trail's pipeline would not build");
-                    QuadPipe::Failed
-                }
-            };
+    /// The trail's draw for this frame, if the renderer has one and its
+    /// pipeline could be built: `glyph_vertex` over the records, and
+    /// `quad_fragment` over a quad's or a sweep's corners or `fire_fragment`
+    /// over a fire's ignition. Each pipeline is built once, the first time.
+    fn trail_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<TrailDraw> {
+        if let Some(smear) = renderer.smear() {
+            let pipe = self
+                .quad_pipe
+                .get(&self.device, &self.library, "quad_fragment")?;
+            return Some(TrailDraw {
+                pipe,
+                uniform: TrailUniform::Quad(smear.uniform(pad)),
+            });
         }
-        let QuadPipe::Built(pipe) = &self.quad_pipe else {
-            return None;
-        };
-        Some(QuadDraw {
-            pipe: pipe.clone(),
-            uniform: smear.uniform(pad),
+        let fire = renderer.fire()?;
+        let pipe = self
+            .fire_pipe
+            .get(&self.device, &self.library, "fire_fragment")?;
+        Some(TrailDraw {
+            pipe,
+            uniform: TrailUniform::Fire(fire.uniform(pad)),
         })
     }
 
     /// **Draws the records `0..end` of `buffer`**: the glyph pipeline for
-    /// each run of them, and the quad pipeline for the trail's one at
-    /// `quad`, so the trail stays where the renderer put it in the order --
-    /// over the cells and their records, under the scrollbar and the fade.
-    /// Without a quad draw the trail's record is left out, not drawn as a
-    /// solid over its whole bounds.
+    /// each run of them, and the trail's pipeline for its records `trail`
+    /// -- a quad's one, a fire's bands and embers -- so the trail stays where
+    /// the renderer put it in the order: over the cells and their records,
+    /// under the scrollbar and the fade. Without a trail draw its records
+    /// are left out, not drawn as solids over their bounds.
     ///
     /// # Safety
     ///
     /// `buffer` holds at least `end` records, and the bindings match
-    /// `glyph_vertex`, `glyph_fragment` and `quad_fragment`.
+    /// `glyph_vertex`, `glyph_fragment` and the trail's fragment function.
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_records(
         &self,
         enc: &Encoder,
         buffer: &Buffer,
         end: At,
-        quad: Option<At>,
-        draw: Option<&QuadDraw>,
+        trail: Option<(At, At)>,
+        draw: Option<&TrailDraw>,
         u: &[f32; UNIFORM_FLOATS],
         mask: &Texture,
         color: &Texture,
@@ -1230,35 +1282,35 @@ impl Gpu {
             }
         };
         let At(n) = end;
-        match (quad, draw) {
-            (Some(At(q)), None) if q < n => {
-                run(0, q);
-                run(q + 1, n);
+        match (trail, draw) {
+            (Some((At(a), At(b))), None) if a < n => {
+                run(0, a);
+                run(b.min(n), n);
             }
-            (Some(At(q)), Some(draw)) if q < n => {
-                run(0, q);
-                let qbytes = NonNull::from(&draw.uniform).cast::<c_void>();
-                let qlen = core::mem::size_of::<[f32; 16]>();
-                // SAFETY: record `q` is inside the buffer, and the quad
-                // pipeline reads the vertex bindings the glyph one does plus
-                // `quad_fragment`'s `buffer(0)`.
+            (Some((At(a), At(b))), Some(draw)) if a < n => {
+                let b = b.min(n);
+                run(0, a);
+                let (tbytes, tlen) = draw.uniform.bytes();
+                // SAFETY: records `a..b` are inside the buffer, and the
+                // trail's pipeline reads the vertex bindings the glyph one
+                // does plus its fragment function's `buffer(0)`.
                 unsafe {
                     enc.setRenderPipelineState(&draw.pipe);
                     enc.setVertexBuffer_offset_atIndex(
                         Some(buffer),
-                        q.saturating_mul(Instance::BYTES),
+                        a.saturating_mul(Instance::BYTES),
                         0,
                     );
                     enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
-                    enc.setFragmentBytes_length_atIndex(qbytes, qlen, 0);
+                    enc.setFragmentBytes_length_atIndex(tbytes, tlen, 0);
                     enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                         MTLPrimitiveType::TriangleStrip,
                         0,
                         4,
-                        1,
+                        b - a,
                     );
                 }
-                run(q + 1, n);
+                run(b, n);
             }
             _ => run(0, n),
         }
@@ -1344,7 +1396,7 @@ impl Gpu {
         let clear = clear_of(renderer.clear_color());
         let count = renderer.instances().count();
         let bytes = count.saturating_mul(Instance::BYTES);
-        let mut quad_at = None;
+        let mut trail_at = None;
         let slot = self.ring.0;
         if self.instances[slot].length() < bytes {
             let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
@@ -1362,8 +1414,8 @@ impl Gpu {
                 .zip(renderer.instances())
                 .enumerate()
             {
-                if inst.kind == Kind::Quad {
-                    quad_at = Some(At(i));
+                if matches!(inst.kind, Kind::Quad | Kind::Fire | Kind::Ember) {
+                    trail_at = widen(trail_at, i);
                 }
                 chunk.copy_from_slice(&inst.to_bytes());
             }
@@ -1389,7 +1441,7 @@ impl Gpu {
         // upload never touches a bound texture.
         let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, frame_px);
-        let quad = self.quad_draw(renderer, pad);
+        let trail = self.trail_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
             px_f32(frame_px.0),
             px_f32(frame_px.1),
@@ -1430,8 +1482,8 @@ impl Gpu {
                     &enc,
                     &self.instances[slot],
                     At(count),
-                    quad_at,
-                    quad.as_ref(),
+                    trail_at,
+                    trail.as_ref(),
                     &uniforms,
                     &mask,
                     &color,
@@ -1483,7 +1535,7 @@ impl Gpu {
         // Resolve images before the encoder, as the instance path does.
         let images = self.resolve_images(renderer);
         let (viewport, pad) = letterbox(target, frame_px);
-        let quad = self.quad_draw(renderer, pad);
+        let trail = self.trail_draw(renderer, pad);
         let (cursor_row, cursor_col) = input
             .cursor
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
@@ -1566,7 +1618,7 @@ impl Gpu {
             // The records: the cells the overlay masked, drawn as the
             // instance path draws, after every cell pass.
             let n = input.records.len();
-            let mut quad_at = None;
+            let mut trail_at = None;
             if n > 0 {
                 let bytes = n.saturating_mul(Instance::BYTES);
                 let slot = self.ring.0;
@@ -1583,8 +1635,8 @@ impl Gpu {
                         .zip(input.records)
                         .enumerate()
                     {
-                        if inst.kind == Kind::Quad {
-                            quad_at = Some(At(i));
+                        if matches!(inst.kind, Kind::Quad | Kind::Fire | Kind::Ember) {
+                            trail_at = widen(trail_at, i);
                         }
                         chunk.copy_from_slice(&inst.to_bytes());
                     }
@@ -1610,8 +1662,8 @@ impl Gpu {
                     &enc,
                     &self.instances[slot],
                     At(n),
-                    quad_at,
-                    quad.as_ref(),
+                    trail_at,
+                    trail.as_ref(),
                     &u,
                     &mask,
                     &color,

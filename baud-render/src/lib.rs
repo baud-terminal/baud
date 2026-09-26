@@ -31,6 +31,7 @@ mod cache;
 mod cellmap;
 mod color;
 mod composite;
+pub mod fire;
 mod instance;
 mod metrics;
 mod overlay;

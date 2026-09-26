@@ -65,6 +65,13 @@ pub enum Kind {
     /// the cursor's own rectangle (`trail::coverage`). Drawn by its own
     /// fragment function, `quad_fragment`, which reads the corners.
     Quad = 3,
+    /// A band of the fire trail's reach: the record covers pixels
+    /// `fire_fragment` may draw flame in, and the flame itself comes from
+    /// the uniform it reads (`fire::Fire`).
+    Fire = 4,
+    /// An ember of the fire trail: a soft disc filling the record, in the
+    /// instance's colour, drawn by `fire_fragment` too.
+    Ember = 5,
 }
 
 /// A kind's discriminant as the shader reads it.
@@ -82,6 +89,8 @@ impl Kind {
             Kind::Color => 1,
             Kind::Solid => 2,
             Kind::Quad => 3,
+            Kind::Fire => 4,
+            Kind::Ember => 5,
         })
     }
 }

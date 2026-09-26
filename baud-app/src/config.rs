@@ -54,11 +54,11 @@ pub struct Config {
     /// driver re-reads it on every style change; the Linux driver has no
     /// signal wired yet and resolves it to dark.
     pub theme: ThemeChoice,
-    /// `[cursor] trail`: whether a cursor move leaves a fading ghost
-    /// sweeping to the new cell. **On by default**, the owner's call on
-    /// 2026-09-25, where sfte ships its own `SFTE_CURSOR_TRAIL` off: an idle
-    /// terminal pays nothing for it, because only a cursor that moved spawns
-    /// one. `false` turns it off.
+    /// `[cursor] trail`: which trail a cursor move leaves -- see
+    /// [`CursorTrail`]. **On by default**, the owner's call on 2026-09-25,
+    /// where sfte ships its own `SFTE_CURSOR_TRAIL` off: an idle terminal
+    /// pays nothing for it, because only a cursor that moved spawns one.
+    /// `false` turns it off.
     pub cursor_trail: CursorTrail,
     /// `[cursor] shape` and `[cursor] blink`: the cursor the terminal powers
     /// on with, and the one an application's reset (`DECSCUSR 0` or `7`,
@@ -218,30 +218,35 @@ pub enum ThemeChoice {
     Light,
 }
 
-/// Which trail a cursor move leaves, from `[cursor] trail`: kitty's quad,
-/// whose four corners chase the cursor's -- the default -- sfte's sweep, a
-/// box swept from a tail chasing the cursor and fading out toward it, baud's
-/// first trail, a one-cell ghost sweeping between the cells, or none. `true`
-/// is the default and `false` is `off`, so a config written when the key
-/// was a switch reads as it did.
+/// Which trail a cursor move leaves, from `[cursor] trail`: a fire rising
+/// off kitty's quad -- the default, the owner's call, drawn as the quad on
+/// the CPU path -- kitty's quad, whose four corners chase the cursor's,
+/// sfte's sweep, a box swept from a tail chasing the cursor and fading out
+/// toward it, baud's first trail, a one-cell ghost sweeping between the
+/// cells, or none. `true` is the default and `false` is `off`, so a config
+/// written when the key was a switch reads as it did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum CursorTrail {
     Off,
     Ghost,
     Sweep,
-    #[default]
     Quad,
+    #[default]
+    Fire,
 }
 
 impl CursorTrail {
-    /// The shape the quad and sweep driver draws for this trail: a sweep for
-    /// `sweep`, and a quad for the rest, which either are the quad or never
-    /// ask the driver. Only the macOS driver has a trail, so Linux never asks.
+    /// What the trail driver runs for this trail: a fire, a sweep, or a
+    /// quad for the rest, which either are the quad or never ask the
+    /// driver. Only the macOS driver has a trail, so Linux never asks.
     #[cfg(any(target_os = "macos", test))]
-    pub fn shape(self) -> baud_render::Shape {
+    pub fn style(self) -> crate::trail::Style {
+        use crate::trail::Style;
+        use baud_render::Shape;
         match self {
-            CursorTrail::Sweep => baud_render::Shape::Sweep,
-            CursorTrail::Off | CursorTrail::Ghost | CursorTrail::Quad => baud_render::Shape::Quad,
+            CursorTrail::Fire => Style::Fire,
+            CursorTrail::Sweep => Style::Smear(Shape::Sweep),
+            CursorTrail::Off | CursorTrail::Ghost | CursorTrail::Quad => Style::Smear(Shape::Quad),
         }
     }
 }
@@ -287,7 +292,7 @@ impl Config {
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
-            cursor_trail: CursorTrail::Quad,
+            cursor_trail: CursorTrail::Fire,
             cursor_shape: CursorShape::Block,
             cursor_blink: CursorBlink::Blinking,
             screen_transition: ScreenTransition::Off,
@@ -374,16 +379,17 @@ impl Config {
                 }
                 ("cursor", "trail") => {
                     self.cursor_trail = match value.trim().trim_matches('"') {
-                        "quad" | "true" => CursorTrail::Quad,
+                        "fire" | "true" => CursorTrail::Fire,
+                        "quad" => CursorTrail::Quad,
                         "sweep" => CursorTrail::Sweep,
                         "ghost" => CursorTrail::Ghost,
                         "off" | "false" => CursorTrail::Off,
                         other => {
                             said.push(format!(
-                                "config: [cursor] trail {other:?} is not quad, sweep, ghost or \
-                                 off; using quad"
+                                "config: [cursor] trail {other:?} is not fire, quad, sweep, \
+                                 ghost or off; using fire"
                             ));
-                            CursorTrail::Quad
+                            CursorTrail::Fire
                         }
                     };
                 }
@@ -883,14 +889,16 @@ mod reader {
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
     }
 
-    /// The cursor trail is the quad unless `[cursor] trail` names another,
+    /// The cursor trail is the fire unless `[cursor] trail` names another,
     /// quoted or not; `true` and `false` read as they did when the key was a
-    /// switch, and a value that names no trail leaves the default with a
-    /// warning rather than being read as one.
+    /// switch -- the default and none -- and a value that names no trail
+    /// leaves the default with a warning rather than being read as one.
     #[test]
-    fn the_cursor_trail_is_the_quad_unless_named() {
-        assert_eq!(Config::defaults().cursor_trail, CursorTrail::Quad);
+    fn the_cursor_trail_is_the_fire_unless_named() {
+        assert_eq!(Config::defaults().cursor_trail, CursorTrail::Fire);
         for (value, want) in [
+            ("fire", CursorTrail::Fire),
+            ("\"fire\"", CursorTrail::Fire),
             ("quad", CursorTrail::Quad),
             ("\"quad\"", CursorTrail::Quad),
             ("ghost", CursorTrail::Ghost),
@@ -899,9 +907,9 @@ mod reader {
             ("\"sweep\"", CursorTrail::Sweep),
             ("off", CursorTrail::Off),
             ("\"off\"", CursorTrail::Off),
-            ("true", CursorTrail::Quad),
+            ("true", CursorTrail::Fire),
             ("false", CursorTrail::Off),
-            ("yes", CursorTrail::Quad),
+            ("yes", CursorTrail::Fire),
         ] {
             assert_eq!(
                 read(&format!("[cursor]\ntrail = {value}\n")).cursor_trail,
@@ -914,8 +922,11 @@ mod reader {
             1,
             "an unreadable value is said"
         );
-        assert_eq!(CursorTrail::Sweep.shape(), baud_render::Shape::Sweep);
-        assert_eq!(CursorTrail::Quad.shape(), baud_render::Shape::Quad);
+        use crate::trail::Style;
+        use baud_render::Shape;
+        assert_eq!(CursorTrail::Fire.style(), Style::Fire);
+        assert_eq!(CursorTrail::Sweep.style(), Style::Smear(Shape::Sweep));
+        assert_eq!(CursorTrail::Quad.style(), Style::Smear(Shape::Quad));
     }
 
     /// The cursor is a blinking block unless the config names another shape
@@ -1178,7 +1189,7 @@ shadow     = "never"
         // above would catch.
         assert_eq!(
             c.cursor_trail,
-            CursorTrail::Quad,
+            CursorTrail::Fire,
             "the [cursor] section did not land"
         );
         assert_eq!(

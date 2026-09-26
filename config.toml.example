@@ -66,20 +66,24 @@ fonts = [
 # A blinking cursor shows for 600 ms and hides for 300 (xterm's times), blinks
 # only while the window has focus, and shows at once on a key or on output.
 #
-# `trail`: what a cursor move leaves behind. "quad", the default, is kitty's
-# trail: a quadrilateral whose four corners chase the cursor's, the ones facing
-# the move leading and the ones behind it lagging, over about half a second.
-# It follows a move of more than two cells once the cursor has rested for
-# 10 ms, so typing and streaming output leave none. "sweep" is sfte's trail on
-# the same moves: the cursor's box swept from a tail chasing it, fading from
-# half the cursor's colour at the cursor to nothing at the tail. "ghost" is a
+# `trail`: what a cursor move leaves behind. "fire", the default, is a flame
+# in the cursor's colour rising off kitty's trail as it collapses onto the
+# cursor, burning out from the tail and shedding embers along the path; on the
+# CPU path it draws kitty's trail alone. "quad" is kitty's trail: a
+# quadrilateral whose four corners chase the cursor's, the ones facing the
+# move leading and the ones behind it lagging, over about half a second. Both
+# follow a move of more than two cells once the cursor has rested for 10 ms,
+# so typing and streaming output leave none. "sweep" is sfte's trail on the
+# same moves: the cursor's box swept from a tail chasing it, fading from half
+# the cursor's colour at the cursor to nothing at the tail. "ghost" is a
 # one-cell box sweeping from the cell the cursor left to the cell it reached.
-# "off" is none; true and false still mean "quad" and "off". An idle terminal
-# pays nothing for any of them, because only a cursor that moved leaves one.
+# "off" is none; true and false still mean the default and "off". An idle
+# terminal pays nothing for any of them, because only a cursor that moved
+# leaves one.
 [cursor]
 shape = "block"
 blink = true
-trail = "quad"
+trail = "fire"
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the

@@ -110,6 +110,18 @@ enum Path {
     Cells,
 }
 
+/// The trail the driver runs on `path`: a fire is the GPU's, so on the CPU
+/// path it rides the quad and runs as one -- no frames are owed for a flame
+/// nothing draws.
+fn chase_style(style: crate::trail::Style, path: Path) -> crate::trail::Style {
+    match (style, path) {
+        (crate::trail::Style::Fire, Path::Cpu) => {
+            crate::trail::Style::Smear(baud_render::Shape::Quad)
+        }
+        (style, _) => style,
+    }
+}
+
 /// What `BAUD_GPU` asks for.
 ///
 /// **Unset is `Auto`: probe once and take the fastest path the machine
@@ -865,7 +877,7 @@ impl App {
             next_damage: Damage::Incremental,
             cursor_trail,
             trail: None,
-            chase: crate::trail::Chase::new(cursor_trail.shape()),
+            chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -1016,7 +1028,9 @@ impl App {
         };
         let look = match self.cursor_trail {
             crate::config::CursorTrail::Ghost => ghost.map(TrailLook::Ghost),
-            crate::config::CursorTrail::Quad | crate::config::CursorTrail::Sweep => {
+            crate::config::CursorTrail::Quad
+            | crate::config::CursorTrail::Sweep
+            | crate::config::CursorTrail::Fire => {
                 // Looking back forgets where the cursor was, as a resize
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw
@@ -1031,7 +1045,6 @@ impl App {
                 let cell = (side(m.cell_w), side(m.cell_h));
                 HostTime::of_secs(self.tick_target)
                     .and_then(|now| self.chase.frame(rect, now, cell))
-                    .map(TrailLook::Smear)
             }
             crate::config::CursorTrail::Off => None,
         };
@@ -4861,6 +4874,25 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A fire on the CPU path runs as the quad**, which is what that path
+    /// draws of it, so the tick owes no frames for a flame nothing draws; on
+    /// either GPU path it is a fire, and every other trail is itself.
+    #[test]
+    fn a_fire_on_the_cpu_path_runs_as_the_quad() {
+        use crate::trail::Style;
+        use baud_render::Shape;
+        assert_eq!(
+            chase_style(Style::Fire, Path::Cpu),
+            Style::Smear(Shape::Quad)
+        );
+        assert_eq!(chase_style(Style::Fire, Path::Cells), Style::Fire);
+        assert_eq!(chase_style(Style::Fire, Path::Instances), Style::Fire);
+        for path in [Path::Cpu, Path::Cells] {
+            let sweep = Style::Smear(Shape::Sweep);
+            assert_eq!(chase_style(sweep, path), sweep);
+        }
+    }
 
     /// A key AppKit marks as repeated reaches the core as a repeat, which it
     /// sends as the press unless an application asked for kitty's event

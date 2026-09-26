@@ -21,11 +21,12 @@ use baud_font::{Face, Px};
 use baud_present_macos::{
     CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
 };
+use baud_render::fire::{self, Fire, Flame, Seed};
 use baud_render::{
-    Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Look, Overlay,
-    Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear,
-    Stack, StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
-    quad_coverage,
+    Argb, Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Kind,
+    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
+    Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths,
+    Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -123,12 +124,21 @@ struct Arms<'f, 'a> {
     /// app keeps a set's, so each scene's frame resolves only what it wrote
     /// or what an input moved -- the cache the app draws from.
     stamp: StyleStamp,
+    /// Pixels the target is wider and taller than the frame, which both arms
+    /// letterbox to its centre: a scene that sets it draws at a frame origin
+    /// other than zero, which a fragment function that forgot the origin
+    /// would misplace in both arms alike.
+    margin: (u32, u32),
 }
 
 impl Arms<'_, '_> {
     /// Both arms drawn offscreen and read back.
     fn draw(&mut self, t: &mut Term<'_>) -> (Vec<u32>, Vec<u32>) {
-        let (w, h) = self.renderer.frame_size();
+        let (fw, fh) = self.renderer.frame_size();
+        let (w, h) = (
+            Px::of(fw.value() + self.margin.0),
+            Px::of(fh.value() + self.margin.1),
+        );
         let n = usize::try_from(w.value() * h.value()).unwrap();
         let target_a = self.gpu.offscreen(w, h).expect("target");
         let target_b = self.gpu.offscreen(w, h).expect("target");
@@ -283,6 +293,311 @@ impl Arms<'_, '_> {
     }
 }
 
+/// A hash word, for the fire's reference below: the same PCG output
+/// permutation `fire_hash` is, spelled a third time on purpose -- a reference
+/// that called the renderer's would agree with it by construction.
+#[derive(Clone, Copy)]
+struct Word(u32);
+
+impl Word {
+    fn hash(self) -> Word {
+        let s = self.0.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+        let w = ((s >> ((s >> 28) + 4)) ^ s).wrapping_mul(277_803_737);
+        Word((w >> 22) ^ w)
+    }
+
+    fn unit(self) -> f32 {
+        f32::from_bits((self.0 >> 9) | 0x3f80_0000) - 1.0
+    }
+
+    fn plus(self, o: Word) -> Word {
+        Word(self.0.wrapping_add(o.0))
+    }
+}
+
+/// `fire_lattice` at the lattice point `(x, y)`, whole numbers as floats.
+fn fire_lattice(x: f32, y: f32, seed: Word) -> f32 {
+    let (ix, iy) = (
+        Word((x as i32).cast_unsigned()),
+        Word((y as i32).cast_unsigned()),
+    );
+    ix.plus(iy.plus(seed).hash()).hash().unit()
+}
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn mix(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+
+/// `fire_noise`: value noise with the quintic fade.
+fn fire_noise(p: Pt, seed: Word) -> f32 {
+    let (fx, fy) = (p.x.floor(), p.y.floor());
+    let (x, y) = (p.x - fx, p.y - fy);
+    let fade = |v: f32| v * v * v * (v * (v * 6.0 - 15.0) + 10.0);
+    let (wx, wy) = (fade(x), fade(y));
+    let a = fire_lattice(fx, fy, seed);
+    let b = fire_lattice(fx + 1.0, fy, seed);
+    let c = fire_lattice(fx, fy + 1.0, seed);
+    let d = fire_lattice(fx + 1.0, fy + 1.0, seed);
+    mix(mix(a, b, wx), mix(c, d, wx), wy)
+}
+
+/// `fire_fbm`: four rotated octaves.
+fn fire_fbm(mut p: Pt, seed: Word) -> f32 {
+    let (mut t, mut a) = (0.0f32, 0.5f32);
+    for o in 0..4u32 {
+        t += a * fire_noise(p, seed.plus(Word(o.wrapping_mul(0x9E37_79B9))));
+        p = Pt {
+            x: (0.8 * p.x - 0.6 * p.y) * 2.02,
+            y: (0.6 * p.x + 0.8 * p.y) * 2.02,
+        };
+        a *= 0.5;
+    }
+    t
+}
+
+/// `fire_distance`: the signed distance to the quad by the non-zero rule.
+fn fire_distance(p: Pt, c: &Corners) -> f32 {
+    let q = c.0;
+    let (mut d, mut winding) = (f32::INFINITY, 0i32);
+    for i in 0..4 {
+        let (a, b) = (q[i], q[(i + 1) % 4]);
+        let (bx, by) = (b.x - a.x, b.y - a.y);
+        let (px, py) = (p.x - a.x, p.y - a.y);
+        let h = ((px * bx + py * by) / (bx * bx + by * by).max(1e-6)).clamp(0.0, 1.0);
+        let (dx, dy) = (px - bx * h, py - by * h);
+        d = d.min((dx * dx + dy * dy).sqrt());
+        let side = bx * py - by * px;
+        if a.y <= p.y {
+            if b.y > p.y && side > 0.0 {
+                winding += 1;
+            }
+        } else if b.y <= p.y && side < 0.0 {
+            winding -= 1;
+        }
+    }
+    if winding != 0 { -d } else { d }
+}
+
+/// **The fire's reference**: `fire_flame` for the pixel centred at `p` in
+/// frame pixels, premultiplied, in `color`'s channels 0 to 1.
+fn fire_reference(fire: &Fire, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let (e, f) = (fire.emitter, fire.flame);
+    if e.hole.contains(p) {
+        return [0.0; 4];
+    }
+    let k = f.age / fire::LIFE;
+    if k >= 1.0 {
+        return [0.0; 4];
+    }
+    let c = f.unit;
+    let d0 = fire_distance(p, &e.corners) / c;
+    if d0 > fire::REACH {
+        return [0.0; 4];
+    }
+    let s = Pt {
+        x: p.x / c * 2.6 - f.dir.x * (f.age * fire::DRIFT),
+        y: (p.y / c + f.age * fire::RISE) * 0.7 - f.dir.y * (f.age * fire::DRIFT),
+    };
+    let n = fire_fbm(s, Word(f.seed.0));
+    let lift = fire::HEIGHT * c * smoothstep(0.25, 0.85, n);
+    let d = fire_distance(
+        Pt {
+            x: p.x,
+            y: p.y + lift,
+        },
+        &e.corners,
+    ) / c;
+    let body = (1.0 - smoothstep(-0.10, 0.20, d)).max(0.8 * (1.0 - smoothstep(-0.25, 0.05, d0)));
+    let cool = (d0.max(0.0) / fire::HEIGHT).clamp(0.0, 1.0);
+    let u = (((p.x - f.tail.x) * f.dir.x + (p.y - f.tail.y) * f.dir.y) / f.len.max(1.0))
+        .clamp(0.0, 1.0);
+    let burn = smoothstep(k - 0.15, k + 0.35, u) * (1.0 - k * k);
+    let heat = (body * (1.0 - 0.85 * cool) * (0.50 + 0.60 * n) * burn).clamp(0.0, 1.0);
+    let halo = 0.12 * (-2.5 * d0.max(0.0)).exp() * burn;
+    let a = color[3] * (smoothstep(0.05, 0.95, heat) + halo).clamp(0.0, 1.0);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
+/// A record's colour as the shader reads it: channels 0 to 1, alpha last.
+fn unit_color(c: Argb) -> [f32; 4] {
+    let f = |v: Chan| f32::from(v.get()) / 255.0;
+    [f(c.r()), f(c.g()), f(c.b()), f(c.a())]
+}
+
+/// Premultiplied `src` over the stored pixel `dst`, rounded to the target's
+/// bytes the way a blend unit stores them.
+fn over(src: [f32; 4], dst: u32) -> u32 {
+    let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap_or(0)) / 255.0;
+    let (r, g, b, a) = (ch(16), ch(8), ch(0), ch(24));
+    let mix = |s: f32, d: f32| {
+        let v = ((s + d * (1.0 - src[3])) * 255.0).round().clamp(0.0, 255.0);
+        u32::try_from(v as i64).unwrap_or(0)
+    };
+    (mix(src[3], a) << 24) | (mix(src[0], r) << 16) | (mix(src[1], g) << 8) | mix(src[2], b)
+}
+
+/// **The fire's frame by the reference**: the records the renderer built,
+/// each over the plain frame in order -- the flame's bands by
+/// `fire_reference`, the embers as `fire_ember`'s soft discs -- in a target
+/// `tw` wide whose frame sits at `origin`.
+fn fire_frame(
+    fire: &Fire,
+    records: &[Instance],
+    plain: &[u32],
+    width: Px,
+    origin: (usize, usize),
+) -> Vec<u32> {
+    let tw = usize::try_from(width.value()).unwrap();
+    let mut out = plain.to_vec();
+    for r in records {
+        let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+        let (w, h) = (i32::from(r.w.0), i32::from(r.h.0));
+        let color = unit_color(r.color);
+        for y in y0.max(0)..y0 + h {
+            for x in x0.max(0)..x0 + w {
+                let at = usize::try_from(y).unwrap() + origin.1;
+                let at = at * tw + usize::try_from(x).unwrap() + origin.0;
+                let centre = Pt {
+                    x: x as f32 + 0.5,
+                    y: y as f32 + 0.5,
+                };
+                let src = if r.kind == Kind::Ember {
+                    let ux = (centre.x - x0 as f32) / w as f32 * 2.0 - 1.0;
+                    let uy = (centre.y - y0 as f32) / h as f32 * 2.0 - 1.0;
+                    let a = 1.0 - smoothstep(0.15, 1.0, (ux * ux + uy * uy).sqrt());
+                    let a = color[3] * a * a;
+                    [color[0] * a, color[1] * a, color[2] * a, a]
+                } else {
+                    fire_reference(fire, centre, color)
+                };
+                out[at] = over(src, out[at]);
+            }
+        }
+    }
+    out
+}
+
+/// **The fire trail, both arms against the reference**, in a target
+/// letterboxed around the frame so the flame's origin is not zero: a fire
+/// mid-chase across the screen and one down it, each at an age with the
+/// flame burning and embers born.
+fn fire_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value() as f32, m.cell_h.value() as f32);
+    let cell_at = |col: f32, row: f32| Rect {
+        left: col * cw,
+        top: row * ch,
+        right: (col + 1.0) * cw,
+        bottom: (row + 1.0) * ch,
+    };
+    let centre = |r: Rect| Pt {
+        x: (r.left + r.right) * 0.5,
+        y: (r.top + r.bottom) * 0.5,
+    };
+    arms.margin = (14, 10);
+    let origin = (7usize, 5usize);
+    arms.trail = None;
+    let (plain, _) = arms.draw(t);
+    let (fw, _) = arms.renderer.frame_size();
+    let width = Px::of(fw.value() + 14);
+    let tw = usize::try_from(width.value()).unwrap();
+    let dump = std::env::var("BAUD_FIRE_DUMP").ok();
+    for (name, from, to, ages) in [
+        (
+            "across",
+            cell_at(98.0, 2.0),
+            cell_at(116.0, 3.0),
+            [0.04f32, 0.12, 0.25, 0.4],
+        ),
+        (
+            "down",
+            cell_at(104.0, 0.0),
+            cell_at(106.0, 8.0),
+            [0.04, 0.12, 0.25, 0.4],
+        ),
+    ] {
+        let seg = Segment::new(from.corners(), to);
+        for age in ages {
+            let fire = Fire {
+                emitter: Smear {
+                    corners: seg.at(age),
+                    hole: to,
+                    shape: Shape::Quad,
+                },
+                flame: Flame::ignite(centre(from), to, Seed(7), ch).at(age),
+            };
+            arms.trail = Some(TrailLook::Fire(fire));
+            let (a, b) = arms.draw(t);
+            if let Some(dir) = &dump {
+                let bytes: Vec<u8> = a.iter().flat_map(|p| p.to_le_bytes()).collect();
+                std::fs::write(format!("{dir}/{name}-{age}.bgra"), bytes).unwrap();
+                std::fs::write(format!("{dir}/size"), format!("{tw} {}", a.len() / tw)).unwrap();
+            }
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree under the fire {name} at {age}"
+            );
+            let records = arms.renderer.trail();
+            let want = fire_frame(&fire, records, &plain, width, origin);
+            // Measured on this reference: at most 9 pixels a scene one step of
+            // 255 off, the rest exact -- fast-math `exp` and the blend unit's
+            // rounding. One step is the tolerance, and 20 the pixels allowed it.
+            let mut off = 0usize;
+            let mut lit = 0usize;
+            let inside = |i: usize| {
+                let (x, y) = (i % tw, i / tw);
+                records.iter().any(|r| {
+                    let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
+                    let (fx, fy) = (
+                        i32::try_from(x).unwrap() - i32::try_from(origin.0).unwrap(),
+                        i32::try_from(y).unwrap() - i32::try_from(origin.1).unwrap(),
+                    );
+                    fx >= x0 && fx < x0 + i32::from(r.w.0) && fy >= y0 && fy < y0 + i32::from(r.h.0)
+                })
+            };
+            for (i, (&x, &y)) in a.iter().zip(&want).enumerate() {
+                let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
+                let d = (0..4).map(|k| ch(x, k).abs_diff(ch(y, k))).max().unwrap();
+                assert!(
+                    d <= 1,
+                    "fire {name} at {age}: pixel {i} is {x:08x}, the reference {y:08x}"
+                );
+                off += usize::from(d == 1);
+                if x != plain[i] {
+                    lit += 1;
+                    assert!(
+                        inside(i),
+                        "fire {name} at {age}: pixel {i} changed outside every record"
+                    );
+                }
+                assert!(
+                    (0..3).all(|k| ch(x, k) <= ch(x, 3)),
+                    "fire {name} at {age}: pixel {i} {x:08x} stores colour past its alpha"
+                );
+            }
+            assert!(
+                off <= 20,
+                "fire {name} at {age}: {off} pixels a step off the reference"
+            );
+            assert!(lit > 300, "fire {name} at {age}: only {lit} pixels lit");
+            if age < 0.2 {
+                assert!(
+                    records.iter().any(|r| r.kind == Kind::Ember),
+                    "fire {name} at {age}: no ember"
+                );
+            }
+        }
+    }
+    arms.trail = None;
+    arms.margin = (0, 0);
+}
+
 fn differing(a: &[u32], b: &[u32]) -> usize {
     a.iter().zip(b).filter(|(x, y)| x != y).count()
 }
@@ -400,6 +715,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         copy_mem,
         slide: None,
         stamp: StyleStamp::default(),
+        margin: (0, 0),
     };
     scene(&mut t);
     // Every cursor shape, block first.
@@ -1178,6 +1494,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "sweep {name}: the faint end differs by {faint:?} and the strong by {strong:?}"
         );
     }
+    fire_scenes(&mut arms, &mut t);
     arms.trail = None;
     // The alternate-screen fade: a full-screen veil at mid-progress, drawn
     // by both arms as one translucent solid over everything, and a change to
