@@ -110,12 +110,12 @@ enum Path {
     Cells,
 }
 
-/// The trail the driver runs on `path`: a fire is the GPU's, so on the CPU
-/// path it rides the quad and runs as one -- no frames are owed for a flame
-/// nothing draws.
+/// The trail the driver runs on `path`: an effect is the GPU's, so on the
+/// CPU path it rides the quad and runs as one -- no frames are owed for an
+/// effect nothing draws.
 fn chase_style(style: crate::trail::Style, path: Path) -> crate::trail::Style {
     match (style, path) {
-        (crate::trail::Style::Fire, Path::Cpu) => {
+        (crate::trail::Style::Effect(_), Path::Cpu) => {
             crate::trail::Style::Smear(baud_render::Shape::Quad)
         }
         (style, _) => style,
@@ -2656,6 +2656,7 @@ mod trail_cursor_tests {
     use crate::trail::{Chase, Style};
     use baud_core::{CursorStyle, Owned, Term};
     use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
+    use baud_render::effect::Effect;
     use baud_render::{Rect, Shape, TrailLook};
     use std::time::{Duration, Instant};
 
@@ -2846,10 +2847,10 @@ mod trail_cursor_tests {
         let mut t = Term::new(owned.storage(), &WS);
         let t0 = Instant::now();
         let at = |ms: u64| t0 + Duration::from_millis(ms);
-        let mut chase: Chase<Instant> = Chase::new(Style::Fire);
+        let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
         let mut fire = |t: &Term<'_>, ms: u64| {
             let now = trail_cursor(t, Rows::ZERO).map(|f| block(f.cell()));
-            matches!(chase.frame(now, at(ms), CELL), Some(TrailLook::Fire(_)))
+            matches!(chase.frame(now, at(ms), CELL), Some(TrailLook::Vfx(_)))
         };
         feed(&mut t, b"\x1b[?1049h");
         feed(&mut t, frame(cell!(1, 7)).as_bytes());
@@ -5156,19 +5157,24 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 mod tests {
     use super::*;
 
-    /// **A fire on the CPU path runs as the quad**, which is what that path
-    /// draws of it, so the tick owes no frames for a flame nothing draws; on
-    /// either GPU path it is a fire, and every other trail is itself.
+    /// **An effect on the CPU path runs as the quad**, which is what that
+    /// path draws of it, so the tick owes no frames for an effect nothing
+    /// draws; on either GPU path it is itself, and so is every other trail.
     #[test]
-    fn a_fire_on_the_cpu_path_runs_as_the_quad() {
+    fn an_effect_on_the_cpu_path_runs_as_the_quad() {
         use crate::trail::Style;
         use baud_render::Shape;
-        assert_eq!(
-            chase_style(Style::Fire, Path::Cpu),
-            Style::Smear(Shape::Quad)
-        );
-        assert_eq!(chase_style(Style::Fire, Path::Cells), Style::Fire);
-        assert_eq!(chase_style(Style::Fire, Path::Instances), Style::Fire);
+        use baud_render::effect::Effect;
+        for e in Effect::ALL {
+            let fx = Style::Effect(e);
+            assert_eq!(
+                chase_style(fx, Path::Cpu),
+                Style::Smear(Shape::Quad),
+                "{e:?}"
+            );
+            assert_eq!(chase_style(fx, Path::Cells), fx, "{e:?}");
+            assert_eq!(chase_style(fx, Path::Instances), fx, "{e:?}");
+        }
         for path in [Path::Cpu, Path::Cells] {
             let sweep = Style::Smear(Shape::Sweep);
             assert_eq!(chase_style(sweep, path), sweep);

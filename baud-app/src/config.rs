@@ -243,8 +243,9 @@ impl CursorTrail {
     pub fn style(self) -> crate::trail::Style {
         use crate::trail::Style;
         use baud_render::Shape;
+        use baud_render::effect::Effect;
         match self {
-            CursorTrail::Fire => Style::Fire,
+            CursorTrail::Fire => Style::Effect(Effect::Fire),
             CursorTrail::Sweep => Style::Smear(Shape::Sweep),
             CursorTrail::Off | CursorTrail::Ghost | CursorTrail::Quad => Style::Smear(Shape::Quad),
         }
@@ -924,7 +925,8 @@ mod reader {
         );
         use crate::trail::Style;
         use baud_render::Shape;
-        assert_eq!(CursorTrail::Fire.style(), Style::Fire);
+        use baud_render::effect::Effect;
+        assert_eq!(CursorTrail::Fire.style(), Style::Effect(Effect::Fire));
         assert_eq!(CursorTrail::Sweep.style(), Style::Smear(Shape::Sweep));
         assert_eq!(CursorTrail::Quad.style(), Style::Smear(Shape::Quad));
     }

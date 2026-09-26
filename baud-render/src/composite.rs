@@ -119,10 +119,10 @@ impl<'p> Target<'p> {
                     }
                     Kind::Solid => blend.over(color, dst, Coverage(255)),
                     // A quad's record is only its bounds; the pixels come
-                    // from its corners, which `Target::quad` is handed. A
-                    // fire's records are the GPU's alone: on the CPU a fire
-                    // is its emitter, drawn as a quad.
-                    Kind::Quad | Kind::Fire | Kind::Ember => continue,
+                    // from its corners, which `Target::quad` is handed. An
+                    // effect's records are the GPU's alone: on the CPU an
+                    // effect is its emitter, drawn as a quad.
+                    Kind::Quad | Kind::Band | Kind::Particle => continue,
                     Kind::Color => {
                         let src = Argb(atlas.argb()[(v + my) * color_side + u + mx]);
                         if src.a().get() == 0 {

@@ -56,7 +56,7 @@ use baud_domain::{
     Col, Cols, CursorStyle, HostTime, ImageGen, ImageId, PackedCell, Row, RowRot, Rows, Stride,
 };
 use baud_font::Px;
-use baud_render::fire;
+use baud_render::effect::{self, Effect};
 use baud_render::{
     Argb, Atlas, Blink, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS,
     MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
@@ -183,7 +183,7 @@ struct Span(usize);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 struct At(usize);
 
-/// A trail's own pipeline -- the quad's and the sweep's, or the fire's:
+/// A trail's own pipeline -- the quad's and the sweep's, or an effect's:
 /// built the first frame one is drawn, so a launch pays nothing for a trail
 /// it may never show.
 enum LatePipe {
@@ -221,17 +221,17 @@ impl LatePipe {
 
 /// The uniform a trail's fragment function reads beyond the records:
 /// `quad_fragment`'s corners, hole, frame origin and shape, or
-/// `fire_fragment`'s ignition.
+/// an effect's ignition, which its fragment function reads.
 enum TrailUniform {
     Quad([f32; 16]),
-    Fire([f32; fire::UNIFORM_FLOATS]),
+    Effect([f32; effect::UNIFORM_FLOATS]),
 }
 
 impl TrailUniform {
     fn bytes(&self) -> (NonNull<c_void>, usize) {
         match self {
             TrailUniform::Quad(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
-            TrailUniform::Fire(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
+            TrailUniform::Effect(u) => (NonNull::from(u).cast(), core::mem::size_of_val(u)),
         }
     }
 }
@@ -244,7 +244,7 @@ struct TrailDraw {
 }
 
 /// The records a trail draws with its own pipeline, a contiguous run of
-/// them: the quad's one, or a fire's bands and embers. `None` before one
+/// them: the quad's one, or an effect's bands and particles. `None` before one
 /// is seen; `at` extends it by record `i`.
 fn widen(at: Option<(At, At)>, i: usize) -> Option<(At, At)> {
     Some(match at {
@@ -472,7 +472,7 @@ pub struct Gpu {
     /// The library the pipelines came from, kept for the one built late.
     library: Retained<ProtocolObject<dyn MTLLibrary>>,
     quad_pipe: LatePipe,
-    fire_pipe: LatePipe,
+    effect_pipes: [LatePipe; Effect::COUNT],
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     instances: Vec<Buffer>,
     ring: Ring,
@@ -813,7 +813,7 @@ impl Gpu {
             cell_shape_pipe,
             library,
             quad_pipe: LatePipe::Unbuilt,
-            fire_pipe: LatePipe::Unbuilt,
+            effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             sampler,
             instances,
             ring: Ring(0),
@@ -1209,8 +1209,9 @@ impl Gpu {
 
     /// The trail's draw for this frame, if the renderer has one and its
     /// pipeline could be built: `glyph_vertex` over the records, and
-    /// `quad_fragment` over a quad's or a sweep's corners or `fire_fragment`
-    /// over a fire's ignition. Each pipeline is built once, the first time.
+    /// `quad_fragment` over a quad's or a sweep's corners, or an effect's own
+    /// fragment function over its ignition. Each pipeline is built once, the
+    /// first time.
     fn trail_draw(&mut self, renderer: &Renderer<'_, '_>, pad: [f32; 2]) -> Option<TrailDraw> {
         if let Some(smear) = renderer.smear() {
             let pipe = self
@@ -1221,19 +1222,19 @@ impl Gpu {
                 uniform: TrailUniform::Quad(smear.uniform(pad)),
             });
         }
-        let fire = renderer.fire()?;
-        let pipe = self
-            .fire_pipe
-            .get(&self.device, &self.library, "fire_fragment")?;
+        let vfx = renderer.vfx()?;
+        // The effect's place in `Effect::ALL`, which the array follows.
+        let at = Effect::ALL.iter().position(|&e| e == vfx.effect)?;
+        let pipe = self.effect_pipes[at].get(&self.device, &self.library, vfx.effect.fragment())?;
         Some(TrailDraw {
             pipe,
-            uniform: TrailUniform::Fire(fire.uniform(pad)),
+            uniform: TrailUniform::Effect(vfx.uniform(pad)),
         })
     }
 
     /// **Draws the records `0..end` of `buffer`**: the glyph pipeline for
     /// each run of them, and the trail's pipeline for its records `trail`
-    /// -- a quad's one, a fire's bands and embers -- so the trail stays where
+    /// -- a quad's one, an effect's bands and particles -- so the trail stays where
     /// the renderer put it in the order: over the cells and their records,
     /// under the scrollbar and the fade. Without a trail draw its records
     /// are left out, not drawn as solids over their bounds.
@@ -1414,7 +1415,7 @@ impl Gpu {
                 .zip(renderer.instances())
                 .enumerate()
             {
-                if matches!(inst.kind, Kind::Quad | Kind::Fire | Kind::Ember) {
+                if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
                     trail_at = widen(trail_at, i);
                 }
                 chunk.copy_from_slice(&inst.to_bytes());
@@ -1635,7 +1636,7 @@ impl Gpu {
                         .zip(input.records)
                         .enumerate()
                     {
-                        if matches!(inst.kind, Kind::Quad | Kind::Fire | Kind::Ember) {
+                        if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
                             trail_at = widen(trail_at, i);
                         }
                         chunk.copy_from_slice(&inst.to_bytes());

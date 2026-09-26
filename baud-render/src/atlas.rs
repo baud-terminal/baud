@@ -65,13 +65,14 @@ pub enum Kind {
     /// the cursor's own rectangle (`trail::coverage`). Drawn by its own
     /// fragment function, `quad_fragment`, which reads the corners.
     Quad = 3,
-    /// A band of the fire trail's reach: the record covers pixels
-    /// `fire_fragment` may draw flame in, and the flame itself comes from
-    /// the uniform it reads (`fire::Fire`).
-    Fire = 4,
-    /// An ember of the fire trail: a soft disc filling the record, in the
-    /// instance's colour, drawn by `fire_fragment` too.
-    Ember = 5,
+    /// A band of an effect trail's reach: the record covers pixels the
+    /// effect's fragment function may draw in, and the effect itself comes
+    /// from the uniform it reads (`effect::Vfx`).
+    Band = 4,
+    /// A particle of an effect trail, the fire's embers among them: the
+    /// record is its bounds, and `glyph_vertex` hands the effect's fragment
+    /// function where in it a pixel is, -1 to 1 on each axis.
+    Particle = 5,
 }
 
 /// A kind's discriminant as the shader reads it.
@@ -89,8 +90,8 @@ impl Kind {
             Kind::Color => 1,
             Kind::Solid => 2,
             Kind::Quad => 3,
-            Kind::Fire => 4,
-            Kind::Ember => 5,
+            Kind::Band => 4,
+            Kind::Particle => 5,
         })
     }
 }

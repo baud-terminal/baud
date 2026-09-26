@@ -5,7 +5,7 @@ use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCa
 use crate::cellmap::{BlockCursor, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
-use crate::fire::Fire;
+use crate::effect::Vfx;
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
 use crate::picture::Pictures;
@@ -759,13 +759,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 Drawn::Ghost(trail::ghost(t, self.metrics.cell_w, self.metrics.cell_h))
             }
             TrailLook::Smear(s) => Drawn::Smear(s),
-            TrailLook::Fire(f) => Drawn::Fire(f, Px::of(0), Px::of(0)),
+            TrailLook::Vfx(v) => Drawn::Vfx(v, Px::of(0), Px::of(0)),
         });
         self.build_trail();
     }
 
     /// The trail's records, in the colours in force: one for a ghost, a
-    /// quad or a sweep; a fire's bands and embers, and the rows they span.
+    /// quad or a sweep; an effect's bands and particles, and the rows they
+    /// span.
     fn build_trail(&mut self) {
         self.trail_inst.clear();
         let frame = self.pixel_size();
@@ -774,8 +775,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             Some(Drawn::Smear(s)) => self
                 .trail_inst
                 .push(trail::quad_instance(s, self.cursor_fill)),
-            Some(Drawn::Fire(f, top, bottom)) => {
-                f.instances(frame, self.cursor_fill, &mut self.trail_inst);
+            Some(Drawn::Vfx(v, top, bottom)) => {
+                v.instances(frame, self.cursor_fill, &mut self.trail_inst);
                 let (mut lo, mut hi) = (i32::MAX, i32::MIN);
                 for inst in &self.trail_inst {
                     lo = lo.min(i32::from(inst.y.0));
@@ -792,11 +793,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// The fire this frame draws, for a GPU path to hand `fire_fragment`
-    /// the uniform the records do not carry.
-    pub fn fire(&self) -> Option<Fire> {
+    /// The effect this frame draws, for a GPU path to hand its fragment
+    /// function the uniform the records do not carry.
+    pub fn vfx(&self) -> Option<Vfx> {
         match self.trail {
-            Some(Drawn::Fire(f, ..)) => Some(f),
+            Some(Drawn::Vfx(v, ..)) => Some(v),
             _ => None,
         }
     }
@@ -1454,7 +1455,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 match inst.kind {
                     Kind::Color => frame.colored.bump(),
                     Kind::Solid => frame.solids.bump(),
-                    Kind::Mask | Kind::Quad | Kind::Fire | Kind::Ember => {}
+                    Kind::Mask | Kind::Quad | Kind::Band | Kind::Particle => {}
                 }
             }
             if !self.dirty[r] {
@@ -1476,12 +1477,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in &self.per_row[r] {
                 target.over(inst, &self.atlas, self.blend, band);
             }
-            // On the CPU a fire is its emitter, the quad it rises off: the
-            // flame is the GPU's.
+            // On the CPU an effect is its emitter, the quad it rides: the
+            // effect is the GPU's.
             match self.trail {
                 Some(Drawn::Smear(s)) => target.quad(&s, self.cursor_fill, self.blend, band),
-                Some(Drawn::Fire(f, ..)) => {
-                    target.quad(&f.emitter, self.cursor_fill, self.blend, band);
+                Some(Drawn::Vfx(v, ..)) => {
+                    target.quad(&v.emitter, self.cursor_fill, self.blend, band);
                 }
                 _ => {
                     for inst in &self.trail_inst {

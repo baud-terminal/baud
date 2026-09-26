@@ -41,8 +41,8 @@ fn every_kind_has_the_code_the_shader_switches_on() {
         (Kind::Color, 1),
         (Kind::Solid, 2),
         (Kind::Quad, 3),
-        (Kind::Fire, 4),
-        (Kind::Ember, 5),
+        (Kind::Band, 4),
+        (Kind::Particle, 5),
     ] {
         assert_eq!(kind.code().0, code, "{kind:?}");
         assert_eq!(&sample(kind).to_bytes()[16..20], &code.to_le_bytes());

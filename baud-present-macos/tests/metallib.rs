@@ -191,18 +191,19 @@ fn the_hidden_text_bits_match_the_shader() {
     }
 }
 
-/// **`KIND_FIRE` and `KIND_EMBER` in the shader and `Kind::Fire` and
-/// `Kind::Ember` are one fact spelled twice.** `glyph_vertex` gives an
-/// ember's record its disc coordinates by the literal, and `fire_fragment`
-/// tells an ember from a flame's band by it; a literal that drifted would
-/// draw every ember as a band of flame, or a band as a disc, on both GPU arms
-/// alike -- which the pixel oracle's reference would catch only as pixels.
+/// **`KIND_BAND` and `KIND_PARTICLE` in the shader and `Kind::Band` and
+/// `Kind::Particle` are one fact spelled twice.** `glyph_vertex` gives a
+/// particle's record its shape coordinates by the literal, and every effect's
+/// fragment function tells a particle from a band of its reach by it; a
+/// literal that drifted would draw every particle as a band, or a band as a
+/// particle, on both GPU arms alike -- which the pixel oracle's reference
+/// would catch only as pixels.
 #[test]
-fn the_fire_kinds_match_the_shader() {
+fn the_effect_kinds_match_the_shader() {
     let src = include_str!("../src/shaders.metal");
     for (name, kind) in [
-        ("KIND_FIRE", baud_render::Kind::Fire),
-        ("KIND_EMBER", baud_render::Kind::Ember),
+        ("KIND_BAND", baud_render::Kind::Band),
+        ("KIND_PARTICLE", baud_render::Kind::Particle),
     ] {
         let prefix = format!("#define {name} ");
         let line = src
@@ -215,5 +216,31 @@ fn the_fire_kinds_match_the_shader() {
             .parse()
             .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
         assert_eq!(got, kind.code().0, "{line:?} against Kind::{kind:?}");
+    }
+}
+
+/// **Every effect's fragment function is in the shipped library.** A GPU
+/// path builds an effect's pipeline the first frame it draws one, by the
+/// name `Effect::fragment` gives; a name the library does not offer fails
+/// that build, and the trail is left out without anything else going red --
+/// on the machine of whoever first chooses the effect.
+#[test]
+fn every_effect_has_its_fragment_in_the_library() {
+    use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice, MTLLibrary};
+
+    let Some(device) = MTLCreateSystemDefaultDevice() else {
+        panic!("a Metal device; this test cannot skip itself");
+    };
+    let data = dispatch2::DispatchData::from_static_bytes(include_bytes!("../src/baud.metallib"));
+    let lib = device
+        .newLibraryWithData_error(&data)
+        .expect("baud.metallib loads on the Metal that built this test");
+    let names: Vec<String> = lib.functionNames().iter().map(|n| n.to_string()).collect();
+    for e in baud_render::effect::Effect::ALL {
+        assert!(
+            names.iter().any(|n| n == e.fragment()),
+            "{e:?}'s {} is not in baud.metallib -- run scripts/build-metallib.sh",
+            e.fragment()
+        );
     }
 }

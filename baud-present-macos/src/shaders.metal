@@ -25,9 +25,9 @@ fragment float4 bg_fragment(BgOut in [[stage_in]],
 
 struct GOut { float4 pos [[position]]; float2 uv; float4 color; uint kind [[flat]]; };
 
-// The fire trail's two record kinds, `Kind::Fire` and `Kind::Ember`.
-#define KIND_FIRE 4u
-#define KIND_EMBER 5u
+// An effect trail's two record kinds, `Kind::Band` and `Kind::Particle`.
+#define KIND_BAND 4u
+#define KIND_PARTICLE 5u
 
 vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                          device const Inst* insts [[buffer(0)]],
@@ -40,9 +40,9 @@ vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.pos = float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
     float2 side = i.kind == 1u ? u.color : u.mask;
     o.uv = (float2(i.uv) + c * float2(i.wh)) / side;
-    // An ember is a disc over its record: `fire_fragment` reads where in it
-    // a pixel is, -1 to 1 on each axis.
-    if (i.kind == KIND_EMBER) o.uv = c * 2.0 - 1.0;
+    // A particle is a shape over its record: the effect's fragment function
+    // reads where in it a pixel is, -1 to 1 on each axis.
+    if (i.kind == KIND_PARTICLE) o.uv = c * 2.0 - 1.0;
     uint col = i.color;
     o.color = float4(float((col >> 16) & 0xffu), float((col >> 8) & 0xffu),
                      float(col & 0xffu), float(col >> 24)) / 255.0;
@@ -119,22 +119,22 @@ fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)
     return float4(in.color.rgb * a, a);
 }
 
-// ---- The fire trail, `baud-render/src/fire.rs`: a flame rising off the
-// quad's collapsing corners, and the embers it sheds, in the cursor's colour
-// the records carry, heat its opacity. A pure function of the pixel's place,
-// the age since ignition and the seed; every number but the noise's own shape
-// rides in `FireU`, which Rust fills -- the flame's height, reach, rise and
-// drift -- so there is one spelling of each. `origin` is where the frame sits
-// in the target.
-struct FireU {
+// ---- The effect trails, `baud-render/src/effect.rs`: a fragment function
+// each over the same records -- bands over the effect's reach, then particles
+// -- in the cursor's colour the records carry, intensity its opacity. Each is
+// a pure function of the pixel's place, the age since ignition and the seed;
+// every number but a noise's own shape rides in `EffectU`, which Rust fills
+// -- the shared prefix, then the effect's own `k` -- so there is one spelling
+// of each. `origin` is where the frame sits in the target.
+struct EffectU {
     float2 c[4]; float4 hole; float2 origin; float2 tail; float2 dir;
-    float len; float unit; float age; float life; uint seed;
-    float height; float reach; float rise; float drift; float pad;
+    float len; float unit; float age; float life; uint seed; float reach;
+    float k[8];
 };
 
 // PCG's output permutation over one step of its LCG, the GPU hash Jarzynski
-// and Olano recommend; `fire::Hash` is the same function.
-static inline uint fire_hash(uint v) {
+// and Olano recommend; `effect::Hash` is the same function.
+static inline uint fx_hash(uint v) {
     uint s = v * 747796405u + 2891336453u;
     uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
     return (w >> 22u) ^ w;
@@ -142,33 +142,33 @@ static inline uint fire_hash(uint v) {
 
 // A number in [0, 1) from the hash's top 23 bits, through a float's mantissa:
 // exact, with no conversion instruction.
-static inline float fire_unit(uint h) {
+static inline float fx_unit(uint h) {
     return as_type<float>((h >> 9u) | 0x3f800000u) - 1.0;
 }
 
-static inline float fire_lattice(int2 i, uint seed) {
-    return fire_unit(fire_hash(uint(i.x) + fire_hash(uint(i.y) + seed)));
+static inline float fx_lattice(int2 i, uint seed) {
+    return fx_unit(fx_hash(uint(i.x) + fx_hash(uint(i.y) + seed)));
 }
 
 // Value noise on the hash's lattice, with the quintic fade.
-static inline float fire_noise(float2 p, uint seed) {
+static inline float fx_noise(float2 p, uint seed) {
     float2 f = floor(p);
     int2 i = int2(f);
     float2 x = p - f;
     float2 w = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
-    float a = fire_lattice(i, seed);
-    float b = fire_lattice(i + int2(1, 0), seed);
-    float c = fire_lattice(i + int2(0, 1), seed);
-    float d = fire_lattice(i + int2(1, 1), seed);
+    float a = fx_lattice(i, seed);
+    float b = fx_lattice(i + int2(1, 0), seed);
+    float c = fx_lattice(i + int2(0, 1), seed);
+    float d = fx_lattice(i + int2(1, 1), seed);
     return mix(mix(a, b, w.x), mix(c, d, w.x), w.y);
 }
 
 // Four octaves, each rotated and at a detuned double of the last's scale.
-static inline float fire_fbm(float2 p, uint seed) {
+static inline float fx_fbm(float2 p, uint seed) {
     float t = 0.0;
     float a = 0.5;
     for (uint o = 0u; o < 4u; o++) {
-        t += a * fire_noise(p, seed + o * 0x9E3779B9u);
+        t += a * fx_noise(p, seed + o * 0x9E3779B9u);
         p = float2(0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y) * 2.02;
         a *= 0.5;
     }
@@ -177,7 +177,7 @@ static inline float fire_fbm(float2 p, uint seed) {
 
 // The distance from `p` to the quad, negative inside it by the non-zero
 // winding rule `quad_fragment` fills it by.
-static inline float fire_distance(float2 p, constant FireU& f) {
+static inline float fx_distance(float2 p, constant EffectU& f) {
     float d = INFINITY;
     int winding = 0;
     for (uint i = 0u; i < 4u; i++) {
@@ -197,28 +197,39 @@ static inline float fire_distance(float2 p, constant FireU& f) {
     return winding != 0 ? -d : d;
 }
 
+// Whether `p` is in the cursor's own rectangle, which every effect leaves
+// bare, as the quad does.
+static inline bool fx_in_hole(float2 p, constant EffectU& f) {
+    return p.x >= f.hole.x && p.x < f.hole.z && p.y >= f.hole.y && p.y < f.hole.w;
+}
+
+// ---- The fire, `baud-render/src/fire.rs`: a flame rising off the quad's
+// collapsing corners, and the embers it sheds. Its own numbers, `fire::PARAMS`:
+// `k[0]` the flame's height, `k[1]` its rise, `k[2]` its drift.
+
 // **The flame at `p`**: tongues where noise lifts a sample down into the
 // quad, cooling with distance from it and burning out from the tail, and a
 // halo on the page -- the cursor's colour at the heat's opacity,
 // premultiplied, which is valid over a glass window and dark over a light
 // theme's dark cursor alike.
-static inline float4 fire_flame(float2 p, float4 color, constant FireU& f) {
-    if (p.x >= f.hole.x && p.x < f.hole.z && p.y >= f.hole.y && p.y < f.hole.w) {
-        return float4(0.0);
-    }
+static inline float4 fire_flame(float2 p, float4 color, constant EffectU& f) {
+    if (fx_in_hole(p, f)) return float4(0.0);
+    float height = f.k[0];
+    float rise = f.k[1];
+    float drift = f.k[2];
     float k = f.age / f.life;
     if (k >= 1.0) return float4(0.0);
     float c = f.unit;
-    float d0 = fire_distance(p, f) / c;
+    float d0 = fx_distance(p, f) / c;
     if (d0 > f.reach) return float4(0.0);
     float2 q = p / c;
-    float2 s = float2(q.x * 2.6, (q.y + f.age * f.rise) * 0.7) - f.dir * (f.age * f.drift);
-    float n = fire_fbm(s, f.seed);
-    float lift = f.height * c * smoothstep(0.25, 0.85, n);
-    float d = fire_distance(p + float2(0.0, lift), f) / c;
+    float2 s = float2(q.x * 2.6, (q.y + f.age * rise) * 0.7) - f.dir * (f.age * drift);
+    float n = fx_fbm(s, f.seed);
+    float lift = height * c * smoothstep(0.25, 0.85, n);
+    float d = fx_distance(p + float2(0.0, lift), f) / c;
     float body = max(1.0 - smoothstep(-0.10, 0.20, d),
                      0.8 * (1.0 - smoothstep(-0.25, 0.05, d0)));
-    float cool = saturate(max(d0, 0.0) / f.height);
+    float cool = saturate(max(d0, 0.0) / height);
     float u = clamp(dot(p - f.tail, f.dir) / max(f.len, 1.0), 0.0, 1.0);
     float burn = smoothstep(k - 0.15, k + 0.35, u) * (1.0 - k * k);
     float heat = saturate(body * (1.0 - 0.85 * cool) * (0.50 + 0.60 * n) * burn);
@@ -235,8 +246,8 @@ static inline float4 fire_ember(GOut in) {
     return float4(in.color.rgb * a, a);
 }
 
-fragment float4 fire_fragment(GOut in [[stage_in]], constant FireU& f [[buffer(0)]]) {
-    if (in.kind == KIND_EMBER) return fire_ember(in);
+fragment float4 fire_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) return fire_ember(in);
     return fire_flame(in.pos.xy - f.origin, in.color, f);
 }
 
