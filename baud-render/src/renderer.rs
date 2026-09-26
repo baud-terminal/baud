@@ -1375,10 +1375,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.metrics.cell_w,
                 margin,
             );
-            for inst in &self.per_row[r] {
-                target.over(inst, &self.atlas, self.blend, band);
-            }
-            for inst in &self.bar_inst {
+            // In the order `instances()` hands the GPU instance path: the
+            // row's own, then the trail under the scrollbar, then the screen
+            // fade over everything. The trail and the fade dirtied these rows
+            // (`trail_moved`, and a fade makes the frame full), so a row
+            // repainted without them would draw them out.
+            for inst in self.per_row[r]
+                .iter()
+                .chain(&self.trail_inst)
+                .chain(&self.bar_inst)
+                .chain(&self.fade_inst)
+            {
                 target.over(inst, &self.atlas, self.blend, band);
             }
         }
