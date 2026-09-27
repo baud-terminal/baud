@@ -68,7 +68,13 @@ pub struct Config {
     /// call on 2026-09-25 and `DECSCUSR`'s own default. Two keys and two
     /// fields, because the keys may come in either order.
     pub cursor_shape: CursorShape,
-    pub cursor_blink: CursorBlink,
+    /// `[cursor] blink`: `"auto"` by default, which blinks as the system
+    /// blinks its caret -- at its rate, and steady under its non-blinking
+    /// switch -- and `true` or `false`; see [`BlinkChoice`].
+    pub cursor_blink: BlinkChoice,
+    /// `[cursor] stop_blinking_after`: seconds without input after which a
+    /// blinking cursor stops, shown; never by default, the owner's call.
+    pub cursor_stop: StopAfter,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
@@ -305,6 +311,42 @@ impl TrailPick {
     }
 }
 
+/// `[cursor] blink`: whether the cursor blinks, or whether the system says.
+///
+/// **`Auto` is the default, and it is the system's caret**, the owner's call
+/// of 2026-09-25: the rate macOS gives its own insertion point, and steady
+/// under its non-blinking-caret switch. `On` blinks whatever the switch says,
+/// and says so once in the log; `Off` powers the cursor on steady. What an
+/// application sets with `DECSCUSR` is what the terminal answers either way;
+/// the switch changes only what is drawn.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlinkChoice {
+    Auto,
+    On,
+    Off,
+}
+
+impl BlinkChoice {
+    /// The cursor the terminal powers on with: `Auto` and `On` blink, as
+    /// the core has always powered on; `Off` is steady.
+    pub fn power_on(self) -> CursorBlink {
+        match self {
+            BlinkChoice::Auto | BlinkChoice::On => CursorBlink::Blinking,
+            BlinkChoice::Off => CursorBlink::Steady,
+        }
+    }
+}
+
+/// When a blinking cursor stops blinking: never, the default, or after a
+/// quiet time without input -- kitty's `cursor_stop_blinking_after 15.0`,
+/// with a default of never here. Output never holds it off, so `tail -f`
+/// stops blinking; it stops shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StopAfter {
+    Never,
+    After(std::time::Duration),
+}
+
 /// Whether switching to or from the alternate screen fades the new screen
 /// in from the background. Off by default, like the trail; a two-state enum
 /// for the reason `CursorTrail` is.
@@ -348,7 +390,8 @@ impl Config {
             theme: ThemeChoice::Auto,
             cursor_trail: TrailPick::Default,
             cursor_shape: CursorShape::Block,
-            cursor_blink: CursorBlink::Blinking,
+            cursor_blink: BlinkChoice::Auto,
+            cursor_stop: StopAfter::Never,
             screen_transition: ScreenTransition::Off,
             scroll: ScrollMode::Smooth,
             glass: Glass::defaults(),
@@ -472,15 +515,39 @@ impl Config {
                     };
                 }
                 ("cursor", "blink") => {
-                    self.cursor_blink = match value.trim() {
-                        "true" => CursorBlink::Blinking,
-                        "false" => CursorBlink::Steady,
+                    self.cursor_blink = match value.trim().trim_matches('"') {
+                        "auto" => BlinkChoice::Auto,
+                        "true" => BlinkChoice::On,
+                        "false" => BlinkChoice::Off,
                         other => {
                             said.push(format!(
-                                "config: [cursor] blink {other:?} is not true or false; \
-                                 using true"
+                                "config: [cursor] blink {other:?} is not auto, true or false; \
+                                 using auto"
                             ));
-                            CursorBlink::Blinking
+                            BlinkChoice::Auto
+                        }
+                    };
+                }
+                ("cursor", "stop_blinking_after") => {
+                    let secs = value.trim().parse::<f64>().ok();
+                    self.cursor_stop = match secs {
+                        Some(0.0) => StopAfter::Never,
+                        Some(s) => match std::time::Duration::try_from_secs_f64(s) {
+                            Ok(d) => StopAfter::After(d),
+                            Err(_) => {
+                                said.push(format!(
+                                    "config: [cursor] stop_blinking_after {s} is not a time; never"
+                                ));
+                                StopAfter::Never
+                            }
+                        },
+                        None => {
+                            said.push(format!(
+                                "config: [cursor] stop_blinking_after {:?} is not a number of \
+                                 seconds; never",
+                                value.trim()
+                            ));
+                            StopAfter::Never
                         }
                     };
                 }
@@ -989,6 +1056,28 @@ mod reader {
         }
     }
 
+    /// `stop_blinking_after` in seconds: absent and `0` are never, a number
+    /// a time, and anything that is not a time is never, said once.
+    #[test]
+    fn stop_blinking_after_reads_seconds_and_zero_is_never() {
+        use std::time::Duration;
+        assert_eq!(Config::defaults().cursor_stop, StopAfter::Never);
+        let at = |v: &str| read(&format!("[cursor]\nstop_blinking_after = {v}\n")).cursor_stop;
+        assert_eq!(at("0"), StopAfter::Never);
+        assert_eq!(at("5"), StopAfter::After(Duration::from_secs(5)));
+        assert_eq!(at("2.5"), StopAfter::After(Duration::from_millis(2500)));
+        for bad in ["-1", "NaN", "inf", "soon"] {
+            assert_eq!(at(bad), StopAfter::Never, "{bad}");
+            assert_eq!(
+                Config::defaults()
+                    .apply(&format!("[cursor]\nstop_blinking_after = {bad}\n"))
+                    .len(),
+                1,
+                "{bad} is said"
+            );
+        }
+    }
+
     /// The cursor trail is the fire unless `[cursor] trail` names another,
     /// quoted or not; `true` and `false` read as they did when the key was a
     /// switch -- the default and none -- and a value that names no trail
@@ -1209,28 +1298,44 @@ mod reader {
         let d = Config::defaults();
         assert_eq!(
             (d.cursor_shape, d.cursor_blink),
-            (CursorShape::Block, CursorBlink::Blinking)
+            (CursorShape::Block, BlinkChoice::Auto)
         );
+        assert_eq!(d.cursor_blink.power_on(), CursorBlink::Blinking);
         let c = read("[cursor]\nshape = \"bar\"\nblink = false\n");
         assert_eq!(
             (c.cursor_shape, c.cursor_blink),
-            (CursorShape::Bar, CursorBlink::Steady)
+            (CursorShape::Bar, BlinkChoice::Off)
         );
+        assert_eq!(c.cursor_blink.power_on(), CursorBlink::Steady);
         // Either order, and unquoted.
         let c = read("[cursor]\nblink = false\nshape = underline\n");
         assert_eq!(
             (c.cursor_shape, c.cursor_blink),
-            (CursorShape::Underline, CursorBlink::Steady)
+            (CursorShape::Underline, BlinkChoice::Off)
         );
         let c = read("[cursor]\nshape = \"bar\"\n");
         assert_eq!(
             (c.cursor_shape, c.cursor_blink),
-            (CursorShape::Bar, CursorBlink::Blinking)
+            (CursorShape::Bar, BlinkChoice::Auto)
+        );
+        // `true` is an explicit blink, and `auto`, quoted or not, the
+        // system's.
+        assert_eq!(
+            read("[cursor]\nblink = true\n").cursor_blink,
+            BlinkChoice::On
+        );
+        assert_eq!(
+            read("[cursor]\nblink = auto\n").cursor_blink,
+            BlinkChoice::Auto
+        );
+        assert_eq!(
+            read("[cursor]\nblink = \"auto\"\n").cursor_blink,
+            BlinkChoice::Auto
         );
         let c = read("[cursor]\nshape = \"box\"\nblink = maybe\n");
         assert_eq!(
             (c.cursor_shape, c.cursor_blink),
-            (CursorShape::Block, CursorBlink::Blinking)
+            (CursorShape::Block, BlinkChoice::Auto)
         );
         assert_eq!(
             Config::defaults()
@@ -1464,8 +1569,8 @@ shadow     = "never"
         // blink below, which are named.
         assert_eq!(c.cursor_trail, TrailPick::Default);
         assert_eq!(
-            (c.cursor_shape, c.cursor_blink),
-            (CursorShape::Block, CursorBlink::Blinking)
+            (c.cursor_shape, c.cursor_blink, c.cursor_stop),
+            (CursorShape::Block, BlinkChoice::Auto, StopAfter::Never)
         );
         assert_eq!(
             c.screen_transition,

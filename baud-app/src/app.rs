@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use crate::bell::{Bell, Update, UpdateClock};
-use crate::caret::{Caret, Owes};
+use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
     FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
@@ -45,7 +45,8 @@ use macos_liquid_glass::objc2_app_kit::{
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
-    MainThreadMarker, NSBundle, NSPoint, NSRect, NSSize, NSString,
+    MainThreadMarker, NSBundle, NSOperatingSystemVersion, NSPoint, NSProcessInfo, NSRect, NSSize,
+    NSString, NSUserDefaults,
 };
 use macos_liquid_glass::window::GlassWindow;
 use std::sync::atomic::Ordering;
@@ -442,12 +443,20 @@ struct App {
     /// blink changes no cell content and row damage would not catch it.
     blink: Blink,
     blink_present: Blinking,
-    /// The cursor's blink, on the display link's clock (`caret.rs`): xterm's
-    /// times, only while the window is key, restarted by a key sent or output
-    /// read. `focus` is whether the window is key, as the last focus callback
-    /// or poll said.
+    /// The cursor's blink, on the display link's clock (`caret.rs`): the
+    /// system caret's rate, read on the first tick and at every focus gain,
+    /// only while the window is key, restarted by a key sent or output read,
+    /// and stopped after `[cursor] stop_blinking_after` without input. `focus`
+    /// is whether the window is key, as the last focus callback or poll said.
+    /// `blink_choice` is what `[cursor] blink` said, which decides with the
+    /// system's non-blinking switch whether the drawing is held steady;
+    /// `warned_blink` keeps its warning to one.
     caret: Caret<HostTime>,
     focus: baud_core::Focus,
+    blink_choice: crate::config::BlinkChoice,
+    warned_blink: Done,
+    /// Whether the first tick has read the system's caret yet.
+    caret_read: Done,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
     /// other video until a deadline the display link's clock reaches
     /// (`bell.rs`).
@@ -515,6 +524,9 @@ struct Boot {
     /// The cursor the terminal powers on with, from `[cursor] shape` and
     /// `blink`.
     cursor: baud_core::CursorStyle,
+    /// What `[cursor] blink` said, and when a blink stops without input.
+    blink_choice: crate::config::BlinkChoice,
+    cursor_stop: crate::config::StopAfter,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -655,7 +667,9 @@ impl Boot {
             theme: cfg.theme,
             glass: cfg.glass,
             cursor_trail: cfg.cursor_trail,
-            cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink),
+            cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink.power_on()),
+            blink_choice: cfg.cursor_blink,
+            cursor_stop: cfg.cursor_stop,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             images: cfg.images,
@@ -686,6 +700,8 @@ impl App {
             glass: _,
             cursor_trail,
             cursor,
+            blink_choice,
+            cursor_stop,
             screen_transition,
             scroll,
             images,
@@ -888,8 +904,14 @@ impl App {
             updates: UpdateClock::new(SYNC_MAX),
             blink: Blink::default(),
             blink_present: Blinking::default(),
-            caret: Caret::new(host_now()),
+            // AppKit's rate until the first tick reads the system's; the
+            // cursor is not drawn blinking before then, since focus starts
+            // lost.
+            caret: Caret::new(host_now(), Cycle::APPKIT, Gate::Free, cursor_stop),
             focus: baud_core::Focus::Lost,
+            blink_choice,
+            warned_blink: Done::No,
+            caret_read: Done::No,
             next_damage: Damage::Incremental,
             cursor_trail,
             trail_pick,
@@ -945,8 +967,9 @@ impl App {
     fn send(&mut self, e: KeyEvent) -> Sent {
         self.term.key(e);
         // A key shows the cursor and restarts its blink, whether or not the
-        // child echoes it back (`caret.rs`).
-        self.caret.restart(host_now());
+        // child echoes it back, and is input to the stop (`caret.rs`). The
+        // wheel's arrow keys on the alternate screen come through here too.
+        self.caret.input(host_now());
         self.flush_reply()
     }
 
@@ -1493,11 +1516,14 @@ impl App {
             Presented::Yes => self.bell.commit(bell),
             Presented::No => self.bell.refused(bell),
         }
-        // The blink's phase is taken either way. A present that failed drops
-        // the frame, and the next flip -- at most `caret::ON` away -- draws
-        // the phase again; not taking it would owe a frame on every tick for
-        // as long as presents keep failing, the defect the bell's review
-        // found in `refused`.
+        // The blink's phase is taken either way: not taking it would owe a
+        // frame on every tick for as long as presents keep failing, the
+        // defect the bell's review found in `refused`. What that costs: a
+        // present that fails drops the frame, and while the cursor blinks the
+        // next flip draws the phase again, but a failed frame that was to
+        // stop the blink shown -- focus lost, a steady style, the system's
+        // switch, the stop, a steady cycle -- leaves it hidden until another
+        // frame draws for any reason.
         self.caret.commit(caret);
         self.pending = Pending::Clean;
         self.last_commit = Instant::now();
@@ -3832,6 +3858,11 @@ impl Responder for Driver {
     /// encode, and this only turns the view's pixels into a cell.
     fn mouse(&mut self, event: &Mouse) {
         self.poll_focus();
+        // Any press is input to the blink's stop -- one the scrollbar, a
+        // link or a tracking child takes too -- before those take it.
+        if event.kind == ViewMouseKind::Down {
+            self.app.caret.quiet(host_now());
+        }
         if self.scrollbar(event) == Took::Yes {
             return;
         }
@@ -3887,6 +3918,7 @@ impl Responder for Driver {
     /// here; a pager or an editor on it will want the wheel as keys, which
     /// is a separate protocol.
     fn scroll(&mut self, event: &Scroll) {
+        self.app.caret.quiet(host_now());
         let (_, ch) = self.app.metrics_cell();
         let lines = match event.precise {
             true => {
@@ -3996,6 +4028,11 @@ impl Responder for Driver {
         if let (Some(img), Some(mtm)) = (self.dock_icon.take(), MainThreadMarker::new()) {
             macos_liquid_glass::set_application_icon(&NSApplication::sharedApplication(mtm), &img);
             startup_mark("dock icon");
+        }
+        if self.app.caret_read == Done::No {
+            self.app.caret_read = Done::Yes;
+            self.read_caret_system();
+            startup_mark("caret os");
         }
         if let Some(last) = self.app.last_tick {
             let dt = target - last;
@@ -4666,6 +4703,47 @@ impl Driver {
         if self.app.term.focus(f) {
             self.app.flush_reply();
         }
+        // A gain reads the system's caret again -- a change made in System
+        // Settings while baud was in the background lands here -- and is
+        // input, so the cursor comes back shown and the stop starts over.
+        if f == baud_core::Focus::Gained {
+            self.read_caret_system();
+            self.app.caret.input(host_now());
+        }
+    }
+
+    /// The system caret's rate and its non-blinking switch (`caret.rs`),
+    /// read on the first tick -- after the first present, so a launch's
+    /// first frame does not wait for it, and where a scripted launch, whose
+    /// window is never key, still pays and measures it -- and at every focus
+    /// gain. Not observed: a change made while baud keeps focus lands at the
+    /// next gain.
+    fn read_caret_system(&mut self) {
+        let start = Instant::now();
+        let cycle = os_cycle();
+        let switch = if os_at_least_15() {
+            crate::pty::prefers_steady_caret()
+        } else {
+            NonBlinking::Off
+        };
+        let took = start.elapsed();
+        self.app
+            .caret
+            .set_system(cycle, Gate::of(self.app.blink_choice, switch));
+        crate::info!(
+            "caret: {cycle}, switch {switch:?}, read in {} us",
+            took.as_micros()
+        );
+        if switch == NonBlinking::On
+            && self.app.blink_choice == crate::config::BlinkChoice::On
+            && self.app.warned_blink == Done::No
+        {
+            crate::warn!(
+                "baud: [cursor] blink = true overrides the system's non-blinking caret; \
+                 blink = \"auto\" honours it"
+            );
+            self.app.warned_blink = Done::Yes;
+        }
     }
 
     fn links(&mut self, event: &Mouse) -> Took {
@@ -5281,6 +5359,7 @@ impl Driver {
             Bracket::Off
         };
         self.snap_to_live();
+        self.app.caret.input(host_now());
         self.app.pty.write(&paste_bytes(&text, bracket));
     }
 
@@ -5469,6 +5548,38 @@ mod tests {
         let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
     }
+}
+
+/// Whether a one-time thing has happened yet: the first tick's read of the
+/// system caret, and the warning that the config overrides its switch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Done {
+    No,
+    Yes,
+}
+
+/// The system caret's rate: AppKit's own defaults,
+/// `NSTextInsertionPointBlinkPeriodOn` and `...Off`, each read on its own
+/// as AppKit reads it, with AppKit's 650/350 where one is unset
+/// (`caret::Cycle::of_defaults`). `doubleForKey` converts a number or a
+/// numeric string, and answers 0 for a key that is absent or will not
+/// convert -- which `of_defaults` reads as unset -- by its header.
+fn os_cycle() -> Cycle {
+    let d = NSUserDefaults::standardUserDefaults();
+    Cycle::of_defaults(
+        d.doubleForKey(&NSString::from_str("NSTextInsertionPointBlinkPeriodOn")),
+        d.doubleForKey(&NSString::from_str("NSTextInsertionPointBlinkPeriodOff")),
+        Cycle::APPKIT,
+    )
+}
+
+/// Whether this is macOS 15 or later, where the non-blinking switch exists.
+fn os_at_least_15() -> bool {
+    NSProcessInfo::processInfo().isOperatingSystemAtLeastVersion(NSOperatingSystemVersion {
+        majorVersion: 15,
+        minorVersion: 0,
+        patchVersion: 0,
+    })
 }
 
 /// Where the motion preference comes from: the system, or `BAUD_MOTION`,

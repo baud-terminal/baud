@@ -9,7 +9,7 @@ HTML file's source rather than the page.
 ```toml
 [cursor]
 shape = "block"   # block | underline | bar
-blink = true
+blink = "auto"    # auto | true | false
 trail = "fire"    # fire | plasma | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
 ```
 

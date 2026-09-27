@@ -8,7 +8,8 @@
 //! opens close-on-exec, answers the length from `metadata` and closes on
 //! drop; that took the surface from twenty-five items to ten. Everything
 //! left is something `std` has no API for: a pty, an ioctl, a poll over
-//! two descriptors, a mapping, and Darwin's raw uptime clock.
+//! two descriptors, a mapping, Darwin's raw uptime clock, and a symbol
+//! looked up at run time because older systems do not have it.
 //!
 //! **Every layout and constant below is checked against the platform's own
 //! headers** by `tests/abi.rs`, which compiles a C probe with `cc` and
@@ -85,6 +86,17 @@ pub const MAP_FAILED: *mut c_void = usize::MAX as *mut c_void;
 #[cfg(target_os = "macos")]
 pub const CLOCK_UPTIME_RAW: c_uint = 8;
 
+/// `dlopen`'s modes: resolve symbols when first used, keep them out of the
+/// global namespace, and -- with `RTLD_NOLOAD` -- answer only a library
+/// already loaded. The accessibility switch's read asks for a framework
+/// AppKit has loaded before it asks for one it may not have.
+#[cfg(target_os = "macos")]
+pub const RTLD_LAZY: c_int = 0x1;
+#[cfg(target_os = "macos")]
+pub const RTLD_LOCAL: c_int = 0x4;
+#[cfg(target_os = "macos")]
+pub const RTLD_NOLOAD: c_int = 0x10;
+
 // `forkpty` is in libutil on glibc and in libSystem on Darwin.
 #[cfg_attr(not(target_os = "macos"), link(name = "util"))]
 unsafe extern "C" {
@@ -138,6 +150,15 @@ unsafe extern "C" {
     pub fn _exit(status: c_int) -> !;
 }
 
+// **A symbol looked up rather than linked**, because it exists only from
+// macOS 15: `AXPrefersNonBlinkingTextInsertionIndicator`. Linking it would
+// fail to load on an older system; looking it up answers null there.
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    pub fn dlopen(path: *const c_char, mode: c_int) -> *mut c_void;
+    pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+}
+
 /// **The declarations above, checked against the platform's own headers.**
 ///
 /// A fixture generated once on one machine could not do this: `TIOCSWINSZ`
@@ -158,6 +179,9 @@ mod tests {
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <time.h>
+#ifdef __APPLE__
+#include <dlfcn.h>
+#endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
     printf("winsize.row=%zu\n", offsetof(struct winsize, ws_row));
@@ -178,6 +202,11 @@ int main(void) {
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
 #ifdef CLOCK_UPTIME_RAW
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
+#endif
+#ifdef __APPLE__
+    printf("RTLD_LAZY=%lld\n", (long long)RTLD_LAZY);
+    printf("RTLD_LOCAL=%lld\n", (long long)RTLD_LOCAL);
+    printf("RTLD_NOLOAD=%lld\n", (long long)RTLD_NOLOAD);
 #endif
     return 0;
 }
@@ -263,6 +292,11 @@ int main(void) {
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
         #[cfg(target_os = "macos")]
-        assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));
+        {
+            assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));
+            assert_eq!(h["RTLD_LAZY"], i128::from(RTLD_LAZY));
+            assert_eq!(h["RTLD_LOCAL"], i128::from(RTLD_LOCAL));
+            assert_eq!(h["RTLD_NOLOAD"], i128::from(RTLD_NOLOAD));
+        }
     }
 }

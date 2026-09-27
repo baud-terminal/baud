@@ -36,7 +36,7 @@ Two requests arrived with the answers, and are not decisions from this note:
   it off.
 - **The cursor's shape and blink set in the config**, blinking block by
   default. The core has defaulted to a blinking block all along; no renderer
-  path draws the blink.
+  path drew the blink then (it has since 2026-09-25).
 
 Later the same day the owner answered the cursor's questions, and these steer
 the builds that follow them:
@@ -62,7 +62,12 @@ cursor's colour, the owner's word mid-build: "the flame should not use a
 special color, we use the cursor color, default color". Then plasma,
 lightning, ice, ufo, orb and liquid, and Reduce Motion: the default trail is
 off under it and a named one is kept (CLAUDE.md, "Reduce Motion means no
-trail, unless the config names one").
+trail, unless the config names one"). Then the blink from the OS, with the
+owner's answers of 2026-09-27 -- hard edges at 650/350, every other
+sub-question as recommended: the rate read from the system's keys, macOS
+15's non-blinking switch holding the drawing steady unless the config says
+`true`, and `[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The
+cursor blinks at the system caret's rate").
 
 ## What this is
 

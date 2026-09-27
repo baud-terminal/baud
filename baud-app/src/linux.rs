@@ -14,13 +14,14 @@
 //! and this file is the wiring between them and the core. Until a Linux
 //! box runs it, it is unverified, and it says so at startup.
 //!
-//! What the macOS app has and this does not, yet: the GPU paths, blink,
-//! the wheel onto the scrollback, a backing scale other than one -- the
+//! What the macOS app has and this does not, yet: the GPU paths, `SGR 5`
+//! text blink, the system caret's rate (this keeps xterm's 600/300 until
+//! the desktop's settings are read), the wheel onto the scrollback, a backing scale other than one -- the
 //! window binds no fractional-scale global -- and the report every five
 //! seconds.
 
 use crate::bell::{Bell, Update, UpdateClock};
-use crate::caret::{Blinks, Caret, Owes};
+use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::config::Config;
 use crate::host::{
     FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
@@ -80,8 +81,9 @@ struct Driver {
     /// (`bell.rs`).
     bell: Bell<Instant>,
     /// The cursor's blink, ended and restarted on the `poll` timeout
-    /// (`caret.rs`), and whether the keyboard is ours -- the blink stops in
-    /// a window without it.
+    /// (`caret.rs`) -- which also wakes for `[cursor] stop_blinking_after` --
+    /// and whether the keyboard is ours -- the blink stops in a window
+    /// without it.
     caret: Caret<Instant>,
     focus: Focus,
     /// The title the toplevel was last given, so a program's `OSC 0` or
@@ -151,7 +153,7 @@ pub fn run() {
     term.set_sixel_claim(cfg.sixel);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
-        cfg.cursor_blink,
+        cfg.cursor_blink.power_on(),
     ));
     startup_mark("renderer");
     let pty = Pty::spawn_polled(&FIRST, renderer.metrics().cell_w, renderer.metrics().cell_h)
@@ -175,7 +177,14 @@ pub fn run() {
     let bell = Bell::new(&term, crate::bell::LENGTH);
     let mut d = Driver {
         bell,
-        caret: Caret::new(Instant::now()),
+        // xterm's rate, and no switch: `auto` blinks here. Nothing on Linux
+        // reads the desktop's caret yet, so the choice is not kept.
+        caret: Caret::new(
+            Instant::now(),
+            Cycle::XTERM,
+            Gate::of(cfg.cursor_blink, NonBlinking::Off),
+            cfg.cursor_stop,
+        ),
         // Until `wl_keyboard.enter`: a window the compositor has not given
         // the keyboard holds a steady cursor.
         focus: Focus::Lost,
@@ -273,8 +282,9 @@ pub fn run() {
                 Event::Frame => {}
                 Event::Key(k) => {
                     d.term.key(k);
-                    // A key shows the cursor and restarts its blink.
-                    d.caret.restart(Instant::now());
+                    // A key shows the cursor, restarts its blink, and is
+                    // input to its stop.
+                    d.caret.input(Instant::now());
                 }
                 // Reported to the child only if it asked with `?1004`; the
                 // reply is flushed with the keys' below. Kept for the blink,
@@ -283,6 +293,9 @@ pub fn run() {
                 Event::Focus(f) => {
                     d.term.focus(f);
                     d.focus = f;
+                    if f == Focus::Gained {
+                        d.caret.input(Instant::now());
+                    }
                     d.pending = Pending::Dirty;
                 }
                 Event::Closed => return,

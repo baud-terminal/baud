@@ -679,6 +679,61 @@ pub fn display_scale() -> Option<f64> {
     Some(pixels.0 as f64 / points.0 as f64)
 }
 
+/// **The system's non-blinking-caret switch**, macOS 15's "prefer
+/// non-blinking cursor": `AXPrefersNonBlinkingTextInsertionIndicator`,
+/// looked up rather than linked, since it does not exist before 15 (its
+/// header's `API_AVAILABLE(macos(15.0))`). The caller asks only on 15 or
+/// later, so an older system loads no framework for a symbol it lacks.
+///
+/// The framework is asked for with `RTLD_NOLOAD` first -- AppKit has
+/// loaded it by the first tick -- and opened only if it has not. The
+/// function is looked up once and called fresh on every read: Chromium
+/// calls it fresh on each query too. Any failure reads as the switch off,
+/// which draws the caret as it asks, as before the switch existed.
+#[cfg(target_os = "macos")]
+pub fn prefers_steady_caret() -> crate::caret::NonBlinking {
+    use crate::caret::NonBlinking;
+    match steady_caret_symbol() {
+        Some(f) if f().as_bool() => NonBlinking::On,
+        _ => NonBlinking::Off,
+    }
+}
+
+/// `AXPrefersNonBlinkingTextInsertionIndicator`: `BOOL (void)`.
+#[cfg(target_os = "macos")]
+type AskSteady = extern "C" fn() -> macos_liquid_glass::objc2::runtime::Bool;
+
+/// The switch's function, looked up once, or `None` where the framework or
+/// the symbol is missing.
+#[cfg(target_os = "macos")]
+fn steady_caret_symbol() -> Option<AskSteady> {
+    use crate::sys::{RTLD_LAZY, RTLD_LOCAL, RTLD_NOLOAD, dlopen, dlsym};
+    use std::sync::OnceLock;
+    static ASK: OnceLock<Option<AskSteady>> = OnceLock::new();
+    *ASK.get_or_init(|| {
+        let path = c"/System/Library/Frameworks/Accessibility.framework/Accessibility";
+        // SAFETY: `dlopen` and `dlsym` take NUL-terminated strings, which
+        // `c""` literals are, and answer null on any failure, which is
+        // checked. A non-null symbol is the function the SDK header
+        // declares, `BOOL (void)`, and `Bool` is `repr(transparent)` over
+        // the platform's `BOOL`, so the pointer is that function's.
+        unsafe {
+            let mut handle = dlopen(path.as_ptr(), RTLD_NOLOAD | RTLD_LAZY);
+            if handle.is_null() {
+                handle = dlopen(path.as_ptr(), RTLD_LAZY | RTLD_LOCAL);
+            }
+            if handle.is_null() {
+                return None;
+            }
+            let sym = dlsym(
+                handle,
+                c"AXPrefersNonBlinkingTextInsertionIndicator".as_ptr(),
+            );
+            (!sym.is_null()).then(|| core::mem::transmute::<*mut core::ffi::c_void, AskSteady>(sym))
+        }
+    })
+}
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     /// libSystem's `clock_gettime_nsec_np`, which libc 0.2 does not bind
@@ -708,6 +763,36 @@ pub fn host_now() -> HostTime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The positive control for the switch.** A misspelt symbol, or a
+    /// framework path that moved, reads as the switch off forever with every
+    /// other test green. So the lookup is held to the OS version, asked of
+    /// `sw_vers` -- not of `NSProcessInfo`, since this test binary links no
+    /// Foundation (`-dead_strip_dylibs` keeps only what it names): the
+    /// symbol resolves on macOS 15 and later and is absent before. Its value
+    /// is the user's setting and is not asserted.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_steady_switch_resolves_on_macos_fifteen_and_later() {
+        let out = std::process::Command::new("sw_vers")
+            .arg("-productVersion")
+            .output()
+            .expect("sw_vers runs");
+        let version = String::from_utf8_lossy(&out.stdout);
+        let major: u32 = version
+            .trim()
+            .split('.')
+            .next()
+            .and_then(|m| m.parse().ok())
+            .unwrap_or_else(|| panic!("sw_vers said {version:?}"));
+        assert_eq!(
+            steady_caret_symbol().is_some(),
+            major >= 15,
+            "macOS {version}"
+        );
+        // And the read answers, whichever way the user has set it.
+        let _ = prefers_steady_caret();
+    }
 
     /// A parent environment as Terminal.app, kitty and tmux leave it, with
     /// two variables that are nobody's terminal and must pass through.

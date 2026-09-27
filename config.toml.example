@@ -63,8 +63,15 @@ fonts = [
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns
 # to when an application resets it; an application can still ask for another.
-# A blinking cursor shows for 600 ms and hides for 300 (xterm's times), blinks
-# only while the window has focus, and shows at once on a key or on output.
+# `blink = "auto"`, the default, blinks as macOS blinks its own text caret: at
+# the rate the system's defaults give it -- 650 ms shown and 350 hidden unless
+# `NSTextInsertionPointBlinkPeriodOn` and `...Off` are set -- and steady under
+# Accessibility's "prefer non-blinking cursor" (macOS 15 and later). `true`
+# blinks whatever that switch says, with a warning, and `false` starts the
+# cursor steady. On Linux it blinks at xterm's 600/300. A blinking cursor
+# blinks only while the window has focus, and shows at once on a key or on
+# output. `stop_blinking_after` stops it, shown, after that many seconds
+# without a key, a click or a paste -- output does not count; 0 is never.
 #
 # `trail`: what a cursor move leaves behind. "fire", the default, is a flame
 # in the cursor's colour rising off kitty's trail as it collapses onto the
@@ -101,7 +108,8 @@ fonts = [
 # whatever that setting says.
 [cursor]
 shape = "block"
-blink = true
+blink = "auto"
+stop_blinking_after = 0
 # trail = "fire"
 
 # Whether switching to or from the alternate screen (opening or leaving a
