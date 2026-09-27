@@ -663,6 +663,26 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
         return edge(Act::Consume, ground_of(node));
     }
+    // **The same block's `1B`: an `ESC` abandons the sequence in progress
+    // and starts a new one**, whose entry *clears* -- williams' reason is
+    // "so that erroneous sequences like CSI 3 ; 1 CSI 2 J are handled
+    // correctly". The five nodes below sent it to `c0()`, which consumed it
+    // and stayed put, so `CSI 1 ESC [ 2 m` dispatched `CSI 1 [` and printed
+    // `2m`, and `ESC ( ESC 0` kept the `(` and designated.
+    //
+    // **`Act::EscStart`, not a `Consume` into `Escape`**: it resets `csi`,
+    // intermediates included, so a `CSI`'s `SP` cannot become the escape
+    // sequence's intermediate. A list and not `!ground_like`, because the
+    // other nodes keep their own `ESC` -- in a control string it is the first
+    // half of `ST`, and VT52 has no `CSI`
+    // (`an_esc_abandons_every_sequence_and_keeps_its_meaning_elsewhere`).
+    let in_sequence = matches!(
+        node,
+        Node::Escape | Node::CsiEntry | Node::CsiParam | Node::CsiInter | Node::CsiIgnore
+    );
+    if in_sequence && b.is(StreamByte::ESC) {
+        return edge(Act::EscStart, Node::Escape);
+    }
 
     // Mid-character: only a continuation can follow, and it moves one node
     // nearer the end.
@@ -875,7 +895,8 @@ const fn escape(b: StreamByte) -> Edge {
     let v = b.raw_byte();
     if b.is_c0() {
         // A C0 inside a sequence executes where it stands and the sequence
-        // carries on around it.
+        // carries on around it -- every C0 but `ESC`, `CAN` and `SUB`, which
+        // `one()` takes first because they end the sequence.
         return edge(c0(b), Node::Escape);
     }
     match v {
@@ -1256,6 +1277,12 @@ mod classes {
         // | **the 8-bit C1 controls, routed** | **34/921/22,619/522,818** | **+105%** |
         // | C0 and `DEL` ignored in a DCS prefix | **34/958/24,113/566,827** | +8.4% |
         // | DCS `Pa;Pb;Ph` routed to `csi` (Digit/Sep) | **34/968/24,645/584,842** | +0.6% at stride 4 |
+        // | `ESC` abandons a sequence (the anywhere `1B` edge) | **34/964/24,373/572,642** | **-2.1%** |
+        //
+        // **The `ESC` row is the first to shrink the ladder.** It adds no
+        // action and no class: `ESC` inside a sequence now takes the edge it
+        // takes from ground, so words that differed only by landing an `ESC`
+        // in a `CSI` node stop being distinct.
         //
         // The last row added **no class at stride 1** -- `Act::Consume` with a
         // different next node, the cheapest kind of edge this graph has, the
@@ -1339,9 +1366,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 968, "stride 2");
-        assert_eq!(three.len(), 24_645, "stride 3");
-        assert_eq!(four.len(), 584_842, "stride 4");
+        assert_eq!(two.len(), 964, "stride 2");
+        assert_eq!(three.len(), 24_373, "stride 3");
+        assert_eq!(four.len(), 572_642, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1489,6 +1516,59 @@ mod classes {
                         ),
                     }
                 }
+            }
+        }
+    }
+
+    /// **`ESC` abandons an escape or control sequence from every node that
+    /// holds one, and keeps its own meaning everywhere else.** Written out
+    /// node by node rather than as a rule, because the rule is the thing under
+    /// test: `[[source: williams]]`'s anywhere edge to `escape` on `1B`, whose
+    /// entry action *clears*.
+    ///
+    /// The four `CSI` nodes and `Escape` sent `ESC` to `c0()`, which consumed
+    /// it and stayed in the sequence, so `CSI 1 ESC [ 2 m` dispatched `CSI 1 [`
+    /// and printed `2m`. `docs/vt-coverage.md`'s `1B` row said `done` the
+    /// whole time: its test is the mnemonic `ESC`, which every suite mentions,
+    /// so this is the row's real gate. The other nodes are excluded on
+    /// purpose, and each exclusion is an edge below, so a refactor that folds
+    /// them into the rule fails here:
+    ///
+    /// * a control string's `ESC` is the first half of `ST` -- sent to
+    ///   `Escape`, every OSC, DECRQSS and Sixel ended by `ST` would be lost;
+    /// * `StrEsc` already re-dispatches any byte but `\` into `Escape`;
+    /// * mid-character, the partial character becomes a replacement and the
+    ///   `ESC` is re-dispatched from ground, which is the same outcome;
+    /// * VT52 has no `CSI`: its escape restarts on a second `ESC`, and a
+    ///   direct address takes one as a coordinate, as xterm's does.
+    #[test]
+    fn an_esc_abandons_every_sequence_and_keeps_its_meaning_elsewhere() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in Node::FROM_INDEX {
+                let want = match node {
+                    Node::Ground
+                    | Node::Escape
+                    | Node::CsiEntry
+                    | Node::CsiParam
+                    | Node::CsiInter
+                    | Node::CsiIgnore => edge(Act::EscStart, Node::Escape),
+                    Node::Utf8One | Node::Utf8Two | Node::Utf8Three => {
+                        edge(Act::Resync, Node::Ground)
+                    }
+                    Node::Vt52Utf8One | Node::Vt52Utf8Two | Node::Vt52Utf8Three => {
+                        edge(Act::Resync, Node::Vt52Ground)
+                    }
+                    Node::Dcs | Node::DcsDollar | Node::Str => edge(Act::Consume, Node::StrEsc),
+                    Node::StrEsc => edge(Act::Again, Node::Escape),
+                    Node::Vt52Ground | Node::Vt52Escape => edge(Act::Consume, Node::Vt52Escape),
+                    Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
+                    Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52Ground),
+                };
+                assert_eq!(
+                    Edge::of(enc, node, StreamByte::ESC),
+                    want,
+                    "{node:?} {enc:?}: ESC"
+                );
             }
         }
     }

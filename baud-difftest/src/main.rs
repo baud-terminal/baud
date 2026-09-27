@@ -282,6 +282,16 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
             }
             v
         }),
+        // An `ESC` abandons the escape or control sequence in progress and
+        // starts a new one ([[source: williams]]'s anywhere edge, which vte
+        // follows): one case per node it abandons from.
+        ("ESC in CSI params", b"\x1b[1\x1b[2mX".to_vec()),
+        ("ESC in CSI, williams", b"\x1b[5;5H\x1b[3;1\x1b[HX".to_vec()),
+        ("ESC after CSI", b"\x1b[\x1b[5;5HX".to_vec()),
+        ("ESC in ignored CSI", b"\x1b[5;5H\x1b[1?\x1b[HX".to_vec()),
+        ("ESC in escape", b"\x1b(\x1b0q".to_vec()),
+        ("ESC after CSI inter", b"\x1b[ \x1b(0q".to_vec()),
+        ("ESC after hash", b"\x1b7\x1b[5;5H\x1b#\x1b8X".to_vec()),
     ]
 }
 

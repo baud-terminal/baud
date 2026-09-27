@@ -158,6 +158,16 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             "OSC 11 set then query",
             b"\x1b]11;rgb:aa/bb/cc\x07\x1b]11;?\x07".to_vec(),
         ),
+        // An `ESC` abandons the escape or control sequence in progress and
+        // starts a new one ([[source: williams]]'s anywhere edge, which sfte
+        // does not follow -- see `MUST_DIFFER`): one case per node it abandons from.
+        ("ESC in CSI params", b"\x1b[1\x1b[2mX".to_vec()),
+        ("ESC in CSI, williams", b"\x1b[5;5H\x1b[3;1\x1b[HX".to_vec()),
+        ("ESC after CSI", b"\x1b[\x1b[5;5HX".to_vec()),
+        ("ESC in ignored CSI", b"\x1b[5;5H\x1b[1?\x1b[HX".to_vec()),
+        ("ESC in escape", b"\x1b(\x1b0q".to_vec()),
+        ("ESC after CSI inter", b"\x1b[ \x1b(0q".to_vec()),
+        ("ESC after hash", b"\x1b7\x1b[5;5H\x1b#\x1b8X".to_vec()),
         // The two that MUST differ -- see `MUST_DIFFER`.
         ("tab", b"a\tb\tc".to_vec()),
         ("tab at a stop", b"01234567\tX".to_vec()),
@@ -197,6 +207,12 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   675`; `?47` at `:573` is the variant that does not), so after `main`,
 ///   enter, `alt`, leave, baud is back at (0, 4) and sfte is at (1, 0) -- the
 ///   row the alternate screen's `alt` plus its blank left it on.
+/// * **The seven `ESC` cases -- sfte does not abandon a sequence on `ESC`.**
+///   Its CSI entry and parameter states ignore `1B`, a `[` final is a no-op,
+///   its charset state eats any byte and its `#` state goes to ground on
+///   anything but `8` (sfte.h ~35037-35103), so it prints what baud, vte and
+///   `[[source: williams]]` treat as a new sequence. baud had the same
+///   defect until the anywhere `1B` edge went in, and these agreed then.
 enum Control {
     Cells(&'static [(usize, usize, char, char)]),
     Cursor((usize, usize), (usize, usize)), // (row, col) indices; a const table cannot call Row::from_index
@@ -226,6 +242,41 @@ const MUST_DIFFER: &[(&str, Control)] = &[
             b"\x1b]11;rgb:aaaa/bbbb/cccc\x07",
             b"\x1b]11;rgb:0000/0000/0000\x07",
         ),
+    ),
+    (
+        "ESC in CSI params",
+        Control::Cells(&[(0, 0, 'X', '2'), (0, 1, ' ', 'm'), (0, 2, ' ', 'X')]),
+    ),
+    (
+        "ESC in CSI, williams",
+        Control::Cells(&[(0, 0, 'X', ' '), (4, 4, ' ', 'H'), (4, 5, ' ', 'X')]),
+    ),
+    (
+        "ESC after CSI",
+        Control::Cells(&[
+            (0, 0, ' ', '5'),
+            (0, 1, ' ', ';'),
+            (0, 2, ' ', '5'),
+            (0, 3, ' ', 'H'),
+            (0, 4, ' ', 'X'),
+            (4, 4, 'X', ' '),
+        ]),
+    ),
+    (
+        "ESC in ignored CSI",
+        Control::Cells(&[(0, 0, 'X', ' '), (4, 4, ' ', 'H'), (4, 5, ' ', 'X')]),
+    ),
+    (
+        "ESC in escape",
+        Control::Cells(&[(0, 0, 'q', '0'), (0, 1, ' ', 'q')]),
+    ),
+    (
+        "ESC after CSI inter",
+        Control::Cells(&[(0, 0, '\u{2500}', ' ')]),
+    ),
+    (
+        "ESC after hash",
+        Control::Cells(&[(0, 0, 'X', ' '), (4, 4, ' ', '8'), (4, 5, ' ', 'X')]),
     ),
 ];
 
@@ -602,8 +653,10 @@ mod tests {
         // `Normalised` doc records).
         assert_eq!(norm.tails.get(), 84_557, "wide tails normalised");
         // 240,317: it was 230,317 until the `OSC 11 set then query` fixture,
-        // whose 10,000 untouched cells are exactly the difference.
-        assert_eq!(norm.blanks.get(), 240_317, "zero-rune blanks normalised");
+        // whose 10,000 untouched cells are exactly the difference. 310,301
+        // since the seven `ESC` fixtures, measured: 69,984 more, the cells of
+        // seven 200x50 screens that neither side wrote.
+        assert_eq!(norm.blanks.get(), 310_301, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

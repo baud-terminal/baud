@@ -211,39 +211,33 @@ fn a_hide_after_anything_else_places_nothing() {
     });
 }
 
-/// **A cursor past the last column is not placed**: it is in pending wrap,
-/// which no `CUP` leaves, so bytes that spell one there were not dispatched as
-/// one. The way to get them is an `ESC` arriving inside an open `CSI`, which
-/// baud's grammar consumes where `[[source: williams]]` abandons the sequence:
-/// `CSI ESC [ 3 ; 7 H` dispatches `CSI [` and prints `3;7H`, here into the
-/// last four columns.
+/// **An `ESC` inside an open `CSI` abandons it, so the bytes after it are the
+/// move they spell.** `CSI ESC [ 3 ; 7 H` is `CUP 3;7`, and the hide straight
+/// after it places the cursor there. This was pinned the other way -- the
+/// cursor where the text `3;7H` left it, `(0, 4)` -- while the grammar
+/// consumed the `ESC` and dispatched `CSI [`
+/// (`baud-core/tests/esc_abandons.rs` holds the grammar).
+///
+/// The same bytes after a `CUP` into the last columns were how the placement
+/// test reached a cursor in pending wrap. They are a move now, so no byte
+/// stream reaches the refusal of a cursor off the grid; that refusal is held
+/// by `placed.rs`'s own unit test instead.
 #[test]
-fn a_cursor_in_pending_wrap_is_not_placed() {
-    each_read_size(b"\x1b[1;197H\x1b[\x1b[3;7H\x1b[?25l", |t| {
-        assert_eq!(
-            t.cursor(),
-            (Row::from_index(0), Col::at_index(199)),
-            "the control: the text reached the last column"
-        );
-        assert_eq!(t.placed_cursor(), None, "pending wrap");
-    });
-}
-
-/// **Pinned, not endorsed.** On the grid, the same bytes place the cursor
-/// where the text left it, `(0, 4)`, not where the move they spell would have
-/// put it, `(2, 6)`: the look-back reads bytes, and these bytes were text.
-/// This goes red when the grammar abandons a `CSI` on an `ESC`, which is its
-/// own change (`TODO.md`); then the move is dispatched and the placement is
-/// `(2, 6)`.
-#[test]
-fn pinned_a_move_whose_esc_arrived_inside_a_csi_places_where_the_text_left_it() {
+fn a_move_whose_esc_arrived_inside_a_csi_is_a_move() {
     each_read_size(b"\x1b[\x1b[3;7H\x1b[?25l", |t| {
         assert_eq!(
             t.cursor(),
-            (Row::from_index(0), Col::at_index(4)),
-            "the control: `3;7H` printed"
+            (Row::from_index(2), Col::at_index(6)),
+            "the control: the move ran"
         );
-        assert_eq!(t.placed_cursor(), at(0, 4));
+        assert_eq!(t.placed_cursor(), at(2, 6));
+    });
+    each_read_size(b"\x1b[1;197H\x1b[\x1b[3;7H\x1b[?25l", |t| {
+        assert_eq!(
+            t.placed_cursor(),
+            at(2, 6),
+            "after a move into the last columns"
+        );
     });
 }
 

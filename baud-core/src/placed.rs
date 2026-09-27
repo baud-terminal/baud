@@ -21,14 +21,15 @@
 //! hides in both committed captures and none of the corpus's twenty
 //! (`baud-core/tests/placed_cursor.rs`).
 //!
-//! **Bytes that spell a `CUP` were not always dispatched as one.** baud's
-//! `CSI` nodes consume an `ESC` and stay in the sequence, where
-//! `[[source: williams]]`'s anywhere rule abandons it, so `CSI ESC [ 3 ; 7 H`
-//! dispatches `CSI [` and prints `3;7H`. A hide after that places the cursor
-//! where the text left it -- on the grid, because a cursor off it, the
-//! pending-wrap column no `CUP` leaves, is refused. The grammar is its own
-//! change, and `pinned_a_move_whose_esc_arrived_inside_a_csi_places_where_the_text_left_it`
-//! goes red when it lands.
+//! **Bytes that spell a `CUP` are dispatched as one.** They were not while
+//! baud's `CSI` nodes consumed an `ESC` and stayed in the sequence, where
+//! `[[source: williams]]`'s anywhere rule abandons it: `CSI ESC [ 3 ; 7 H`
+//! dispatched `CSI [` and printed `3;7H`, and a hide after it placed the
+//! cursor where the text left it. With the rule in, those bytes are a move
+//! (`a_move_whose_esc_arrived_inside_a_csi_is_a_move`), and a cursor off the
+//! grid -- the pending-wrap column no `CUP` leaves -- is reachable from no
+//! byte stream. It is still refused, and the unit test below holds the
+//! refusal, since no test of bytes can.
 //!
 //! **It is decided at the hide and nowhere else.** Two designs came before
 //! it. The first stored the move's position on every `CUP` and compared it at
@@ -177,5 +178,32 @@ impl Placement {
 
     pub(crate) fn placed(self) -> Option<(Row, Col)> {
         self.placed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A cursor off the grid is not placed.** No byte stream reaches this
+    /// since an `ESC` abandons a `CSI` -- bytes that spell a move are one, and
+    /// a move lands on the grid -- so the refusal is held here, against the
+    /// bytes of a placing hide, with the cursor put where no move could put
+    /// it. The control is the same hide with the cursor on the grid.
+    #[test]
+    fn a_cursor_off_the_grid_is_not_placed() {
+        let arena = b"\x1b[3;7H\x1b[?25l";
+        let at = BytePos::from_index(arena.len() - 1);
+        let cols = Cols::of_index(200);
+        let mut p = Placement::NONE;
+        p.begin(BytePos::ZERO);
+        p.hidden(arena, at, (Row::from_index(2), Col::at_index(6)), cols);
+        assert_eq!(
+            p.placed(),
+            Some((Row::from_index(2), Col::at_index(6))),
+            "the control"
+        );
+        p.hidden(arena, at, (Row::from_index(0), Col::at_index(200)), cols);
+        assert_eq!(p.placed(), None, "pending wrap, one past the last column");
     }
 }

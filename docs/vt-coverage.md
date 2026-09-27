@@ -148,20 +148,35 @@ current state*, and baud had none of them:
 
 `1B` ESC does the same, starting a fresh sequence rather than ending in ground.
 
-Four arms each wrote `if b.is_c0() { self.execute(b) }` — and `is_c0()` is
-`b < 0x20`, which **includes all three**. So an ESC arriving mid-sequence was
-executed and the parser stayed in the parameter string: `CSI 1 ESC [ 2 m` lost
-its escape, dispatched a nonsense `CSI 1 [`, and printed `2m` as text.
+In `baud-core2`, four arms each wrote `if b.is_c0() { self.execute(b) }` — and
+`is_c0()` is `b < 0x20`, which **includes all three**. So an ESC arriving
+mid-sequence was executed and the parser stayed in the parameter string:
+`CSI 1 ESC [ 2 m` lost its escape, dispatched a nonsense `CSI 1 [`, and printed
+`2m` as text. That core handled them once, ahead of the state match.
 
-It is handled once now, ahead of the state match, so no arm can forget it. The
-states that decline are the ones that must: inside a control string ESC is the
-first half of ST, so the payload has to survive until the next byte decides
-between *terminator* and *cancel*. Those arms already implement that themselves.
+**`baud-core` took half of that fix, and this table said `done` for both
+halves until 2026-09-27.** Its graph's `one()` takes `CAN`/`SUB` ahead of the
+node functions; `ESC` it left to them, and `escape()` and the four `csi_*`
+functions sent it to `c0()`, which consumed it and stayed in the sequence --
+the same `CSI 1 [` and `2m`, and `ESC ( ESC 0` designating DEC graphics. The
+row's test was the mnemonic `ESC`, which every suite mentions, so nothing could
+see it. Now `one()` takes `1B` too, in `Escape` and the four `CSI` nodes, as
+`Act::EscStart`, which clears the half-parsed sequence:
+`an_esc_abandons_every_sequence_and_keeps_its_meaning_elsewhere` gates the edge
+from every node, and `baud-core/tests/esc_abandons.rs` the behaviour, one test
+a node, at read sizes 1, 3, 7 and whole.
+
+The states that decline are the ones that must. Inside a control string ESC is
+the first half of ST, so the payload has to survive until the next byte decides
+between *terminator* and *cancel*; those nodes implement that themselves. A
+character cut mid-sequence becomes a replacement and re-dispatches the ESC from
+ground. And VT52 has no `CSI`: its escape restarts on a second ESC, and a
+direct address takes one as a coordinate, as xterm's does.
 
 | status | |
 |---|---|
 | `18` CAN, `1A` SUB — cancel from any state, control strings included | done |
-| `1B` ESC — abandon and begin a new sequence | done |
+| `1B` ESC — abandon and begin a new sequence | done — since 2026-09-27; this row read `done` before and was not, see above |
 | C0 in `csi_entry` — execute and **stay**, without consuming the marker position | done — `CSI <BS> ? J` is still DECSED |
 | C0 in `csi_intermediate` | done — this arm had no C0 branch, so `CSI ! <NUL> p` lost its DECSTR |
 | `7F` DEL in `csi_entry` / `csi_param` | done — ignored, and does not consume the marker position |
