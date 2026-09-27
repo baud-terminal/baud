@@ -47,6 +47,7 @@ mod select;
 mod stack;
 mod trail;
 mod transition;
+pub mod ufo;
 mod units;
 
 pub use atlas::{

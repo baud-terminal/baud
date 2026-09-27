@@ -32,7 +32,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 baud=$root/target/release/baud
 out=$root/docs/cursor
 # TRAILS names a subset to record, e.g. TRAILS=plasma; the control always runs.
-trails=${TRAILS:-"fire plasma lightning ice quad sweep ghost"}
+trails=${TRAILS:-"fire plasma lightning ice ufo quad sweep ghost"}
 TRAIL_FLOOR=20
 X=/Applications/Xcode.app/Contents/Developer
 

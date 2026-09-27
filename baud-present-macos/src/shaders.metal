@@ -558,6 +558,179 @@ fragment float4 ice_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(
     return ice_frost(in.pos.xy - f.origin, in.color, f);
 }
 
+// ---- The ufo, `baud-render/src/ufo.rs`: a saucer springing along the path
+// onto kitty's quad's centroid, a wake, a tractor beam onto the cursor, and
+// exhaust rings. Its bands cover only the box `ufo::region` names. Its own
+// numbers, `ufo::PARAMS`: `k[0]` the hover in cells, `k[1]` the size, `k[2]`
+// the beam's peak, `k[3]` the wake's, `k[4]` the rim lights' turns a second,
+// `k[5]` the arc in cells, `k[6]` the bank in radians, `k[7]` the earliest
+// age it leaves at. `ufo::light` is this in Rust.
+struct UfoPose { float2 c; float cs, sn, s, vis, cr, sr, side, gap, beam, ext; };
+
+static inline float ufo_cov(float d) { return clamp(0.5 - d, 0.0, 1.0); }
+
+static inline float ufo_flight(constant EffectU& f) {
+    return clamp(0.12 + 0.006 * f.len / f.unit, 0.16, 0.32);
+}
+
+static inline float ufo_omega(constant EffectU& f) { return 4.0 / ufo_flight(f); }
+
+// When the saucer leaves: after its beam, 1.6 flights and a quarter second
+// in, never before `k[7]`.
+static inline float ufo_depart(constant EffectU& f) {
+    return max(f.k[7], 1.6 * ufo_flight(f) + 0.25);
+}
+
+// **The saucer at `a` seconds**: a critically damped spring from the tail to
+// the quad's centroid, an arc away from the cursor, a hover and a bob, a bank
+// into the travel, and its departure.
+static inline UfoPose ufo_pose(constant EffectU& f, float a) {
+    float c = f.unit;
+    float2 cq = (f.c[0] + f.c[1] + f.c[2] + f.c[3]) * 0.25;
+    float w = ufo_omega(f);
+    float sig = 1.0 - (1.0 + w * a) * exp(-w * a);
+    float2 on = f.tail + (cq - f.tail) * sig;
+    float2 g = (f.hole.xy + f.hole.zw) * 0.5 - on;
+    float gap = length(g);
+    float side = f.hole.y >= 1.35 * c ? 1.0 : -1.0;
+    float2 pth = cq - f.tail;
+    float pl = length(pth);
+    float2 n = pl > 1e-3 ? float2(-pth.y, pth.x) / pl : float2(0.0, -side);
+    if (n.y * side > 0.0) n = -n;
+    float arc = min(f.k[5] * c, 0.12 * f.len) * 4.0 * sig * (1.0 - sig);
+    float hov = 1.0 - smoothstep(0.1 * c, 0.6 * c, gap);
+    float h1 = fx_unit(fx_hash(f.seed ^ 0x5bd1e995u));
+    float h2 = fx_unit(fx_hash(f.seed));
+    float bob = 0.035 * c * sinpi(2.0 * fract(2.2 * a + h1) - 1.0) * hov;
+    float t = ufo_flight(f);
+    float dep = ufo_depart(f);
+    float tl = max(a - dep, 0.0);
+    float kk = clamp(tl / 0.18, 0.0, 1.0);
+    UfoPose P;
+    P.c = on + n * arc + float2(0.0, -side * f.k[0] * c + bob - side * 46.0 * c * tl * tl);
+    float th = f.k[6] * clamp(g.x / (3.0 * c), -1.0, 1.0)
+             + 0.05 * sinpi(2.0 * fract(1.3 * a + h2) - 1.0) * hov;
+    P.cs = cos(th);
+    P.sn = sin(th);
+    float grow = smoothstep(0.0, 0.08, a);
+    P.vis = grow * (1.0 - smoothstep(0.0, 1.0, kk));
+    P.s = f.k[1] * (0.5 + 0.5 * grow) * (1.0 - 0.6 * kk * kk);
+    float rho = 2.0 * fract(f.k[4] * a + h2) - 1.0;
+    P.cr = cospi(rho);
+    P.sr = sinpi(rho);
+    P.side = side;
+    P.gap = gap;
+    P.ext = smoothstep(1.3 * t, 1.3 * t + 0.1, a) * (1.0 - smoothstep(dep - 0.08, dep, a));
+    P.beam = P.ext * (1.0 - smoothstep(0.15 * c, 0.6 * c, gap));
+    return P;
+}
+
+// The hull: a vesica, pointed tips along x.
+static inline float ufo_vesica(float2 q) {
+    float2 p = abs(q.yx);
+    if ((p.y - 0.53) * 1.221818 > p.x * 0.53) return length(p - float2(0.0, 0.53));
+    return length(p + float2(1.221818, 0.0)) - 1.331818;
+}
+
+// The dome: iq's cut disk, radius 0.22 cut at its centre, y up.
+static inline float ufo_dome(float2 p) {
+    const float r = 0.22;
+    p.x = abs(p.x);
+    float s = max(-r * p.x * p.x + r * r * (r - 2.0 * p.y), -r * p.y);
+    return s < 0.0 ? length(p) - r : (p.x < r ? -p.y : length(p - float2(r, 0.0)));
+}
+
+static inline float ufo_smin(float a, float b, float k) {
+    k *= 4.0;
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * 0.25;
+}
+
+constant float2 UFO_LIGHTS[5] = {
+    float2(1.0, 0.0), float2(0.309017, 0.951057), float2(-0.809017, 0.587785),
+    float2(-0.809017, -0.587785), float2(0.309017, -0.951057)
+};
+
+// **The saucer's body**: the hull, the dome and the rim lights.
+static inline float ufo_body(float2 p, UfoPose P, float c) {
+    float u = P.s * c;
+    float2 d = p - P.c;
+    float lim = 0.62 * u + 1.0;
+    if (dot(d, d) > lim * lim) return 0.0;
+    float2 q = float2(P.cs * d.x + P.sn * d.y, -P.sn * d.x + P.cs * d.y) / u;
+    float dh = ufo_vesica(q) - 0.02;
+    float sil = ufo_smin(dh, ufo_dome(float2(q.x, -0.04 - q.y)), 0.03);
+    float light = 0.0;
+    if (abs(q.y - 0.03) < 0.09) {
+        for (uint i = 0u; i < 5u; i++) {
+            float cphi = P.cr * UFO_LIGHTS[i].x - P.sr * UFO_LIGHTS[i].y;
+            float sphi = P.sr * UFO_LIGHTS[i].x + P.cr * UFO_LIGHTS[i].y;
+            float dl = length(q - float2(0.40 * sphi, 0.03)) - 0.045;
+            light = max(light, smoothstep(0.0, 0.35, cphi) * ufo_cov(dl * u));
+        }
+    }
+    return (0.50 * ufo_cov(sil * u) + ufo_cov(dh * u) * (0.30 + 0.20 * light)) * P.vis;
+}
+
+// **The tractor beam**: a trapezoid from under the saucer to the cursor's
+// near edge, a brighter core, rings travelling down it.
+static inline float ufo_beam(float2 p, UfoPose P, constant EffectU& f) {
+    if (P.beam <= 0.0) return 0.0;
+    float c = f.unit;
+    float2 top = P.c + float2(0.0, P.side * 0.117 * c * P.s);
+    float2 end = float2((f.hole.x + f.hole.z) * 0.5, P.side > 0.0 ? f.hole.y : f.hole.w);
+    float2 ax = end - top;
+    float ln = length(ax);
+    if (ln < 1.0) return 0.0;
+    float2 nn = ax / ln;
+    float2 d = p - top;
+    float along = dot(d, nn);
+    float across = abs(d.x * nn.y - d.y * nn.x);
+    float ff = clamp(along / ln, 0.0, 1.0);
+    float wide = max(0.5 * (f.hole.z - f.hole.x) + 0.08 * c, 0.22 * c);
+    float hw = 0.14 * c * P.s + (wide - 0.14 * c * P.s) * ff;
+    float edge = clamp(hw - across + 0.5, 0.0, 1.0) * clamp(ln * P.ext - along + 0.5, 0.0, 1.0)
+               * clamp(along + 0.5, 0.0, 1.0);
+    if (edge <= 0.0) return 0.0;
+    float core = 1.0 - smoothstep(0.0, 0.6, across / max(hw, 1.0));
+    float fr = fract(along / (0.22 * c) - fract(5.0 * f.age));
+    return f.k[2] * P.vis * P.beam * edge * (0.55 + 0.45 * core) * (0.6 + 0.4 * ff)
+         * (1.0 - 0.88 * fr * (1.0 - fr));
+}
+
+// **The wake**: a tapered streak along the saucer's last 60 ms.
+static inline float ufo_wake(float2 p, UfoPose P, constant EffectU& f) {
+    float c = f.unit;
+    if (f.age <= 0.0) return 0.0;
+    UfoPose Q = ufo_pose(f, max(f.age - 0.06, 0.0));
+    float2 v = P.c - Q.c;
+    float l = length(v);
+    if (l < 0.1 * c) return 0.0;
+    float2 a = P.c - v / l * (0.2475 * c * P.s);
+    float2 ba = Q.c - a;
+    float2 pa = p - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    float dd = length(pa - ba * h) - (0.055 * c + (0.012 * c - 0.055 * c) * h);
+    return f.k[3] * P.vis * ufo_cov(dd) * (1.0 - h) * smoothstep(0.1 * c, 0.6 * c, l);
+}
+
+fragment float4 ufo_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) {
+        float a = in.color.a * (1.0 - smoothstep(0.0, 0.22, abs(length(in.uv) - 0.72)));
+        return float4(in.color.rgb * a, a);
+    }
+    float2 p = in.pos.xy - f.origin;
+    if (fx_in_hole(p, f) || f.age >= ufo_depart(f) + 0.18) return float4(0.0);
+    UfoPose P = ufo_pose(f, f.age);
+    float a = ufo_wake(p, P, f);
+    float b = ufo_beam(p, P, f);
+    a = b + a * (1.0 - b);
+    float s = ufo_body(p, P, f.unit);
+    a = s + a * (1.0 - s);
+    a *= in.color.a;
+    return float4(in.color.rgb * a, a);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {

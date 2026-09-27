@@ -26,6 +26,7 @@ use baud_render::fire;
 use baud_render::ice;
 use baud_render::lightning;
 use baud_render::plasma;
+use baud_render::ufo;
 use baud_render::{
     Argb, Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Kind,
     Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
@@ -540,6 +541,18 @@ fn ice_shard(uv: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// **The ufo's reference**: `ufo_fragment`'s body, through `ufo::light`.
+fn ufo_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * ufo::light(vfx, p);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
+/// An exhaust ring, through `ufo::ring`.
+fn ufo_ring(uv: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * ufo::ring(uv);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -593,6 +606,10 @@ fn reference(effect: Effect) -> Reference {
             band: ice_reference,
             particle: ice_shard,
         },
+        Effect::Ufo => Reference {
+            band: ufo_reference,
+            particle: ufo_ring,
+        },
     }
 }
 
@@ -606,11 +623,14 @@ fn effect_frame(
     plain: &[u32],
     width: Px,
     origin: (usize, usize),
-) -> Vec<u32> {
+) -> (Vec<u32>, Vec<bool>) {
     effect_frame_by(reference(vfx.effect), vfx, records, plain, width, origin)
 }
 
-/// The same, by any rule: the plasma's sheath alone is one.
+/// The same, by any rule: the plasma's sheath alone is one. Beside the
+/// frame, which of its pixels' last composite landed on a rounding tie
+/// ([`on_tie`]), where the blend unit and the reference may round a step
+/// apart without either being wrong.
 fn effect_frame_by(
     rule: Reference,
     vfx: &Vfx,
@@ -618,7 +638,7 @@ fn effect_frame_by(
     plain: &[u32],
     width: Px,
     origin: (usize, usize),
-) -> Vec<u32> {
+) -> (Vec<u32>, Vec<bool>) {
     let tw = usize::try_from(width.value()).unwrap();
     // The frame the records are clipped to, as the GPU's viewport clips
     // them: the target less its margin on each side. A spark thrown past the
@@ -627,6 +647,7 @@ fn effect_frame_by(
     let fw = i32::try_from(tw - 2 * origin.0).unwrap();
     let fh = i32::try_from(plain.len() / tw - 2 * origin.1).unwrap();
     let mut out = plain.to_vec();
+    let mut ties = vec![false; plain.len()];
     for r in records {
         let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
         let (w, h) = (i32::from(r.w.0), i32::from(r.h.0));
@@ -648,11 +669,26 @@ fn effect_frame_by(
                 } else {
                     (rule.band)(vfx, centre, color)
                 };
+                ties[at] = on_tie(src, out[at]);
                 out[at] = over(src, out[at]);
             }
         }
     }
-    out
+    (out, ties)
+}
+
+/// Whether `src` over `dst` lands within a hundredth of a step of halfway
+/// between two bytes in any channel: a tie the blend unit may round either
+/// way. A flat patch of one value on a tie rounds apart as a block -- the
+/// ufo's hull did, 63 pixels at once.
+fn on_tie(src: [f32; 4], dst: u32) -> bool {
+    let ch = |k: u32| f32::from(u8::try_from((dst >> k) & 0xff).unwrap_or(0)) / 255.0;
+    let (r, g, b, a) = (ch(16), ch(8), ch(0), ch(24));
+    let near = |s: f32, d: f32| {
+        let v = (s + d * (1.0 - src[3])) * 255.0;
+        ((v - v.floor()) - 0.5).abs() < 0.01
+    };
+    near(src[3], a) || near(src[0], r) || near(src[1], g) || near(src[2], b)
 }
 
 /// **Every effect, both arms against its reference**, in a target
@@ -744,7 +780,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 let at = format!("{effect:?} {name} at {age}");
                 assert_eq!(differing(&a, &b), 0, "the arms disagree under {at}");
                 let records = arms.renderer.trail();
-                let want = effect_frame(&vfx, records, &plain, width, origin);
+                let (want, ties) = effect_frame(&vfx, records, &plain, width, origin);
                 let mut off = 0usize;
                 let mut lit = 0usize;
                 let inside = |i: usize| {
@@ -765,7 +801,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     let ch = |p: u32, k: u32| (p >> (8 * k)) & 0xff;
                     let d = (0..4).map(|k| ch(x, k).abs_diff(ch(y, k))).max().unwrap();
                     assert!(d <= 1, "{at}: pixel {i} is {x:08x}, the reference {y:08x}");
-                    off += usize::from(d == 1);
+                    off += usize::from(d == 1 && !ties[i]);
                     if x != plain[i] {
                         lit += 1;
                         assert!(inside(i), "{at}: pixel {i} changed outside every record");
@@ -775,12 +811,17 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         "{at}: pixel {i} {x:08x} stores colour past its alpha"
                     );
                 }
+                // A pixel on a rounding tie is not counted: the ufo's hull is
+                // one flat value, and on a tie the blend unit and the
+                // reference round the whole patch apart -- 63 pixels of the
+                // zoomed saucer, every one 0x9b against 0x9c. It is still
+                // held to one step above.
                 assert!(off <= 20, "{at}: {off} pixels a step off the reference");
                 if effect == Effect::Plasma {
                     // Nothing but the sheath ahead of the cursor: the
                     // filaments lie on the axis there, and ungated they
                     // poked a spike out of its leading edge.
-                    let sheath = effect_frame_by(
+                    let (sheath, _) = effect_frame_by(
                         Reference {
                             band: plasma_sheath,
                             particle: fx_particle,
@@ -814,7 +855,11 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 // A retarget's fire burns on the path the quad left, and the
                 // plasma starves as (1 - k)^2: at the last age both are
                 // mostly out.
-                let least = if name == "retarget" || age >= ages[3] {
+                // The ufo draws a saucer a couple of cells wide, a wake and
+                // a beam -- a few hundred pixels at the oracle's cell.
+                let least = if effect == Effect::Ufo {
+                    60
+                } else if name == "retarget" || age >= ages[3] {
                     150
                 } else {
                     300

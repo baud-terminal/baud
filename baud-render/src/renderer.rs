@@ -782,6 +782,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     lo = lo.min(i32::from(inst.y.0));
                     hi = hi.max(i32::from(inst.y.0) + i32::from(inst.h.0));
                 }
+                // The CPU path paints the emitter's quad, which an effect's
+                // records need not cover: the ufo's bands hold only its
+                // saucer, beam and wake.
+                for p in v.emitter.corners.0 {
+                    lo = lo.min(p.y.floor() as i32);
+                    hi = hi.max(p.y.ceil() as i32 + 1);
+                }
                 let row = |v: i32| Px::of(u32::try_from(v.max(0)).unwrap_or(0));
                 (*top, *bottom) = if lo < hi {
                     (row(lo), row(hi))

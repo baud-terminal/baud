@@ -5,7 +5,7 @@
 //! GPU path draws an effect with -- one band a cell row over the effect's
 //! reach, then one soft disc a live particle -- and the uniform its fragment
 //! function reads. What each effect draws is its own module: [`crate::fire`],
-//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`].
+//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`], [`crate::ufo`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -28,6 +28,7 @@ use crate::instance::{Instance, Screen};
 use crate::lightning;
 use crate::plasma;
 use crate::trail::{Corners, Pt, Rect, Smear};
+use crate::ufo;
 use baud_domain::Chan;
 use baud_font::Px;
 
@@ -49,11 +50,20 @@ pub enum Effect {
     /// and a pane over the quad, melting tail first into falling shards:
     /// [`crate::ice`].
     Ice,
+    /// A flying saucer springing along the path to hover over the cursor,
+    /// lowering a tractor beam onto it and leaving: [`crate::ufo`].
+    Ufo,
 }
 
 impl Effect {
     /// Every effect, in the order a GPU path indexes its pipelines by.
-    pub const ALL: [Effect; 4] = [Effect::Fire, Effect::Plasma, Effect::Lightning, Effect::Ice];
+    pub const ALL: [Effect; 5] = [
+        Effect::Fire,
+        Effect::Plasma,
+        Effect::Lightning,
+        Effect::Ice,
+        Effect::Ufo,
+    ];
 
     /// How many effects there are: a GPU path keeps one pipeline each.
     pub const COUNT: usize = Effect::ALL.len();
@@ -65,6 +75,7 @@ impl Effect {
             Effect::Plasma => "plasma_fragment",
             Effect::Lightning => "lightning_fragment",
             Effect::Ice => "ice_fragment",
+            Effect::Ufo => "ufo_fragment",
         }
     }
 
@@ -77,6 +88,7 @@ impl Effect {
             Effect::Plasma => plasma::REACH,
             Effect::Lightning => lightning::REACH,
             Effect::Ice => ice::REACH,
+            Effect::Ufo => ufo::REACH,
         }
     }
 
@@ -88,6 +100,7 @@ impl Effect {
             Effect::Plasma => plasma::LIFE,
             Effect::Lightning => lightning::LIFE,
             Effect::Ice => ice::LIFE,
+            Effect::Ufo => ufo::LIFE,
         }
     }
 
@@ -99,6 +112,7 @@ impl Effect {
             Effect::Plasma => plasma::end(ignition),
             Effect::Lightning => lightning::end(ignition),
             Effect::Ice => ice::end(ignition),
+            Effect::Ufo => ufo::end(ignition),
         }
     }
 
@@ -109,6 +123,7 @@ impl Effect {
             Effect::Plasma => plasma::ions(ignition).for_each(&mut each),
             Effect::Lightning => lightning::sparks(ignition).for_each(&mut each),
             Effect::Ice => ice::shards(ignition).for_each(&mut each),
+            Effect::Ufo => ufo::puffs(ignition).for_each(&mut each),
         }
     }
 }
@@ -344,6 +359,7 @@ impl Vfx {
             Effect::Plasma => plasma::params(self),
             Effect::Lightning => lightning::PARAMS,
             Effect::Ice => ice::PARAMS,
+            Effect::Ufo => ufo::PARAMS,
         }
     }
 
@@ -352,24 +368,29 @@ impl Vfx {
     /// pane ride, or the lightning's own box along its path.
     pub fn region(&self) -> Corners {
         match self.effect {
-            Effect::Fire | Effect::Plasma | Effect::Ice => self.emitter.corners,
+            Effect::Fire | Effect::Plasma | Effect::Ice | Effect::Ufo => self.emitter.corners,
             Effect::Lightning => lightning::region(&self.ignition),
         }
     }
 
     /// **Every shape the effect draws within its reach of**, which the
-    /// bands cover: its region, and for the ice the path as well -- the
-    /// frost is laid along the path, where the quad is for a few tens of
-    /// milliseconds at a point.
+    /// bands cover: its region; for the ice the path as well -- the frost is
+    /// laid along the path, where the quad is for a few tens of milliseconds
+    /// at a point; and for the ufo only the box its saucer, beam and wake
+    /// are drawn in, which the quad's reach could not hold.
     pub fn support(&self, mut each: impl FnMut(Corners)) {
-        each(self.region());
-        if self.effect == Effect::Ice {
-            let f = &self.ignition;
-            let head = Pt {
-                x: f.tail.x + f.dir.x * f.len,
-                y: f.tail.y + f.dir.y * f.len,
-            };
-            each(Corners([f.tail, head, head, f.tail]));
+        match self.effect {
+            Effect::Fire | Effect::Plasma | Effect::Lightning => each(self.region()),
+            Effect::Ice => {
+                each(self.region());
+                let f = &self.ignition;
+                let head = Pt {
+                    x: f.tail.x + f.dir.x * f.len,
+                    y: f.tail.y + f.dir.y * f.len,
+                };
+                each(Corners([f.tail, head, head, f.tail]));
+            }
+            Effect::Ufo => each(ufo::region(self)),
         }
     }
 

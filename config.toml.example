@@ -77,7 +77,9 @@ fonts = [
 # forks, a corona and falling sparks; kitty's trail alone on the CPU path.
 # "ice" lays a lace of frost crystals along the path that holds, glints and
 # melts tail first into falling hexagonal platelets, in about 0.7 s; kitty's
-# trail alone on the CPU path. "quad" is kitty's trail: a
+# trail alone on the CPU path. "ufo" is a flying saucer that swoops along the
+# path, hovers over the cursor, lowers a tractor beam onto it and flies off,
+# in 0.72 s; kitty's trail alone on the CPU path. "quad" is kitty's trail: a
 # quadrilateral whose four corners chase the cursor's, the ones facing the
 # move leading and the ones behind it lagging, over about half a second. Both
 # follow a move of more than two cells once the cursor has rested for 10 ms,
