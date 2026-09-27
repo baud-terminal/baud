@@ -82,7 +82,10 @@ fonts = [
 # in 0.72 s; kitty's trail alone on the CPU path. "orb" is a glowing sphere
 # that flies to the cursor with a halo and a comet's tail and bursts into
 # sparks as it lands, in about half a second; kitty's trail alone on the CPU
-# path. "quad" is kitty's trail: a
+# path. "liquid" is a clear glass gel in the cursor's colour that stretches
+# from where the cursor was to where it is, pinches and draws its back end
+# into a drop round the cursor, which bulges as it lands, and fades, in about
+# 0.4 s; kitty's trail alone on the CPU path. "quad" is kitty's trail: a
 # quadrilateral whose four corners chase the cursor's, the ones facing the
 # move leading and the ones behind it lagging, over about half a second. Both
 # follow a move of more than two cells once the cursor has rested for 10 ms,

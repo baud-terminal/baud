@@ -793,6 +793,202 @@ fragment float4 orb_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(
     return orb_light(in.pos.xy - f.origin, in.color, f);
 }
 
+// ---- The liquid, `baud-render/src/liquid.rs`: a glass gel along a spine
+// from the back of kitty's quad to the cursor -- a necked tube, satellite
+// beads and a head drop in one smooth union -- with a rim and a glint on a
+// squircle bevel. The state is derived here from the prefix, as
+// `liquid::state` derives it in Rust. Its own numbers, `liquid::PARAMS`:
+// `k[0]` the tube's radius, `k[1]` the union's width, `k[2]` the head's gap,
+// `k[3]` its wobble, `k[4]` the bevel, in cells; `k[5]` the body's, `k[6]` the
+// rim's and `k[7]` the glint's opacity.
+#define LQ_TRAIL 0.04
+#define LQ_ZETA 0.28
+#define LQ_OMEGA 40.840706
+#define LQ_BACK 0.25
+#define LQ_CROSS 0.6
+#define LQ_LEAN 0.08
+#define LQ_LEAN_AT 1.2
+#define LQ_REST_X -0.5
+#define LQ_REST_Y -0.866
+#define LQ_COUNT_SALT 0x5bd1e995u
+#define LQ_BEAD_SALT 0x9E3779B9u
+#define LQ_BEAD_IN 0.02
+
+struct LiquidS {
+    float2 b; float2 h; float radius; float neck; float inv_len2; float lip;
+    float2 half_box; float round; float k; float3 bead[3]; float2 light; float envelope; float end;
+};
+
+static inline float lq_tube(float2 d, float w, float h, constant EffectU& f) {
+    return f.k[0] * length(float2(d.y * w, d.x * h));
+}
+
+// The trailing corners' contact with the head, and the wobble's amplitude.
+static inline float2 lq_contact(float len, float c, float radius, constant EffectU& f) {
+    float t = LQ_TRAIL * log2(max(len / (radius + f.k[2] * c), 1.0));
+    return float2(t, f.k[3] * c * smoothstep(3.0, 12.0, len / c));
+}
+
+static inline float lq_end(float len, float c, float radius, constant EffectU& f) {
+    float2 ta = lq_contact(len, c, radius, f);
+    float tw = ta.y > 0.5 ? log(ta.y / 0.5) / (LQ_ZETA * LQ_OMEGA) : 0.0;
+    return max(ta.x + tw + 0.05, 0.22);
+}
+
+static inline LiquidS liquid_state(constant EffectU& f) {
+    LiquidS s;
+    float c = f.unit;
+    float2 d = f.dir;
+    float hw = f.hole.z - f.hole.x, hh = f.hole.w - f.hole.y;
+    s.h = (f.hole.xy + f.hole.zw) * 0.5;
+    float2 m = (f.c[0] + f.c[1] + f.c[2] + f.c[3]) * 0.25;
+    float lo = INFINITY, hi = INFINITY;
+    for (uint i = 0u; i < 4u; i++) {
+        float v = dot(f.c[i] - m, d);
+        if (v < lo) { hi = lo; lo = v; } else if (v < hi) { hi = v; }
+    }
+    s.b = m + d * (0.5 * (lo + hi));
+    float l = length(s.h - s.b);
+    s.inv_len2 = l > 1e-3 ? 1.0 / (l * l) : 0.0;
+    // The cell's extent: the cursor's, floored at the nominal cell.
+    float r = lq_tube(d, max(hw, 0.5 * c), max(hh, c), f);
+    s.radius = r * smoothstep(0.0, 2.0 * r, l);
+    float neck_max = 1.45 * smoothstep(1.5, 4.0, f.len / c);
+    s.neck = neck_max * smoothstep(0.03, 0.14, f.age);
+    s.lip = l > 1e-3 ? 4.0 * s.neck * s.radius / l : 0.0;
+    float nominal = lq_tube(d, 0.5 * c, c, f);
+    float2 ta = lq_contact(f.len, c, nominal, f);
+    float sw = f.age - ta.x;
+    float wob = 0.0;
+    if (sw > 0.0) {
+        float wd = LQ_OMEGA * sqrt(1.0 - LQ_ZETA * LQ_ZETA);
+        wob = ta.y * exp(-LQ_ZETA * LQ_OMEGA * sw) * sin(wd * sw);
+    }
+    float ax = abs(d.x), ay = abs(d.y);
+    s.round = f.k[2] * c + f.k[3] * c + 1.0;
+    s.half_box = float2(max(0.5 * hw + f.k[2] * c + wob * ax - LQ_CROSS * wob * ay, s.round),
+                        max(0.5 * hh + f.k[2] * c + wob * ay - LQ_CROSS * wob * ax, s.round));
+    for (uint j = 0u; j < 3u; j++) s.bead[j] = float3(0.0);
+    if (neck_max > 1.0) {
+        float xp = 0.5 - sin(asin(1.0 - 2.0 / neck_max) / 3.0);
+        float tp = 0.03 + 0.11 * xp;
+        float sg = f.age - tp;
+        uint count = 2u + (fx_hash(f.seed ^ LQ_COUNT_SALT) & 1u);
+        float2 n = float2(-d.y, d.x);
+        for (uint j = 0u; j < count; j++) {
+            if (sg < 0.0) break;
+            uint h0 = fx_hash(f.seed ^ ((j + 1u) * LQ_BEAD_SALT));
+            uint h1 = fx_hash(h0), h2 = fx_hash(h1), h3 = fx_hash(h2);
+            float u0 = 0.5 + (fx_unit(h0) - 0.5) * 0.16;
+            float tau = 0.045 + 0.04 * fx_unit(h2);
+            float u = u0 + (1.0 - u0) * (1.0 - exp(-sg / tau));
+            float rj = r * (0.30 - 0.07 * float(j)) * (0.85 + 0.3 * fx_unit(h1))
+                     * (1.0 - smoothstep(0.85, 0.99, u)) * smoothstep(0.0, LQ_BEAD_IN, sg);
+            float o = (fx_unit(h3) - 0.5) * 0.25 * r * exp(-sg / 0.06);
+            s.bead[j] = float3(s.b + (s.h - s.b) * u + n * o, rj);
+        }
+    }
+    // The light starts leaning into the move -- the rest light plus
+    // LQ_LEAN_AT of the move's direction -- and turns back to the upper left
+    // the short way round, by its angle: a blend of the two vectors over time
+    // passes through nothing for a move opposite the rest light.
+    float rest = atan2(LQ_REST_Y, LQ_REST_X);
+    float turn = atan2(LQ_REST_Y + LQ_LEAN_AT * d.y, LQ_REST_X + LQ_LEAN_AT * d.x) - rest;
+    if (turn > M_PI_F) turn -= 2.0 * M_PI_F; else if (turn <= -M_PI_F) turn += 2.0 * M_PI_F;
+    float th = rest + turn * exp(-f.age / LQ_LEAN);
+    s.light = float2(cos(th), sin(th));
+    s.k = f.k[1] * c;
+    s.end = lq_end(f.len, c, nominal, f);
+    s.envelope = smoothstep(0.0, 0.035, f.age) * (1.0 - smoothstep(s.end - 0.10, s.end, f.age));
+    return s;
+}
+
+// iq's quadratic smooth minimum, with its gradient.
+static inline float3 lq_smin(float3 a, float3 b, float k) {
+    float h = 1.0 - min(abs(a.x - b.x) / (4.0 * k), 1.0);
+    float s = h * h * k;
+    float w = 0.5 * h;
+    return a.x < b.x ? float3(a.x - s, a.yz + (b.yz - a.yz) * w)
+                     : float3(b.x - s, b.yz + (a.yz - b.yz) * w);
+}
+
+static inline float2 lq_dir(float2 v, float l) { return l > 1e-3 ? v / l : float2(0.0); }
+
+static inline float3 liquid_field(float2 p, LiquidS s) {
+    float2 ph = p - s.h;
+    float2 sg = float2(ph.x >= 0.0 ? 1.0 : -1.0, ph.y >= 0.0 ? 1.0 : -1.0);
+    float2 w = abs(ph) - (s.half_box - s.round);
+    float g = max(w.x, w.y);
+    float3 f;
+    if (g > 0.0) {
+        float2 wp = max(w, 0.0);
+        float lw = length(wp);
+        f = float3(lw - s.round, sg * wp / lw);
+    } else {
+        f = float3(g - s.round, w.x > w.y ? float2(sg.x, 0.0) : float2(0.0, sg.y));
+    }
+    if (s.inv_len2 > 0.0 && s.radius > 0.0) {
+        float2 e = s.h - s.b;
+        float u = clamp(dot(p - s.b, e) * s.inv_len2, 0.0, 1.0);
+        float2 v = p - (s.b + e * u);
+        float l = length(v);
+        float q = 1.0 - 4.0 * s.neck * u * (1.0 - u);
+        float sl = s.lip * (2.0 * u - 1.0);
+        f = lq_smin(f, float3((l - s.radius * q) / sqrt(1.0 + sl * sl), lq_dir(v, l)), s.k);
+    }
+    for (uint i = 0u; i < 3u; i++) {
+        float3 bd = s.bead[i];
+        if (bd.z > 0.0) {
+            float2 v = p - bd.xy;
+            float l = length(v);
+            f = lq_smin(f, float3(l - bd.z, lq_dir(v, l)), s.k);
+        }
+    }
+    return f;
+}
+
+// **The gel at `p`**: its body, rim, glint and counter-glint.
+static inline float4 liquid_light(float2 p, float4 color, constant EffectU& f) {
+    if (fx_in_hole(p, f)) return float4(0.0);
+    LiquidS s = liquid_state(f);
+    float c = f.unit;
+    if (f.age >= s.end) return float4(0.0);
+    float2 e = s.h - s.b;
+    float u0 = clamp(dot(p - s.b, e) * s.inv_len2, 0.0, 1.0);
+    float ds = s.inv_len2 > 0.0 ? length(p - (s.b + e * u0)) : INFINITY;
+    float2 o = max(max(f.hole.xy - p, p - f.hole.zw), 0.0);
+    if (min(ds, length(o)) > f.reach * c) return float4(0.0);
+    float3 fd = liquid_field(p, s);
+    float cov = clamp(0.5 - fd.x, 0.0, 1.0);
+    if (cov <= 0.0) return float4(0.0);
+    float t = clamp(-fd.x / (f.k[4] * c), 0.0, 1.0);
+    float sv = 1.0 - t;
+    float s2 = sv * sv;
+    float s3 = s2 * sv;
+    float z = sqrt(sqrt(max(1.0 - s2 * s2, 0.0)));
+    float z3 = z * z * z;
+    float nz = z3 / sqrt(max(s3 * s3 + z3 * z3, 1e-12));
+    float fr = 1.0 - nz;
+    float rim = 0.04 + 0.96 * fr * fr;
+    float gl = dot(fd.yz, fd.yz);
+    float2 n = gl > 1e-12 ? fd.yz / sqrt(gl) : float2(0.0);
+    float bt = clamp((t - 0.04) * 2.5, 0.0, 1.0);
+    float band = 4.0 * bt * (1.0 - bt);
+    float nl = dot(n, s.light);
+    float sp = max(nl, 0.0);
+    sp = sp * sp * sp * band;
+    float bk = max(-nl, 0.0);
+    bk = bk * bk * bk * band;
+    float a = color.a * s.envelope * cov
+            * saturate(f.k[5] + f.k[6] * rim + f.k[7] * sp + LQ_BACK * bk);
+    return float4(color.rgb * a, a);
+}
+
+fragment float4 liquid_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) return fx_particle(in);
+    return liquid_light(in.pos.xy - f.origin, in.color, f);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {

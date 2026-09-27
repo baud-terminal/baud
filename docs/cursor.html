@@ -300,6 +300,17 @@
     </article>
 
     <article class="trail">
+      <div class="head"><h2>liquid</h2><span class="key">trail = "liquid"</span></div>
+      <div class="screen"><video src="cursor/liquid.mp4" poster="cursor/liquid.png" muted loop playsinline preload="auto" aria-label="The liquid trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A clear glass gel stretches to the cursor with a bright rim and a glint, thins, pinches and draws its back end into a drop round the cursor, which bulges once as it lands.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.22 s on a short hop, about 0.40 s for a 30-column jump at the clips' cell</dd>
+        <dt>Built on</dt><dd>A smooth union of a necked tube, beads and a drop round the cursor, on kitty's quad</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; does not bend the text beneath it; GPU only (the CPU path draws the quad)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
       <div class="head"><h2>quad</h2><span class="key">trail = "quad"</span></div>
       <div class="screen"><video src="cursor/quad.mp4" poster="cursor/quad.png" muted loop playsinline preload="auto" aria-label="The quad trail following six cursor jumps" tabindex="0"></video></div>
       <p>A four-cornered shape whose corners each chase the matching corner of the cursor. The corners facing the move arrive fast and the ones behind it lag, so the shape stretches and snaps shut. The cursor's own cell is left bare.</p>
@@ -348,7 +359,7 @@
       <h3>Choose one</h3>
       <pre><span class="c"># ~/.config/baud/config.toml, after every top-level key</span>
 [cursor]
-trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | ufo | orb | quad | sweep | ghost | off</span></pre>
+trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off</span></pre>
       <p class="note"><code>true</code> reads as the default (fire) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
     </div>
   </section>

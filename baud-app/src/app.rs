@@ -1038,7 +1038,8 @@ impl App {
             | crate::config::CursorTrail::Lightning
             | crate::config::CursorTrail::Ice
             | crate::config::CursorTrail::Ufo
-            | crate::config::CursorTrail::Orb => {
+            | crate::config::CursorTrail::Orb
+            | crate::config::CursorTrail::Liquid => {
                 // Looking back forgets where the cursor was, as a resize
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw

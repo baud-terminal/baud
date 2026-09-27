@@ -36,6 +36,7 @@ pub mod fire;
 pub mod ice;
 mod instance;
 pub mod lightning;
+pub mod liquid;
 mod metrics;
 pub mod orb;
 mod overlay;

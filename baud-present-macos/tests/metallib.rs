@@ -204,6 +204,46 @@ fn the_ices_constants_match_the_shader() {
     assert_eq!(word("RIME_SALT"), ice::RIME_SALT);
 }
 
+/// **The liquid's constants in the shader and in `baud_render::liquid` are
+/// one fact spelled twice**: the shader derives the gel's state from the
+/// uniform's prefix, so kitty's trailing corners' halving time, the wobble's
+/// damping, frequency and cross term, the counter-glint's opacity, the
+/// glint's rest and lean, and the beads' salts and growth are `#define`s
+/// there. The oracle ties the shader to the Rust model only in the
+/// scenes it draws -- one seed's bead count among them -- and this names the
+/// constants.
+#[test]
+fn the_liquids_constants_match_the_shader() {
+    use baud_render::liquid;
+    let src = include_str!("../src/shaders.metal");
+    let define = |name: &str| -> String {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|x| x.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .to_string()
+    };
+    let float = |name: &str| -> f32 { define(name).parse().expect(name) };
+    let word = |name: &str| -> u32 {
+        u32::from_str_radix(define(name).trim_start_matches("0x"), 16).expect(name)
+    };
+    assert_eq!(float("LQ_TRAIL"), liquid::TRAIL);
+    assert_eq!(float("LQ_ZETA"), liquid::ZETA);
+    assert_eq!(float("LQ_OMEGA"), liquid::OMEGA);
+    assert_eq!(float("LQ_BACK"), liquid::BACK);
+    assert_eq!(float("LQ_CROSS"), liquid::CROSS);
+    assert_eq!(float("LQ_LEAN"), liquid::LEAN);
+    assert_eq!(float("LQ_LEAN_AT"), liquid::LEAN_AT);
+    assert_eq!((float("LQ_REST_X"), float("LQ_REST_Y")), liquid::REST);
+    assert_eq!(word("LQ_COUNT_SALT"), liquid::COUNT_SALT);
+    assert_eq!(word("LQ_BEAD_SALT"), liquid::BEAD_SALT);
+    assert_eq!(float("LQ_BEAD_IN"), liquid::BEAD_IN);
+}
+
 /// **`WIDE_TAIL` in the shader and `Content::WIDE_TAIL` are one fact spelled
 /// twice.** The cell shader reads the grid in place and gives a wide tail
 /// its lead's selection by comparing the cell's word against the literal;

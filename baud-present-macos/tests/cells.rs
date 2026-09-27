@@ -25,6 +25,7 @@ use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
 use baud_render::ice;
 use baud_render::lightning;
+use baud_render::liquid;
 use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
@@ -560,6 +561,12 @@ fn orb_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// **The liquid's reference**: `liquid_light`, through `liquid::light`.
+fn liquid_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * liquid::light(vfx, p);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -619,6 +626,10 @@ fn reference(effect: Effect) -> Reference {
         },
         Effect::Orb => Reference {
             band: orb_reference,
+            particle: fx_particle,
+        },
+        Effect::Liquid => Reference {
+            band: liquid_reference,
             particle: fx_particle,
         },
     }
@@ -743,25 +754,42 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         // while the quad heads somewhere else. The large scene is the move
         // across at two and a half times the unit, a zoomed cell: at the
         // oracle's own the plasma's filaments sit on their 1.1-pixel floor
-        // and its width table is never read.
+        // and its width table is never read. The reseeded scene is the move
+        // across on a seed whose hashes differ -- the liquid's bead count is
+        // two there and three on seed 7 -- and the long one a move far enough
+        // for the liquid's head to wobble at a pixel, at full strength.
         let across = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
         let down = (cell_at(104.0, 0.0), cell_at(106.0, 8.0));
         let line = (bar(cell_at(98.0, 4.0)), bar(cell_at(116.0, 4.0)));
-        for (name, (from, to), (quad_from, hole), scale) in [
-            ("across", across, across, 1.0f32),
-            ("down", down, down, 1.0),
-            ("underline", line, line, 1.0),
-            ("retarget", across, (across.1, cell_at(104.0, 8.0)), 1.0),
-            ("large", across, across, 2.5),
+        let long = (cell_at(60.0, 2.0), cell_at(116.0, 3.0));
+        for (name, (from, to), (quad_from, hole), scale, seed) in [
+            ("across", across, across, 1.0f32, Seed(7)),
+            ("down", down, down, 1.0, Seed(7)),
+            ("underline", line, line, 1.0, Seed(7)),
+            (
+                "retarget",
+                across,
+                (across.1, cell_at(104.0, 8.0)),
+                1.0,
+                Seed(7),
+            ),
+            ("large", across, across, 2.5, Seed(7)),
+            ("reseeded", across, across, 1.0, Seed(1)),
+            ("long", long, long, 1.0, Seed(7)),
         ] {
             // The fire's four ages, shrunk for an ignition that is out sooner
             // than the fire's shortest: the lightning's, out at 0.32 s, run
             // from its leader mid-path to its last fade, and a short move's
-            // orb its flight to its fade. A longer end keeps the fire's.
-            let end = effect.end(&Ignition::ignite(centre(from), to, Seed(7), ch * scale));
+            // orb its flight to its fade. A longer end keeps the fire's. Then
+            // three late in the ignition's own life, which the four never
+            // reach for an effect whose last act comes near its end -- the
+            // liquid's wobble and fade -- and which ask only agreement.
+            let ignite = Ignition::ignite(centre(from), to, seed, ch * scale);
+            let end = effect.end(&ignite);
             let life = (end / Effect::Fire.life()).min(1.0);
             let ages = [0.04f32, 0.12, 0.25, 0.4].map(|a| a * life);
-            let mut particles = false;
+            let late = [0.55f32, 0.7, 0.85].map(|a| a * end);
+            let mut emitted = false;
             let seg = Segment::new(quad_from.corners(), hole);
             let axis = {
                 let (a, b) = (centre(quad_from), centre(hole));
@@ -771,7 +799,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     y: (b.y - a.y) / l,
                 }
             };
-            for age in ages {
+            for (i, age) in ages.into_iter().chain(late).enumerate() {
                 let vfx = Vfx {
                     effect,
                     emitter: Smear {
@@ -779,7 +807,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         hole,
                         shape: Shape::Quad,
                     },
-                    ignition: Ignition::ignite(centre(from), to, Seed(7), ch * scale).at(age),
+                    ignition: ignite.at(age),
                     axis,
                 };
                 arms.trail = Some(TrailLook::Vfx(vfx));
@@ -863,7 +891,13 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                             "{at}: pixel {i} ahead of the cursor is {x:08x}, the sheath {y:08x}"
                         );
                     }
-                    assert!(ahead > 100, "{at}: only {ahead} pixels ahead of the cursor");
+                    // The control that there was something ahead to check,
+                    // where there is: early in the long move kitty's quad is
+                    // still short of the cursor, and so is everything the
+                    // plasma draws.
+                    if i < ages.len() && name != "long" {
+                        assert!(ahead > 100, "{at}: only {ahead} pixels ahead of the cursor");
+                    }
                 }
                 // A positive control that something is drawn. At the last age
                 // every effect is in its fade -- the plasma starves as
@@ -880,10 +914,23 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 } else {
                     300
                 };
-                assert!(lit > least, "{at}: only {lit} pixels lit");
-                particles |= records.iter().any(|r| r.kind == Kind::Particle);
+                if i < ages.len() {
+                    assert!(lit > least, "{at}: only {lit} pixels lit");
+                }
+                // One particle record for each particle the model sheds at
+                // this age, and none where it sheds none.
+                let mut shed = 0usize;
+                effect.particles(&vfx.ignition, |_| shed += 1);
+                let drawn = records.iter().filter(|r| r.kind == Kind::Particle).count();
+                assert_eq!(drawn, shed, "{at}: {drawn} particle records, {shed} shed");
+                emitted |= shed > 0;
             }
-            assert!(particles, "{effect:?} {name}: no particle at any age");
+            // Every effect but the liquid sheds some in every scene: the
+            // liquid's beads are part of its field, drawn by its fragment.
+            assert!(
+                emitted || effect == Effect::Liquid,
+                "{effect:?} {name}: no particle at any age"
+            );
         }
     }
     arms.trail = None;

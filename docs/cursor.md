@@ -10,7 +10,7 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = true
-trail = "fire"    # fire | plasma | lightning | ice | ufo | orb | quad | sweep | ghost | off
+trail = "fire"    # fire | plasma | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
@@ -138,6 +138,30 @@ cursor, so a second long move re-flies it without a jump. It was designed for
 baud rather than taken from the research, which had no orb. GPU only; the CPU
 path draws the quad.
 
+## liquid
+
+`trail = "liquid"`
+
+![The liquid trail on the diagonal move](cursor/liquid.png)
+
+A clear glass gel in the cursor's colour stretches from the cell the cursor
+left to the cell it reached: a faint body, a bright rim and a glint that leans
+into the move and turns back to the upper left, after macOS's Liquid Glass.
+Its back is pulled forward along kitty's quad and it thins in waves. On a long
+move it pinches: the back end rounds into a drop, and a thin bridge draws it
+into the head, where it merges. Round the cursor the gel swells into a drop
+that overhangs the cursor's leading edge by most of a cell; it bulges once
+along the move as the back arrives, recoils, and the gel fades. It is gone
+about 0.4 s after a 30-column move at the clips' cell. A short hop stretches
+and snaps back with no pinch and no bulge, in 0.22 s.
+
+It draws the gel only; it does not bend the text underneath, which would
+need a second render pass a frame and still could not bend the wallpaper
+behind a glass window. Its back rides kitty's corners along the first move, so
+a long move back against it within a third of a second collapses the gel onto
+the cursor rather than trailing it. A bar or underline cursor carries the tube
+a block does. GPU only; the CPU path draws the quad.
+
 ## quad
 
 `trail = "quad"`
@@ -207,9 +231,6 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- **Liquid** is wanted and not built. It
-  starts with reading prior art at source, then a shader in the cursor's colour
-  held to a Rust reference the way the fire's is.
 - baud does not read macOS's Reduce Motion setting yet, and a trail does not
   ride a smooth scroll.
 
