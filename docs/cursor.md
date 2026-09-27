@@ -254,12 +254,13 @@ takes the still from the diagonal.
 
 It checks what it made rather than trusting it. baud has to have read the
 config without a complaint, so a clip labelled "quad" cannot be the default
-fire. The recorder refuses a window that is not frontmost, and a clip with
-fewer frames than a trail leaves. The still has to find at least 20 changed
+fire. The recorder refuses a window that is not frontmost, a clip with fewer
+frames than a trail leaves, and one whose writer dropped more than 1% of the
+frames the capture sent. The still has to find at least 20 changed
 samples for every trail, and fewer for `off`, which is recorded as the control
 and not kept.
 
-The committed clips were recorded with the app as of `8e51cf5`, with the system
-in Dark mode; the theme follows the system's appearance. The capture is baud's
+The committed clips were recorded with the app as of `e13d1b4`, with the system
+in Dark mode and no frame dropped; the theme follows the system's appearance. The capture is baud's
 window alone, so the glass shows as flat dark rather than the desktop behind
 it.
