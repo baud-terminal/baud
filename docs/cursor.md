@@ -229,12 +229,15 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   another with `OSC 12`.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
+- Under macOS's Reduce Motion (System Settings, Accessibility, Display) the
+  default trail is off. A trail named in the config is kept -- `trail =
+  "fire"` included -- and `trail = true` means the default, so it goes off
+  too. Turning the setting on cuts a trail in flight.
 
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- baud does not read macOS's Reduce Motion setting yet, and a trail does not
-  ride a smooth scroll.
+- A trail does not ride a smooth scroll yet.
 
 ## How the clips were made
 

@@ -455,14 +455,19 @@ struct App {
     /// The damage the next frame draws with -- `Full` for the frame after a
     /// blink flip, since a blink changes no cell and row damage would miss it.
     next_damage: Damage,
-    /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`;
-    /// the trail being animated, if any; the cursor cell the last frame
-    /// drew, so a move can be detected; and the display link's timestamp
-    /// this tick, so the ghost's progress is off the same clock as the
-    /// blink. The trail being `Some` forces a frame the way a blink flip
-    /// does, so an idle terminal with a steady cursor builds nothing --
-    /// the `blink_seen` equivalent for this animation.
+    /// The trail drawn -- `[cursor] trail`, or under Reduce Motion none
+    /// unless the config named one -- and what the config said and the
+    /// system's motion preference, which decide it together; the ghost
+    /// being animated, if any; the cursor cell the last frame drew, so a
+    /// move can be detected; and the display link's timestamp this tick,
+    /// so the ghost's progress is off the same clock as the blink. The
+    /// ghost being `Some` forces a frame the way a blink flip does, so an
+    /// idle terminal with a steady cursor builds nothing -- the
+    /// `blink_seen` equivalent for this animation.
     cursor_trail: crate::config::CursorTrail,
+    trail_pick: crate::config::TrailPick,
+    motion: crate::config::SystemMotion,
+    motion_source: MotionSource,
     trail: Option<TrailState>,
     /// The quad or sweep trail's state between frames (`trail.rs`).
     chase: crate::trail::Chase<HostTime>,
@@ -504,8 +509,9 @@ struct Boot {
     theme: crate::config::ThemeChoice,
     /// The material and its dimming, from the config's `[glass]`.
     glass: crate::config::Glass,
-    /// Whether a cursor move leaves a fading ghost, from `[cursor] trail`.
-    cursor_trail: crate::config::CursorTrail,
+    /// What `[cursor] trail` said: a trail by name, or the default, which
+    /// Reduce Motion turns off.
+    cursor_trail: crate::config::TrailPick,
     /// The cursor the terminal powers on with, from `[cursor] shape` and
     /// `blink`.
     cursor: baud_core::CursorStyle,
@@ -687,6 +693,16 @@ impl App {
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
+        // The motion preference decides the trail before the chase is
+        // built, so a launch under Reduce Motion never lights one. Read here,
+        // after `sharedApplication`, which is what keeps AppKit's cached
+        // answer invalidated.
+        let motion_source = motion_override(std::env::var("BAUD_MOTION").ok().as_deref());
+        let motion = system_motion(motion_source, reduce_motion);
+        startup_mark("reduce motion");
+        let trail_pick = cursor_trail;
+        let cursor_trail = trail_pick.effective(motion);
+        crate::info!("motion: {motion:?}; trail: {cursor_trail:?}");
         // The process's first scroller-style read is not the 5 ns a wheel
         // pays: AppKit loads the answer the first time, and this is where
         // the launch path makes it. Its own mark, so it is a number.
@@ -876,6 +892,9 @@ impl App {
             focus: baud_core::Focus::Lost,
             next_damage: Damage::Incremental,
             cursor_trail,
+            trail_pick,
+            motion,
+            motion_source,
             trail: None,
             chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
             last_cursor_cell: None,
@@ -2875,6 +2894,163 @@ mod trail_cursor_tests {
 }
 
 #[cfg(test)]
+mod motion_tests {
+    //! Reduce Motion: the owner's rule, "no trail, unless the config names
+    //! one". The decisions are pure and gated here; `poll_motion` and the
+    //! launch read are AppKit-bound, held by the source gate at the end.
+    use super::{
+        MotionSource, Owes, Path, chase_style, motion_change, motion_override, retrail,
+        system_motion,
+    };
+    use crate::config::{CursorTrail as T, SystemMotion as M, TrailPick as P};
+    use crate::trail::Chase;
+    use baud_domain::{Col, HostTime, Row};
+    use baud_render::Rect;
+    use std::cell::Cell;
+
+    const ALL: [T; 11] = [
+        T::Off,
+        T::Ghost,
+        T::Sweep,
+        T::Quad,
+        T::Fire,
+        T::Plasma,
+        T::Lightning,
+        T::Ice,
+        T::Ufo,
+        T::Orb,
+        T::Liquid,
+    ];
+
+    fn at(s: f64) -> HostTime {
+        HostTime::of_secs(s).expect("a time")
+    }
+
+    /// A 10x20 cell at column `c`, row `r`.
+    fn cell(c: f32, r: f32) -> Rect {
+        Rect {
+            left: c * 10.0,
+            top: r * 20.0,
+            right: c * 10.0 + 10.0,
+            bottom: r * 20.0 + 20.0,
+        }
+    }
+
+    /// Only the default follows the system, both ways; a named trail never
+    /// changes, and an unchanged trail is no change.
+    #[test]
+    fn motion_change_follows_only_the_default() {
+        assert_eq!(motion_change(P::Default, T::Fire, M::Reduced), Some(T::Off));
+        assert_eq!(motion_change(P::Default, T::Off, M::Full), Some(T::Fire));
+        assert_eq!(
+            motion_change(P::Default, T::Fire, M::Full),
+            None,
+            "unchanged"
+        );
+        assert_eq!(
+            motion_change(P::Default, T::Off, M::Reduced),
+            None,
+            "unchanged"
+        );
+        for t in ALL {
+            for m in [M::Full, M::Reduced] {
+                assert_eq!(motion_change(P::Named(t), t, m), None, "{t:?} under {m:?}");
+            }
+        }
+    }
+
+    /// **A switch mid-fire owes one frame, to clear it, and then none**:
+    /// the fire is cut, not left to burn out, and the chase restyled to
+    /// the off trail's owes nothing over ten seconds of ticks.
+    #[test]
+    fn a_switch_mid_fire_owes_one_frame_and_then_none() {
+        let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
+        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0));
+        chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0));
+        assert!(
+            chase
+                .frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0))
+                .is_some(),
+            "the control: a fire is lit"
+        );
+        let (mut ghost, mut last) = (None, Some((Row::ZERO, Col::ZERO)));
+        let owes = retrail(
+            &mut chase,
+            &mut ghost,
+            &mut last,
+            T::Off,
+            Path::Cells,
+            Some(at(1.021)),
+        );
+        assert_eq!(owes, Owes::Frame, "one frame to clear the fire");
+        assert_eq!(last, None, "the cursor's last cell is forgotten");
+        for k in 0..1200u32 {
+            let now = at(1.021 + f64::from(k) / 120.0);
+            assert_eq!(chase.owes(now), Owes::Nothing, "tick {k}");
+        }
+    }
+
+    /// A switch at rest owes no frame: nothing was drawn.
+    #[test]
+    fn a_switch_at_rest_owes_no_frame() {
+        let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
+        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0));
+        let (mut ghost, mut last) = (None, None);
+        let owes = retrail(
+            &mut chase,
+            &mut ghost,
+            &mut last,
+            T::Off,
+            Path::Cells,
+            Some(at(2.0)),
+        );
+        assert_eq!(owes, Owes::Nothing);
+    }
+
+    /// `BAUD_MOTION`: `reduced` and `full` fix it, anything else is the
+    /// system's.
+    #[test]
+    fn the_motion_override_reads_reduced_and_full() {
+        assert_eq!(
+            motion_override(Some("reduced")),
+            MotionSource::Fixed(M::Reduced)
+        );
+        assert_eq!(motion_override(Some("full")), MotionSource::Fixed(M::Full));
+        assert_eq!(motion_override(None), MotionSource::System);
+        assert_eq!(motion_override(Some("slow")), MotionSource::System);
+    }
+
+    /// A fixed preference never asks the system; the system's is asked once.
+    #[test]
+    fn a_fixed_motion_never_asks_the_system() {
+        let asked = Cell::new(0);
+        let read = || {
+            asked.set(asked.get() + 1);
+            true
+        };
+        assert_eq!(system_motion(MotionSource::Fixed(M::Full), read), M::Full);
+        assert_eq!(asked.get(), 0, "fixed: not asked");
+        assert_eq!(system_motion(MotionSource::System, read), M::Reduced);
+        assert_eq!(asked.get(), 1, "the system's: asked once");
+    }
+
+    /// **The tick polls the motion preference**: `pump` is AppKit-bound, so
+    /// the one thing that can fail on a removed call is its source.
+    #[test]
+    fn the_tick_polls_the_motion_preference() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test does not match its own source first.
+        let tick = SRC
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .map(|(arm, _)| arm)
+            .expect("the tick arm");
+        assert!(tick.contains("self.poll_focus();"), "the control: {tick}");
+        assert!(tick.contains("self.poll_motion();"), "{tick}");
+    }
+}
+
+#[cfg(test)]
 mod anchor_tests {
     use super::anchored;
     use baud_domain::Rows;
@@ -3347,6 +3523,7 @@ impl Driver {
     fn pump(&mut self, trigger: Trigger) {
         if let Trigger::Tick = trigger {
             self.poll_focus();
+            self.poll_motion();
         }
         // **The parser is not held here, and that is research decision D4
         // arriving.** This used to return while a frame was in flight,
@@ -4448,6 +4625,37 @@ impl Driver {
         });
     }
 
+    /// Whether the system asks for reduced motion, read on the tick like
+    /// focus: one message send and a cached byte, about 0.04 us.
+    /// **Polled, not observed**: AppKit registers its own observer of the
+    /// display-options notification in `sharedApplication`, and its handler
+    /// invalidates the cached answer before anything is posted, so a toggle
+    /// reads fresh here within a frame (the design's probes; the live
+    /// toggle is the owner's check). Under `BAUD_MOTION` nothing is read.
+    fn poll_motion(&mut self) {
+        let m = system_motion(self.app.motion_source, reduce_motion);
+        if m == self.app.motion {
+            return;
+        }
+        self.app.motion = m;
+        let Some(next) = motion_change(self.app.trail_pick, self.app.cursor_trail, m) else {
+            return;
+        };
+        crate::info!("motion: {m:?}; trail: {next:?}");
+        let owes = retrail(
+            &mut self.app.chase,
+            &mut self.app.trail,
+            &mut self.app.last_cursor_cell,
+            next,
+            self.app.wanted,
+            HostTime::of_secs(self.app.tick_target),
+        );
+        self.app.cursor_trail = next;
+        if owes == Owes::Frame {
+            self.app.pending = Pending::Dirty;
+        }
+    }
+
     /// Record a focus transition and report it if the application asked.
     /// Only a *change* reaches the core, so polling cannot repeat `CSI I`.
     fn set_focus(&mut self, f: baud_core::Focus) {
@@ -5260,6 +5468,77 @@ mod tests {
         assert_eq!((r.index(), c.index()), (0, 0));
         let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
+    }
+}
+
+/// Where the motion preference comes from: the system, or `BAUD_MOTION`,
+/// read once at launch, for a check that must not change the owner's
+/// settings -- an instrument like `BAUD_SCROLLER`, not a configuration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MotionSource {
+    System,
+    Fixed(crate::config::SystemMotion),
+}
+
+/// `BAUD_MOTION`: `reduced` or `full` fix the preference; anything else,
+/// or nothing, leaves it to the system.
+fn motion_override(v: Option<&str>) -> MotionSource {
+    use crate::config::SystemMotion;
+    match v {
+        Some("reduced") => MotionSource::Fixed(SystemMotion::Reduced),
+        Some("full") => MotionSource::Fixed(SystemMotion::Full),
+        _ => MotionSource::System,
+    }
+}
+
+/// The motion preference from `source`, asking the system through `read`
+/// only when nothing fixed it.
+fn system_motion(source: MotionSource, read: impl FnOnce() -> bool) -> crate::config::SystemMotion {
+    use crate::config::SystemMotion;
+    match source {
+        MotionSource::Fixed(m) => m,
+        MotionSource::System => match read() {
+            true => SystemMotion::Reduced,
+            false => SystemMotion::Full,
+        },
+    }
+}
+
+/// macOS's Reduce Motion, from the window crate's safe getter.
+fn reduce_motion() -> bool {
+    macos_liquid_glass::accessibility::reduce_motion()
+}
+
+/// The trail a change of the motion preference switches to, if it changes
+/// the trail at all: only the default follows the system.
+fn motion_change(
+    pick: crate::config::TrailPick,
+    current: crate::config::CursorTrail,
+    motion: crate::config::SystemMotion,
+) -> Option<crate::config::CursorTrail> {
+    let next = pick.effective(motion);
+    (next != current).then_some(next)
+}
+
+/// Switch the trail to `next` now, cutting any trail in flight -- a fire
+/// is not left to burn out under Reduce Motion -- and say whether a frame
+/// is owed to clear what was drawn: one if something was in flight at
+/// `now`, none at rest.
+fn retrail(
+    chase: &mut crate::trail::Chase<HostTime>,
+    ghost: &mut Option<TrailState>,
+    last_cell: &mut Option<(Row, Col)>,
+    next: crate::config::CursorTrail,
+    path: Path,
+    now: Option<HostTime>,
+) -> Owes {
+    let drawn = now.is_some_and(|t| chase.owes(t) == Owes::Frame) || ghost.is_some();
+    chase.restyle(chase_style(next.style(), path));
+    *ghost = None;
+    *last_cell = None;
+    match drawn {
+        true => Owes::Frame,
+        false => Owes::Nothing,
     }
 }
 

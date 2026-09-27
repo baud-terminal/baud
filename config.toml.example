@@ -96,10 +96,13 @@ fonts = [
 # "off" is none; true and false still mean the default and "off". An idle
 # terminal pays nothing for any of them, because only a cursor that moved
 # leaves one. docs/cursor.md shows each, and docs/cursor.html plays them.
+# Under macOS's Reduce Motion the default is off; a trail named here is kept,
+# so the line below is commented out -- uncomment it only to keep a trail
+# whatever that setting says.
 [cursor]
 shape = "block"
 blink = true
-trail = "fire"
+# trail = "fire"
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the

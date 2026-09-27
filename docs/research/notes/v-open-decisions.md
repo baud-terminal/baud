@@ -59,7 +59,10 @@ the builds that follow them:
 Built since: the rendition cache (`fe776c9`), the quad trail, sfte's swept
 box (`trail = "sweep"`), and the fire trail, now the default -- drawn in the
 cursor's colour, the owner's word mid-build: "the flame should not use a
-special color, we use the cursor color, default color".
+special color, we use the cursor color, default color". Then plasma,
+lightning, ice, ufo, orb and liquid, and Reduce Motion: the default trail is
+off under it and a named one is kept (CLAUDE.md, "Reduce Motion means no
+trail, unless the config names one").
 
 ## What this is
 
