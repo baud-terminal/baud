@@ -23,6 +23,7 @@ use baud_present_macos::{
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
+use baud_render::ice;
 use baud_render::lightning;
 use baud_render::plasma;
 use baud_render::{
@@ -525,6 +526,20 @@ fn lightning_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// **The ice's reference**: `ice_frost`, through the renderer's own Rust
+/// model of it, `ice::light`.
+fn ice_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * ice::light(vfx, p);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
+/// An ice shard: the hexagonal plate `ice_fragment` draws a particle as,
+/// through `ice::shard`.
+fn ice_shard(uv: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * ice::shard(uv);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -573,6 +588,10 @@ fn reference(effect: Effect) -> Reference {
         Effect::Lightning => Reference {
             band: lightning_reference,
             particle: fx_particle,
+        },
+        Effect::Ice => Reference {
+            band: ice_reference,
+            particle: ice_shard,
         },
     }
 }

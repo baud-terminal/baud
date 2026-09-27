@@ -10,7 +10,7 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = true
-trail = "fire"    # fire | plasma | lightning | quad | sweep | ghost | off
+trail = "fire"    # fire | plasma | lightning | ice | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
@@ -83,6 +83,25 @@ last one was lit, not whether it still burns: a long move inside that window
 throws no second bolt, so it flashes at most three times a second. GPU only;
 the CPU path draws kitty's quad.
 
+## ice
+
+`trail = "ice"`
+
+![The ice trail on the diagonal move](cursor/ice.png)
+
+A rime fuse: small six-armed crystals nucleate along the path just behind
+kitty's leading corners and grow outward, with a patchy frost haze round them
+and a faint pane of ice over the quad as it slides. The lace holds while one
+soft glint travels from tail to head, then sublimates tail first -- each
+crystal shrinking to its centre -- and sheds hexagonal platelets that pop up
+and drift down. Gone by 0.70 s, the last platelet by about 0.87 s.
+
+The frost is laid over the path as well as the quad: a point of the path is
+inside kitty's quad for a few tens of milliseconds, too short for a crystal to
+grow. Each crystal is one arm folded into six by two mirrors, with side
+branches at 60 degrees and a hexagonal plate, turned by a hashed angle. GPU
+only, and held to a Rust port of its shader.
+
 ## quad
 
 `trail = "quad"`
@@ -152,7 +171,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- **Ice, liquid, orb and ufo** are wanted and not built. Each
+- **Liquid, orb and ufo** are wanted and not built. Each
   starts with reading prior art at source, then a shader in the cursor's colour
   held to a Rust reference the way the fire's is.
 - baud does not read macOS's Reduce Motion setting yet, and a trail does not

@@ -218,7 +218,7 @@
     <p class="eyebrow"><b>baud</b> · <code>[cursor] trail</code> · recorded at <code>8e51cf5</code></p>
     <h1>The cursor trails baud has today</h1>
     <p class="lede">Each clip is baud's own window, captured at up to 120&nbsp;Hz while a child program jumps the cursor between the four <code>+</code> marks: right, down, left, up, then the two diagonals, 1.15&nbsp;s apart. Same binary, same 80&times;24 grid, Menlo at 16&nbsp;pt, blink off, the system in Dark mode. Only the <code>trail</code> key changes.</p>
-    <p class="lede">Ice, liquid, orb and ufo are wanted and not built yet: each starts with reading prior art, then a shader held to a Rust reference the way fire is. The facts and their sources are in <a href="cursor.md">cursor.md</a>.</p>
+    <p class="lede">Liquid, orb and ufo are wanted and not built yet: each starts with reading prior art, then a shader held to a Rust reference the way fire is. The facts and their sources are in <a href="cursor.md">cursor.md</a>.</p>
     <div class="controls" role="group" aria-label="Playback">
       <span class="label" id="speed-label">Speed</span>
       <div class="seg" role="group" aria-labelledby="speed-label">
@@ -263,6 +263,17 @@
         <dt>Lasts</dt><dd>0.32 s</dd>
         <dt>Built on</dt><dd>Midpoint displacement in closed form, over a box along the path</dd>
         <dt>Limits</dt><dd>At most three bolts a second, even though each is out sooner; GPU only (the CPU path draws the quad)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
+      <div class="head"><h2>ice</h2><span class="key">trail = "ice"</span></div>
+      <div class="screen"><video src="cursor/ice.mp4" poster="cursor/ice.png" muted loop playsinline preload="auto" aria-label="The ice trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A lace of six-armed frost crystals laid along the path behind the moving quad, with a rime haze and a faint pane of ice. A glint runs tail to head, then the lace melts tail first into falling hexagonal platelets.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.70 s, the last platelet gone by about 0.87 s</dd>
+        <dt>Built on</dt><dd>Crystals folded six ways by two mirrors, laid at kitty's leading edge</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
       </dl>
     </article>
 
@@ -315,7 +326,7 @@
       <h3>Choose one</h3>
       <pre><span class="c"># ~/.config/baud/config.toml, after every top-level key</span>
 [cursor]
-trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | quad | sweep | ghost | off</span></pre>
+trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | quad | sweep | ghost | off</span></pre>
       <p class="note"><code>true</code> reads as the default (fire) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
     </div>
   </section>

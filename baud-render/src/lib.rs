@@ -33,6 +33,7 @@ mod color;
 mod composite;
 pub mod effect;
 pub mod fire;
+pub mod ice;
 mod instance;
 pub mod lightning;
 mod metrics;

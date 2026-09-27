@@ -176,6 +176,34 @@ fn the_bolts_shape_matches_the_shader() {
     assert_eq!(float("FORK_P"), l::FORK_P);
 }
 
+/// **The ice's lead and salts in the shader and in `baud_render::ice` are one
+/// fact spelled twice**: `ICE_LEAD` is kitty's leading-corner constant the
+/// frost is laid at, and the salts part its hashes from the fire's on one
+/// seed. The oracle ties the shader to the Rust model, but only in the scenes
+/// it draws; this names the constant.
+#[test]
+fn the_ices_constants_match_the_shader() {
+    use baud_render::ice;
+    let src = include_str!("../src/shaders.metal");
+    let define = |name: &str| -> String {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|x| x.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .to_string()
+    };
+    let word = |name: &str| -> u32 {
+        u32::from_str_radix(define(name).trim_start_matches("0x"), 16).expect(name)
+    };
+    assert_eq!(define("ICE_LEAD").parse::<f32>().unwrap(), ice::LEAD);
+    assert_eq!(word("ICE_SALT"), ice::ICE_SALT);
+    assert_eq!(word("RIME_SALT"), ice::RIME_SALT);
+}
+
 /// **`WIDE_TAIL` in the shader and `Content::WIDE_TAIL` are one fact spelled
 /// twice.** The cell shader reads the grid in place and gives a wide tail
 /// its lead's selection by comparing the cell's word against the literal;

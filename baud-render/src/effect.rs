@@ -5,7 +5,7 @@
 //! GPU path draws an effect with -- one band a cell row over the effect's
 //! reach, then one soft disc a live particle -- and the uniform its fragment
 //! function reads. What each effect draws is its own module: [`crate::fire`],
-//! [`crate::plasma`], [`crate::lightning`].
+//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -23,6 +23,7 @@
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
 use crate::fire;
+use crate::ice;
 use crate::instance::{Instance, Screen};
 use crate::lightning;
 use crate::plasma;
@@ -44,11 +45,15 @@ pub enum Effect {
     /// A jagged bolt thrown from the cell the cursor left to the one it
     /// reached, forks, a corona and falling sparks: [`crate::lightning`].
     Lightning,
+    /// A frost lace of six-fold crystals laid along the path, a rime haze
+    /// and a pane over the quad, melting tail first into falling shards:
+    /// [`crate::ice`].
+    Ice,
 }
 
 impl Effect {
     /// Every effect, in the order a GPU path indexes its pipelines by.
-    pub const ALL: [Effect; 3] = [Effect::Fire, Effect::Plasma, Effect::Lightning];
+    pub const ALL: [Effect; 4] = [Effect::Fire, Effect::Plasma, Effect::Lightning, Effect::Ice];
 
     /// How many effects there are: a GPU path keeps one pipeline each.
     pub const COUNT: usize = Effect::ALL.len();
@@ -59,6 +64,7 @@ impl Effect {
             Effect::Fire => "fire_fragment",
             Effect::Plasma => "plasma_fragment",
             Effect::Lightning => "lightning_fragment",
+            Effect::Ice => "ice_fragment",
         }
     }
 
@@ -70,6 +76,7 @@ impl Effect {
             Effect::Fire => fire::REACH,
             Effect::Plasma => plasma::REACH,
             Effect::Lightning => lightning::REACH,
+            Effect::Ice => ice::REACH,
         }
     }
 
@@ -80,6 +87,7 @@ impl Effect {
             Effect::Fire => fire::LIFE,
             Effect::Plasma => plasma::LIFE,
             Effect::Lightning => lightning::LIFE,
+            Effect::Ice => ice::LIFE,
         }
     }
 
@@ -90,6 +98,7 @@ impl Effect {
             Effect::Fire => fire::end(ignition),
             Effect::Plasma => plasma::end(ignition),
             Effect::Lightning => lightning::end(ignition),
+            Effect::Ice => ice::end(ignition),
         }
     }
 
@@ -99,6 +108,7 @@ impl Effect {
             Effect::Fire => fire::embers(ignition).for_each(&mut each),
             Effect::Plasma => plasma::ions(ignition).for_each(&mut each),
             Effect::Lightning => lightning::sparks(ignition).for_each(&mut each),
+            Effect::Ice => ice::shards(ignition).for_each(&mut each),
         }
     }
 }
@@ -211,34 +221,42 @@ impl Vfx {
         let unit = self.ignition.unit.max(1.0);
         let r = self.effect.reach() * unit;
         let (fw, fh) = (px(frame.0), px(frame.1));
-        let q = self.region().0;
-        let ys = q.map(|p| p.y);
-        let y0 = (min4(ys) - r).max(0.0);
-        let y1 = (max4(ys) + r).min(fh);
+        let mut shapes: Vec<[Pt; 4]> = Vec::new();
+        self.support(|c| shapes.push(c.0));
+        let (y0, y1) = shapes
+            .iter()
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), q| {
+                let ys = q.map(|p| p.y);
+                (lo.min(min4(ys)), hi.max(max4(ys)))
+            });
+        let y0 = (y0 - r).max(0.0);
+        let y1 = (y1 + r).min(fh);
         let mut band = (y0 / unit).floor() * unit;
         while band < y1 {
             let (lo, hi) = (band - r, band + unit + r);
             let (mut xmin, mut xmax) = (f32::INFINITY, f32::NEG_INFINITY);
-            for i in 0..4 {
-                let (a, b) = (q[i], q[(i + 1) % 4]);
-                let (mut t0, mut t1) = (0.0f32, 1.0f32);
-                let dy = b.y - a.y;
-                if dy.abs() < 1e-6 {
-                    if a.y < lo || a.y > hi {
-                        continue;
+            for q in &shapes {
+                for i in 0..4 {
+                    let (a, b) = (q[i], q[(i + 1) % 4]);
+                    let (mut t0, mut t1) = (0.0f32, 1.0f32);
+                    let dy = b.y - a.y;
+                    if dy.abs() < 1e-6 {
+                        if a.y < lo || a.y > hi {
+                            continue;
+                        }
+                    } else {
+                        let (ta, tb) = ((lo - a.y) / dy, (hi - a.y) / dy);
+                        t0 = t0.max(ta.min(tb));
+                        t1 = t1.min(ta.max(tb));
+                        if t0 > t1 {
+                            continue;
+                        }
                     }
-                } else {
-                    let (ta, tb) = ((lo - a.y) / dy, (hi - a.y) / dy);
-                    t0 = t0.max(ta.min(tb));
-                    t1 = t1.min(ta.max(tb));
-                    if t0 > t1 {
-                        continue;
+                    for t in [t0, t1] {
+                        let x = a.x + (b.x - a.x) * t;
+                        xmin = xmin.min(x);
+                        xmax = xmax.max(x);
                     }
-                }
-                for t in [t0, t1] {
-                    let x = a.x + (b.x - a.x) * t;
-                    xmin = xmin.min(x);
-                    xmax = xmax.max(x);
                 }
             }
             let (x0, x1) = ((xmin - r).max(0.0).floor(), (xmax + r).min(fw).ceil());
@@ -325,17 +343,33 @@ impl Vfx {
             Effect::Fire => fire::PARAMS,
             Effect::Plasma => plasma::params(self),
             Effect::Lightning => lightning::PARAMS,
+            Effect::Ice => ice::PARAMS,
         }
     }
 
-    /// **The region the effect is drawn over**: the quad the fire and the
-    /// plasma ride, or a region of the effect's own -- the lightning's box
-    /// along its path. The bands cover the effect's reach of it, and its
-    /// fragment function reads it as the corners it measures distance from.
+    /// **The region the effect measures distance from**, the corners its
+    /// fragment function reads: the quad the fire, the plasma and the ice's
+    /// pane ride, or the lightning's own box along its path.
     pub fn region(&self) -> Corners {
         match self.effect {
-            Effect::Fire | Effect::Plasma => self.emitter.corners,
+            Effect::Fire | Effect::Plasma | Effect::Ice => self.emitter.corners,
             Effect::Lightning => lightning::region(&self.ignition),
+        }
+    }
+
+    /// **Every shape the effect draws within its reach of**, which the
+    /// bands cover: its region, and for the ice the path as well -- the
+    /// frost is laid along the path, where the quad is for a few tens of
+    /// milliseconds at a point.
+    pub fn support(&self, mut each: impl FnMut(Corners)) {
+        each(self.region());
+        if self.effect == Effect::Ice {
+            let f = &self.ignition;
+            let head = Pt {
+                x: f.tail.x + f.dir.x * f.len,
+                y: f.tail.y + f.dir.y * f.len,
+            };
+            each(Corners([f.tail, head, head, f.tail]));
         }
     }
 
@@ -452,7 +486,9 @@ pub(crate) mod tests {
                             x: x as f32 + 0.5,
                             y: y as f32 + 0.5,
                         };
-                        if distance(p, &vfx.region()) > effect.reach() * CELL.1 {
+                        let mut d = f32::INFINITY;
+                        vfx.support(|c| d = d.min(distance(p, &c)));
+                        if d > effect.reach() * CELL.1 {
                             continue;
                         }
                         near += 1;

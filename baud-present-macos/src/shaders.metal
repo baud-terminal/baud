@@ -437,6 +437,127 @@ fragment float4 lightning_fragment(GOut in [[stage_in]], constant EffectU& f [[b
     return bolt_light(in.pos.xy - f.origin, in.color, f);
 }
 
+// ---- The ice, `baud-render/src/ice.rs`: a pane over the quad, and over the
+// path a frost lace of six-fold crystals, a glint and a rime haze, melting
+// tail first; shards are hexagonal plates. Its own numbers, `ice::PARAMS`:
+// `k[0]` the crystals' spacing, `k[1]` the longest arm, `k[2]` the line's half
+// width, `k[3]` the side branches' spacing, in cells; `k[4]` a crystal's
+// growth, `k[5]` the hold, `k[6]` the melt's spread and `k[7]` a crystal's
+// melt, in seconds. `ICE_LEAD` and the salts are held to the Rust constants
+// by the metallib test; `ice::light` is this in Rust.
+#define ICE_LEAD 0.01
+#define ICE_SALT 0x1CE01CE0u
+#define RIME_SALT 0x51ED0000u
+
+static inline float ice_line(float d, float w, float aa) { return 1.0 - smoothstep(w - aa, w + aa, d); }
+
+// When the frost reaches `u` of the path: kitty's leading corners, inverted.
+static inline float ice_dep(float u) { return -ICE_LEAD * log2(max(1.0 - 0.999 * u, 1e-3)); }
+
+// Crystal `k` at `rel`: rotated by a hashed angle through the tangent
+// half-angle form, folded into one 30-degree wedge by two mirrors, then one
+// arm, its side branches and its plate.
+static inline float ice_crystal(float k, float2 rel, float2 D, float2 Pp, float lu,
+                                float W, float aa, uint sbase, constant EffectU& f) {
+    float S = f.k[0], ARM = f.k[1], B = f.k[3], GROW = f.k[4], HOLD = f.k[5], SPREAD = f.k[6], MELT = f.k[7];
+    uint h1 = fx_hash(uint(int(k)) + sbase);
+    uint h2 = fx_hash(h1), h3 = fx_hash(h2), h4 = fx_hash(h3), h5 = fx_hash(h4), h6 = fx_hash(h5);
+    float along = (k + (fx_unit(h1) - 0.5) * 0.5) * S;
+    float across = (fx_unit(h2) - 0.5) * 0.7;
+    float win = smoothstep(-0.25, 0.0, along) * (1.0 - smoothstep(lu, lu + 0.25, along));
+    if (win <= 0.0) return 0.0;
+    float u = saturate(along / lu);
+    float delay = 0.03 * fx_unit(h5);
+    float x = saturate((f.age - ice_dep(u) - delay) / GROW);
+    float grow = 1.0 - (1.0 - x) * (1.0 - x) * (1.0 - x);
+    float m = HOLD + SPREAD * u + delay;
+    float fade = 1.0 - smoothstep(m, m + MELT, f.age);
+    float L = ARM * (0.45 + 0.55 * fx_unit(h4)) * grow * (0.35 + 0.65 * fade);
+    float exist = saturate(L / (2.0 * W));
+    if (exist <= 0.0 || fade <= 0.0) return 0.0;
+    float2 r = rel - (D * along + Pp * across);
+    float s = 0.57735027 * fx_unit(h3);
+    float den = 1.0 + s * s;
+    float cs = (1.0 - s * s) / den, sn = 2.0 * s / den;
+    float2 w = abs(float2(cs * r.x + sn * r.y, -sn * r.x + cs * r.y));
+    const float2 nA = float2(-0.8660254, 0.5), nB = float2(-0.5, 0.8660254);
+    w -= 2.0 * max(dot(w, nA), 0.0) * nA;
+    w -= 2.0 * max(dot(w, nB), 0.0) * nB;
+    float dm = length(w - float2(clamp(w.x, 0.0, L), 0.0));
+    float wm = W * (1.4 - 0.7 * saturate(w.x / max(L, 1e-4)));
+    float mainA = 0.95 * ice_line(dm, wm, aa);
+    const float2 e = float2(0.5, 0.8660254);
+    float xr = w.x - w.y * 0.57735027;
+    float xj = max(floor(xr / B + 0.5), 1.0) * B;
+    float lj = min(0.6 * (L - xj), xj);
+    float2 v = w - float2(xj, 0.0);
+    float ds = length(v - clamp(dot(v, e), 0.0, max(lj, 0.0)) * e);
+    float sideA = 0.60 * ice_line(ds, W, aa) * saturate(lj / (2.0 * W));
+    float pr = 0.10 + 0.30 * fx_unit(h6) * fx_unit(h6);
+    float dp = dot(w, float2(0.8660254, 0.5)) - pr * L * 0.8660254;
+    float plateA = 0.30 * (1.0 - smoothstep(-aa, aa, dp));
+    return max(mainA, max(sideA, plateA)) * exist * fade * win;
+}
+
+// **The ice at `p`**: the pane over the quad, and near the path the three
+// nearest crystals with the glint, and the rime.
+static inline float4 ice_frost(float2 p, float4 color, constant EffectU& f) {
+    if (fx_in_hole(p, f)) return float4(0.0);
+    float c = f.unit, lu = f.len / c;
+    float S = f.k[0], HOLD = f.k[5], SPREAD = f.k[6], MELT = f.k[7];
+    float2 rel = (p - f.tail) / c;
+    float2 D = f.dir, Pp = float2(-D.y, D.x);
+    float along = dot(rel, D);
+    float dseg = length(rel - D * clamp(along, 0.0, lu));
+    float dq = fx_distance(p, f);
+    if (dseg > f.reach && dq / c > f.reach) return float4(0.0);
+    float pa = saturate(1.0 - f.age / (0.6 * HOLD));
+    float pane = pa * max(0.14 * (1.0 - smoothstep(-0.5, 0.5, dq)),
+                          0.5 * (1.0 - smoothstep(0.5, 1.5, abs(dq))));
+    float a = pane;
+    if (dseg <= f.reach) {
+        float W = max(f.k[2], 0.75 / c), aa = 0.5 / c;
+        uint sbase = fx_hash(f.seed + ICE_SALT);
+        float k0 = floor(along / S + 0.5);
+        float frost = 0.0;
+        for (int dk = -1; dk <= 1; dk++)
+            frost = max(frost, ice_crystal(k0 + float(dk), rel, D, Pp, lu, W, aa, sbase, f));
+        float gp = (f.age - 0.4 * HOLD) / (0.6 * HOLD) * (lu + 2.0 * S) - S;
+        frost = saturate(frost * (1.0 + 0.3 * (1.0 - smoothstep(0.0, S, abs(along - gp)))));
+        float u = saturate(along / lu);
+        float front = (lu + 0.6) * (1.0 - exp2(-f.age / ICE_LEAD)) - 0.3;
+        float dep = 1.0 - smoothstep(front - 0.3, front + 0.3, along);
+        float mr = HOLD + SPREAD * u;
+        float rfade = 1.0 - smoothstep(mr, mr + MELT, f.age);
+        uint s2 = f.seed ^ RIME_SALT;
+        float2 q2 = float2(0.8 * rel.x - 0.6 * rel.y, 0.6 * rel.x + 0.8 * rel.y);
+        float n = 0.65 * fx_noise(rel * 2.3, s2) + 0.35 * fx_noise(q2 * 6.7, s2 + 0x9E3779B9u);
+        float rime = 0.24 * (1.0 - smoothstep(0.15, 0.6, dseg)) * smoothstep(0.35, 0.75, n) * dep * rfade;
+        a = max(a, max(frost, rime));
+    }
+    a *= color.a;
+    return float4(color.rgb * a, a);
+}
+
+// iq's hexagon (MIT), for a shard: a plate with its flats at `r`.
+static inline float ice_hex(float2 p, float r) {
+    const float3 k = float3(-0.866025404, 0.5, 0.577350269);
+    p = abs(p);
+    p -= 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p -= float2(clamp(p.x, -k.z * r, k.z * r), r);
+    return length(p) * sign(p.y);
+}
+
+fragment float4 ice_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) {
+        float d = ice_hex(in.uv, 0.70);
+        float a = in.color.a * (1.0 - smoothstep(-0.08, 0.12, d))
+                * (0.55 + 0.45 * smoothstep(-0.35, -0.02, d));
+        return float4(in.color.rgb * a, a);
+    }
+    return ice_frost(in.pos.xy - f.origin, in.color, f);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {
