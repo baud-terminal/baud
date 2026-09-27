@@ -351,6 +351,8 @@ fn the_overlays_follow_the_flip_on_the_frame_it_happens() {
             from: (Row::from_index(1), Col::at_index(1)),
             to: (Row::from_index(4), Col::at_index(20)),
             progress: 0.5,
+            origin_dy: 0.0,
+            lift: Px::of(0),
         })));
         r.set_screen_fade(Some(Transition { progress: 0.5 }));
     };

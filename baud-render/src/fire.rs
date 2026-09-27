@@ -36,8 +36,11 @@ pub const RISE: f32 = 2.2;
 pub const DRIFT: f32 = 0.6;
 
 /// The fire's own numbers as `fire_fragment` reads them, `k` in `EffectU`:
-/// the flame's height, rise and drift.
-pub const PARAMS: [f32; effect::PARAMS] = [HEIGHT, RISE, DRIFT, 0.0, 0.0, 0.0, 0.0, 0.0];
+/// the flame's height, rise and drift, and how far its path has ridden a
+/// smooth scroll ([`Ignition::rode`]), which the noise is anchored on.
+pub fn params(ig: &Ignition) -> [f32; effect::PARAMS] {
+    [HEIGHT, RISE, DRIFT, ig.rode, 0.0, 0.0, 0.0, 0.0]
+}
 
 /// **Seconds from ignition to when the fire is out**: the flame's life, or
 /// the last ember's death if that is later.

@@ -406,9 +406,11 @@ fn fire_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     if d0 > fire::REACH {
         return [0.0; 4];
     }
+    // The noise is anchored on the ride, `k[3]`, as the shader reads it.
+    let rode = vfx.params()[3];
     let s = Pt {
         x: p.x / c * 2.6 - f.dir.x * (f.age * fire::DRIFT),
-        y: (p.y / c + f.age * fire::RISE) * 0.7 - f.dir.y * (f.age * fire::DRIFT),
+        y: ((p.y - rode) / c + f.age * fire::RISE) * 0.7 - f.dir.y * (f.age * fire::DRIFT),
     };
     let n = fx_fbm(s, Word(f.seed.0));
     let lift = fire::HEIGHT * c * smoothstep(0.25, 0.85, n);
@@ -600,6 +602,95 @@ struct Reference {
     particle: fn(Pt, [f32; 4]) -> [f32; 4],
 }
 
+/// **Every effect rides rigidly**: a look translated by `d` is the look
+/// before, drawn `d` lower -- `band(v.translated(d), p + (0, d)) == band(v,
+/// p)` at every sample, and every particle moved by exactly `(0, d)`. That is
+/// what lets a trail ride a smooth scroll with the text. The fire failed it
+/// until its noise was anchored on the ride (`Ignition::rode`, `k[3]`): its
+/// flame was sampled from noise fixed to the frame, so a translated fire
+/// crawled through it. The ufo is placed away from the top, where its hover
+/// side reads the hole's absolute row (`ufo.rs`), the recorded exception.
+#[test]
+fn every_effect_rides_rigidly() {
+    let (cw, ch) = (17.0f32, 34.0f32);
+    let cell = |col: f32, row: f32| Rect {
+        left: col * cw,
+        top: row * ch,
+        right: (col + 1.0) * cw,
+        bottom: (row + 1.0) * ch,
+    };
+    let centre = |r: Rect| Pt {
+        x: (r.left + r.right) * 0.5,
+        y: (r.top + r.bottom) * 0.5,
+    };
+    let (from, to) = (cell(10.0, 9.0), cell(30.0, 6.0));
+    let seg = Segment::new(from.corners(), to);
+    let colour = [0.9f32, 0.8, 0.7, 1.0];
+    for effect in Effect::ALL {
+        let reference = reference(effect);
+        let end = effect.end(&Ignition::ignite(centre(from), to, Seed(7), ch));
+        for age in [0.15f32, 0.3].map(|f| f * end) {
+            let vfx = Vfx {
+                effect,
+                emitter: Smear {
+                    corners: seg.at(age),
+                    hole: to,
+                    shape: Shape::Quad,
+                },
+                ignition: Ignition::ignite(centre(from), to, Seed(7), ch).at(age),
+                axis: Pt { x: 0.8, y: -0.6 },
+            };
+            for d in [-2.0 * ch, -ch, 13.0] {
+                let moved = vfx.translated(d);
+                let mut worst = 0.0f32;
+                let mut lit = 0usize;
+                for y in (4..14).map(|r| r as f32 * ch) {
+                    for yy in (0..34).step_by(3) {
+                        for x in (8..34).flat_map(|c| {
+                            (0..17).step_by(4).map(move |xx| c as f32 * cw + xx as f32)
+                        }) {
+                            let p = Pt {
+                                x: x + 0.5,
+                                y: y + yy as f32 + 0.5,
+                            };
+                            let a = (reference.band)(&vfx, p, colour);
+                            let b = (reference.band)(&moved, Pt { x: p.x, y: p.y + d }, colour);
+                            lit += usize::from(a[3] > 0.01);
+                            for i in 0..4 {
+                                worst = worst.max((a[i] - b[i]).abs());
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    worst <= 1.0 / 1024.0,
+                    "{effect:?} at {age} moved {d}: a channel moved by {worst}"
+                );
+                let (mut before, mut after) = (Vec::new(), Vec::new());
+                vfx.particles(|q| before.push(q));
+                moved.particles(|q| after.push(q));
+                assert_eq!(
+                    before.len(),
+                    after.len(),
+                    "{effect:?} at {age}: the particles"
+                );
+                for (q, r) in before.iter().zip(&after) {
+                    assert!(
+                        (r.centre.x - q.centre.x).abs() < 1e-3
+                            && (r.centre.y - q.centre.y - d).abs() < 1e-3
+                            && r.radius == q.radius
+                            && r.glow == q.glow,
+                        "{effect:?} at {age}: a particle did not move by {d}: {q:?} against {r:?}"
+                    );
+                }
+                // A control: the samples cover something drawn, or the
+                // comparison is between two blanks.
+                assert!(lit >= 8, "{effect:?} at {age}: only {lit} samples lit");
+            }
+        }
+    }
+}
+
 /// The reference for an effect: every effect has one, so a new effect
 /// without one does not compile.
 fn reference(effect: Effect) -> Reference {
@@ -757,7 +848,11 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         // and its width table is never read. The reseeded scene is the move
         // across on a seed whose hashes differ -- the liquid's bead count is
         // two there and three on seed 7 -- and the long one a move far enough
-        // for the liquid's head to wobble at a pixel, at full strength.
+        // for the liquid's head to wobble at a pixel, at full strength. The
+        // ridden scene is the move across ridden two and a half rows down a
+        // smooth scroll: the only scene whose ignition has ridden, so the
+        // only one where a shader that ignored the ride -- the fire's noise
+        // anchored on the frame rather than on the path -- differs.
         let across = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
         let down = (cell_at(104.0, 0.0), cell_at(106.0, 8.0));
         let line = (bar(cell_at(98.0, 4.0)), bar(cell_at(116.0, 4.0)));
@@ -776,6 +871,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             ("large", across, across, 2.5, Seed(7)),
             ("reseeded", across, across, 1.0, Seed(1)),
             ("long", long, long, 1.0, Seed(7)),
+            ("ridden", across, across, 1.0, Seed(7)),
         ] {
             // The fire's four ages, shrunk for an ignition that is out sooner
             // than the fire's shortest: the lightning's, out at 0.32 s, run
@@ -809,6 +905,11 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     },
                     ignition: ignite.at(age),
                     axis,
+                };
+                let vfx = if name == "ridden" {
+                    vfx.translated(2.5 * ch)
+                } else {
+                    vfx
                 };
                 arms.trail = Some(TrailLook::Vfx(vfx));
                 let (a, b) = arms.draw(t);
@@ -1588,6 +1689,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         from: (Row::from_index(1), Col::at_index(2)),
         to: (Row::from_index(4), Col::at_index(20)),
         progress: 0.5,
+        origin_dy: 0.0,
+        lift: Px::of(0),
     }));
     let (trail_a, trail_b) = arms.draw(&mut t);
     {
@@ -1973,6 +2076,105 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&mid_in_place, &settled) > 0,
         "the slide did not move the screen"
     );
+
+    // Ride-scroll: a trail drawn mid-slide is lifted by the slide's pan,
+    // which the cell path pans the grid and the cursor by too, so the frame
+    // is the resting frame moved down by the pan, trail and all -- pixel for
+    // pixel wherever both frames draw, below the leaving row. A move up
+    // from four rows below: the quad is a column under the cursor, so a
+    // trail left unlifted covers the lower part of the cursor the slide
+    // moved down into it, which is the control that the check can fail.
+    feed(&mut t, b"\x1b[?25h\x1b[5;30H");
+    let half = Px::of(cell_h.value() / 2);
+    let (r, c) = t.cursor();
+    let style = t.cursor_style();
+    let hole = arms.renderer.cursor_rect(r, c, style);
+    let below = arms
+        .renderer
+        .cursor_rect(Row::from_index(r.index() + 4), c, style);
+    let seg = Segment::new(below.corners(), hole);
+    let quad = TrailLook::Smear(Smear {
+        corners: seg.at(0.03),
+        hole,
+        shape: Shape::Quad,
+    });
+    let ignite = Ignition::ignite(
+        Pt {
+            x: (below.left + below.right) * 0.5,
+            y: (below.top + below.bottom) * 0.5,
+        },
+        hole,
+        Seed(7),
+        cell_h.value() as f32,
+    );
+    let fire = TrailLook::Vfx(Vfx {
+        effect: Effect::Fire,
+        emitter: Smear {
+            corners: seg.at(0.1),
+            hole,
+            shape: Shape::Quad,
+        },
+        ignition: ignite.at(0.1),
+        axis: Pt { x: 0.0, y: -1.0 },
+    });
+    let (fw, _) = arms.renderer.frame_size();
+    let w = usize::try_from(fw.value()).unwrap();
+    let shift = usize::try_from(half.value()).unwrap() * w;
+    // Pixels of the slid frame that are not the resting frame moved down.
+    let moved = |slid: &[u32], rest: &[u32]| {
+        (0..rest.len() - shift)
+            .filter(|&i| slid[i + shift] != rest[i])
+            .count()
+    };
+    // The same, only over the cursor as the slide draws it.
+    let in_cursor = |slid: &[u32], rest: &[u32]| {
+        (0..rest.len() - shift)
+            .filter(|&i| {
+                let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+                x > hole.left && x < hole.right && y > hole.top && y < hole.bottom
+            })
+            .filter(|&i| slid[i + shift] != rest[i])
+            .count()
+    };
+    arms.back = Rows::ZERO;
+    for (name, look) in [
+        ("nothing", None),
+        ("quad", Some(quad)),
+        ("fire", Some(fire)),
+    ] {
+        arms.slide = None;
+        arms.trail = look;
+        let (_, rest) = arms.draw(&mut t);
+        arms.slide = Some(half);
+        arms.trail = look.map(|l| l.lifted(half));
+        let (_, slid) = arms.draw(&mut t);
+        assert_eq!(
+            moved(&slid, &rest),
+            0,
+            "mid-slide, the {name} is not the resting frame moved by the pan"
+        );
+        if look.is_some() {
+            arms.trail = None;
+            let (_, plain_slid) = arms.draw(&mut t);
+            assert!(
+                differing(&slid, &plain_slid) > 100,
+                "the {name} reached the pixels mid-slide"
+            );
+        }
+    }
+    arms.trail = None;
+    arms.slide = None;
+    let (_, rest) = arms.draw(&mut t);
+    arms.slide = Some(half);
+    arms.trail = Some(quad);
+    let (_, unlifted) = arms.draw(&mut t);
+    assert!(
+        in_cursor(&unlifted, &rest) > 0,
+        "an unlifted quad covers the cursor the slide moved into it"
+    );
+    arms.trail = None;
+    arms.slide = None;
+    feed(&mut t, b"\x1b[?25l");
 
     // Rank 1: the overlay records slide with the grid. The plain-digit gates
     // above prove the cell math; this proves a combining mark and a

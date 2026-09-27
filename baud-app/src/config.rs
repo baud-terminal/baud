@@ -84,6 +84,9 @@ pub struct Config {
     /// accumulates lag, and an idle screen pays nothing, so the latency is
     /// bounded rather than a reason to keep it off. `normal` opts out.
     pub scroll: ScrollMode,
+    /// `[cursor] trail_scroll`: whether a trail in flight rides a smooth
+    /// scroll -- `ride` by default -- or stays.
+    pub trail_scroll: TrailScroll,
     /// The window's material and how it is dimmed, from `[glass]`.
     pub glass: Glass,
     /// How much caller memory the image store is given, from `[images]`.
@@ -357,6 +360,18 @@ pub enum ScreenTransition {
     On,
 }
 
+/// Whether a trail in flight rides a smooth scroll with the text, or stays
+/// where the screen had it. `Ride` by default, the owner's call of
+/// 2026-09-25: a trail rides for at most two rows and then folds in on the
+/// fast constant (`trail.rs`). `Stay` draws exactly what it drew before the
+/// ride was built. Inert under `[scroll] mode = "normal"`, which slides
+/// nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrailScroll {
+    Ride,
+    Stay,
+}
+
 /// Whether output scrolls the screen in one jump or slides it smoothly.
 /// `Smooth` by default, matching sfte: the slide's added latency is bounded
 /// to one row and an idle screen pays nothing, so it ships on rather than
@@ -394,6 +409,7 @@ impl Config {
             cursor_stop: StopAfter::Never,
             screen_transition: ScreenTransition::Off,
             scroll: ScrollMode::Smooth,
+            trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
             images: crate::host::IMAGE_BUDGET,
             sixel: baud_domain::SixelClaim::No,
@@ -567,6 +583,19 @@ impl Config {
                 // Quoted, as the example writes it, or bare: the example's
                 // `"normal"` was read as smooth until the example's own gate
                 // asked the reader what it had ignored.
+                ("cursor", "trail_scroll") => {
+                    self.trail_scroll = match value.trim().trim_matches('"') {
+                        "ride" => TrailScroll::Ride,
+                        "stay" => TrailScroll::Stay,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] trail_scroll {other:?} is not ride or stay; \
+                                 using the default, ride"
+                            ));
+                            TrailScroll::Ride
+                        }
+                    };
+                }
                 ("scroll", "mode") => {
                     self.scroll = match value.trim().trim_matches('"') {
                         "smooth" => ScrollMode::Smooth,
@@ -1054,6 +1083,30 @@ mod reader {
                 "{text:?} under Reduce Motion"
             );
         }
+    }
+
+    /// `trail_scroll` is `ride` unless it says `stay`, quoted or bare, and
+    /// anything else is said once and rides.
+    #[test]
+    fn a_trail_rides_the_scroll_unless_it_stays() {
+        assert_eq!(Config::defaults().trail_scroll, TrailScroll::Ride);
+        let at = |v: &str| read(&format!("[cursor]\ntrail_scroll = {v}\n")).trail_scroll;
+        assert_eq!(at("stay"), TrailScroll::Stay);
+        assert_eq!(at("\"stay\""), TrailScroll::Stay);
+        assert_eq!(at("\"ride\""), TrailScroll::Ride);
+        assert_eq!(at("glide"), TrailScroll::Ride);
+        assert_eq!(
+            Config::defaults()
+                .apply("[cursor]\ntrail_scroll = glide\n")
+                .len(),
+            1,
+            "a typo is said"
+        );
+        assert_eq!(
+            read("trail_scroll = stay\n").trail_scroll,
+            TrailScroll::Ride,
+            "not at the top level"
+        );
     }
 
     /// `stop_blinking_after` in seconds: absent and `0` are never, a number
@@ -1569,8 +1622,18 @@ shadow     = "never"
         // blink below, which are named.
         assert_eq!(c.cursor_trail, TrailPick::Default);
         assert_eq!(
-            (c.cursor_shape, c.cursor_blink, c.cursor_stop),
-            (CursorShape::Block, BlinkChoice::Auto, StopAfter::Never)
+            (
+                c.cursor_shape,
+                c.cursor_blink,
+                c.cursor_stop,
+                c.trail_scroll
+            ),
+            (
+                CursorShape::Block,
+                BlinkChoice::Auto,
+                StopAfter::Never,
+                TrailScroll::Ride
+            )
         );
         assert_eq!(
             c.screen_transition,

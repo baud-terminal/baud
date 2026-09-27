@@ -70,7 +70,11 @@ sub-question as recommended: the rate read from the system's keys, macOS
 cursor blinks at the system caret's rate"). Then rule F, the owner's call the
 same day: `?12` or-ed with the style's own blink, as foot does, and the style
 saved and restored across `?1049`, so vim and helix leave the shell its
-configured cursor (CLAUDE.md, "`?12` is a second input to the blink").
+configured cursor (CLAUDE.md, "`?12` is a second input to the blink"). Then
+the ride, with the owner's bound of the same day -- two rows, then fold in: a
+trail in flight moves up with the text under a smooth scroll, and `[cursor]
+trail_scroll = "stay"` keeps it put (CLAUDE.md, "A trail rides a smooth
+scroll, two rows at most").
 
 ## What this is
 

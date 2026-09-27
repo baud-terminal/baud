@@ -19,7 +19,7 @@ design, is recorded in `CLAUDE.md` under each feature's own section:
 | Reduce Motion | `336d269` | "Reduce Motion means no trail, unless the config names one" |
 | blink from the OS | `9c4769d` | "The cursor blinks at the system caret's rate" |
 | rule F for `?12` | `2b54cfd` | "`?12` is a second input to the blink" |
-| ride-scroll | not yet | -- |
+| ride-scroll | the commit after `a349d7e` | "A trail rides a smooth scroll, two rows at most" |
 
 
 ## Reduce Motion

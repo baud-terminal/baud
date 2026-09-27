@@ -176,6 +176,13 @@ pub struct Ignition {
     pub age: f32,
     pub seed: Seed,
     pub unit: f32,
+    /// How far the path has ridden a smooth scroll since it was lit, pixels,
+    /// y down -- every [`Ignition::translated`] adds to it, the ride's and a
+    /// frame's lift alike. The fire's noise is anchored on it
+    /// ([`fire::params`]), so a flame that rides keeps its shape rather than
+    /// crawling through noise fixed to the frame. Zero for one that never
+    /// rode, which draws exactly as before.
+    pub rode: f32,
 }
 
 impl Ignition {
@@ -194,12 +201,29 @@ impl Ignition {
             age: 0.0,
             seed,
             unit,
+            rode: 0.0,
         }
     }
 
     /// The same ignition `age` seconds after it.
     pub fn at(self, age: f32) -> Ignition {
         Ignition { age, ..self }
+    }
+
+    /// The path moved `dy` pixels down, rigidly: its tail and so its head,
+    /// with its direction, length, seed and age kept. Stretching it to keep
+    /// the head on the cursor would re-lay the geometry each effect reads
+    /// off the length -- the lightning's levels, the fire's ember count, the
+    /// ice's lattice.
+    pub fn translated(self, dy: f32) -> Ignition {
+        Ignition {
+            tail: Pt {
+                x: self.tail.x,
+                y: self.tail.y + dy,
+            },
+            rode: self.rode + dy,
+            ..self
+        }
     }
 }
 
@@ -236,6 +260,17 @@ pub const PARAMS: usize = 8;
 pub const UNIFORM_FLOATS: usize = 24 + PARAMS;
 
 impl Vfx {
+    /// The effect moved `dy` pixels down, rigidly: its emitter's corners and
+    /// hole, and its ignition's path. The axis is a direction and does not
+    /// move.
+    pub fn translated(self, dy: f32) -> Vfx {
+        Vfx {
+            emitter: self.emitter.translated(dy),
+            ignition: self.ignition.translated(dy),
+            ..self
+        }
+    }
+
     /// **The records a GPU path draws the effect with**, in `fill`, the
     /// cursor's colour: one band a cell row over the emitter's reach -- the
     /// pixels within [`Effect::reach`] cells of it, which is everywhere the
@@ -364,7 +399,7 @@ impl Vfx {
     /// read one spelling.
     pub fn params(&self) -> [f32; PARAMS] {
         match self.effect {
-            Effect::Fire => fire::PARAMS,
+            Effect::Fire => fire::params(&self.ignition),
             Effect::Plasma => plasma::params(self),
             Effect::Lightning => lightning::PARAMS,
             Effect::Ice => ice::PARAMS,
@@ -488,7 +523,7 @@ fn tex(v: f32) -> Tex {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::trail::{Segment, Shape};
+    use crate::trail::{Segment, Shape, TrailLook};
 
     pub(crate) const CELL: (f32, f32) = (17.0, 34.0);
 
@@ -503,6 +538,113 @@ pub(crate) mod tests {
 
     pub(crate) fn ignition(from: Rect, to: Rect, seed: Seed) -> Ignition {
         Ignition::ignite(from.center(), to, seed, CELL.1)
+    }
+
+    /// **A look lifted by a slide moves every piece by the pan**, and only
+    /// what is a position: the corners, the hole, the path's tail and its
+    /// ride; not its direction, length, seed, age or unit, nor the axis --
+    /// for every effect and for a smear. The ghost is in `trail.rs`.
+    #[test]
+    fn a_translated_look_moves_every_piece_by_the_same_amount() {
+        let (from, to) = (cell(10.0, 8.0), cell(40.0, 2.0));
+        let seg = Segment::new(from.corners(), to);
+        let pan = Px::of(13);
+        let dy = 13.0;
+        let moved = |a: Pt, b: Pt| a.x == b.x && b.y - a.y == dy;
+        let rect_moved = |a: Rect, b: Rect| {
+            a.left == b.left
+                && a.right == b.right
+                && b.top - a.top == dy
+                && b.bottom - a.bottom == dy
+        };
+        let smear = Smear {
+            corners: seg.at(0.05),
+            hole: to,
+            shape: Shape::Quad,
+        };
+        let TrailLook::Smear(s) = TrailLook::Smear(smear).lifted(pan) else {
+            panic!("a smear lifts to a smear");
+        };
+        assert!(
+            smear
+                .corners
+                .0
+                .iter()
+                .zip(s.corners.0)
+                .all(|(a, b)| moved(*a, b))
+        );
+        assert!(rect_moved(smear.hole, s.hole));
+        assert_eq!(s.shape, smear.shape);
+        for effect in Effect::ALL {
+            let ig = ignition(from, to, Seed(5)).at(0.1);
+            let vfx = Vfx {
+                effect,
+                emitter: smear,
+                ignition: ig,
+                axis: Pt { x: 0.6, y: -0.8 },
+            };
+            let TrailLook::Vfx(v) = TrailLook::Vfx(vfx).lifted(pan) else {
+                panic!("an effect lifts to an effect");
+            };
+            assert!(
+                vfx.emitter
+                    .corners
+                    .0
+                    .iter()
+                    .zip(v.emitter.corners.0)
+                    .all(|(a, b)| moved(*a, b)),
+                "{effect:?}"
+            );
+            assert!(rect_moved(vfx.emitter.hole, v.emitter.hole), "{effect:?}");
+            assert!(moved(ig.tail, v.ignition.tail), "{effect:?}");
+            assert_eq!(v.ignition.rode - ig.rode, dy, "{effect:?}");
+            assert_eq!(
+                (v.ignition.dir, v.ignition.len, v.ignition.age),
+                (ig.dir, ig.len, ig.age)
+            );
+            assert_eq!((v.ignition.seed, v.ignition.unit), (ig.seed, ig.unit));
+            assert_eq!(v.axis, vfx.axis, "{effect:?}");
+            assert_eq!(v.effect, effect);
+        }
+        // Zero is the identity.
+        assert_eq!(
+            TrailLook::Smear(smear).lifted(Px::of(0)),
+            TrailLook::Smear(smear)
+        );
+    }
+
+    /// **A fire that never rode reads no offset**: its fourth number is the
+    /// ride, zero from ignition, so its uniform is the one it always was; and
+    /// a translation is what moves it.
+    #[test]
+    fn a_fire_that_never_rode_reads_no_offset() {
+        let (from, to) = (cell(10.0, 8.0), cell(40.0, 2.0));
+        let seg = Segment::new(from.corners(), to);
+        let vfx = Vfx {
+            effect: Effect::Fire,
+            emitter: Smear {
+                corners: seg.at(0.05),
+                hole: to,
+                shape: Shape::Quad,
+            },
+            ignition: ignition(from, to, Seed(5)).at(0.05),
+            axis: Pt { x: 1.0, y: 0.0 },
+        };
+        assert_eq!(
+            vfx.params(),
+            [
+                fire::HEIGHT,
+                fire::RISE,
+                fire::DRIFT,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        );
+        assert_eq!(vfx.translated(-34.0).params()[3], -34.0);
+        assert_eq!(vfx.translated(-34.0).translated(12.0).params()[3], -22.0);
     }
 
     /// **Every pixel an effect can reach is in a band**, for every effect.

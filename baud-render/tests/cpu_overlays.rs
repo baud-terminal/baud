@@ -52,6 +52,8 @@ fn trail(from: (usize, usize), to: (usize, usize), progress: f32) -> TrailLook {
         from: (Row::from_index(from.0), Col::at_index(from.1)),
         to: (Row::from_index(to.0), Col::at_index(to.1)),
         progress,
+        origin_dy: 0.0,
+        lift: Px::of(0),
     })
 }
 

@@ -106,10 +106,18 @@ fonts = [
 # Under macOS's Reduce Motion the default is off; a trail named here is kept,
 # so the line below is commented out -- uncomment it only to keep a trail
 # whatever that setting says.
+#
+# `trail_scroll`: when output scrolls the screen smoothly under a trail in
+# flight, "ride", the default, carries the trail up with the text for at most
+# two rows and then folds it into the cursor, so it lands while output
+# streams; "stay" draws it where the screen had it, as before the ride was
+# built, and may lie over part of a sliding cursor for up to 60 ms. It changes
+# nothing under `[scroll] mode = "normal"`.
 [cursor]
 shape = "block"
 blink = "auto"
 stop_blinking_after = 0
+trail_scroll = "ride"
 # trail = "fire"
 
 # Whether switching to or from the alternate screen (opening or leaving a

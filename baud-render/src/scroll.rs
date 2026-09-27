@@ -1,7 +1,8 @@
 //! Smooth scrolling: output slides the screen up rather than jumping it,
-//! the feature sfte ships as `SFTE_TERM_SCROLL_SMOOTH`. Off by default
-//! (`[scroll] mode`), and built to answer the cost the first attempt was
-//! withdrawn for -- ~100 ms of scrolled-output latency.
+//! the feature sfte ships as `SFTE_TERM_SCROLL_SMOOTH`. On by default, as
+//! sfte's is (`[scroll] mode`, where `normal` opts out), and built to answer
+//! the cost the first attempt was withdrawn for -- ~100 ms of
+//! scrolled-output latency.
 //!
 //! The performance answer is the cap. sfte's form, and baud's first, let
 //! the pending offset accumulate: a line takes the whole slide to arrive,

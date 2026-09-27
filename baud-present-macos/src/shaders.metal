@@ -204,8 +204,10 @@ static inline bool fx_in_hole(float2 p, constant EffectU& f) {
 }
 
 // ---- The fire, `baud-render/src/fire.rs`: a flame rising off the quad's
-// collapsing corners, and the embers it sheds. Its own numbers, `fire::PARAMS`:
-// `k[0]` the flame's height, `k[1]` its rise, `k[2]` its drift.
+// collapsing corners, and the embers it sheds. Its own numbers, `fire::params`:
+// `k[0]` the flame's height, `k[1]` its rise, `k[2]` its drift, and `k[3]`
+// how far its path has ridden a smooth scroll, which the noise is anchored
+// on so a flame that rides keeps its shape. Zero for one that never rode.
 
 // **The flame at `p`**: tongues where noise lifts a sample down into the
 // quad, cooling with distance from it and burning out from the tail, and a
@@ -222,7 +224,7 @@ static inline float4 fire_flame(float2 p, float4 color, constant EffectU& f) {
     float c = f.unit;
     float d0 = fx_distance(p, f) / c;
     if (d0 > f.reach) return float4(0.0);
-    float2 q = p / c;
+    float2 q = (p - float2(0.0, f.k[3])) / c;
     float2 s = float2(q.x * 2.6, (q.y + f.age * rise) * 0.7) - f.dir * (f.age * drift);
     float n = fx_fbm(s, f.seed);
     float lift = height * c * smoothstep(0.25, 0.85, n);

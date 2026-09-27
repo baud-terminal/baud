@@ -227,6 +227,13 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   the selection before each hide [[source: helix-tui-terminal]].
 - Every trail is the cursor's colour: the foreground, unless a program sets
   another with `OSC 12`.
+- A trail rides a smooth scroll. When output scrolls the screen under a trail
+  in flight, what the trail drew from the path moves up with the text -- a
+  move's corners, an effect's whole path, the ghost's start -- and what it drew
+  from the cursor stays with the cursor. A move rides two rows at most and then
+  folds into the cursor, so a trail does not hang above it while a build log
+  streams; an effect's path rides for its whole life. `[cursor] trail_scroll =
+  "stay"` keeps the trail where it was drawn.
 - An idle terminal pays nothing for any of them. Only a moved cursor starts a
   trail, and one that has ended asks for no more frames.
 - Under macOS's Reduce Motion (System Settings, Accessibility, Display) the
@@ -237,7 +244,11 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- A trail does not ride a smooth scroll yet.
+- A trail rides only a smooth scroll on the GPU's cell path: under `[scroll]
+  mode = "normal"`, on the CPU path and on the alternate screen, the screen
+  jumps and the trail stays where it was drawn.
+- A trail's particles -- the fire's embers, the lightning's sparks -- are not
+  held off the cursor the way its body is, so one can cross it.
 
 ## How the clips were made
 
