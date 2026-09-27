@@ -10,7 +10,7 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = true
-trail = "fire"    # fire | plasma | quad | sweep | ghost | off
+trail = "fire"    # fire | plasma | lightning | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
@@ -61,6 +61,27 @@ so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it
 to one line. GPU only, like the fire, and held to a Rust port of its shader
 the same way.
+
+## lightning
+
+`trail = "lightning"`
+
+![The lightning trail on the diagonal move](cursor/lightning.png)
+
+A thin, jagged bolt thrown from the cell the cursor left to the cell it
+reached. It draws itself in from the old cell over 40 ms, like a stepped
+leader, holds, and fades over a quarter second, its core thinning as it goes.
+Up to three short forks branch off it, a soft corona brightens round the cursor
+as it lands, and ten sparks splash from the cursor and fall. It is gone in
+0.32 s. Its shape never changes during its life -- no flicker and no re-strike
+-- so every pixel it crosses rises once and falls once.
+
+It is not drawn over kitty's quad but over a box along the path, fixed for the
+bolt's life, so the chase does not cut its tail off. Because a bolt is out
+before the third of a second between ignitions is up, the guard is when the
+last one was lit, not whether it still burns: a long move inside that window
+throws no second bolt, so it flashes at most three times a second. GPU only;
+the CPU path draws kitty's quad.
 
 ## quad
 
@@ -131,7 +152,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- **Ice, liquid, lightning, orb and ufo** are wanted and not built. Each
+- **Ice, liquid, orb and ufo** are wanted and not built. Each
   starts with reading prior art at source, then a shader in the cursor's colour
   held to a Rust reference the way the fire's is.
 - baud does not read macOS's Reduce Motion setting yet, and a trail does not

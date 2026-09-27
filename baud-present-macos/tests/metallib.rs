@@ -140,6 +140,42 @@ fn the_shape_slot_count_matches_the_shader() {
     );
 }
 
+/// **The lightning's shape in the shader and in `baud_render::lightning` are
+/// one fact spelled twice.** The bolt's jag, cap, segment floor, level count,
+/// salts and fork constants are `#define`s the shader reads and constants the
+/// Rust model reads -- the model the oracle's reference calls, so a shader
+/// that drifted from it would be caught there too, but only in the scenes it
+/// draws; this names the constant.
+#[test]
+fn the_bolts_shape_matches_the_shader() {
+    use baud_render::lightning as l;
+    let src = include_str!("../src/shaders.metal");
+    let define = |name: &str| -> String {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|x| x.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .to_string()
+    };
+    let float = |name: &str| -> f32 { define(name).parse().expect(name) };
+    let word = |name: &str| -> u32 {
+        let v = define(name);
+        u32::from_str_radix(v.trim_start_matches("0x"), 16).expect(name)
+    };
+    assert_eq!(float("BOLT_JAG"), l::JAG);
+    assert_eq!(float("BOLT_CAP"), l::CAP);
+    assert_eq!(float("BOLT_S_MIN"), l::S_MIN);
+    assert_eq!(define("BOLT_LEVELS").parse::<u32>().unwrap(), l::LEVELS);
+    assert_eq!(word("BOLT_SALT"), l::BOLT_SALT);
+    assert_eq!(word("FORK_SALT"), l::FORK_SALT);
+    assert_eq!(float("FORK_MIN"), l::FORK_MIN);
+    assert_eq!(float("FORK_P"), l::FORK_P);
+}
+
 /// **`WIDE_TAIL` in the shader and `Content::WIDE_TAIL` are one fact spelled
 /// twice.** The cell shader reads the grid in place and gives a wide tail
 /// its lead's selection by comparing the cell's word against the literal;

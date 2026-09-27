@@ -34,6 +34,7 @@ mod composite;
 pub mod effect;
 pub mod fire;
 mod instance;
+pub mod lightning;
 mod metrics;
 mod overlay;
 mod picture;

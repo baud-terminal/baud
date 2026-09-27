@@ -5,7 +5,7 @@
 //! GPU path draws an effect with -- one band a cell row over the effect's
 //! reach, then one soft disc a live particle -- and the uniform its fragment
 //! function reads. What each effect draws is its own module: [`crate::fire`],
-//! [`crate::plasma`].
+//! [`crate::plasma`], [`crate::lightning`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -24,8 +24,9 @@ use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
 use crate::fire;
 use crate::instance::{Instance, Screen};
+use crate::lightning;
 use crate::plasma;
-use crate::trail::{Pt, Rect, Smear};
+use crate::trail::{Corners, Pt, Rect, Smear};
 use baud_domain::Chan;
 use baud_font::Px;
 
@@ -40,11 +41,14 @@ pub enum Effect {
     /// A tube of ionised gas with three filaments braided into the cursor,
     /// shedding ions in cyclotron spirals: [`crate::plasma`].
     Plasma,
+    /// A jagged bolt thrown from the cell the cursor left to the one it
+    /// reached, forks, a corona and falling sparks: [`crate::lightning`].
+    Lightning,
 }
 
 impl Effect {
     /// Every effect, in the order a GPU path indexes its pipelines by.
-    pub const ALL: [Effect; 2] = [Effect::Fire, Effect::Plasma];
+    pub const ALL: [Effect; 3] = [Effect::Fire, Effect::Plasma, Effect::Lightning];
 
     /// How many effects there are: a GPU path keeps one pipeline each.
     pub const COUNT: usize = Effect::ALL.len();
@@ -54,6 +58,7 @@ impl Effect {
         match self {
             Effect::Fire => "fire_fragment",
             Effect::Plasma => "plasma_fragment",
+            Effect::Lightning => "lightning_fragment",
         }
     }
 
@@ -64,6 +69,7 @@ impl Effect {
         match self {
             Effect::Fire => fire::REACH,
             Effect::Plasma => plasma::REACH,
+            Effect::Lightning => lightning::REACH,
         }
     }
 
@@ -73,6 +79,7 @@ impl Effect {
         match self {
             Effect::Fire => fire::LIFE,
             Effect::Plasma => plasma::LIFE,
+            Effect::Lightning => lightning::LIFE,
         }
     }
 
@@ -82,6 +89,7 @@ impl Effect {
         match self {
             Effect::Fire => fire::end(ignition),
             Effect::Plasma => plasma::end(ignition),
+            Effect::Lightning => lightning::end(ignition),
         }
     }
 
@@ -90,6 +98,7 @@ impl Effect {
         match self {
             Effect::Fire => fire::embers(ignition).for_each(&mut each),
             Effect::Plasma => plasma::ions(ignition).for_each(&mut each),
+            Effect::Lightning => lightning::sparks(ignition).for_each(&mut each),
         }
     }
 }
@@ -202,7 +211,7 @@ impl Vfx {
         let unit = self.ignition.unit.max(1.0);
         let r = self.effect.reach() * unit;
         let (fw, fh) = (px(frame.0), px(frame.1));
-        let q = self.emitter.corners.0;
+        let q = self.region().0;
         let ys = q.map(|p| p.y);
         let y0 = (min4(ys) - r).max(0.0);
         let y1 = (max4(ys) + r).min(fh);
@@ -268,7 +277,7 @@ impl Vfx {
     /// in the target, the path, the unit, the age, the life, the seed's bits
     /// and the reach, then the effect's own numbers.
     pub fn uniform(&self, origin: [f32; 2]) -> [f32; UNIFORM_FLOATS] {
-        let c = self.emitter.corners.0;
+        let c = self.region().0;
         let h = self.emitter.hole;
         let f = self.ignition;
         let k = self.params();
@@ -315,6 +324,18 @@ impl Vfx {
         match self.effect {
             Effect::Fire => fire::PARAMS,
             Effect::Plasma => plasma::params(self),
+            Effect::Lightning => lightning::PARAMS,
+        }
+    }
+
+    /// **The region the effect is drawn over**: the quad the fire and the
+    /// plasma ride, or a region of the effect's own -- the lightning's box
+    /// along its path. The bands cover the effect's reach of it, and its
+    /// fragment function reads it as the corners it measures distance from.
+    pub fn region(&self) -> Corners {
+        match self.effect {
+            Effect::Fire | Effect::Plasma => self.emitter.corners,
+            Effect::Lightning => lightning::region(&self.ignition),
         }
     }
 
@@ -322,6 +343,31 @@ impl Vfx {
     pub fn end(&self) -> f32 {
         self.effect.end(&self.ignition)
     }
+}
+
+/// **The signed distance from `p` to a quad**, negative inside it by the
+/// non-zero winding rule: `fx_distance` in the shader, which an effect
+/// measures its reach by.
+pub fn distance(p: Pt, c: &Corners) -> f32 {
+    let q = c.0;
+    let (mut d, mut winding) = (f32::INFINITY, 0i32);
+    for i in 0..4 {
+        let (a, b) = (q[i], q[(i + 1) % 4]);
+        let (bx, by) = (b.x - a.x, b.y - a.y);
+        let (px, py) = (p.x - a.x, p.y - a.y);
+        let h = ((px * bx + py * by) / (bx * bx + by * by).max(1e-6)).clamp(0.0, 1.0);
+        let (dx, dy) = (px - bx * h, py - by * h);
+        d = d.min((dx * dx + dy * dy).sqrt());
+        let side = bx * py - by * px;
+        if a.y <= p.y {
+            if b.y > p.y && side > 0.0 {
+                winding += 1;
+            }
+        } else if b.y <= p.y && side < 0.0 {
+            winding -= 1;
+        }
+    }
+    if winding != 0 { -d } else { d }
 }
 
 fn min4(v: [f32; 4]) -> f32 {
@@ -367,29 +413,6 @@ pub(crate) mod tests {
         Ignition::ignite(from.center(), to, seed, CELL.1)
     }
 
-    /// The signed distance from `p` to the quad, negative inside by the
-    /// non-zero rule -- `fx_distance`, spelled once more for the test.
-    fn distance(p: Pt, c: &crate::trail::Corners) -> f32 {
-        let q = c.0;
-        let (mut d, mut winding) = (f32::INFINITY, 0i32);
-        for i in 0..4 {
-            let (a, b) = (q[i], q[(i + 1) % 4]);
-            let (bx, by) = (b.x - a.x, b.y - a.y);
-            let (px, py) = (p.x - a.x, p.y - a.y);
-            let h = ((px * bx + py * by) / (bx * bx + by * by).max(1e-6)).clamp(0.0, 1.0);
-            d = d.min((px - bx * h).hypot(py - by * h));
-            let side = bx * py - by * px;
-            if a.y <= p.y {
-                if b.y > p.y && side > 0.0 {
-                    winding += 1;
-                }
-            } else if b.y <= p.y && side < 0.0 {
-                winding -= 1;
-            }
-        }
-        if winding != 0 { -d } else { d }
-    }
-
     /// **Every pixel an effect can reach is in a band**, for every effect.
     /// The fragment function draws only inside the records, and the oracle's
     /// reference composites only inside them too, so a band that fell short
@@ -429,7 +452,7 @@ pub(crate) mod tests {
                             x: x as f32 + 0.5,
                             y: y as f32 + 0.5,
                         };
-                        if distance(p, &vfx.emitter.corners) > effect.reach() * CELL.1 {
+                        if distance(p, &vfx.region()) > effect.reach() * CELL.1 {
                             continue;
                         }
                         near += 1;

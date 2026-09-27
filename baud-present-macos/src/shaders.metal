@@ -314,6 +314,129 @@ fragment float4 plasma_fragment(GOut in [[stage_in]], constant EffectU& f [[buff
     return plasma_tube(in.pos.xy - f.origin, in.color, f);
 }
 
+// ---- The lightning, `baud-render/src/lightning.rs`: a bolt from the cell
+// the cursor left to the cell it reached, over a box along the path (the
+// uniform's corners, `lightning::region`) that does not move. Its own numbers,
+// `lightning::PARAMS`: `k[0]` the core's half width and `k[1]` the glow's
+// width in cells, `k[2]` the glow's peak, `k[3]` the leader's crossing, `k[4]`
+// a pixel's rise and `k[5]` when the fade starts, in seconds, `k[6]` the
+// corona's peak and `k[7]` its width in cells. The bolt's own shape is the
+// `#define`s, which `baud-present-macos/tests/metallib.rs` holds to the Rust
+// constants of the same names; `lightning::light` is this in Rust.
+#define BOLT_JAG 0.8
+#define BOLT_CAP 0.25
+#define BOLT_S_MIN 0.30
+#define BOLT_LEVELS 8u
+#define BOLT_SALT 0x51ED270Bu
+#define FORK_SALT 0xA24BAED4u
+#define FORK_MIN 5.0
+#define FORK_P 0.75
+
+// The distance from `p` to the segment `a` to `b`.
+static inline float fx_segment(float2 p, float2 a, float2 b) {
+    float2 ba = b - a;
+    float2 pa = p - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+// As many levels as keep every segment at least BOLT_S_MIN cells long.
+static inline uint bolt_levels(float len, float c) {
+    uint l = 0u;
+    while (l < BOLT_LEVELS && len >= (c * float(1u << (l + 1u))) * BOLT_S_MIN) l++;
+    return l;
+}
+
+// Midpoint displacement at `u` as its Schauder sum: one tent a level, zero at
+// both ends.
+static inline float bolt_offset(float u, uint lv, constant EffectU& f) {
+    float y = 0.0;
+    for (uint l = 0u; l < lv; l++) {
+        float n = float(1u << l);
+        float x = u * n;
+        float i = floor(x);
+        float t = x - i;
+        float tent = 1.0 - abs(2.0 * t - 1.0);
+        float xi = 2.0 * fx_lattice(int2(int(i), int(l)), f.seed ^ BOLT_SALT) - 1.0;
+        float d = min(BOLT_JAG * f.len / (2.0 * n), BOLT_CAP * f.unit);
+        y += d * xi * tent;
+    }
+    return y;
+}
+
+static inline float2 bolt_vertex(int j, int m, uint lv, float2 n, constant EffectU& f) {
+    float u = float(j) / float(m);
+    return f.tail + f.dir * (f.len * u) + n * bolt_offset(u, lv, f);
+}
+
+// The distance to fork `k`, at a quarter of the path a fork, 25-45 degrees
+// off it, two segments -- infinity where it did not grow.
+static inline float bolt_fork(float2 p, uint k, uint lv, float2 n, constant EffectU& f) {
+    uint h0 = fx_hash(k + fx_hash(f.seed ^ FORK_SALT));
+    if (fx_unit(h0) >= FORK_P) return INFINITY;
+    uint h1 = fx_hash(h0); uint h2 = fx_hash(h1); uint h3 = fx_hash(h2); uint h4 = fx_hash(h3);
+    float q = 0.25 * float(k + 1u);
+    float yr = bolt_offset(q, min(lv, 2u), f);
+    float side = abs(yr) > 0.6 * f.unit ? -sign(yr) : (fx_unit(h1) < 0.5 ? 1.0 : -1.0);
+    float2 v = f.dir + n * (side * (0.466 + 0.534 * fx_unit(h2)));
+    float2 fd = v / sqrt(dot(v, v));
+    float lf = min((0.18 + 0.14 * fx_unit(h3)) * f.len, 1.2 * f.unit);
+    float2 r = f.tail + f.dir * (f.len * q) + n * yr;
+    float bend = (fx_unit(h4) - 0.5) * 0.3 * lf;
+    float2 e = r + fd * (0.5 * lf) + float2(-fd.y, fd.x) * bend;
+    float2 t = r + fd * lf;
+    return min(fx_segment(p, r, e), fx_segment(p, e, t));
+}
+
+// **The bolt at `p`**: its core, glow and forks as the leader reaches the
+// pixel and the fade takes it, and the corona round the cursor.
+static inline float4 bolt_light(float2 p, float4 color, constant EffectU& f) {
+    if (fx_in_hole(p, f)) return float4(0.0);
+    if (f.age >= f.life) return float4(0.0);
+    float c = f.unit;
+    if (fx_distance(p, f) / c > f.reach) return float4(0.0);
+    float u = dot(p - f.tail, f.dir) / f.len;
+    float tau = f.k[3] * clamp(u, 0.0, 1.0);
+    float rise = smoothstep(tau, tau + f.k[4], f.age);
+    if (rise <= 0.0) return float4(0.0);
+    float fall = 1.0 - smoothstep(f.k[5], f.life, f.age);
+    float2 n = float2(-f.dir.y, f.dir.x);
+    uint lv = bolt_levels(f.len, c);
+    int m = int(1u << lv);
+    int a0 = max(clamp(int(floor(u * float(m))), 0, m - 1) - 1, 0);
+    float2 w0 = bolt_vertex(a0, m, lv, n, f);
+    float2 w1 = bolt_vertex(min(a0 + 1, m), m, lv, n, f);
+    float2 w2 = bolt_vertex(min(a0 + 2, m), m, lv, n, f);
+    float2 w3 = bolt_vertex(min(a0 + 3, m), m, lv, n, f);
+    float dm = min(min(fx_segment(p, w0, w1), fx_segment(p, w1, w2)), fx_segment(p, w2, w3));
+    float df = INFINITY;
+    if (f.len >= FORK_MIN * c) {
+        for (uint k = 0u; k < 3u; k++) df = min(df, bolt_fork(p, k, lv, n, f));
+    }
+    float2 hc = (f.hole.xy + f.hole.zw) * 0.5;
+    float2 hh = (f.hole.zw - f.hole.xy) * 0.5;
+    float dh = length(max(abs(p - hc) - hh, 0.0));
+    float w = max(f.k[0] * c, 1.0) * (0.45 + 0.55 * fall);
+    float gw = f.k[1] * c;
+    float km = (dm / w) * (dm / w);
+    float kf = (df / (0.7 * w)) * (df / (0.7 * w));
+    float core = max(exp(-km * km), 0.7 * exp(-kf * kf));
+    float gm = dm / gw;
+    float gf = df / (0.75 * gw);
+    float glow = f.k[2] * max(exp(-gm * gm), 0.6 * exp(-gf * gf));
+    float gc = dh / (f.k[7] * c);
+    // Unlike the spec, no gate of its own: every corona pixel is where the
+    // leader arrives last, so the pixel's own rise gates it already.
+    float corona = f.k[6] * exp(-gc * gc);
+    float a = color.a * saturate(core * fall * fall + (glow + corona) * fall) * rise;
+    return float4(color.rgb * a, a);
+}
+
+fragment float4 lightning_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(0)]]) {
+    if (in.kind == KIND_PARTICLE) return fx_particle(in);
+    return bolt_light(in.pos.xy - f.origin, in.color, f);
+}
+
 // ---- The cell path: the raw grid, resolved per cell in the vertex stage.
 
 struct CU {

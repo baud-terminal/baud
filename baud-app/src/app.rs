@@ -1034,7 +1034,8 @@ impl App {
             crate::config::CursorTrail::Quad
             | crate::config::CursorTrail::Sweep
             | crate::config::CursorTrail::Fire
-            | crate::config::CursorTrail::Plasma => {
+            | crate::config::CursorTrail::Plasma
+            | crate::config::CursorTrail::Lightning => {
                 // Looking back forgets where the cursor was, as a resize
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw

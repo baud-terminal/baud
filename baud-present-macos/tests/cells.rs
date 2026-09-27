@@ -23,6 +23,7 @@ use baud_present_macos::{
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
+use baud_render::lightning;
 use baud_render::plasma;
 use baud_render::{
     Argb, Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Kind,
@@ -516,6 +517,14 @@ fn plasma_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// **The lightning's reference**: `bolt_light`, through the renderer's own
+/// Rust model of it, `lightning::light` -- which the unit tests hold to the
+/// bolt's properties, so the oracle ties the shader to them.
+fn lightning_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * lightning::light(vfx, p);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -561,6 +570,10 @@ fn reference(effect: Effect) -> Reference {
             band: plasma_reference,
             particle: fx_particle,
         },
+        Effect::Lightning => Reference {
+            band: lightning_reference,
+            particle: fx_particle,
+        },
     }
 }
 
@@ -588,13 +601,19 @@ fn effect_frame_by(
     origin: (usize, usize),
 ) -> Vec<u32> {
     let tw = usize::try_from(width.value()).unwrap();
+    // The frame the records are clipped to, as the GPU's viewport clips
+    // them: the target less its margin on each side. A spark thrown past the
+    // frame's edge would otherwise land in the margin, or wrap onto the next
+    // row of the target.
+    let fw = i32::try_from(tw - 2 * origin.0).unwrap();
+    let fh = i32::try_from(plain.len() / tw - 2 * origin.1).unwrap();
     let mut out = plain.to_vec();
     for r in records {
         let (x0, y0) = (i32::from(r.x.0), i32::from(r.y.0));
         let (w, h) = (i32::from(r.w.0), i32::from(r.h.0));
         let color = unit_color(r.color);
-        for y in y0.max(0)..y0 + h {
-            for x in x0.max(0)..x0 + w {
+        for y in y0.max(0)..(y0 + h).min(fh) {
+            for x in x0.max(0)..(x0 + w).min(fw) {
                 let at = usize::try_from(y).unwrap() + origin.1;
                 let at = at * tw + usize::try_from(x).unwrap() + origin.0;
                 let centre = Pt {
@@ -669,7 +688,12 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             ("retarget", across, (across.1, cell_at(104.0, 8.0)), 1.0),
             ("large", across, across, 2.5),
         ] {
-            let ages = [0.04f32, 0.12, 0.25, 0.4];
+            // The fire's four ages, shrunk for an effect that is out sooner:
+            // the lightning's, out at 0.32 s, run from its leader mid-path to
+            // its last fade. A longer life keeps the fire's.
+            let life = (effect.life() / Effect::Fire.life()).min(1.0);
+            let ages = [0.04f32, 0.12, 0.25, 0.4].map(|a| a * life);
+            let mut particles = false;
             let seg = Segment::new(quad_from.corners(), hole);
             let axis = {
                 let (a, b) = (centre(quad_from), centre(hole));
@@ -771,19 +795,15 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 // A retarget's fire burns on the path the quad left, and the
                 // plasma starves as (1 - k)^2: at the last age both are
                 // mostly out.
-                let least = if name == "retarget" || age >= 0.4 {
+                let least = if name == "retarget" || age >= ages[3] {
                     150
                 } else {
                     300
                 };
                 assert!(lit > least, "{at}: only {lit} pixels lit");
-                if age < 0.2 {
-                    assert!(
-                        records.iter().any(|r| r.kind == Kind::Particle),
-                        "{at}: no particle"
-                    );
-                }
+                particles |= records.iter().any(|r| r.kind == Kind::Particle);
             }
+            assert!(particles, "{effect:?} {name}: no particle at any age");
         }
     }
     arms.trail = None;
