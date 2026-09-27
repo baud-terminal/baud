@@ -731,9 +731,10 @@ fragment float4 ufo_fragment(GOut in [[stage_in]], constant EffectU& f [[buffer(
     return float4(in.color.rgb * a, a);
 }
 
-// ---- The orb, `baud-render/src/orb.rs`: a glowing sphere springing from
-// the tail onto kitty's quad's centroid, a halo, a comet of its last flight,
-// and sparks as it arrives. Its bands cover the line it flies on. Its own
+// ---- The orb, `baud-render/src/orb.rs`: a glowing sphere flying from the
+// tail onto the cursor through kitty's leading corners, a halo, a comet of
+// its last flight, and sparks as it lands. Its bands cover the line it flies
+// on. Its own
 // numbers, `orb::PARAMS`: `k[0]` its radius and `k[1]` its halo's width in
 // cells, `k[2]` the halo's peak, `k[3]` the comet's, `k[4]` the comet's
 // seconds, `k[5]` the appear, `k[6]` the fade, `k[7]` the linger after
@@ -743,18 +744,40 @@ static inline float orb_flight(constant EffectU& f) {
     return clamp(0.10 + 0.004 * f.len / f.unit, 0.12, 0.25);
 }
 
-// Where the orb is at `a`: a critically damped spring from rest.
-static inline float2 orb_centre(constant EffectU& f, float a) {
-    float w = 4.0 / orb_flight(f);
-    float s = 1.0 - (1.0 + w * a) * exp(-w * a);
-    float2 cq = (f.c[0] + f.c[1] + f.c[2] + f.c[3]) * 0.25;
-    return f.tail + (cq - f.tail) * s;
+// How far along its flight the orb is at `a`: a smootherstep over the
+// flight, from rest to rest, 1 exactly at its end.
+static inline float orb_along(constant EffectU& f, float a) {
+    float u = clamp(a / orb_flight(f), 0.0, 1.0);
+    return u * u * u * (u * (u * 6.0 - 15.0) + 10.0);
 }
 
-// The distance from `p` to the line the orb flies on, tail to centroid.
-static inline float orb_line(float2 p, constant EffectU& f) {
-    float2 cq = (f.c[0] + f.c[1] + f.c[2] + f.c[3]) * 0.25;
-    float2 ba = cq - f.tail;
+// Where the orb flies to: the cursor's centre, displaced by the mean of how
+// far the quad's corners facing the ignition's direction -- those past the
+// cursor's centre along it -- still are from the cursor's. The cursor's
+// corners are in kitty's order, as `c`.
+static inline float2 orb_aim(constant EffectU& f) {
+    float2 m = float2((f.hole.x + f.hole.z) * 0.5, (f.hole.y + f.hole.w) * 0.5);
+    float2 hc[4] = {float2(f.hole.z, f.hole.y), float2(f.hole.z, f.hole.w),
+                    float2(f.hole.x, f.hole.w), float2(f.hole.x, f.hole.y)};
+    float2 s = float2(0.0);
+    float n = 0.0;
+    for (int i = 0; i < 4; i++) {
+        if ((hc[i].x - m.x) * f.dir.x + (hc[i].y - m.y) * f.dir.y > 0.0) {
+            s += f.c[i] - hc[i];
+            n += 1.0;
+        }
+    }
+    return n > 0.0 ? m + s / n : m;
+}
+
+// Where the orb is at `a`, on the line from the tail to its aim.
+static inline float2 orb_centre(constant EffectU& f, float2 aim, float a) {
+    return f.tail + (aim - f.tail) * orb_along(f, a);
+}
+
+// The distance from `p` to the line the orb flies on, tail to its aim.
+static inline float orb_line(float2 p, constant EffectU& f, float2 aim) {
+    float2 ba = aim - f.tail;
     float2 pa = p - f.tail;
     float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
     return length(pa - ba * h);
@@ -766,9 +789,10 @@ static inline float4 orb_light(float2 p, float4 color, constant EffectU& f) {
     float t = orb_flight(f);
     float end = t + f.k[7] + f.k[6];
     if (f.age >= end) return float4(0.0);
-    if (orb_line(p, f) / c > f.reach) return float4(0.0);
+    float2 aim = orb_aim(f);
+    if (orb_line(p, f, aim) / c > f.reach) return float4(0.0);
     float env = smoothstep(0.0, f.k[5], f.age) * (1.0 - smoothstep(t + f.k[7], end, f.age));
-    float2 o = orb_centre(f, f.age);
+    float2 o = orb_centre(f, aim, f.age);
     float r = f.k[0] * c;
     float d = length(p - o);
     float cov = clamp(0.5 - (d - r), 0.0, 1.0);
@@ -777,7 +801,7 @@ static inline float4 orb_light(float2 p, float4 color, constant EffectU& f) {
     float body = (0.45 + 0.30 * (1.0 - k * k) + 0.25 * exp(-hs * hs)) * cov;
     float hd = max(d - r, 0.0) / (f.k[1] * c);
     float halo = f.k[2] * exp(-hd * hd);
-    float2 q = orb_centre(f, max(f.age - f.k[4], 0.0));
+    float2 q = orb_centre(f, aim, max(f.age - f.k[4], 0.0));
     float2 ba = q - o;
     float2 pa = p - o;
     float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);

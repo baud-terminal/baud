@@ -135,19 +135,6 @@ impl Effect {
             Effect::Liquid => liquid::end_of(ignition),
         }
     }
-
-    /// Every particle alive at the ignition's age, in order.
-    pub fn particles(self, ignition: &Ignition, mut each: impl FnMut(Particle)) {
-        match self {
-            Effect::Fire => fire::embers(ignition).for_each(&mut each),
-            Effect::Plasma => plasma::ions(ignition).for_each(&mut each),
-            Effect::Lightning => lightning::sparks(ignition).for_each(&mut each),
-            Effect::Ice => ice::shards(ignition).for_each(&mut each),
-            Effect::Ufo => ufo::puffs(ignition).for_each(&mut each),
-            Effect::Orb => orb::sparks(ignition).for_each(&mut each),
-            Effect::Liquid => {}
-        }
-    }
 }
 
 /// An ignition's seed: every hash the effect and its particles draw from.
@@ -312,7 +299,7 @@ impl Vfx {
             }
             band += unit;
         }
-        self.effect.particles(&self.ignition, |s| {
+        self.particles(|s| {
             let side = (2.0 * s.radius).ceil().max(2.0);
             out.push(Instance {
                 x: screen((s.centre.x - side * 0.5).floor()),
@@ -431,6 +418,22 @@ impl Vfx {
     /// Seconds from ignition to when this effect is out.
     pub fn end(&self) -> f32 {
         self.effect.end(&self.ignition)
+    }
+
+    /// **Every particle alive at the effect's age, in order.** The orb's
+    /// sparks burst from where the orb is, which only the emitter says;
+    /// every other effect's particles read the ignition alone.
+    pub fn particles(&self, mut each: impl FnMut(Particle)) {
+        let ig = &self.ignition;
+        match self.effect {
+            Effect::Fire => fire::embers(ig).for_each(&mut each),
+            Effect::Plasma => plasma::ions(ig).for_each(&mut each),
+            Effect::Lightning => lightning::sparks(ig).for_each(&mut each),
+            Effect::Ice => ice::shards(ig).for_each(&mut each),
+            Effect::Ufo => ufo::puffs(ig).for_each(&mut each),
+            Effect::Orb => orb::sparks(self).for_each(&mut each),
+            Effect::Liquid => {}
+        }
     }
 }
 
@@ -590,7 +593,7 @@ pub(crate) mod tests {
             let mut records = Vec::new();
             vfx.instances((Px::of(2040), Px::of(340)), fill, &mut records);
             let mut particles = Vec::new();
-            effect.particles(&vfx.ignition, |p| particles.push(p));
+            vfx.particles(|p| particles.push(p));
             let (bands, motes) = records.split_at(records.len() - particles.len());
             assert!(!bands.is_empty(), "{effect:?}: no band");
             for b in bands {

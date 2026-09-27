@@ -1,21 +1,30 @@
 //! **The orb trail**: a glowing sphere of the cursor's colour that flies
 //! from the cell the cursor left to the one it reached, a comet's tail behind
-//! it and a soft halo round it, and bursts into sparks as it sinks into the
+//! it and a soft halo round it, and bursts into sparks as it lands in the
 //! cursor. Designed here rather than in the effect-trail research, which had
 //! no orb spec; in the cursor's colour with intensity as opacity, GPU only.
 //!
-//! **The flight is a spring, not kitty's corners.** kitty's leading corners
-//! cover 87% of a move in 30 ms, too fast to see an object travel; the orb
-//! rides a critically damped spring from rest (neovide's form), which
-//! accelerates, arrives and settles without overshoot in about a fifth of a
-//! second. It springs toward the quad's centroid rather than the cursor, so a
-//! retarget -- which moves the centroid continuously while the cursor jumps --
-//! re-flies it with no jump and no state, the ufo spec's device.
+//! **The flight is a smootherstep over a fixed time, not kitty's corners.**
+//! kitty's leading corners cover 87% of a move in 30 ms, too fast to see an
+//! object travel. The orb leaves the tail from rest and lands at rest
+//! exactly [`flight`] seconds later, 0.12 s on a short move and 0.25 s on a
+//! long one, so its burst and its fade are timed off an arrival that happens.
+//! A spring only approaches its arrival, and this one burst ahead of the orb.
 //!
-//! **Its bands cover the line it can fly on**, from the tail to the quad's
-//! centroid, widened by its reach ([`Vfx::support`]), not the quad: the orb
-//! lags kitty's corners, so late in a flight it is outside the quad. The
-//! comet is the orb's own last 80 ms of flight, on the same line.
+//! **Its aim is the cursor, reached through kitty's leading corners.** The
+//! aim ([`aim`]) is the cursor's centre, displaced as far as the quad's
+//! corners facing the ignition's direction still are from the cursor's. It
+//! starts at the tail and reaches the cursor as fast as those corners do,
+//! within a pixel by the end of the flight on every move measured. It moves
+//! continuously when the cursor jumps, because the corners do, so a retarget
+//! re-flies the orb with no jump and no state. After a retarget the corners
+//! facing the first move may be the new move's slow ones, and the orb lands
+//! on the new cursor only as fast as they arrive.
+//!
+//! **Its bands cover the line it can fly on**, from the tail to its aim,
+//! widened by its reach ([`Vfx::support`]), not the quad: the orb trails
+//! kitty's corners, and is outside the quad for much of its flight. The comet
+//! is the orb's own last 80 ms of flight, on the same line.
 //!
 //! This module is the Rust model of the shader, `orb_light`, which the unit
 //! tests hold to its properties and the pixel oracle's reference calls.
@@ -59,39 +68,59 @@ pub fn flight(len: f32, c: f32) -> f32 {
     (0.10 + 0.004 * len / c).clamp(0.12, 0.25)
 }
 
-/// How far along its flight the orb is at `age`, 0 to 1: a critically
-/// damped spring from rest, `1 - (1 + w a) e^(-w a)`, `w = 4 / T`.
+/// **How far along its flight the orb is at `age`**, 0 to 1: a smootherstep
+/// over the flight, `u^3 (10 - 15 u + 6 u^2)` with `u = age / T`, which
+/// leaves from rest, lands at rest, and is 1 exactly at `T` and after.
 pub fn along(age: f32, len: f32, c: f32) -> f32 {
-    let w = 4.0 / flight(len, c);
-    1.0 - (1.0 + w * age) * (-w * age).exp()
+    let u = (age / flight(len, c)).clamp(0.0, 1.0);
+    u * u * u * (u * (u * 6.0 - 15.0) + 10.0)
 }
 
-fn centroid(c: &Corners) -> Pt {
-    let q = c.0;
-    Pt {
-        x: (q[0].x + q[1].x + q[2].x + q[3].x) * 0.25,
-        y: (q[0].y + q[1].y + q[2].y + q[3].y) * 0.25,
+/// **Where the orb is flying to**: the cursor's centre, displaced by the
+/// mean of how far the quad's corners facing the ignition's direction --
+/// those past the cursor's centre along it -- still are from the cursor's.
+/// The tail at ignition, the cursor as those corners arrive, and
+/// continuous when the cursor jumps. A cursor with no corner past its
+/// centre, which only an empty one is, is its own centre.
+pub fn aim(vfx: &Vfx) -> Pt {
+    let (hole, dir) = (vfx.emitter.hole, vfx.ignition.dir);
+    let m = hole.center();
+    let (mut sx, mut sy, mut n) = (0.0f32, 0.0f32, 0.0f32);
+    for (h, q) in hole.corners().0.iter().zip(vfx.emitter.corners.0.iter()) {
+        if (h.x - m.x) * dir.x + (h.y - m.y) * dir.y > 0.0 {
+            sx += q.x - h.x;
+            sy += q.y - h.y;
+            n += 1.0;
+        }
+    }
+    if n == 0.0 {
+        m
+    } else {
+        Pt {
+            x: m.x + sx / n,
+            y: m.y + sy / n,
+        }
     }
 }
 
-/// **Where the orb is at `age`**: on the line from the tail to the quad's
-/// centroid, as far as the spring has taken it.
+/// **Where the orb is at `age`**: on the line from the tail to its aim, as
+/// far as its flight has taken it.
 pub fn centre(vfx: &Vfx, age: f32) -> Pt {
     let f = &vfx.ignition;
-    let cq = centroid(&vfx.emitter.corners);
+    let a = aim(vfx);
     let s = along(age, f.len, f.unit);
     Pt {
-        x: f.tail.x + (cq.x - f.tail.x) * s,
-        y: f.tail.y + (cq.y - f.tail.y) * s,
+        x: f.tail.x + (a.x - f.tail.x) * s,
+        y: f.tail.y + (a.y - f.tail.y) * s,
     }
 }
 
-/// **The line the orb can fly on**, tail to the quad's centroid, which the
-/// bands cover to [`REACH`].
+/// **The line the orb can fly on**, tail to its aim, which the bands cover
+/// to [`REACH`].
 pub fn line(vfx: &Vfx) -> Corners {
     let t = vfx.ignition.tail;
-    let cq = centroid(&vfx.emitter.corners);
-    Corners([t, cq, cq, t])
+    let a = aim(vfx);
+    Corners([t, a, a, t])
 }
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
@@ -172,16 +201,21 @@ impl Spark {
         let h2 = h1.next();
         let h3 = h2.next();
         Spark {
-            born: flight(f.len, f.unit) * (0.85 + 0.15 * h0.unit()),
+            born: flight(f.len, f.unit),
             life: 0.18 + 0.12 * h1.unit(),
             h: [h0, h1, h2, h3],
         }
     }
 }
 
-/// **The sparks alive at the ignition's age**: twelve, burst from the head in
-/// every direction as the orb arrives, slowing and fading from full.
-pub fn sparks(f: &Ignition) -> impl Iterator<Item = Particle> + '_ {
+/// **The sparks alive at the effect's age**: twelve, burst in every
+/// direction from the orb as it lands, at the end of its flight, slowing and
+/// fading from full. Their origin is the orb's centre at that age under
+/// today's emitter, the comet's convention: the burst follows the orb's aim,
+/// so a retarget after the landing carries it, still spreading, toward the
+/// new cursor.
+pub fn sparks(vfx: &Vfx) -> impl Iterator<Item = Particle> + '_ {
+    let f = &vfx.ignition;
     burst(f).filter_map(move |h| {
         let s = Spark::draw(f, h);
         let a = f.age - s.born;
@@ -195,10 +229,7 @@ pub fn sparks(f: &Ignition) -> impl Iterator<Item = Particle> + '_ {
         let speed = (2.5 + 3.0 * h3.unit()) * c;
         let go = (1.0 - (-DRAG * a).exp()) / DRAG;
         let start = RADIUS * c;
-        let head = Pt {
-            x: f.tail.x + f.dir.x * f.len,
-            y: f.tail.y + f.dir.y * f.len,
-        };
+        let head = centre(vfx, s.born);
         let fade = 1.0 - a / s.life;
         Some(Particle {
             centre: Pt {
@@ -219,7 +250,11 @@ mod tests {
     use crate::trail::{Rect, Segment, Shape, Smear};
 
     fn vfx(from: Rect, to: Rect, age: f32) -> Vfx {
-        let f = ignition(from, to, Seed(4));
+        seeded(from, to, age, Seed(4))
+    }
+
+    fn seeded(from: Rect, to: Rect, age: f32, seed: Seed) -> Vfx {
+        let f = ignition(from, to, seed);
         Vfx {
             effect: Effect::Orb,
             emitter: Smear {
@@ -232,31 +267,114 @@ mod tests {
         }
     }
 
-    /// **The orb leaves the tail from rest and arrives without overshoot**:
-    /// the spring starts at nothing with no speed -- a fiftieth of its flight
-    /// in, it has gone under half a percent of the way, where a steady speed
-    /// would have gone two -- never passes the end or turns back, and is
-    /// within 2% of it by one and a half flights. At the start the orb is on
-    /// the tail.
+    /// **The orb leaves the tail from rest and lands on the cursor when its
+    /// flight ends**: a fiftieth of its flight in it has gone under half a
+    /// percent of the way, where a steady speed would have gone two; it never
+    /// turns back; it is all the way there exactly at the end of its flight;
+    /// and there, on every move in [`MOVES`], its centre is within a pixel of
+    /// the cursor's. At the start it is on the tail.
     #[test]
-    fn the_orb_springs_from_the_tail_to_the_cursor() {
-        let (from, to) = (cell(10.0, 5.0), cell(40.0, 5.0));
-        let v0 = vfx(from, to, 0.0);
-        let o = centre(&v0, 0.0);
-        assert!((o.x - v0.ignition.tail.x).abs() < 1e-3);
-        let (len, c) = (v0.ignition.len, CELL.1);
-        let t = flight(len, c);
-        assert_eq!(along(0.0, len, c), 0.0);
-        let early = along(0.02 * t, len, c);
-        assert!(early < 0.005, "from rest: {early}");
-        let mut last = 0.0;
-        for i in 1..=200 {
-            let s = along(i as f32 * 0.01 * t, len, c);
-            assert!(s >= last && s <= 1.0, "{s} after {last}");
-            last = s;
+    fn the_orb_leaves_from_rest_and_lands_on_the_cursor() {
+        for ((fc, fr), (tc, tr)) in MOVES {
+            let (from, to) = (cell(fc, fr), cell(tc, tr));
+            let v0 = vfx(from, to, 0.0);
+            let o = centre(&v0, 0.0);
+            assert!(far(o, v0.ignition.tail) < 1e-3, "{o:?} at the start");
+            let (len, c) = (v0.ignition.len, CELL.1);
+            let t = flight(len, c);
+            assert_eq!(along(0.0, len, c), 0.0);
+            let early = along(0.02 * t, len, c);
+            assert!(early < 0.005, "from rest: {early}");
+            let mut last = 0.0;
+            for i in 1..=200 {
+                let s = along(i as f32 * 0.01 * t, len, c);
+                assert!(s >= last && s <= 1.0, "{s} after {last}");
+                last = s;
+            }
+            assert_eq!(along(t, len, c), 1.0, "all the way when its flight ends");
+            let off = far(centre(&vfx(from, to, t), t), to.center());
+            assert!(off < 1.0, "{off} px from the cursor when its flight ends");
         }
-        let near = along(1.5 * t, len, c);
-        assert!(near > 0.98, "{near} by one and a half flights");
+    }
+
+    /// The moves the landing is asked on: across, down, back, the clips'
+    /// diagonal and three short diagonals, whose sideways corner runs on one
+    /// of kitty's middling constants.
+    const MOVES: [((f32, f32), (f32, f32)); 7] = [
+        ((10.0, 5.0), (40.0, 5.0)),
+        ((20.0, 2.0), (20.0, 14.0)),
+        ((40.0, 5.0), (10.0, 5.0)),
+        ((8.0, 6.0), (72.0, 20.0)),
+        ((10.0, 5.0), (14.0, 7.0)),
+        ((10.0, 5.0), (13.0, 6.0)),
+        ((10.0, 5.0), (12.0, 8.0)),
+    ];
+
+    fn far(a: Pt, b: Pt) -> f32 {
+        (a.x - b.x).hypot(a.y - b.y)
+    }
+
+    /// **The sparks burst from the orb as it lands, not ahead of it**: at
+    /// every spark's birth the orb is within a pixel of the cursor's centre,
+    /// and a spark starts on its rim -- across, down, back and on the
+    /// diagonals. A spring from the old model was 61 px short when the first
+    /// spark was born on a 30-column move.
+    #[test]
+    fn the_sparks_burst_from_the_orb_as_it_lands() {
+        for ((fc, fr), (tc, tr)) in MOVES {
+            let (from, to) = (cell(fc, fr), cell(tc, tr));
+            let f = ignition(from, to, Seed(4));
+            let r = RADIUS * f.unit;
+            for b in burst(&f).map(|h| Spark::draw(&f, h).born) {
+                let o = centre(&vfx(from, to, b), b);
+                let off = far(o, to.center());
+                assert!(
+                    off < 1.0,
+                    "the orb {off} px from the cursor as a spark is born at {b}"
+                );
+                let rim =
+                    sparks(&vfx(from, to, b + 1e-4)).any(|p| (far(p.centre, o) - r).abs() < 0.5);
+                assert!(rim, "no spark on the orb's rim at {b}");
+            }
+        }
+    }
+
+    /// The orb `age` into a move from `from` to `to` that the cursor left
+    /// for `then` at `at`.
+    fn retarget(from: Rect, to: Rect, then: Rect, at: f32, age: f32) -> Vfx {
+        let mut v = vfx(from, to, age);
+        let seg = Segment::new(from.corners(), to);
+        v.emitter.corners = Segment::new(seg.at(at), then).at(age - at);
+        v.emitter.hole = then;
+        v
+    }
+
+    /// **A retarget moves the orb without a jump, and its sparks burst from
+    /// where it is**: the cursor jumps a third of the way through a flight;
+    /// the orb as the cursor jumps is where it was before, and every spark
+    /// starts on the orb's rim, well away from the cursor the first move went
+    /// to. Landing on the new cursor is not asked: the corners that faced the
+    /// first move may be the new one's slow ones.
+    #[test]
+    fn a_retarget_moves_the_orb_and_its_burst_with_it() {
+        let (from, to, then) = (cell(10.0, 5.0), cell(40.0, 5.0), cell(30.0, 12.0));
+        let f = ignition(from, to, Seed(4));
+        let at = flight(f.len, f.unit) / 3.0;
+        let before = centre(&vfx(from, to, at), at);
+        let after = centre(&retarget(from, to, then, at, at), at);
+        assert!(far(before, after) < 1e-2, "{before:?} then {after:?}");
+        let r = RADIUS * f.unit;
+        for b in burst(&f).map(|h| Spark::draw(&f, h).born) {
+            let o = centre(&retarget(from, to, then, at, b), b);
+            let gone = far(o, to.center());
+            assert!(
+                gone > 5.0 * CELL.0,
+                "the orb {gone} px from the first cursor"
+            );
+            let rim = sparks(&retarget(from, to, then, at, b + 1e-4))
+                .any(|p| (far(p.centre, o) - r).abs() < 0.5);
+            assert!(rim, "no spark on the orb's rim at {b}");
+        }
     }
 
     /// **The comet is behind the orb and the cursor stays bare**: a pixel
@@ -300,8 +418,9 @@ mod tests {
     }
 
     /// **The orb fades out rather than being cut**: just outside the cursor
-    /// on the side it came from, where it sits as it arrives, it is bright
-    /// when the fade starts and all but gone just before its end.
+    /// on the side it came from, where the sphere it has landed in shows past
+    /// the cursor's edge, it is bright when the fade starts and all but gone
+    /// just before its end.
     #[test]
     fn the_orb_fades_before_it_goes_out() {
         let (from, to) = (cell(10.0, 5.0), cell(40.0, 5.0));
@@ -335,7 +454,7 @@ mod tests {
                 assert_eq!(light(&v, p), 0.0);
             }
         }
-        assert_eq!(sparks(&f.at(out + 0.001)).count(), 0);
+        assert_eq!(sparks(&vfx(from, to, out + 0.001)).count(), 0);
         assert_eq!(Effect::Orb.end(&f), out);
     }
 
@@ -422,30 +541,29 @@ mod tests {
         }
     }
 
-    /// **Twelve sparks burst from the head as the orb arrives, spread all
-    /// round and fading.**
+    /// **Twelve sparks burst from the orb as it lands, spread all round and
+    /// fading**: none before its flight ends, all twelve just after, on both
+    /// sides of it.
     #[test]
     fn sparks_burst_all_round_on_arrival() {
-        let f = ignition(cell(10.0, 5.0), cell(40.0, 5.0), Seed(2));
-        let t = flight(f.len, f.unit);
-        assert_eq!(sparks(&f.at(0.8 * t)).count(), 0, "none mid-flight");
-        let at = f.at(t + 0.01);
-        let live: Vec<Particle> = sparks(&at).collect();
+        let (from, to) = (cell(10.0, 5.0), cell(40.0, 5.0));
+        let at = |a: f32| seeded(from, to, a, Seed(2));
+        let t = flight(at(0.0).ignition.len, CELL.1);
+        assert_eq!(sparks(&at(0.99 * t)).count(), 0, "none before it lands");
+        let v = at(t + 0.01);
+        let live: Vec<Particle> = sparks(&v).collect();
         assert_eq!(live.len(), 12);
-        let head = Pt {
-            x: f.tail.x + f.dir.x * f.len,
-            y: f.tail.y + f.dir.y * f.len,
-        };
+        let o = centre(&v, t);
         let (mut left, mut right) = (0, 0);
         for s in &live {
-            if s.centre.x < head.x {
+            if s.centre.x < o.x {
                 left += 1;
             } else {
                 right += 1;
             }
         }
         assert!(left > 1 && right > 1, "all round: {left} and {right}");
-        let glow = |a: f32| sparks(&f.at(a)).map(|s| s.glow).sum::<f32>();
+        let glow = |a: f32| sparks(&at(a)).map(|s| s.glow).sum::<f32>();
         assert!(glow(t + 0.1) < glow(t + 0.01), "fading");
     }
 }

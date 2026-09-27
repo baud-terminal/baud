@@ -128,15 +128,17 @@ quad.
 
 A glowing sphere in the cursor's colour flies from the cell the cursor left to
 the cell it reached, with a soft halo round it and a comet's tail of its last
-80 ms behind it. It accelerates from rest and settles onto the cursor without
-overshooting, in 0.12 s on a short move and 0.25 s on a long one; as it sinks
-into the cursor it bursts into twelve sparks, and it fades out over a fifth of
-a second from 50 ms after it lands.
+80 ms behind it. It leaves from rest and lands in the cursor at rest, 0.12 s
+after a short move and 0.25 s after a long one. As it lands it bursts into
+twelve sparks, and its glow round the cursor fades over a fifth of a second
+from 50 ms after. The cursor stays bare, so on a block cursor the sphere shows
+as a rim either side of it. The last spark is gone 0.37 to 0.55 s after the
+move.
 
-Like the ufo, it springs onto the middle of kitty's quad rather than the
-cursor, so a second long move re-flies it without a jump. It was designed for
-baud rather than taken from the research, which had no orb. GPU only; the CPU
-path draws the quad.
+It flies toward the cursor through kitty's quad: the corners facing the move,
+which reach the cursor by the time the orb lands. So a second long move
+re-flies it without a jump. It was designed for baud rather than taken from
+the research, which had no orb. GPU only; the CPU path draws the quad.
 
 ## liquid
 

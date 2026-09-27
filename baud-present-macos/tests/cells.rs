@@ -901,11 +901,17 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 }
                 // A positive control that something is drawn. At the last age
                 // every effect is in its fade -- the plasma starves as
-                // (1 - k)^2, the orb is nearly gone -- and only that is asked.
+                // (1 - k)^2 -- and only that is asked. The orb's body is out
+                // there on a short move: it lands in the cursor, which the
+                // hole leaves bare, and is gone 0.25 s after its flight, so
+                // what is left is a few dying sparks, 8 pixels on most of
+                // these scenes -- which the particle count below holds.
                 // A retarget's fire burns on the path the quad left; the ufo
                 // is a saucer a couple of cells wide, a wake and a beam, a few
                 // hundred pixels at the oracle's cell.
-                let least = if age >= ages[3] {
+                let least = if age >= ages[3] && effect == Effect::Orb {
+                    0
+                } else if age >= ages[3] {
                     30
                 } else if effect == Effect::Ufo {
                     60
@@ -920,7 +926,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                 // One particle record for each particle the model sheds at
                 // this age, and none where it sheds none.
                 let mut shed = 0usize;
-                effect.particles(&vfx.ignition, |_| shed += 1);
+                vfx.particles(|_| shed += 1);
                 let drawn = records.iter().filter(|r| r.kind == Kind::Particle).count();
                 assert_eq!(drawn, shed, "{at}: {drawn} particle records, {shed} shed");
                 emitted |= shed > 0;
