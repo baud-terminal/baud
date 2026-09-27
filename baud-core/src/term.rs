@@ -39,6 +39,23 @@ pub enum Written<'t> {
     Every,
 }
 
+/// What `?1049 h` saves for the primary screen and `?1049 l` restores: the
+/// cursor `DECSC` saves, and the cursor's style and `?12` with it.
+///
+/// **One record, so the three cannot drift.** A resize rewrites the saved
+/// cursor while the alternate screen is up, and a reset takes the save on its
+/// way off the alternate screen; kept in separate fields, a style could
+/// outlive the cursor saved beside it. `DECSC` does not save the style --
+/// `[[source: vt510-decsc]]` lists seven things and the cursor's style is not
+/// one of them, and xterm, foot, ghostty and alacritty agree; kitty and
+/// wezterm save it with the cursor.
+#[derive(Clone, Copy)]
+pub(crate) struct AltSaved {
+    pub(crate) cursor: Saved,
+    pub(crate) style: CursorStyle,
+    pub(crate) blink: ModeChange,
+}
+
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
 pub struct Saved {
@@ -365,7 +382,13 @@ pub struct Cold {
     /// in, whatever the store holds: an application that reads the claim stops
     /// drawing its text fallback, so the claim is the embedder's to make.
     pub(crate) sixel_claim: SixelClaim,
+    /// The style `DECSCUSR` set, or the configuration: its shape, and its own
+    /// blink. What `DECRQSS SP q` answers.
     pub(crate) cursor_style: CursorStyle,
+    /// `?12`, which blinks the cursor *or*-ed with the style's own blink --
+    /// foot's rule -- and never stops it: [`Term::cursor_style`] draws a
+    /// blink when either says so. What `DECRQM ?12` answers.
+    pub(crate) cursor_blink: ModeChange,
     /// The style `DECSCUSR 0` and `7`, `DECSTR` and `RIS` restore: the
     /// embedder's ([`Term::set_initial_cursor_style`]), a blinking block
     /// until it says otherwise.
@@ -388,7 +411,7 @@ pub struct Cold {
     /// Moves on every opening of `?2026`: [`Term::updates_opened`].
     pub(crate) updates_opened: UpdatesOpened,
     pub(crate) saved: Option<Saved>,
-    pub(crate) alt_saved: Option<Saved>,
+    pub(crate) alt_saved: Option<AltSaved>,
     /// Which mode put the alternate screen up, while it is up: `?1049` saved
     /// the primary's cursor in `alt_saved`, `?47` saved nothing and shares
     /// the one cursor. Read by a resize, which anchors the primary on
@@ -449,10 +472,13 @@ pub struct Cold {
 // `7` and by both resets, none of them on the write path. The placement took
 // it to 408: a placed position, the stream's last 31 bytes before the read --
 // copied once a read -- and where the read starts, all read on a `?25l` and
-// by the embedder, and none on the write path.
+// by the embedder, and none on the write path. `?12` as a bit of its own, and
+// the style and that bit saved with `?1049`'s cursor, took it to 416: written
+// by `?12`, `?1049` and the resets, and read by the embedder once a frame,
+// none of them on the write path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 408);
+const _: () = assert!(core::mem::size_of::<Cold>() == 416);
 
 impl Cold {
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
@@ -487,6 +513,7 @@ impl Cold {
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
             cursor_style: CursorStyle::BlinkingBlock,
+            cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
@@ -1001,7 +1028,7 @@ impl<'b> Term<'b> {
             let at = self.primary_cursor();
             let mut cy = match at {
                 PrimaryCursor::Live | PrimaryCursor::Shared => self.cy.index(),
-                PrimaryCursor::Saved => self.cold.alt_saved.map_or(0, |s| s.cy.index()),
+                PrimaryCursor::Saved => self.cold.alt_saved.map_or(0, |s| s.cursor.cy.index()),
             }
             .min(from - 1);
             let (mut hist, mut hidden) =
@@ -1122,7 +1149,7 @@ impl<'b> Term<'b> {
                 PrimaryCursor::Live => self.cy = Row::from_index(cy),
                 PrimaryCursor::Saved => {
                     if let Some(s) = self.cold.alt_saved.as_mut() {
-                        s.cy = Row::from_index(cy.min(to - 1));
+                        s.cursor.cy = Row::from_index(cy.min(to - 1));
                     }
                 }
                 // The alternate screen's cursor too, and this step does not
@@ -1159,7 +1186,7 @@ impl<'b> Term<'b> {
                 PrimaryCursor::Saved => self
                     .cold
                     .alt_saved
-                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
+                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cursor.cy, s.cursor.cx)),
             };
             // **The primary's images follow their rows through the re-cut.**
             // Each is staged at its row counted from the oldest retained line,
@@ -1248,7 +1275,7 @@ impl<'b> Term<'b> {
                 PrimaryCursor::Live => (self.cy, self.cx) = r.cursor,
                 PrimaryCursor::Saved => {
                     if let Some(s) = self.cold.alt_saved.as_mut() {
-                        (s.cy, s.cx) = r.cursor;
+                        (s.cursor.cy, s.cursor.cx) = r.cursor;
                     }
                 }
                 PrimaryCursor::Shared => {}
@@ -1661,9 +1688,16 @@ impl<'b> Term<'b> {
         self.cold.sixel_claim = c;
     }
 
-    /// `DECSCUSR`. The cursor shape an application asked for.
+    /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,
+    /// blinking if that style blinks **or** `?12` is set -- foot's rule, so
+    /// `?12l`, which vim sends at start and every `cnorm` sends, cannot stop a
+    /// cursor the style blinks. `DECRQSS` answers the style alone and
+    /// `DECRQM` the `?12` bit, so each query reports what was asked.
     pub fn cursor_style(&self) -> CursorStyle {
-        self.cold.cursor_style
+        match self.cold.cursor_blink {
+            ModeChange::Set => self.cold.cursor_style.with_blink(true),
+            ModeChange::Reset => self.cold.cursor_style,
+        }
     }
 
     /// The cursor style this terminal powers on in, and the one `DECSCUSR 0`

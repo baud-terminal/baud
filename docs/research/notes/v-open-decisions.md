@@ -67,7 +67,10 @@ owner's answers of 2026-09-27 -- hard edges at 650/350, every other
 sub-question as recommended: the rate read from the system's keys, macOS
 15's non-blinking switch holding the drawing steady unless the config says
 `true`, and `[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The
-cursor blinks at the system caret's rate").
+cursor blinks at the system caret's rate"). Then rule F, the owner's call the
+same day: `?12` or-ed with the style's own blink, as foot does, and the style
+saved and restored across `?1049`, so vim and helix leave the shell its
+configured cursor (CLAUDE.md, "`?12` is a second input to the blink").
 
 ## What this is
 

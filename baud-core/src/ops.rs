@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::Paint;
-use crate::term::{Saved, Screen};
+use crate::term::{AltSaved, Saved, Screen};
 use baud_domain::*;
 
 /// Which way a full-screen scroll moved the window over the ring: up one,
@@ -78,6 +78,17 @@ impl Paint<'_, '_> {
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
         }
+    }
+
+    /// `?1049 l`'s restore: the cursor `DECSC` would restore, and the style
+    /// and `?12` saved with it, which `DECRC` leaves alone.
+    fn restore_alt(&mut self) {
+        let Some(a) = self.cold.alt_saved.take() else {
+            return;
+        };
+        self.cold.cursor_style = a.style;
+        self.cold.cursor_blink = a.blink;
+        self.restore(Some(a.cursor));
     }
 
     /// **Clamped, because the save may predate a resize.** An unclamped
@@ -1015,14 +1026,14 @@ impl Paint<'_, '_> {
             // them is the "set and never read" failure in reverse -- a mode
             // parsed and discarded, which `docs/vt-coverage.md` rates worse
             // than not implementing it.
-            // **`?12` changes whether the cursor blinks, not what shape it
-            // is.** Blink is a property of the shape here -- `BlinkingBar` and
-            // `SteadyBar` are one cursor in two states -- so it folds into the
-            // style rather than setting a bit beside it, and `DECSCUSR`'s
-            // shape survives the toggle. A separate bit would let the two
-            // disagree about the same cursor.
+            // **`?12` is a second input to the blink, not a write to the
+            // style** -- foot's rule, the owner's F of 2026-09-27. It used to
+            // fold into the style, so the `?12l` vim sends at start and every
+            // `cnorm` sends stopped a configured blink for good. Now the drawn
+            // blink is `?12` *or* the style's own (`Term::cursor_style`), and
+            // `DECSCUSR` and `?12` each keep what they were told.
             PrivateMode::CursorBlink => {
-                self.cold.cursor_style = self.cold.cursor_style.with_blink(on);
+                self.cold.cursor_blink = ModeChange::of(on);
             }
             // **`?2004` and `?2026` are the embedder's, and exposing them is
             // acting on them.** Bracketing a paste is the input path's job and
@@ -1181,7 +1192,11 @@ impl Paint<'_, '_> {
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
                 if how == AltSwitch::SaveAndClear {
-                    self.cold.alt_saved = Some(self.save());
+                    self.cold.alt_saved = Some(AltSaved {
+                        cursor: self.save(),
+                        style: self.cold.cursor_style,
+                        blink: self.cold.cursor_blink,
+                    });
                 }
                 self.cold.alt_entry = how;
                 self.cold.screen = Screen::Alternate;
@@ -1253,8 +1268,7 @@ impl Paint<'_, '_> {
                 // cursor `?1049 h` saved outlives a `?47 l` exit, as the
                 // cursor xterm saves outlives `FromAlternate`.
                 if how == AltSwitch::SaveAndClear {
-                    let s = self.cold.alt_saved.take();
-                    self.restore(s);
+                    self.restore_alt();
                 }
             }
             // **`?1049 h` while the alternate screen is up clears it**, as
@@ -1279,8 +1293,7 @@ impl Paint<'_, '_> {
             // which leaves the alternate screen first, takes it here.
             (false, Screen::Normal) => {
                 if how == AltSwitch::SaveAndClear {
-                    let s = self.cold.alt_saved.take();
-                    self.restore(s);
+                    self.restore_alt();
                 }
             }
         }
@@ -1495,6 +1508,9 @@ impl Paint<'_, '_> {
         // blink from the resources (`[[source: xterm-reset]]`'s file) -- the
         // configured style, which is what this restores.
         self.cold.cursor_style = self.cold.initial_cursor;
+        // And `?12` with it, on both resets, as xterm's `ReallyReset` clears
+        // its escape bit in the common path.
+        self.cold.cursor_blink = ModeChange::Reset;
         // DECTCEM is shown above, and a shown cursor has no placement
         // (`placed.rs`).
         self.cold.placement.forget();
@@ -1569,11 +1585,15 @@ impl Paint<'_, '_> {
                 bit_state(self.cold.modes, ModeBit::SynchronizedOutput)
             }
             PrivateMode::InbandResize => bit_state(self.cold.modes, ModeBit::InbandResize),
-            // Not a `Modes` bit -- the cursor shape is a value, and whether it
-            // blinks is a property of the shape rather than a mode of its own.
-            PrivateMode::CursorBlink => match self.cold.cursor_style.blinks() {
-                true => ModeState::Set,
-                false => ModeState::Reset,
+            // Not a `Modes` bit, and not the drawn blink: the bit `?12` set,
+            // as foot and xterm answer it. An application that saves the mode
+            // with DECRQM and restores it with `?12h`/`l` gets its own state
+            // back; answering the drawn blink would have it set `?12` from a
+            // configured blink, which would then override its own later
+            // steady DECSCUSR.
+            PrivateMode::CursorBlink => match self.cold.cursor_blink {
+                ModeChange::Set => ModeState::Set,
+                ModeChange::Reset => ModeState::Reset,
             },
             PrivateMode::AnsiMode => match self.cold.terminal {
                 TerminalMode::Ansi => ModeState::Set,
