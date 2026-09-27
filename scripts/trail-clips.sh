@@ -17,8 +17,9 @@
 # It checks what it made rather than trusting it:
 #   - baud read the generated config without a complaint, so a clip labelled
 #     "quad" cannot silently be the default fire;
-#   - the recorder refuses a window that was not frontmost, or a clip under
-#     its frame floor;
+#   - the recorder refuses a window that was not frontmost, a clip under its
+#     frame floor, or one whose writer dropped more than 1% of the frames,
+#     and the first and last are retried;
 #   - the still found at least TRAIL_FLOOR changed samples for every trail,
 #     and fewer for `off`, recorded as the control and not kept.
 #
@@ -82,8 +83,9 @@ clip() {
     kill "$pid"
     wait "$pid" 2>/dev/null || true
     pid=
-    # 3 is another window in front; anything else is not worth a retry.
-    [ "$rc" -eq 3 ] || break
+    # 3 is another window in front and 5 frames the writer dropped; anything
+    # else is not worth a retry.
+    [ "$rc" -eq 3 ] || [ "$rc" -eq 5 ] || break
   done
   [ "$rc" -eq 0 ] || {
     echo "$style: the recorder refused ($rc)" >&2

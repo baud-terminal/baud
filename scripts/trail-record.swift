@@ -17,6 +17,14 @@
 //     a changed window sends a frame, so the six moves with no trail leave
 //     about 10, the ghost's six tenths of a second about 65 and the others
 //     hundreds: the driver asks 30 of a trail and 1 of its control.
+//   - the writer may drop no more than 1% of the complete frames the capture
+//     delivered, or it exits 5: a frame dropped because the encoder was
+//     behind is a stutter the trail did not make. On a clip under 100 frames
+//     -- the ghost's 64, the control's 10 -- that is no drop at all. The committed clips before
+//     this check hold 120 Hz frame gaps and 60 Hz ones about 4:3, on every
+//     trail, and nothing said which were drops. It prints what the capture
+//     sent by status beside what the writer took, so a capture that sent
+//     fewer frames is told from a writer that lost them.
 //
 // Build (the `swiftc` on this box's path is the xcode-select shim pointing at
 // a nix SDK with no compiler):
@@ -61,6 +69,14 @@ final class Rec: NSObject, SCStreamOutput {
     var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     var started = false
     var frames = 0
+    /// Complete frames the capture delivered, and those the writer took
+    /// none of: not ready for more (its encoder was behind) or refused.
+    var delivered = 0
+    var notReady = 0
+    var refused = 0
+    /// Every frame the capture sent, by its status, so a capture that sent
+    /// fewer complete frames is told from a writer that dropped them.
+    var statuses: [Int: Int] = [:]
     let q = DispatchQueue(label: "trail-record")
 
     func setup(w: Int, h: Int) throws {
@@ -85,16 +101,25 @@ final class Rec: NSObject, SCStreamOutput {
     func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .screen, sb.isValid,
               let att = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
-              let raw = att.first?[.status] as? Int, SCFrameStatus(rawValue: raw) == .complete,
+              let raw = att.first?[.status] as? Int else { return }
+        statuses[raw, default: 0] += 1
+        guard SCFrameStatus(rawValue: raw) == .complete,
               let pb = CMSampleBufferGetImageBuffer(sb),
               let wr = writer, let inp = input else { return }
+        delivered += 1
         let t = CMSampleBufferGetPresentationTimeStamp(sb)
         if !started {
             wr.startWriting()
             wr.startSession(atSourceTime: t)
             started = true
         }
-        if inp.isReadyForMoreMediaData, adaptor!.append(pb, withPresentationTime: t) { frames += 1 }
+        if !inp.isReadyForMoreMediaData {
+            notReady += 1
+        } else if adaptor!.append(pb, withPresentationTime: t) {
+            frames += 1
+        } else {
+            refused += 1
+        }
     }
 }
 
@@ -144,12 +169,18 @@ Task {
         rec.q.sync { rec.input?.markAsFinished() }
         await rec.writer?.finishWriting()
         let status = rec.writer?.status ?? .unknown
-        print("frames \(rec.frames), writer status \(status.rawValue)")
+        let sent = rec.statuses.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: " ")
+        print("frames \(rec.frames) of \(rec.delivered) complete, dropped \(rec.notReady) not ready and \(rec.refused) refused; sent by status \(sent); writer status \(status.rawValue)")
         guard endFront == pid else { die("pid \(pid) is not frontmost at the stop (pid \(endFront) is)", 3) }
         guard status == .completed else {
             die("the writer did not complete: \(rec.writer?.error?.localizedDescription ?? "no error")", 4)
         }
         guard rec.frames >= frameFloor else { die("\(rec.frames) frames, under the floor of \(frameFloor)", 4) }
+        // A frame the writer drops is a stutter in the clip that the trail
+        // did not make: 5, which the driver retries.
+        guard rec.notReady + rec.refused <= rec.delivered / 100 else {
+            die("the writer dropped \(rec.notReady + rec.refused) of \(rec.delivered) frames", 5)
+        }
     } catch {
         die("\(error)", 1)
     }
