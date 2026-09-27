@@ -25,6 +25,7 @@ use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
 use baud_render::ice;
 use baud_render::lightning;
+use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
@@ -553,6 +554,12 @@ fn ufo_ring(uv: Pt, color: [f32; 4]) -> [f32; 4] {
     [color[0] * a, color[1] * a, color[2] * a, a]
 }
 
+/// **The orb's reference**: `orb_light`, through `orb::light`.
+fn orb_reference(vfx: &Vfx, p: Pt, color: [f32; 4]) -> [f32; 4] {
+    let a = color[3] * orb::light(vfx, p);
+    [color[0] * a, color[1] * a, color[2] * a, a]
+}
+
 /// A record's colour as the shader reads it: channels 0 to 1, alpha last.
 fn unit_color(c: Argb) -> [f32; 4] {
     let f = |v: Chan| f32::from(v.get()) / 255.0;
@@ -609,6 +616,10 @@ fn reference(effect: Effect) -> Reference {
         Effect::Ufo => Reference {
             band: ufo_reference,
             particle: ufo_ring,
+        },
+        Effect::Orb => Reference {
+            band: orb_reference,
+            particle: fx_particle,
         },
     }
 }
@@ -743,10 +754,12 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             ("retarget", across, (across.1, cell_at(104.0, 8.0)), 1.0),
             ("large", across, across, 2.5),
         ] {
-            // The fire's four ages, shrunk for an effect that is out sooner:
-            // the lightning's, out at 0.32 s, run from its leader mid-path to
-            // its last fade. A longer life keeps the fire's.
-            let life = (effect.life() / Effect::Fire.life()).min(1.0);
+            // The fire's four ages, shrunk for an ignition that is out sooner
+            // than the fire's shortest: the lightning's, out at 0.32 s, run
+            // from its leader mid-path to its last fade, and a short move's
+            // orb its flight to its fade. A longer end keeps the fire's.
+            let end = effect.end(&Ignition::ignite(centre(from), to, Seed(7), ch * scale));
+            let life = (end / Effect::Fire.life()).min(1.0);
             let ages = [0.04f32, 0.12, 0.25, 0.4].map(|a| a * life);
             let mut particles = false;
             let seg = Segment::new(quad_from.corners(), hole);
@@ -852,14 +865,17 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                     }
                     assert!(ahead > 100, "{at}: only {ahead} pixels ahead of the cursor");
                 }
-                // A retarget's fire burns on the path the quad left, and the
-                // plasma starves as (1 - k)^2: at the last age both are
-                // mostly out.
-                // The ufo draws a saucer a couple of cells wide, a wake and
-                // a beam -- a few hundred pixels at the oracle's cell.
-                let least = if effect == Effect::Ufo {
+                // A positive control that something is drawn. At the last age
+                // every effect is in its fade -- the plasma starves as
+                // (1 - k)^2, the orb is nearly gone -- and only that is asked.
+                // A retarget's fire burns on the path the quad left; the ufo
+                // is a saucer a couple of cells wide, a wake and a beam, a few
+                // hundred pixels at the oracle's cell.
+                let least = if age >= ages[3] {
+                    30
+                } else if effect == Effect::Ufo {
                     60
-                } else if name == "retarget" || age >= ages[3] {
+                } else if name == "retarget" {
                     150
                 } else {
                     300

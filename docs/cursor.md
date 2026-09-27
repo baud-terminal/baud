@@ -10,7 +10,7 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = true
-trail = "fire"    # fire | plasma | lightning | ice | ufo | quad | sweep | ghost | off
+trail = "fire"    # fire | plasma | lightning | ice | ufo | orb | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
@@ -120,6 +120,24 @@ re-flies the same saucer without a jump. It is drawn only where the saucer,
 the beam and the wake are, not over the quad. GPU only; the CPU path draws the
 quad.
 
+## orb
+
+`trail = "orb"`
+
+![The orb trail on the diagonal move](cursor/orb.png)
+
+A glowing sphere in the cursor's colour flies from the cell the cursor left to
+the cell it reached, with a soft halo round it and a comet's tail of its last
+80 ms behind it. It accelerates from rest and settles onto the cursor without
+overshooting, in 0.12 s on a short move and 0.25 s on a long one; as it sinks
+into the cursor it bursts into twelve sparks, and it fades out over a fifth of
+a second from 50 ms after it lands.
+
+Like the ufo, it springs onto the middle of kitty's quad rather than the
+cursor, so a second long move re-flies it without a jump. It was designed for
+baud rather than taken from the research, which had no orb. GPU only; the CPU
+path draws the quad.
+
 ## quad
 
 `trail = "quad"`
@@ -189,7 +207,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
 ## Not built
 
 - **Linux.** The Linux driver reads the key and draws no trail.
-- **Liquid and orb** are wanted and not built. Each
+- **Liquid** is wanted and not built. It
   starts with reading prior art at source, then a shader in the cursor's colour
   held to a Rust reference the way the fire's is.
 - baud does not read macOS's Reduce Motion setting yet, and a trail does not

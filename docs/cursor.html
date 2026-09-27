@@ -218,7 +218,7 @@
     <p class="eyebrow"><b>baud</b> · <code>[cursor] trail</code> · recorded at <code>8e51cf5</code></p>
     <h1>The cursor trails baud has today</h1>
     <p class="lede">Each clip is baud's own window, captured at up to 120&nbsp;Hz while a child program jumps the cursor between the four <code>+</code> marks: right, down, left, up, then the two diagonals, 1.15&nbsp;s apart. Same binary, same 80&times;24 grid, Menlo at 16&nbsp;pt, blink off, the system in Dark mode. Only the <code>trail</code> key changes.</p>
-    <p class="lede">Liquid and orb are wanted and not built yet: each starts with reading prior art, then a shader held to a Rust reference the way fire is. The facts and their sources are in <a href="cursor.md">cursor.md</a>.</p>
+    <p class="lede">Liquid is wanted and not built yet: each starts with reading prior art, then a shader held to a Rust reference the way fire is. The facts and their sources are in <a href="cursor.md">cursor.md</a>.</p>
     <div class="controls" role="group" aria-label="Playback">
       <span class="label" id="speed-label">Speed</span>
       <div class="seg" role="group" aria-labelledby="speed-label">
@@ -289,6 +289,17 @@
     </article>
 
     <article class="trail">
+      <div class="head"><h2>orb</h2><span class="key">trail = "orb"</span></div>
+      <div class="screen"><video src="cursor/orb.mp4" poster="cursor/orb.png" muted loop playsinline preload="auto" aria-label="The orb trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A glowing sphere flies to the cursor with a halo and a comet's tail, settles onto it without overshooting, and bursts into sparks as it sinks in.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.4–0.55 s, the last spark gone</dd>
+        <dt>Built on</dt><dd>A spring onto kitty's quad's centre, so a second move re-flies it smoothly</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
       <div class="head"><h2>quad</h2><span class="key">trail = "quad"</span></div>
       <div class="screen"><video src="cursor/quad.mp4" poster="cursor/quad.png" muted loop playsinline preload="auto" aria-label="The quad trail following six cursor jumps" tabindex="0"></video></div>
       <p>A four-cornered shape whose corners each chase the matching corner of the cursor. The corners facing the move arrive fast and the ones behind it lag, so the shape stretches and snaps shut. The cursor's own cell is left bare.</p>
@@ -337,7 +348,7 @@
       <h3>Choose one</h3>
       <pre><span class="c"># ~/.config/baud/config.toml, after every top-level key</span>
 [cursor]
-trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | ufo | quad | sweep | ghost | off</span></pre>
+trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | ufo | orb | quad | sweep | ghost | off</span></pre>
       <p class="note"><code>true</code> reads as the default (fire) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
     </div>
   </section>

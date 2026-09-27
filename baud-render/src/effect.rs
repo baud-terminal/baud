@@ -5,7 +5,8 @@
 //! GPU path draws an effect with -- one band a cell row over the effect's
 //! reach, then one soft disc a live particle -- and the uniform its fragment
 //! function reads. What each effect draws is its own module: [`crate::fire`],
-//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`], [`crate::ufo`].
+//! [`crate::plasma`], [`crate::lightning`], [`crate::ice`], [`crate::ufo`],
+//! [`crate::orb`].
 //!
 //! **Everything here is a pure function of the ignition and its age.** The
 //! driver hands a [`Vfx`] -- which effect, the emitter's corners this frame,
@@ -26,6 +27,7 @@ use crate::fire;
 use crate::ice;
 use crate::instance::{Instance, Screen};
 use crate::lightning;
+use crate::orb;
 use crate::plasma;
 use crate::trail::{Corners, Pt, Rect, Smear};
 use crate::ufo;
@@ -53,16 +55,20 @@ pub enum Effect {
     /// A flying saucer springing along the path to hover over the cursor,
     /// lowering a tractor beam onto it and leaving: [`crate::ufo`].
     Ufo,
+    /// A glowing sphere springing along the path with a halo and a comet's
+    /// tail, bursting into sparks at the cursor: [`crate::orb`].
+    Orb,
 }
 
 impl Effect {
     /// Every effect, in the order a GPU path indexes its pipelines by.
-    pub const ALL: [Effect; 5] = [
+    pub const ALL: [Effect; 6] = [
         Effect::Fire,
         Effect::Plasma,
         Effect::Lightning,
         Effect::Ice,
         Effect::Ufo,
+        Effect::Orb,
     ];
 
     /// How many effects there are: a GPU path keeps one pipeline each.
@@ -76,6 +82,7 @@ impl Effect {
             Effect::Lightning => "lightning_fragment",
             Effect::Ice => "ice_fragment",
             Effect::Ufo => "ufo_fragment",
+            Effect::Orb => "orb_fragment",
         }
     }
 
@@ -89,6 +96,7 @@ impl Effect {
             Effect::Lightning => lightning::REACH,
             Effect::Ice => ice::REACH,
             Effect::Ufo => ufo::REACH,
+            Effect::Orb => orb::REACH,
         }
     }
 
@@ -101,6 +109,7 @@ impl Effect {
             Effect::Lightning => lightning::LIFE,
             Effect::Ice => ice::LIFE,
             Effect::Ufo => ufo::LIFE,
+            Effect::Orb => orb::LIFE,
         }
     }
 
@@ -113,6 +122,7 @@ impl Effect {
             Effect::Lightning => lightning::end(ignition),
             Effect::Ice => ice::end(ignition),
             Effect::Ufo => ufo::end(ignition),
+            Effect::Orb => orb::end(ignition),
         }
     }
 
@@ -124,6 +134,7 @@ impl Effect {
             Effect::Lightning => lightning::sparks(ignition).for_each(&mut each),
             Effect::Ice => ice::shards(ignition).for_each(&mut each),
             Effect::Ufo => ufo::puffs(ignition).for_each(&mut each),
+            Effect::Orb => orb::sparks(ignition).for_each(&mut each),
         }
     }
 }
@@ -360,6 +371,7 @@ impl Vfx {
             Effect::Lightning => lightning::PARAMS,
             Effect::Ice => ice::PARAMS,
             Effect::Ufo => ufo::PARAMS,
+            Effect::Orb => orb::PARAMS,
         }
     }
 
@@ -368,7 +380,9 @@ impl Vfx {
     /// pane ride, or the lightning's own box along its path.
     pub fn region(&self) -> Corners {
         match self.effect {
-            Effect::Fire | Effect::Plasma | Effect::Ice | Effect::Ufo => self.emitter.corners,
+            Effect::Fire | Effect::Plasma | Effect::Ice | Effect::Ufo | Effect::Orb => {
+                self.emitter.corners
+            }
             Effect::Lightning => lightning::region(&self.ignition),
         }
     }
@@ -376,8 +390,9 @@ impl Vfx {
     /// **Every shape the effect draws within its reach of**, which the
     /// bands cover: its region; for the ice the path as well -- the frost is
     /// laid along the path, where the quad is for a few tens of milliseconds
-    /// at a point; and for the ufo only the box its saucer, beam and wake
-    /// are drawn in, which the quad's reach could not hold.
+    /// at a point; for the ufo only the box its saucer, beam and wake are
+    /// drawn in, which the quad's reach could not hold; and for the orb the
+    /// line it flies on, which it lags the quad along.
     pub fn support(&self, mut each: impl FnMut(Corners)) {
         match self.effect {
             Effect::Fire | Effect::Plasma | Effect::Lightning => each(self.region()),
@@ -391,6 +406,7 @@ impl Vfx {
                 each(Corners([f.tail, head, head, f.tail]));
             }
             Effect::Ufo => each(ufo::region(self)),
+            Effect::Orb => each(orb::line(self)),
         }
     }
 
