@@ -31,6 +31,7 @@
 #   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
+#   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
 
 [sources.simdjson]
 key    = "simdjson"
@@ -7537,3 +7538,644 @@ sha256 = "eae2d4eebd20d22fd8cd95edd798557722e618fc74c3dd448bac6e996361a8a4"
 bytes  = 16251
 status = "retrieved"
 group  = "V"
+
+# Group Y -- note Y, palettes (V16). Retrieved where the licence is permissive or the
+# document public; external (hashed, not committed) for GPL/LGPL code and text and
+# for the ghostty themes tarball, whose themes are each their author's.
+
+[sources.xterm-misc]
+key    = "xterm-misc"
+title  = "xterm-snapshots 9489b20, misc.c -- ReportAnsiColorRequest answers any entry; ResetAnsiColorRequest resets all MAXCOLORS; ResetColorsRequest only from OSC 110-119"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c"
+file   = "xterm-misc.c"
+sha256 = "1ea4c69b2e1b0824956c4991eaa62da1ff93804b735dc0f9cba65b03a8b406ce"
+bytes  = 204973
+status = "retrieved"
+group  = "Y"
+
+[sources.contour-palette-notifications]
+key    = "contour-palette-notifications"
+title  = "contour ea9b6c7, docs/vt-extensions/color-palette-update-notifications.md -- mode 2031, DSR 996, the 997 reply"
+author = "Christian Parpart and the contour contributors"
+year   = 2026
+venue  = "contour terminal (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/docs/vt-extensions/color-palette-update-notifications.md"
+file   = "contour-color-palette-update-notifications.md"
+sha256 = "6ba512529226511adcfee5a4d0f99a9689293e73b3e2d4d5c21afb67f45ba832"
+bytes  = 4845
+status = "retrieved"
+group  = "Y"
+
+[sources.contour-terminal-cpp]
+key    = "contour-terminal-cpp"
+title  = "contour ea9b6c7, vtbackend/screen/Terminal.cpp -- resetColorPalette replaces the live palette and reports 997"
+author = "Christian Parpart and the contour contributors"
+year   = 2026
+venue  = "contour terminal (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/src/vtbackend/screen/Terminal.cpp"
+file   = "contour-Terminal.cpp"
+sha256 = "1416e6e5254e77404ca1e63486e26df7e2140b290fdb188d123a2953bf119087"
+bytes  = 239331
+status = "retrieved"
+group  = "Y"
+
+[sources.contour-session-cpp]
+key    = "contour-session-cpp"
+title  = "contour ea9b6c7, contour/session/TerminalSession.cpp -- updateColorPreference returns early on an unchanged preference"
+author = "Christian Parpart and the contour contributors"
+year   = 2026
+venue  = "contour terminal (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/ea9b6c73793ec5800dce11830e67b269007a9cf4/src/contour/session/TerminalSession.cpp"
+file   = "contour-TerminalSession.cpp"
+sha256 = "2ea5d97ee29527319783c01d3fbd59c3f846e50af37777e82912987208327ad0"
+bytes  = 179085
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-config-d9840f3]
+key    = "ghostty-config-d9840f3"
+title  = "ghostty d9840f3, config/Config.zig -- minimum-contrast, light:X,dark:Y theme pairs, the palette grammar"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/Config.zig"
+file   = "ghostty-d9840f3-Config.zig"
+sha256 = "aa0d42cdab217728ef502ed7b36e681fca3c9ecd3232ae299cecdbefa27c0332"
+bytes  = 425434
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-args-d9840f3]
+key    = "ghostty-args-d9840f3"
+title  = "ghostty d9840f3, cli/args.zig -- a config line is a comment only when its first byte is #"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/cli/args.zig"
+file   = "ghostty-d9840f3-args.zig"
+sha256 = "5d63752f1c424fc17b1cf69b63baf0cae71457665b328cddcb2cf40c4000714e"
+bytes  = 54342
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-shaders-d9840f3]
+key    = "ghostty-shaders-d9840f3"
+title  = "ghostty d9840f3, renderer/shaders/shaders.metal -- contrasted_color replaces text with white or black below the minimum"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal"
+file   = "ghostty-d9840f3-shaders.metal"
+sha256 = "8c261d95c1d951cc47aa18bb39343a1cfd9057cc19dce987b4b1c3367f5d8d85"
+bytes  = 25257
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-cell-d9840f3]
+key    = "ghostty-cell-d9840f3"
+title  = "ghostty d9840f3, renderer/cell.zig -- the codepoints exempt from minimum-contrast"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/cell.zig"
+file   = "ghostty-d9840f3-cell.zig"
+sha256 = "86835a9aebebf969547c4efac3fdb4cbde7c9a6e527c2384b20944685344b3ff"
+bytes  = 22530
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-color-d9840f3]
+key    = "ghostty-color-d9840f3"
+title  = "ghostty d9840f3, terminal/color.zig -- the xterm cube fill and DynamicPalette.changeDefault keeping overrides"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/color.zig"
+file   = "ghostty-d9840f3-color.zig"
+sha256 = "9704dc19bb5916c11a90eee73d6332fb1a76dec1320f64186f6d95805544c665"
+bytes  = 50511
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-termio-d9840f3]
+key    = "ghostty-termio-d9840f3"
+title  = "ghostty d9840f3, termio/Termio.zig -- colorSchemeReportLocked reports the selected theme"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/termio/Termio.zig"
+file   = "ghostty-d9840f3-Termio.zig"
+sha256 = "e828fe8b538122933141305b55f2fff9a12f5481e859b9b286da92914f00b055"
+bytes  = 29679
+status = "retrieved"
+group  = "Y"
+
+[sources.ghostty-themes-tgz]
+key    = "ghostty-themes-tgz"
+title  = "ghostty themes release-20260810-152212-0173c3c -- the bundled theme files, 602 of them"
+author = "iTerm2-Color-Schemes contributors, packaged by the Ghostty project"
+year   = 2026
+venue  = "deps.files.ghostty.org (collection MIT; each theme its author's)"
+url    = "https://deps.files.ghostty.org/ghostty-themes-release-20260810-152212-0173c3c.tgz"
+file   = ""
+sha256 = "ea9878471420ee5b12e7f2ff480099c954ea50e573a1bdf83f43e105c9be63f0"
+bytes  = 78218
+status = "external"
+group  = "Y"
+
+[sources.kitty-themes-rst]
+key    = "kitty-themes-rst"
+title  = "kitty 6d5d0c4, docs/kittens/themes.rst -- auto themes, and the next OS colour-mode change overriding dynamic changes"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/docs/kittens/themes.rst"
+file   = ""
+sha256 = "d230a9acec8b3ae3605649719ba3f177ae738d780d11e5b4d9dd60c03a09c7e3"
+bytes  = 5464
+status = "external"
+group  = "Y"
+
+[sources.kitty-window-py]
+key    = "kitty-window-py"
+title  = "kitty 6d5d0c4, kitty/window.py -- is_dark of the current default background, and the 997 report"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/window.py"
+file   = ""
+sha256 = "81b932ca6c2f8c196d180dedcbba48c798008589f22bc7a689b3968b1b9bb2b9"
+bytes  = 114737
+status = "external"
+group  = "Y"
+
+[sources.kitty-colors-c]
+key    = "kitty-colors-c"
+title  = "kitty 6d5d0c4, kitty/colors.c -- is_dark_get, luma over 255 below 0.5"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/colors.c"
+file   = ""
+sha256 = "a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f"
+bytes  = 65249
+status = "external"
+group  = "Y"
+
+[sources.kitty-colors-h]
+key    = "kitty-colors-h"
+title  = "kitty 6d5d0c4, kitty/colors.h -- rgb_luminance, BT.601 weights"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/colors.h"
+file   = ""
+sha256 = "799b49384c29f6948d2ce8c3fee8094cd3f6bd3290c76d0550e040d9e976fb99"
+bytes  = 1691
+status = "external"
+group  = "Y"
+
+[sources.wcag22]
+key    = "wcag22"
+title  = "Web Content Accessibility Guidelines (WCAG) 2.2, W3C Recommendation 12 December 2024 -- relative luminance, contrast ratio, SC 1.4.3, 1.4.6, 1.4.11"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2024
+venue  = "W3C Recommendation"
+url    = "https://www.w3.org/TR/2024/REC-WCAG22-20241212/"
+file   = "wcag22-20241212.html"
+sha256 = "6e3c5fe397257cae509a2fb4752b73062cf8cbeb92c2cec618989b17e4cf7057"
+bytes  = 512457
+status = "retrieved"
+group  = "Y"
+
+[sources.wcag3-wd]
+key    = "wcag3-wd"
+title  = "W3C Accessibility Guidelines (WCAG) 3.0, Working Draft 10 September 2026 -- the contrast algorithm yet to be determined"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C Working Draft"
+url    = "https://www.w3.org/TR/2026/WD-wcag-3.0-20260910/"
+file   = "wcag3-wd-20260910.html"
+sha256 = "0c7ac945adee7c83d9a767a8ead742985d79d16d3f98f9694297628584b2c99e"
+bytes  = 814864
+status = "retrieved"
+group  = "Y"
+
+[sources.tinted-styling-base16]
+key    = "tinted-styling-base16"
+title  = "tinted-theming home 38fdf7d, styling.md v0.4.2 -- the base16 slot to ANSI 0-21 table"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/home (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/styling.md"
+file   = "tinted-home-styling.md"
+sha256 = "ba027cc4a8ebc15a30c6d4d0a13aa4d53eb2e5809bbfb7530d62b52fa6846975"
+bytes  = 7213
+status = "retrieved"
+group  = "Y"
+
+[sources.tinted-builder]
+key    = "tinted-builder"
+title  = "tinted-theming home 38fdf7d, builder.md -- the builder specification"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/home (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/builder.md"
+file   = "tinted-home-builder.md"
+sha256 = "e48dc625db2838b5783d01e5e068cc2fb86cfe81e57ae74cb3a114b2fba0989d"
+bytes  = 10882
+status = "retrieved"
+group  = "Y"
+
+[sources.base24-styling]
+key    = "base24-styling"
+title  = "tinted-theming base24 fb96d3c, styling.md -- base24 slots onto ANSI 9-14"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/base24 (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/styling.md"
+file   = "tinted-base24-styling.md"
+sha256 = "f38f3159d00a7a96266e20d94405bc7f92afecab75acea85557fc53179695d42"
+bytes  = 8742
+status = "retrieved"
+group  = "Y"
+
+[sources.tinted-shell-base16]
+key    = "tinted-shell-base16"
+title  = "tinted-shell d1a0085, templates/base16.mustache -- OSC 4 0-21, OSC 10/11/12 from a base16 scheme"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/tinted-shell (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/templates/base16.mustache"
+file   = "tinted-shell-base16.mustache"
+sha256 = "e1fc087d8e8d2a18e940627ec1d1c34644c4a7bdc5536e51528c0f74b397ba65"
+bytes  = 6040
+status = "retrieved"
+group  = "Y"
+
+[sources.iterm2cs-gen-py]
+key    = "iterm2cs-gen-py"
+title  = "iTerm2-Color-Schemes 99d9701, tools/gen.py -- the WCAG pass applied to every generated theme"
+author = "Mark Badolato and the iTerm2-Color-Schemes contributors"
+year   = 2026
+venue  = "mbadolato/iTerm2-Color-Schemes (MIT)"
+url    = "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/tools/gen.py"
+file   = "iterm2-color-schemes-gen.py"
+sha256 = "7bf9c7f130777000e9bea060fc260ba2ff02e8fd28b173501f4a087980aeb6c7"
+bytes  = 19967
+status = "retrieved"
+group  = "Y"
+
+[sources.modus-themes-el]
+key    = "modus-themes-el"
+title  = "modus-themes 4fcc8d0, modus-themes.el -- modus-themes-common-palette-mappings, the terminal colours"
+author = "Protesilaos Stavrou; (C) Free Software Foundation"
+year   = 2026
+venue  = "protesilaos/modus-themes (GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/protesilaos/modus-themes/4fcc8d00540a81936a213d608a69c4c85df8f970/modus-themes.el"
+file   = ""
+sha256 = "86829a997f98ab9f98b31fe9b3afdcd7bb90eb38e0b3004a9f09e041c6bb209f"
+bytes  = 359247
+status = "external"
+group  = "Y"
+
+[sources.modus-operandi-theme-el]
+key    = "modus-operandi-theme-el"
+title  = "modus-themes 4fcc8d0, modus-operandi-theme.el -- the copyright and licence lines"
+author = "Protesilaos Stavrou; (C) Free Software Foundation"
+year   = 2026
+venue  = "protesilaos/modus-themes (GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/protesilaos/modus-themes/4fcc8d00540a81936a213d608a69c4c85df8f970/modus-operandi-theme.el"
+file   = ""
+sha256 = "10e330880269244ae45ae9e02fe6f55766da9e15036e7c7f07d7ce228195deb5"
+bytes  = 3614
+status = "external"
+group  = "Y"
+
+[sources.modus-copying]
+key    = "modus-copying"
+title  = "modus-themes 4fcc8d0, COPYING -- the GNU GPL version 3 text"
+author = "Free Software Foundation"
+year   = 2007
+venue  = "protesilaos/modus-themes"
+url    = "https://raw.githubusercontent.com/protesilaos/modus-themes/4fcc8d00540a81936a213d608a69c4c85df8f970/COPYING"
+file   = ""
+sha256 = "ca451ca2c58a167e1354e2e1a4f3348287ecbabd1c1a97b57ee48bd2561ec454"
+bytes  = 35126
+status = "external"
+group  = "Y"
+
+[sources.ecfr-37-202-1]
+key    = "ecfr-37-202-1"
+title  = "37 CFR 202.1, Material not subject to copyright, eCFR as of 2026-09-01"
+author = "United States Copyright Office"
+year   = 2026
+venue  = "Electronic Code of Federal Regulations (public domain)"
+url    = "https://www.ecfr.gov/api/versioner/v1/full/2026-09-01/title-37.xml?section=202.1"
+file   = "ecfr-37-cfr-202.1.xml"
+sha256 = "319a323c63b0ab76b796e4e13aac1e5953068b0c1d983cb40a9bc95a0b62e6cb"
+bytes  = 1493
+status = "retrieved"
+group  = "Y"
+
+[sources.xdg-portal-settings]
+key    = "xdg-portal-settings"
+title  = "xdg-desktop-portal b2e6b7c, org.freedesktop.portal.Settings.xml -- color-scheme 0/1/2 and SettingChanged"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/b2e6b7cf9ea66efce3ad8ee29945ed1c83261e59/data/org.freedesktop.portal.Settings.xml"
+file   = ""
+sha256 = "017ec98f467476b9bd17b8122ee2585197742a89e5274156c30152ee61204824"
+bytes  = 4485
+status = "external"
+group  = "Y"
+
+[sources.libadwaita-style-manager]
+key    = "libadwaita-style-manager"
+title  = "libadwaita 0ffcd2c, src/adw-style-manager.c -- how an app colour scheme resolves against the system's"
+author = "the libadwaita contributors"
+year   = 2026
+venue  = "GNOME libadwaita (LGPL-2.1)"
+url    = "https://gitlab.gnome.org/GNOME/libadwaita/-/raw/0ffcd2c80b2260bdae01b89e88d94bb5c856db13/src/adw-style-manager.c"
+file   = ""
+sha256 = "87c68da0d03b8b554826d6fcd06046e5dfd451f0db3526279087a2d1626e7de9"
+bytes  = 36525
+status = "external"
+group  = "Y"
+
+[sources.mlg-drawable]
+key    = "mlg-drawable"
+title  = "macos-liquid-glass ccf01c8, src/drawable.rs -- Responder::appearance on the system light/dark axis; the file hashes as in 1.0.0-beta.5"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/ccf01c88648400562c55a1366151f6f0c8b6f663/src/drawable.rs"
+file   = "mlg-drawable.rs"
+sha256 = "7029476f9bd3fc243168f215ab1d84fc3522ab4976238af73811f0605cda0edd"
+bytes  = 40047
+status = "retrieved"
+group  = "Y"
+
+[sources.mlg-accessibility]
+key    = "mlg-accessibility"
+title  = "macos-liquid-glass ccf01c8, src/accessibility.rs -- reduce_transparency and increase_contrast; the file hashes as in 1.0.0-beta.5"
+author = "Ido Samuelson"
+year   = 2026
+venue  = "i-am-logger/macos-liquid-glass (MIT)"
+url    = "https://raw.githubusercontent.com/i-am-logger/macos-liquid-glass/ccf01c88648400562c55a1366151f6f0c8b6f663/src/accessibility.rs"
+file   = "mlg-accessibility.rs"
+sha256 = "7f74d6550490b9dbc0abecf6d87a3f783999ea70ea1bcf64b55e20d379802d47"
+bytes  = 4025
+status = "retrieved"
+group  = "Y"
+
+[sources.neovim-tui-c]
+key    = "neovim-tui-c"
+title  = "neovim fc3f004, src/nvim/tui/tui.c -- ?2031h sent only when DECRQM answers 2"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/tui.c"
+file   = "neovim-tui.c"
+sha256 = "fe5f8e0c33a82ee48f068318f97509256150a9a843d50eda1aa56dcfdb924ce3"
+bytes  = 91742
+status = "retrieved"
+group  = "Y"
+
+[sources.neovim-tui-input-c]
+key    = "neovim-tui-input-c"
+title  = "neovim fc3f004, src/nvim/tui/input.c -- a 997 as a trigger to re-query OSC 11"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/src/nvim/tui/input.c"
+file   = "neovim-tui-input.c"
+sha256 = "3bb8d8bd501693d22abd51867b0827ea6ec3c30003ad8db09a3915b726776ce7"
+bytes  = 30634
+status = "retrieved"
+group  = "Y"
+
+[sources.tmux-input-c]
+key    = "tmux-input-c"
+title  = "tmux 94796f6, input.c -- a pane's 996 answered by tmux, silent when the theme is unknown"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/input.c"
+file   = "tmux-input.c"
+sha256 = "38e4be06a43ab7cb7992307c253785b015c8b00bd4ab694bea28a1429a33c618"
+bytes  = 89384
+status = "retrieved"
+group  = "Y"
+
+[sources.tmux-tty-c]
+key    = "tmux-tty-c"
+title  = "tmux 94796f6, tty.c -- ?2031h?996n sent to a VT100-like outer terminal"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/tty.c"
+file   = "tmux-tty.c"
+sha256 = "bdf7e459b3858722025a3e298d57b4001647ecd92d577483b345216a4b7555ea"
+bytes  = 75168
+status = "retrieved"
+group  = "Y"
+
+[sources.helix-termina-079a789]
+key    = "helix-termina-079a789"
+title  = "helix 079a789, helix-tui/src/backend/termina.rs -- 996 with OSC 11 and DA1, and the OSC 11 restored on exit"
+author = "the helix contributors"
+year   = 2026
+venue  = "helix editor (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/helix-editor/helix/079a789e8cb08ead67f19e1971a1b7438b37354b/helix-tui/src/backend/termina.rs"
+file   = "helix-079a789-termina.rs"
+sha256 = "03fbe1873a7e3e88cc02988a558b7d3add57f17d75c0adac3345a095b599946b"
+bytes  = 26589
+status = "retrieved"
+group  = "Y"
+
+[sources.iterm2-ptysession]
+key    = "iterm2-ptysession"
+title  = "iTerm2 8622e64, sources/PTYSession/PTYSession.m -- OSC colours written to the base, Light and Dark keys; per-appearance minimum contrast"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/PTYSession/PTYSession.m"
+file   = ""
+sha256 = "5e41dc07c44c8c2337f52522c732bda068499a48376cf84e28f27c83b870085b"
+bytes  = 1155761
+status = "external"
+group  = "Y"
+
+[sources.foot-terminal-cb27717]
+key    = "foot-terminal-cb27717"
+title  = "foot cb27717, terminal.c -- term_theme_apply overwrites fg, bg and the colour table"
+author = "Daniel Eklof and the foot contributors"
+year   = 2026
+venue  = "foot terminal (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/terminal.c"
+file   = "foot-cb27717-terminal.c"
+sha256 = "27b3dfbf4cf953884632b1b798c876922fa2f11aaac68213ef1a42d4fb419544"
+bytes  = 148115
+status = "retrieved"
+group  = "Y"
+
+[sources.wt-colorfix]
+key    = "wt-colorfix"
+title  = "Windows Terminal bb0541e, src/types/ColorFix.cpp -- adjustIndistinguishableColors in Oklab"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/bb0541e7a972a1f9e39318c1f6b4e70347a86696/src/types/ColorFix.cpp"
+file   = "wt-ColorFix.cpp"
+sha256 = "91daaafcc403afe6e6c10d4983aa2ffa6ffedce316e914b991e59a1bb0e35c63"
+bytes  = 12460
+status = "retrieved"
+group  = "Y"
+
+[sources.wt-rendersettings]
+key    = "wt-rendersettings"
+title  = "Windows Terminal bb0541e, src/renderer/base/RenderSettings.cpp -- when the adjustment applies, and fg equal to bg exempt"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/bb0541e7a972a1f9e39318c1f6b4e70347a86696/src/renderer/base/RenderSettings.cpp"
+file   = "wt-RenderSettings.cpp"
+sha256 = "456d81999570d7cfb41b26967433b0d18fe3125ff90cc8b0dea6d9d901898ce8"
+bytes  = 11089
+status = "retrieved"
+group  = "Y"
+
+[sources.wezterm-color-types]
+key    = "wezterm-color-types"
+title  = "wezterm b09b56c, color-types/src/lib.rs -- ensure_contrast_ratio"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/color-types/src/lib.rs"
+file   = "wezterm-color-types-lib.rs"
+sha256 = "b5e42829e307e1d2eed6b22e12ee9f225308490642f2927daf80909ce0156670"
+bytes  = 38225
+status = "retrieved"
+group  = "Y"
+
+[sources.wezterm-screen-line]
+key    = "wezterm-screen-line"
+title  = "wezterm b09b56c, termwindow/render/screen_line.rs -- a default background given alpha 0 in a transparent window"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/wezterm-gui/src/termwindow/render/screen_line.rs"
+file   = "wezterm-screen_line.rs"
+sha256 = "791fd925b0e229f2f4b103c1a6e3bb88a92b7392f59305477dfe7bd18d679623"
+bytes  = 37932
+status = "retrieved"
+group  = "Y"
+
+[sources.coreutils-ls-c]
+key    = "coreutils-ls-c"
+title  = "coreutils ace92d7, src/ls.c -- the built-in color_indicator table and the COLORTERM path"
+author = "the GNU coreutils contributors; (C) Free Software Foundation"
+year   = 2026
+venue  = "GNU coreutils (GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/coreutils/coreutils/ace92d7dc2556bbd959ed7a6d86e9a28e4a32e99/src/ls.c"
+file   = ""
+sha256 = "9e2ba971e811743b8ec40a65e66dd5d94631a82973903a923d36251884f964ee"
+bytes  = 169130
+status = "external"
+group  = "Y"
+
+[sources.coreutils-dircolors-hin]
+key    = "coreutils-dircolors-hin"
+title  = "coreutils ace92d7, src/dircolors.hin -- the LS_COLORS database"
+author = "the GNU coreutils contributors; (C) Free Software Foundation"
+year   = 2026
+venue  = "GNU coreutils (GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/coreutils/coreutils/ace92d7dc2556bbd959ed7a6d86e9a28e4a32e99/src/dircolors.hin"
+file   = ""
+sha256 = "280ab2798b3c699496d91ce37aaed3bf6e80d6346955fec1b8ac672811cf636a"
+bytes  = 5612
+status = "external"
+group  = "Y"
+
+[sources.apple-ls-print-c]
+key    = "apple-ls-print-c"
+title  = "Apple file_cmds 659a8a3, ls/print.c -- the default LSCOLORS"
+author = "The Regents of the University of California; Apple Inc."
+year   = 2026
+venue  = "apple-oss-distributions/file_cmds (BSD)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/file_cmds/659a8a301e2acf0343f8b8673a154a2ca4d07084/ls/print.c"
+file   = "apple-file_cmds-ls-print.c"
+sha256 = "49d3da9a0b155cf01f0f3fc211bc6ac018647511e7b3fd999c13f4c4cfb01301"
+bytes  = 24451
+status = "retrieved"
+group  = "Y"
+
+[sources.apple-ls-ls-c]
+key    = "apple-ls-ls-c"
+title  = "Apple file_cmds 659a8a3, ls/ls.c -- colour only under CLICOLOR or -G"
+author = "The Regents of the University of California; Apple Inc."
+year   = 2026
+venue  = "apple-oss-distributions/file_cmds (BSD)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/file_cmds/659a8a301e2acf0343f8b8673a154a2ca4d07084/ls/ls.c"
+file   = "apple-file_cmds-ls-ls.c"
+sha256 = "544c98e2d26512775dd7fa286f9c55ee75c974f6378ecb965c0b9066972abb25"
+bytes  = 31180
+status = "retrieved"
+group  = "Y"
+
+[sources.lsd-theme-color]
+key    = "lsd-theme-color"
+title  = "lsd d5a4e1c, src/theme/color.rs -- the dark-only default theme"
+author = "the lsd contributors"
+year   = 2026
+venue  = "lsd-rs/lsd (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/lsd-rs/lsd/d5a4e1cb80626d5ec94b237f6b77f7280d0f2fc9/src/theme/color.rs"
+file   = "lsd-theme-color.rs"
+sha256 = "da0b4b3938eeeb1eecb698ec4704f6080c7d58df2994023ebecc8c43a2be2863"
+bytes  = 15768
+status = "retrieved"
+group  = "Y"
+
+[sources.lscolors-lib]
+key    = "lscolors-lib"
+title  = "lscolors fd932f8, src/lib.rs -- LS_COLORS_DEFAULT, GNU's built-in table"
+author = "David Peter and the lscolors contributors"
+year   = 2026
+venue  = "sharkdp/lscolors (MIT or Apache-2.0)"
+url    = "https://raw.githubusercontent.com/sharkdp/lscolors/fd932f838d055990378e3d73fbd5d61185da495e/src/lib.rs"
+file   = "lscolors-lib.rs"
+sha256 = "034fa0a49107d08aaa0e764eea2862ef41f874836c0c8380f689129977b0c5ce"
+bytes  = 35005
+status = "retrieved"
+group  = "Y"
+
+[sources.fzf-light-unix]
+key    = "fzf-light-unix"
+title  = "fzf a140afe, src/tui/light_unix.go -- Dark256 whenever TERM contains 256"
+author = "Junegunn Choi"
+year   = 2026
+venue  = "junegunn/fzf (MIT)"
+url    = "https://raw.githubusercontent.com/junegunn/fzf/a140afeb4d733cad3c96a56bf6db7e26853b6757/src/tui/light_unix.go"
+file   = "fzf-light_unix.go"
+sha256 = "9655b91ccd30afffb5e88bf0da88535be60a9b154b606fe1983050598fa7c8c0"
+bytes  = 6914
+status = "retrieved"
+group  = "Y"
+
+[sources.bat-terminal-rs]
+key    = "bat-terminal-rs"
+title  = "bat 4987f76, src/terminal.rs -- the ansi theme's colours as palette slots"
+author = "David Peter and the bat contributors"
+year   = 2026
+venue  = "sharkdp/bat (MIT or Apache-2.0)"
+url    = "https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/src/terminal.rs"
+file   = "bat-terminal.rs"
+sha256 = "7f5d6a87172750962cec36fb5432b507d01f208fac71ad9bcdb7affb0a494de0"
+bytes  = 3073
+status = "retrieved"
+group  = "Y"

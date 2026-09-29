@@ -3275,6 +3275,23 @@ The frame benches are not owed, and the golden and sfte pins do not move.
 
 ### V16. A light-mode set of the sixteen ANSI colours
 
+**Re-researched and decided in note Y** (`docs/research/notes/y-palettes.md`),
+which supersedes this section where they differ. The owner's decisions of
+2026-09-29: no vogix-specific work until vogix 1.0.0-beta.1; scheme files by
+each format's published mapping (base16 and base24 by tinted-theming's table,
+ghostty-style files keeping their own page and text) onto a scheme type later
+formats can join; Modus Operandi's sixteen values as the built-in light set,
+credited, no file text copied; the palette following System Settings >
+Appearance while the glass follows Icon & widget style; an OS flip under
+`auto` resetting program colours (OSC 4/10/11/12), with 996/997 reporting the
+class of what OSC 10/11 answer; a contrast floor on by default, trigger about
+1.2, lifted to 4.5:1; dim_light measured, then set; a readable dark set
+researched next; Reduce Transparency drawing backgrounds opaque and Increase
+Contrast raising the floor; faint blended toward the background. Corrections
+note Y makes to this section: ghostty's floor snaps to black or white rather
+than nudging; iTerm2 applies Minimum Contrast per appearance; the WCAG formula
+is pinned; the owner's `ls` is lsd.
+
 **The question**
 
 Programs colour their text with sixteen numbered "ANSI" colours: black, red,
