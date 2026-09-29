@@ -6,7 +6,8 @@
 # only the keys you care about is fine -- or no config at all, which draws with
 # the font baud carries inside itself, JetBrains Mono Nerd Font Mono (its
 # ligatures and the Nerd Fonts icons), with Menlo, the emoji, symbol and CJK
-# system faces behind it. `fonts` below replaces that whole stack.
+# system faces behind it. `fonts` below replaces that stack, and the embedded
+# font stays behind it for what your faces lack unless `font_fallback = false`.
 
 # Points; pixels are this times the display's backing scale.
 font_size = 13
@@ -36,13 +37,21 @@ colorspace = "srgb"
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.
 #
-# The default is the system's mono, its colour emoji, and its symbols for the
-# braille and box drawing the mono lacks:
-fonts = [
-  "/System/Library/Fonts/Menlo.ttc@0",
-  "/System/Library/Fonts/Apple Color Emoji.ttc@0",
-  "/System/Library/Fonts/Apple Symbols.ttf",
-]
+# Left unset, the stack is the embedded JetBrains Mono Nerd Font Mono, then the
+# system's mono, its colour emoji, and its symbol and CJK faces. Set, it
+# replaces that stack -- and the embedded font still follows it, last, so a
+# glyph none of the named faces carries (a Nerd Fonts icon a program draws)
+# comes from it rather than drawing as a missing-glyph box:
+# fonts = [
+#   "/System/Library/Fonts/Menlo.ttc@0",
+#   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
+#   "/System/Library/Fonts/Apple Symbols.ttf",
+# ]
+
+# Whether the embedded font follows a `fonts` stack you named. true, the
+# default, keeps it behind your faces; false leaves the stack exactly as named.
+# Without `fonts` it changes nothing: the embedded font is then the first face.
+font_fallback = true
 
 # For FiraCode with programming ligatures, point the first face at its file and
 # keep the emoji and symbol fallbacks -- FiraCode has neither:

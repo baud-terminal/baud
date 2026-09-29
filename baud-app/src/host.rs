@@ -249,6 +249,37 @@ mod tests {
         );
     }
 
+    /// **An icon the configured font lacks draws from the embedded one.**
+    /// The committed plain JetBrains Mono carries the Powerline arrows but
+    /// not the Nerd Fonts icons; named alone in `fonts`, the renderer's stack
+    /// still finds Font Awesome's folder, U+F07B, in the embedded face behind
+    /// it, and text stays with the named face. With `font_fallback = false`
+    /// the stack is the named face alone and the folder falls to its
+    /// `.notdef`.
+    #[test]
+    fn an_icon_the_configured_font_lacks_draws_from_the_embedded_one() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for (extra, faces, folder_in) in [("", 2, 1), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let loaded = super::load_faces(&cfg);
+            assert_eq!(loaded.len(), faces, "{extra:?}");
+            assert!(
+                loaded[0].glyph(folder).is_none(),
+                "the control: no icon in it"
+            );
+            let stack = baud_render::Stack::new(loaded).unwrap();
+            assert_eq!(stack.select(a).index(), 0, "{extra:?}");
+            assert_eq!(stack.select(folder).index(), folder_in, "{extra:?}");
+        }
+    }
+
     /// **The core's copy of the palette is the renderer's.** After
     /// `tell_defaults`, an `OSC 4 ; c ; ?` for every entry answers exactly the
     /// colour the theme draws -- the invariant `set_default_colors` already

@@ -19,7 +19,9 @@
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
 //! none is found or a field is absent, the defaults are the stack that
 //! starts with the embedded JetBrains Mono Nerd Font Mono -- so the app runs
-//! with no config at all.
+//! with no config at all. A configured `fonts` replaces that stack and keeps
+//! the embedded face last, for the glyphs the named faces lack, unless
+//! `font_fallback = false`.
 
 use baud_domain::{CursorBlink, CursorShape};
 
@@ -41,6 +43,16 @@ pub enum FaceFrom {
     Embedded(&'static [u8]),
 }
 
+/// Whether the embedded font follows a configured stack as its last face,
+/// so a glyph none of the named faces carries -- a Nerd Fonts icon -- draws
+/// from it instead of as `.notdef`. kitty, wezterm and ghostty all put their
+/// bundled symbols behind the user's fonts the same way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontFallback {
+    Embedded,
+    Off,
+}
+
 pub struct Config {
     /// Where the file was found, so the startup log can say which config
     /// is in force -- a `baud` launched outside the checkout once fell back
@@ -49,6 +61,9 @@ pub struct Config {
     pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
+    /// Whether the embedded font follows a `fonts` stack the config names,
+    /// already folded into `faces` by the time the config is read.
+    pub font_fallback: FontFallback,
     /// Points; pixels are this times the backing scale.
     pub font_size: f32,
     /// The gutter, in points, left of and right of and below the grid, so
@@ -418,6 +433,7 @@ impl Config {
     pub fn defaults() -> Config {
         Config {
             faces: default_faces(),
+            font_fallback: FontFallback::Embedded,
             font_size: 13.0,
             padding: 8.0,
             colorspace: Space::Srgb,
@@ -457,8 +473,11 @@ impl Config {
     /// value that fell back to a default. `load` prints them; a test reads
     /// them, because a config whose every value equals its default reads
     /// the same whether a line landed or was swallowed.
-    fn apply(&mut self, text: &str) -> Vec<String> {
+    pub(crate) fn apply(&mut self, text: &str) -> Vec<String> {
         let mut said = Vec::new();
+        // The stack is settled after the whole file, so `font_fallback`
+        // counts wherever it sits relative to `fonts`.
+        let mut named: Option<Vec<FaceSpec>> = None;
         for (section, key, value) in fields(text) {
             match (section.as_str(), key.as_str()) {
                 ("", "font_size") => match value.trim().parse::<f32>() {
@@ -674,8 +693,20 @@ impl Config {
                     if faces.is_empty() {
                         said.push("config: fonts names no face; keeping the default stack".into());
                     } else {
-                        self.faces = faces;
+                        named = Some(faces);
                     }
+                }
+                ("", "font_fallback") => {
+                    self.font_fallback = match value.trim() {
+                        "true" => FontFallback::Embedded,
+                        "false" => FontFallback::Off,
+                        other => {
+                            said.push(format!(
+                                "config: font_fallback = {other:?} is not true or false; the embedded font stays behind the stack"
+                            ));
+                            FontFallback::Embedded
+                        }
+                    };
                 }
                 ("glass", "style") => {
                     self.glass.style = match value.trim().trim_matches('"') {
@@ -751,6 +782,12 @@ impl Config {
                     "config: [{section}] has no key {other:?}; it is ignored"
                 )),
             }
+        }
+        if let Some(mut faces) = named {
+            if self.font_fallback == FontFallback::Embedded {
+                faces.push(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO));
+            }
+            self.faces = faces;
         }
         said
     }
@@ -1707,7 +1744,7 @@ shadow     = "never"
 
     /// The default stack starts with the embedded JetBrains Mono Nerd Font
     /// Mono, and on macOS keeps Menlo right behind it; a config's `fonts`
-    /// replaces the whole stack, the embedded face included.
+    /// replaces the stack, and the embedded face follows it as the fallback.
     #[test]
     fn the_default_stack_starts_with_the_embedded_font() {
         let d = Config::defaults();
@@ -1729,8 +1766,61 @@ shadow     = "never"
         let mut c = Config::defaults();
         let said = c.apply("fonts = [\"/a.ttf\"]\n");
         assert!(said.is_empty(), "{said:?}");
-        assert_eq!(c.faces.len(), 1);
+        assert_eq!(c.faces.len(), 2);
         assert!(matches!(c.faces[0].from, FaceFrom::File));
+    }
+
+    fn is_embedded(f: &FaceSpec) -> bool {
+        matches!(f.from, FaceFrom::Embedded(b)
+            if b.len() == crate::embedded::JETBRAINS_MONO.bytes.len())
+    }
+
+    /// A configured stack keeps the embedded font behind it, so what none
+    /// of the named faces carries -- a Nerd Fonts icon -- still draws; and
+    /// `font_fallback = false` leaves the stack exactly as named, whichever
+    /// of the two keys comes first.
+    #[test]
+    fn a_configured_stack_keeps_the_embedded_font_behind_it() {
+        let c = read("fonts = [\"/a.ttf\", \"/b.ttc@2\"]\n");
+        assert_eq!(c.faces.len(), 3);
+        assert_eq!(c.faces[0].path, "/a.ttf");
+        assert_eq!(c.faces[1].path, "/b.ttc");
+        assert!(is_embedded(&c.faces[2]), "{}", c.faces[2].path);
+        assert_eq!(c.font_fallback, FontFallback::Embedded);
+        for text in [
+            "fonts = [\"/a.ttf\"]\nfont_fallback = false\n",
+            "font_fallback = false\nfonts = [\"/a.ttf\"]\n",
+        ] {
+            let c = read(text);
+            assert_eq!(c.font_fallback, FontFallback::Off, "{text}");
+            assert_eq!(c.faces.len(), 1, "{text}");
+            assert_eq!(c.faces[0].path, "/a.ttf", "{text}");
+        }
+        let c = read("font_fallback = true\nfonts = [\"/a.ttf\"]\n");
+        assert_eq!(c.faces.len(), 2);
+        assert!(is_embedded(&c.faces[1]));
+    }
+
+    /// With no `fonts` the embedded face is already first, so the switch
+    /// changes nothing: it cannot take away the default font.
+    #[test]
+    fn font_fallback_alone_keeps_the_default_stack() {
+        let c = read("font_fallback = false\n");
+        assert_eq!(c.faces.len(), Config::defaults().faces.len());
+        assert!(is_embedded(&c.faces[0]));
+        assert!(c.faces[1..].iter().all(|f| !is_embedded(f)));
+    }
+
+    /// A value that is not `true` or `false` is said and leaves the
+    /// fallback on: a typo must not drop the icons.
+    #[test]
+    fn font_fallback_reads_true_and_false_and_says_anything_else() {
+        let mut c = Config::defaults();
+        let said = c.apply("font_fallback = off\nfonts = [\"/a.ttf\"]\n");
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("font_fallback"), "{said:?}");
+        assert_eq!(c.font_fallback, FontFallback::Embedded);
+        assert!(is_embedded(&c.faces[1]));
     }
 
     /// Every theme the macOS app builds carries the floor it was given. The
@@ -1829,16 +1919,14 @@ shadow     = "never"
         assert_eq!(c.padding, 8.0);
         assert_eq!(c.theme, ThemeChoice::Auto);
         assert_eq!(c.colorspace, Space::Srgb);
-        // The stack it lists, not the built-in one it would fall back to.
-        assert_eq!(c.faces.len(), 3, "the font stack was not read");
-        assert!(
-            c.faces[0].path.ends_with("Menlo.ttc"),
-            "{}",
-            c.faces[0].path
-        );
-        // The `[cursor]` section lands, and it sits after `fonts` so the
-        // namespace does not swallow the stack -- which the face assert
-        // above would catch.
+        // Its `fonts` examples are commented out -- an uncommented one would
+        // make a copied example replace the embedded default -- so the
+        // stack is the built-in one, embedded face first.
+        assert_eq!(c.faces.len(), Config::defaults().faces.len());
+        assert!(is_embedded(&c.faces[0]), "{}", c.faces[0].path);
+        assert_eq!(c.font_fallback, FontFallback::Embedded);
+        // The `[cursor]` section lands; that a section header cannot
+        // swallow a top-level list is `a_list_across_lines_survives_a_section_header`.
         // The example's `trail` line is commented out -- naming a trail keeps
         // it under Reduce Motion -- so the section's landing is the shape and
         // blink below, which are named.
@@ -1918,9 +2006,10 @@ shadow     = "never"
         // which is the namespace working, not a defect.
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
         let c = read("fonts = [\n  \"a\",\n  \"b@2\",\n]\n[glass]\ndim_dark = 0.3\n");
-        assert_eq!(c.faces.len(), 2);
+        assert_eq!(c.faces.len(), 3, "the two named and the embedded fallback");
         assert_eq!(c.faces[1].path, "b");
         assert_eq!(c.faces[1].index, 2);
+        assert!(is_embedded(&c.faces[2]));
         assert_eq!(c.glass.dim_dark, 0.3);
     }
 }
