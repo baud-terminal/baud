@@ -1,6 +1,6 @@
 //! Renditions to pixels: the theme, the palette, and the attribute rules.
 
-use baud_domain::{Attrs, Chan, ColorWord, DynamicColor, StyleWord};
+use baud_domain::{Attrs, Chan, ColorWord, DynamicColor, LINEAR, StyleWord};
 
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
 /// `wl_shm` buffer both take once premultiplied at the edge.
@@ -36,9 +36,164 @@ impl Argb {
     }
 
     /// Each channel halved: what `SGR 2` does to a foreground.
-    fn dimmed(self) -> Argb {
+    /// Half way to `other`, channel by channel in encoded sRGB, rounded half
+    /// up; this colour's alpha kept. Faint text drawn on `other`
+    /// (note Y, decision 10): ghostty's `faint-opacity` default of 0.5, which
+    /// ghostty applies as opacity and blends in the native, encoded space.
+    /// Mixed in linear light instead, faint default text on the light page
+    /// reads at 1.86:1 where the dark page gets 7.19:1; encoded, 2.96:1 and
+    /// 4.07:1.
+    fn faint_on(self, other: Argb) -> Argb {
         let [a, r, g, b] = self.channels();
-        Argb(u32::from_be_bytes([a, r / 2, g / 2, b / 2]))
+        let [_, or, og, ob] = other.channels();
+        let half = |x: u8, y: u8| {
+            u8::try_from((u16::from(x) + u16::from(y)).div_ceil(2)).unwrap_or(u8::MAX)
+        };
+        Argb(u32::from_be_bytes([
+            a,
+            half(r, or),
+            half(g, og),
+            half(b, ob),
+        ]))
+    }
+}
+
+/// **The contrast floor** (note Y, decision 6): text whose contrast with the
+/// colour it is drawn on is below `trigger` is lifted to `target`, by a
+/// linear-light mix toward black or white that keeps its hue. Only a pair the
+/// application did not choose exactly: see [`Floor::covers`]. On by default at
+/// 1.2 and 4.5.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Floor {
+    Off,
+    Lift { trigger: f64, target: f64 },
+}
+
+impl Floor {
+    /// The owner's defaults: a trigger of about 1.2 -- "fixing the invisible
+    /// pairs of any convention, the built-in light theme's included" -- and
+    /// WCAG 2.2's 4.5:1 for text (SC 1.4.3).
+    pub const DEFAULT: Floor = Floor::Lift {
+        trigger: 1.2,
+        target: 4.5,
+    };
+
+    /// Whether the floor may touch a pair drawn from these two colour words:
+    /// they differ -- unless both are the default, since text and page are
+    /// two defaults and not one choice -- and **the page is ours** (the
+    /// default or an index 0-15) **or the text is the default**. An
+    /// application that set the same colour on both sides, or set the page
+    /// itself as a cube or truecolour colour and chose the text on it, chose
+    /// the pair and keeps it.
+    ///
+    /// **Not "either side ours"**, which note Y proposed: a real chafa
+    /// `--colors 240` preview (`tests/previews/chafa-240.ans`) draws palette
+    /// red, `38;5;1`, on ramp grey `48;5;239` in nine cells, 1.04:1 under the
+    /// light theme, and that rule lifted them into pale speckles inside the
+    /// picture. Over every capture in `tests/`, those are the only cells the
+    /// two rules treat differently (measured, 2026-09-29).
+    pub fn covers(text: ColorWord, page: ColorWord) -> bool {
+        let same = text == page && !text.is_default();
+        let ours = |w: ColorWord| w.is_default() || w.as_index().is_some_and(|i| i < 16);
+        !same && (ours(page) || text.is_default())
+    }
+
+    /// `text` as drawn on `page`, lifted when this floor covers the pair and
+    /// its contrast is below the trigger.
+    ///
+    /// **Toward black or white, in linear light, just far enough**: the text's
+    /// linear channels are scaled toward 0 or toward 1, which keeps their
+    /// order and so the hue, until the pair reaches `target`. The direction
+    /// keeps the text on its own side of the page -- lighter text gets
+    /// lighter -- unless that side cannot reach the target, and then the
+    /// other; on a mid-grey page where neither can, the extreme with the
+    /// higher ratio. `#00ff00` on the light page becomes `#007f00` at 4.53,
+    /// `#ffffff` becomes `#6c6c6c`.
+    pub fn lift(self, text: Argb, page: Argb, (tw, pw): (ColorWord, ColorWord)) -> Argb {
+        let Floor::Lift { trigger, target } = self else {
+            return text;
+        };
+        if !Floor::covers(tw, pw) {
+            return text;
+        }
+        let (lt, lp) = (Lum::of(text), Lum::of(page));
+        if lt.ratio(lp) >= trigger {
+            return text;
+        }
+        // The text's luminance at most (darker) or at least (lighter) for
+        // the pair to read at `target`.
+        let dark = (lp.0 + 0.05) / target - 0.05;
+        let light = target * (lp.0 + 0.05) - 0.05;
+        let (dark_ok, light_ok) = (dark >= 0.0, light <= 1.0);
+        let toward_white = match (lt.0 >= lp.0, dark_ok, light_ok) {
+            (true, _, true) | (false, false, true) => true,
+            (false, true, _) | (true, true, false) => false,
+            _ => Lum(1.0).ratio(lp) >= Lum(0.0).ratio(lp),
+        };
+        let [a, r, g, b] = text.channels();
+        let out = |f: &dyn Fn(Linear) -> Chan| {
+            let l = |v: u8| Linear::of(Chan::from_u8(v));
+            [a, f(l(r)).get(), f(l(g)).get(), f(l(b)).get()]
+        };
+        let channels = if toward_white {
+            let want = if light_ok { light } else { 1.0 };
+            let t = if lt.0 >= 1.0 {
+                0.0
+            } else {
+                ((want - lt.0) / (1.0 - lt.0)).clamp(0.0, 1.0)
+            };
+            out(&|c| Linear(c.0 + t * (1.0 - c.0)).encode_up())
+        } else {
+            let want = if dark_ok { dark } else { 0.0 };
+            let s = if lt.0 <= 0.0 {
+                0.0
+            } else {
+                (want / lt.0).clamp(0.0, 1.0)
+            };
+            out(&|c| Linear(c.0 * s).encode_down())
+        };
+        Argb(u32::from_be_bytes(channels))
+    }
+}
+
+/// WCAG 2.2 relative luminance (`[[source: wcag22]]`), 0 to 1, through
+/// `baud_domain::LINEAR`, the one sRGB decode the 996 classifier uses.
+#[derive(Clone, Copy)]
+struct Lum(f64);
+
+impl Lum {
+    fn of(c: Argb) -> Lum {
+        let [_, r, g, b] = c.channels();
+        let l = |v: u8| Linear::of(Chan::from_u8(v)).0;
+        Lum(0.2126 * l(r) + 0.7152 * l(g) + 0.0722 * l(b))
+    }
+
+    /// The contrast ratio of the two, the lighter over the darker.
+    fn ratio(self, other: Lum) -> f64 {
+        (self.0.max(other.0) + 0.05) / (self.0.min(other.0) + 0.05)
+    }
+}
+
+/// One channel in linear light, 0 to 1.
+#[derive(Clone, Copy)]
+struct Linear(f64);
+
+impl Linear {
+    fn of(c: Chan) -> Linear {
+        Linear(f64::from(LINEAR[usize::from(c.get())]) / 65535.0)
+    }
+
+    /// The largest channel value whose linear light is at most this: rounding
+    /// toward black never undershoots the contrast the lift reached.
+    fn encode_down(self) -> Chan {
+        let n = LINEAR.partition_point(|&v| f64::from(v) / 65535.0 <= self.0);
+        Chan::from_u8(u8::try_from(n.saturating_sub(1)).unwrap_or(u8::MAX))
+    }
+
+    /// The smallest channel value whose linear light is at least this.
+    fn encode_up(self) -> Chan {
+        let n = LINEAR.partition_point(|&v| f64::from(v) / 65535.0 < self.0);
+        Chan::from_u8(u8::try_from(n).unwrap_or(u8::MAX))
     }
 }
 
@@ -64,6 +219,8 @@ pub struct Theme {
     /// Whether a picture drawn in text keeps its backgrounds solid under
     /// [`AppBg::Dimmed`]. See [`PictureBg`].
     pub picture_bg: PictureBg,
+    /// The contrast floor, [`Floor::DEFAULT`] on both built-in themes.
+    pub floor: Floor,
     pub palette: [Argb; 256],
 }
 
@@ -160,11 +317,12 @@ impl Theme {
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
+            floor: Floor::DEFAULT,
             palette: xterm_palette(),
         }
     }
 
-    /// Dark text on near-white, **the same xterm palette**.
+    /// Dark text on near-white, with [`MODUS_OPERANDI`] as the sixteen.
     ///
     /// The two greys are [`Theme::dark`]'s mirrored channel for channel --
     /// `0xFF - 0xD8` is `0x27` and `0xFF - 0x10` is `0xEF` -- so the pair
@@ -172,15 +330,11 @@ impl Theme {
     /// "near-black" should be. Neither end is pure: `dark` does not use
     /// `0xFF` because white on black glares, and the mirror inherits that.
     ///
-    /// **The sixteen ANSI entries are unchanged, and that is a known
-    /// legibility gap rather than an oversight.** xterm keeps one palette
-    /// under either background, so `SGR 33` is the same yellow on white as
-    /// on black and reads poorly there; every light theme that fixes it --
-    /// Solarized, Apple's Basic -- does so by redefining those sixteen,
-    /// which is a palette *opinion* this crate does not hold. An
-    /// application can already repaint them with `OSC 4`, and the core
-    /// records that, so the mechanism exists. Choosing the numbers is the
-    /// owner's call and is not made here.
+    /// **The sixteen are not xterm's**, which it had been: xterm keeps one
+    /// palette under either background, so on this page its bright green
+    /// read at 1.19:1 and its bright cyan at 1.09:1. The owner chose Modus
+    /// Operandi's (note Y, decision 3), whose colours are made for a light
+    /// page; the cube and the grey ramp stay xterm's.
     pub fn light() -> Theme {
         Theme {
             fg: grey(0x27),
@@ -188,6 +342,7 @@ impl Theme {
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
+            floor: Floor::DEFAULT,
             palette: light_palette(),
         }
     }
@@ -223,7 +378,8 @@ impl Theme {
 
     /// The foreground and background a rendition draws with, after the
     /// attribute rules: reverse swaps, bold brightens the first eight
-    /// palette entries, dim halves -- all under `video`, the screen's `?5`.
+    /// palette entries, faint mixes the drawn text half way to the colour it
+    /// is drawn on -- all under `video`, the screen's `?5`.
     /// Hiding is not a colour and is not here: `Resolved::text`.
     pub fn resolve(
         &self,
@@ -247,11 +403,14 @@ impl Theme {
         let bold = attrs.has(Attrs::BOLD);
         let mut fg = pick(style.fg(), fg_default, bold);
         let mut bg = pick(style.bg(), bg_default, false);
-        if attrs.has(Attrs::DIM) {
-            fg = fg.dimmed();
-        }
         if attrs.has(Attrs::REVERSE) {
             core::mem::swap(&mut fg, &mut bg);
+        }
+        // **After the swap**: faint dims the text that is drawn, which under
+        // `SGR 7` is the background's colour, toward the band it is drawn
+        // on. Before the swap it would dim the band instead.
+        if attrs.has(Attrs::DIM) {
+            fg = fg.faint_on(bg);
         }
         // `SGR 8` is not a colour: concealed text keeps its foreground, so a
         // block cursor over it is drawn in it, and draws nothing of its own

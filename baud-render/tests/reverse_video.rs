@@ -18,8 +18,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    Argb, Blend, Damage, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller, Stack, Theme,
-    Trail, TrailLook, Transition, Widths, Window,
+    Argb, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller, Stack,
+    Theme, Trail, TrailLook, Transition, Widths, Window,
 };
 use support::font;
 
@@ -64,9 +64,15 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 
 /// One full frame of `bytes` on a fresh terminal, handed to `f`.
 fn render(bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
+    render_with(dim_theme(), bytes, f);
+}
+
+/// [`render`] under `theme` -- the floor off, for the tests about the swap.
+fn render_with(theme: Theme, bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let mut r = renderer(&faces, &WS);
+    r.set_theme(theme);
     let mut owned = Owned::new(&WS);
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, bytes);
@@ -142,9 +148,19 @@ fn the_palette_swaps_black_and_white_and_nothing_else() {
     // Foregrounds: 30, bold 30 (brightened to 8, then swapped to 15), 37,
     // and 38;5;7.
     let fgs = b"\x1b[?5h\x1b[30mA\x1b[1mB\x1b[0;37mC\x1b[38;5;7mD\x1b[0m\x1b[2;12H";
-    render(fgs, |r| {
+    let mut off = dim_theme();
+    off.floor = Floor::Off;
+    render_with(off, fgs, |r| {
         let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
         assert_eq!(got, vec![p(7), p(15), p(0), p(0)]);
+    });
+    // **With the floor on, `SGR 30` under `?5` is lifted**: it swaps to entry
+    // 7, `#e5e5e5`, on the reversed page `#d8d8d8` -- 1.13:1, the flash case
+    // the floor exists for (note Y, decision 6) -- and draws `#5e5e5e`, at
+    // 4.5:1 or better. The other three read well above the trigger.
+    render(fgs, |r| {
+        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(got, vec![0x005e_5e5e, p(15), p(0), p(0)]);
     });
     // The control: the same bytes without `?5` draw the table unswapped.
     render(&bgs[5..], |r| {
@@ -172,10 +188,32 @@ fn an_indexed_underline_colour_swaps_with_the_table() {
         });
         got
     };
+    // With the floor off: the swap alone. Black on the dark page is 1.10:1,
+    // so with it on the floor lifts the underline, which `floor.rs` tests.
+    let underline_off = |bytes: &[u8]| {
+        let mut off = dim_theme();
+        off.floor = Floor::Off;
+        let mut got = Vec::new();
+        render_with(off, bytes, |r| {
+            got = r
+                .instances()
+                .filter(|i| i.kind == Kind::Solid)
+                .map(|i| rgb(i.color))
+                .collect();
+        });
+        got
+    };
     let line = b"\x1b[4;58;5;0mA\x1b[0m\x1b[2;12H";
-    assert_eq!(underline(line), vec![rgb(theme.palette[0])], "the control");
+    assert_eq!(
+        underline_off(line),
+        vec![rgb(theme.palette[0])],
+        "the control"
+    );
     let reversed = [&b"\x1b[?5h"[..], line].concat();
-    assert_eq!(underline(&reversed), vec![rgb(theme.palette[7])]);
+    assert_eq!(underline_off(&reversed), vec![rgb(theme.palette[7])]);
+    // With the floor on, the reversed underline is entry 7 on the reversed
+    // page, the same 1.13:1 pair the text is, and is lifted the same way.
+    assert_eq!(underline(&reversed), vec![0x005e_5e5e]);
 }
 
 /// An `OSC 4` override of entry 7 is what `SGR 30` draws under `?5`: xterm

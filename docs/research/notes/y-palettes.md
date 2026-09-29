@@ -780,7 +780,9 @@ slot's text only when:
 Computed over the 201 pairs: every pair below the trigger is lifted under
 xterm light, Modus light and xterm dark (none is exempted by 2 or 3). Computed
 over the two chafa captures: **0 cells lifted**, because chafa sets both sides
-as explicit truecolour or cube colours. On the recordings at the dark page, no
+as explicit truecolour or cube colours. **Wrong for `chafa-240.ans` under the light
+theme**: it sends `38;5;1` on `48;5;239` in nine cells, which this rule
+lifted; step 6 narrowed the rule (see the build order). On the recordings at the dark page, no
 truecolour or 256-colour foreground is below 1.2 (btop's lowest is `#303030`
 at 1.44; asciiquarium's black-on-SGR 40 glyphs are the same word on both
 sides), so the nine render digests should survive a 1.2 floor (the
@@ -1242,7 +1244,34 @@ still runs, to show it.
    - Perturbations: xterm's sixteen back in light; the port's ANSI 15
      (`#595959`); the table written into 16-31.
    - Measure: frame by construction (values only); stated.
-6. **The floor, and faint** (baud-render, baud-domain's decode).
+6. **The floor, and faint** (baud-render, baud-domain's decode). **Built,
+   and two parts of the plan below changed on measurement**, each put to Jev
+   first (logged) and settled by the numbers where its confidence was low:
+   - **Faint mixes in encoded sRGB, keeping half**, not in linear light:
+     linear light leaves faint default text at 1.86:1 on the light page and
+     7.19:1 on the dark one; encoded, 2.96:1 and 4.07:1. Half is ghostty's
+     `faint-opacity` default ([[source: ghostty-config-d9840f3]] 3837-3842),
+     which ghostty applies as opacity in its native blend space; kitty's
+     `dim_opacity` is 0.4 ([[source: kitty-options-definition]] 2630-2637).
+   - **The rule covers a pair when the page is ours or the text is the
+     default**, not when either side is ours: `chafa-240.ans` draws palette
+     red on ramp grey 239 in nine cells, 1.04:1 under Modus, and the
+     either-side rule lifted them into speckles inside the picture. Over
+     every capture in `tests/`, those are the only cells the two rules treat
+     differently.
+   - The 201-pair table (`pairs.tsv`) was never committed and is gone; the
+     hand model is the exhaustive sweep of every foreground in {default,
+     0-15} on every background in {default, 0-15}, plain, bold, faint and
+     reversed, under both themes, which contains it.
+   - Measured: the nine render digests and the light git-log golden are
+     unmoved (now rendered, not inferred); a full resolve of a filled
+     65,536-slot table goes from 160 to 303 us with the floor, once per full
+     pass; a steady frame pays nothing. Note Y's own worked examples are
+     reproduced exactly (`#007f00`, `#007979`, `#6c6c6c`). The perturbation
+     "the floor after `with_alpha`" cannot be expressed: the luminance reads
+     the colour channels only.
+
+   What the step asked for:
    - Faint first, inside `Theme::resolve`: a linear-light mix of the drawn text
      toward the colour it is drawn on, after the reverse swap. Unit: on 0xEF
      faint default text is lower contrast than normal (today 16.16 against

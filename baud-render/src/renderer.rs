@@ -1830,6 +1830,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             |ch| term.palette(ch),
             |d| term.dynamic_color(d),
         );
+        // **The contrast floor, on the opaque colours**: before the alpha
+        // below, and before the underline, so a following underline takes
+        // the floored text and `UNDERLINE_FOLLOWS_FG` still holds (note Y,
+        // section 8). The words are the ones drawn, swapped under `SGR 7`.
+        let (text_word, page_word) = if style.attrs().has(Attrs::REVERSE) {
+            (style.bg(), style.fg())
+        } else {
+            (style.fg(), style.bg())
+        };
+        let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         // **Every background is translucent, not only the default one**:
         // the owner's call of 2026-09-20. A picture's and an opaque
         // rendition's are made solid by `Resolved::drawn`.
@@ -1861,6 +1871,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let underline = self
             .theme
             .underline(style, self.video, fg, |ch| term.palette(ch));
+        // An explicit `SGR 58` colour gets the same rule against the page
+        // (Jev, logged: 0.98); a following underline is the floored text.
+        let underline = if style.underline().is_default() {
+            underline
+        } else {
+            self.theme
+                .floor
+                .lift(underline, bg, (style.underline(), page_word))
+        };
         if underline == fg && style.underline().is_default() {
             shapes = shapes.with(Shapes::UNDERLINE_FOLLOWS_FG);
         }

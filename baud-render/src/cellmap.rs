@@ -424,6 +424,11 @@ pub struct Resolved {
     pub shapes: Shapes,
 }
 
+/// `Resolved::BYTES` is what the cell shader's `struct Style` is laid out
+/// against; a field added here and not there would drop the app off the cell
+/// path, so the two are held equal at compile time.
+const _: () = assert!(core::mem::size_of::<Resolved>() == Resolved::BYTES);
+
 impl Resolved {
     pub const BYTES: usize = 16;
 
