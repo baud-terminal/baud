@@ -1,6 +1,7 @@
 //! Renditions to pixels: the theme, the palette, and the attribute rules.
 
-use baud_domain::{Attrs, Chan, ColorWord, DynamicColor, LINEAR, StyleWord};
+use baud_domain::themefile::Scheme;
+use baud_domain::{Attrs, Chan, Color, ColorWord, Count, DynamicColor, LINEAR, StyleWord};
 
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
 /// `wl_shm` buffer both take once premultiplied at the edge.
@@ -347,6 +348,36 @@ impl Theme {
         }
     }
 
+    /// Lays a theme file's scheme over this half: each of the sixteen, the
+    /// page and the text that the file sets replaces the half's, and the
+    /// count of those it leaves unset -- which stay the half's -- comes back
+    /// for the caller to report. Entries 16-255 are not written whatever the
+    /// file says (note Y, decision 2): a program addresses them by number and
+    /// expects xterm's cube. The dim, the floor and the exemptions stay the
+    /// window's.
+    pub fn take_scheme(&mut self, scheme: &Scheme) -> Count {
+        let mut unset = 0;
+        let pairs = self.palette[..16].iter_mut().zip(&scheme.ansi);
+        let named = [(&mut self.bg, &scheme.page), (&mut self.fg, &scheme.text)];
+        for (slot, c) in pairs.chain(named) {
+            match (*c).and_then(argb_of) {
+                Some(a) => *slot = a,
+                None => unset += 1,
+            }
+        }
+        Count::of(unset)
+    }
+
+    /// Dark or light by the rule `CSI ? 996 n` answers with: the page's
+    /// relative luminance against the text's.
+    pub fn polarity(&self) -> Option<baud_domain::ColorScheme> {
+        let word = |a: Argb| {
+            let [_, r, g, b] = a.channels();
+            ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+        };
+        baud_domain::ColorScheme::of(word(self.fg), word(self.bg))
+    }
+
     /// Whether a cell drawn under `style` keeps its background opaque: the
     /// exemption is on and the background it resolves to is one the
     /// application set. A pure function of the rendition, so the cell path
@@ -472,6 +503,14 @@ impl Theme {
 
 fn triple(r: u8, g: u8, b: u8) -> Argb {
     Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+}
+
+/// A scheme colour as a palette entry; a scheme holds only `Rgb`.
+fn argb_of(c: Color) -> Option<Argb> {
+    match c {
+        Color::Rgb(r, g, b) => Some(Argb::rgb(r, g, b)),
+        Color::Default | Color::Indexed(_) => None,
+    }
 }
 
 fn grey(v: u8) -> Argb {

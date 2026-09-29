@@ -1306,7 +1306,66 @@ still runs, to show it.
      then a `?5` flip) with and without the floor; a steady frame costs nothing
      by construction; the `.metallib` unchanged.
 7. **Readers, the scheme type, and `[palette]`** (baud-domain, baud-render,
-   baud-app). One commit per format. **`[palette] floor` is built early**,
+   baud-app). **Built**, one commit per format and one for the config, each
+   open choice put to Jev with the rule written before asking (logged):
+   - **base16/base24**: the current and legacy forms, `system` inferred from
+     the slots, a declared `variant` other than light or dark declaring
+     nothing, one error at its line. A missing slot is reported at the file's
+     last line, not the empty piece after its final newline.
+   - **ghostty**, read as ghostty reads it
+     ([[source: ghostty-args-d9840f3]] 1450-1482,
+     [[source: ghostty-color-d9840f3]] 62-125, 641-790,
+     [[source: ghostty-fraction-d9840f3]], [[source: zig-fmt-0-16-0]]
+     317-475): lines trimmed of space, tab and CR and nothing else; every
+     colour form but an X11 name, which is refused as a name -- channels of
+     three or four digits scaled by `v * 255 / max` truncated, as `fromHex`
+     does, not rounded as XParseColor does; `rgbi:` through `fraction.parse`;
+     `_` separators and a sign in the palette index as Zig 0.16's `parseInt`
+     reads them (ghostty d9840f3's `minimum_zig_version`), 0-255; a repeat
+     takes its last value and an empty value unsets, `palette =` all 256.
+     Every other key is handed back and reported as ignored. All 602 bundled
+     themes read whole and set their sixteen, page, text, cursor, cursor text
+     and selection pair, checked with
+     `BAUD_GHOSTTY_THEMES=<the unpacked tarball> cargo test --release -p
+     baud-domain --test themefile every_bundled` (the test returns at once
+     without the variable; the tarball is not committed). None sets an entry
+     past 15.
+   - **`[palette] light` and `dark`**: a bare name is tried as given, then
+     `.yaml`, then `.yml` (Jev 0.65), in the `themes` directory beside the
+     config file in force, then `$XDG_CONFIG_HOME/baud/themes`, then
+     `~/.config/baud/themes`, each once (Jev 0.83); the reader is chosen by
+     extension in any case, `.yaml`/`.yml` base16/base24 and anything else
+     ghostty (below 0.6, the rule); a scheme whose polarity is the other
+     half's is used as named and reported (Jev 0.93), the notice naming which
+     of page and text the file set. A file that exists and cannot be read is
+     said as such. `Theme::take_scheme` lays the sixteen, the page and the
+     text over the built-in half and counts what it left, and 16-255 are
+     never written. Both halves are read at launch on both drivers, and one
+     `half_theme` builds a half for both, so a pinned light theme on Linux
+     dims by `dim_light` as macOS does (it dimmed by `dim_dark`, older than
+     this step).
+   - **The review**, read-only, four lenses and a refuter per finding, found
+     four places the ghostty reader disagreed with ghostty (rounding, a
+     padded quoted value, `rgbi:`, the whitespace set), the loader's
+     directory, extension-case and unreadable-file defects, the Linux dim,
+     record sentences that said more than the code, and ten mechanisms no
+     test could catch; all are fixed, each with a test red first. Jev, given
+     the same record claims and the source excerpts they rest on, scored
+     seven of nine right, hedged one true claim at 0.60 and scored one true
+     claim -- the base24 brights -- 0.39, for 6,771 tokens against the
+     workflow's 10.8 million; it found none of the defects, which live in the
+     code rather than in the record's sentences.
+   - Measured: `scripts/startup-bench.py`, nine rounds, none against two files
+     named, an A/A copy: the wall +3.9 ms inside a 10.9 ms A/A spread, not a
+     result; every stage moved ~1.1 ms including `scale`, which runs before
+     any of this code, and the `themes` stage 0.1 ms more than `faces` --
+     reading both files is ~0.08 ms. Looked at: the partial ghostty fixture
+     draws its own page, text and colour 1 exactly.
+   - Not built: cursor and selection colours are parsed and not used (they
+     wait on V13's selection setting); X11 names wait on the colour-names
+     TODO.
+
+   What the step asked for (`[palette] floor` was built early),
    ahead of the readers, so the floor had its off switch the day it shipped:
    a trigger from 1 to 21 or "off", the target the larger of 4.5 and the
    trigger (Jev leaned to a fixed 4.5 at low confidence; the tiebreak written

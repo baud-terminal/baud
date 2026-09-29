@@ -41,6 +41,10 @@ mod link;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;
+// The theme files `[palette]` names: read at launch by both drivers, and
+// its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod palette;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
 // The scrollbar's reveal is pure and its tests run on every platform; only

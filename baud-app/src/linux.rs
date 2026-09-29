@@ -29,10 +29,10 @@ use crate::host::{
 };
 use crate::pty::{Chunk, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
-use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Event, Presented, Window};
-use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Stack, Target};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
@@ -121,19 +121,24 @@ pub fn run() {
     // The desktop's preference lives behind `org.freedesktop.appearance`
     // on the portal's settings interface, which this driver does not speak
     // yet; naming the key is how a reader gets light until it does.
-    let mut theme = match cfg.theme {
-        crate::config::ThemeChoice::Light => Theme::light(),
-        _ => Theme::dark(),
+    let half = match cfg.theme {
+        crate::config::ThemeChoice::Light => crate::palette::Half::Light,
+        _ => crate::palette::Half::Dark,
     };
-    // The same absence decides the dim: `[glass]`'s pairs are resolved by
-    // the appearance, and `dim_light` is unreachable here for exactly as
-    // long as `Auto` is. The rest of `[glass]` -- the material, its
-    // darkening, the shadow -- is `NSGlassEffectView`'s and has no
-    // counterpart on this driver at all.
-    theme.bg_alpha = Chan::from_unit(cfg.glass.dim_dark);
-    theme.app_bg = cfg.glass.app_backgrounds;
-    theme.picture_bg = cfg.glass.pictures;
-    theme.floor = cfg.floor;
+    // Both halves are read, so a mistake in the one not drawn is still
+    // reported; only the half drawn is built.
+    let (halves, said) = crate::palette::load_halves(
+        cfg.palette_light.as_deref(),
+        cfg.palette_dark.as_deref(),
+        &crate::palette::Dirs::from_env(cfg.source.as_deref()),
+    );
+    for s in said {
+        crate::warn!("{s}");
+    }
+    // The theme `half_theme` builds is the one macOS builds for the same
+    // half, dim included: `[glass]`'s material has no counterpart here,
+    // and the dim follows the half drawn.
+    let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(
         Stack::new(faces).expect("faces"),

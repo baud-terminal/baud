@@ -70,8 +70,20 @@ fonts = [
 # pictures drawn in text are untouched. What a program asked for is unchanged
 # in what the terminal reports; only the pixel moves. 1.2, the default, lifts
 # only text that is nearly invisible; "off" turns it off.
+#
+# `light` and `dark` name a theme file for each half of the palette; `theme`
+# above still picks which half is drawn. A `.yaml` or `.yml` file is read as a
+# base16 or base24 scheme (tinted-theming), anything else as a ghostty theme.
+# A bare name is looked up in the `themes` directory beside this file, then
+# in $XDG_CONFIG_HOME/baud/themes/ and ~/.config/baud/themes/, as given and
+# then with .yaml and .yml. What a file leaves unset stays baud's own, entries 16-255
+# stay xterm's, and a file that cannot be read is reported and leaves baud's
+# own half. On Linux, where `auto` is dark, a light half is drawn only with
+# theme = "light".
 [palette]
 floor = 1.2
+# light = "~/.config/baud/themes/day.yaml"
+# dark = "night"
 
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns

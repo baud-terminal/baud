@@ -56,6 +56,11 @@ pub struct Config {
     pub theme: ThemeChoice,
     /// The contrast floor, from `[palette] floor`: a trigger, or off.
     pub floor: baud_render::Floor,
+    /// `[palette] light` and `dark`: the theme files for the two halves, as
+    /// written. Stored and not read here -- loading them is I/O, with its
+    /// own complaints, in `palette.rs`.
+    pub palette_light: Option<String>,
+    pub palette_dark: Option<String>,
     /// `[cursor] trail`: which trail a cursor move leaves -- see
     /// [`CursorTrail`] -- or the default, which is not the same thing:
     /// [`TrailPick`]. **On by default**, the owner's call on 2026-09-25,
@@ -406,6 +411,8 @@ impl Config {
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
             floor: baud_render::Floor::DEFAULT,
+            palette_light: None,
+            palette_dark: None,
             cursor_trail: TrailPick::Default,
             cursor_shape: CursorShape::Block,
             cursor_blink: BlinkChoice::Auto,
@@ -494,6 +501,12 @@ impl Config {
                     };
                 }
                 ("palette", "floor") => self.floor = floor(&value, &mut said),
+                ("palette", "light") => {
+                    self.palette_light = Some(value.trim().trim_matches('"').to_string())
+                }
+                ("palette", "dark") => {
+                    self.palette_dark = Some(value.trim().trim_matches('"').to_string())
+                }
                 ("cursor", "trail") => {
                     // `true` is the default's word and not a name: it has
                     // meant "the default" since the key was a switch.
@@ -1632,6 +1645,30 @@ shadow     = "never"
         assert_eq!(said, 1, "and it is said");
     }
 
+    /// `[palette] light` and `dark` are stored as written, quotes off and
+    /// `~` kept for `palette.rs` to expand; they belong to `[palette]`, not
+    /// the top level.
+    #[test]
+    fn the_palette_names_its_two_halves() {
+        let mut c = Config::defaults();
+        assert_eq!(
+            (c.palette_light.as_deref(), c.palette_dark.as_deref()),
+            (None, None)
+        );
+        let said = c.apply("[palette]\nlight = \"~/t/day.yaml\"\ndark = \"night\"\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.palette_light.as_deref(), Some("~/t/day.yaml"));
+        assert_eq!(c.palette_dark.as_deref(), Some("night"));
+        let mut c = Config::defaults();
+        let said = c.apply("light = \"day\"\ndark = \"night\"\n");
+        assert_eq!(
+            (c.palette_light, c.palette_dark),
+            (None, None),
+            "not the top level's"
+        );
+        assert_eq!(said.len(), 2, "and it is said: {said:?}");
+    }
+
     /// Every theme the macOS app builds carries the floor it was given. The
     /// Linux driver sets it on its one theme at launch, by reading.
     #[cfg(target_os = "macos")]
@@ -1642,6 +1679,39 @@ shadow     = "never"
             let pair = crate::app::themes_for_test(&glass, floor);
             assert_eq!(pair, (floor, floor));
         }
+    }
+
+    /// Each theme the macOS app builds takes the scheme named for its half,
+    /// and only that one: the light file does not reach the dark theme.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn each_half_takes_its_own_file() {
+        use baud_domain::themefile::base16;
+        let day = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/themes/day.yaml"
+        ))
+        .unwrap();
+        let scheme = base16(&day).unwrap();
+        let halves = crate::palette::Halves {
+            dark: None,
+            light: Some(scheme),
+        };
+        let (dark, light) = crate::app::themes_with(&halves);
+        let mut want = baud_render::Theme::light();
+        want.take_scheme(&scheme);
+        assert_eq!(light.palette, want.palette);
+        assert_eq!((light.fg, light.bg), (want.fg, want.bg));
+        assert_ne!(
+            light.palette,
+            baud_render::Theme::light().palette,
+            "the file changed it"
+        );
+        assert_eq!(dark.palette, baud_render::Theme::dark().palette);
+        assert_eq!(
+            (dark.fg, dark.bg),
+            (baud_render::Theme::dark().fg, baud_render::Theme::dark().bg)
+        );
     }
 
     /// A mistyped alpha is clamped and said, not fatal and not silent --
