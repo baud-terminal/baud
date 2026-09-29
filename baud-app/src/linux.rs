@@ -32,7 +32,7 @@ use baud_core::{Focus, Owned, Resized, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Event, Presented, Window};
-use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Stack, Target};
+use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
@@ -141,7 +141,7 @@ pub fn run() {
     let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(
-        Stack::new(faces).expect("faces"),
+        crate::host::stack(&cfg, faces),
         PxSize::of(cfg.font_size).expect("size"),
         theme,
         Blend::Native,

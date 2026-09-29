@@ -11,6 +11,7 @@ use crate::metrics::{Metrics, PxSize};
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
+use crate::stack::FaceStyle;
 use crate::stack::{FaceIx, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
@@ -1545,7 +1546,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// itself: every glyph with its atlas slot and its offsets in pixels.
     /// What the overlay draws for a marked cell; the shaper is the one
     /// definition of what a family or a base with a mark looks like.
-    pub fn cluster(&mut self, cps: &[Codepoint]) -> Vec<ClusterGlyph> {
+    pub fn cluster(&mut self, cps: &[Codepoint], style: FaceStyle) -> Vec<ClusterGlyph> {
         let Some(&base) = cps.first() else {
             return Vec::new();
         };
@@ -1559,7 +1560,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 dy: 0,
             }];
         }
-        let face = self.stack.select(base);
+        let face = self.stack.select_styled(base, style);
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
             at: CellIx(0),
@@ -1580,7 +1581,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
-    pub fn single(&mut self, cp: Codepoint) -> Option<Single> {
+    pub fn single(&mut self, cp: Codepoint, style: FaceStyle) -> Option<Single> {
         if crate::boxes::covers(cp) {
             // `PairRole::Neither` is load-bearing: with both pair bits clear
             // the cell is never a ligature candidate, never gathered into a
@@ -1593,7 +1594,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 face: FaceIx::PRIMARY,
             });
         }
-        let face = self.stack.select(cp);
+        let face = self.stack.select_styled(cp, style);
         let clusters = [ClusterIn {
             cps: vec![cp],
             at: CellIx(0),
@@ -1845,7 +1846,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // rendition's are made solid by `Resolved::drawn`.
         let bg = bg.with_alpha(self.theme.bg_alpha);
         let attrs = style.attrs();
-        let mut shapes = Shapes::default();
+        let mut shapes = Shapes::default().with_face(self.stack.effective(FaceStyle::of(attrs)));
         if self.theme.opaque_bg(style) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
@@ -1892,6 +1893,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Resolves one row's colours and glyphs.
+    /// The face style a cell's text is drawn from, from its resolved slot.
+    fn face_style(&self, cell: PackedCell) -> FaceStyle {
+        crate::cellmap::face_of(&self.styles, cell)
+    }
+
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
         // A copy of the row, so shaping may borrow the renderer mutably.
@@ -2067,8 +2073,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 c += width;
                 continue;
             }
-            let face = self.stack.select(base);
-            // Gather the run: consecutive drawn cells on this face.
+            let style = self.face_style(row[c]);
+            let face = self.stack.select_styled(base, style);
+            // Gather the run: consecutive drawn cells on this face. A bold
+            // cell and a regular one are on two faces when a bold face
+            // exists, so the style splits the run through the face.
             let start = c;
             let mut clusters: Vec<ClusterIn> = Vec::new();
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
@@ -2088,7 +2097,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let Some(cp) = cell.content.as_codepoint() else {
                     break;
                 };
-                if crate::boxes::covers(cp) || self.stack.select(cp) != face {
+                if crate::boxes::covers(cp)
+                    || self.stack.select_styled(cp, self.face_style(cell)) != face
+                {
                     break;
                 }
                 let width = if cell.flags.is_wide() { 2usize } else { 1usize };
@@ -2213,27 +2224,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let range = self.row_cells(r);
         for cl in clusters {
             let col = start.index() + usize::from(cl.at.0);
-            let Some(cp) = self
-                .cur
-                .get(range.start + col)
-                .and_then(|c| c.content.as_codepoint())
-            else {
+            let Some(cell) = self.cur.get(range.start + col).copied() else {
                 continue;
             };
-            let alone = match self.singles.get(&cp.value()) {
+            let Some(cp) = cell.content.as_codepoint() else {
+                continue;
+            };
+            let style = self.face_style(cell);
+            // The single-codepoint answer depends on the style, so the memo
+            // keys on both; a codepoint is 21 bits and the style sits above.
+            let memo = crate::cellmap::CellKey::of(cp, style).0;
+            let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
-                    let face = self.stack.select(cp);
+                    let face = self.stack.select_styled(cp, style);
                     let one = [ClusterIn {
                         cps: vec![cp],
                         at: CellIx(0),
                     }];
                     let s = self.shape(face, &one).glyphs().first().map(|p| (face, *p));
-                    self.singles.insert(cp.value(), s);
+                    self.singles.insert(memo, s);
                     s
                 }
             };
-            let face = self.stack.select(cp);
+            let face = self.stack.select_styled(cp, style);
             let mine: Vec<Placed> = shaped
                 .glyphs()
                 .iter()

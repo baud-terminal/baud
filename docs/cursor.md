@@ -260,7 +260,7 @@ cargo build --release -p baud-app && scripts/trail-clips.sh
 
 For each trail it launches baud at an 80x24 grid with a config of its own --
 the built-in fonts at 16 pt (Menlo when the committed clips were recorded;
-the embedded JetBrains Mono Nerd Font Mono since it became the default), a
+the embedded JetBrains Mono since it became the default), a
 steady block cursor and that trail,
 nothing read from `~/.config` -- and runs `scripts/trail-demo.sh` in it, which
 makes six moves 1.15 s apart: right, down, left, up, then the two diagonals.

@@ -1075,6 +1075,13 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // by `the_hidden_text_bits_match_the_shader`.
 #define SHAPE_BLINK 256u
 #define SHAPE_CONCEAL 512u
+// The face style's two bits in a resolved slot's shapes -- the style whose
+// face the cell's text is drawn from, already fallen back by the stack --
+// and where they sit in a glyph-map key, above the 21-bit codepoint. The
+// CPU spells the same key (`CellKey::of`), pinned by
+// `the_face_style_bits_match_the_shader`.
+#define FACE_SHIFT 10u
+#define KEY_STYLE_SHIFT 21u
 
 // Whether the cell's own text -- its glyph, underline and strike -- is
 // hidden: `SGR 8`, or `SGR 5` in its off phase. Hidden text draws its
@@ -1179,14 +1186,16 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint2 cell = cell_at(u, cells, col, dr);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
-    if (hidden(u, styles[cell.y & 0xffffu].shapes)) return o;
+    uint shapes = styles[cell.y & 0xffffu].shapes;
+    if (hidden(u, shapes)) return o;
+    uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT);
     uint mask = u.map_slots - 1u;
-    uint i = (content * 0x9E3779B1u) >> u.map_shift;
+    uint i = (key * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;
     for (uint n = 0u; n < u.map_slots; n++) {
         e = entries[i];
         if (e.key == 0xFFFFFFFFu) break;
-        if (e.key == content) { found = true; break; }
+        if (e.key == key) { found = true; break; }
         i = (i + 1u) & mask;
     }
     if (!found || e.kind > 2u) return o;

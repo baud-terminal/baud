@@ -92,6 +92,15 @@ pub fn describe(geom: &CacheGeometry) -> String {
     )
 }
 
+/// The renderer's stack over `faces`, which `load_faces` read from `cfg`
+/// in its order: each face with the role its spec gives it, so the styled
+/// faces are drawn from and never fallen back through.
+pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<'f, 'a> {
+    let roles: Vec<baud_render::FaceRole> = cfg.faces.iter().map(|f| f.role).collect();
+    baud_render::Stack::with_roles(faces, &roles)
+        .expect("the config's faces: a fallback first, each style once")
+}
+
 /// Every face the config names, mapped and parsed. Each face's bytes are
 /// a read-only mapping for the life of the process, because the faces
 /// borrow them and a read of the whole file was the launch's largest
@@ -234,19 +243,30 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     }
 
-    /// The default stack loads with the embedded face first, read from the
-    /// binary rather than looked for as a file: its name is no path, so a
-    /// loader that mapped it would panic here.
+    /// The default stack loads with the embedded faces read from the binary
+    /// rather than looked for as files -- their names are no paths, so a
+    /// loader that mapped them would panic here -- and draws bold, italic
+    /// and bold-italic text from the embedded styles, an icon of any style
+    /// from the icon face, and regular text from the regular face.
     #[test]
-    fn the_default_stack_loads_the_embedded_face_first() {
+    fn the_default_stack_loads_the_embedded_faces() {
+        use baud_render::FaceStyle;
         let cfg = crate::config::Config::defaults();
         let faces = super::load_faces(&cfg);
         assert_eq!(faces.len(), cfg.faces.len());
-        let arrow = baud_domain::Codepoint::new(0xE0B0).unwrap();
-        assert!(
-            faces[0].glyph(arrow).is_some(),
-            "the Powerline arrow is in face 0"
-        );
+        let stack = super::stack(&cfg, faces);
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
+        let n = faces.len();
+        for (style, face) in [
+            (FaceStyle::Regular, 0),
+            (FaceStyle::Bold, n - 3),
+            (FaceStyle::Italic, n - 2),
+            (FaceStyle::BoldItalic, n - 1),
+        ] {
+            assert_eq!(stack.select_styled(a, style).index(), face, "{style:?}");
+            assert_eq!(stack.select_styled(folder, style).index(), 1, "{style:?}");
+        }
     }
 
     /// **An icon the configured font lacks draws from the embedded one.**
@@ -274,7 +294,7 @@ mod tests {
                 loaded[0].glyph(folder).is_none(),
                 "the control: no icon in it"
             );
-            let stack = baud_render::Stack::new(loaded).unwrap();
+            let stack = super::stack(&cfg, loaded);
             assert_eq!(stack.select(a).index(), 0, "{extra:?}");
             assert_eq!(stack.select(folder).index(), folder_in, "{extra:?}");
         }

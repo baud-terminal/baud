@@ -1,11 +1,15 @@
-//! The font baud carries inside its binary: the default stack's first face,
-//! so a machine with no font configured still draws JetBrains Mono, its
-//! ligatures and the Nerd Fonts icons. The owner's choice, 2026-09-29.
+//! The fonts baud carries inside its binary: JetBrains Mono in its four
+//! styles, and Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized
+//! to one cell -- behind them. So a machine with no font configured still
+//! draws JetBrains Mono, its ligatures, real bold and italic, and the icons.
+//! The owner's choice, 2026-09-29: the plain styles plus the icon face
+//! rather than four patched Nerd Font files, which carry the same ~10,600
+//! icons again in every style.
 //!
-//! The file is Nerd Fonts v3.5.1's `JetBrainsMonoNerdFontMono-Regular.ttf`,
-//! unmodified; `fonts/jetbrains-mono-nerd-font/SOURCE` records where it came
-//! from, and the release's `OFL.txt` and `README.md` sit beside it and ship
-//! in the app bundle.
+//! The files are JetBrains Mono v2.304's `fonts/ttf/JetBrainsMono-*.ttf` and
+//! Nerd Fonts v3.5.1's `SymbolsNerdFontMono-Regular.ttf`, unmodified; each
+//! directory's `SOURCE` records where they came from, and their licences sit
+//! beside them and ship in the app bundle.
 
 /// A face compiled into the binary: its bytes, and a name for the log.
 #[derive(Clone, Copy)]
@@ -14,12 +18,31 @@ pub struct Embedded {
     pub bytes: &'static [u8],
 }
 
-/// JetBrains Mono Nerd Font Mono, Regular.
-pub const JETBRAINS_MONO: Embedded = Embedded {
-    name: "JetBrainsMonoNerdFontMono-Regular.ttf (embedded)",
-    bytes: include_bytes!(
-        "../fonts/jetbrains-mono-nerd-font/JetBrainsMonoNerdFontMono-Regular.ttf"
-    ),
+pub const REGULAR: Embedded = Embedded {
+    name: "JetBrainsMono-Regular.ttf (embedded)",
+    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"),
+};
+
+pub const BOLD: Embedded = Embedded {
+    name: "JetBrainsMono-Bold.ttf (embedded)",
+    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+};
+
+pub const ITALIC: Embedded = Embedded {
+    name: "JetBrainsMono-Italic.ttf (embedded)",
+    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-Italic.ttf"),
+};
+
+pub const BOLD_ITALIC: Embedded = Embedded {
+    name: "JetBrainsMono-BoldItalic.ttf (embedded)",
+    bytes: include_bytes!("../fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
+};
+
+/// The icon face: behind the text faces in the default stack, and behind a
+/// configured `fonts` stack unless `font_fallback = false`.
+pub const SYMBOLS: Embedded = Embedded {
+    name: "SymbolsNerdFontMono-Regular.ttf (embedded)",
+    bytes: include_bytes!("../fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
 };
 
 #[cfg(test)]
@@ -28,42 +51,68 @@ mod tests {
     use baud_domain::{Codepoint, GlyphId};
     use baud_font::{Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Shaper};
 
-    fn face() -> Face<'static> {
-        Face::parse_index(JETBRAINS_MONO.bytes, FaceIndex::of(0)).expect("a face")
+    fn face(e: Embedded) -> Face<'static> {
+        Face::parse_index(e.bytes, FaceIndex::of(0)).expect("a face")
     }
 
-    /// The bytes compiled in are the release SOURCE names: its length, and
-    /// an FNV-1a over every byte, so a replaced or truncated file fails here
-    /// rather than drawing something else.
+    /// The bytes compiled in are the releases the SOURCE files name: each
+    /// file's length and an FNV-1a over every byte, so a replaced or
+    /// truncated file fails here rather than drawing something else; and
+    /// each style is the style its font says it is.
     #[test]
-    fn the_embedded_font_is_the_pinned_release() {
-        let b = JETBRAINS_MONO.bytes;
-        assert_eq!(b.len(), 2_573_248);
-        let fnv = b.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &x| {
-            (h ^ u64::from(x)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-        assert_eq!(fnv, 0x5869_0e52_8621_544c);
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/fonts/jetbrains-mono-nerd-font"
-        );
-        let source = std::fs::read_to_string(format!("{dir}/SOURCE")).unwrap();
-        assert!(
-            source.contains("f2a5ea6cfab397445ffab00c0370927b66d61e560a05db5db271b42006381c1a")
-        );
-        assert!(source.contains("2573248"));
-        let ofl = std::fs::read_to_string(format!("{dir}/OFL.txt")).unwrap();
+    fn the_embedded_fonts_are_the_pinned_releases() {
+        let fnv = |b: &[u8]| {
+            b.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &x| {
+                (h ^ u64::from(x)).wrapping_mul(0x0000_0100_0000_01b3)
+            })
+        };
+        // `head.macStyle`, read from the table directory: bit 0 bold, bit 1
+        // italic. The font's own claim about its style, not its file name's.
+        let mac_style = |b: &[u8]| {
+            let be16 = |at: usize| u16::from_be_bytes([b[at], b[at + 1]]);
+            let be32 = |at: usize| u32::from_be_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]);
+            (0..usize::from(be16(4)))
+                .map(|i| 12 + 16 * i)
+                .find(|&rec| &b[rec..rec + 4] == b"head")
+                .map(|rec| be16(usize::try_from(be32(rec + 8)).unwrap() + 44))
+                .expect("a head table")
+        };
+        for (e, len, hash, style) in [
+            (REGULAR, 273_900, 0x4a1b_35e9_fc69_20d2_u64, 0),
+            (BOLD, 277_828, 0x6ab8_99db_bae4_1e07, 1),
+            (ITALIC, 276_840, 0x328e_eb84_de91_fb86, 2),
+            (BOLD_ITALIC, 279_832, 0x2643_2855_1691_33bf, 3),
+            (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
+        ] {
+            assert_eq!(e.bytes.len(), len, "{}", e.name);
+            assert_eq!(fnv(e.bytes), hash, "{}", e.name);
+            assert_eq!(mac_style(e.bytes), style, "{}: head.macStyle", e.name);
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/fonts");
+        let jbm = std::fs::read_to_string(format!("{dir}/jetbrains-mono/SOURCE")).unwrap();
+        for pin in [
+            "6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf",
+            "5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb",
+        ] {
+            assert!(jbm.contains(pin), "{pin}");
+        }
+        let sym = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/SOURCE")).unwrap();
+        assert!(sym.contains("fe471e538392f51910faab985fa8e192a39dd3426125edd15b71b3680df0e749"));
+        assert!(sym.contains("2610012"));
+        let ofl = std::fs::read_to_string(format!("{dir}/jetbrains-mono/OFL.txt")).unwrap();
         assert!(ofl.contains("Copyright 2020 The JetBrains Mono Project Authors"));
         assert!(ofl.contains("SIL OPEN FONT LICENSE Version 1.1"));
-        let readme = std::fs::read_to_string(format!("{dir}/README.md")).unwrap();
+        let mit = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/LICENSE")).unwrap();
+        assert!(mit.contains("The MIT License"));
+        let readme = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/README.md")).unwrap();
         assert!(
             readme.contains("| Icon set name"),
             "Nerd Fonts' icon-set licence table"
         );
     }
 
-    /// The bundle carries the two licence files beside the binary that
-    /// carries the font.
+    /// The bundle carries every licence file beside the binary that carries
+    /// the fonts.
     #[test]
     fn the_app_bundle_ships_the_fonts_licences() {
         let script = std::fs::read_to_string(concat!(
@@ -71,43 +120,62 @@ mod tests {
             "/../scripts/bundle-macos.sh"
         ))
         .unwrap();
-        for f in ["OFL.txt", "README.md"] {
-            assert!(
-                script.contains(&format!("jetbrains-mono-nerd-font/{f}")),
-                "bundle-macos.sh copies {f}"
-            );
+        for f in [
+            "jetbrains-mono/OFL.txt",
+            "jetbrains-mono/AUTHORS.txt",
+            "symbols-nerd-font/LICENSE",
+            "symbols-nerd-font/README.md",
+        ] {
+            assert!(script.contains(f), "bundle-macos.sh copies {f}");
         }
     }
 
-    /// What the owner chose it for: Powerline and Nerd icons in the face, and
-    /// `=>` joined under the features baud shapes a grid with.
+    /// The icons are in the icon face and not in the text faces, which is
+    /// why it stands behind them.
     #[test]
-    fn it_carries_the_icons_and_forms_the_ligatures() {
-        let f = face();
-        for cp in [0x61, 0xE0A0, 0xE0B0, 0xF07B, 0xE7A8] {
-            assert!(
-                f.glyph(Codepoint::new(cp).unwrap()).is_some(),
-                "U+{cp:04X} is in the face"
+    fn the_icon_face_carries_the_icons_the_text_faces_lack() {
+        let icons = face(SYMBOLS);
+        for cp in [0xE0A0, 0xF07B, 0xE7A8, 0xF0001] {
+            let c = Codepoint::new(cp).unwrap();
+            assert!(icons.glyph(c).is_some(), "U+{cp:04X} is in the icon face");
+        }
+        let folder = Codepoint::new(0xF07B).unwrap();
+        for e in [REGULAR, BOLD, ITALIC, BOLD_ITALIC] {
+            assert!(face(e).glyph(folder).is_none(), "{}: no Nerd icon", e.name);
+        }
+    }
+
+    /// What the owner chose JetBrains Mono for: `=>` joined under the
+    /// features baud shapes a grid with, in every style.
+    #[test]
+    fn every_style_forms_the_ligatures() {
+        for e in [REGULAR, BOLD, ITALIC, BOLD_ITALIC] {
+            let f = face(e);
+            let shape = |s: &str| {
+                let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
+                let mut shaper = Shaper::new(&f, &mut storage);
+                for (i, c) in s.chars().enumerate() {
+                    let cp = [Codepoint::new(u32::from(c)).unwrap()];
+                    shaper
+                        .push_cluster(&cp, Cluster(u16::try_from(i).unwrap()))
+                        .unwrap();
+                }
+                let (buf, _) = shaper.finish(Features::GRID);
+                buf.as_slice().iter().map(|g| g.id).collect::<Vec<_>>()
+            };
+            let plain = |c: char| f.glyph(Codepoint::new(u32::from(c)).unwrap()).unwrap();
+            assert_ne!(
+                shape("=>"),
+                [plain('='), plain('>')],
+                "{}: => joins",
+                e.name
+            );
+            assert_eq!(
+                shape("ab"),
+                [plain('a'), plain('b')],
+                "{}: the control",
+                e.name
             );
         }
-        let shape = |s: &str| {
-            let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 8];
-            let mut shaper = Shaper::new(&f, &mut storage);
-            for (i, c) in s.chars().enumerate() {
-                let cp = [Codepoint::new(u32::from(c)).unwrap()];
-                shaper
-                    .push_cluster(&cp, Cluster(u16::try_from(i).unwrap()))
-                    .unwrap();
-            }
-            let (buf, _) = shaper.finish(Features::GRID);
-            buf.as_slice().iter().map(|g| g.id).collect::<Vec<_>>()
-        };
-        let plain = |c: char| f.glyph(Codepoint::new(u32::from(c)).unwrap()).unwrap();
-        assert_ne!(shape("=>"), [plain('='), plain('>')], "=> forms a ligature");
-        assert_eq!(
-            shape("ab"),
-            [plain('a'), plain('b')],
-            "the control does not"
-        );
     }
 }

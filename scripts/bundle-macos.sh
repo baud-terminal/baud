@@ -47,13 +47,20 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/baud.icns"
 # The executable.
 cp "$BIN" "$APP/Contents/MacOS/baud"
 
-# The embedded font's licence and Nerd Fonts' icon-set table travel with the
-# binary that carries the font, as the upstream archive ships them.
-FONTS="$APP/Contents/Resources/fonts/jetbrains-mono-nerd-font"
-mkdir -p "$FONTS"
-cp "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/OFL.txt" \
-  "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/README.md" \
-  "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/SOURCE" "$FONTS/"
+# The embedded fonts' licences travel with the binary that carries them, as
+# the upstream archives ship them: JetBrains Mono's OFL and AUTHORS, and the
+# Nerd Fonts icon face's MIT licence and its icon-set licence table.
+for DIR in jetbrains-mono symbols-nerd-font; do
+  mkdir -p "$APP/Contents/Resources/fonts/$DIR"
+done
+cp "$ROOT/baud-app/fonts/jetbrains-mono/OFL.txt" \
+  "$ROOT/baud-app/fonts/jetbrains-mono/AUTHORS.txt" \
+  "$ROOT/baud-app/fonts/jetbrains-mono/SOURCE" \
+  "$APP/Contents/Resources/fonts/jetbrains-mono/"
+cp "$ROOT/baud-app/fonts/symbols-nerd-font/LICENSE" \
+  "$ROOT/baud-app/fonts/symbols-nerd-font/README.md" \
+  "$ROOT/baud-app/fonts/symbols-nerd-font/SOURCE" \
+  "$APP/Contents/Resources/fonts/symbols-nerd-font/"
 
 # Ad-hoc sign, so the bundle has a stable identity for TCC/accessibility and
 # runs without a quarantine prompt after a local build.

@@ -194,8 +194,8 @@ fn a_blinking_slot_off_screen_is_not_seen() {
     // replay rather than by a full resolve.
     let mut stamp = StyleStamp::default();
     let mut seen = |t: &Term<'_>, r: &mut Renderer<'_, '_>| {
-        map.ensure(t.view(Rows::ZERO), r, &mut candidates);
         r.sync_styles(t, &mut styles, &mut stamp);
+        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
         overlay.ensure(
             &Scene {
                 term: t,
@@ -250,8 +250,8 @@ fn a_hidden_cells_records_are_not_drawn() {
         feed(&mut t, b"\x1b[H\x1b[2J");
         feed(&mut t, bytes);
         r.set_blink(phase);
-        map.ensure(t.view(Rows::ZERO), r, &mut candidates);
         r.resolve_styles_into(&t, &mut styles);
+        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
         overlay.ensure(
             &Scene {
                 term: &t,

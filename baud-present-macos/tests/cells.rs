@@ -30,10 +30,10 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, Candidate, Corners, Damage, GlyphMap, Highlight, Hover, Instance, Kind,
-    Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment,
-    Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths,
-    Window, quad_coverage,
+    Argb, Blend, Blink, Candidate, Corners, Damage, FaceRole, FaceStyle, GlyphMap, Highlight,
+    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene,
+    Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
+    Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -159,8 +159,16 @@ impl Arms<'_, '_> {
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
-        self.map
-            .ensure(view, &mut self.renderer, &mut self.candidates);
+        // The styles before the map walk, as the app orders them: the walk
+        // reads each cell's face style from the synced table.
+        self.renderer
+            .sync_styles(t, self.styles_mem, &mut self.stamp);
+        self.map.ensure(
+            view,
+            self.styles_mem,
+            &mut self.renderer,
+            &mut self.candidates,
+        );
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
@@ -170,8 +178,6 @@ impl Arms<'_, '_> {
                 (r, c, t.cursor_style())
             })
             .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
-        self.renderer
-            .sync_styles(t, self.styles_mem, &mut self.stamp);
         self.exceptions.ensure(
             &Scene {
                 term: t,
@@ -1081,9 +1087,37 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         env!("CARGO_MANIFEST_DIR")
     ))
     .expect("face");
+    // The embedded styles and icon face behind them, so the scene's bold,
+    // italic and bold-italic cells are drawn from their own faces on both
+    // arms: the cell arm through the style bits in its glyph-map key, the
+    // instance arm through the stack. Two arms that both ignored the style
+    // would agree, which is why the styled scene carries its own control.
+    let embedded = |p: &str| {
+        std::fs::read(format!(
+            "{}/../baud-app/fonts/{p}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .expect("face")
+    };
+    let symbols = embedded("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let bold = embedded("jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let italic = embedded("jetbrains-mono/JetBrainsMono-Italic.ttf");
+    let bold_italic = embedded("jetbrains-mono/JetBrainsMono-BoldItalic.ttf");
     let faces = [
         Face::parse(&data).expect("parse"),
         Face::parse(&noto).expect("parse"),
+        Face::parse(&symbols).expect("parse"),
+        Face::parse(&bold).expect("parse"),
+        Face::parse(&italic).expect("parse"),
+        Face::parse(&bold_italic).expect("parse"),
+    ];
+    let roles = [
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Fallback,
+        FaceRole::Style(FaceStyle::Bold),
+        FaceRole::Style(FaceStyle::Italic),
+        FaceRole::Style(FaceStyle::BoldItalic),
     ];
     // **Translucent on purpose.** At `Theme::dark()`'s `0xFF` the window
     // dim is a no-op, so the two arms would agree about a rule neither
@@ -1101,7 +1135,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         ..Theme::dark()
     };
     let renderer = Renderer::new(
-        Stack::new(&faces).unwrap(),
+        Stack::with_roles(&faces, &roles).unwrap(),
         PxSize::of(14.0).unwrap(),
         theme,
         Blend::Native,
@@ -2030,8 +2064,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         );
     }
     let cell_h = arms.renderer.metrics().cell_h;
+    arms.renderer
+        .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
     arms.map.ensure(
         t.view(Rows::of_count(1)),
+        arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2207,8 +2244,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // ligature on row 6, the shapes the resting marked and ligature rows use.
     feed(&mut t, b"\x1b[5;1Hmark e\xcc\x81 here");
     feed(&mut t, b"\x1b[6;1Harrow a -> b here");
+    arms.renderer
+        .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
     arms.map.ensure(
         t.view(Rows::of_count(1)),
+        arms.styles_mem,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2414,8 +2454,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let line = placed(&t);
     let cell_h = arms.renderer.metrics().cell_h;
     let slid_is_one_up = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>, what: &str| {
+        arms.renderer
+            .sync_styles(t, arms.styles_mem, &mut arms.stamp);
         arms.map.ensure(
             t.view(Rows::of_count(1)),
+            arms.styles_mem,
             &mut arms.renderer,
             &mut arms.candidates,
         );
@@ -2458,6 +2501,41 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     );
     assert_eq!(placed(&t), line, "the dot survived the scroll");
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
+    // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
+    // a Nerd Fonts icon among it -- on both arms, and a positive control
+    // that each style reached the pixels: the same row regular paints
+    // differently.
+    {
+        let (w, _) = arms.renderer.frame_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let text = "ab -> x \u{f07b} ~= we\u{301}";
+        let paint = |t: &mut Term<'_>, sgr: &str| {
+            feed(t, b"\x1b[?25l\x1b[2J\x1b[H");
+            for row in 0..3 {
+                feed(
+                    t,
+                    format!("\x1b[{};1H\x1b[0;{sgr}m{text}", row + 2).as_bytes(),
+                );
+            }
+        };
+        paint(&mut t, "0");
+        let (regular, _) = arms.draw(&mut t);
+        for sgr in ["1", "3", "1;3"] {
+            paint(&mut t, sgr);
+            let (a, b) = arms.draw(&mut t);
+            let bx = diff_box(&a, &b, usize::try_from(w.value()).unwrap(), cell);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree under SGR {sgr}, in cells {bx:?}"
+            );
+            assert!(differing(&a, &regular) > 0, "SGR {sgr} reached the pixels");
+        }
+    }
 }
 
 /// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this

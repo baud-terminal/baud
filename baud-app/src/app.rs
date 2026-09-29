@@ -28,8 +28,8 @@ use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
     Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
-    Scrolled, Scroller, Selection, Slide, Span, Stack, StyleStamp, Tally, Target, Theme, Trail,
-    TrailLook, Transition, Window, back_for, gutter, place, thumb,
+    Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
+    Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -674,7 +674,7 @@ impl Boot {
         // (`Renderer::fit`) once the grid is known, and the cell metrics --
         // what the grid is computed from -- do not depend on it.
         let renderer = Renderer::new(
-            Stack::new(faces).expect("faces"),
+            crate::host::stack(&cfg, faces),
             PxSize::of(cfg.font_size * scale as f32).expect("size"),
             theme,
             Blend::Native,
@@ -1324,24 +1324,6 @@ impl App {
                 // the overlay's records name `above`'s rows -- the whole
                 // screen one line up -- and every mark and ligature is drawn
                 // a row off its cell for the length of the slide.
-                if sliding {
-                    let above = self.term.view(Rows::of_index(back.index() + 1));
-                    cell.maps
-                        .live
-                        .ensure(above, &mut self.renderer, &mut cell.candidates);
-                }
-                cell.maps
-                    .live
-                    .ensure(view, &mut self.renderer, &mut cell.candidates);
-                let cursor = live_cursor(&self.term, self.back)
-                    .map(|(r, c)| (r, c, self.term.cursor_style()))
-                    .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
-                // Row 9: the drawn cursor sits after the last predicted
-                // glyph, for the shader and for the overlay's own paint.
-                let cursor = match (cursor, self.predictions.last()) {
-                    (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
-                    (c, _) => c,
-                };
                 // Which buffers this frame may write: any set no frame in
                 // flight was committed with. `None` would mean every one is
                 // held and there is nowhere to build that a live draw is not
@@ -1352,6 +1334,39 @@ impl App {
                     return;
                 };
                 let set = at.0;
+                // The set's resolved table, brought up to date from the core's
+                // log: only the slots written since this set was last built,
+                // which on a steady screen is none. Before the map
+                // walk, which reads each cell's face style from it.
+                self.renderer.sync_styles(
+                    &self.term,
+                    &mut cell.styles_mem[set][..],
+                    &mut cell.style_stamps[set],
+                );
+                if sliding {
+                    let above = self.term.view(Rows::of_index(back.index() + 1));
+                    cell.maps.live.ensure(
+                        above,
+                        &cell.styles_mem[set][..],
+                        &mut self.renderer,
+                        &mut cell.candidates,
+                    );
+                }
+                cell.maps.live.ensure(
+                    view,
+                    &cell.styles_mem[set][..],
+                    &mut self.renderer,
+                    &mut cell.candidates,
+                );
+                let cursor = live_cursor(&self.term, self.back)
+                    .map(|(r, c)| (r, c, self.term.cursor_style()))
+                    .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
+                // Row 9: the drawn cursor sits after the last predicted
+                // glyph, for the shader and for the overlay's own paint.
+                let cursor = match (cursor, self.predictions.last()) {
+                    (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
+                    (c, _) => c,
+                };
                 // **D4: the window, copied into this frame's slot.** The
                 // rows the view names, in screen order, so what the shader
                 // reads is a still image of the screen rather than a grid
@@ -1379,14 +1394,6 @@ impl App {
                     let at = vrows * stride;
                     cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
                 }
-                // The set's resolved table, brought up to date from the core's
-                // log: only the slots written since this set was last built,
-                // which on a steady screen is none.
-                self.renderer.sync_styles(
-                    &self.term,
-                    &mut cell.styles_mem[set][..],
-                    &mut cell.style_stamps[set],
-                );
                 cell.exceptions.ensure(
                     &Scene {
                         term: &self.term,

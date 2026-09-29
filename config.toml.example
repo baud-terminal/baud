@@ -4,8 +4,9 @@
 # ~/.config/baud/config.toml, then ./config.toml. A key baud does not know is
 # ignored, and any field left out keeps its built-in default, so a config with
 # only the keys you care about is fine -- or no config at all, which draws with
-# the font baud carries inside itself, JetBrains Mono Nerd Font Mono (its
-# ligatures and the Nerd Fonts icons), with Menlo, the emoji, symbol and CJK
+# the fonts baud carries inside itself: JetBrains Mono (its ligatures, and real
+# Bold, Italic and Bold Italic faces) and Symbols Nerd Font Mono (the Nerd Fonts
+# icons), with Menlo, the emoji, symbol and CJK
 # system faces behind it. `fonts` below replaces that stack, and the embedded
 # font stays behind it for what your faces lack unless `font_fallback = false`.
 
@@ -37,20 +38,22 @@ colorspace = "srgb"
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.
 #
-# Left unset, the stack is the embedded JetBrains Mono Nerd Font Mono, then the
-# system's mono, its colour emoji, and its symbol and CJK faces. Set, it
-# replaces that stack -- and the embedded font still follows it, last, so a
-# glyph none of the named faces carries (a Nerd Fonts icon a program draws)
-# comes from it rather than drawing as a missing-glyph box:
+# Left unset, the stack is the embedded JetBrains Mono and its icon face, then
+# the system's mono, its colour emoji, and its symbol and CJK faces, with
+# JetBrains Mono's Bold, Italic and Bold Italic for styled text. Set, it
+# replaces that stack -- and the embedded icon face still follows it, last, so
+# a Nerd Fonts icon none of the named faces carries comes from it rather than
+# drawing as a missing-glyph box. A stack named here draws bold and italic in
+# its regular faces, unfaked, until faces can be named by family:
 # fonts = [
 #   "/System/Library/Fonts/Menlo.ttc@0",
 #   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
-# Whether the embedded font follows a `fonts` stack you named. true, the
+# Whether the embedded icon face follows a `fonts` stack you named. true, the
 # default, keeps it behind your faces; false leaves the stack exactly as named.
-# Without `fonts` it changes nothing: the embedded font is then the first face.
+# Without `fonts` it changes nothing: the embedded faces are the stack then.
 font_fallback = true
 
 # For FiraCode with programming ligatures, point the first face at its file and

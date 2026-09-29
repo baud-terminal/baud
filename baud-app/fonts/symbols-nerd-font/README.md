@@ -6,13 +6,11 @@ For more information see:
 * https://github.com/ryanoasis/nerd-fonts/
 * https://github.com/ryanoasis/nerd-fonts/releases/latest/
 
-# JetBrains Mono
+# Symbols Only
 
-JetBrains Mono: a typeface made for developers
-
-For more information have a look at the upstream website: https://github.com/JetBrains/JetBrainsMono
-
-Version: 2.304
+This font contains (in the patched-fonts folder) all symbols and is intended to be used
+as fallback or together with fontconfig - so that you do not need to individually
+patch all the fonts. YMMV.
 
 ## Icon sets
 
@@ -55,8 +53,8 @@ Once you narrow down your font choice of family (`Droid Sans`, `Inconsolata`, et
 #### `Option 1: Download already patched font`
 
  * For a stable version download a font package from the [release page](https://github.com/ryanoasis/nerd-fonts/releases)
-   * [JetBrainsMono.zip](https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip)
-   * [JetBrainsMono.tar.xz](https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz) (smaller)
+   * [NerdFontsSymbolsOnly.zip](https://github.com/ryanoasis/nerd-fonts/releases/latest/download/NerdFontsSymbolsOnly.zip)
+   * [NerdFontsSymbolsOnly.tar.xz](https://github.com/ryanoasis/nerd-fonts/releases/latest/download/NerdFontsSymbolsOnly.tar.xz) (smaller)
  * Or download the development version from the folders here
 
 #### `Option 2: Patch your own font`

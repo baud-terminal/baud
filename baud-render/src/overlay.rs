@@ -133,8 +133,15 @@ impl ClusterKey {
     }
 
     fn fold(self, c: Codepoint) -> ClusterKey {
+        self.word(Code(c.value()))
+    }
+
+    /// Any word folded in: the face a window is shaped on, or the style a
+    /// marked cluster is drawn in, so the same codepoints on two faces are
+    /// two entries.
+    fn word(self, w: Code) -> ClusterKey {
         let mut h = self.0;
-        for b in c.value().to_le_bytes() {
+        for b in w.0.to_le_bytes() {
             h ^= u64::from(b);
             h = h.wrapping_mul(ClusterKey::PRIME);
         }
@@ -322,7 +329,8 @@ impl Overlay {
                     continue;
                 };
                 let mut cps = vec![cp];
-                let mut key = ClusterKey::start().fold(cp);
+                let style = crate::cellmap::face_of(styles, *cell);
+                let mut key = ClusterKey::start().word(style.code()).fold(cp);
                 for mk in term.cluster_marks(*cell) {
                     if let Some(c) = Codepoint::new(mk) {
                         cps.push(c);
@@ -336,7 +344,7 @@ impl Overlay {
                     Some(g) => g.clone(),
                     None => {
                         self.stats.misses.bump();
-                        let g = r.cluster(&cps);
+                        let g = r.cluster(&cps, style);
                         self.clusters.insert(key, g.clone());
                         g
                     }
@@ -393,7 +401,7 @@ impl Overlay {
             for _ in piece.iter() {
                 this.stats.window_cells.bump();
             }
-            let mut key = ClusterKey::start();
+            let mut key = ClusterKey::start().word(face);
             for (_, cell, cps) in piece.iter() {
                 for c in cps {
                     key = key.fold(*c);
@@ -435,7 +443,8 @@ impl Overlay {
                     .iter()
                     .zip(shaped)
                     .map(|((_, cell, cps), glyphs)| {
-                        let alone = scene.map.probe(cps[0]).map(|e| e.glyph());
+                        let style = crate::cellmap::face_of(scene.styles, *cell);
+                        let alone = scene.map.probe(cps[0], style).map(|e| e.glyph());
                         let same = !cell.flags.is_marked()
                             && glyphs.len() == 1
                             && Some(glyphs[0].id) == alone
@@ -474,7 +483,7 @@ impl Overlay {
             let entry = cell.content.as_codepoint().and_then(|cp| {
                 scene
                     .map
-                    .probe(cp)
+                    .probe(cp, crate::cellmap::face_of(scene.styles, *cell))
                     .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
             });
             let cut = match entry {
@@ -541,7 +550,7 @@ impl Overlay {
             return;
         }
         *slot |= MASK_RECORD;
-        let glyphs = r.cluster(&[cp]);
+        let glyphs = r.cluster(&[cp], crate::cellmap::face_of(styles, cell));
         // A prediction is a local echo at the live cursor; the ring rotation
         // that starts a slide drops any pending prediction first, so a
         // predicted record never coexists with a non-zero pan.

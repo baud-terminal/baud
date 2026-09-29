@@ -18,10 +18,12 @@
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
 //! none is found or a field is absent, the defaults are the stack that
-//! starts with the embedded JetBrains Mono Nerd Font Mono -- so the app runs
-//! with no config at all. A configured `fonts` replaces that stack and keeps
-//! the embedded face last, for the glyphs the named faces lack, unless
-//! `font_fallback = false`.
+//! starts with the embedded JetBrains Mono and its Nerd Fonts icon face, with
+//! JetBrains Mono's Bold, Italic and Bold Italic as the styled faces -- so the
+//! app runs with no config at all. A configured `fonts` replaces that stack
+//! and keeps the embedded icon face last, for the icons the named faces lack,
+//! unless `font_fallback = false`. A configured stack has no styled faces
+//! yet: naming them waits on fonts by family name.
 
 use baud_domain::{CursorBlink, CursorShape};
 
@@ -32,6 +34,8 @@ pub struct FaceSpec {
     pub path: String,
     pub index: u32,
     pub from: FaceFrom,
+    /// Part of the fallback chain, or the face one style is drawn from.
+    pub role: baud_render::FaceRole,
 }
 
 /// Where a face's bytes come from.
@@ -43,7 +47,7 @@ pub enum FaceFrom {
     Embedded(&'static [u8]),
 }
 
-/// Whether the embedded font follows a configured stack as its last face,
+/// Whether the embedded icon face follows a configured stack as its last face,
 /// so a glyph none of the named faces carries -- a Nerd Fonts icon -- draws
 /// from it instead of as `.notdef`. kitty, wezterm and ghostty all put their
 /// bundled symbols behind the user's fonts the same way.
@@ -61,7 +65,7 @@ pub struct Config {
     pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
-    /// Whether the embedded font follows a `fonts` stack the config names,
+    /// Whether the embedded icon face follows a `fonts` stack the config names,
     /// already folded into `faces` by the time the config is read.
     pub font_fallback: FontFallback,
     /// Points; pixels are this times the backing scale.
@@ -702,7 +706,7 @@ impl Config {
                         "false" => FontFallback::Off,
                         other => {
                             said.push(format!(
-                                "config: font_fallback = {other:?} is not true or false; the embedded font stays behind the stack"
+                                "config: font_fallback = {other:?} is not true or false; the embedded icon face stays behind the stack"
                             ));
                             FontFallback::Embedded
                         }
@@ -785,7 +789,7 @@ impl Config {
         }
         if let Some(mut faces) = named {
             if self.font_fallback == FontFallback::Embedded {
-                faces.push(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO));
+                faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
             }
             self.faces = faces;
         }
@@ -913,21 +917,32 @@ impl FaceSpec {
                 path: path.to_string(),
                 index,
                 from: FaceFrom::File,
+                role: baud_render::FaceRole::Fallback,
             },
             None => FaceSpec {
                 path: s.to_string(),
                 index: 0,
                 from: FaceFrom::File,
+                role: baud_render::FaceRole::Fallback,
             },
         }
     }
 
-    /// The font compiled into the binary.
+    /// A font compiled into the binary, in the fallback chain.
     fn embedded(e: crate::embedded::Embedded) -> FaceSpec {
         FaceSpec {
             path: e.name.to_string(),
             index: 0,
             from: FaceFrom::Embedded(e.bytes),
+            role: baud_render::FaceRole::Fallback,
+        }
+    }
+
+    /// A font compiled into the binary, as the face `style` is drawn from.
+    fn embedded_style(e: crate::embedded::Embedded, style: baud_render::FaceStyle) -> FaceSpec {
+        FaceSpec {
+            role: baud_render::FaceRole::Style(style),
+            ..FaceSpec::embedded(e)
         }
     }
 }
@@ -1047,18 +1062,37 @@ const DEFAULT_FACES: [&str; 6] = [
     "/System/Library/Fonts/Kohinoor.ttc@0",
 ];
 
-/// The embedded JetBrains Mono first, then the system faces as they were:
-/// Menlo right behind it keeps the 1,593 codepoints it maps and JetBrains
-/// Mono does not (extended Latin, polytonic Greek, Georgian, more arrows),
-/// decided with Jev (0.98), 2026-09-29.
+/// The embedded JetBrains Mono first, the embedded icon face right behind
+/// it (Jev's rule, 2026-09-29: it carries only private-use icons, so its
+/// place changes nothing for text), then the system faces as they were:
+/// Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does not
+/// (extended Latin, polytonic Greek, Georgian, more arrows), decided with
+/// Jev (0.98), 2026-09-29. Last, the three styled faces, which are not in
+/// the fallback chain.
 #[cfg(target_os = "macos")]
 fn default_faces() -> Vec<FaceSpec> {
-    std::iter::once(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO))
-        .chain(DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)))
-        .collect()
+    [
+        FaceSpec::embedded(crate::embedded::REGULAR),
+        FaceSpec::embedded(crate::embedded::SYMBOLS),
+    ]
+    .into_iter()
+    .chain(DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)))
+    .chain(styled_faces())
+    .collect()
 }
 
-/// The embedded JetBrains Mono first; then, since Linux has no one system
+/// JetBrains Mono's Bold, Italic and Bold Italic, each the face its style
+/// is drawn from: never synthesised while a real face exists.
+fn styled_faces() -> [FaceSpec; 3] {
+    use baud_render::FaceStyle;
+    [
+        FaceSpec::embedded_style(crate::embedded::BOLD, FaceStyle::Bold),
+        FaceSpec::embedded_style(crate::embedded::ITALIC, FaceStyle::Italic),
+        FaceSpec::embedded_style(crate::embedded::BOLD_ITALIC, FaceStyle::BoldItalic),
+    ]
+}
+
+/// The embedded JetBrains Mono and icon face first; then, since Linux has no one system
 /// mono, the first of the usual DejaVu Sans Mono locations that exists, for
 /// what JetBrains Mono does not map, and Noto Color Emoji where it is. A
 /// config names anything else.
@@ -1083,10 +1117,15 @@ fn default_faces() -> Vec<FaceSpec> {
             .find(|p| std::path::Path::new(p).exists())
             .map(|s| FaceSpec::parse(s))
     };
-    std::iter::once(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO))
-        .chain(first(MONO))
-        .chain(first(EMOJI))
-        .collect()
+    [
+        FaceSpec::embedded(crate::embedded::REGULAR),
+        FaceSpec::embedded(crate::embedded::SYMBOLS),
+    ]
+    .into_iter()
+    .chain(first(MONO))
+    .chain(first(EMOJI))
+    .chain(styled_faces())
+    .collect()
 }
 
 /// The default stack has to carry what the corpus draws, on the machine
@@ -1742,41 +1781,57 @@ shadow     = "never"
         assert_eq!(said.len(), 2, "and it is said: {said:?}");
     }
 
-    /// The default stack starts with the embedded JetBrains Mono Nerd Font
-    /// Mono, and on macOS keeps Menlo right behind it; a config's `fonts`
-    /// replaces the stack, and the embedded face follows it as the fallback.
+    /// The default stack starts with the embedded JetBrains Mono Regular and
+    /// the icon face, and on macOS keeps Menlo right behind them; the three
+    /// embedded styles are its styled faces, out of the chain. A config's
+    /// `fonts` replaces the stack, and the icon face follows it.
     #[test]
     fn the_default_stack_starts_with_the_embedded_font() {
+        use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, SYMBOLS};
+        use baud_render::{FaceRole, FaceStyle};
         let d = Config::defaults();
-        match d.faces[0].from {
-            FaceFrom::Embedded(b) => {
-                assert_eq!(b.len(), crate::embedded::JETBRAINS_MONO.bytes.len())
-            }
-            FaceFrom::File => panic!(
-                "the first default face is {}, not the embedded font",
-                d.faces[0].path
-            ),
-        }
+        assert!(is(&d.faces[0], REGULAR), "{}", d.faces[0].path);
+        assert!(is(&d.faces[1], SYMBOLS), "{}", d.faces[1].path);
         #[cfg(target_os = "macos")]
         assert!(
-            d.faces[1].path.ends_with("Menlo.ttc"),
+            d.faces[2].path.ends_with("Menlo.ttc"),
             "{}",
-            d.faces[1].path
+            d.faces[2].path
+        );
+        let n = d.faces.len();
+        for (f, e, style) in [
+            (&d.faces[n - 3], BOLD, FaceStyle::Bold),
+            (&d.faces[n - 2], ITALIC, FaceStyle::Italic),
+            (&d.faces[n - 1], BOLD_ITALIC, FaceStyle::BoldItalic),
+        ] {
+            assert!(is(f, e), "{}", f.path);
+            assert_eq!(f.role, FaceRole::Style(style), "{}", f.path);
+        }
+        assert!(
+            d.faces[..n - 3]
+                .iter()
+                .all(|f| f.role == FaceRole::Fallback),
+            "only the three styles are styled"
         );
         let mut c = Config::defaults();
         let said = c.apply("fonts = [\"/a.ttf\"]\n");
         assert!(said.is_empty(), "{said:?}");
         assert_eq!(c.faces.len(), 2);
         assert!(matches!(c.faces[0].from, FaceFrom::File));
+        assert!(is(&c.faces[1], SYMBOLS));
     }
 
-    fn is_embedded(f: &FaceSpec) -> bool {
-        matches!(f.from, FaceFrom::Embedded(b)
-            if b.len() == crate::embedded::JETBRAINS_MONO.bytes.len())
+    /// Whether `f` is the embedded font `e`, by its bytes.
+    fn is(f: &FaceSpec, e: crate::embedded::Embedded) -> bool {
+        matches!(f.from, FaceFrom::Embedded(b) if b == e.bytes)
     }
 
-    /// A configured stack keeps the embedded font behind it, so what none
-    /// of the named faces carries -- a Nerd Fonts icon -- still draws; and
+    fn is_symbols(f: &FaceSpec) -> bool {
+        is(f, crate::embedded::SYMBOLS)
+    }
+
+    /// A configured stack keeps the embedded icon face behind it, so what
+    /// none of the named faces carries -- a Nerd Fonts icon -- still draws; and
     /// `font_fallback = false` leaves the stack exactly as named, whichever
     /// of the two keys comes first.
     #[test]
@@ -1785,7 +1840,7 @@ shadow     = "never"
         assert_eq!(c.faces.len(), 3);
         assert_eq!(c.faces[0].path, "/a.ttf");
         assert_eq!(c.faces[1].path, "/b.ttc");
-        assert!(is_embedded(&c.faces[2]), "{}", c.faces[2].path);
+        assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
         assert_eq!(c.font_fallback, FontFallback::Embedded);
         for text in [
             "fonts = [\"/a.ttf\"]\nfont_fallback = false\n",
@@ -1798,17 +1853,17 @@ shadow     = "never"
         }
         let c = read("font_fallback = true\nfonts = [\"/a.ttf\"]\n");
         assert_eq!(c.faces.len(), 2);
-        assert!(is_embedded(&c.faces[1]));
+        assert!(is_symbols(&c.faces[1]));
     }
 
-    /// With no `fonts` the embedded face is already first, so the switch
+    /// With no `fonts` the embedded faces are already in the stack, so the switch
     /// changes nothing: it cannot take away the default font.
     #[test]
     fn font_fallback_alone_keeps_the_default_stack() {
         let c = read("font_fallback = false\n");
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
-        assert!(is_embedded(&c.faces[0]));
-        assert!(c.faces[1..].iter().all(|f| !is_embedded(f)));
+        assert!(is(&c.faces[0], crate::embedded::REGULAR));
+        assert!(is_symbols(&c.faces[1]));
     }
 
     /// A value that is not `true` or `false` is said and leaves the
@@ -1820,7 +1875,7 @@ shadow     = "never"
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0].contains("font_fallback"), "{said:?}");
         assert_eq!(c.font_fallback, FontFallback::Embedded);
-        assert!(is_embedded(&c.faces[1]));
+        assert!(is_symbols(&c.faces[1]));
     }
 
     /// Every theme the macOS app builds carries the floor it was given. The
@@ -1923,7 +1978,11 @@ shadow     = "never"
         // make a copied example replace the embedded default -- so the
         // stack is the built-in one, embedded face first.
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
-        assert!(is_embedded(&c.faces[0]), "{}", c.faces[0].path);
+        assert!(
+            is(&c.faces[0], crate::embedded::REGULAR),
+            "{}",
+            c.faces[0].path
+        );
         assert_eq!(c.font_fallback, FontFallback::Embedded);
         // The `[cursor]` section lands; that a section header cannot
         // swallow a top-level list is `a_list_across_lines_survives_a_section_header`.
@@ -2009,7 +2068,7 @@ shadow     = "never"
         assert_eq!(c.faces.len(), 3, "the two named and the embedded fallback");
         assert_eq!(c.faces[1].path, "b");
         assert_eq!(c.faces[1].index, 2);
-        assert!(is_embedded(&c.faces[2]));
+        assert!(is_symbols(&c.faces[2]));
         assert_eq!(c.glass.dim_dark, 0.3);
     }
 }

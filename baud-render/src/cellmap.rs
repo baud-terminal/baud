@@ -41,13 +41,30 @@ pub struct Candidate {
 pub const MAP_BITS: u32 = 14;
 pub const MAP_SLOTS: usize = 1 << MAP_BITS;
 
-/// A map entry's key: the codepoint, or [`CellKey::EMPTY`].
+/// The face style a cell's text is drawn from, read from the resolved table
+/// the frame draws with -- the one spelling of that read on the CPU, as the
+/// shader's `(shapes >> FACE_SHIFT) & 3` is on the GPU.
+pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::FaceStyle {
+    styles
+        .get(cell.style.index())
+        .map_or(crate::FaceStyle::Regular, |s| s.shapes.face())
+}
+
+/// A map entry's key: the codepoint with the face style above it, or
+/// [`CellKey::EMPTY`]. A codepoint is 21 bits, so the style's two bits
+/// fit above it and the key stays one word; the cell shader composes the
+/// same key from the cell and its resolved slot (`KEY_STYLE_SHIFT`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
 pub struct CellKey(pub u32);
 
 impl CellKey {
     pub const EMPTY: CellKey = CellKey(u32::MAX);
+    pub const STYLE_SHIFT: u32 = 21;
+
+    pub fn of(cp: Codepoint, style: crate::FaceStyle) -> CellKey {
+        CellKey(cp.value() | (style.code().0 << CellKey::STYLE_SHIFT))
+    }
 }
 
 /// The kind code an entry carries for a codepoint that draws nothing.
@@ -194,9 +211,9 @@ pub struct GlyphMap<'m> {
 struct MapSlot(usize);
 
 impl MapSlot {
-    /// The slot a codepoint hashes to; the shader computes the same.
-    fn home(cp: Codepoint) -> MapSlot {
-        let h = cp.value().wrapping_mul(0x9E37_79B1) >> (32 - MAP_BITS);
+    /// The slot a key hashes to; the shader computes the same.
+    fn home(key: CellKey) -> MapSlot {
+        let h = key.0.wrapping_mul(0x9E37_79B1) >> (32 - MAP_BITS);
         MapSlot(usize::try_from(h).unwrap_or(0))
     }
 
@@ -260,11 +277,11 @@ impl<'m> GlyphMap<'m> {
         self.generation = MapGeneration(self.generation.0.wrapping_add(1));
     }
 
-    /// The entry for `cp`, if the map holds one: linear probing from its
-    /// home slot to the first empty one.
-    pub fn probe(&self, cp: Codepoint) -> Option<&MapEntry> {
-        let key = CellKey(cp.value());
-        let mut i = MapSlot::home(cp);
+    /// The entry for `cp` drawn in `style`, if the map holds one: linear
+    /// probing from its home slot to the first empty one.
+    pub fn probe(&self, cp: Codepoint, style: crate::FaceStyle) -> Option<&MapEntry> {
+        let key = CellKey::of(cp, style);
+        let mut i = MapSlot::home(key);
         for _ in 0..MAP_SLOTS {
             let e = &self.entries[i.0];
             if e.key == CellKey::EMPTY {
@@ -279,7 +296,7 @@ impl<'m> GlyphMap<'m> {
     }
 
     fn insert(&mut self, entry: MapEntry) {
-        let mut i = MapSlot::home(Codepoint::new(entry.key.0).unwrap_or(Codepoint::REPLACEMENT));
+        let mut i = MapSlot::home(entry.key);
         for _ in 0..MAP_SLOTS {
             if self.entries[i.0].key == CellKey::EMPTY {
                 self.entries[i.0] = entry;
@@ -299,9 +316,14 @@ impl<'m> GlyphMap<'m> {
     /// found on the same probe, from the two bits each entry carries: the
     /// digests are consulted only where a cell that can end a pair follows
     /// one that can start one.
+    ///
+    /// `styles` is the resolved rendition table the frame draws with,
+    /// synced before this walk: a cell's face style is read from its slot,
+    /// as the shader reads it, so the two build and probe the same keys.
     pub fn ensure(
         &mut self,
         vp: Viewport<'_>,
+        styles: &[Resolved],
         r: &mut Renderer<'_, '_>,
         candidates: &mut Vec<Candidate>,
     ) {
@@ -325,11 +347,12 @@ impl<'m> GlyphMap<'m> {
                     }
                     continue;
                 };
-                let (glyph, starts, ends, face) = match self.probe(cp) {
+                let style = face_of(styles, *cell);
+                let (glyph, starts, ends, face) = match self.probe(cp, style) {
                     Some(e) => (e.glyph(), e.starts_pair(), e.ends_pair(), e.face()),
                     None => {
                         self.stats.misses.bump();
-                        let single = r.single(cp);
+                        let single = r.single(cp, style);
                         if r.atlas_stats().grown.value() != self.grown.value() {
                             self.grown = r.atlas_stats().grown;
                             self.clear();
@@ -339,7 +362,7 @@ impl<'m> GlyphMap<'m> {
                         {
                             self.clear();
                         }
-                        let e = MapEntry::of(CellKey(cp.value()), single);
+                        let e = MapEntry::of(CellKey::of(cp, style), single);
                         self.insert(e);
                         changed = true;
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
@@ -401,8 +424,23 @@ impl Shapes {
     /// `SGR 8`: the text never draws. `SHAPE_CONCEAL` in the cell shader.
     pub const CONCEAL: Shapes = Shapes(512);
 
+    /// Where the face style's two bits sit: the style whose face the cell's
+    /// text is drawn from, already fallen back by [`crate::Stack::effective`],
+    /// so the cell shader keys its glyph map on it without knowing the stack.
+    /// `FACE_SHIFT` in the cell shader, pinned by
+    /// `the_face_style_bits_match_the_shader`.
+    pub const FACE_SHIFT: u32 = 10;
+
     pub fn with(self, s: Shapes) -> Shapes {
         Shapes(self.0 | s.0)
+    }
+
+    pub fn with_face(self, style: crate::FaceStyle) -> Shapes {
+        Shapes((self.0 & !(3 << Shapes::FACE_SHIFT)) | (style.code().0 << Shapes::FACE_SHIFT))
+    }
+
+    pub fn face(self) -> crate::FaceStyle {
+        crate::FaceStyle::from_code(Code(self.0 >> Shapes::FACE_SHIFT))
     }
 
     /// Whether every bit of `s` is set.

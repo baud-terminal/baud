@@ -295,6 +295,32 @@ fn the_hidden_text_bits_match_the_shader() {
     }
 }
 
+/// **The cell shader composes the glyph-map key the CPU builds.** The face
+/// style's bits in a resolved slot, and where they sit in the key, are one
+/// fact spelled in Rust (`Shapes::FACE_SHIFT`, `CellKey::STYLE_SHIFT`) and
+/// in the shader; a drift would have the shader probe for keys the CPU
+/// never inserted, and every bold cell would draw nothing on the cell path.
+#[test]
+fn the_face_style_bits_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, want) in [
+        ("FACE_SHIFT", baud_render::Shapes::FACE_SHIFT),
+        ("KEY_STYLE_SHIFT", baud_render::CellKey::STYLE_SHIFT),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let got: u32 = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
+        assert_eq!(got, want, "{line:?} against {name}");
+    }
+}
+
 /// **`KIND_BAND` and `KIND_PARTICLE` in the shader and `Kind::Band` and
 /// `Kind::Particle` are one fact spelled twice.** `glyph_vertex` gives a
 /// particle's record its shape coordinates by the literal, and every effect's

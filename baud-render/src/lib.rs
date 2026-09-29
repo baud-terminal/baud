@@ -80,7 +80,7 @@ pub use scrollbar::{
 pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };
-pub use stack::{FaceIx, Stack};
+pub use stack::{FaceIx, FaceRole, FaceStyle, Stack};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,
 };

@@ -406,6 +406,11 @@ fn main() {
                     at += n;
                 }
                 if cell_arm {
+                    // The styles first, as the app syncs them: the map walk
+                    // reads each cell's face style from them.
+                    let tr = Instant::now();
+                    r.sync_styles(&t, styles_mem, &mut stamp);
+                    s.parts[part].resolve += tr.elapsed();
                     let tc = Instant::now();
                     // Faithful to `present`'s slide branch: ensure the map
                     // over the view one line up (the leaving row) first, so
@@ -413,17 +418,19 @@ fn main() {
                     // `candidates` and refills, so the screen ensure below
                     // still leaves them as the screen's -- the app's order.
                     if arm == Arm::Slide {
-                        map.ensure(t.view(Rows::of_index(1)), &mut r, &mut candidates);
+                        map.ensure(
+                            t.view(Rows::of_index(1)),
+                            styles_mem,
+                            &mut r,
+                            &mut candidates,
+                        );
                     }
-                    map.ensure(t.viewport(), &mut r, &mut candidates);
+                    map.ensure(t.viewport(), styles_mem, &mut r, &mut candidates);
                     s.parts[part].map += tc.elapsed();
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();
                         (row, col, t.cursor_style())
                     });
-                    let tr = Instant::now();
-                    r.sync_styles(&t, styles_mem, &mut stamp);
-                    s.parts[part].resolve += tr.elapsed();
                     let to = Instant::now();
                     exceptions.ensure(
                         &Scene {
