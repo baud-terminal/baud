@@ -8179,3 +8179,29 @@ sha256 = "7f5d6a87172750962cec36fb5432b507d01f208fac71ad9bcdb7affb0a494de0"
 bytes  = 3073
 status = "retrieved"
 group  = "Y"
+
+[sources.ghostty-fraction-d9840f3]
+key    = "ghostty-fraction-d9840f3"
+title  = "ghostty d9840f3, terminal/fraction.zig -- the decimal fraction parser behind rgbi: colours"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/fraction.zig"
+file   = "ghostty-d9840f3-fraction.zig"
+sha256 = "c9e62da197254fed131e0cb466d49c588248af14b1c421afc909bc966a911d1c"
+bytes  = 5225
+status = "retrieved"
+group  = "Y"
+
+[sources.zig-fmt-0-16-0]
+key    = "zig-fmt-0-16-0"
+title  = "Zig 0.16.0, lib/std/fmt.zig -- parseInt and parseUnsigned, which ghostty d9840f3 (minimum_zig_version 0.16.0) reads palette indices and hex channels with"
+author = "Zig Software Foundation and contributors"
+year   = 2026
+venue  = "Zig standard library (MIT)"
+url    = "https://codeberg.org/ziglang/zig/raw/tag/0.16.0/lib/std/fmt.zig"
+file   = "zig-0.16.0-fmt.zig"
+sha256 = "53fea69903a8761d62783e2843e5f89cdfab943790012035698591d0bb378b2d"
+bytes  = 58268
+status = "retrieved"
+group  = "Y"

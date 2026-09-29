@@ -219,3 +219,389 @@ fn a_bare_value_ends_at_its_comment() {
     let err = base16(hash.as_bytes()).unwrap_err();
     assert_eq!(err.kind, SchemeErrorKind::Hex(HexError::Empty));
 }
+
+/// A hand-made ghostty theme: every palette index form, every colour form
+/// ghostty reads but a name, a `#` inside a value, an indented comment, a
+/// quoted value, a CRLF line, and two keys baud does not read.
+const GHOSTTY: &str = "\
+# A hand-made ghostty theme; not from the bundled set.
+palette = 0=#000001
+palette = 1=a00001
+palette = 2 = #0a0\r
+palette = 3=0a0b03
+palette = 4=rgb:00/30/7d
+palette = 5=#7000007e0
+palette = 0x6=#00707c
+palette = 0b111=#c0c0c7
+  # an indented comment
+palette = 0o10=#808088
+palette = 9=#ff0009
+palette = 10=#00ff0a
+palette = 11=#ffff0b
+palette = 12=#0000ff
+palette = 13=#ff00ff
+palette = 14=#00ffff
+palette = 15=#ffffff
+palette = 200=#c8c8c8
+background = #102030
+foreground = \"#e0e0e1\"
+cursor-color = #fff000
+cursor-text = #000fff
+selection-background = #333333
+selection-foreground = #cccccc
+font-family = Fixture Mono
+window-theme = dark
+";
+
+fn read_ghostty(text: &str) -> (Result<Scheme, SchemeError>, Vec<(u32, String)>) {
+    let mut ignored = Vec::new();
+    let s = ghostty(text.as_bytes(), |Line(n), key| {
+        ignored.push((n, String::from_utf8_lossy(key).into_owned()))
+    });
+    (s, ignored)
+}
+
+#[test]
+fn ghostty_reads_its_seven_keys_and_every_index_form() {
+    let (s, ignored) = read_ghostty(GHOSTTY);
+    let s = s.expect("reads");
+    assert_eq!(s.format, Format::Ghostty);
+    let want = [
+        0x000001, 0xa00001, 0x00aa00, 0x0a0b03, 0x00307d, 0x6f007d, 0x00707c, 0xc0c0c7, 0x808088,
+        0xff0009, 0x00ff0a, 0xffff0b, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
+    ];
+    for (i, w) in want.iter().enumerate() {
+        assert_eq!(s.ansi[i], Some(c(*w)), "entry {i}");
+    }
+    assert_eq!(s.extended[200 - 16], Some(c(0xc8c8c8)), "entry 200");
+    assert_eq!(s.extended.iter().filter(|e| e.is_some()).count(), 1);
+    // A `#` in a value is data, not a comment.
+    assert_eq!(s.page, Some(c(0x102030)));
+    assert_eq!(s.text, Some(c(0xe0e0e1)), "the quotes come off");
+    assert_eq!(s.cursor, Some(c(0xfff000)));
+    assert_eq!(s.cursor_text, Some(c(0x000fff)));
+    assert_eq!(s.selection, Some(c(0x333333)));
+    assert_eq!(s.selection_text, Some(c(0xcccccc)));
+    assert_eq!(s.declared, None, "a ghostty file declares no variant");
+    assert_eq!(s.polarity(), Some(ColorScheme::Dark));
+    assert_eq!(
+        ignored,
+        [
+            (26, "font-family".to_string()),
+            (27, "window-theme".to_string())
+        ]
+    );
+}
+
+/// A file that sets only some entries leaves the rest unset; the config
+/// layer fills them from baud's own.
+#[test]
+fn a_partial_ghostty_file_leaves_the_rest_unset() {
+    let (s, _) = read_ghostty("palette = 1=#a00001\nbackground = #ffffff\n");
+    let s = s.expect("reads");
+    assert_eq!(s.ansi[1], Some(c(0xa00001)));
+    assert_eq!(s.ansi.iter().filter(|e| e.is_some()).count(), 1);
+    assert_eq!((s.page, s.text), (Some(c(0xffffff)), None));
+    assert_eq!(s.polarity(), None, "no text, no polarity");
+}
+
+/// ghostty applies lines in order: a repeat takes its last value, and an
+/// empty value resets -- one entry, or with `palette =` all of them.
+#[test]
+fn a_repeat_takes_the_last_value_and_an_empty_one_unsets() {
+    let (s, _) = read_ghostty(
+        "palette = 1=#111111\npalette = 1=#a00001\nbackground = #000000\n\
+         background = #102030\nforeground = #eeeeee\nforeground =\n",
+    );
+    let s = s.expect("reads");
+    assert_eq!(s.ansi[1], Some(c(0xa00001)));
+    assert_eq!(s.page, Some(c(0x102030)));
+    assert_eq!(s.text, None);
+    let (s, _) = read_ghostty(
+        "palette = 1=#a00001\npalette = 200=#c8c8c8\npalette =\npalette = 2=#00aa00\n",
+    );
+    let s = s.expect("reads");
+    assert_eq!(s.ansi[1], None, "`palette =` unset entry 1");
+    assert_eq!(s.extended[200 - 16], None, "and entry 200");
+    assert_eq!(s.ansi[2], Some(c(0x00aa00)), "a later entry stands");
+}
+
+#[test]
+fn ghostty_refusals_name_the_line_and_the_reason() {
+    for (text, line, kind) in [
+        ("palette = 256=#000000\n", 1, SchemeErrorKind::PaletteIndex),
+        (
+            "\npalette = red=#000000\n",
+            2,
+            SchemeErrorKind::PaletteIndex,
+        ),
+        ("palette = 5\n", 1, SchemeErrorKind::Syntax),
+        ("background\n", 1, SchemeErrorKind::Syntax),
+        ("background = black\n", 1, SchemeErrorKind::ColourName),
+        (
+            "palette = 1=DarkSlateGray4\n",
+            1,
+            SchemeErrorKind::ColourName,
+        ),
+        (
+            "background = #12\n",
+            1,
+            SchemeErrorKind::Hex(HexError::Width),
+        ),
+        (
+            "background = #12345g\n",
+            1,
+            SchemeErrorKind::Hex(HexError::NotHex),
+        ),
+        (
+            "background = rgbi:2/0/0\n",
+            1,
+            SchemeErrorKind::Hex(HexError::NotHex),
+        ),
+        (
+            "background = rgb:1/2\n",
+            1,
+            SchemeErrorKind::Hex(HexError::NotHex),
+        ),
+    ] {
+        let (s, _) = read_ghostty(text);
+        assert_eq!(
+            s.unwrap_err(),
+            SchemeError {
+                line: Line(line),
+                kind
+            },
+            "{text:?}"
+        );
+    }
+}
+
+/// The 602 themes ghostty bundles, when the pinned tarball is unpacked at
+/// `BAUD_GHOSTTY_THEMES` (see `[[source: ghostty-themes-tgz]]`): every file
+/// reads, sets all sixteen and the six others, and ignores nothing.
+#[test]
+fn every_bundled_ghostty_theme_reads_whole() {
+    let Some(dir) = std::env::var_os("BAUD_GHOSTTY_THEMES") else {
+        return;
+    };
+    let mut files = 0;
+    for entry in std::fs::read_dir(&dir).expect("a directory") {
+        let path = entry.unwrap().path();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (s, ignored) = read_ghostty(&text);
+        let s = s.unwrap_or_else(|e| panic!("{}: {e:?}", path.display()));
+        assert!(s.ansi.iter().all(Option::is_some), "{}", path.display());
+        assert!(
+            [
+                s.page,
+                s.text,
+                s.cursor,
+                s.cursor_text,
+                s.selection,
+                s.selection_text
+            ]
+            .iter()
+            .all(Option::is_some),
+            "{}",
+            path.display()
+        );
+        assert!(ignored.is_empty(), "{}: {ignored:?}", path.display());
+        files += 1;
+    }
+    assert_eq!(files, 602, "the pinned set");
+}
+
+/// Review, 2026-09-29: the colour forms exactly as ghostty's `RGB.parse`
+/// reads them. `fromHex` truncates `v * 255 / max` and reads each channel
+/// with Zig's `parseUnsigned(u16, _, 16)`, `_` separators included;
+/// `rgbi:` goes through `fraction.parse` and `@intFromFloat(i * 255)`; a
+/// quoted value is trimmed again inside its quotes.
+#[test]
+fn ghostty_colours_read_exactly_as_ghostty_reads_them() {
+    let page = |v: &str| {
+        read_ghostty(&format!("background = {v}\n"))
+            .0
+            .map(|s| s.page)
+    };
+    let grey = |n: u32| Ok(Some(c(n * 0x010101)));
+    assert_eq!(
+        page("#800800800"),
+        grey(0x7f),
+        "2048 * 255 / 4095 truncates to 127"
+    );
+    assert_eq!(
+        page("rgb:8000/8000/8000"),
+        grey(0x7f),
+        "32768 * 255 / 65535 = 127.5 truncates"
+    );
+    assert_eq!(
+        page("#1_21_21_2"),
+        grey(1),
+        "0x12 over twelve bits: Zig skips the `_`"
+    );
+    assert_eq!(page("#fff"), grey(0xff));
+    assert_eq!(page("rgb:f/f/f"), grey(0xff));
+    assert_eq!(
+        page("\" #800800800 \""),
+        grey(0x7f),
+        "trimmed inside its quotes"
+    );
+    assert_eq!(page("\" rgb:f/f/f \""), grey(0xff));
+    assert_eq!(
+        page("rgbi:1/0/0.5"),
+        Ok(Some(c(0xff007f))),
+        "0.5 * 255 truncates to 127"
+    );
+    assert_eq!(page("rgbi:-0/+1/.5"), Ok(Some(c(0x00ff7f))));
+    assert_eq!(page("rgbi:1./0.0/00.00"), Ok(Some(c(0xff0000))));
+    for bad in [
+        "rgbi:1.5/0/0",
+        "rgbi:-0.5/0/0",
+        "rgbi:1e-1/0/0",
+        "rgbi:./0/0",
+        "rgbi: 1/0/0",
+        "RGB:f/f/f",
+        "rgb:12345/0/0",
+        "rgb:f/f/f/f",
+        "#_12",
+        "#12_",
+    ] {
+        assert!(page(bad).is_err(), "{bad} is refused");
+    }
+}
+
+/// ghostty's line trim is space, tab and CR (`args.zig` 19, 1453), not
+/// every ASCII whitespace: a form feed stays part of the key.
+#[test]
+fn a_form_feed_is_not_whitespace_to_ghostty() {
+    let (s, ignored) = read_ghostty("\x0cbackground = #ffffff\n");
+    assert_eq!(s.unwrap().page, None);
+    assert_eq!(ignored, [(1, "\x0cbackground".to_string())]);
+}
+
+/// The palette index as Zig 0.16's `parseInt(u8, _, 0)` reads it: a sign,
+/// `_` between digits, a prefix in either case when more than two bytes
+/// follow.
+#[test]
+fn a_palette_index_reads_as_zigs_parse_int() {
+    let entry = |n: &str| {
+        read_ghostty(&format!("palette = {n}=#123456\n"))
+            .0
+            .map(|s| s.ansi.iter().position(Option::is_some))
+    };
+    for (n, want) in [
+        ("+5", 5),
+        ("-0", 0),
+        ("1_0", 10),
+        ("0x1_0", 16),
+        ("0X6", 6),
+        ("0B1", 1),
+        ("0O7", 7),
+        ("00012", 12),
+        ("\t3 ", 3),
+    ] {
+        let slot = if want < 16 { Some(want) } else { None };
+        match slot {
+            Some(i) => assert_eq!(entry(n), Ok(Some(i)), "{n}"),
+            None => assert_eq!(entry(n), Ok(None), "{n} lands past 15"),
+        }
+    }
+    for bad in [
+        "-5", "_1", "1_", "0x", "0b", "+", "-", "0x_10", "0x10_", "256", "1 0",
+    ] {
+        assert_eq!(
+            entry(bad).unwrap_err().kind,
+            SchemeErrorKind::PaletteIndex,
+            "{bad}"
+        );
+    }
+}
+
+/// A multi-word X11 name is a name.
+#[test]
+fn a_name_with_spaces_is_a_name() {
+    let (s, _) = read_ghostty("background = dark slate gray\n");
+    assert_eq!(s.unwrap_err().kind, SchemeErrorKind::ColourName);
+}
+
+/// The YAML subset's own rules, each with a case that only it decides.
+#[test]
+fn the_yaml_subset_rules_each_decide_a_case() {
+    let slots = || slot_lines().collect::<Vec<_>>().join("\n") + "\n";
+    // A block scalar inside `palette:` is skipped whole; the nested-map rule
+    // cannot skip it, because the palette is open.
+    let text = format!("palette:\n  note: |\n    base00: \"#000000\"\n{}", slots());
+    assert_eq!(base16(text.as_bytes()).unwrap().page, Some(c(0xf0f0f0)));
+    // A top-level key closes `palette:`; a map under it is not the palette.
+    let text = format!("palette:\n{}extra:\n  base00: \"#000000\"\n", slots());
+    assert_eq!(base16(text.as_bytes()).unwrap().page, Some(c(0xf0f0f0)));
+    // `---` opens the document and is not a line of it.
+    let text = format!("---\npalette:\n{}", slots());
+    assert!(base16(text.as_bytes()).is_ok());
+    // base18 is no slot.
+    let text = format!("palette:\n{}  base18: \"#000000\"\n", slots());
+    assert_eq!(base16(text.as_bytes()).unwrap().format, Format::Base16);
+    // Single quotes read; text after a closing quote, or a quote left open,
+    // does not.
+    let single = slots().replace('"', "'");
+    assert_eq!(
+        base16(format!("palette:\n{single}").as_bytes())
+            .unwrap()
+            .page,
+        Some(c(0xf0f0f0))
+    );
+    let after = slots().replacen("\"#f0f0f0\"", "\"#f0f0f0\" x", 1);
+    assert_eq!(
+        base16(format!("palette:\n{after}").as_bytes()).unwrap_err(),
+        SchemeError {
+            line: Line(2),
+            kind: SchemeErrorKind::Syntax
+        }
+    );
+    let open = slots().replacen("\"#f0f0f0\"", "\"#f0f0f0", 1);
+    assert_eq!(
+        base16(format!("palette:\n{open}").as_bytes())
+            .unwrap_err()
+            .kind,
+        SchemeErrorKind::Syntax
+    );
+    // A tab in the indentation is refused.
+    let tab = slots().replacen("  base00", "\tbase00", 1);
+    assert_eq!(
+        base16(format!("palette:\n{tab}").as_bytes()).unwrap_err(),
+        SchemeError {
+            line: Line(2),
+            kind: SchemeErrorKind::Syntax
+        }
+    );
+}
+
+/// An explicit `system` decides the format over the slots present; `system`
+/// and `variant` given twice are refused like a slot given twice.
+#[test]
+fn an_explicit_system_decides_and_a_repeat_is_refused() {
+    let s = base16(
+        base24_text(false)
+            .replace("name:", "system: \"base16\"\nname:")
+            .as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(s.format, Format::Base16, "declared base16, base1x present");
+    assert_eq!(s.ansi[9], Some(c(0xa00008)), "so the brights are base16's");
+    let short = format!(
+        "system: \"base24\"\npalette:\n{}",
+        slot_lines().collect::<Vec<_>>().join("\n") + "\n"
+    );
+    assert_eq!(
+        base16(short.as_bytes()).unwrap_err().kind,
+        SchemeErrorKind::Missing(Slot(0x10))
+    );
+    for key in ["system: \"base16\"", "variant: \"light\""] {
+        let twice = BASE16_LIGHT.replace("palette:", &format!("{key}\npalette:"));
+        assert_eq!(
+            base16(twice.as_bytes()).unwrap_err().kind,
+            SchemeErrorKind::Duplicate,
+            "{key}"
+        );
+    }
+}

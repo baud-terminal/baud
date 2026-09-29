@@ -19,8 +19,10 @@
 //! 16-255 stay xterm's, which programs addressing the cube by number expect.
 //! The file format is `[[source: tinted-builder]]` 0.11.2: the current nested
 //! form (`system`, `palette:` and its children) and the legacy flat form
-//! (`scheme`, and every other key a slot), with `system` inferred from which
-//! slots are present when it is missing. Values "MUST be in HTML hex format
+//! (the slots at the top level beside `scheme`, `author` and
+//! `description`), with `system` inferred from which slots are present when
+//! it is missing. baud reads `base00`-`base17` as slots, `system` and
+//! `variant`, and ignores every other key in either form. Values "MUST be in HTML hex format
 //! and MAY be preceded by a `#`".
 
 use crate::{Chan, Color, ColorScheme, ColorWord};
@@ -94,8 +96,10 @@ pub struct Scheme {
     /// The page and the text, as `OSC 11` and `OSC 10` would answer.
     pub page: Option<Color>,
     pub text: Option<Color>,
-    /// base16's and base24's entries 16-21, parsed and not written.
-    pub extended: [Option<Color>; 6],
+    /// Entries 16-255: base16's and base24's 16-21, a ghostty file's
+    /// `palette = N=` for N past 15. Parsed here; whether they are written
+    /// is the config layer's.
+    pub extended: [Option<Color>; 240],
     pub cursor: Option<Color>,
     pub cursor_text: Option<Color>,
     pub selection: Option<Color>,
@@ -143,6 +147,9 @@ pub enum SchemeErrorKind {
     Syntax,
     /// A ghostty `palette` entry whose number is not 0-255.
     PaletteIndex,
+    /// An X11 colour name, which ghostty resolves and baud does not yet:
+    /// there is no citable copy of `rgb.txt` here, for OSC colours either.
+    ColourName,
 }
 
 /// A base16/base24 slot number, `0x00` to `0x17`.
@@ -293,7 +300,11 @@ pub fn base16(text: &[u8]) -> Result<Scheme, SchemeError> {
         ],
         page: b(0x00),
         text: b(0x05),
-        extended: [b(0x09), b(0x0F), b(0x01), b(0x02), b(0x04), b(0x06)],
+        extended: {
+            let mut e = [None; 240];
+            e[..6].copy_from_slice(&[b(0x09), b(0x0F), b(0x01), b(0x02), b(0x04), b(0x06)]);
+            e
+        },
         cursor: None,
         cursor_text: None,
         selection: None,
@@ -322,6 +333,263 @@ fn yaml_value(v: &[u8]) -> Option<&[u8]> {
         }
     }
     Some(trim(&v[..end]))
+}
+
+/// A ghostty theme file, read as ghostty d9840f3 reads one: a line trimmed of
+/// spaces, tabs and CR, a comment only where the trimmed line's first byte is
+/// `#` ([[source: ghostty-args-d9840f3]] 1450-1466), so a `#` in a value is
+/// data; `key = value`, each side trimmed of spaces and tabs and one pair of
+/// quotes off the value (1468-1482). The seven colour keys are read; every
+/// other key is handed to `ignored` with its line, for the caller to report.
+///
+/// Lines apply in order, as ghostty applies them: a key set twice takes its
+/// last value, and an empty value unsets -- one entry, or with `palette =`
+/// all 256 (`[[source: ghostty-args-d9840f3]]` 719). A colour is every form
+/// ghostty's `RGB.parse` reads (`[[source: ghostty-color-d9840f3]]` 660-790,
+/// with `[[source: ghostty-fraction-d9840f3]]` and Zig's `parseUnsigned`,
+/// `[[source: zig-fmt-0-16-0]]` 394-475) but an X11 name, which is refused as
+/// [`SchemeErrorKind::ColourName`]: baud resolves names nowhere yet.
+pub fn ghostty(text: &[u8], mut ignored: impl FnMut(Line, &[u8])) -> Result<Scheme, SchemeError> {
+    let mut s = Scheme {
+        ansi: [None; 16],
+        page: None,
+        text: None,
+        extended: [None; 240],
+        cursor: None,
+        cursor_text: None,
+        selection: None,
+        selection_text: None,
+        format: Format::Ghostty,
+        declared: None,
+    };
+    let mut line_no = 0u32;
+    for raw in text.split(|&b| b == b'\n') {
+        line_no += 1;
+        let line = Line(line_no);
+        let err = |kind| SchemeError { line, kind };
+        let body = trim_with(raw, b" \t\r");
+        if body.is_empty() || body[0] == b'#' {
+            continue;
+        }
+        let (key, value) = match body.iter().position(|&b| b == b'=') {
+            Some(eq) => (
+                trim_with(&body[..eq], b" \t"),
+                Some(unquote(trim_with(&body[eq + 1..], b" \t"))),
+            ),
+            None => (body, None),
+        };
+        let slot = match key {
+            b"background" => &mut s.page,
+            b"foreground" => &mut s.text,
+            b"cursor-color" => &mut s.cursor,
+            b"cursor-text" => &mut s.cursor_text,
+            b"selection-background" => &mut s.selection,
+            b"selection-foreground" => &mut s.selection_text,
+            b"palette" => {
+                let value = value.ok_or_else(|| err(SchemeErrorKind::Syntax))?;
+                if value.is_empty() {
+                    s.ansi = [None; 16];
+                    s.extended = [None; 240];
+                    continue;
+                }
+                let eq = value
+                    .iter()
+                    .position(|&b| b == b'=')
+                    .ok_or_else(|| err(SchemeErrorKind::Syntax))?;
+                let n = palette_index(trim_with(&value[..eq], b" \t"))
+                    .ok_or_else(|| err(SchemeErrorKind::PaletteIndex))?;
+                let c = colour(&value[eq + 1..]).map_err(err)?;
+                match n.checked_sub(16) {
+                    None => s.ansi[usize::from(n)] = Some(c),
+                    Some(high) => s.extended[usize::from(high)] = Some(c),
+                }
+                continue;
+            }
+            _ => {
+                ignored(line, key);
+                continue;
+            }
+        };
+        let value = value.ok_or_else(|| err(SchemeErrorKind::Syntax))?;
+        *slot = if value.is_empty() {
+            None
+        } else {
+            Some(colour(value).map_err(err)?)
+        };
+    }
+    Ok(s)
+}
+
+/// `t` without the bytes of `set` at either end.
+fn trim_with<'a>(t: &'a [u8], set: &[u8]) -> &'a [u8] {
+    let start = t.iter().position(|b| !set.contains(b)).unwrap_or(t.len());
+    let end = t
+        .iter()
+        .rposition(|b| !set.contains(b))
+        .map_or(start, |e| e + 1);
+    &t[start..end]
+}
+
+/// One pair of surrounding double quotes off, as ghostty takes it.
+fn unquote(v: &[u8]) -> &[u8] {
+    match v {
+        [b'"', inner @ .., b'"'] => inner,
+        _ => v,
+    }
+}
+
+/// Zig's `parseIntWithSign` for an unsigned result, positive sign
+/// (`[[source: zig-fmt-0-16-0]]` 394-464): base 0 detects `0b`, `0o` or `0x`,
+/// in either case, only when more than two bytes follow; `_` is skipped
+/// between digits and refused first or last; `None` past `max`. The
+/// more-than-two-bytes guard changes nothing a `u8` index can observe --
+/// `0x`, `0b` and `0o` are refused either way -- and is kept to be Zig's.
+fn zig_unsigned(buf: &[u8], base: u32, max: u32) -> Option<u32> {
+    let (base, digits) = match buf {
+        [b'0', p, _, ..] if base == 0 => match p.to_ascii_lowercase() {
+            b'b' => (2, &buf[2..]),
+            b'o' => (8, &buf[2..]),
+            b'x' => (16, &buf[2..]),
+            _ => (10, buf),
+        },
+        _ if base == 0 => (10, buf),
+        _ => (base, buf),
+    };
+    if matches!(digits.first(), None | Some(b'_')) || digits.last() == Some(&b'_') {
+        return None;
+    }
+    let mut n: u32 = 0;
+    for &b in digits {
+        if b == b'_' {
+            continue;
+        }
+        n = n * base + (b as char).to_digit(base)?;
+        if n > max {
+            return None;
+        }
+    }
+    Some(n)
+}
+
+/// A palette number as ghostty reads it, with Zig's `parseInt(u8, _, 0)`
+/// (`[[source: ghostty-color-d9840f3]]` 62-75, `[[source: zig-fmt-0-16-0]]`
+/// 322-331): a `+` may lead, and so may a `-`, which for a `u8` leaves only
+/// zero.
+fn palette_index(t: &[u8]) -> Option<u8> {
+    let n = match t {
+        [b'+', rest @ ..] => zig_unsigned(rest, 0, 255)?,
+        [b'-', rest @ ..] => match zig_unsigned(rest, 0, 255)? {
+            0 => 0,
+            _ => return None,
+        },
+        _ => zig_unsigned(t, 0, 255)?,
+    };
+    u8::try_from(n).ok()
+}
+
+/// ghostty's `RGB.fromHex` (`[[source: ghostty-color-d9840f3]]` 656-677): one
+/// to four hex digits by Zig's `parseUnsigned(u16, _, 16)`, `_` separators
+/// included, scaled by `v * 255 / max` for the slice's length -- truncated,
+/// where XParseColor rounds.
+fn from_hex(s: &[u8]) -> Option<Chan> {
+    let max = match s.len() {
+        1 => 0xf,
+        2 => 0xff,
+        3 => 0xfff,
+        4 => 0xffff,
+        _ => return None,
+    };
+    let v = zig_unsigned(s, 16, 0xffff)?;
+    u8::try_from(v * 255 / max).ok().map(Chan::from_u8)
+}
+
+/// ghostty's `fraction.parse` then `@intFromFloat(i * 255)`
+/// (`[[source: ghostty-fraction-d9840f3]]` 23-80, `[[source:
+/// ghostty-color-d9840f3]]` 641-650): an optional sign, decimal digits with
+/// an optional point, at least one digit, in [0, 1] with `-0` allowed.
+fn from_intensity(s: &[u8]) -> Option<Chan> {
+    let (negative, v) = match s {
+        [b'+', rest @ ..] => (false, rest),
+        [b'-', rest @ ..] => (true, rest),
+        _ => (false, s),
+    };
+    let point = v.iter().position(|&b| b == b'.').unwrap_or(v.len());
+    let (int, frac) = (&v[..point], v.get(point + 1..).unwrap_or(&[]));
+    if int.len() + frac.len() == 0 || !int.iter().chain(frac).all(u8::is_ascii_digit) {
+        return None;
+    }
+    let mut whole = 0.0f64;
+    for &d in int {
+        whole = whole * 10.0 + f64::from(d - b'0');
+    }
+    let (mut f, mut scale) = (0u64, 1u64);
+    for &d in frac {
+        if scale < 1_000_000_000_000_000 {
+            f = f * 10 + u64::from(d - b'0');
+            scale *= 10;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let magnitude = whole + f as f64 / scale as f64;
+    let i = if negative { -magnitude } else { magnitude };
+    if !(0.0..=1.0).contains(&i) {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Some(Chan::from_u8((i * 255.0) as u8))
+}
+
+/// A ghostty colour, `RGB.parse`'s branches in its order
+/// (`[[source: ghostty-color-d9840f3]]` 704-790): `#` and 3, 6, 9 or 12
+/// digits; an X11 name, refused; bare 3 or 6 digits; `rgb:` or `rgbi:`.
+fn colour(v: &[u8]) -> Result<Color, SchemeErrorKind> {
+    let v = trim_with(v, b" \t");
+    let rgb = |[r, g, b]: [Option<Chan>; 3]| match (r, g, b) {
+        (Some(r), Some(g), Some(b)) => Ok(Color::Rgb(r, g, b)),
+        _ => Err(SchemeErrorKind::Hex(HexError::NotHex)),
+    };
+    let thirds = |d: &[u8]| {
+        let w = d.len() / 3;
+        [
+            from_hex(&d[..w]),
+            from_hex(&d[w..2 * w]),
+            from_hex(&d[2 * w..]),
+        ]
+    };
+    if let Some(d) = v.strip_prefix(b"#") {
+        return match d.len() {
+            0 => Err(SchemeErrorKind::Hex(HexError::Empty)),
+            3 | 6 | 9 | 12 => rgb(thirds(d)),
+            _ if d.iter().all(u8::is_ascii_hexdigit) => Err(SchemeErrorKind::Hex(HexError::Width)),
+            _ => Err(SchemeErrorKind::Hex(HexError::NotHex)),
+        };
+    }
+    let name = v.first().is_some_and(u8::is_ascii_alphabetic)
+        && v.iter().all(|&b| b.is_ascii_alphanumeric() || b == b' ');
+    if name && !v.iter().all(u8::is_ascii_hexdigit) {
+        return Err(SchemeErrorKind::ColourName);
+    }
+    if matches!(v.len(), 3 | 6) {
+        return rgb(thirds(v));
+    }
+    let rest = match v {
+        _ if v.len() < b"rgb:a/a/a".len() => None,
+        [b'r', b'g', b'b', b'i', b':', rest @ ..] => Some((true, rest)),
+        [b'r', b'g', b'b', b':', rest @ ..] => Some((false, rest)),
+        _ => None,
+    };
+    let Some((intensity, rest)) = rest else {
+        return Err(SchemeErrorKind::Hex(match hex(v) {
+            Err(e) => e,
+            Ok(_) => HexError::NotHex,
+        }));
+    };
+    let channel = if intensity { from_intensity } else { from_hex };
+    let mut parts = rest.splitn(3, |&b| b == b'/');
+    let (Some(r), Some(g), Some(b)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(SchemeErrorKind::Hex(HexError::NotHex));
+    };
+    rgb([channel(r), channel(g), channel(b)])
 }
 
 /// `base00` to `base17` as a slot number; anything else is not a slot.
