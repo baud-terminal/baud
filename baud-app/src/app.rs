@@ -787,7 +787,7 @@ impl App {
         // as every relayout after it is (`Driver::relayout`).
         renderer.set_gutter(gutter(scroller, crate::reveal::widths(Scale(scale))));
         let mut term = term;
-        crate::host::tell_defaults(&mut term, renderer.theme());
+        crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
         let (frame_w, frame_h) = renderer.frame_size();
         let cell = match (&gpu, grid) {
             (Some(gpu), Some((grid, alt))) => match (sets(|| gpu.styles(&term)), gpu.map()) {
@@ -1935,6 +1935,59 @@ fn theme_for(appearance: Appearance, glass: &crate::config::Glass) -> Theme {
     theme
 }
 
+/// Both palettes, built once at launch from the config: an appearance flip
+/// swaps between them and reads nothing (note Y, step 4).
+struct Themes {
+    dark: Theme,
+    light: Theme,
+}
+
+impl Themes {
+    fn of(glass: &crate::config::Glass) -> Themes {
+        Themes {
+            dark: theme_for(Appearance::Dark, glass),
+            light: theme_for(Appearance::Light, glass),
+        }
+    }
+
+    fn get(&self, a: Appearance) -> &Theme {
+        match a {
+            Appearance::Dark => &self.dark,
+            Appearance::Light => &self.light,
+        }
+    }
+}
+
+/// What an appearance callback does to the palette.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PaletteSwitch {
+    /// Nothing: a pinned theme, or the palette already set for this
+    /// appearance.
+    Stay,
+    /// Set the palette for this appearance and drop the application's colour
+    /// overrides with it.
+    To(Appearance),
+}
+
+/// **Only a change of the resolved appearance switches.** AppKit calls
+/// `viewDidChangeEffectiveAppearance` whenever the view's effective appearance
+/// object changes, which includes accessibility variants such as Increase
+/// Contrast where light or dark is the same, and a switch drops every colour
+/// an application set (note Y, decision 5). So a callback that resolves to the
+/// appearance the palette is already set for changes nothing, and a pinned
+/// theme never switches. Jev, logged: this rule over dropping on every
+/// callback, 0.81.
+fn palette_switch(
+    choice: crate::config::ThemeChoice,
+    set_for: Option<Appearance>,
+    now: Appearance,
+) -> PaletteSwitch {
+    match choice {
+        crate::config::ThemeChoice::Auto if set_for != Some(now) => PaletteSwitch::To(now),
+        _ => PaletteSwitch::Stay,
+    }
+}
+
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
@@ -1977,6 +2030,11 @@ struct Driver {
     /// so an appearance change can resolve the pairs without re-reading
     /// the config, and so a theme swap can rebuild the palette.
     glass_cfg: crate::config::Glass,
+    /// Both palettes, built at launch.
+    themes: Themes,
+    /// The appearance the palette was last set for under `auto`: `None`
+    /// before the first, and always under a pinned theme.
+    palette_for: Option<Appearance>,
     /// The window's material, and the window itself, so a light/dark flip
     /// can re-tint the one and re-shadow the other. Both are retains: a
     /// clone of either addresses the one AppKit object.
@@ -4734,6 +4792,8 @@ pub fn run() {
         style: style.clone(),
         theme_choice,
         glass_cfg,
+        themes: Themes::of(&glass_cfg),
+        palette_for: None,
         glass: glass.clone(),
         window: window.clone(),
         titles: crate::title::Shown::new(),
@@ -4754,11 +4814,14 @@ pub fn run() {
     // correct it. The window knows its own appearance already.
     if theme_choice == crate::config::ThemeChoice::Auto {
         let appearance = appearance_of(&window);
-        driver
-            .app
-            .renderer
-            .set_theme(theme_for(appearance, &glass_cfg));
-        crate::host::tell_defaults(&mut driver.app.term, driver.app.renderer.theme());
+        driver.palette_for = Some(appearance);
+        let theme = driver.themes.get(appearance).clone();
+        driver.app.renderer.set_theme(theme);
+        crate::host::tell_defaults(
+            &mut driver.app.term,
+            driver.app.renderer.theme(),
+            baud_core::Overrides::Keep,
+        );
     }
     Responder::resized(&mut driver, view.frame().size, scale);
     let v = driver.view.clone();
@@ -5590,18 +5653,26 @@ impl Driver {
             &self.glass_cfg,
             material_appearance(&self.window),
         );
-        if self.theme_choice != crate::config::ThemeChoice::Auto {
+        let PaletteSwitch::To(appearance) =
+            palette_switch(self.theme_choice, self.palette_for, appearance)
+        else {
             // No frame is owed: the material is AppKit's own drawing and
-            // baud's surface did not change, because a pinned palette
-            // paints the same cells at the same dim. The two lines below
-            // are the repaint the *palette* owes, and this branch has no
-            // palette change to repaint.
+            // baud's surface did not change, because a pinned palette, or
+            // one already set for this appearance, paints the same cells at
+            // the same dim. The lines below are the repaint the *palette*
+            // owes, and this branch has no palette change to repaint.
             return;
-        }
+        };
+        self.palette_for = Some(appearance);
         self.app
             .renderer
-            .set_theme(theme_for(appearance, &self.glass_cfg));
-        crate::host::tell_defaults(&mut self.app.term, self.app.renderer.theme());
+            .set_theme(self.themes.get(appearance).clone());
+        // The one place a palette change drops the application's colours.
+        crate::host::tell_defaults(
+            &mut self.app.term,
+            self.app.renderer.theme(),
+            baud_core::Overrides::Drop,
+        );
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
         self.app.present(&self.view, Show::Event);
@@ -5720,6 +5791,59 @@ fn mouse_mods(m: macos_liquid_glass::drawable::Modifiers) -> MouseMods {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A switch only under `auto` and only when the resolved appearance
+    /// changes: a callback repeating the appearance the palette is set for --
+    /// Increase Contrast toggling, say -- must not drop an application's
+    /// colours.
+    #[test]
+    fn the_palette_switches_only_under_auto_and_only_on_a_change() {
+        use crate::config::ThemeChoice::{Auto, Dark, Light};
+        use Appearance as A;
+        for (choice, set_for, now, want) in [
+            (Auto, None, A::Dark, PaletteSwitch::To(A::Dark)),
+            (Auto, Some(A::Dark), A::Light, PaletteSwitch::To(A::Light)),
+            (Auto, Some(A::Light), A::Dark, PaletteSwitch::To(A::Dark)),
+            (Auto, Some(A::Dark), A::Dark, PaletteSwitch::Stay),
+            (Auto, Some(A::Light), A::Light, PaletteSwitch::Stay),
+            (Dark, None, A::Light, PaletteSwitch::Stay),
+            (Light, Some(A::Dark), A::Light, PaletteSwitch::Stay),
+        ] {
+            assert_eq!(
+                palette_switch(choice, set_for, now),
+                want,
+                "{choice:?} {set_for:?} {now:?}"
+            );
+        }
+    }
+
+    /// **One place drops.** `Overrides::Drop` appears once in the app's code
+    /// outside its tests, in `apply_style`, behind `palette_switch`; and the
+    /// flip takes its theme from the prebuilt pair, building none.
+    #[test]
+    fn only_the_appearance_switch_drops_program_colours() {
+        // Everything before the file's own test module, which sits last --
+        // not before the first `#[cfg(test)]`, which in `app.rs` is a helper
+        // module ahead of most of the code, and cut there the gate read none.
+        let code = |src: &'static str| {
+            src.rsplit_once("#[cfg(test)]\nmod tests {")
+                .map_or(src, |(c, _)| c)
+        };
+        let app = code(include_str!("app.rs"));
+        let host = code(include_str!("host.rs"));
+        let linux = code(include_str!("linux.rs"));
+        let drops = |s: &str| s.matches("Overrides::Drop").count();
+        assert!(app.len() > 100_000, "the gate reads the app's code");
+        assert_eq!((drops(app), drops(host), drops(linux)), (1, 0, 0));
+        let at = app.find("fn apply_style(").expect("apply_style");
+        let body = &app[at..at + app[at..].find("\n    }\n").expect("its end")];
+        assert!(
+            body.contains("Overrides::Drop"),
+            "the drop is in apply_style"
+        );
+        assert!(body.contains("palette_switch("), "behind the switch rule");
+        assert!(!body.contains("theme_for("), "the flip builds no theme");
+    }
 
     /// **An effect on the CPU path runs as the quad**, which is what that
     /// path draws of it, so the tick owes no frames for an effect nothing

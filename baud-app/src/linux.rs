@@ -143,7 +143,7 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
-    crate::host::tell_defaults(&mut term, renderer.theme());
+    crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
     // The cell height for the Sixel cursor advance, before the first feed;
     // re-set on every `configure`.
     term.set_cell_size(

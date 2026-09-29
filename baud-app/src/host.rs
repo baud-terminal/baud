@@ -145,14 +145,18 @@ enum Wanted {
 /// or a dark background. One function for both drivers, called wherever a
 /// theme is set, so a renderer and its core cannot disagree about the
 /// defaults: the renderer draws the theme's colour and the core reports it.
-pub fn tell_defaults(term: &mut baud_core::Term<'_>, theme: &baud_render::Theme) {
+pub fn tell_defaults(
+    term: &mut baud_core::Term<'_>,
+    theme: &baud_render::Theme,
+    overrides: baud_core::Overrides,
+) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
     // One call: the defaults and the table, so an `OSC 4 ; c ; ?` for an entry
     // nothing overrode is answered with the colour drawn, and a `?2031`
     // subscriber gets at most one `CSI ? 997 ; 1|2 n` for the whole change.
     // Every caller that changes the theme comes through here, so the core's
-    // copy cannot fall out of step. The application's overrides are kept:
-    // dropping them on an OS flip is the app switch's step (note Y, step 4).
+    // copy cannot fall out of step. `Drop` is an OS light/dark flip under
+    // `auto`, and only that (`palette_switch` in `app.rs`).
     let palette = theme.palette.map(rgb);
     term.set_theme(
         &baud_core::ThemeColors {
@@ -160,7 +164,7 @@ pub fn tell_defaults(term: &mut baud_core::Term<'_>, theme: &baud_render::Theme)
             bg: rgb(theme.bg),
             palette: &palette,
         },
-        baud_core::Overrides::Keep,
+        overrides,
     );
 }
 
@@ -241,7 +245,7 @@ mod tests {
         for theme in [Theme::dark(), Theme::light()] {
             let mut s = Owned::new(&ws);
             let mut t = Term::new(s.storage(), &ws);
-            super::tell_defaults(&mut t, &theme);
+            super::tell_defaults(&mut t, &theme, baud_core::Overrides::Keep);
             for i in 0..=255u8 {
                 feed(&mut t, format!("\x1b]4;{i};?\x07").as_bytes());
                 let c = theme.palette[usize::from(i)];
@@ -256,6 +260,41 @@ mod tests {
                 None,
                 "the table became an override"
             );
+        }
+    }
+
+    /// **An OS flip under `auto` drops the application's colours and reports
+    /// once** -- note Y's decision 5, through the call the app makes. A
+    /// program subscribed with `?2031` has set palette entry 1 and the
+    /// background; the flip to the light theme clears both and sends one
+    /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
+    /// control that the drop is the flag's.
+    #[test]
+    fn a_flip_drops_the_applications_colours_and_reports_once() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (overrides, dropped) in [
+            (baud_core::Overrides::Drop, true),
+            (baud_core::Overrides::Keep, false),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &Theme::dark(), baud_core::Overrides::Keep);
+            feed(
+                &mut t,
+                b"\x1b[?2031h\x1b]4;1;rgb:12/34/56\x07\x1b]11;rgb:20/20/20\x07",
+            );
+            assert_eq!(t.reply(), b"", "an application's own colours send nothing");
+            super::tell_defaults(&mut t, &Theme::light(), overrides);
+            assert_eq!(
+                t.palette(Chan::from_u8(1)).is_none(),
+                dropped,
+                "{overrides:?}"
+            );
+            let report: &[u8] = if dropped { b"\x1b[?997;2n" } else { b"" };
+            assert_eq!(t.reply(), report, "{overrides:?}");
         }
     }
 }

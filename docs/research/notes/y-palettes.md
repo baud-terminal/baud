@@ -1199,7 +1199,13 @@ still runs, to show it.
      answering 1 at power-on; a third value (`997;0n`).
    - Measure: `ingest2` sweep as step 1.
 4. **The app switch with the reset** (baud-app, macOS; Linux's pinned light at
-   `dim_light` is its own commit).
+   `dim_light` is its own commit). **Built**, with one rule the spec did not
+   state: a switch only when the resolved appearance changes
+   (`palette_switch`), because AppKit's `viewDidChangeEffectiveAppearance`
+   also fires for an accessibility variant of the same appearance, and a
+   spurious drop would erase an application's colours. The "drop after the
+   push" perturbation is not expressible: the app makes one core call, and
+   the core compares the class across it (step 3's crossing test).
    - Both themes built at Boot; the auto branch selects one and makes the one
      core call; the pinned branch's early return unchanged.
    - Unit (the pure helper): a flip under auto with a changed palette drops and
