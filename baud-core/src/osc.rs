@@ -271,13 +271,22 @@ impl Paint<'_, '_> {
     /// `[[source: ctlseqs]]`: xterm "replies with a control sequence of the
     /// same form which can be used to set the corresponding color".
     ///
-    /// **An entry this core never set gets no reply at all**, because there is
-    /// no built-in palette to report. The mapping from index to pixels belongs
-    /// to the renderer, and a second copy here would be one to keep in step --
-    /// so answering would name a colour the renderer does not use, which is
-    /// the wrong-shaped answer `docs/vt-coverage.md` forbids.
+    /// **Every entry is answered**, as xterm's `ReportAnsiColorRequest` does:
+    /// the application's override if it set one, else the embedder's table
+    /// ([`crate::Term::set_default_palette`]), else nothing. The last is the
+    /// truthful answer of a core no embedder told -- naming a colour the
+    /// renderer does not use would be the wrong-shaped answer
+    /// `docs/vt-coverage.md` forbids. The table is a second copy of the
+    /// renderer's, kept in step by the embedder's one call beside
+    /// [`crate::Term::set_default_colors`].
     fn report_color(&mut self, index: Chan, term: StringTerm) {
-        let Some((r, g, b)) = self.strs.palette[index.index()].as_rgb() else {
+        let own = self.strs.palette[index.index()];
+        let word = if own.is_default() {
+            self.strs.palette[crate::storage::EMBEDDER_PALETTE + index.index()]
+        } else {
+            own
+        };
+        let Some((r, g, b)) = word.as_rgb() else {
             return;
         };
         self.want_reply(Report::Color {

@@ -148,6 +148,10 @@ enum Wanted {
 pub fn tell_defaults(term: &mut baud_core::Term<'_>, theme: &baud_render::Theme) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
     term.set_default_colors(rgb(theme.fg), rgb(theme.bg));
+    // The table too, so an `OSC 4 ; c ; ?` for an entry nothing overrode is
+    // answered with the colour drawn. Every caller that changes the theme
+    // comes through here, so the core's copy cannot fall out of step.
+    term.set_default_palette(&theme.palette.map(rgb));
 }
 
 pub fn startup_begin() {
@@ -201,3 +205,47 @@ pub static FIRST_TICK: AtomicBool = AtomicBool::new(false);
 #[cfg(target_os = "macos")]
 pub static FIRST_TICK_DONE: AtomicBool = AtomicBool::new(false);
 pub static FIRST_PRESENT: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+mod tests {
+    use baud_core::{Chan, Owned, Term};
+    use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_render::Theme;
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// **The core's copy of the palette is the renderer's.** After
+    /// `tell_defaults`, an `OSC 4 ; c ; ?` for every entry answers exactly the
+    /// colour the theme draws -- the invariant `set_default_colors` already
+    /// holds for the foreground and background, over all 256 entries and both
+    /// themes, so a table pushed from the wrong place or not at all fails here.
+    #[test]
+    fn every_osc_4_answer_is_the_colour_the_theme_draws() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for theme in [Theme::dark(), Theme::light()] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::tell_defaults(&mut t, &theme);
+            for i in 0..=255u8 {
+                feed(&mut t, format!("\x1b]4;{i};?\x07").as_bytes());
+                let c = theme.palette[usize::from(i)];
+                let (r, g, b) = (c.r().get(), c.g().get(), c.b().get());
+                let want =
+                    format!("\x1b]4;{i};rgb:{r:02x}{r:02x}/{g:02x}{g:02x}/{b:02x}{b:02x}\x07");
+                assert_eq!(t.reply(), want.as_bytes(), "entry {i}");
+                t.clear_reply();
+            }
+            assert_eq!(
+                t.palette(Chan::from_u8(1)),
+                None,
+                "the table became an override"
+            );
+        }
+    }
+}

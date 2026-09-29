@@ -300,7 +300,7 @@ fn main() {
     let mut pending = vec![0u8; OSC_MAX];
     let mut title = vec![0u8; OSC_MAX];
     let mut icon = vec![0u8; OSC_MAX];
-    let mut palette = vec![ColorWord::DEFAULT; 256];
+    let mut palette = vec![ColorWord::DEFAULT; baud_core::PALETTE_LEN];
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
     // No images, except for the payload that places one: an empty store

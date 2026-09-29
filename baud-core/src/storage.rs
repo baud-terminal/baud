@@ -256,9 +256,14 @@ pub struct StrBuf<'b> {
     pub(crate) title: &'b mut [u8],
     /// `OSC 1`.
     pub(crate) icon: &'b mut [u8],
-    /// Palette overrides from `OSC 4`. `ColorWord::DEFAULT` means "not
-    /// overridden", so a zeroed buffer starts on the renderer's own palette
-    /// with no separate validity array to keep in step.
+    /// Palette overrides from `OSC 4` in the first 256 entries, and the
+    /// embedder's own table in the second 256 ([`PALETTE_LEN`]).
+    /// `ColorWord::DEFAULT` means "not overridden" in the first half and "not
+    /// told" in the second, so a zeroed buffer starts on the renderer's own
+    /// palette with no separate validity array to keep in step. The second
+    /// half is a copy of the renderer's table, kept only to answer a query:
+    /// nothing resolves a rendition through it, so writing it moves no colour
+    /// epoch.
     pub(crate) palette: &'b mut [ColorWord],
     /// Hyperlink URIs, `NLINK` of them flat at a stride of `LINK_MAX`.
     ///
@@ -398,7 +403,7 @@ impl Owned {
             pending: vec![0u8; OSC_MAX],
             title: vec![0u8; OSC_MAX],
             icon: vec![0u8; OSC_MAX],
-            palette: vec![ColorWord::DEFAULT; 256],
+            palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
             link_len: vec![ByteLen::ZERO; NLINK],
             // The slot and placement tables are tiny and always allocated; the
@@ -606,6 +611,15 @@ pub const CELLS3: usize = CELLS3_PREFIXES * 256;
 /// bounded table here carries. `baud-core2` uses the same 512.
 pub const OSC_MAX: usize = 512;
 
+/// Entries in the palette slice: the first 256 are the application's `OSC 4`
+/// overrides, the second 256 the embedder's own table
+/// ([`crate::Term::set_default_palette`]), which an `OSC 4 ; c ; ?` for an
+/// entry nothing overrode is answered from.
+pub const PALETTE_LEN: usize = 512;
+
+/// Where the embedder's half of the palette slice starts.
+pub(crate) const EMBEDDER_PALETTE: usize = 256;
+
 /// Distinct `OSC 8` hyperlinks live at once.
 ///
 /// **128 because the cell says so.** The link index rides in `CellFlags`,
@@ -774,7 +788,10 @@ impl<'b> Storage<'b> {
         );
         assert!(strs.title.len() >= OSC_MAX, "title is shorter than OSC_MAX");
         assert!(strs.icon.len() >= OSC_MAX, "icon is shorter than OSC_MAX");
-        assert!(strs.palette.len() >= 256, "palette is not 256 entries");
+        assert!(
+            strs.palette.len() >= PALETTE_LEN,
+            "palette is not PALETTE_LEN entries"
+        );
         // `RowBlock` computes the span so the two operands cannot be the
         // wrong way round -- a transposition here is a plausible number and a
         // silently wrong slice.

@@ -299,9 +299,9 @@ pub struct Cold {
     /// reverse-video until an application sets one. `dynamic` is an
     /// application's override from `OSC 10`/`11`/`12`, `DEFAULT` meaning none.
     /// A query answers the override if there is one, else the default if the
-    /// embedder supplied one, else nothing -- the same refusal `OSC 4` makes,
-    /// because this core holds no palette of its own and naming a colour the
-    /// renderer does not use is a wrong-shaped answer. `OSC 110`/`111`/`112`
+    /// embedder supplied one, else nothing -- the same rule `OSC 4` answers by,
+    /// whose embedder table sits in `StrBuf`'s palette slice; naming a colour
+    /// the renderer does not use is a wrong-shaped answer. `OSC 110`/`111`/`112`
     /// clear the override and leave the default, which is what "reset" means.
     /// Here rather than in `StrBuf` so no caller-provided buffer grows a field.
     pub(crate) defaults: [ColorWord; 3],
@@ -2271,11 +2271,10 @@ impl<'b> Term<'b> {
 
     /// A palette override from `OSC 4`, if the application set one.
     ///
-    /// `None` means "use your own colour": this core deliberately holds no
-    /// default palette, because the mapping from index to pixels belongs to
-    /// the renderer and a second copy here would be one to keep in step. It is
-    /// also why a query for an entry nothing overrode gets no reply -- naming
-    /// a colour the renderer does not use is a wrong-shaped answer.
+    /// `None` means "use your own colour": the renderer draws from its own
+    /// table, and the copy an embedder hands over with
+    /// [`Term::set_default_palette`] exists only to answer a query, so it is
+    /// never reported here.
     pub fn palette(&self, index: Chan) -> Option<(u8, u8, u8)> {
         self.store.strs.palette[index.index()].as_rgb()
     }
@@ -2304,6 +2303,22 @@ impl<'b> Term<'b> {
         // answers nothing until an application sets one.
         self.cold.defaults[DynamicColor::Foreground.index()] = word(fg);
         self.cold.defaults[DynamicColor::Background.index()] = word(bg);
+    }
+
+    /// Tell the core the embedder's 256-entry palette, so an `OSC 4 ; c ; ?`
+    /// for an entry no application overrode is answered with the colour the
+    /// renderer draws, as xterm answers every entry. Call it beside
+    /// [`Term::set_default_colors`], and again when the theme changes.
+    ///
+    /// **It moves no colour epoch**: nothing resolves a rendition through
+    /// this copy -- the renderer reads its own table and asks
+    /// [`Term::palette`] only for overrides -- so a renderer that re-resolved
+    /// on it would repaint for nothing.
+    pub fn set_default_palette(&mut self, table: &[(u8, u8, u8); 256]) {
+        let own = &mut self.store.strs.palette[crate::storage::EMBEDDER_PALETTE..];
+        for (slot, &(r, g, b)) in own.iter_mut().zip(table) {
+            *slot = ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+        }
     }
 
     /// The URI a cell's link index resolves to, if any.
