@@ -63,6 +63,7 @@ mod source;
 mod store;
 mod style;
 pub mod terminfo;
+pub mod themefile;
 mod time;
 pub mod unchecked;
 mod vt;

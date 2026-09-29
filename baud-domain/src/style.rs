@@ -225,7 +225,7 @@ impl Chan {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Color {
     Default,
     Indexed(Chan),
