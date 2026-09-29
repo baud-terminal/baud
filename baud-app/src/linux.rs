@@ -133,6 +133,7 @@ pub fn run() {
     theme.bg_alpha = Chan::from_unit(cfg.glass.dim_dark);
     theme.app_bg = cfg.glass.app_backgrounds;
     theme.picture_bg = cfg.glass.pictures;
+    theme.floor = cfg.floor;
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let renderer = Renderer::new(
         Stack::new(faces).expect("faces"),

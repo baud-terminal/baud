@@ -62,6 +62,17 @@ fonts = [
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
+# The contrast floor: text whose contrast with the colour it is drawn on is
+# below this ratio is darkened or lightened, keeping its hue, until it reads
+# at 4.5:1 -- or at this ratio, when it is higher. Only pairs a program did not
+# choose outright: the same colour on both sides, or a page the program set as
+# a 256-colour or truecolour value with its own text on it, is left alone, so
+# pictures drawn in text are untouched. What a program asked for is unchanged
+# in what the terminal reports; only the pixel moves. 1.2, the default, lifts
+# only text that is nearly invisible; "off" turns it off.
+[palette]
+floor = 1.2
+
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns
 # to when an application resets it; an application can still ask for another.

@@ -536,6 +536,8 @@ struct Boot {
     theme: crate::config::ThemeChoice,
     /// The material and its dimming, from the config's `[glass]`.
     glass: crate::config::Glass,
+    /// The contrast floor, from `[palette] floor`.
+    floor: baud_render::Floor,
     /// What `[cursor] trail` said: a trail by name, or the default, which
     /// Reduce Motion turns off.
     cursor_trail: crate::config::TrailPick,
@@ -652,6 +654,7 @@ impl Boot {
         // the palette again from `window.is_dark()` before the first one.
         theme.app_bg = cfg.glass.app_backgrounds;
         theme.picture_bg = cfg.glass.pictures;
+        theme.floor = cfg.floor;
         theme.bg_alpha = dim(
             &cfg.glass,
             match cfg.theme {
@@ -687,6 +690,7 @@ impl Boot {
             padding: f64::from(cfg.padding),
             theme: cfg.theme,
             glass: cfg.glass,
+            floor: cfg.floor,
             cursor_trail: cfg.cursor_trail,
             cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink.power_on()),
             blink_choice: cfg.cursor_blink,
@@ -720,6 +724,7 @@ impl App {
             // palette; `run` reads them off `boot` for the driver.
             theme: _,
             glass: _,
+            floor: _,
             cursor_trail,
             cursor,
             blink_choice,
@@ -1924,7 +1929,11 @@ fn apply_glass(
 }
 
 /// The palette an appearance resolves to, at the configured opacity.
-fn theme_for(appearance: Appearance, glass: &crate::config::Glass) -> Theme {
+fn theme_for(
+    appearance: Appearance,
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+) -> Theme {
     let mut theme = match appearance {
         Appearance::Dark => Theme::dark(),
         Appearance::Light => Theme::light(),
@@ -1932,6 +1941,7 @@ fn theme_for(appearance: Appearance, glass: &crate::config::Glass) -> Theme {
     theme.bg_alpha = dim(glass, appearance);
     theme.app_bg = glass.app_backgrounds;
     theme.picture_bg = glass.pictures;
+    theme.floor = floor;
     theme
 }
 
@@ -1943,10 +1953,10 @@ struct Themes {
 }
 
 impl Themes {
-    fn of(glass: &crate::config::Glass) -> Themes {
+    fn of(glass: &crate::config::Glass, floor: baud_render::Floor) -> Themes {
         Themes {
-            dark: theme_for(Appearance::Dark, glass),
-            light: theme_for(Appearance::Light, glass),
+            dark: theme_for(Appearance::Dark, glass, floor),
+            light: theme_for(Appearance::Light, glass, floor),
         }
     }
 
@@ -1956,6 +1966,16 @@ impl Themes {
             Appearance::Light => &self.light,
         }
     }
+}
+
+/// The floors of the two themes `Themes::of` builds, for the config's test.
+#[cfg(test)]
+pub(crate) fn themes_for_test(
+    glass: &crate::config::Glass,
+    floor: baud_render::Floor,
+) -> (baud_render::Floor, baud_render::Floor) {
+    let t = Themes::of(glass, floor);
+    (t.dark.floor, t.light.floor)
 }
 
 /// What an appearance callback does to the palette.
@@ -4545,6 +4565,7 @@ pub fn run() {
     let padding = boot.padding;
     let theme_choice = boot.theme;
     let glass_cfg = boot.glass;
+    let floor = boot.floor;
     // `BAUD_GRID=COLSxROWS` runs at a grid rather than at the window's
     // default, so a benchmark runs every terminal at one geometry. The pty
     // is *spawned* at that grid: sized afterwards, the child sometimes read
@@ -4792,7 +4813,7 @@ pub fn run() {
         style: style.clone(),
         theme_choice,
         glass_cfg,
-        themes: Themes::of(&glass_cfg),
+        themes: Themes::of(&glass_cfg, floor),
         palette_for: None,
         glass: glass.clone(),
         window: window.clone(),

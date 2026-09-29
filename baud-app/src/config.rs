@@ -54,6 +54,8 @@ pub struct Config {
     /// driver re-reads it on every style change; the Linux driver has no
     /// signal wired yet and resolves it to dark.
     pub theme: ThemeChoice,
+    /// The contrast floor, from `[palette] floor`: a trigger, or off.
+    pub floor: baud_render::Floor,
     /// `[cursor] trail`: which trail a cursor move leaves -- see
     /// [`CursorTrail`] -- or the default, which is not the same thing:
     /// [`TrailPick`]. **On by default**, the owner's call on 2026-09-25,
@@ -403,6 +405,7 @@ impl Config {
             padding: 8.0,
             colorspace: Space::Srgb,
             theme: ThemeChoice::Auto,
+            floor: baud_render::Floor::DEFAULT,
             cursor_trail: TrailPick::Default,
             cursor_shape: CursorShape::Block,
             cursor_blink: BlinkChoice::Auto,
@@ -490,6 +493,7 @@ impl Config {
                         }
                     };
                 }
+                ("palette", "floor") => self.floor = floor(&value, &mut said),
                 ("cursor", "trail") => {
                     // `true` is the default's word and not a name: it has
                     // meant "the default" since the key was a switch.
@@ -763,6 +767,31 @@ fn pictures(value: &str, said: &mut Vec<String>) -> baud_render::PictureBg {
 /// ignored rather than fatal in the example: a mistyped alpha should not
 /// stop the window appearing. It says what it did, because a value
 /// silently changed is the same defect as a key silently ignored.
+/// `[palette] floor`: the contrast floor's trigger, 1.0 to 21.0, or `"off"`.
+/// Its own parser, because `unit` clamps to 0-1 and would turn 1.2 into 1.0,
+/// which is off. **The target is the larger of 4.5 and the trigger**, so a
+/// reader asking for 7 (WCAG AAA) gets text lifted to 7, never to a ratio
+/// below the one they set; at or below 4.5 it is the owner's 4.5 (note Y,
+/// decision 6). A value that does not parse keeps the default and says so.
+fn floor(value: &str, said: &mut Vec<String>) -> baud_render::Floor {
+    let raw = value.trim().trim_matches('"');
+    if raw == "off" {
+        return baud_render::Floor::Off;
+    }
+    match raw.parse::<f64>() {
+        Ok(t) if (1.0..=21.0).contains(&t) => baud_render::Floor::Lift {
+            trigger: t,
+            target: t.max(4.5),
+        },
+        _ => {
+            said.push(format!(
+                "config: palette floor {raw:?} is not \"off\" or a ratio from 1 to 21; using 1.2"
+            ));
+            baud_render::Floor::DEFAULT
+        }
+    }
+}
+
 fn unit(value: &str, name: &str, said: &mut Vec<String>) -> f32 {
     let raw = value.trim();
     let Ok(v) = raw.parse::<f32>() else {
@@ -1554,6 +1583,65 @@ shadow     = "never"
         assert_eq!(get("[glass]\npictures = \"opaque\"\n"), PictureBg::Opaque);
         assert_eq!(get("[glass]\npictures = \"solid\"\n"), PictureBg::Opaque);
         assert_eq!(get("pictures = \"dim\"\n"), PictureBg::Opaque);
+    }
+
+    /// `[palette] floor`: a trigger from 1 to 21 or "off"; the target is the
+    /// larger of 4.5 and the trigger; anything else keeps the default and
+    /// says so; and the key belongs to `[palette]`, not the top level.
+    #[test]
+    fn the_floor_is_a_trigger_or_off() {
+        use baud_render::Floor;
+        let get = |t: &str| {
+            let mut c = Config::defaults();
+            let said = c.apply(t);
+            (c.floor, said.len())
+        };
+        assert_eq!(get(""), (Floor::DEFAULT, 0));
+        assert_eq!(get("[palette]\nfloor = \"off\"\n"), (Floor::Off, 0));
+        assert_eq!(get("[palette]\nfloor = off\n"), (Floor::Off, 0));
+        assert_eq!(
+            get("[palette]\nfloor = 3\n"),
+            (
+                Floor::Lift {
+                    trigger: 3.0,
+                    target: 4.5
+                },
+                0
+            )
+        );
+        assert_eq!(
+            get("[palette]\nfloor = 7\n"),
+            (
+                Floor::Lift {
+                    trigger: 7.0,
+                    target: 7.0
+                },
+                0
+            ),
+            "a trigger above 4.5 lifts to itself"
+        );
+        for bad in ["0.5", "30", "\"thick\""] {
+            assert_eq!(
+                get(&format!("[palette]\nfloor = {bad}\n")),
+                (Floor::DEFAULT, 1),
+                "{bad}"
+            );
+        }
+        let (f, said) = get("floor = \"off\"\n");
+        assert_eq!(f, Floor::DEFAULT, "a top-level floor is not the palette's");
+        assert_eq!(said, 1, "and it is said");
+    }
+
+    /// Every theme the macOS app builds carries the floor it was given. The
+    /// Linux driver sets it on its one theme at launch, by reading.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn every_built_theme_carries_the_configured_floor() {
+        let glass = Glass::defaults();
+        for floor in [baud_render::Floor::Off, baud_render::Floor::DEFAULT] {
+            let pair = crate::app::themes_for_test(&glass, floor);
+            assert_eq!(pair, (floor, floor));
+        }
     }
 
     /// A mistyped alpha is clamped and said, not fatal and not silent --

@@ -1306,7 +1306,12 @@ still runs, to show it.
      then a `?5` flip) with and without the floor; a steady frame costs nothing
      by construction; the `.metallib` unchanged.
 7. **Readers, the scheme type, and `[palette]`** (baud-domain, baud-render,
-   baud-app). One commit per format.
+   baud-app). One commit per format. **`[palette] floor` is built early**,
+   ahead of the readers, so the floor had its off switch the day it shipped:
+   a trigger from 1 to 21 or "off", the target the larger of 4.5 and the
+   trigger (Jev leaned to a fixed 4.5 at low confidence; the tiebreak written
+   before asking -- never lift text to below the trigger the reader set --
+   decided).
    - The hex reader; base16/base24 YAML; ghostty files. Fixtures: a light and a
      legacy-flat base16, a base24, a hand-made ghostty file with a `#` inside a
      value; each refused form is one complaint and one test.
