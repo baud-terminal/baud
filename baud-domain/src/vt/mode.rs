@@ -201,6 +201,13 @@ pub enum ModeBit {
     ///
     /// [`Zone`]: ../../baud_core/struct.Term.html
     InbandResize,
+    /// `?2031` -- colour palette update notifications,
+    /// `[[source: contour-palette-notifications]]`. While set, a change the
+    /// *embedder* makes to the colours that moves their dark/light class sends
+    /// `CSI ? 997 ; 1 n` or `; 2 n` unsolicited. Nothing is sent on setting it,
+    /// and an application's own colour escapes send nothing: they change the
+    /// next `CSI ? 996 n` answer only. Acted on by `Term::set_theme`.
+    ColorPaletteUpdates,
 }
 
 impl ModeBit {
@@ -305,6 +312,8 @@ pub enum PrivateMode {
     AltScreen,          // ?1049
     SynchronizedOutput, // ?2026
     InbandResize,       // ?2048
+    /// `?2031` colour palette update notifications.
+    ColorPaletteUpdates,
     /// DECLRMM, `?69`. Left/right margin mode.
     LeftRightMargin,
     /// DECANM, `?2`. **Reset** enters VT52 mode; set returns to ANSI.
@@ -387,6 +396,7 @@ impl PrivateMode {
             2004 => PrivateMode::BracketedPaste,
             2026 => PrivateMode::SynchronizedOutput,
             2048 => PrivateMode::InbandResize,
+            2031 => PrivateMode::ColorPaletteUpdates,
             n => PrivateMode::Other(Param(n)),
         }
     }

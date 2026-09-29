@@ -8,6 +8,7 @@ mod mouse;
 mod osc;
 mod param;
 mod report;
+mod scheme;
 mod sgr;
 mod vt52;
 
@@ -21,5 +22,6 @@ pub use mouse::*;
 pub use osc::*;
 pub use param::*;
 pub use report::*;
+pub use scheme::*;
 pub use sgr::*;
 pub use vt52::*;

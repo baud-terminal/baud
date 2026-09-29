@@ -147,11 +147,21 @@ enum Wanted {
 /// defaults: the renderer draws the theme's colour and the core reports it.
 pub fn tell_defaults(term: &mut baud_core::Term<'_>, theme: &baud_render::Theme) {
     let rgb = |c: baud_render::Argb| (c.r().get(), c.g().get(), c.b().get());
-    term.set_default_colors(rgb(theme.fg), rgb(theme.bg));
-    // The table too, so an `OSC 4 ; c ; ?` for an entry nothing overrode is
-    // answered with the colour drawn. Every caller that changes the theme
-    // comes through here, so the core's copy cannot fall out of step.
-    term.set_default_palette(&theme.palette.map(rgb));
+    // One call: the defaults and the table, so an `OSC 4 ; c ; ?` for an entry
+    // nothing overrode is answered with the colour drawn, and a `?2031`
+    // subscriber gets at most one `CSI ? 997 ; 1|2 n` for the whole change.
+    // Every caller that changes the theme comes through here, so the core's
+    // copy cannot fall out of step. The application's overrides are kept:
+    // dropping them on an OS flip is the app switch's step (note Y, step 4).
+    let palette = theme.palette.map(rgb);
+    term.set_theme(
+        &baud_core::ThemeColors {
+            fg: rgb(theme.fg),
+            bg: rgb(theme.bg),
+            palette: &palette,
+        },
+        baud_core::Overrides::Keep,
+    );
 }
 
 pub fn startup_begin() {

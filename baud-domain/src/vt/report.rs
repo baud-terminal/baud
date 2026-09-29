@@ -54,6 +54,12 @@ pub enum Report {
     /// DSR operating status, `CSI 0 n`. `[[source: ctlseqs]]`: "Status Report.
     /// Result ("OK") is CSI 0 n".
     OperatingStatus,
+    /// `CSI ? 997 ; 1 n` (dark) or `CSI ? 997 ; 2 n` (light): the answer to
+    /// `CSI ? 996 n`, and the unsolicited `?2031` notification.
+    /// `[[source: contour-palette-notifications]]` gives exactly these two and
+    /// nothing else; tmux rejected a `997 ; 0 n`, and neovim needs exactly two
+    /// parameters.
+    ColorScheme(ColorScheme),
     /// Primary DA, `CSI ? Ps c`. The [`SixelClaim`] flag adds attribute `4` to the
     /// reply when the embedder has provisioned image memory, so an application
     /// learns baud will draw a Sixel and uses it rather than a text fallback.
@@ -373,6 +379,13 @@ impl Report {
             }
             Report::OperatingStatus => {
                 e.push_num(0);
+                e.push(b'n');
+            }
+            Report::ColorScheme(s) => {
+                e.push(b'?');
+                e.push_num(997);
+                e.push(b';');
+                e.push_num(s.code());
                 e.push(b'n');
             }
             Report::Focus(f) => e.push(match f {

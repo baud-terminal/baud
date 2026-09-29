@@ -1169,7 +1169,13 @@ still runs, to show it.
      name OSC 4; `ops.rs` comments cite [[source: xterm-misc]] 3051-3085 and
      [[source: xterm-reset]] 14402-14407.
 3. **Mode 2031, DSR 996, 997, and the one embedder call** (baud-domain,
-   baud-core).
+   baud-core). **Built**, in the commit after step 2's: `Term::set_theme`
+   with `ThemeColors` and `Overrides`, `Cold::shown` shared with the `OSC 11`
+   query, the class compared across the whole call; the tmux capture is
+   `tests/scheme/tmux-start.raw`. The perturbation "two reports from one call"
+   could not fire until a test crossed the class inside one call
+   (`a_class_crossed_inside_one_call_is_not_reported`). What the step asked
+   for:
    - Unit: DECRQM ?2031 answers 2 then 1; the 996 reply bytes exact for dark
      and light; 996 silent with no defaults; no bytes on `2031 h`; an embedder
      flip light to dark queues exactly one `997;1n`, and an identical second

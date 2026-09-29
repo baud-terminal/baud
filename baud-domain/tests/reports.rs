@@ -253,6 +253,11 @@ fn report_encodings_fit() {
         ),
         ("dsr", Report::OperatingStatus, b'n'),
         (
+            "colour scheme",
+            Report::ColorScheme(ColorScheme::Light),
+            b'n',
+        ),
+        (
             "da",
             Report::PrimaryDeviceAttributes(DeviceAttribute::Vt102, SixelClaim::No),
             b'c',
@@ -346,6 +351,7 @@ fn report_encodings_fit() {
             Report::Focus(_)
             | Report::CursorPosition { .. }
             | Report::OperatingStatus
+            | Report::ColorScheme(_)
             | Report::PrimaryDeviceAttributes(..)
             | Report::Vt52Identity
             | Report::KittyFlags(_)

@@ -17,7 +17,8 @@
 //! before it was believed.
 
 use crate::paint::Paint;
-use crate::storage::{LINK_MAX, NLINK, OSC_MAX};
+use crate::storage::{LINK_MAX, NLINK, OSC_MAX, StyleLog};
+use crate::term::Cold;
 use baud_domain::*;
 
 impl Paint<'_, '_> {
@@ -115,9 +116,7 @@ impl Paint<'_, '_> {
     /// neither xterm path resets them. Through [`Paint::set_palette`], so the
     /// colour epoch moves only if some entry was overridden.
     pub(crate) fn reset_palette(&mut self) {
-        for v in 0..=u8::MAX {
-            self.set_palette(Chan::from_u8(v), ColorWord::DEFAULT);
-        }
+        clear_palette(self.strs.palette, self.style_log);
     }
 
     /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
@@ -310,13 +309,7 @@ impl Paint<'_, '_> {
     /// set one, else the embedder's default if it supplied one, else nothing
     /// -- the `OSC 4` refusal, for the same reason.
     fn report_dynamic(&mut self, which: DynamicColor, term: StringTerm) {
-        let word = self.cold.dynamic[which.index()];
-        let word = if word.is_default() {
-            self.cold.defaults[which.index()]
-        } else {
-            word
-        };
-        let Some((r, g, b)) = word.as_rgb() else {
+        let Some((r, g, b)) = self.cold.shown(which).as_rgb() else {
             return;
         };
         self.want_reply(Report::DynamicColor {
@@ -326,6 +319,44 @@ impl Paint<'_, '_> {
             b,
             term,
         });
+    }
+}
+
+/// Every `OSC 4` override cleared -- the first [`EMBEDDER_PALETTE`] entries
+/// of the palette slice -- with the colour epoch moved once if any entry
+/// changed. The one spelling of the clear, for `OSC 104`, both resets and an
+/// embedder's [`Overrides::Drop`](crate::Overrides::Drop).
+///
+/// [`EMBEDDER_PALETTE`]: crate::storage::EMBEDDER_PALETTE
+pub(crate) fn clear_palette(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
+    let mut moved = false;
+    for w in &mut palette[..crate::storage::EMBEDDER_PALETTE] {
+        if !w.is_default() {
+            *w = ColorWord::DEFAULT;
+            moved = true;
+        }
+    }
+    if moved {
+        log.colors_moved();
+    }
+}
+
+/// Every `OSC 10`/`11`/`12` override cleared, with the colour epoch moved
+/// when the foreground or background changed -- the cursor colour moves none,
+/// as in `set_dynamic`.
+pub(crate) fn clear_dynamic(cold: &mut Cold, log: &mut StyleLog<'_>) {
+    for which in [
+        DynamicColor::Foreground,
+        DynamicColor::Background,
+        DynamicColor::Cursor,
+    ] {
+        let w = &mut cold.dynamic[which.index()];
+        if !w.is_default() {
+            *w = ColorWord::DEFAULT;
+            if which != DynamicColor::Cursor {
+                log.colors_moved();
+            }
+        }
     }
 }
 

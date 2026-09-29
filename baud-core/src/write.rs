@@ -1651,6 +1651,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
         DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
         DomCsi::KittyQuery => p.want_reply(Report::KittyFlags(p.cold.kitty.current())),
+        // The class of what `OSC 10`/`11 ; ?` would answer, and silence where
+        // either would be silent -- the `OSC 4` refusal, for the same reason:
+        // a terminal told no colours has nothing true to say.
+        DomCsi::ColorSchemeQuery => {
+            if let Some(s) = p.cold.color_scheme() {
+                p.want_reply(Report::ColorScheme(s));
+            }
+        }
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]

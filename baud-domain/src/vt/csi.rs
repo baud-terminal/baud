@@ -547,6 +547,11 @@ pub enum Csi {
     /// other value is a report baud does not produce, and answering it with the
     /// wrong shape is worse than not answering at all.
     DeviceStatus(Option<StatusKind>),
+    /// `CSI ? 996 n`: the colour preference query of
+    /// `[[source: contour-palette-notifications]]`, answered `CSI ? 997 ; 1 n`
+    /// for dark and `; 2 n` for light. The only private `n` baud answers --
+    /// `CSI ? 6 n`, DECXCPR, and the rest stay [`Csi::Unsupported`].
+    ColorSchemeQuery,
     /// DECSTR, `CSI ! p`. Soft reset: modes, region, cursor and attributes to
     /// their defaults, but **not** the screen contents -- that is what makes it
     /// soft, and what distinguishes it from RIS.
@@ -839,6 +844,7 @@ impl Csi {
                 },
                 // `[[source: kitty-keyboard]]` query, `CSI ? u`.
                 b'u' => Csi::KittyQuery,
+                b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
                     None => Csi::Unsupported {
@@ -1092,6 +1098,9 @@ impl Csi {
             | KittyQuery
             | KittyPush { .. }
             | KittyPop { .. } => Level::Xterm,
+            // contour's extension, not xterm's; this table has no level of its
+            // own for it and it is not a VT level either.
+            ColorSchemeQuery => Level::Xterm,
 
             Unsupported { .. } => return None,
         })

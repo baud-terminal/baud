@@ -1071,6 +1071,13 @@ impl Paint<'_, '_> {
                     self.want_reply(r);
                 }
             }
+            // **Nothing is sent on setting it.** tmux removed a report on
+            // enable after it raced an exiting program and typed `997;2n`
+            // into the next one, and no verified implementation sends one;
+            // an application that wants the class asks with `CSI ? 996 n`.
+            PrivateMode::ColorPaletteUpdates => {
+                self.cold.modes.apply(ModeBit::ColorPaletteUpdates, on)
+            }
             PrivateMode::SmoothScroll => self.cold.modes.apply(ModeBit::SmoothScroll, on),
             PrivateMode::AutoRepeat => self.cold.modes.apply(ModeBit::AutoRepeat, on),
             // **The input-side modes.** Each decides what a *key* sends, so
@@ -1589,6 +1596,9 @@ impl Paint<'_, '_> {
                 bit_state(self.cold.modes, ModeBit::SynchronizedOutput)
             }
             PrivateMode::InbandResize => bit_state(self.cold.modes, ModeBit::InbandResize),
+            PrivateMode::ColorPaletteUpdates => {
+                bit_state(self.cold.modes, ModeBit::ColorPaletteUpdates)
+            }
             // Not a `Modes` bit, and not the drawn blink: the bit `?12` set,
             // as foot and xterm answer it. An application that saves the mode
             // with DECRQM and restores it with `?12h`/`l` gets its own state

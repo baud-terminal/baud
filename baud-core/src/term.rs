@@ -481,6 +481,28 @@ pub struct Cold {
 const _: () = assert!(core::mem::size_of::<Cold>() == 416);
 
 impl Cold {
+    /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
+    /// override, else the embedder's default -- `ColorWord::DEFAULT` when
+    /// neither exists. The one spelling of it, so `CSI ? 996 n` and the
+    /// `OSC 11` query cannot disagree.
+    pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
+        let w = self.dynamic[which.index()];
+        if w.is_default() {
+            self.defaults[which.index()]
+        } else {
+            w
+        }
+    }
+
+    /// The dark/light class of the colours `OSC 10` and `11` would answer, or
+    /// `None` where either query would be silent.
+    pub(crate) fn color_scheme(&self) -> Option<ColorScheme> {
+        ColorScheme::of(
+            self.shown(DynamicColor::Foreground),
+            self.shown(DynamicColor::Background),
+        )
+    }
+
     pub(crate) fn new(rows: Rows, cols: Cols) -> Cold {
         Cold {
             #[cfg(feature = "sgr-table")]
@@ -537,6 +559,25 @@ impl Cold {
             modes: Modes::default(),
         }
     }
+}
+
+/// The embedder's colours, handed over whole by [`Term::set_theme`]: the
+/// default foreground and background (what `OSC 10`/`11 ; ?` answer when no
+/// application overrode them) and the 256-entry table (what `OSC 4 ; c ; ?`
+/// answers).
+pub struct ThemeColors<'a> {
+    pub fg: (u8, u8, u8),
+    pub bg: (u8, u8, u8),
+    pub palette: &'a [(u8, u8, u8); 256],
+}
+
+/// Whether [`Term::set_theme`] drops the application's `OSC 4`/`10`/`11`/`12`
+/// overrides with it. `Drop` is an OS light/dark flip under `theme = "auto"`;
+/// `Keep` is everything else, launch included.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Overrides {
+    Keep,
+    Drop,
 }
 
 pub struct Term<'b> {
@@ -2294,15 +2335,60 @@ impl<'b> Term<'b> {
     /// call the query gets no reply, which is the truthful answer of a core
     /// that has not been told, and not a wrong one. Call it again when the
     /// theme changes.
+    ///
+    /// **A change of dark/light class reports**, like [`Term::set_theme`]: one
+    /// `CSI ? 997 ; 1|2 n` while `?2031` is set.
     pub fn set_default_colors(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
+        self.reporting_scheme(|t| t.write_defaults(fg, bg));
+    }
+
+    /// Indices 0 and 1 only: the cursor default (index 2) has no theme source
+    /// and stays `DEFAULT`, so `OSC 12 ; ?` on a fresh terminal answers
+    /// nothing until an application sets one. Reports nothing.
+    fn write_defaults(&mut self, fg: (u8, u8, u8), bg: (u8, u8, u8)) {
         let word = |(r, g, b): (u8, u8, u8)| {
             ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
         };
-        // Indices 0 and 1 only: the cursor default (index 2) has no theme
-        // source and stays `DEFAULT`, so `OSC 12 ; ?` on a fresh terminal
-        // answers nothing until an application sets one.
         self.cold.defaults[DynamicColor::Foreground.index()] = word(fg);
         self.cold.defaults[DynamicColor::Background.index()] = word(bg);
+    }
+
+    /// Run an embedder change and send **at most one** `CSI ? 997 ; 1|2 n`:
+    /// the class of what `OSC 10`/`11` answer is taken before and after the
+    /// whole change, and a report is queued only when `?2031` is set and the
+    /// class after is known and differs. `[[source:
+    /// contour-palette-notifications]]` sends the notification "when the
+    /// palette has been updated"; comparing across the whole change is what
+    /// keeps a drop-then-set from reporting a class nobody could see, or
+    /// missing one. Nothing is stored between calls.
+    ///
+    /// An application's own colour escapes never come through here: they
+    /// change the next `CSI ? 996 n` answer and send nothing.
+    fn reporting_scheme(&mut self, change: impl FnOnce(&mut Self)) {
+        let before = self.cold.color_scheme();
+        change(self);
+        let after = self.cold.color_scheme();
+        if let Some(s) = after {
+            if after != before && self.cold.modes.is_set(ModeBit::ColorPaletteUpdates) {
+                self.queue(Report::ColorScheme(s));
+            }
+        }
+    }
+
+    /// The embedder's whole colour change in one call: the default foreground
+    /// and background, the 256-entry table, and whether the application's
+    /// `OSC 4`/`10`/`11`/`12` overrides are dropped with it -- which is what an
+    /// OS light/dark flip does under `theme = "auto"` (note Y, decision 5).
+    /// **One call, one report at most**; see [`Term::reporting_scheme`].
+    pub fn set_theme(&mut self, theme: &ThemeColors<'_>, overrides: Overrides) {
+        self.reporting_scheme(|t| {
+            t.write_defaults(theme.fg, theme.bg);
+            t.set_default_palette(theme.palette);
+            if overrides == Overrides::Drop {
+                crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);
+                crate::osc::clear_dynamic(&mut t.cold, &mut t.store.style_log);
+            }
+        });
     }
 
     /// Tell the core the embedder's 256-entry palette, so an `OSC 4 ; c ; ?`
