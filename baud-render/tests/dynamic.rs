@@ -108,3 +108,39 @@ fn a_changed_dynamic_colour_repaints_every_row() {
         "an OSC 10 with no cell change must repaint every row"
     );
 }
+
+/// **A soft reset takes an `OSC 4` override off the pixels, on incremental
+/// damage.** xterm's `ReallyReset` clears the palette on both resets; a cell
+/// drawn in `SGR 41` under an override goes back to the theme's red, and
+/// nothing about the cell changed, so the repaint rides on the colour epoch.
+/// The cursor is hidden after the reset, which homes it onto the pixel read.
+#[test]
+fn a_soft_reset_returns_an_overridden_entry_to_the_theme() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let paint_corner = |bytes: &[&[u8]]| {
+        let mut r = renderer(&faces);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut c = support::Canvas::for_renderer(&r);
+        let mut out = Vec::new();
+        for (i, b) in bytes.iter().enumerate() {
+            feed(&mut t, b);
+            let d = if i == 0 {
+                Damage::Full
+            } else {
+                Damage::Incremental
+            };
+            support::paint(&mut r, &mut t, &mut c, d);
+            out.push(corner(&c) & 0x00ff_ffff);
+        }
+        out
+    };
+    let theme_red = paint_corner(&[b"\x1b[41m "])[0];
+    let got = paint_corner(&[b"\x1b]4;1;rgb:12/34/56\x07\x1b[41m ", b"\x1b[!p\x1b[?25l"]);
+    assert_eq!(
+        got[0], 0x0012_3456,
+        "the control: the override reached the pixels"
+    );
+    assert_eq!(got[1], theme_red, "DECSTR left the override on the pixels");
+}

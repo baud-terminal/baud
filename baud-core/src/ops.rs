@@ -1487,6 +1487,10 @@ impl Paint<'_, '_> {
         // -- so both resets restore them. `[[source: vt510-decstr]]` gives the
         // keypad the same: DECNKM "Numeric characters".
         self.cold.keypad = KeypadMode::Numeric;
+        // The palette's overrides, in the same common path: `ReallyReset`
+        // calls `ResetAnsiColorRequest` for both resets and leaves `OSC 10`,
+        // `11` and `12` alone (`[[source: xterm-reset]]`).
+        self.reset_palette();
         self.cold.other_keys = OtherKeys::default();
         self.cold.other_keys_format = OtherKeysFormat::default();
         self.reset_side_margins();

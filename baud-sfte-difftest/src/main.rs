@@ -158,6 +158,25 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             "OSC 11 set then query",
             b"\x1b]11;rgb:aa/bb/cc\x07\x1b]11;?\x07".to_vec(),
         ),
+        // `OSC 4` set, a reset, then the same entry queried. xterm's reset
+        // clears every override in `ReallyReset`'s common path, so both
+        // resets drop it and baud, told no theme here, answers nothing. sfte
+        // answers no `OSC 4` query at all (`OSC 4 set then query` in
+        // `MUST_DIFFER`), so these agree by both being silent: they gate
+        // baud's side -- a reset that kept the override would answer it --
+        // and carry no evidence from sfte's.
+        (
+            "OSC 4 set then query",
+            b"\x1b]4;1;rgb:12/34/56\x07\x1b]4;1;?\x07".to_vec(),
+        ),
+        (
+            "OSC 4 set, RIS, query",
+            b"\x1b]4;1;rgb:12/34/56\x07\x1bc\x1b]4;1;?\x07".to_vec(),
+        ),
+        (
+            "OSC 4 set, DECSTR, query",
+            b"\x1b]4;1;rgb:12/34/56\x07\x1b[!p\x1b]4;1;?\x07".to_vec(),
+        ),
         // An `ESC` abandons the escape or control sequence in progress and
         // starts a new one ([[source: williams]]'s anywhere edge, which sfte
         // does not follow -- see `MUST_DIFFER`): one case per node it abandons from.
@@ -207,6 +226,10 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   675`; `?47` at `:573` is the variant that does not), so after `main`,
 ///   enter, `alt`, leave, baud is back at (0, 4) and sfte is at (1, 0) -- the
 ///   row the alternate screen's `alt` plus its blank left it on.
+/// * **`OSC 4 set then query` -- sfte answers no `OSC 4` query.** baud
+///   answers the override it holds; sfte's reply buffer stays empty. It is
+///   what makes the two reset cases a gate on baud's side only: sfte is
+///   silent there whatever its reset does.
 /// * **The seven `ESC` cases -- sfte does not abandon a sequence on `ESC`.**
 ///   Its CSI entry and parameter states ignore `1B`, a `[` final is a no-op,
 ///   its charset state eats any byte and its `#` state goes to ground on
@@ -242,6 +265,10 @@ const MUST_DIFFER: &[(&str, Control)] = &[
             b"\x1b]11;rgb:aaaa/bbbb/cccc\x07",
             b"\x1b]11;rgb:0000/0000/0000\x07",
         ),
+    ),
+    (
+        "OSC 4 set then query",
+        Control::Reply(b"\x1b]4;1;rgb:1212/3434/5656\x07", b""),
     ),
     (
         "ESC in CSI params",
@@ -655,8 +682,12 @@ mod tests {
         // 240,317: it was 230,317 until the `OSC 11 set then query` fixture,
         // whose 10,000 untouched cells are exactly the difference. 310,301
         // since the seven `ESC` fixtures, measured: 69,984 more, the cells of
-        // seven 200x50 screens that neither side wrote.
-        assert_eq!(norm.blanks.get(), 310_301, "zero-rune blanks normalised");
+        // seven 200x50 screens that neither side wrote. 330,301 since the
+        // three `OSC 4` fixtures: `OSC 4 set then query` and the `DECSTR` case
+        // add a screen each; the `RIS` case adds none, measured by removing it
+        // (the count stays 330,301) -- inferred to be sfte's reset writing
+        // every cell, which was not read in its source.
+        assert_eq!(norm.blanks.get(), 330_301, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

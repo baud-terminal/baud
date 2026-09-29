@@ -108,6 +108,18 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// Every `OSC 4` override cleared, which is every entry a rendition
+    /// resolves through: `OSC 104` with no parameter, and both resets, as
+    /// xterm's `ReallyReset` calls `ResetAnsiColorRequest` in its common path
+    /// (`[[source: xterm-reset]]`). The dynamic colours are not touched --
+    /// neither xterm path resets them. Through [`Paint::set_palette`], so the
+    /// colour epoch moves only if some entry was overridden.
+    pub(crate) fn reset_palette(&mut self) {
+        for v in 0..=u8::MAX {
+            self.set_palette(Chan::from_u8(v), ColorWord::DEFAULT);
+        }
+    }
+
     /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
     /// the cursor is drawn and no rendition resolves through it, so it moves
     /// no epoch.
@@ -153,13 +165,7 @@ impl Paint<'_, '_> {
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
             Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),
-            Osc::ResetColor(None) => {
-                // Every entry an `OSC 4` can name, which is every entry a
-                // rendition resolves through.
-                for v in 0..=u8::MAX {
-                    self.set_palette(Chan::from_u8(v), ColorWord::DEFAULT);
-                }
-            }
+            Osc::ResetColor(None) => self.reset_palette(),
             Osc::SetDynamic { which, spec } => match spec {
                 XColor::Rgb(r, g, b) => self.set_dynamic(which, ColorWord::rgb(r, g, b)),
                 XColor::Query => self.report_dynamic(which, term),
