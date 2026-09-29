@@ -47,6 +47,14 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/baud.icns"
 # The executable.
 cp "$BIN" "$APP/Contents/MacOS/baud"
 
+# The embedded font's licence and Nerd Fonts' icon-set table travel with the
+# binary that carries the font, as the upstream archive ships them.
+FONTS="$APP/Contents/Resources/fonts/jetbrains-mono-nerd-font"
+mkdir -p "$FONTS"
+cp "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/OFL.txt" \
+  "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/README.md" \
+  "$ROOT/baud-app/fonts/jetbrains-mono-nerd-font/SOURCE" "$FONTS/"
+
 # Ad-hoc sign, so the bundle has a stable identity for TCC/accessibility and
 # runs without a quarantine prompt after a local build.
 codesign --force --sign - "$APP" >/dev/null 2>&1 || echo "note: codesign failed (bundle still runs)"

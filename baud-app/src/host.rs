@@ -101,11 +101,14 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
     let data: Vec<&'static [u8]> = cfg
         .faces
         .iter()
-        .map(|f| {
-            let bytes = crate::pty::map_readonly(&f.path)
-                .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
-            startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
-            bytes
+        .map(|f| match f.from {
+            crate::config::FaceFrom::Embedded(bytes) => bytes,
+            crate::config::FaceFrom::File => {
+                let bytes = crate::pty::map_readonly(&f.path)
+                    .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
+                startup_mark(&format!("map {}", f.path.rsplit('/').next().unwrap_or("")));
+                bytes
+            }
         })
         .collect();
     Box::leak(
@@ -229,6 +232,21 @@ mod tests {
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// The default stack loads with the embedded face first, read from the
+    /// binary rather than looked for as a file: its name is no path, so a
+    /// loader that mapped it would panic here.
+    #[test]
+    fn the_default_stack_loads_the_embedded_face_first() {
+        let cfg = crate::config::Config::defaults();
+        let faces = super::load_faces(&cfg);
+        assert_eq!(faces.len(), cfg.faces.len());
+        let arrow = baud_domain::Codepoint::new(0xE0B0).unwrap();
+        assert!(
+            faces[0].glyph(arrow).is_some(),
+            "the Powerline arrow is in face 0"
+        );
     }
 
     /// **The core's copy of the palette is the renderer's.** After

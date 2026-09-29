@@ -3,8 +3,10 @@
 # Looked up at $BAUD_CONFIG, then $XDG_CONFIG_HOME/baud/config.toml, then
 # ~/.config/baud/config.toml, then ./config.toml. A key baud does not know is
 # ignored, and any field left out keeps its built-in default, so a config with
-# only the keys you care about is fine -- or no config at all, which runs the
-# system Menlo stack below.
+# only the keys you care about is fine -- or no config at all, which draws with
+# the font baud carries inside itself, JetBrains Mono Nerd Font Mono (its
+# ligatures and the Nerd Fonts icons), with Menlo, the emoji, symbol and CJK
+# system faces behind it. `fonts` below replaces that whole stack.
 
 # Points; pixels are this times the display's backing scale.
 font_size = 13

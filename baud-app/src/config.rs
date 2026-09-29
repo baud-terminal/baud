@@ -17,16 +17,28 @@
 //!
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
-//! none is found or a field is absent, the defaults are the built-in Menlo
-//! stack -- so the app runs with no config at all.
+//! none is found or a field is absent, the defaults are the stack that
+//! starts with the embedded JetBrains Mono Nerd Font Mono -- so the app runs
+//! with no config at all.
 
 use baud_domain::{CursorBlink, CursorShape};
 
 /// A face is a file and, for a collection (`.ttc`), which face in it: the
-/// path may carry `@N`, so `Menlo.ttc@0`.
+/// path may carry `@N`, so `Menlo.ttc@0`. Or it is the font compiled into
+/// the binary, whose `path` is only a name for the log.
 pub struct FaceSpec {
     pub path: String,
     pub index: u32,
+    pub from: FaceFrom,
+}
+
+/// Where a face's bytes come from.
+#[derive(Clone, Copy)]
+pub enum FaceFrom {
+    /// A file on disk, mapped read-only at launch.
+    File,
+    /// Bytes compiled into the binary.
+    Embedded(&'static [u8]),
 }
 
 pub struct Config {
@@ -863,11 +875,22 @@ impl FaceSpec {
             Some((path, index)) => FaceSpec {
                 path: path.to_string(),
                 index,
+                from: FaceFrom::File,
             },
             None => FaceSpec {
                 path: s.to_string(),
                 index: 0,
+                from: FaceFrom::File,
             },
+        }
+    }
+
+    /// The font compiled into the binary.
+    fn embedded(e: crate::embedded::Embedded) -> FaceSpec {
+        FaceSpec {
+            path: e.name.to_string(),
+            index: 0,
+            from: FaceFrom::Embedded(e.bytes),
         }
     }
 }
@@ -987,16 +1010,21 @@ const DEFAULT_FACES: [&str; 6] = [
     "/System/Library/Fonts/Kohinoor.ttc@0",
 ];
 
+/// The embedded JetBrains Mono first, then the system faces as they were:
+/// Menlo right behind it keeps the 1,593 codepoints it maps and JetBrains
+/// Mono does not (extended Latin, polytonic Greek, Georgian, more arrows),
+/// decided with Jev (0.98), 2026-09-29.
 #[cfg(target_os = "macos")]
 fn default_faces() -> Vec<FaceSpec> {
-    DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect()
+    std::iter::once(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO))
+        .chain(DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)))
+        .collect()
 }
 
-/// Linux has no one system mono, so the default is the first of the usual
-/// DejaVu Sans Mono locations that exists -- DejaVu carries the braille and
-/// the box drawing itself -- and Noto Color Emoji beside it where it is. An
-/// empty stack is reported at startup rather than guessed at; a config
-/// names anything else.
+/// The embedded JetBrains Mono first; then, since Linux has no one system
+/// mono, the first of the usual DejaVu Sans Mono locations that exists, for
+/// what JetBrains Mono does not map, and Noto Color Emoji where it is. A
+/// config names anything else.
 #[cfg(target_os = "linux")]
 fn default_faces() -> Vec<FaceSpec> {
     const MONO: &[&str] = &[
@@ -1018,7 +1046,10 @@ fn default_faces() -> Vec<FaceSpec> {
             .find(|p| std::path::Path::new(p).exists())
             .map(|s| FaceSpec::parse(s))
     };
-    first(MONO).into_iter().chain(first(EMOJI)).collect()
+    std::iter::once(FaceSpec::embedded(crate::embedded::JETBRAINS_MONO))
+        .chain(first(MONO))
+        .chain(first(EMOJI))
+        .collect()
 }
 
 /// The default stack has to carry what the corpus draws, on the machine
@@ -1037,10 +1068,15 @@ mod tests {
     /// them and the stack is not held to a range it never renders.
     #[test]
     fn the_default_stack_carries_han_kana_hangul_devanagari_and_emoji() {
-        let specs: Vec<FaceSpec> = DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)).collect();
+        let specs = default_faces();
         let files: Vec<Vec<u8>> = specs
             .iter()
-            .map(|f| std::fs::read(&f.path).unwrap_or_else(|e| panic!("{}: {e}", f.path)))
+            .map(|f| match f.from {
+                FaceFrom::Embedded(b) => b.to_vec(),
+                FaceFrom::File => {
+                    std::fs::read(&f.path).unwrap_or_else(|e| panic!("{}: {e}", f.path))
+                }
+            })
             .collect();
         let faces: Vec<Face<'_>> = files
             .iter()
@@ -1667,6 +1703,34 @@ shadow     = "never"
             "not the top level's"
         );
         assert_eq!(said.len(), 2, "and it is said: {said:?}");
+    }
+
+    /// The default stack starts with the embedded JetBrains Mono Nerd Font
+    /// Mono, and on macOS keeps Menlo right behind it; a config's `fonts`
+    /// replaces the whole stack, the embedded face included.
+    #[test]
+    fn the_default_stack_starts_with_the_embedded_font() {
+        let d = Config::defaults();
+        match d.faces[0].from {
+            FaceFrom::Embedded(b) => {
+                assert_eq!(b.len(), crate::embedded::JETBRAINS_MONO.bytes.len())
+            }
+            FaceFrom::File => panic!(
+                "the first default face is {}, not the embedded font",
+                d.faces[0].path
+            ),
+        }
+        #[cfg(target_os = "macos")]
+        assert!(
+            d.faces[1].path.ends_with("Menlo.ttc"),
+            "{}",
+            d.faces[1].path
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("fonts = [\"/a.ttf\"]\n");
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(c.faces.len(), 1);
+        assert!(matches!(c.faces[0].from, FaceFrom::File));
     }
 
     /// Every theme the macOS app builds carries the floor it was given. The

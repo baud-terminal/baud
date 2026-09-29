@@ -30,6 +30,8 @@ mod bell;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod caret;
 mod config;
+// The font compiled into the binary: the default stack's first face.
+mod embedded;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
 #[cfg(target_os = "macos")]

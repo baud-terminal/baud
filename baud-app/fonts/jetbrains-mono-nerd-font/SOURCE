@@ -1,0 +1,16 @@
+JetBrains Mono Nerd Font Mono, Regular: baud's embedded default font.
+
+Release:   Nerd Fonts v3.5.1 (published 2026-08-21)
+Archive:   https://github.com/ryanoasis/nerd-fonts/releases/download/v3.5.1/JetBrainsMono.tar.xz
+  sha256   04d5e8f903693f9dd13e16f867e994834e681eb3c72c0d337a770dcda09010cf
+Font:      JetBrainsMonoNerdFontMono-Regular.ttf, taken from that archive unmodified
+  bytes    2573248
+  sha256   f2a5ea6cfab397445ffab00c0370927b66d61e560a05db5db271b42006381c1a
+Fetched:   2026-09-29
+
+OFL.txt and README.md are the two files the archive ships beside the fonts,
+unmodified: the font's licence (SIL Open Font License 1.1, "Copyright 2020
+The JetBrains Mono Project Authors", no Reserved Font Name) and Nerd Fonts'
+table of the icon sets patched in, each with its upstream and its licence.
+They travel with the font: scripts/bundle-macos.sh copies both into the app
+bundle's Resources.
