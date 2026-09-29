@@ -22,6 +22,10 @@
 // scalar loop -- `otool -tv` showed no vector register in it at all. This
 // feature is what lets it store eight cells at a time.
 #![feature(portable_simd)]
+// `ModeBit`'s bound on the `u32` bitset counts the variants with
+// `core::mem::variant_count` rather than naming the last one, which went stale
+// twice (`vt/mode.rs`).
+#![feature(variant_count)]
 #![forbid(unsafe_code)]
 
 mod brand;

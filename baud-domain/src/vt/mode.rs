@@ -207,16 +207,6 @@ impl ModeBit {
     const fn bit(self) -> u32 {
         1 << (self as u32)
     }
-    /// The highest-numbered variant, which is the **last one declared** --
-    /// discriminants follow declaration order, so this must be updated when a
-    /// variant is appended and not when one is inserted alphabetically.
-    ///
-    /// It said `Column132` for as long as `SynchronizedOutput` had existed
-    /// after it, so the assertion below was guarding a variant that was not the
-    /// highest. Benign at fourteen bits and not at sixteen, which is where the
-    /// bitset now sits: this is the same "instrumentation outlived what fed it"
-    /// shape `CLAUDE.md` records, and it stops firing exactly when it matters.
-    const LAST: ModeBit = ModeBit::AltSendsEscape;
 }
 
 /// `Modes` is a `u32`, so a 33rd mode bit would shift off the end: `1u32 << 32`
@@ -226,8 +216,16 @@ impl ModeBit {
 /// It was a `u16` and the seventeenth bit is what widened it -- `?1034`, the
 /// mode terminfo's `smm`/`rmm` send. The instruction cost is the same: a bit
 /// test against a register-width immediate either way.
+///
+/// **The bound counts the variants rather than naming the last one.** It
+/// named one, `LAST`, for its whole life, and named the wrong one twice:
+/// `Column132` while `SynchronizedOutput` followed it, then `AltSendsEscape`
+/// with three after it (bit 15 guarded while `InbandResize` sat at 18). A
+/// name has to be edited when a variant is appended and nothing says so;
+/// `variant_count` cannot go stale, because the variants carry no explicit
+/// discriminants and so number `0..count` in declaration order.
 const _: () = assert!(
-    (ModeBit::LAST as u32) < 32,
+    core::mem::variant_count::<ModeBit>() <= 32,
     "ModeBit has outgrown the u32 bitset in Modes -- widen Modes to u64"
 );
 
