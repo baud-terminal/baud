@@ -1,0 +1,5 @@
+[0m[01;34mdir[0m  [01;36mlink[0m  main.rs  notes.txt  [01;32mrun.sh[0m
+[38;5;4m[1mdir[0m/  [38;5;6m[1mlink[0m@  main.rs  notes.txt  [38;5;2m[1mrun.sh[0m*
+[35mfn[0m [34mmain[0m() {
+    println!([32m"[0m[32mhi[0m[32m"[0m);
+}

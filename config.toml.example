@@ -14,18 +14,20 @@ font_size = 13
 # strip is the top gutter. 8 is the default; 0 turns it off.
 padding = 8
 
+# The palette. "auto" follows the system appearance (System Settings >
+# Appearance) and changes with it; "dark" and "light" pin it. On Linux "auto"
+# resolves to dark, because no appearance signal is wired there yet.
+#
+# The sixteen ANSI colours are xterm's on the dark palette and Modus Operandi's
+# on the light one (by Protesilaos Stavrou, GPL-3.0-or-later), whose six
+# colours and their bright forms read at 6:1 or better on its page. When the system flips under "auto",
+# colours a program set with OSC 4, 10, 11 or 12 are dropped with the old
+# palette, and a program that asked (mode 2031) is told dark or light.
+theme = "auto"
+
 # What the surface's bytes mean, converted to each display by the compositor:
 # "srgb", which every colour a terminal receives is specified as, or
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
-# The palette. "auto" follows the system appearance and changes with it;
-# "dark" and "light" pin it. On Linux "auto" resolves to dark, because no
-# appearance signal is wired there yet.
-#
-# The sixteen ANSI colours are xterm's under either palette, so SGR yellow
-# on the light background reads poorly -- the same wart xterm has. An
-# application can repaint them with OSC 4.
-theme = "auto"
-
 colorspace = "srgb"
 
 

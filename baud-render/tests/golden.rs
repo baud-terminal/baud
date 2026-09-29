@@ -89,3 +89,36 @@ fn every_recording_paints_to_its_pinned_frame() {
     }
     assert_eq!(seen, RECORDINGS.len());
 }
+
+/// **One recording under the light theme**, whose sixteen are Modus Operandi
+/// (note Y, decision 3). git-log colours its hashes and refs from the
+/// sixteen, so a change to the light table moves this digest; the same frame
+/// under xterm's sixteen on the light page is a different digest, the control
+/// that the pin is the table's.
+#[test]
+fn git_log_paints_to_its_pinned_light_frame() {
+    const LIGHT_GIT_LOG: u64 = 0xafcaf1392d681d34;
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let bytes = recording("ascii/git-log.raw");
+    let digest = |palette: Option<[baud_render::Argb; 256]>| {
+        let mut r = renderer(&faces);
+        let mut theme = baud_render::Theme::light();
+        if let Some(p) = palette {
+            theme.palette = p;
+        }
+        r.set_theme(theme);
+        let mut canvas = Canvas::for_renderer(&r);
+        replay_final(&bytes, |t| {
+            paint(&mut r, t, &mut canvas, Damage::Full);
+        });
+        canvas.digest()
+    };
+    let light = digest(None);
+    let xterm = digest(Some(baud_render::xterm_palette()));
+    if std::env::var("GOLDEN_PRINT").is_ok() {
+        eprintln!("light git-log: {light:#018x}");
+    }
+    assert_ne!(light, xterm, "the control: the sixteen reach the pixels");
+    assert_eq!(light, LIGHT_GIT_LOG, "light git-log frame moved");
+}

@@ -1218,7 +1218,12 @@ still runs, to show it.
      pinned light at `dim_dark` again.
    - Measure: idle unchanged by construction (no per-tick work added); a flip
      is one full pass of live slots, already the case. Stated, not swept.
-5. **Modus Operandi as the built-in light sixteen** (baud-render).
+5. **Modus Operandi as the built-in light sixteen** (baud-render). **Built**:
+   `MODUS_OPERANDI` and `light_palette()`; the recording is
+   `tests/palette/ls-lsd-bat.raw`, 36 coloured glyphs, the worst at 6:1 or
+   better under the light theme and 1.09:1 under xterm's sixteen on the same
+   page; the pinned light golden is git-log. The config example stopped
+   saying the sixteen are xterm's under either palette.
    - A const table in `color.rs`, entries 0-15 of `Theme::light()`, with the
      attribution line; 16-255 and `Theme::dark()` untouched.
    - Unit: the sixteen equal the constants in the test (decision 3's values;

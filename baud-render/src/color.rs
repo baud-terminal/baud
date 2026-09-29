@@ -188,7 +188,7 @@ impl Theme {
             bg_alpha: Chan::from_u8(0xFF),
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
-            palette: xterm_palette(),
+            palette: light_palette(),
         }
     }
 
@@ -321,6 +321,43 @@ fn grey(v: u8) -> Argb {
 
 /// xterm's 256-colour palette: the sixteen ANSI colours, a 6x6x6 cube and
 /// a 24-step grey ramp.
+/// The sixteen of the light theme: **Modus Operandi by Protesilaos Stavrou,
+/// (C) Free Software Foundation, GPL-3.0-or-later** -- its Emacs `ansi-color`
+/// mapping, the sixteen hex values and no file text (note Y, decision 3;
+/// `[[source: modus-operandi-theme-el]]`, pinned external). Designed as text
+/// on a near-white page: every colour entry from 1 to 6 and 9 to 14 is at
+/// least 6.09:1 on this theme's `0xEF`. Entries 7 and 15 are the light greys
+/// that sit near the page, which the contrast floor exists for.
+pub const MODUS_OPERANDI: [(u8, u8, u8); 16] = [
+    (0x00, 0x00, 0x00),
+    (0xA6, 0x00, 0x00),
+    (0x00, 0x68, 0x00),
+    (0x6F, 0x55, 0x00),
+    (0x00, 0x31, 0xA9),
+    (0x72, 0x10, 0x45),
+    (0x00, 0x5E, 0x8B),
+    (0xA6, 0xA6, 0xA6),
+    (0x59, 0x59, 0x59),
+    (0x97, 0x25, 0x00),
+    (0x00, 0x66, 0x3F),
+    (0x88, 0x49, 0x00),
+    (0x35, 0x48, 0xCF),
+    (0x53, 0x1A, 0xB6),
+    (0x00, 0x5F, 0x5F),
+    (0xFF, 0xFF, 0xFF),
+];
+
+/// xterm's 256 with [`MODUS_OPERANDI`] as the sixteen: the cube and the grey
+/// ramp stay xterm's, because an application addresses them by number and
+/// expects their fixed values.
+pub fn light_palette() -> [Argb; 256] {
+    let mut p = xterm_palette();
+    for (slot, &(r, g, b)) in p.iter_mut().zip(&MODUS_OPERANDI) {
+        *slot = triple(r, g, b);
+    }
+    p
+}
+
 pub fn xterm_palette() -> [Argb; 256] {
     let mut p = [Argb(0); 256];
     const ANSI: [(u8, u8, u8); 16] = [

@@ -144,3 +144,31 @@ fn a_soft_reset_returns_an_overridden_entry_to_the_theme() {
     );
     assert_eq!(got[1], theme_red, "DECSTR left the override on the pixels");
 }
+
+/// **A theme swap repaints a palette colour on an incremental frame.** A cell
+/// in `SGR 42` names entry 2, and swapping the dark theme for the light one
+/// moves no cell word -- only what entry 2 is. xterm's `#00cd00` becomes
+/// Modus Operandi's `#006800`.
+#[test]
+fn a_theme_swap_repaints_a_palette_colour() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    let mut c = support::Canvas::for_renderer(&r);
+    feed(&mut t, b"\x1b[42m \x1b[m\x1b[?25l");
+    support::paint(&mut r, &mut t, &mut c, Damage::Full);
+    assert_eq!(
+        corner(&c) & 0x00ff_ffff,
+        0x0000_cd00,
+        "the control: xterm's green"
+    );
+    r.set_theme(Theme::light());
+    support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
+    assert_eq!(
+        corner(&c) & 0x00ff_ffff,
+        0x0000_6800,
+        "the swap reached the pixels"
+    );
+}

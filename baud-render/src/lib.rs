@@ -60,7 +60,9 @@ pub use cellmap::{
     BlockCursor, Candidate, CellKey, Drawn, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration,
     MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
 };
-pub use color::{AppBg, Argb, PictureBg, Theme, Video};
+pub use color::{
+    AppBg, Argb, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
+};
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};

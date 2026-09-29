@@ -269,6 +269,21 @@ mod tests {
     /// background; the flip to the light theme clears both and sends one
     /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
     /// control that the drop is the flag's.
+    /// The light theme's entry 2 is Modus Operandi's green, and the core
+    /// answers it: the table the renderer draws is the table the query reads.
+    #[test]
+    fn osc_4_answers_the_light_themes_modus_green() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::tell_defaults(&mut t, &Theme::light(), baud_core::Overrides::Keep);
+        feed(&mut t, b"\x1b]4;2;?\x07");
+        assert_eq!(t.reply(), b"\x1b]4;2;rgb:0000/6868/0000\x07");
+    }
+
     #[test]
     fn a_flip_drops_the_applications_colours_and_reports_once() {
         let ws = WinSize {
