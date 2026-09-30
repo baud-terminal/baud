@@ -44,7 +44,9 @@ impl Metrics {
     pub fn of(face: &Face<'_>, size: PxSize) -> Option<Metrics> {
         let scale = Scale::of(size.value(), face.units_per_em());
         let m = face.glyph(Codepoint::from_char('M'))?;
-        let advance = face.advance(m)?;
+        // The default instance's: a cell must not change with a style's
+        // weight (note Z).
+        let advance = face.default_advance(m)?;
         let width = scale.px(f32::from(advance.value()));
         let lm = face.line_metrics();
         let ascent = scale.px(f32::from(lm.ascender.value()));

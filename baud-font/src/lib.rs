@@ -57,7 +57,10 @@ mod face;
 mod glyf;
 mod gpos;
 mod gsub;
+pub mod gvar;
+mod hvar;
 mod ignorable;
+pub mod ivs;
 mod layout;
 mod morx;
 pub mod outline;
@@ -65,6 +68,7 @@ mod png;
 mod raster;
 mod shape;
 mod standard_encoding;
+pub mod var;
 
 pub use bitmap::{Bitmap, Placement, Ppem, Strike};
 pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
@@ -74,6 +78,7 @@ pub use face::{
     Advance, Face, FaceCount, FaceIndex, FontUnits, GlyphCount, LineMetrics, Pitch, Underline,
     UnitsPerEm, faces,
 };
+pub use glyf::VarPoint;
 pub use gpos::Gpos;
 pub use gsub::{Gsub, Walked};
 pub use layout::{Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, MAX_LOOKUPS};
@@ -108,6 +113,10 @@ impl Tag {
     pub const GSUB: Tag = Tag(*b"GSUB");
     pub const GPOS: Tag = Tag(*b"GPOS");
     pub const MORX: Tag = Tag(*b"morx");
+    pub const FVAR: Tag = Tag(*b"fvar");
+    pub const AVAR: Tag = Tag(*b"avar");
+    pub const GVAR: Tag = Tag(*b"gvar");
+    pub const HVAR: Tag = Tag(*b"HVAR");
 
     pub const fn from_bytes(b: [u8; 4]) -> Tag {
         Tag(b)

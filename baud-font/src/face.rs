@@ -53,9 +53,24 @@ impl UnitsPerEm {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Advance(u16);
 
+/// HarfBuzz's `roundf`, which is its own `floorf (x + .5f)`
+/// (`[[source: harfbuzz-12-3-0-hb]]`): a half rounds up, -0.5 to 0.
+pub(crate) fn round_half_up(x: f32) -> f32 {
+    core::f32::math::floor(x + 0.5)
+}
+
 impl Advance {
     pub const fn value(self) -> u16 {
         self.0
+    }
+
+    /// A rounded varied advance, floored at 0 and saturating at 65,535.
+    fn saturating(v: f32) -> Advance {
+        if v <= 0.0 || v.is_nan() {
+            return Advance(0);
+        }
+        let v = if v >= 65535.0 { 65535.0 } else { v };
+        Advance(u16::try_from(v as i32).unwrap_or(u16::MAX))
     }
 }
 
@@ -164,6 +179,11 @@ pub struct Face<'a> {
     gsub: Option<Gsub<'a>>,
     gpos: Option<Gpos<'a>>,
     morx: Option<Morx<'a>>,
+    fvar: Option<crate::var::Fvar<'a>>,
+    avar: Option<crate::var::Avar<'a>>,
+    gvar: Option<crate::gvar::Gvar<'a>>,
+    hvar: Option<crate::hvar::Hvar<'a>>,
+    coords: crate::var::Coords,
 }
 
 /// Counts what passes through to the real sink, so [`Face::outline`] can
@@ -289,6 +309,11 @@ impl<'a> Face<'a> {
             gsub: None,
             gpos: None,
             morx: None,
+            fvar: None,
+            avar: None,
+            gvar: None,
+            hvar: None,
+            coords: crate::var::Coords::default(),
         };
 
         // head: unitsPerEm at 18. The specification bounds it to 16..=16384;
@@ -358,6 +383,8 @@ impl<'a> Face<'a> {
             face.glyf = Some(Glyf::new(loca, glyf));
         }
         face.cff = face.table(Tag::CFF).and_then(Cff::parse);
+        face.gvar = face.table(Tag::GVAR).and_then(crate::gvar::Gvar::parse);
+        face.hvar = face.table(Tag::HVAR).and_then(crate::hvar::Hvar::parse);
         // Bitmap strikes and layered colour are optional in every sense: a
         // face without them answers `None` and draws its outlines.
         face.sbix = face
@@ -382,6 +409,8 @@ impl<'a> Face<'a> {
             .table(Tag::GPOS)
             .and_then(|t| Gpos::parse(t, face.gdef));
         face.morx = face.table(Tag::MORX).and_then(Morx::parse);
+        face.fvar = face.table(Tag::FVAR).and_then(crate::var::Fvar::parse);
+        face.avar = face.table(Tag::AVAR).and_then(crate::var::Avar::parse);
         Ok(face)
     }
 
@@ -404,6 +433,26 @@ impl<'a> Face<'a> {
     /// A linear scan: the directory is sorted by tag and could be searched,
     /// but a face has a few dozen tables and this runs once per table at
     /// construction.
+    /// The variation axes the face offers, in `fvar`'s order; none for a
+    /// static face.
+    pub fn axis(&self, i: Index) -> Option<crate::var::Axis> {
+        self.fvar.and_then(|f| f.axis(i))
+    }
+
+    /// Reads the face at `settings`: each named axis normalised, the rest
+    /// left where they were (at the default on a fresh face). A static face
+    /// ignores them.
+    pub fn set_variations(&mut self, settings: &[crate::var::Variation]) {
+        if let Some(fvar) = self.fvar {
+            crate::var::apply(fvar, self.avar, settings, &mut self.coords);
+        }
+    }
+
+    /// The normalised coordinates the face is read at.
+    pub fn coords(&self) -> &crate::var::Coords {
+        &self.coords
+    }
+
     pub fn table(&self, tag: Tag) -> Option<Bytes<'a>> {
         let mut i = Index::ZERO;
         while self.tables.holds(i) {
@@ -486,7 +535,10 @@ impl<'a> Face<'a> {
     /// `hmtx` may carry fewer records than glyphs; past `numberOfHMetrics`
     /// every glyph takes the last record's advance
     /// (`[[source: ms-opentype-hmtx]]`).
-    pub fn advance(&self, g: GlyphId) -> Option<Advance> {
+    ///
+    /// This is the default instance's advance whatever the face's
+    /// coordinates; [`Face::advance`] answers at them.
+    pub fn default_advance(&self, g: GlyphId) -> Option<Advance> {
         let i = self.hmtx_index(g)?;
         let slot = if self.hmetrics.holds(i) {
             i
@@ -495,6 +547,49 @@ impl<'a> Face<'a> {
         };
         let at = Offset::ZERO.at(slot, Len::of(4))?;
         self.hmtx?.read(at).map(Advance)
+    }
+
+    /// The advance of `g` at the face's coordinates, in font units, as
+    /// HarfBuzz 12.3.0 answers it (`[[source: harfbuzz-12-3-0-ot-font]]`,
+    /// `[[source: harfbuzz-12-3-0-hmtx]]`):
+    /// at the default instance, [`Face::default_advance`]; with `HVAR`, the
+    /// `hmtx` advance plus its delta rounded half up, floored at 0; with no `HVAR` but `gvar`, the phantom points' extent rounded and
+    /// floored at 0 -- `upem / 2` when the glyph cannot be walked, and 0 past
+    /// the glyph count; with neither, the `hmtx` advance. No scratch in any
+    /// case. An advance past 65,535 saturates there, where HarfBuzz's is an
+    /// unsigned int; no real font comes near it.
+    pub fn advance(&self, g: GlyphId) -> Option<Advance> {
+        if self.coords.is_default() {
+            return self.default_advance(g);
+        }
+        // HarfBuzz's `hmtx` answers 0 for a glyph id past the face, where
+        // [`Face::default_advance`] -- ttf-parser's rule -- answers nothing.
+        let past = !self.glyphs.holds(g);
+        if let Some(hvar) = self.hvar {
+            let base = if past {
+                0.0
+            } else {
+                f32::from(self.default_advance(g)?.0)
+            };
+            return Some(Advance::saturating(
+                base + round_half_up(hvar.delta(g, &self.coords)),
+            ));
+        }
+        let (Some(glyf), Some(gvar)) = (self.glyf, self.gvar) else {
+            return self.default_advance(g);
+        };
+        if past {
+            return Some(Advance(0));
+        }
+        let hmtx = |g: GlyphId| {
+            let advance = i32::from(self.default_advance(g)?.0);
+            let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
+            Some((advance, lsb))
+        };
+        Some(match glyf.phantom_extent(g, gvar, &self.coords, &hmtx) {
+            Some(w) => Advance::saturating(round_half_up(w)),
+            None => Advance(self.upem.0 / 2),
+        })
     }
 
     /// The left side bearing of `g` from `hmtx`: in the record for the first
@@ -598,11 +693,42 @@ impl<'a> Face<'a> {
         self.cpal.as_ref()?.color(p, e)
     }
 
+    /// The `gvar` table when the face is read at a variation: every
+    /// TrueType glyph then goes through the varied path, as HarfBuzz sends
+    /// every glyph through `accelerator_t::apply_deltas_to_points` once any coordinate is
+    /// set -- a composite with no data of its own can have components that
+    /// move.
+    fn varying(&self) -> Option<(Glyf<'a>, crate::gvar::Gvar<'a>)> {
+        if self.coords.is_default() {
+            return None;
+        }
+        Some((self.glyf?, self.gvar?))
+    }
+
+    /// How many [`crate::VarPoint`]s [`Face::outline_at`] needs for
+    /// `g`: 0 when the face is at its default instance, has no `gvar`, or
+    /// the glyph is malformed -- the cases that draw without scratch.
+    pub fn outline_need(&self, g: GlyphId) -> Count {
+        self.varying()
+            .and_then(|(glyf, _)| glyf.need(g))
+            .unwrap_or(Count::ZERO)
+    }
+
     /// The outline of `g` into `sink`, in font units, unflattened: quadratic
     /// curves from `glyf`, cubics from CFF. `glyf` is tried first, CFF
     /// second, which is the order the reference readers use. `Drawn::Nothing`
     /// for a glyph with no contours, no data, or a malformed description.
+    ///
+    /// **A face read at a variation refuses here**: a TrueType glyph whose
+    /// outline varies answers `Drawn::NeedsScratch` and draws nothing, rather
+    /// than the default instance in its place. [`Face::outline_at`] draws it.
     pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Drawn {
+        if let Some((glyf, _)) = self.varying() {
+            return match glyf.need(g) {
+                Some(need) => Drawn::NeedsScratch(need),
+                None => Drawn::Nothing,
+            };
+        }
         let mut counting = Counting {
             inner: sink,
             drawn: Drawn::Nothing,
@@ -615,6 +741,36 @@ impl<'a> Face<'a> {
             None
         };
         match parsed {
+            Some(()) => counting.drawn,
+            None => Drawn::Nothing,
+        }
+    }
+
+    /// The outline of `g` at the face's coordinates, with `scratch` for a
+    /// varied glyph: [`Face::outline`] when the face is at its default
+    /// instance, else the glyph's `gvar` deltas applied (HarfBuzz's flattening, with the left phantom's delta as the shift;
+    /// the rules are on `Glyf::outline_varied`). `Drawn::NeedsScratch` when
+    /// `scratch` holds fewer points than [`Face::outline_need`] says.
+    pub fn outline_at<S: Sink>(
+        &self,
+        g: GlyphId,
+        scratch: &mut [crate::VarPoint],
+        sink: &mut S,
+    ) -> Drawn {
+        let Some((glyf, gvar)) = self.varying() else {
+            return self.outline(g, sink);
+        };
+        let Some(need) = glyf.need(g) else {
+            return Drawn::Nothing;
+        };
+        if scratch.len() < need.slot() {
+            return Drawn::NeedsScratch(need);
+        }
+        let mut counting = Counting {
+            inner: sink,
+            drawn: Drawn::Nothing,
+        };
+        match glyf.outline_varied(g, gvar, &self.coords, scratch, &mut counting) {
             Some(()) => counting.drawn,
             None => Drawn::Nothing,
         }

@@ -623,7 +623,7 @@ fn sha256_hex(data: &[u8]) -> String {
 
 #[test]
 fn the_committed_faces_are_the_ones_the_manifest_pins() {
-    // Four OFL faces, each with its licence beside it and each hash-pinned in
+    // Seven OFL faces, each with its licence beside it and each hash-pinned in
     // the research manifest; a test font that is not pinned is a byte string
     // nobody can re-fetch, and one whose bytes drift from the pin is a
     // different font wearing the name.
@@ -636,7 +636,10 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
         [
             "BungeeTint-Regular.ttf",
             "FiraCode-Regular.ttf",
+            "FiraCode-VF.ttf",
+            "JetBrainsMono-Italic-Variable.ttf",
             "JetBrainsMono-Regular.ttf",
+            "JetBrainsMono-Variable.ttf",
             "NotoColorEmoji-subset.ttf",
         ]
     );
@@ -659,7 +662,10 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
     for (p, key) in committed().iter().zip([
         "font-bungee-tint-regular",
         "font-fira-code-regular",
+        "font-fira-code-variable",
+        "font-jetbrains-mono-italic-variable",
         "font-jetbrains-mono-regular",
+        "font-jetbrains-mono-variable",
         "font-noto-color-emoji-subset",
     ]) {
         let lic = p.with_file_name(format!(

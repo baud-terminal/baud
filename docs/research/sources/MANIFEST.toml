@@ -8205,3 +8205,435 @@ sha256 = "53fea69903a8761d62783e2843e5f89cdfab943790012035698591d0bb378b2d"
 bytes  = 58268
 status = "retrieved"
 group  = "Y"
+
+[sources.ms-opentype-otvaroverview]
+key    = "ms-opentype-otvaroverview"
+title  = "OpenType Font Variations Overview"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview"
+file   = ""
+sha256 = "fc658ea56e311fca105f4292241fcd5157df247f3982d7cbb76fc11acea1d497"
+bytes  = 133645
+status = "external"
+group  = "J"
+# Read 2026-09-29 for variable fonts; not committed. The page renders spec
+# revision 810414e13e39f68adfb5f12d525e6b50c850fbbc of the private
+# MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
+# revision this pin names: the page hash does not reproduce across page
+# rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+
+[sources.ms-opentype-otvarcommonformats]
+key    = "ms-opentype-otvarcommonformats"
+title  = "OpenType Font Variations Common Table Formats"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats"
+file   = ""
+sha256 = "791f55bf79a4d78853b1376917e9d536bdad504fa386a9364c3e69a20fabb9c6"
+bytes  = 108722
+status = "external"
+group  = "J"
+# Read 2026-09-29 for variable fonts; not committed. The page renders spec
+# revision 810414e13e39f68adfb5f12d525e6b50c850fbbc of the private
+# MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
+# revision this pin names: the page hash does not reproduce across page
+# rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+
+[sources.ms-opentype-mvar]
+key    = "ms-opentype-mvar"
+title  = "MVAR -- Metrics Variations Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/mvar"
+file   = ""
+sha256 = "85f14af64e032ad48b0bb7016c800b66550fe0a0e2b70f0e936cd15add6ac7f5"
+bytes  = 65033
+status = "external"
+group  = "J"
+# Read 2026-09-29 for variable fonts; not committed. The page renders spec
+# revision 810414e13e39f68adfb5f12d525e6b50c850fbbc of the private
+# MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
+# revision this pin names: the page hash does not reproduce across page
+# rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+
+[sources.ms-opentype-stat]
+key    = "ms-opentype-stat"
+title  = "STAT -- Style Attributes Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/stat"
+file   = ""
+sha256 = "91fcb6b230e8aa3596cafc324b148212672bb8d6bf0250f4bcce69e56595e16c"
+bytes  = 98142
+status = "external"
+group  = "J"
+# Read 2026-09-29 for variable fonts; not committed. The page renders spec
+# revision 810414e13e39f68adfb5f12d525e6b50c850fbbc of the private
+# MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
+# revision this pin names: the page hash does not reproduce across page
+# rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+
+[sources.font-jetbrains-mono-variable]
+key    = "font-jetbrains-mono-variable"
+title  = "JetBrains Mono v2.304, variable upright (wght 100-800) -- the oracle face for baud-font's variation support"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono at cd5227b (v2.304), fonts/variable (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/variable/JetBrainsMono%5Bwght%5D.ttf"
+file   = ""
+sha256 = "662a196d58f1183bf2d77428b6d5283fe3f45161ab021bea4036bc98e5cac016"
+bytes  = 303144
+status = "external"
+group  = "J"
+# Committed at `baud-font/tests/fonts/JetBrainsMono-Variable.ttf` (renamed from
+# `JetBrainsMono[wght].ttf`, whose brackets are a shell glob) beside the
+# JetBrains Mono licence, held to this hash by the pin test. Note Z.
+
+[sources.font-jetbrains-mono-italic-variable]
+key    = "font-jetbrains-mono-italic-variable"
+title  = "JetBrains Mono v2.304, variable italic (wght 100-800)"
+author = "JetBrains"
+year   = 2023
+venue  = "github.com/JetBrains/JetBrainsMono at cd5227b (v2.304), fonts/variable (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/variable/JetBrainsMono-Italic%5Bwght%5D.ttf"
+file   = ""
+sha256 = "f115aaa12113718c02ce72864fe6823b87241bc23d3e44cf1220155f861063f2"
+bytes  = 308888
+status = "external"
+group  = "J"
+# Committed at `baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf`,
+# renamed as the upright is. Note Z.
+
+[sources.font-fira-code-variable]
+key    = "font-fira-code-variable"
+title  = "Fira Code 6.2, variable (wght 300-700, default at its minimum) -- a second variation oracle face"
+author = "The Fira Code Project Authors"
+year   = 2022
+venue  = "github.com/tonsky/FiraCode release 6.2 (OFL-1.1)"
+url    = "https://github.com/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip"
+file   = ""
+sha256 = "04149681350f161aca538858b88d17443c586cacca83c165939a13423fe91a26"
+bytes  = 286320
+status = "external"
+group  = "J"
+# The sha256 is of the archive member `variable_ttf/FiraCode-VF.ttf`, committed
+# at `baud-font/tests/fonts/FiraCode-VF.ttf`; the archive is the one the
+# Regular's entry names (0949915b...). Its default sits at the axis minimum,
+# which is the edge the normalisation's lower segment must not divide by.
+
+[sources.harfbuzz-12-3-0-ot-var]
+key    = "harfbuzz-12-3-0-ot-var"
+title  = "HarfBuzz 12.3.0, src/hb-ot-var.cc -- hb_ot_var_normalize_variations: float, roundf to 16.16, avar, (v + 2) >> 2"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var.cc"
+file   = "harfbuzz-12.3.0-hb-ot-var.cc"
+sha256 = "6fdd2198ae86bedf12ccc4c5806de844bc403293b88a8c183d02c8934fd79b53"
+bytes  = 10501
+status = "retrieved"
+group  = "J"
+# The implementation baud-font's variation normalisation is checked against
+# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# one rounding the OpenType specification leaves open. Note Z.
+
+[sources.harfbuzz-12-3-0-avar]
+key    = "harfbuzz-12-3-0-avar"
+title  = "HarfBuzz 12.3.0, src/hb-ot-var-avar-table.hh -- map_coords_16_16 and map_float, the avar segment mapping"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-avar-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-var-avar-table.hh"
+sha256 = "bc711dfac70c7491a693df2799ff31d17c7be96938db09ca6d71f2a146539d56"
+bytes  = 15095
+status = "retrieved"
+group  = "J"
+# The implementation baud-font's variation normalisation is checked against
+# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# one rounding the OpenType specification leaves open. Note Z.
+
+[sources.harfbuzz-12-3-0-fvar]
+key    = "harfbuzz-12-3-0-fvar"
+title  = "HarfBuzz 12.3.0, src/hb-ot-var-fvar-table.hh -- normalize_axis_value, the default normalisation"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-fvar-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-var-fvar-table.hh"
+sha256 = "37e166fbbb134902afd3ef08d1351e3f59bdc6a22fbb24113f2fb0aa2570af0a"
+bytes  = 15594
+status = "retrieved"
+group  = "J"
+# The implementation baud-font's variation normalisation is checked against
+# (scripts/var-oracle.py runs this HarfBuzz version), and the source of the
+# one rounding the OpenType specification leaves open. Note Z.
+
+[sources.harfbuzz-12-3-0-gvar]
+key    = "harfbuzz-12-3-0-gvar"
+title  = "HarfBuzz 12.3.0, hb-ot-var-gvar-table.hh -- apply_deltas_to_points and infer_delta: float deltas, per-tuple inference from default positions"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-gvar-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-var-gvar-table.hh"
+sha256 = "9a8bfee00dd97766e6b5602a9992b77d4309fa9e230c2f362e90f3e7382cd518"
+bytes  = 31954
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2, where the OpenType gvar chapter is silent: HarfBuzz
+# keeps deltas as floats on its drawing path, and shifts a glyph by its left
+# phantom point ('Undocumented rasterizer behavior'). Jev 0.78 to follow it.
+
+[sources.harfbuzz-12-3-0-glyph]
+key    = "harfbuzz-12-3-0-glyph"
+title  = "HarfBuzz 12.3.0, OT/glyf/Glyph.hh -- get_points: phantom points, composites, USE_MY_METRICS, and the undocumented left-side-bearing shift"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/Glyph.hh"
+file   = "harfbuzz-12.3.0-glyf-Glyph.hh"
+sha256 = "c6135d03ceaefa20856162709653b27e1d6737b390a0bac57d5bc696495cbf43"
+bytes  = 18279
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2, where the OpenType gvar chapter is silent: HarfBuzz
+# keeps deltas as floats on its drawing path, and shifts a glyph by its left
+# phantom point ('Undocumented rasterizer behavior'). Jev 0.78 to follow it.
+
+[sources.harfbuzz-12-3-0-var-common]
+key    = "harfbuzz-12-3-0-var-common"
+title  = "HarfBuzz 12.3.0, hb-ot-var-common.hh -- calculate_scalar, the tuple iterator and decompile_points"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-common.hh"
+file   = "harfbuzz-12.3.0-hb-ot-var-common.hh"
+sha256 = "ffb9c893973466f6d2de3cdd57a3c63d494c6e049fce978afa178d1363a59cde"
+bytes  = 72816
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2: the order of the tuple scalar's tests (a coordinate
+# of 0 ends a tuple before its region is asked whether it is valid), the
+# iterator's validity rule, and a point run that overruns its count refused.
+
+[sources.harfbuzz-12-3-0-open-type]
+key    = "harfbuzz-12-3-0-open-type"
+title  = "HarfBuzz 12.3.0, hb-open-type.hh -- TupleValues::decompile: zero, byte, word and 32-bit delta runs"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-open-type.hh"
+file   = "harfbuzz-12.3.0-hb-open-type.hh"
+sha256 = "e9be5163b334e99420f63a716ab03b45e3ba599aa12a847ca67207bde51d34d1"
+bytes  = 61393
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2: packed deltas decode a 0xC0 run as 32-bit values,
+# and a run that overruns the count is malformed.
+
+[sources.harfbuzz-12-3-0-limits]
+key    = "harfbuzz-12-3-0-limits"
+title  = "HarfBuzz 12.3.0, hb-limits.hh -- HB_MAX_GRAPH_EDGE_COUNT and the nesting and point bounds"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-limits.hh"
+file   = "harfbuzz-12.3.0-hb-limits.hh"
+sha256 = "cd02097f5a19b1372e2382fbd19d0295e8d14451ebde83210a83c100d4e58ccd"
+bytes  = 2981
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2: the varied outline walk takes HarfBuzz's edge
+# bound, 2,048, read here rather than recalled.
+
+[sources.harfbuzz-12-3-0-composite-glyph]
+key    = "harfbuzz-12-3-0-composite-glyph"
+title  = "HarfBuzz 12.3.0, OT/glyf/CompositeGlyph.hh -- a component's offset point, its transform, and the order of matrix and offset"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/CompositeGlyph.hh"
+file   = "harfbuzz-12.3.0-glyf-CompositeGlyph.hh"
+sha256 = "7e1a09a2e04438d768cd943e711987254f43f80df83c38e72f7798a1a6a7e5a5"
+bytes  = 11667
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 2: each component record is one offset point marked
+# as a contour end, and its points are transformed by the matrix before the
+# offset is added (unless SCALED_COMPONENT_OFFSET, which baud ignores).
+
+[sources.harfbuzz-12-3-0-hvar]
+key    = "harfbuzz-12-3-0-hvar"
+title  = "HarfBuzz 12.3.0, hb-ot-var-hvar-table.hh -- HVAR's sanitize and get_advance_delta_unscaled"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-var-hvar-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-var-hvar-table.hh"
+sha256 = "8a2d3b030ae520d3afdd7d74c8831a8555a7ccb93513b2f03a7ccb2de0ac24cb"
+bytes  = 15347
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: a table whose major version is not 1 or any of whose four offsets fails its target's check is not read, and an advance delta is the item variation store's value at the advance map's index.
+
+[sources.harfbuzz-12-3-0-hmtx]
+key    = "harfbuzz-12-3-0-hmtx"
+title  = "HarfBuzz 12.3.0, hb-ot-hmtx-table.hh -- get_advance_with_var_unscaled: hmtx plus roundf of the HVAR delta, floored at 0"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-hmtx-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-hmtx-table.hh"
+sha256 = "4364fc2190ca08577ffc3aa1642d9f2660c5414ccff24260065c38b39cd3787f"
+bytes  = 15446
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: the HVAR advance rounds the delta alone and floors the sum at 0.
+
+[sources.harfbuzz-12-3-0-layout-common]
+key    = "harfbuzz-12-3-0-layout-common"
+title  = "HarfBuzz 12.3.0, hb-ot-layout-common.hh -- ItemVariationStore, VarData, VarRegionList, DeltaSetIndexMap"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-layout-common.hh"
+file   = "harfbuzz-12.3.0-hb-ot-layout-common.hh"
+sha256 = "bd1ab0ae252f17301efdf04d6719fe1bed3156019b600e64de315b221f7d7a23"
+bytes  = 148478
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3 (and step 4's GDEF): f32 scalars and deltas, a region past the list scoring 0, a disordered or zero-straddling region scoring 1, the delta-set map's clamp and repacking.
+
+[sources.harfbuzz-12-3-0-ot-font]
+key    = "harfbuzz-12-3-0-ot-font"
+title  = "HarfBuzz 12.3.0, hb-ot-font.cc -- hb_ot_get_glyph_h_advances: HVAR first, gvar's phantom points second, hmtx otherwise"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-font.cc"
+file   = "harfbuzz-12.3.0-hb-ot-font.cc"
+sha256 = "b199b0f5121d6fd9ccf26e58596880b4f0fcecb1ea78192c6f21cec8f6b38bcc"
+bytes  = 30620
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: which source an advance at a variation comes from.
+
+[sources.harfbuzz-12-3-0-glyf-glyf]
+key    = "harfbuzz-12-3-0-glyf-glyf"
+title  = "HarfBuzz 12.3.0, OT/glyf/glyf.hh -- get_advance_with_var_unscaled: the phantom walk, roundf of the extent, upem / 2 on a refused walk"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/glyf.hh"
+file   = "harfbuzz-12.3.0-glyf-glyf.hh"
+sha256 = "2b8ac24257f236cec4a51f8dc68afdd54fa906f64a304864497566937e962326"
+bytes  = 17527
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: the no-HVAR advance is the rounded extent of the phantom points of a phantom_only walk.
+
+[sources.harfbuzz-12-3-0-simple-glyph]
+key    = "harfbuzz-12-3-0-simple-glyph"
+title  = "HarfBuzz 12.3.0, OT/glyf/SimpleGlyph.hh -- get_contour_points: a phantom_only walk counts points from endPtsOfContours and decodes none"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/SimpleGlyph.hh"
+file   = "harfbuzz-12.3.0-glyf-SimpleGlyph.hh"
+sha256 = "05c42ce1da4a198aa8ef55c2ee6c753a6bd38aa22b23e80bc87b5ef4f95b7e27"
+bytes  = 10406
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: what a phantom walk checks of a simple glyph.
+
+[sources.harfbuzz-12-3-0-sanitize]
+key    = "harfbuzz-12-3-0-sanitize"
+title  = "HarfBuzz 12.3.0, hb-sanitize.hh -- sanitize_blob: a table that fails any check becomes the empty blob, with no neutering pass"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-sanitize.hh"
+file   = "harfbuzz-12.3.0-hb-sanitize.hh"
+sha256 = "84bab23aa0035d9720fe0a7c384cb9d7898520967c4e91d34edcafb2363286df"
+bytes  = 13759
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: malformed variation data refuses the whole table rather than nulling one offset.
+
+[sources.harfbuzz-12-3-0-hb]
+key    = "harfbuzz-12-3-0-hb"
+title  = "HarfBuzz 12.3.0, hb.hh -- #define roundf(x) _hb_roundf(x), which is floorf (x + .5f)"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb.hh"
+file   = "harfbuzz-12.3.0-hb.hh"
+sha256 = "1a27c9ebfc36f3c6d59bf2e630285335af0957023564e322808d01e8898e8f28"
+bytes  = 18542
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 3: every roundf in HarfBuzz rounds a half up, not away from zero; step 1's normalisation had assumed the C library's.
+
+
+
+[sources.harfbuzz-12-3-0-anchor-format3]
+key    = "harfbuzz-12-3-0-anchor-format3"
+title  = "HarfBuzz 12.3.0, OT/Layout/GPOS/AnchorFormat3.hh -- get_anchor: the coordinate plus its device's delta when the font has a ppem or nonzero coordinates; sanitize checks both devices"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/Layout/GPOS/AnchorFormat3.hh"
+file   = "harfbuzz-12.3.0-OT-Layout-GPOS-AnchorFormat3.hh"
+sha256 = "8ecd88ea3508d3bc572191df61fd73a7bcd92f860ed93459dc05d7bb3157c4b5"
+bytes  = 4747
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 4: an anchor's variation device moves it by the store's delta.
+
+[sources.harfbuzz-12-3-0-mark-array]
+key    = "harfbuzz-12-3-0-mark-array"
+title  = "HarfBuzz 12.3.0, OT/Layout/GPOS/MarkArray.hh -- a mark's offset is roundf of base anchor minus mark anchor"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/Layout/GPOS/MarkArray.hh"
+file   = "harfbuzz-12.3.0-OT-Layout-GPOS-MarkArray.hh"
+sha256 = "6c6841b1d0d6a4769e9fee18a87af6fcfa4c52284d4180c84850376c873fb89d"
+bytes  = 4044
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 4: where the anchors' float sum is rounded.
+
+[sources.harfbuzz-12-3-0-font]
+key    = "harfbuzz-12-3-0-font"
+title  = "HarfBuzz 12.3.0, hb-font.hh -- em_scalef rounds with roundf, em_fscale does not"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-font.hh"
+file   = "harfbuzz-12.3.0-hb-font.hh"
+sha256 = "559ddf0d66f27016847563fa5d95d303a3747a06d393c1ab0deaba13ab6156b2"
+bytes  = 33559
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 4: a device delta is rounded to a whole unit before it is added to the anchor.
+
+[sources.harfbuzz-12-3-0-gdef]
+key    = "harfbuzz-12-3-0-gdef"
+title  = "HarfBuzz 12.3.0, OT/Layout/GDEF/GDEF.hh -- the version 1.3 item variation store offset, and a sanitize that refuses the whole table on a bad store"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/Layout/GDEF/GDEF.hh"
+file   = "harfbuzz-12.3.0-OT-Layout-GDEF-GDEF.hh"
+sha256 = "fa6ecfc02fd34bec3b8b9ad28c039f13d3465679b2ff81f4a8f0ce49fb81994e"
+bytes  = 31999
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 4: where GDEF's store is and what a malformed one does in HarfBuzz; baud keeps its per-subtable rule instead (Jev B, 0.84).

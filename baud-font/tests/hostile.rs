@@ -23,6 +23,27 @@ use proptest::prelude::*;
 
 const JETBRAINS: &[u8] = include_bytes!("fonts/JetBrainsMono-Regular.ttf");
 const NOTO_SUBSET: &[u8] = include_bytes!("fonts/NotoColorEmoji-subset.ttf");
+/// 2.5 KB of `gvar`-heavy font: a flipped byte lands in the variation data
+/// far more often than in a real face.
+const GVAR_CASES: &[u8] = include_bytes!("var/gvar-cases.ttf");
+/// A hand-written `HVAR` and a phantom-point font: a flipped byte lands in
+/// the item variation store, the maps and the composite chains.
+const HVAR_CASES: &[u8] = include_bytes!("var/hvar/cases.ttf");
+const PHANTOM_CASES: &[u8] = include_bytes!("var/hvar/phantom.ttf");
+const JETBRAINS_VAR: &[u8] = include_bytes!("fonts/JetBrainsMono-Variable.ttf");
+
+/// Where table `tag` lies in an sfnt: its record's offset and length.
+fn table_range(data: &[u8], tag: [u8; 4]) -> (usize, usize) {
+    let be16 = |at: usize| usize::from(u16::from_be_bytes([data[at], data[at + 1]]));
+    let be32 = |at: usize| {
+        usize::try_from(u32::from_be_bytes(data[at..at + 4].try_into().unwrap())).unwrap()
+    };
+    (0..be16(4))
+        .map(|i| 12 + 16 * i)
+        .find(|&r| data[r..r + 4] == tag)
+        .map(|r| (be32(r + 8), be32(r + 12)))
+        .unwrap()
+}
 
 /// A sink that discards everything: the property is that emitting does not
 /// panic, not what is emitted.
@@ -89,6 +110,38 @@ fn exercise(data: &[u8]) {
                 let _ = face.variation(c, vs);
             }
         }
+        varied(face, count);
+    }
+}
+
+/// Every glyph again at a variation away from the default on both axes the
+/// committed variable fonts use: the refusal, the need walk, and the varied
+/// draw with exactly the scratch the need names -- the need being the one
+/// number a caller sizes a buffer from, a hostile font must not make it
+/// short. A need past a bound is refused, as a caller would.
+fn varied(mut face: Face<'_>, count: u32) {
+    const BOUND: u32 = 1 << 16;
+    let at = |t: &[u8; 4], v: i32| baud_font::var::Variation {
+        tag: baud_font::Tag::from_bytes(*t),
+        value: baud_font::var::Fixed(v << 16),
+    };
+    face.set_variations(&[at(b"wght", 700), at(b"wdth", 150)]);
+    // Mark anchors move at a variation: GDEF's store and GPOS's devices.
+    shape_some(&face);
+    for g in 0..count {
+        let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());
+        let _ = face.outline(g, &mut Null);
+        let _ = face.advance(g);
+        let need = face.outline_need(g).value();
+        if need > BOUND {
+            continue;
+        }
+        let mut scratch = vec![baud_font::VarPoint::EMPTY; usize::try_from(need).unwrap()];
+        let drawn = face.outline_at(g, &mut scratch, &mut Null);
+        assert!(
+            !matches!(drawn, baud_font::Drawn::NeedsScratch(_)),
+            "the need was short: {need}"
+        );
     }
 }
 
@@ -102,6 +155,8 @@ fn shape_some(face: &Face<'_>) {
         &[0x2D],
         &[0x3E],
         &[0x65, 0x0301],
+        &[0x61, 0x0308, 0x0301],
+        &[0x6F, 0x0323, 0x0302],
         &[0x1F468, 0x200D, 0x1F469],
         &[0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467],
         &[0x1F1EC, 0x1F1E7],
@@ -180,6 +235,57 @@ proptest! {
             data[at] = byte;
         }
         exercise(&data);
+    }
+
+    #[test]
+    fn a_mutated_variable_face_never_panics(
+        flips in proptest::collection::vec((0usize..GVAR_CASES.len(), any::<u8>()), 1..8)
+    ) {
+        let mut data = GVAR_CASES.to_vec();
+        for (at, byte) in flips {
+            data[at] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_truncated_variable_face_never_panics(len in 0usize..GVAR_CASES.len()) {
+        exercise(&GVAR_CASES[..len]);
+    }
+
+    #[test]
+    fn a_mutated_advance_face_never_panics(
+        phantom in any::<bool>(),
+        flips in proptest::collection::vec((0usize..HVAR_CASES.len(), any::<u8>()), 1..8)
+    ) {
+        let mut data = if phantom { PHANTOM_CASES } else { HVAR_CASES }.to_vec();
+        for (at, byte) in flips {
+            let at = at % data.len();
+            data[at] = byte;
+        }
+        exercise(&data);
+    }
+
+    /// Byte flips inside the variable face's `GDEF` and `GPOS`, where its
+    /// item variation store and 876 anchor devices are: a flip anywhere in
+    /// 300 KB lands there too rarely to test them.
+    #[test]
+    fn a_mutated_variable_layout_never_panics(
+        in_gdef in any::<bool>(),
+        flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8)
+    ) {
+        let mut data = JETBRAINS_VAR.to_vec();
+        let (start, len) = table_range(JETBRAINS_VAR, if in_gdef { *b"GDEF" } else { *b"GPOS" });
+        for (at, byte) in flips {
+            data[start + at % len] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_truncated_advance_face_never_panics(len in 0usize..HVAR_CASES.len()) {
+        exercise(&HVAR_CASES[..len]);
+        exercise(&PHANTOM_CASES[..len.min(PHANTOM_CASES.len())]);
     }
 
     #[test]

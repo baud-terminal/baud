@@ -386,6 +386,13 @@ pub struct Gdef<'a> {
     classes: Option<ClassDef<'a>>,
     mark_attach: Option<ClassDef<'a>>,
     mark_sets: Option<(Bytes<'a>, Array<'a, u32>)>,
+    /// Version 1.3's item variation store, which a device table indexes:
+    /// `None` when the table is older, the offset 0, or the store
+    /// malformed -- every delta is then 0, the per-subtable rule this
+    /// reader keeps for every part of `GDEF` (note Z step 4; Jev B, 0.84).
+    /// HarfBuzz refuses the whole table on a malformed store
+    /// (`[[source: harfbuzz-12-3-0-gdef]]`).
+    store: Option<crate::ivs::Store<'a>>,
 }
 
 impl<'a> Gdef<'a> {
@@ -417,11 +424,26 @@ impl<'a> Gdef<'a> {
         } else {
             None
         };
+        let store = if minor >= 3 {
+            // A header too short for the offset is no store, not no GDEF.
+            data.read::<u32>(Offset::of(14u32))
+                .filter(|off| *off != 0)
+                .and_then(|off| data.tail(Offset::of(off)))
+                .and_then(crate::ivs::Store::parse)
+        } else {
+            None
+        };
         Some(Gdef {
             classes,
             mark_attach,
             mark_sets,
+            store,
         })
+    }
+
+    /// The item variation store, for a device table's delta.
+    pub(crate) fn store(&self) -> Option<crate::ivs::Store<'a>> {
+        self.store
     }
 
     pub fn class(&self, g: GlyphId) -> GlyphClass {
@@ -773,5 +795,67 @@ impl<'a> Layout<'a> {
             table,
             subtables,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A GDEF of `minor` version whose glyph class definition (format 1,
+    /// glyph 3 is a mark) sits at 18 and whose item variation store, when
+    /// version 1.3 names one, is `store_at` from the table's start.
+    fn gdef(version: [u8; 4], store_at: [u8; 4]) -> [u8; 60] {
+        let mut t = [0u8; 60];
+        t[..4].copy_from_slice(&version);
+        t[4..6].copy_from_slice(&18u16.to_be_bytes());
+        t[14..18].copy_from_slice(&store_at);
+        // ClassDef format 1: start glyph 3, one class, class 3 (mark).
+        t[18..26].copy_from_slice(&[0, 1, 0, 3, 0, 1, 0, 3]);
+        // The store at 26: one empty data set, no regions.
+        t[26..34].copy_from_slice(&[0, 1, 0, 0, 0, 0, 0, 1]);
+        t[34..38].copy_from_slice(&12u32.to_be_bytes());
+        t[38..44].copy_from_slice(&[0, 0, 0, 0, 0, 0]);
+        t
+    }
+
+    const V1_2: [u8; 4] = [0, 1, 0, 2];
+    const V1_3: [u8; 4] = [0, 1, 0, 3];
+
+    fn mark(g: &Gdef<'_>) -> bool {
+        g.is_mark(GlyphId::from_shaper(3))
+    }
+
+    /// Version 1.3 names a store, and a version below it cannot: the same
+    /// bytes at 14 read as no store under 1.2.
+    #[test]
+    fn a_store_is_read_from_version_one_point_three() {
+        let t = gdef(V1_3, 26u32.to_be_bytes());
+        let g = Gdef::parse(Bytes::new(&t)).unwrap();
+        assert!(g.store().is_some() && mark(&g));
+        let t = gdef(V1_2, 26u32.to_be_bytes());
+        let g = Gdef::parse(Bytes::new(&t)).unwrap();
+        assert!(g.store().is_none() && mark(&g));
+        let t = gdef(V1_3, 0u32.to_be_bytes());
+        assert!(Gdef::parse(Bytes::new(&t)).unwrap().store().is_none());
+    }
+
+    /// A malformed store is no store and the rest of the table stands --
+    /// the per-subtable rule this reader keeps, where HarfBuzz refuses the
+    /// whole GDEF (Jev B, 0.84) -- and so does a 1.3 header too short to
+    /// hold the offset.
+    #[test]
+    fn a_malformed_store_leaves_the_classes() {
+        let mut t = gdef(V1_3, 26u32.to_be_bytes());
+        t[26..28].copy_from_slice(&[0, 2]);
+        let g = Gdef::parse(Bytes::new(&t)).unwrap();
+        assert!(g.store().is_none() && mark(&g), "format 2");
+        let t = gdef(V1_3, 0xFFFF0u32.to_be_bytes());
+        let g = Gdef::parse(Bytes::new(&t)).unwrap();
+        assert!(g.store().is_none() && mark(&g), "past the table");
+        let mut t = gdef(V1_3, 26u32.to_be_bytes());
+        t[4..6].copy_from_slice(&0u16.to_be_bytes());
+        let g = Gdef::parse(Bytes::new(&t[..16])).unwrap();
+        assert!(g.store().is_none(), "a header cut at 16");
     }
 }

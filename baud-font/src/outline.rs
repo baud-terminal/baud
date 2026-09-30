@@ -29,6 +29,11 @@ pub trait Sink {
 pub enum Drawn {
     Outline,
     Nothing,
+    /// A glyph whose outline varies at the face's coordinates, asked for
+    /// without scratch or with too little: it needs this many points of
+    /// [`crate::VarPoint`], and nothing was drawn -- never the default
+    /// instance in its place.
+    NeedsScratch(crate::bytes::Count),
 }
 
 /// An affine transform, `[a b c d e f]` in the order the specifications

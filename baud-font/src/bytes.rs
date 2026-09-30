@@ -125,6 +125,16 @@ impl Count {
     pub(crate) fn slot(self) -> usize {
         usize::try_from(self.0).unwrap_or(usize::MAX)
     }
+
+    /// `self + n`, or `None` past `u32::MAX`.
+    pub fn plus(self, n: Count) -> Option<Count> {
+        self.0.checked_add(n.0).map(Count)
+    }
+
+    /// `self - n`, or `None` below zero.
+    pub fn minus(self, n: Count) -> Option<Count> {
+        self.0.checked_sub(n.0).map(Count)
+    }
 }
 
 /// A position in an array.
@@ -194,6 +204,7 @@ be!(u8, 1);
 be!(u16, 2);
 be!(u32, 4);
 be!(i16, 2);
+be!(i32, 4);
 
 /// A 24-bit unsigned value, which `cmap` format 14 stores codepoints in.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

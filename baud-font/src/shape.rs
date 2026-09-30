@@ -537,7 +537,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // lookup leaves its marks at the pen, and so does baud.
         match self.face.gpos() {
             Some(gpos) => {
-                let d = gpos.apply(&mut self.buf, features);
+                let d = gpos.apply(&mut self.buf, features, self.face.coords());
                 declined = Count::of(declined.value().saturating_add(d.value()));
             }
             None => self.fallback_marks(),
