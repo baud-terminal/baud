@@ -8637,3 +8637,157 @@ bytes  = 31999
 status = "retrieved"
 group  = "J"
 # Read for note Z's step 4: where GDEF's store is and what a malformed one does in HarfBuzz; baud keeps its per-subtable rule instead (Jev B, 0.84).
+
+[sources.fonttools-4-63-0-instancer]
+key    = "fonttools-4-63-0-instancer"
+title  = "fontTools 4.63.0, varLib/instancer/__init__.py -- instantiateVariableFont's order, instantiateTupleVariationStore (scale, infer, sum), _instantiateGvarGlyph, the normalize that quantizes to 2.14, setMacOverlapFlags, instantiateOTL's GDEF downgrade"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/__init__.py"
+file   = "fonttools-4.63.0-varLib-instancer-__init__.py"
+sha256 = "e7d0f163dc19bb145b51f8f52a763d15e6260c8af60281efededb8e09f05977b"
+bytes  = 75423
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: the bake's whole order of work, and the normalization that differs from HarfBuzz's.
+
+[sources.fonttools-4-63-0-solver]
+key    = "fonttools-4-63-0-solver"
+title  = "fontTools 4.63.0, varLib/instancer/solver.py -- rebaseTent and _solve: a pinned axis reduces to supportScalar of the tent"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/instancer/solver.py"
+file   = "fonttools-4.63.0-varLib-instancer-solver.py"
+sha256 = "b8c78fc17d01553e45f78914bc3825b08e3f1749c41faec5ed116e27ab50c10d"
+bytes  = 11002
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: that a tuple's scalar at a pinned location is supportScalar.
+
+[sources.fonttools-4-63-0-iup]
+key    = "fonttools-4-63-0-iup"
+title  = "fontTools 4.63.0, varLib/iup.py -- iup_segment, iup_contour and iup_delta: the phantoms are their own contours"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/iup.py"
+file   = "fonttools-4.63.0-varLib-iup.py"
+sha256 = "98aabf1915ae520e324e6c36577da7bb4bf6afe4b3ccdef14bbac86d5d2662e7"
+bytes  = 14984
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: the inference formula and its order of operations.
+
+[sources.fonttools-4-63-0-models]
+key    = "fonttools-4-63-0-models"
+title  = "fontTools 4.63.0, varLib/models.py -- normalizeValue, supportScalar and piecewiseLinearMap"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/models.py"
+file   = "fonttools-4.63.0-varLib-models.py"
+sha256 = "d9caf7863c0a77a13ab9c88e5598b187467e4c04c4b546be2c41ac0cadf3bea9"
+bytes  = 22910
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: the tent, and avar as a dictionary over 2.14 floats.
+
+[sources.fonttools-4-63-0-glyf]
+key    = "fonttools-4-63-0-glyf"
+title  = "fontTools 4.63.0, ttLib/tables/_g_l_y_f.py -- _getPhantomPoints, _setCoordinates, recalcBounds, tryRecalcBoundsComposite, _hasOnlyIntegerTranslate, getCoordinates and GlyphComponent.compile"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_g_l_y_f.py"
+file   = "fonttools-4.63.0-ttLib-tables-_g_l_y_f.py"
+sha256 = "3bd4c04ea737d01fd9ee1f87c017c079168e334025f385697117807c5b18a1d5"
+bytes  = 85308
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: phantoms from the stored xMin, lsb from the recomputed one, and when a composite is flattened.
+
+[sources.fonttools-4-63-0-hhea]
+key    = "fonttools-4-63-0-hhea"
+title  = "fontTools 4.63.0, ttLib/tables/_h_h_e_a.py -- recalc: advanceWidthMax over every glyph, the side bearings and extent over the drawn ones"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_h_h_e_a.py"
+file   = "fonttools-4.63.0-ttLib-tables-_h_h_e_a.py"
+sha256 = "5f8b75685d4c64cbb3de984255217029c3537a865dc7ed38db016d1dcfa72bdc"
+bytes  = 4767
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: what hhea recomputes.
+
+[sources.fonttools-4-63-0-maxp]
+key    = "fonttools-4-63-0-maxp"
+title  = "fontTools 4.63.0, ttLib/tables/_m_a_x_p.py -- recalc: head's bounds over the drawn glyphs and flags bit 1"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/_m_a_x_p.py"
+file   = "fonttools-4.63.0-ttLib-tables-_m_a_x_p.py"
+sha256 = "7080c8656b1ef5ccf0c2c9e5c48877ab08306976edecf4008d7280726303b296"
+bytes  = 5264
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: head's bounds and its lsb-is-xMin bit.
+
+[sources.fonttools-4-63-0-os2]
+key    = "fonttools-4-63-0-os2"
+title  = "fontTools 4.63.0, ttLib/tables/O_S_2f_2.py -- recalcAvgCharWidth over the nonzero advances"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/O_S_2f_2.py"
+file   = "fonttools-4.63.0-ttLib-tables-O_S_2f_2.py"
+sha256 = "0f080e2cda9c03420858b4bcfc6e4f832e35687f8708490e5e53f5a86bb68e59"
+bytes  = 28030
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: OS/2's average advance.
+
+[sources.fonttools-4-63-0-merger]
+key    = "fonttools-4-63-0-merger"
+title  = "fontTools 4.63.0, varLib/merger.py -- MutatorMerger on Anchor, CaretValue and ValueRecord: the delta rounded with otRound and added, the anchor made format 1"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/varLib/merger.py"
+file   = "fonttools-4.63.0-varLib-merger.py"
+sha256 = "139f68962e00c2a599f85827b92b4c481bec07e1477bee797ac5d3614a86789f"
+bytes  = 60802
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: an anchor's device baked into its coordinate.
+
+[sources.fonttools-4-63-0-tuplevariation]
+key    = "fonttools-4-63-0-tuplevariation"
+title  = "fontTools 4.63.0, ttLib/tables/TupleVariation.py -- scaleDeltas, calcInferredDeltas and __iadd__"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/ttLib/tables/TupleVariation.py"
+file   = "fonttools-4.63.0-ttLib-tables-TupleVariation.py"
+sha256 = "d42a2ddc4a23f8efc97c43d429ddb0261d63268aacf1e883d2c99a431bbd1653"
+bytes  = 32196
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: deltas scaled before they are inferred, and summed tuple by tuple.
+
+[sources.fonttools-4-63-0-fixedtools]
+key    = "fonttools-4-63-0-fixedtools"
+title  = "fontTools 4.63.0, misc/fixedTools.py -- floatToFixed and floatToFixedToFloat round with otRound"
+author = "The fontTools authors"
+year   = 2026
+venue  = "fontTools (MIT licence)"
+url    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/Lib/fontTools/misc/fixedTools.py"
+file   = "fonttools-4.63.0-misc-fixedTools.py"
+sha256 = "5f2703e50a5a7a3244f8615a14c94b964bba446d22a49a30b9a98c5e316b3234"
+bytes  = 7668
+status = "retrieved"
+group  = "J"
+# Read for note Z's step 5, the bake: the 2.14 quantization.

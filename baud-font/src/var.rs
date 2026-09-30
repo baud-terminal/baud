@@ -186,7 +186,7 @@ impl<'a> Avar<'a> {
 
     /// Axis `axis`'s segment map, as the bytes of its `AxisValueMap`
     /// records: four bytes each, from and to in 2.14.
-    fn map(&self, axis: Index) -> Option<(Bytes<'a>, Count)> {
+    pub(crate) fn map(&self, axis: Index) -> Option<(Bytes<'a>, Count)> {
         if !self.count.holds(axis) {
             return None;
         }

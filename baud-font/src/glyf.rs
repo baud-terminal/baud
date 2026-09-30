@@ -192,6 +192,18 @@ impl<'a> Loca<'a> {
         let len = end.since(start)?;
         (!len.is_zero()).then_some((start, len))
     }
+
+    /// As [`Loca::range`], but an empty glyph is an empty range rather than
+    /// none, for the bake, which must tell it from an absent one.
+    pub(crate) fn range_or_empty(&self, g: GlyphId) -> Option<(Offset, Len)> {
+        let i = Index::of(u32::try_from(g.index()).ok()?);
+        let next = i.next();
+        if !self.entries.holds(next) {
+            return None;
+        }
+        let start = self.entry(i)?;
+        Some((start, self.entry(next)?.since(start)?))
+    }
 }
 
 fn len_value(l: Len) -> u32 {
@@ -309,10 +321,10 @@ pub(crate) enum LastPoint {
 
 /// A simple glyph's flag byte.
 #[derive(Clone, Copy)]
-struct Flags(u8);
+pub(crate) struct Flags(pub(crate) u8);
 
 impl Flags {
-    fn on_curve(self) -> OnCurve {
+    pub(crate) fn on_curve(self) -> OnCurve {
         if self.0 & 0x01 != 0 {
             OnCurve::Yes
         } else {
@@ -338,25 +350,25 @@ impl Flags {
 
 /// A composite record's flag word.
 #[derive(Clone, Copy)]
-struct Component(u16);
+pub(crate) struct Component(pub(crate) u16);
 
 impl Component {
-    fn words(self) -> bool {
+    pub(crate) fn words(self) -> bool {
         self.0 & 0x0001 != 0
     }
-    fn xy_values(self) -> bool {
+    pub(crate) fn xy_values(self) -> bool {
         self.0 & 0x0002 != 0
     }
-    fn scale(self) -> bool {
+    pub(crate) fn scale(self) -> bool {
         self.0 & 0x0008 != 0
     }
     fn more(self) -> bool {
         self.0 & 0x0020 != 0
     }
-    fn xy_scale(self) -> bool {
+    pub(crate) fn xy_scale(self) -> bool {
         self.0 & 0x0040 != 0
     }
-    fn two_by_two(self) -> bool {
+    pub(crate) fn two_by_two(self) -> bool {
         self.0 & 0x0080 != 0
     }
     fn use_my_metrics(self) -> bool {
@@ -368,24 +380,27 @@ impl Component {
 /// with the x/y offset in `e` and `f` (zero for an anchored component, whose
 /// arguments name points rather than an offset).
 #[derive(Clone, Copy)]
-struct Comp {
-    flags: Component,
-    glyph: GlyphId,
-    t: Transform,
+pub(crate) struct Comp {
+    pub(crate) flags: Component,
+    pub(crate) glyph: GlyphId,
+    pub(crate) t: Transform,
+    /// Where the record ends in the glyph's body: after the last one, a
+    /// composite's instructions follow.
+    pub(crate) end: Offset,
 }
 
 /// The records of a composite glyph, in order. The one decoder of them: the
 /// default path composes each record's transform into its parent's, the
 /// varied path takes the offset apart so a delta can move it.
-struct Comps<'a> {
-    body: Bytes<'a>,
-    at: Option<Offset>,
+pub(crate) struct Comps<'a> {
+    pub(crate) body: Bytes<'a>,
+    pub(crate) at: Option<Offset>,
 }
 
-impl Comps<'_> {
+impl<'a> Comps<'a> {
     /// The next record; `Some(None)` when the list is done, `None` when it
     /// is malformed.
-    fn next(&mut self) -> Option<Option<Comp>> {
+    pub(crate) fn next(&mut self) -> Option<Option<Comp>> {
         let Some(mut at) = self.at else {
             return Some(None);
         };
@@ -438,6 +453,7 @@ impl Comps<'_> {
             flags,
             glyph: GlyphId::from_shaper(glyph),
             t,
+            end: at,
         }))
     }
 }
@@ -553,16 +569,19 @@ impl Coords<'_> {
 /// A simple glyph's point data, located: the one decoder of it, which the
 /// default path streams into a contour and the varied path copies into
 /// scratch.
-struct Simple<'a> {
-    ends: Array<'a, u16>,
-    points: Count,
+#[derive(Clone, Copy)]
+pub(crate) struct Simple<'a> {
+    pub(crate) ends: Array<'a, u16>,
+    pub(crate) points: Count,
+    /// The instruction bytes, which a writer copies through.
+    pub(crate) instructions: Bytes<'a>,
     flags: Bytes<'a>,
     x_coords: Bytes<'a>,
     y_coords: Bytes<'a>,
 }
 
 impl<'a> Simple<'a> {
-    fn parse(body: Bytes<'a>, contours: Count) -> Option<Simple<'a>> {
+    pub(crate) fn parse(body: Bytes<'a>, contours: Count) -> Option<Simple<'a>> {
         let ends: Array<'a, u16> = body.array(Offset::ZERO, contours)?;
         let last_end = ends.get(contours.last()?)?;
         let points = Count::of(u32::from(last_end).checked_add(1)?);
@@ -571,6 +590,10 @@ impl<'a> Simple<'a> {
         let flags_at = after_ends
             .plus(Len::of(2))?
             .plus(Len::of(u32::from(instructions)))?;
+        let program = body.slice(
+            after_ends.plus(Len::of(2))?,
+            Len::of(u32::from(instructions)),
+        )?;
         let flags = body.tail(flags_at)?;
         let (xs, ys, flag_bytes) = coord_lengths(flags, points.value())?;
         let flags = flags.slice(Offset::ZERO, flag_bytes)?;
@@ -579,6 +602,7 @@ impl<'a> Simple<'a> {
         Some(Simple {
             ends,
             points,
+            instructions: program,
             flags,
             x_coords: body.slice(x_at, xs)?,
             y_coords: body.slice(y_at, ys)?,
@@ -587,7 +611,13 @@ impl<'a> Simple<'a> {
 
     /// Every point, in order, with whether it is on the curve and whether it
     /// ends its contour.
-    fn each(&self, mut f: impl FnMut((f32, f32), OnCurve, LastPoint)) {
+    pub(crate) fn each(&self, mut f: impl FnMut((f32, f32), OnCurve, LastPoint)) {
+        self.each_flag(|p, fl, last| f(p, fl.on_curve(), last));
+    }
+
+    /// Every point with its stored flag byte, which a writer carries the
+    /// on-curve, overlap and cubic bits of.
+    pub(crate) fn each_flag(&self, mut f: impl FnMut((f32, f32), Flags, LastPoint)) {
         let ends = self.ends;
         let mut xc = Coords {
             data: self.x_coords,
@@ -631,7 +661,7 @@ impl<'a> Simple<'a> {
             }
             let x = xc.next(fl.x_delta());
             let y = yc.next(fl.y_delta());
-            f((f32::from(x), f32::from(y)), fl.on_curve(), last);
+            f((f32::from(x), f32::from(y)), fl, last);
         }
     }
 }
@@ -672,8 +702,15 @@ impl<'a> Glyf<'a> {
         Glyf { loca, data }
     }
 
-    fn glyph(&self, g: GlyphId) -> Option<Bytes<'a>> {
+    pub(crate) fn glyph(&self, g: GlyphId) -> Option<Bytes<'a>> {
         let (at, len) = self.loca.range(g)?;
+        self.data.slice(at, len)
+    }
+
+    /// Glyph `g`'s bytes, empty for an empty glyph; `None` when `loca` has
+    /// no entry for it or names bytes past `glyf`.
+    pub(crate) fn glyph_or_empty(&self, g: GlyphId) -> Option<Bytes<'a>> {
+        let (at, len) = self.loca.range_or_empty(g)?;
         self.data.slice(at, len)
     }
 

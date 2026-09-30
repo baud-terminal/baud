@@ -48,8 +48,8 @@ A first ask without them offered only the two runtime shapes and picked
 per-glyph (0.86); that answer is withdrawn because the question was
 incomplete.
 
-One detail is open, and is decided before step 5 is built (step 2 did
-not need it): what the build step emits. Baking outlines and advances is a rewrite of `glyf`, `loca` and
+One detail was open until step 5 was built, and is decided there: what the
+build step emits. Baking outlines and advances is a rewrite of `glyf`, `loca` and
 `hmtx`; baking the 876 GPOS device deltas is a rewrite of GPOS value
 records. The alternative for GPOS is to keep its variation store and read
 it at runtime, which runs only when a run is shaped -- and the run cache
@@ -99,7 +99,7 @@ nothing to vary them by, and a grid's cell must not change with a style.
 2. `gvar` with interpolation and composites: outlines. Built.
 3. `HVAR`: advances. Built.
 4. The item variation store: the 876 GPOS device tables. Built.
-5. The build step that bakes the embedded instances.
+5. The build step that bakes the embedded instances. Built.
 6. The embed swap, with the pixel difference shown to the owner first.
 
 Each step lands with its own red-first tests and perturbations.
@@ -483,3 +483,172 @@ neither is quoted. It is to be retaken on a quiet machine.
 cursive lookups carry and baud's grid runs neither; a store's delta past
 a 16-bit anchor clamps where HarfBuzz's float does not; `GSUB` and `GPOS`
 FeatureVariations, absent from both fonts.
+
+## Step 5, built: the bake
+
+`baud_font::bake(font, wght, scratch, out)` writes one static TrueType
+instance of a variable font into a caller's buffer, `no_std` and
+allocation-free like the rest of the crate: the caller lends the point
+scratch and the output, and a buffer too small is answered with the length
+it needs. It is not yet called by a build script; that is step 6.
+
+**What it emits was the open call, and the answer is a TrueType font with
+its composites kept, point for point what fontTools' instancer writes.**
+Jev put the choice at 0.37, under the bar, so the rule written before
+asking decided it: an unspecified step follows the implementation the
+platform renders with, and fontTools' instancer, the second oracle this
+note names, is that implementation for a bake. Keeping `GPOS`'s variation
+store for the runtime to read was the alternative; it would have kept a
+variation path alive in a font that is otherwise static, and the anchors
+bake in place for nothing.
+
+**The oracle is fontTools 4.63.0, read at source rather than remembered**:
+`[[source: fonttools-4-63-0-instancer]]`, `[[source: fonttools-4-63-0-solver]]`,
+`[[source: fonttools-4-63-0-iup]]`, `[[source: fonttools-4-63-0-models]]`,
+`[[source: fonttools-4-63-0-glyf]]`, `[[source: fonttools-4-63-0-tuplevariation]]`,
+`[[source: fonttools-4-63-0-merger]]`, `[[source: fonttools-4-63-0-hhea]]`,
+`[[source: fonttools-4-63-0-maxp]]`, `[[source: fonttools-4-63-0-os2]]` and
+`[[source: fonttools-4-63-0-fixedtools]]`. Its rules, each of which the bake
+follows and a test holds:
+
+* **Deltas are `f64`, scaled before they are inferred.** A tuple's scalar
+  at a pinned axis reduces, through `rebaseTent`, to `supportScalar` of its
+  tent; an ill-formed tent is dropped (refused here). The explicit deltas
+  are multiplied by it, *then* `iup_delta` fills the rest by `iup_segment`'s
+  formula, `d1 + (x - x1) * ((d2 - d1) / (x2 - x1))`, then the tuples are
+  summed in order. HarfBuzz scales after and writes the ratio the other way
+  round; the two part in the last bit of a double, which lands on a
+  different integer only at a half.
+* **The weight is normalized in floats**: `normalizeValue`, `avar`'s
+  `piecewiseLinearMap` over the 2.14 keys as floats -- a dictionary, so a
+  repeated key keeps its last value -- then `floatToFixedToFloat`. This is
+  not the runtime's rule (step 1 follows HarfBuzz's 16.16 integers), and the
+  two part: the case font's wght 700 bends to 11,469 by HarfBuzz's rule and
+  one unit lower by fontTools', so a delta of -5 is -3.5 exactly and rounds
+  to -3 rather than -4. On JetBrains Mono at 400 and 700 they agree. Jev put
+  HarfBuzz's rule at 0.49, under the bar, so the rule written before asking
+  decided: a step the oracle defines follows the oracle, since the test is
+  exact equality with it.
+* **A glyph's points are the default plus the sum, rounded
+  `floor(x + 0.5)` when written; a composite keeps its components**, each
+  offset moved and rounded, pushed to words when it outgrows a byte.
+* **Bounds are `recalcBounds`.** A composite whose offsets are all whole
+  *before* rounding takes the union of its components' bounds, a degenerate
+  component (a single point) skipped; otherwise it is flattened -- leaf
+  points rounded, float offsets added, nested composites flattened too --
+  and the extremes rounded. On JetBrains Mono at 700, 108 of the upright
+  font's 570 composites and 180 of the italic's take the flattened path:
+  gvar deltas are whole and the scalar is not.
+* **Phantoms start at the stored `xMin` less the left side bearing, and the
+  side bearing is the recomputed `xMin` less the left phantom.** The points
+  are not shifted, so a left-phantom delta lands in `hmtx` and clears
+  `head`'s flags bit 1. JetBrains Mono has none; the case font has one.
+* **An anchor's device delta is rounded and added, and the anchor becomes
+  format 1**; a hinting device is refused. `GDEF` loses its store: to
+  version 1.2 when it names mark glyph sets, to 1.0 when not.
+* **`head`, `hhea` and `OS/2` are recomputed** as fontTools recomputes them:
+  `head`'s bounds and bit 1 from `maxp.recalc`, `hhea`'s extents over the
+  drawn glyphs, `OS/2`'s weight class from the user weight and its average
+  advance over the nonzero ones. The overlap flags are set on the first
+  point of every simple glyph and the first component of every composite.
+
+**Where it writes something else, and why each is so.** Six departures
+from fontTools' bytes went to Jev in one request, with the rule written
+before asking -- match the oracle unless it costs a second pass or a
+feature nothing in baud uses:
+
+| | Jev | decided |
+|---|---|---|
+| `loca` short when `glyf` fits | A, 0.26 | match, by the rule |
+| `hmtx` trimmed to the trailing run | A, 0.10 | match, by the rule |
+| `STAT` instanced | B, 0.55 | dropped, by the rule: nothing reads it |
+| `name` pruned | B, 0.60 | copied whole |
+| transformed components | B, 0.93 | refused |
+| malformed data | B, 0.89 | refused -- fontTools raises too |
+
+So `loca` and `hmtx` are fontTools', without a second pass: the glyphs
+write them at full width, last in the file with `glyf`, and one move
+compacts them after -- which is why a buffer the bake asks for can be
+larger than the font it answers. What stays different changes no glyph,
+metric or anchor: the coordinates are packed by this encoder, `STAT` is
+dropped, `name` is copied whole, and `GDEF`'s store and `GPOS`'s devices
+stay in their tables unreferenced. The four JetBrains Mono instances are
+195-199 KB against fontTools' 191-195 KB, and each bakes in about
+1 ms.
+
+**What it refuses**: CFF outlines, an axis other than `wght`, `cvar`,
+`MVAR`, `VVAR`, `vmtx`, `vhea`, `VARC`, a second `avar` version, feature
+variations, a component anchored by point numbers or carrying a scale, a
+device on a value record or a caret, and malformed data anywhere --
+strictly, where the runtime forgives: a bake writes a font, and a guess
+about a malformed tuple would be written into it.
+
+**The tests**, in `tests/bake.rs`, read the bake's output and fontTools'
+instances with a small `glyf` reader of their own, which shares no code
+with the bake:
+
+* every glyph -- contours, bounds, ends, program, every point's position
+  and on-curve and overlap bits, every component's flags and offset -- and
+  every advance and side bearing, over the four JetBrains Mono instances
+  and four of a case font, `scripts/bake-cases-font.py`, built to reach
+  what JetBrains Mono never makes the bake do: a glyph program, a
+  degenerate component under whole offsets beside one under fractional
+  ones, a nested composite, a left-phantom delta, a second advance, an
+  intermediate region, an `avar`, and a trailing run of equal advances
+  whose trim, like its twelve-glyph `loca`, leaves padding;
+* `head` (but its checksum adjustment), `hhea`, `OS/2`, `maxp`, `post`,
+  `cmap`, `prep` and `gasp` byte for byte, the table set (fontTools' less
+  `STAT`), `GDEF`'s version and every anchor's format;
+* every mark sequence step 4's oracle shapes -- 3,576, 281 of which move at
+  700 -- shaped through both instances, equal;
+* the directory's search fields, every table checksum and the file's,
+  every table's padding zero, and `ttf-parser` reading it;
+* determinism whatever the caller's buffer held, the length a short buffer
+  is told, a short scratch and the refusals.
+
+`tests/hostile.rs` bakes the case font flipped anywhere and cut anywhere,
+and JetBrains Mono flipped inside `glyf`, `gvar`, `GPOS`, `GDEF` and
+`loca`, at 20,000 cases each in a debug build with overflow checks. Four unit tests pin the
+rules no font reaches, each against a double fontTools itself computed on
+an input found by searching for one where the other order gives another
+answer: the inference formula, scaling before inference, the intermediate
+scalar kept in `f64`, and a half rounding up; three more pin a point named
+twice keeping its last delta, `avar` read as a dictionary, and `loca`'s
+threshold, which no fixture reaches from the long side. The inference is
+fontTools' single walk round each contour, not a scan for each point's
+neighbours.
+
+**Against the runtime**: the bake is fontTools' instance and the runtime
+draws HarfBuzz's variation, and over every glyph of both JetBrains Mono
+files at 700 the two agree -- `the_baked_outline_is_the_runtimes_within_a_unit`,
+which gates each kind: simple glyphs to **0.4998** of a unit, the rounding,
+and composites to **0.905**, because their offsets are rounded before their
+components' points are.
+
+**Forty-eight perturbations, one a mechanism, each red at its own test**,
+among them: no variation; no inference; the inference in HarfBuzz's form;
+scaling after inference; the scalar through `f32`; always and never
+flattening; no degenerate skip; rounding a half away from zero; the side
+bearing from the stored `xMin`; each overlap flag; USE_MY_METRICS dropped;
+each of `head`'s bounds and bit 1, `hhea`'s three extents, `OS/2`'s two
+fields; `GDEF` not downgraded; an anchor unpatched, left format 3, or its
+delta truncated; the checksum; `STAT` kept; each program dropped; the
+buffer not zeroed; HarfBuzz's normalization; no `avar`; `avar`'s repeated
+keys read first-wins at each of three places; no word offset; an ill-formed
+tent accepted; a point named twice keeping its first delta; the inference
+walk's gap starting on its named point or reading one reference twice;
+`hmtx` untrimmed, its run start stuck, its side bearings not moved;
+`loca` always long or its threshold off by two; `glyf` not moved; the
+padding after `hmtx` or `loca` not zeroed. Ten were green on JetBrains
+Mono alone, which is what the case font and the unit tests are for. One
+stays green, and it is stated: the scalar cast to `f32` after `tent` has
+worked it out, since every scalar that reaches the cast in these fonts is
+exact in `f32`; the unit test pins `tent`'s own result.
+
+**Not built, recorded**: the runtime cache for a configured variable font
+-- the owner asked for one ("in runtime create a cache for next time") and
+it has no consumer until fonts can be named by family, so it waits for that
+and for his reading of what it caches; transformed components, which
+fontTools flattens with the transform applied and no font here carries;
+value-record devices.
+

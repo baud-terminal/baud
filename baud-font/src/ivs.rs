@@ -40,6 +40,11 @@ impl VarIndex {
         Some(VarIndex((u32::from(outer) << 16) | u32::from(inner)))
     }
 
+    /// `NO_VARIATION_INDEX`, which varies nothing.
+    pub(crate) fn is_none(self) -> bool {
+        self.0 == 0xFFFF_FFFF
+    }
+
     fn outer(self) -> Index {
         Index::of(self.0 >> 16)
     }
@@ -100,6 +105,58 @@ impl<'a> Store<'a> {
             return 0.0;
         };
         set.delta(index.inner(), coords, self.regions)
+    }
+}
+
+impl Store<'_> {
+    /// Item `index`'s row, column by column: each column's region -- its
+    /// start, peak and end on the one axis -- and its delta, for the bake,
+    /// which sums them as fontTools does. **Strict**: an index past the
+    /// store, a null or malformed data set, a region past the list or a
+    /// store over more than one axis answers `None`.
+    pub(crate) fn columns(
+        &self,
+        index: VarIndex,
+        mut f: impl FnMut([F2Dot14; 3], i32) -> Option<()>,
+    ) -> Option<()> {
+        let offset = self.sets.get(index.outer())?;
+        let Subtable::At(b) = Subtable::at(self.data, Offset::of(offset))? else {
+            return None;
+        };
+        let set = Data::parse(b)?;
+        let regions = self.regions?;
+        if regions.axes != Count::of(1u32) || !set.items.holds(index.inner()) {
+            return None;
+        }
+        let row = set
+            .rows
+            .slice(Offset::ZERO.at(index.inner(), set.row)?, set.row)?;
+        let (wide, narrow) = match set.long {
+            RowWidth::Long => (Len::of(4), Len::of(2)),
+            RowWidth::Short => (Len::of(2), Len::of(1)),
+        };
+        let mut at = Offset::ZERO;
+        let mut i = Index::ZERO;
+        while set.regions.count().holds(i) {
+            let is_wide = set.words.holds(i);
+            let value: i32 = match (set.long, is_wide) {
+                (RowWidth::Long, true) => row.read::<i32>(at)?,
+                (RowWidth::Long, false) | (RowWidth::Short, true) => {
+                    i32::from(row.read::<i16>(at)?)
+                }
+                (RowWidth::Short, false) => i32::from(i8::from_ne_bytes([row.read::<u8>(at)?])),
+            };
+            at = at.plus(if is_wide { wide } else { narrow })?;
+            let r = Index::of(set.regions.get(i)?);
+            if !regions.count.holds(r) {
+                return None;
+            }
+            let rec = Offset::ZERO.at(r, Len::of(6))?;
+            let c = |k: u32| regions.records.read::<F2Dot14>(rec.plus(Len::of(k))?);
+            f([c(0)?, c(2)?, c(4)?], value)?;
+            i = i.next();
+        }
+        Some(())
     }
 }
 

@@ -31,6 +31,24 @@ const GVAR_CASES: &[u8] = include_bytes!("var/gvar-cases.ttf");
 const HVAR_CASES: &[u8] = include_bytes!("var/hvar/cases.ttf");
 const PHANTOM_CASES: &[u8] = include_bytes!("var/hvar/phantom.ttf");
 const JETBRAINS_VAR: &[u8] = include_bytes!("fonts/JetBrainsMono-Variable.ttf");
+const BAKE_CASES: &[u8] = include_bytes!("var/bake/cases.ttf");
+
+/// Bakes `data` at two weights into a buffer that may be too small, and
+/// then into one of the length it asked for; the answers are not the
+/// property, not panicking is.
+fn bake_any(data: &[u8]) {
+    let mut scratch = vec![baud_font::BakePoint::ZERO; 1 << 12];
+    for w in [250, 700] {
+        let mut out = vec![0u8; 4096];
+        let wght = baud_font::var::Fixed(w << 16);
+        if let Err(baud_font::Refused::Out(need)) =
+            baud_font::bake(data, wght, &mut scratch, &mut out)
+        {
+            let mut out = vec![0u8; usize::try_from(need.value()).unwrap()];
+            let _ = baud_font::bake(data, wght, &mut scratch, &mut out);
+        }
+    }
+}
 
 /// Where table `tag` lies in an sfnt: its record's offset and length.
 fn table_range(data: &[u8], tag: [u8; 4]) -> (usize, usize) {
@@ -280,6 +298,40 @@ proptest! {
             data[start + at % len] = byte;
         }
         exercise(&data);
+    }
+
+    /// The bake writes a font from these bytes, so no byte string may
+    /// panic it: the case font, which carries every table the bake
+    /// rewrites in 1.5 KB, flipped anywhere, and JetBrains Mono flipped
+    /// inside the tables the bake reads glyph by glyph.
+    #[test]
+    fn a_mutated_bake_never_panics(
+        flips in proptest::collection::vec((0usize..BAKE_CASES.len(), any::<u8>()), 1..8)
+    ) {
+        let mut data = BAKE_CASES.to_vec();
+        for (at, byte) in flips {
+            data[at] = byte;
+        }
+        bake_any(&data);
+    }
+
+    #[test]
+    fn a_truncated_bake_never_panics(len in 0usize..BAKE_CASES.len()) {
+        bake_any(&BAKE_CASES[..len]);
+    }
+
+    #[test]
+    fn a_mutated_variable_font_bakes_or_refuses(
+        table in 0usize..5,
+        flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8)
+    ) {
+        let mut data = JETBRAINS_VAR.to_vec();
+        let tag = [*b"glyf", *b"gvar", *b"GPOS", *b"GDEF", *b"loca"][table];
+        let (start, len) = table_range(JETBRAINS_VAR, tag);
+        for (at, byte) in flips {
+            data[start + at % len] = byte;
+        }
+        bake_any(&data);
     }
 
     #[test]

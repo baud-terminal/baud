@@ -128,10 +128,10 @@ impl<'a> Gvar<'a> {
 
 /// A tuple record: one 2.14 coordinate per axis.
 #[derive(Clone, Copy)]
-struct Tuple<'a>(Bytes<'a>);
+pub(crate) struct Tuple<'a>(Bytes<'a>);
 
 impl Tuple<'_> {
-    fn at(&self, axis: Index) -> F2Dot14 {
+    pub(crate) fn at(&self, axis: Index) -> F2Dot14 {
         Offset::ZERO
             .at(axis, Len::of(2))
             .and_then(|o| self.0.read(o))
@@ -349,6 +349,71 @@ impl<'a> Store<'a> {
         if flush == Flush::Yes {
             translate(pts);
         }
+    }
+}
+
+/// One tuple variation, whole, as the bake reads it: where it peaks, its
+/// intermediate region, the points it names -- `None` for every point -- and
+/// its two delta streams, `n` values each.
+pub(crate) struct TupleData<'a> {
+    pub(crate) peak: Tuple<'a>,
+    pub(crate) region: Option<(Tuple<'a>, Tuple<'a>)>,
+    pub(crate) points: Option<Points<'a>>,
+    pub(crate) n: Count,
+    pub(crate) xs: DeltaIter<'a>,
+    pub(crate) ys: DeltaIter<'a>,
+}
+
+impl<'a> Store<'a> {
+    /// Every tuple of the store, in order, for a glyph of `total` points --
+    /// its phantoms included. **Strict where [`Store::apply`] forgives**:
+    /// malformed data anywhere, or a shared-tuple index past the table,
+    /// answers `None` and the caller refuses the glyph, because the bake
+    /// writes a font and a guess about a malformed tuple would be written
+    /// into it. `f` answering `None` stops the walk the same way.
+    pub(crate) fn tuples(
+        &self,
+        total: Count,
+        mut f: impl FnMut(TupleData<'a>) -> Option<()>,
+    ) -> Option<()> {
+        let mut data_at = self.serialized;
+        let shared = match self.shared_points {
+            SharedPoints::Present => {
+                let p = Points::read(self.data, self.serialized)?;
+                data_at = p.end;
+                Some(p)
+            }
+            SharedPoints::Absent => None,
+        };
+        let mut header_at = Offset::of(4u32);
+        let mut left = self.count;
+        while !left.is_zero() {
+            let h = self.header(header_at)?;
+            left = Count::of(left.value() - 1);
+            header_at = h.end;
+            let own = self.data.slice(data_at, h.size)?;
+            data_at = data_at.plus(h.size)?;
+            let (points, deltas_at) = match h.private {
+                SharedPoints::Absent => {
+                    let p = Points::read(own, Offset::ZERO)?;
+                    (Some(p), p.end)
+                }
+                SharedPoints::Present => (shared, Offset::ZERO),
+            };
+            let points = points.filter(|p| !p.count.is_zero());
+            let n = points.map_or(total, |p| p.count);
+            let xs = Deltas::bounded(own, deltas_at, n)?;
+            let ys = Deltas::bounded(own, xs.end, n)?;
+            f(TupleData {
+                peak: h.peak?,
+                region: h.region,
+                points,
+                n,
+                xs: xs.reader,
+                ys: ys.reader,
+            })?;
+        }
+        Some(())
     }
 }
 
@@ -590,7 +655,7 @@ impl<'a> Points<'a> {
         Some(p)
     }
 
-    fn iter(&self) -> PointIter<'a> {
+    pub(crate) fn iter(&self) -> PointIter<'a> {
         PointIter {
             data: self.data,
             at: self.runs,
@@ -601,7 +666,7 @@ impl<'a> Points<'a> {
     }
 
     /// The numbers, in order, for a list already validated.
-    fn next_from(it: &mut PointIter<'a>) -> Index {
+    pub(crate) fn next_from(it: &mut PointIter<'a>) -> Index {
         it.next().unwrap_or(Index::of(u32::MAX))
     }
 }
@@ -747,7 +812,7 @@ impl DeltaIter<'_> {
     }
 
     /// The next value of a stream already validated by `bounded`; 0 past it.
-    fn next(&mut self) -> i32 {
+    pub(crate) fn next(&mut self) -> i32 {
         if self.in_run.is_zero() && self.run().is_none() {
             return 0;
         }

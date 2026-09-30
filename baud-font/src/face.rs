@@ -448,6 +448,26 @@ impl<'a> Face<'a> {
         }
     }
 
+    /// How many tables the directory lists.
+    pub(crate) fn table_count(&self) -> Count {
+        self.tables
+    }
+
+    /// Directory record `i`: its tag, and its bytes when the record lies
+    /// inside the file.
+    pub(crate) fn table_at(&self, i: Index) -> Option<(Tag, Option<Bytes<'a>>)> {
+        let r = self.record(i)?;
+        Some((r.tag, self.data.slice(r.at, r.len)))
+    }
+
+    pub(crate) fn glyf(&self) -> Option<Glyf<'a>> {
+        self.glyf
+    }
+
+    pub(crate) fn gvar(&self) -> Option<crate::gvar::Gvar<'a>> {
+        self.gvar
+    }
+
     /// The normalised coordinates the face is read at.
     pub fn coords(&self) -> &crate::var::Coords {
         &self.coords

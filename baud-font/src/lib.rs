@@ -46,6 +46,7 @@
 // operations that `core` keeps behind a feature and `std` does not.
 #![feature(core_float_math)]
 
+mod bake;
 mod bitmap;
 mod buffer;
 pub mod bytes;
@@ -70,6 +71,7 @@ mod shape;
 mod standard_encoding;
 pub mod var;
 
+pub use bake::{BakePoint, Refused, bake};
 pub use bitmap::{Bitmap, Placement, Ppem, Strike};
 pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
 pub use cmap::Variation;
