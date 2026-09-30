@@ -8791,3 +8791,213 @@ bytes  = 7668
 status = "retrieved"
 group  = "J"
 # Read for note Z's step 5, the bake: the 2.14 quantization.
+
+[sources.ghostty-d9840f3-coretext]
+key    = "ghostty-d9840f3-coretext"
+title  = "ghostty: font/face/coretext.zig -- glyph centring in the cell, font-thicken, subpixel positioning"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ d9840f3c"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/font/face/coretext.zig"
+file   = ""
+sha256 = "367be97710c61c81a07eb08e7106a7fdaa2c53714f188756fec750ff001eff05"
+bytes  = 43954
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.ghostty-d9840f3-config]
+key    = "ghostty-d9840f3-config"
+title  = "ghostty: config/Config.zig -- alpha-blending and font-thicken documentation and defaults"
+author = "Mitchell Hashimoto and contributors (MIT)"
+year   = 2026
+venue  = "github.com/ghostty-org/ghostty @ d9840f3c"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/Config.zig"
+file   = ""
+sha256 = "aa0d42cdab217728ef502ed7b36e681fca3c9ecd3232ae299cecdbefa27c0332"
+bytes  = 425434
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.kitty-6d5d0c4-core-text]
+key    = "kitty-6d5d0c4-core-text"
+title  = "kitty: core_text.m -- the alpha-mask context, fill and stroke, font smoothing"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 6d5d0c44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/core_text.m"
+file   = ""
+sha256 = "60a71ad4237b258f4aa82ebdeee3a588d98a8a09bd30ab43e5304f274bad7ff2"
+bytes  = 62715
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.kitty-6d5d0c4-cell-slang]
+key    = "kitty-6d5d0c4-cell-slang"
+title  = "kitty: shaders/cell.slang -- text_composition_strategy's alpha curve"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 6d5d0c44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/shaders/cell.slang"
+file   = ""
+sha256 = "04c12f8ed846707147be816c8ffb2cd63da4087b0646ffc639facacf8eac4ac6"
+bytes  = 14061
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.kitty-6d5d0c4-options]
+key    = "kitty-6d5d0c4-options"
+title  = "kitty: options/definition.py -- text_composition_strategy and macos_thicken_font defaults"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "github.com/kovidgoyal/kitty @ 6d5d0c44"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/options/definition.py"
+file   = ""
+sha256 = "d121fedddbecbfa0e76aba0e11ecfe1cb11946dd362bc097b83da54093b9a107"
+bytes  = 160774
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.zed-e8c6c67-gpui-macos-text]
+key    = "zed-e8c6c67-gpui-macos-text"
+title  = "Zed: gpui_macos text_system.rs -- colour-keyed CoreGraphics dilation, subpixel variants"
+author = "Zed Industries (Apache-2.0 / GPL-3.0)"
+year   = 2026
+venue  = "github.com/zed-industries/zed @ e8c6c67f"
+url    = "https://raw.githubusercontent.com/zed-industries/zed/e8c6c67fad693a5b77504ec6f5cc6cc4ec60ee7b/crates/gpui_macos/src/text_system.rs"
+file   = ""
+sha256 = "727a9c1961c7cbc3991d223a5337a9b70e611b4eea4480ff755a2da9f22ebc46"
+bytes  = 33554
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.wt-4e2b8bd-dwrite-helpers]
+key    = "wt-4e2b8bd-dwrite-helpers"
+title  = "Windows Terminal: atlas dwrite_helpers.hlsl -- DirectWrite enhanced contrast and gamma correction"
+author = "Microsoft (MIT)"
+year   = 2026
+venue  = "github.com/microsoft/terminal @ 4e2b8bd9"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/4e2b8bd9264642475d1398c11a5fd2aba06f373e/src/renderer/atlas/dwrite_helpers.hlsl"
+file   = ""
+sha256 = "516563a8f14358172c1b5a3b585498a6e587322debd591fabfff309d38eefd65"
+bytes  = 6938
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.freetype-c30faba-ftdriver]
+key    = "freetype-c30faba-ftdriver"
+title  = "FreeType: include/freetype/ftdriver.h -- stem darkening, interpreter versions"
+author = "The FreeType Project (FTL / GPL-2.0)"
+year   = 2026
+venue  = "gitlab.freedesktop.org/freetype/freetype @ c30faba4"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/c30faba496fdb36d40e290b0b9818fb57d68476a/include/freetype/ftdriver.h"
+file   = ""
+sha256 = "459e4688340c8fc66545768e360b7fa126a4939c8de33d729181ca23572cf695"
+bytes  = 50570
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.freetype-c30faba-ftobjs]
+key    = "freetype-c30faba-ftobjs"
+title  = "FreeType: src/base/ftobjs.c -- when the auto-hinter is used; LIGHT means auto-hint for TrueType"
+author = "The FreeType Project (FTL / GPL-2.0)"
+year   = 2026
+venue  = "gitlab.freedesktop.org/freetype/freetype @ c30faba4"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/c30faba496fdb36d40e290b0b9818fb57d68476a/src/base/ftobjs.c"
+file   = ""
+sha256 = "d324b4eca98b6543a3fbd474c97319e01a437a39b338cecf65d5ec31bf7a70e9"
+bytes  = 162129
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.freetype-c30faba-ttinterp-h]
+key    = "freetype-c30faba-ttinterp-h"
+title  = "FreeType: src/truetype/ttinterp.h -- the v40 interpreter's design"
+author = "The FreeType Project (FTL / GPL-2.0)"
+year   = 2026
+venue  = "gitlab.freedesktop.org/freetype/freetype @ c30faba4"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/c30faba496fdb36d40e290b0b9818fb57d68476a/src/truetype/ttinterp.h"
+file   = ""
+sha256 = "7d151b0adc3e356829f57b58ba3abfd87fd91a105abb5d52350280dc20139c22"
+bytes  = 18540
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.freetype-c30faba-ftlcdfil]
+key    = "freetype-c30faba-ftlcdfil"
+title  = "FreeType: include/freetype/ftlcdfil.h -- LCD filters and their blending requirement"
+author = "The FreeType Project (FTL / GPL-2.0)"
+year   = 2026
+venue  = "gitlab.freedesktop.org/freetype/freetype @ c30faba4"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/c30faba496fdb36d40e290b0b9818fb57d68476a/include/freetype/ftlcdfil.h"
+file   = ""
+sha256 = "462073b97096be0c7e485d802fee6e6046f1aa36050c14f7771c31b99bab30fa"
+bytes  = 11257
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.gtk-f9b494e-gtkwidget]
+key    = "gtk-f9b494e-gtkwidget"
+title  = "GTK: gtk/gtkwidget.c -- the automatic font-rendering mode"
+author = "The GTK authors (LGPL-2.1)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/gtk @ f9b494e0"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/f9b494e0421e0491d3f28e728c332424b95bf686/gtk/gtkwidget.c"
+file   = ""
+sha256 = "fecb88cbe6d529542876485b2158e641fec7a6feafc915c3f940738eefae0e32"
+bytes  = 417318
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.gtk-f9b494e-gtksettings]
+key    = "gtk-f9b494e-gtksettings"
+title  = "GTK: gtk/gtksettings.c -- antialiasing mapped to grayscale"
+author = "The GTK authors (LGPL-2.1)"
+year   = 2026
+venue  = "gitlab.gnome.org/GNOME/gtk @ f9b494e0"
+url    = "https://gitlab.gnome.org/GNOME/gtk/-/raw/f9b494e0421e0491d3f28e728c332424b95bf686/gtk/gtksettings.c"
+file   = ""
+sha256 = "53720a79121615dfb37cc4cc9008522c9a300c4427ad016747ffea65254cacca"
+bytes  = 74209
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.freetype-subpixel-hinting]
+key    = "freetype-subpixel-hinting"
+title  = "Nikolaus Waxweiler: The new v40 TrueType interpreter mode (subpixel hinting)"
+author = "Nikolaus Waxweiler"
+year   = 2026
+venue  = "freetype.org"
+url    = "https://freetype.org/freetype2/docs/hinting/subpixel-hinting.html"
+file   = ""
+sha256 = "4c8642695c3daf263d8e0cfb8358925d568bb55d09ee08950ded3bacc1f10df1"
+bytes  = 13128
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+[sources.gtk-blog-fractional-fonts]
+key    = "gtk-blog-fractional-fonts"
+title  = "GTK blog: On fractional scales, fonts and hinting (2024-03-07)"
+author = "Matthias Clasen"
+year   = 2026
+venue  = "blog.gtk.org"
+url    = "https://blog.gtk.org/2024/03/07/on-fractional-scales-fonts-and-hinting/"
+file   = ""
+sha256 = "17c3fdb25cba07e26a0d834506f15d0ae85459e66cf243f4c1634cd61b792d25"
+bytes  = 61140
+status = "external"
+group  = "J"
+# Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.

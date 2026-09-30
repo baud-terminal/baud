@@ -121,6 +121,8 @@ ab_glyph's "avx2" is the scalar body under a target-feature flag. **Reverses
 if:** baud wants free zoom/rotation of text, which is not a terminal.
 
 ### D7. No hinting; coverage stays linear; gamma is the compositor's, and it is a policy with three modes
+**Superseded, 2026-09-30, by `j-text-antialiasing.md`.** Measured, CoreText's weight is an outline dilation keyed on the text colour, and baud will replicate it on macOS; a vertical-only light auto-hinter replaces "no hinting". The blend stays native.
+
 macOS does none plus dilation; Linux terminals follow fontconfig and default to
 "light" (vertical-only snap). Two of three references (ghostty, kitty) found
 that physically-linear blending needs a perceptual correction for small text.
