@@ -31,9 +31,9 @@
 //! canvas gets the reference's behaviour: deposits past a row's end land at
 //! the start of the next row, and deposits past the buffer are dropped.
 
-use crate::face::UnitsPerEm;
+use crate::face::{Advance, UnitsPerEm};
 use crate::outline::{Sink, Transform};
-use core::f32::math::{ceil, floor, sqrt};
+use core::f32::math::{ceil, floor, round, sqrt};
 
 /// A count of pixels along one axis. `repr(transparent)`, so a uniform
 /// block a shader reads may carry it where it means a pixel count.
@@ -316,6 +316,37 @@ impl Scale {
     }
 }
 
+/// Where a glyph sits horizontally inside its cell: a fraction of a pixel
+/// to the right, in 1/256 px so it compares exactly.
+///
+/// A cell is a whole number of pixels and the font's advance is not, so
+/// rasterising at the cell's left edge leaves all the rounding slack on the
+/// right. [`Phase::centring`] is half of it, the one offset ghostty's
+/// CoreText path draws every glyph at (note J, decision 7): text is centred
+/// in the block cursor at every size, and spacing does not change, because
+/// every glyph moves by the same amount.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Phase(i16);
+
+impl Phase {
+    /// No offset: the glyph origin on the cell's left edge.
+    pub const ZERO: Phase = Phase(0);
+
+    /// Half the slack between a cell `cell` pixels wide and an `advance`
+    /// at `scale`, rounded to 1/256 px; `None` when the two are two pixels
+    /// or more apart, which a rounded cell never is.
+    pub fn centring(scale: Scale, advance: Advance, cell: Px) -> Option<Phase> {
+        let cell = f32::from(u16::try_from(cell.0).ok()?);
+        let slack = cell - scale.px(f32::from(advance.value()));
+        let q = round(slack * 128.0);
+        (q.is_finite() && q.abs() < 256.0).then_some(Phase(q as i16))
+    }
+
+    fn px(self) -> f32 {
+        f32::from(self.0) / 256.0
+    }
+}
+
 /// Whether a [`Bounds`] has seen a point yet.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Seen {
@@ -443,12 +474,20 @@ impl Fit {
     /// side; `None` for an empty outline, a non-finite one, or one past
     /// [`Fit::LIMIT`].
     pub fn of(bounds: &Bounds, scale: Scale) -> Option<Fit> {
+        Fit::at(bounds, scale, Phase::ZERO)
+    }
+
+    /// [`Fit::of`] with the outline moved `phase` to the right, so the
+    /// rasteriser draws it at that fraction of a pixel; `left` still counts
+    /// whole pixels from the glyph origin.
+    pub fn at(bounds: &Bounds, scale: Scale, phase: Phase) -> Option<Fit> {
         if bounds.seen == Seen::Nothing {
             return None;
         }
         let s = scale.0;
+        let dx = phase.px();
         // y flips: the outline's top is the canvas's smallest row.
-        let (x0, x1) = (bounds.min_x * s, bounds.max_x * s);
+        let (x0, x1) = (bounds.min_x * s + dx, bounds.max_x * s + dx);
         let (y0, y1) = (-bounds.max_y * s, -bounds.min_y * s);
         if !(x0.is_finite() && x1.is_finite() && y0.is_finite() && y1.is_finite()) {
             return None;
@@ -468,7 +507,7 @@ impl Fit {
         }
         Some(Fit {
             extent: Extent::new(Px(w), Px(h)),
-            transform: scale.placing(-(left as f32), -(top as f32)),
+            transform: scale.placing(dx - left as f32, -(top as f32)),
             left,
             top,
         })

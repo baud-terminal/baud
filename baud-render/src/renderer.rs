@@ -633,7 +633,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             defaults,
             blend,
             cache: RunCache::new(),
-            atlas: Atlas::new(),
+            atlas: Atlas::new(metrics.phase),
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
             prev: Vec::new(),
@@ -708,7 +708,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
         self.metrics = metrics;
-        self.atlas.reset();
+        self.atlas.reset(metrics.phase);
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;

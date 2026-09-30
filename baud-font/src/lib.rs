@@ -87,7 +87,7 @@ pub use layout::{Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, MAX_LO
 pub use morx::Morx;
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
-pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Point, Px, Rasterizer, Scale};
+pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use shape::{CombiningClass, Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.

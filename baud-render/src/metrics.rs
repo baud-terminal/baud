@@ -2,7 +2,7 @@
 //! primary face at the chosen size.
 
 use baud_domain::Codepoint;
-use baud_font::{Face, Px, Scale};
+use baud_font::{Face, Phase, Px, Scale};
 
 /// A font size in pixels per em.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -36,6 +36,9 @@ pub struct Metrics {
     pub strike: Px,
     /// How thick an underline or strike is, at least a pixel.
     pub thickness: Px,
+    /// Where every glyph sits inside its cell: half the slack between the
+    /// rounded cell and `M`'s advance (note J, decision 7).
+    pub phase: Phase,
 }
 
 impl Metrics {
@@ -74,13 +77,16 @@ impl Metrics {
             u32::try_from((i64::from(baseline) - under.round() as i64).max(0)).unwrap_or(0);
         let underline = underline.min(cell_h.saturating_sub(thickness));
         let strike = baseline.saturating_sub(round(ascent / 3.0).unwrap_or(1));
+        let cell_w = Px::of(round(width)?);
+        let phase = Phase::centring(scale, advance, cell_w)?;
         Some(Metrics {
-            cell_w: Px::of(round(width)?),
+            cell_w,
             cell_h: Px::of(cell_h),
             baseline: Px::of(baseline),
             underline: Px::of(underline),
             strike: Px::of(strike),
             thickness: Px::of(thickness),
+            phase,
         })
     }
 }

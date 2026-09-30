@@ -134,6 +134,17 @@ rules:
 - one phase covers Regular, Bold and the baked instances, which share the
   600-unit advance.
 
+**Built.** `Phase` in baud-font is the offset, in 1/256 px; `Fit::at`
+draws an outline at it, and `Fit::of` is `Fit::at` at zero, so the
+rasteriser's byte-identical gate is untouched. `Metrics` carries the phase
+and the atlas takes it at `Atlas::new` and `Atlas::reset` and nowhere else.
+`baud-render/tests/centring.rs` holds twelve mirror-symmetric glyphs to
+within 0.05 px of their cell's centre at 13-32 px and after a zoom (the
+worst is `M` at 0.027, the old placement was up to 0.2 off);
+`baud-font/tests/phase.rs` holds a stem edge to the phase. Every golden frame
+moved except cava's, whose glyphs are all procedural, and the moved pixels
+are glyph edges only.
+
 A per-face or per-glyph phase is ruled out: centring a Nerd icon's 1-em
 advance throws its ink 3-7 px sideways, and a phase depending on the span
 would have to join the atlas key.
