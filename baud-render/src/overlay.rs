@@ -337,7 +337,9 @@ impl Overlay {
                         key = key.fold(c);
                     }
                 }
-                if cell.flags.is_wide() {
+                if crate::cellmap::CellSpan::at(row, Col::at_index(x))
+                    == crate::cellmap::CellSpan::Two
+                {
                     key = key.wide();
                 }
                 let glyphs = match self.clusters.get(&key) {
@@ -403,11 +405,13 @@ impl Overlay {
                 this.stats.window_cells.bump();
             }
             let mut key = ClusterKey::start().word(face);
-            for (_, cell, cps) in piece.iter() {
+            for (x, _, cps) in piece.iter() {
                 for c in cps {
                     key = key.fold(*c);
                 }
-                if cell.flags.is_wide() {
+                if crate::cellmap::CellSpan::at(row, Col::at_index(*x))
+                    == crate::cellmap::CellSpan::Two
+                {
                     key = key.wide();
                 }
                 key = key.next_cell();

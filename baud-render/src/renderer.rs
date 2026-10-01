@@ -2,7 +2,7 @@
 
 use crate::atlas::{Atlas, AtlasStats, Code, GlyphLook, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
-use crate::cellmap::{BlockCursor, Resolved, Selected, Shapes, Swaps, Text};
+use crate::cellmap::{BlockCursor, CellSpan, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
 use crate::effect::Vfx;
@@ -2131,15 +2131,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
                 // at the cell origin, never shaped, never in a run.
-                let width = if row[c].flags.is_wide() {
-                    2usize
-                } else {
-                    1usize
-                };
                 if let Some(slot) = self.procedural(base) {
                     self.emit_at(r, Col::at_index(c), slot, &mut instances);
                 }
-                c += width;
+                c = CellSpan::at(&row, Col::at_index(c))
+                    .after(Col::at_index(c))
+                    .index();
                 continue;
             }
             let style = self.face_style(row[c]);
@@ -2171,7 +2168,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 {
                     break;
                 }
-                let width = if cell.flags.is_wide() { 2usize } else { 1usize };
+                let next = CellSpan::at(&row, Col::at_index(c))
+                    .after(Col::at_index(c))
+                    .index();
                 #[cfg(feature = "exceptions")]
                 {
                     let glyph = self.stack.face(face).glyph(cp);
@@ -2206,12 +2205,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         }
                     }
                 }
-                key = key.fold(u32::try_from(width).unwrap_or(0) << 24);
+                key = key.fold(u32::try_from(next - c).unwrap_or(0) << 24);
                 clusters.push(ClusterIn {
                     cps,
                     at: CellIx(u8::try_from(c - start).unwrap_or(u8::MAX)),
                 });
-                c += width;
+                c = next;
             }
             let shaped = match self.cache.get(key) {
                 Some(s) => s,

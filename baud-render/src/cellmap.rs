@@ -119,6 +119,36 @@ impl MaySwap {
     }
 }
 
+/// How many cells a character takes on the grid.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum CellSpan {
+    One,
+    Two,
+}
+
+impl CellSpan {
+    /// The span of the character at `x`: two when the next cell is its
+    /// wide tail. Read from the grid, because the grid says it there --
+    /// `CellFlags::is_wide` is the cell table's advance, and on a grid cell
+    /// its two bits are `PROTECTED` and `GRAPHICS`, which made every DEC
+    /// graphics cell "wide" and the CPU and instance paths draw every
+    /// other one.
+    pub fn at(row: &[baud_domain::PackedCell], x: Col) -> CellSpan {
+        match row.get(x.index() + 1) {
+            Some(c) if c.content == Content::WIDE_TAIL => CellSpan::Two,
+            _ => CellSpan::One,
+        }
+    }
+
+    /// The column past a character at `x` that takes this span.
+    pub fn after(self, x: Col) -> Col {
+        match self {
+            CellSpan::One => Col::at_index(x.index() + 1),
+            CellSpan::Two => Col::at_index(x.index() + 2),
+        }
+    }
+}
+
 /// A map entry's key: the codepoint with the face style above it, and the
 /// look above that, or [`CellKey::EMPTY`]. A codepoint is 21 bits, so the
 /// style's two bits and the look's three fit above it and the key stays

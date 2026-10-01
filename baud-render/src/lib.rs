@@ -58,7 +58,7 @@ pub use atlas::{
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
-    BlockCursor, Candidate, CellKey, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS, MapEntry,
+    BlockCursor, Candidate, CellKey, CellSpan, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS, MapEntry,
     MapGeneration, MapStats, MaySwap, NO_INK, Resolved, Selected, Shapes, Swaps, Text, look_of,
 };
 pub use color::{

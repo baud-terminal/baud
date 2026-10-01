@@ -2541,6 +2541,26 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             assert!(differing(&a, &regular) > 0, "SGR {sgr} reached the pixels");
         }
     }
+    // **DEC line drawing.** The cell arm probes its map cell by cell; the
+    // instance arm steps through runs by each character's width, which it
+    // once read from `CellFlags::is_wide` -- the `GRAPHICS` bit on a grid
+    // cell -- and drew every other line-drawing cell. The two arms must
+    // agree, and the line must reach the pixels.
+    {
+        feed(&mut t, b"\x1b[0m\x1b[2J\x1b[H\x1b[?25l");
+        let (blank, _) = arms.draw(&mut t);
+        feed(&mut t, b"\x1b(0lqqqqqk\r\nx     x\r\nmqqqqqj\x1b(B");
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on DEC line drawing"
+        );
+        assert!(
+            differing(&a, &blank) > 0,
+            "DEC line drawing reached the pixels"
+        );
+    }
     // **Font smoothing (note J).** Each outline is grown for the level of
     // the colour it is finally drawn in. The cell arm keys its map on the
     // look the slot carries for that side -- the foreground's, or the
