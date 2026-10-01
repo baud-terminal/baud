@@ -236,6 +236,17 @@ survive from the measurement and are given below; a third, DejaVu Sans
 Mono's, was taken separately. The rest must be re-taken when a bundle is
 built, and a pinned fetch computes them anyway.
 
+**Three emoji faces were re-fetched the same evening** from the URLs below,
+to redraw the review page's emoji panel, and hash as follows. Noto Color
+Emoji matches the manifest's pin for it (`noto-color-emoji-cbdt`), and
+Twemoji 17 matches the hash that survived; Mozilla's Twemoji 14 is new:
+
+| file | bytes | sha256 |
+|---|---|---|
+| NotoColorEmoji.ttf, v2.051 | 10,673,480 | 72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b |
+| Twemoji.ttf, breadgrocery v17.0.3 | 1,805,812 | 18b63ff478996f98c40504ca53691efc399264457c41f2f87b4d35a00512cb20 |
+| Twemoji.Mozilla.ttf, v0.7.0 | 1,474,284 | 6d90152ee0d29e82fe2a87793af5aa4b7ad13e6538360889e141e81ed299ee8e |
+
 **What was measured and what was read.** Formats, sizes, coverage and the
 two surviving hashes were measured with fontTools. The candidate measurement
 did not run baud-font. The session that built the review page later rendered
@@ -411,3 +422,9 @@ fixed, and not Apple's font: on this Mac, CoreText finds both codepoints in
 Apple Color Emoji's cmap and shapes the family to one glyph from it. So that
 row showed baud's strike choice rather than what Apple's emoji look like,
 and it is not evidence about Apple's set until the fix lands.
+
+**The fix landed in 3b75a23** -- a strike is chosen per glyph among the
+strikes that hold it, and `flip` is drawn -- and the panel was redrawn with
+it: Apple's row is complete at 40 px, and the other three rows did not
+change. The page says the earlier panel was wrong. CLAUDE.md, "A colour
+bitmap is drawn from a strike that holds it", has the measurements.
