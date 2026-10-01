@@ -162,12 +162,20 @@ impl CellKey {
     pub const EMPTY: CellKey = CellKey(u32::MAX);
     pub const STYLE_SHIFT: u32 = 21;
     pub const LOOK_SHIFT: u32 = 23;
+    /// One bit: set when the character spans two cells, whose glyph is
+    /// centred in them (`Renderer::phase_in`) and so is another slot.
+    pub const SPAN_SHIFT: u32 = 26;
 
-    pub fn of(cp: Codepoint, style: crate::FaceStyle, look: GlyphLook) -> CellKey {
+    pub fn of(cp: Codepoint, style: crate::FaceStyle, look: GlyphLook, span: CellSpan) -> CellKey {
+        let two = match span {
+            CellSpan::One => 0,
+            CellSpan::Two => 1,
+        };
         CellKey(
             cp.value()
                 | (style.code().0 << CellKey::STYLE_SHIFT)
-                | (look.code().0 << CellKey::LOOK_SHIFT),
+                | (look.code().0 << CellKey::LOOK_SHIFT)
+                | (two << CellKey::SPAN_SHIFT),
         )
     }
 }
@@ -389,8 +397,9 @@ impl<'m> GlyphMap<'m> {
         cp: Codepoint,
         style: crate::FaceStyle,
         look: GlyphLook,
+        span: CellSpan,
     ) -> Option<&MapEntry> {
-        let key = CellKey::of(cp, style, look);
+        let key = CellKey::of(cp, style, look, span);
         let mut i = MapSlot::home(key);
         for _ in 0..MAP_SLOTS {
             let e = &self.entries[i.0];
@@ -463,27 +472,28 @@ impl<'m> GlyphMap<'m> {
                     .get(cell.style.index())
                     .map_or(Shapes::default(), |s| s.shapes);
                 let look = shapes.look(Ink::Own);
+                let span = CellSpan::at(row, Col::at_index(x));
                 // A cell the frame may draw swapped is drawn at its
                 // background's look: make sure that entry is there too.
                 let other = shapes.look(Ink::Swapped);
                 if other != look
                     && swaps.at(Row::from_index(y), Col::at_index(x), cell.content)
-                    && self.probe(cp, style, other).is_none()
+                    && self.probe(cp, style, other, span).is_none()
                 {
                     self.stats.misses.bump();
-                    let single = r.single(cp, style, other);
+                    let single = r.single(cp, style, other, span);
                     if r.atlas_stats().grown.value() != self.grown.value() {
                         self.grown = r.atlas_stats().grown;
                         self.clear();
                     }
-                    self.insert(MapEntry::of(CellKey::of(cp, style, other), single));
+                    self.insert(MapEntry::of(CellKey::of(cp, style, other, span), single));
                     changed = true;
                 }
-                let (glyph, starts, ends, face) = match self.probe(cp, style, look) {
+                let (glyph, starts, ends, face) = match self.probe(cp, style, look, span) {
                     Some(e) => (e.glyph(), e.starts_pair(), e.ends_pair(), e.face()),
                     None => {
                         self.stats.misses.bump();
-                        let single = r.single(cp, style, look);
+                        let single = r.single(cp, style, look, span);
                         if r.atlas_stats().grown.value() != self.grown.value() {
                             self.grown = r.atlas_stats().grown;
                             self.clear();
@@ -493,7 +503,7 @@ impl<'m> GlyphMap<'m> {
                         {
                             self.clear();
                         }
-                        let e = MapEntry::of(CellKey::of(cp, style, look), single);
+                        let e = MapEntry::of(CellKey::of(cp, style, look, span), single);
                         self.insert(e);
                         changed = true;
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())

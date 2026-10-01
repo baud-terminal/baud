@@ -283,6 +283,17 @@ pub struct ClusterGlyph {
     pub slot: Option<crate::atlas::Slot>,
     pub dx: i32,
     pub dy: i32,
+    /// Where the cluster sits in its span, from its base: every glyph of a
+    /// cluster takes its base's phase, so a mark moves with the letter.
+    pub phase: Phase,
+}
+
+/// Whether `cp` is an icon codepoint -- the Private Use Areas -- whose
+/// placement the Nerd Fonts patcher's rules own (note Z, scope C), not the
+/// centring a text glyph takes.
+fn is_icon(cp: Codepoint) -> bool {
+    let v = cp.value();
+    (0xE000..=0xF8FF).contains(&v) || v >= 0xF_0000
 }
 
 /// Where a cluster's glyph is drawn from: a face's outline or image, or
@@ -597,7 +608,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .iter()
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
-        let phases = face_phases(&stack, &scales, &metrics);
         let digests = stack
             .faces()
             .iter()
@@ -649,7 +659,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             defaults,
             blend,
             cache: RunCache::new(),
-            atlas: Atlas::new(phases),
+            atlas: Atlas::new(),
             smoothing: Smoothing::Off,
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
@@ -725,8 +735,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
         self.metrics = metrics;
-        self.atlas
-            .reset(face_phases(&self.stack, &self.scales, &metrics));
+        self.atlas.reset();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -741,8 +750,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             return;
         }
         self.smoothing = smoothing;
-        self.atlas
-            .reset(face_phases(&self.stack, &self.scales, &self.metrics));
+        self.atlas.reset();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -771,9 +779,30 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (look, GlyphSource::Face(face)) => {
                 let scale = self.scales[face.index()];
                 let f = self.stack.face(face);
-                self.atlas.slot(f, face, g.id, scale, look)
+                self.atlas.slot(f, face, g.id, scale, look, g.phase)
             }
         }
+    }
+
+    /// Where a cluster whose base is `base`, on `face`, sits in `span`:
+    /// the grid phase in one cell; in two, its base's advance centred in
+    /// the span -- half the slack, whole pixels and the fraction. The
+    /// owner's call (Jev A 0.97, over 13 of 14 terminals' left edge): a
+    /// one-cell ⚡ in its two cells, an emoji a third of a cell narrower than
+    /// two, and a CJK fallback face's ideographs all sit in the middle. An
+    /// icon is left to the patcher's rules, and a base with no advance, or
+    /// one far wider than the span, keeps the grid phase.
+    pub fn phase_in(&self, face: FaceIx, base: Codepoint, span: CellSpan) -> Phase {
+        let grid = self.metrics.phase;
+        if span == CellSpan::One || is_icon(base) {
+            return grid;
+        }
+        let f = self.stack.face(face);
+        let two = Px::of(self.metrics.cell_w.value().saturating_mul(2));
+        f.glyph(base)
+            .and_then(|g| f.default_advance(g))
+            .and_then(|adv| Phase::in_span(self.scales[face.index()], adv, two))
+            .unwrap_or(grid)
     }
 
     /// The selection to draw on the next frame, in the view's screen
@@ -1603,7 +1632,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// itself: every glyph with its atlas slot and its offsets in pixels.
     /// What the overlay draws for a marked cell; the shaper is the one
     /// definition of what a family or a base with a mark looks like.
-    pub fn cluster(&mut self, cps: &[Codepoint], style: FaceStyle) -> Vec<ClusterGlyph> {
+    pub fn cluster(
+        &mut self,
+        cps: &[Codepoint],
+        style: FaceStyle,
+        span: CellSpan,
+    ) -> Vec<ClusterGlyph> {
         let Some(&base) = cps.first() else {
             return Vec::new();
         };
@@ -1616,9 +1650,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 slot: self.procedural(base),
                 dx: 0,
                 dy: 0,
+                phase: Phase::ZERO,
             }];
         }
         let face = self.stack.select_styled(base, style);
+        let phase = self.phase_in(face, base, span);
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
             at: CellIx(0),
@@ -1628,13 +1664,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let f = self.stack.face(face);
         let mut out = Vec::new();
         for p in shaped.glyphs() {
-            let slot = self.atlas.slot(f, face, p.id, scale, GlyphLook::Plain);
+            let slot = self
+                .atlas
+                .slot(f, face, p.id, scale, GlyphLook::Plain, phase);
             out.push(ClusterGlyph {
                 id: p.id,
                 source: GlyphSource::Face(face),
                 slot,
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
+                phase,
             });
         }
         out
@@ -1645,7 +1684,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// applies, its atlas slot with the shaper's offsets folded into the
     /// placement. `None` when it draws nothing. What the cell path's map
     /// holds.
-    pub fn single(&mut self, cp: Codepoint, style: FaceStyle, look: GlyphLook) -> Option<Single> {
+    pub fn single(
+        &mut self,
+        cp: Codepoint,
+        style: FaceStyle,
+        look: GlyphLook,
+        span: CellSpan,
+    ) -> Option<Single> {
         if crate::boxes::covers(cp) {
             // `PairRole::Neither` is load-bearing: with both pair bits clear
             // the cell is never a ligature candidate, never gathered into a
@@ -1668,11 +1713,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let role = self.pairs[face.index()].role(p.id);
-        let slot = self.atlas.slot(f, face, p.id, scale, look).map(|mut slot| {
-            slot.left += scale.px(f32::from(p.dx)).round() as i32;
-            slot.top -= scale.px(f32::from(p.dy)).round() as i32;
-            slot
-        });
+        let phase = self.phase_in(face, cp, span);
+        let slot = self
+            .atlas
+            .slot(f, face, p.id, scale, look, phase)
+            .map(|mut slot| {
+                slot.left += scale.px(f32::from(p.dx)).round() as i32;
+                slot.top -= scale.px(f32::from(p.dy)).round() as i32;
+                slot
+            });
         Some(Single {
             slot,
             glyph: p.id,
@@ -1704,7 +1753,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// cell: the glyphs the shaper placed at that cell, with slots and
     /// offsets. A cell with no glyph of its own -- swallowed into a
     /// ligature -- answers an empty list.
-    pub fn window(&mut self, face: Code, cells: &[Vec<Codepoint>]) -> Vec<Vec<ClusterGlyph>> {
+    pub fn window(
+        &mut self,
+        face: Code,
+        cells: &[(Vec<Codepoint>, CellSpan)],
+    ) -> Vec<Vec<ClusterGlyph>> {
         // **Shaped in chunks, because `Shaped` holds `PLACED_MAX` glyphs
         // and a longer run used to lose its tail in silence.** `shape`
         // stops pushing once the buffer is full and breaks, so a window of
@@ -1741,7 +1794,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let clusters: Vec<ClusterIn> = cells[lo..hi]
                 .iter()
                 .enumerate()
-                .map(|(i, cps)| ClusterIn {
+                .map(|(i, (cps, _))| ClusterIn {
                     cps: cps.clone(),
                     at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
                 })
@@ -1754,7 +1807,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if cell < at || cell >= end {
                     continue;
                 }
-                let slot = self.atlas.slot(f, facex, p.id, scale, GlyphLook::Plain);
+                let phase = cells
+                    .get(cell)
+                    .and_then(|(cps, span)| cps.first().map(|&b| self.phase_in(facex, b, *span)))
+                    .unwrap_or(self.metrics.phase);
+                let slot = self
+                    .atlas
+                    .slot(f, facex, p.id, scale, GlyphLook::Plain, phase);
                 if let Some(o) = out.get_mut(cell) {
                     o.push(ClusterGlyph {
                         id: p.id,
@@ -1762,6 +1821,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         slot,
                         dx: scale.px(f32::from(p.dx)).round() as i32,
                         dy: scale.px(f32::from(p.dy)).round() as i32,
+                        phase,
                     });
                 }
             }
@@ -2301,7 +2361,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let style = self.face_style(cell);
             // The single-codepoint answer depends on the style, so the memo
             // keys on both; a codepoint is 21 bits and the style sits above.
-            let memo = crate::cellmap::CellKey::of(cp, style, GlyphLook::Plain).0;
+            let memo = crate::cellmap::CellKey::of(cp, style, GlyphLook::Plain, CellSpan::One).0;
             let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
@@ -2394,7 +2454,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .unwrap_or(self.defaults.0);
             // The colour first: a smoothed outline is drawn for it.
             let look = self.smoothing.look(color);
-            let Some(slot) = self.atlas.slot(f, face, p.id, scale, look) else {
+            // The cluster's place in its span, from the cell its base
+            // writes: a mark at that cell moves with it.
+            let span = CellSpan::at(&self.cur[range.clone()], Col::at_index(col));
+            let phase = match self.cur.get(range.start + col).copied() {
+                Some(cell) if span == CellSpan::Two => {
+                    cell.content.as_codepoint().map_or(self.metrics.phase, |b| {
+                        self.phase_in(face, b, CellSpan::Two)
+                    })
+                }
+                _ => self.metrics.phase,
+            };
+            let Some(slot) = self.atlas.slot(f, face, p.id, scale, look, phase) else {
                 continue;
             };
             let dx = scale.px(f32::from(p.dx)).round() as i32;
@@ -2413,33 +2484,4 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         }
     }
-}
-
-/// Where each face's outlines sit in their span, by face index (note J).
-///
-/// The primary, its styled faces and every fallback face keep the grid
-/// phase: half the slack between the cell and the primary's `M`. A fallback
-/// face that maps 水 (U+6C34) is a CJK face, and its ideographs are drawn two
-/// cells wide, so the whole face is centred by half the slack between two
-/// cells and its own 水: within 0.16 px of the span's centre for Hiragino
-/// and Apple SD Gothic Neo, where the grid phase left them 1-3 px left. One
-/// offset a face, as measured; a narrow glyph drawn from such a face takes
-/// it too, and the default stack reaches almost none (Hiragino maps no
-/// half-width forms).
-fn face_phases(stack: &Stack<'_, '_>, scales: &[Scale], metrics: &Metrics) -> Vec<Phase> {
-    let ideograph = Codepoint::from_char('\u{6C34}');
-    let two = Px::of(metrics.cell_w.value().saturating_mul(2));
-    stack
-        .each()
-        .map(|ix| {
-            let f = stack.face(ix);
-            if ix == FaceIx::PRIMARY || stack.is_styled(ix) {
-                return metrics.phase;
-            }
-            f.glyph(ideograph)
-                .and_then(|g| f.default_advance(g))
-                .and_then(|adv| Phase::centring(scales[ix.index()], adv, two))
-                .unwrap_or(metrics.phase)
-        })
-        .collect()
 }

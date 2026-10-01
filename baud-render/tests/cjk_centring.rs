@@ -3,9 +3,10 @@
 //! Hiragino's ideographs are a full em and Apple SD Gothic Neo's Hangul 0.865
 //! em, against two cells of JetBrains Mono's 0.6 em: drawn from the cell's
 //! left edge they sat 1-3 px left of the span's centre. The renderer offsets
-//! every glyph of a face that maps 水 by half the slack between two cells
-//! and that face's 水, so an ideograph's ink lands on the centre of its two
-//! cells. Runs on macOS, where those faces are, and says so elsewhere.
+//! a glyph in a two-cell span by half the slack between the span and its
+//! cluster base's advance, so an ideograph's ink lands on the centre of its
+//! two cells; `narrow_in_wide.rs` holds the faces whose advances are not
+//! uniform. Runs on macOS, where those faces are, and says so elsewhere.
 
 mod support;
 

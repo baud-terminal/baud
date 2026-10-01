@@ -16,6 +16,7 @@
 //! makes over every cell: a byte test a cell, a lookup a marked cell.
 
 use crate::atlas::Code;
+use crate::cellmap::CellSpan;
 use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Resolved, Selected, Swaps, Text};
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
@@ -346,7 +347,7 @@ impl Overlay {
                     Some(g) => g.clone(),
                     None => {
                         self.stats.misses.bump();
-                        let g = r.cluster(&cps, style);
+                        let g = r.cluster(&cps, style, CellSpan::at(row, Col::at_index(x)));
                         self.clusters.insert(key, g.clone());
                         g
                     }
@@ -442,16 +443,21 @@ impl Overlay {
                 );
             } else {
                 this.stats.window_misses.bump();
-                let cells: Vec<Vec<Codepoint>> =
-                    piece.iter().map(|(_, _, cps)| cps.clone()).collect();
+                let cells: Vec<(Vec<Codepoint>, CellSpan)> = piece
+                    .iter()
+                    .map(|(x, _, cps)| (cps.clone(), CellSpan::at(row, Col::at_index(*x))))
+                    .collect();
                 let shaped = r.window(face, &cells);
                 let drawn: Vec<Option<Vec<ClusterGlyph>>> = piece
                     .iter()
                     .zip(shaped)
-                    .map(|((_, cell, cps), glyphs)| {
+                    .map(|((x, cell, cps), glyphs)| {
                         let style = crate::cellmap::face_of(scene.styles, *cell);
                         let look = crate::cellmap::look_of(scene.styles, *cell);
-                        let alone = scene.map.probe(cps[0], style, look).map(|e| e.glyph());
+                        let alone = scene
+                            .map
+                            .probe(cps[0], style, look, CellSpan::at(row, Col::at_index(*x)))
+                            .map(|e| e.glyph());
                         let same = !cell.flags.is_marked()
                             && glyphs.len() == 1
                             && Some(glyphs[0].id) == alone
@@ -495,6 +501,7 @@ impl Overlay {
                         cp,
                         crate::cellmap::face_of(scene.styles, *cell),
                         crate::cellmap::look_of(scene.styles, *cell),
+                        CellSpan::at(row, Col::at_index(x)),
                     )
                     .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
             });
@@ -562,7 +569,12 @@ impl Overlay {
             return;
         }
         *slot |= MASK_RECORD;
-        let glyphs = r.cluster(&[cp], crate::cellmap::face_of(styles, cell));
+        let glyphs = r.cluster(
+            &[cp],
+            crate::cellmap::face_of(styles, cell),
+            // A prediction is one printable ASCII character.
+            CellSpan::One,
+        );
         // A prediction is a local echo at the live cursor; the ring rotation
         // that starts a slide drops any pending prediction first, so a
         // predicted record never coexists with a non-zero pan.

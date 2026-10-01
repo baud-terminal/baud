@@ -338,7 +338,7 @@ impl Scale {
 /// every glyph moves by the same amount. A CJK fallback face is centred the
 /// same way in its two cells, which can take more than a pixel; the whole
 /// pixels only move the mask, and the fraction is what is rasterised.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Phase(i16);
 
 impl Phase {
@@ -354,6 +354,28 @@ impl Phase {
         let slack = span - scale.px(f32::from(advance.value()));
         let q = round(slack * 128.0);
         (q.is_finite() && slack.abs() < span / 2.0).then_some(Phase(q as i16))
+    }
+
+    /// Half the slack between a span `span` pixels wide and an `advance`
+    /// at `scale` -- the offset that centres the advance in the span --
+    /// for an advance between nothing and half again the span. A glyph one
+    /// cell wide in a two-cell span is centred by half a cell, which
+    /// [`Phase::centring`] refuses as not belonging; `None` for a glyph with
+    /// no advance (a mark, which moves with its base) or one far wider than
+    /// the span.
+    pub fn in_span(scale: Scale, advance: Advance, span: Px) -> Option<Phase> {
+        let span = f32::from(u16::try_from(span.0).ok()?);
+        let adv = scale.px(f32::from(advance.value()));
+        let slack = span - adv;
+        let q = round(slack * 128.0);
+        (q.is_finite() && adv > 0.0 && slack > -span / 2.0 && slack < span)
+            .then_some(Phase(q as i16))
+    }
+
+    /// The whole pixels of the offset, rounded: what a bitmap, which
+    /// cannot be drawn at a fraction, is moved by.
+    pub fn whole(self) -> i32 {
+        round(self.px()) as i32
     }
 
     fn px(self) -> f32 {

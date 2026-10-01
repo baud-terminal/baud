@@ -35,7 +35,7 @@ const GOLDEN: [(&str, u64); 9] = [
     ("ascii/cat-scroll.raw", 0x4d40b1848c392577),
     ("ascii/git-log.raw", 0x5cc0a0f94d1c95ac),
     ("ascii/less-pager.raw", 0x5fc54cb2598e903c),
-    ("utf8/cat-cjk.raw", 0x5118359e37c43f47),
+    ("utf8/cat-cjk.raw", 0xa54b11488ff4e487),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
     ("utf8/vim-unicode.raw", 0x6a28b4e80a1684c8),

@@ -1089,6 +1089,10 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 #define FG_LOOK_SHIFT 12u
 #define BG_LOOK_SHIFT 15u
 #define KEY_LOOK_SHIFT 23u
+// Set in the key when the character spans two cells -- the next cell is
+// its wide tail: its glyph is centred in them, a slot of its own. Must
+// match `CellKey::SPAN_SHIFT`.
+#define KEY_SPAN_SHIFT 26u
 
 // Whether the cell's own text -- its glyph, underline and strike -- is
 // hidden: `SGR 8`, or `SGR 5` in its off phase. Hidden text draws its
@@ -1205,8 +1209,11 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint shapes = styles[cell.y & 0xffffu].shapes;
     if (hidden(u, shapes)) return o;
     uint look = (shapes >> (swapped(u, content, col, uint(lrow)) ? BG_LOOK_SHIFT : FG_LOOK_SHIFT)) & 7u;
+    // Two cells when the next cell is this one's wide tail: the grid says
+    // the width there (`CellSpan::at`), not the cell's flags.
+    uint two = (col + 1u < u.grid.x && cell_at(u, cells, col + 1u, dr).x == WIDE_TAIL) ? 1u : 0u;
     uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT)
-                       | (look << KEY_LOOK_SHIFT);
+                       | (look << KEY_LOOK_SHIFT) | (two << KEY_SPAN_SHIFT);
     uint mask = u.map_slots - 1u;
     uint i = (key * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;

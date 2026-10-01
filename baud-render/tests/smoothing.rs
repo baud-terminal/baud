@@ -13,8 +13,9 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Codepoint, Cols, ReadLen, Rows, WinSize};
 use baud_font::{Face, SmoothLevel};
 use baud_render::{
-    Argb, Blend, Blink, BlockCursor, Damage, FaceStyle, GlyphLook, GlyphSource, Ink, Instance,
-    Kind, Pictured, PxSize, Renderer, Resolved, Selected, Shapes, Smoothing, Stack, Swaps, Theme,
+    Argb, Blend, Blink, BlockCursor, CellSpan, Damage, FaceStyle, GlyphLook, GlyphSource, Ink,
+    Instance, Kind, Pictured, PxSize, Renderer, Resolved, Selected, Shapes, Smoothing, Stack,
+    Swaps, Theme,
 };
 use support::font;
 
@@ -187,16 +188,21 @@ fn images_and_boxes_are_drawn_once() {
         .unwrap();
     let mut r = renderer(&faces);
     r.set_smoothing(Smoothing::CoreText);
-    let image = r.cluster(&[emoji], FaceStyle::Regular);
+    let image = r.cluster(&[emoji], FaceStyle::Regular, CellSpan::Two);
     assert_eq!(
         image[0].slot.unwrap().kind,
         Kind::Color,
         "the emoji face's image"
     );
-    let line = r.cluster(&[Codepoint::new(0x2500).unwrap()], FaceStyle::Regular);
+    let line = r.cluster(
+        &[Codepoint::new(0x2500).unwrap()],
+        FaceStyle::Regular,
+        CellSpan::One,
+    );
     let letter = r.cluster(
         &[Codepoint::new(u32::from('H')).unwrap()],
         FaceStyle::Regular,
+        CellSpan::One,
     );
     assert_eq!(line[0].source, GlyphSource::Procedural);
     for g in [&image[0], &line[0]] {

@@ -311,6 +311,9 @@ fn the_face_style_bits_match_the_shader() {
         ("FG_LOOK_SHIFT", baud_render::Shapes::FG_LOOK_SHIFT),
         ("BG_LOOK_SHIFT", baud_render::Shapes::BG_LOOK_SHIFT),
         ("KEY_LOOK_SHIFT", baud_render::CellKey::LOOK_SHIFT),
+        // The two-cell span: a drift probes a key the walk never inserted,
+        // and every wide character draws nothing on the cell path.
+        ("KEY_SPAN_SHIFT", baud_render::CellKey::SPAN_SHIFT),
     ] {
         let prefix = format!("#define {name} ");
         let line = src

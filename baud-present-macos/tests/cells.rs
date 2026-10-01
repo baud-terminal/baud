@@ -2636,6 +2636,47 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         arms.highlight = None;
         arms.renderer.set_smoothing(Smoothing::Off);
     }
+    // **A glyph narrower than its two cells is centred in them (note Z,
+    // decision B).** JetBrains Mono's `⚡ ﹢ ｛ ｝` are one cell's advance in a
+    // two-cell span, `⌚` the emoji subset's. The cell arm learns the span
+    // from the `WIDE_TAIL` in the next cell and keys its map on it; the
+    // instance arm reads it with `CellSpan::at`. A mark on a wide base moves
+    // with the base, and a block cursor and a selection swap over them.
+    {
+        let (w, _) = arms.renderer.frame_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let w = usize::try_from(w.value()).unwrap();
+        feed(&mut t, b"\x1b[0m\x1b[2J\x1b[H\x1b[2 q\x1b[?25l");
+        feed(
+            &mut t,
+            "glyphs, quickly: \u{26a1}\u{fe62}\u{ff5b}\u{ff5d} \u{231a} \u{26a1}\u{301}\r\n\
+             \x1b[38;2;0;205;0m\u{ff5b}x\u{ff5d}\x1b[0m\u{26a1}\r\nabcdefghijklmnopqrstuvwxyz\x1b[1;22H\x1b[?25h"
+                .as_bytes(),
+        );
+        arms.highlight = Some(Highlight {
+            from: (Row::from_index(1), Col::at_index(0)),
+            to: (Row::from_index(1), Col::at_index(3)),
+            region: Region::Stream,
+        });
+        let (a, b) = arms.draw(&mut t);
+        let bx = diff_box(&a, &b, w, cell);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on a glyph centred in two cells, in cells {bx:?}"
+        );
+        arms.highlight = None;
+        feed(&mut t, b"\x1b[2;1H\x1b[2K\x1b[1;18H\x1b[K");
+        let (cleared, _) = arms.draw(&mut t);
+        assert!(
+            differing(&a, &cleared) > 0,
+            "the centred glyphs reached the pixels"
+        );
+    }
 }
 
 /// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this
