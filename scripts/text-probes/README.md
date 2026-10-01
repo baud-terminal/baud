@@ -26,6 +26,14 @@ env -u SDKROOT swiftc -sdk "$(/usr/bin/xcrun --sdk macosx --show-sdk-path)" -O s
 
 The anisotropy of the dilation (tops +2d, bottoms +0, sides +d, square
 corners) was fitted from pixel dumps by a Rust harness against these
-probes' CoreText renders; it is not reproduced by any one probe here. The
-dilation's implementation will carry its own CoreText fixture generator, in
-the manner of the committed `hb-shape` fixtures, and that is the gate.
+probes' CoreText renders; it is not reproduced by any one probe here. Two
+generators write the fixtures `baud-font`'s smoothing is gated against:
+
+| generator | writes | for |
+|---|---|---|
+| `smooth-fixtures.swift <font> <dir>` | `ct-smooth-<ppem>.bin`: CoreText's masks of every printable ASCII glyph and five block elements, smoothing off and at each level, 9.001-48 px | `baud-font/tests/smooth.rs`, run against `baud-font/tests/fonts/JetBrainsMono-Regular.ttf` |
+| `smooth-cubics.swift <out>` | `cg-cubics.bin`: cubic circles and blobs, some left open, filled by CoreGraphics at flatness 1 | the same test's cubic gate: JetBrains Mono has no cubics |
+| `smooth-colours.swift <font> <out>` | `ct-colours.bin`: CoreText's full block in 21 coloured fills over black, smoothing off and on, at 13.001, 20 and 28 px | the same test's level gate: a grey fixture cannot tell Rec.709 from Rec.601 |
+
+The `.001` sizes avoid CoreText's integer-ppem vertical snap. Regenerate
+both on a new macOS and expect the gate to say whether CoreText moved.

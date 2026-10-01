@@ -103,13 +103,18 @@ impl Point {
 
 /// How far a cubic has been subdivided; the reference stops at sixteen.
 #[derive(Clone, Copy)]
-struct Depth(u8);
+pub(crate) struct Depth(u8);
 
 impl Depth {
-    const ZERO: Depth = Depth(0);
+    pub(crate) const ZERO: Depth = Depth(0);
     const LIMIT: Depth = Depth(16);
 
-    fn deeper(self) -> Depth {
+    /// Whether a curve this deep may be halved again.
+    pub(crate) fn may_split(self) -> bool {
+        self.0 < Depth::LIMIT.0
+    }
+
+    pub(crate) fn deeper(self) -> Depth {
         Depth(self.0.saturating_add(1))
     }
 }
@@ -137,6 +142,12 @@ impl<'a> Canvas<'a> {
 
     pub fn extent(&self) -> Extent {
         self.extent
+    }
+
+    /// The extent and the accumulation buffer, for a pass that takes the
+    /// coverage in `f32` rather than through [`Canvas::coverage`].
+    pub(crate) fn into_parts(self) -> (Extent, &'a mut [f32]) {
+        (self.extent, self.a)
     }
 
     fn deposit(&mut self, at: i64, v: f32) -> Option<()> {
@@ -256,7 +267,7 @@ impl<'a> Canvas<'a> {
         let longlen = p0.distance_to(p1) + p1.distance_to(p2) + p2.distance_to(p3);
         let shortlen = p0.distance_to(p3);
         let flatness_squared = longlen * longlen - shortlen * shortlen;
-        if depth.0 < Depth::LIMIT.0 && flatness_squared > FLATNESS * FLATNESS {
+        if depth.may_split() && flatness_squared > FLATNESS * FLATNESS {
             let p01 = Point::lerp(0.5, p0, p1);
             let p12 = Point::lerp(0.5, p1, p2);
             let p23 = Point::lerp(0.5, p2, p3);
@@ -519,7 +530,7 @@ impl Fit {
 
 /// Whether the current contour has been started and not yet closed.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Contour {
+pub(crate) enum Contour {
     Closed,
     Open,
 }

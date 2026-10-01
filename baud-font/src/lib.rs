@@ -68,6 +68,7 @@ pub mod outline;
 mod png;
 mod raster;
 mod shape;
+mod smooth;
 mod standard_encoding;
 pub mod var;
 
@@ -89,6 +90,7 @@ pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use shape::{CombiningClass, Shaped, Shaper};
+pub use smooth::{Dilation, SUPERSAMPLE, SmoothLevel, Smoother};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

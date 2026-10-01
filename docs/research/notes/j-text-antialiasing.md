@@ -161,10 +161,30 @@ would have to join the atlas key.
 
 **Decided since, for building.**
 
-- The dilated mask is rasterised at 16x, run through a separable sliding
-  max over the box, and box-filtered down: exactly the measured model (Jev
-  0.97). Only outline glyphs dilate; procedural box drawing, `COLR` layers and
-  bitmap strikes do not.
+- The dilated mask is rasterised supersampled, run through a separable
+  sliding max over the box, and box-filtered down: exactly the measured
+  model (Jev 0.97). Only outline glyphs dilate; procedural box drawing,
+  `COLR` layers and bitmap strikes do not.
+- Its curves are cut by CoreGraphics' own rule (owner, Jev 0.93), recovered
+  by matching masks: halve while `n(n-1)/8` times the max-norm of the second
+  difference exceeds 0.2 device px (flatness 1), a quadratic into `2^k`
+  equal pieces, a cubic recursively. Exact curves read 0.8-5.3% heavier
+  than macOS on round letters at 1x, visible over 16-54% of the ink at a
+  one-arcminute blur; the rule's chords are indistinguishable. Undilated
+  text keeps baud's exact rasteriser.
+- The supersample is 8x (owner, Jev 0.86): within 11 codes of 16x
+  everywhere, mean 0.34; 4x fails the CoreText gate. 8.5 us a mask at
+  13 px, 31 us at 28 px, 97 us for a Han glyph at 32 px, against 0.6-3 us
+  undilated.
+  **Built** in `baud-font` (`smooth.rs`: `SmoothLevel`, `Dilation`,
+  `Smoother`), gated against CoreText's own masks in `tests/smooth.rs`: each
+  flat edge's growth within two u8 steps of the formula in CoreText's masks
+  and baud's, at 18 sizes and five levels; the whole smoothed mask within
+  0.0021-0.0075 mean of CoreText's; CoreGraphics' cubic fill within 2
+  codes; and the level is the fill's Rec.709 luminance in colour as well as
+  grey (21 fills; Rec.601 mispredicts 19 of 63 fill-and-size cases). The fixtures are written by
+  `scripts/text-probes/smooth-fixtures.swift` and `smooth-cubics.swift`.
+  The renderer does not use it yet.
 - Nerd Font icons are sized by a table generated at build time from the
   pinned font-patcher against the embedded Symbols Nerd Font Mono, with
   Nerd Fonts' own patched JetBrains Mono as the oracle (Jev 1.00): 99.4% of
