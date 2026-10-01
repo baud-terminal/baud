@@ -2677,6 +2677,34 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "the centred glyphs reached the pixels"
         );
     }
+    // **A variation selector picks the face (owner, 2026-09-30).** JetBrains
+    // Mono carries (c) and (tm) as text and the emoji subset carries them in
+    // colour: a bare one is the text glyph, `U+FE0F` asks for colour and
+    // `U+FE0E` for text. The cell arm draws a bare one from its map and a
+    // selected one from the overlay's records through `Renderer::cluster`;
+    // the instance arm reads the selector per cell. Both must agree, and the
+    // selector must reach the pixels.
+    {
+        feed(&mut t, b"\x1b[0m\x1b[2J\x1b[H\x1b[?25l");
+        feed(
+            &mut t,
+            "selected: \u{a9} \u{a9}\u{fe0f} \u{2122}\u{fe0e} \u{2122}\u{fe0f}\r\n\
+             abcdefghijklmnopqrstuvwxyz"
+                .as_bytes(),
+        );
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on a variation selector"
+        );
+        feed(
+            &mut t,
+            "\x1b[1;11H\u{a9} \u{a9}  \u{2122}\u{fe0e} \u{2122} ".as_bytes(),
+        );
+        let (bare, _) = arms.draw(&mut t);
+        assert!(differing(&a, &bare) > 0, "the selector reached the pixels");
+    }
 }
 
 /// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this

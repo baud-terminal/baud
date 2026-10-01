@@ -693,6 +693,7 @@ impl Boot {
         // here, before the first frame draws a glyph, and again at every
         // focus gain (`read_caret_system`).
         renderer.set_smoothing(cfg.font_smoothing.resolve(os_smoothing()));
+        renderer.set_emoji_default(cfg.emoji);
         startup_mark("renderer");
         Boot {
             request,

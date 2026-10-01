@@ -47,6 +47,13 @@ font_smoothing = "auto"
 # glibc). DECRQM ?2027 reports it; nothing an application sends changes it.
 vs16_width = "two"
 
+# How a character with no variation selector is drawn. "font": from a text
+# face, whatever its default presentation (a lightning bolt is the font's
+# bolt). "system": a character whose default presentation is emoji is drawn
+# in colour, as macOS draws it. U+FE0F asks for colour and U+FE0E for text
+# under either.
+emoji = "font"
+
 
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.

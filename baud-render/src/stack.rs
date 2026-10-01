@@ -67,6 +67,46 @@ impl FaceStyle {
     }
 }
 
+/// How a character asks to be drawn: from a text face or a colour one.
+/// `U+FE0E` asks for text and `U+FE0F` for colour; a character with neither
+/// takes the renderer's default (`EmojiDefault`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Presentation {
+    Text,
+    Colour,
+}
+
+/// How a character with no selector is drawn: the owner's `font` or
+/// `system` (2026-09-30). Under `Font`, the default, it is the font's text
+/// glyph whatever its default presentation -- `⚡` is JetBrains Mono's bolt --
+/// and only `U+FE0F` asks for colour. Under `System` a character whose
+/// default presentation is emoji (`Emoji_Presentation=Yes`, `⚡` but not `❤`)
+/// is colour too, as macOS's own text draws it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum EmojiDefault {
+    #[default]
+    Font,
+    System,
+}
+
+impl EmojiDefault {
+    /// The presentation a character asks for: its selector -- the codepoint
+    /// straight after it in its cluster -- when that is `U+FE0E` or
+    /// `U+FE0F`, which wins; else this default's.
+    pub fn presentation(self, base: Codepoint, selector: Option<Codepoint>) -> Presentation {
+        match selector.map(Codepoint::value) {
+            Some(0xfe0f) => Presentation::Colour,
+            Some(0xfe0e) => Presentation::Text,
+            _ => match self {
+                EmojiDefault::System if baud_domain::vs16::presents_as_emoji(base) => {
+                    Presentation::Colour
+                }
+                _ => Presentation::Text,
+            },
+        }
+    }
+}
+
 /// What a face is for in a [`Stack`]: part of the fallback chain every
 /// character tries in order, or the face one style tries first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -193,6 +233,23 @@ impl<'f, 'a> Stack<'f, 'a> {
             .get(self.effective(style))
             .filter(|f| self.face(*f).glyph(c).is_some());
         own.unwrap_or_else(|| self.select(c))
+    }
+
+    /// The face a character of `style` is drawn from when it asks for a
+    /// presentation: the first face whose glyph for `c` is colour, or is not,
+    /// in the order [`Stack::select_styled`] tries them -- the style's own
+    /// face, then the chain. When no face draws `c` that way, the face
+    /// `select_styled` picks: a heart with `U+FE0F` and no colour face is the
+    /// text heart, not `.notdef`.
+    pub fn select_presented(&self, c: Codepoint, style: FaceStyle, p: Presentation) -> FaceIx {
+        let wants = |ix: FaceIx| {
+            let f = self.face(ix);
+            f.glyph(c)
+                .is_some_and(|g| f.is_colour(g) == (p == Presentation::Colour))
+        };
+        let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
+        own.or_else(|| self.each().find(|ix| !self.styled.holds(*ix) && wants(*ix)))
+            .unwrap_or_else(|| self.select_styled(c, style))
     }
 
     /// The first face that maps `c`; the primary when none does, so its

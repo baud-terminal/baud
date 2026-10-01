@@ -4,7 +4,7 @@
 //! string, integer and decimal scalars, a bracketed list of strings that may
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
-//! `font_size`, `padding`, `colorspace`, `font_smoothing`, `vs16_width`, `theme`, and the eight under
+//! `font_size`, `padding`, `colorspace`, `font_smoothing`, `vs16_width`, `emoji`, `theme`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -151,6 +151,12 @@ pub struct Config {
     /// `"two"` by default (owner, 2026-10-01), or one for a session whose
     /// programs measure with a legacy `wcwidth`. `DECRQM ?2027` reports it.
     pub vs16_width: baud_domain::Vs16Width,
+    /// `emoji`: how a character with no variation selector is drawn --
+    /// `"font"`, the default, from a text face whatever its default
+    /// presentation; `"system"`, an emoji-presentation character in colour
+    /// as macOS draws it. A `U+FE0F` asks for colour and a `U+FE0E` for text
+    /// under either (owner, 2026-09-30).
+    pub emoji: baud_render::EmojiDefault,
 }
 
 /// The material, and the dimming over it.
@@ -524,6 +530,7 @@ impl Config {
             images: crate::host::IMAGE_BUDGET,
             sixel: baud_domain::SixelClaim::No,
             vs16_width: baud_domain::Vs16Width::Two,
+            emoji: baud_render::EmojiDefault::Font,
             source: None,
         }
     }
@@ -589,6 +596,18 @@ impl Config {
                                 "config: theme {other:?} is not auto, dark or light; using auto"
                             ));
                             ThemeChoice::Auto
+                        }
+                    };
+                }
+                ("", "emoji") => {
+                    self.emoji = match value.trim().trim_matches('"') {
+                        "font" => baud_render::EmojiDefault::Font,
+                        "system" => baud_render::EmojiDefault::System,
+                        other => {
+                            said.push(format!(
+                                "config: emoji {other:?} is not font or system; using font"
+                            ));
+                            baud_render::EmojiDefault::Font
                         }
                     };
                 }
@@ -2048,6 +2067,24 @@ shadow     = "never"
         assert_eq!(c.glass.dim_dark, 0.22);
         assert_eq!(c.glass.dim_light, 0.12);
         assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
+    }
+
+    /// `emoji` reads two words, and anything else is `font` and said.
+    #[test]
+    fn emoji_is_font_unless_named() {
+        use baud_render::EmojiDefault;
+        assert_eq!(read("").emoji, EmojiDefault::Font);
+        assert_eq!(read("emoji = \"system\"").emoji, EmojiDefault::System);
+        assert_eq!(read("emoji = \"font\"").emoji, EmojiDefault::Font);
+        let mut c = Config::defaults();
+        let said = c.apply("emoji = \"colour\"");
+        assert_eq!(c.emoji, EmojiDefault::Font);
+        assert_eq!(said.len(), 1, "a bad value is said: {said:?}");
+        assert_eq!(
+            read("[glass]\nemoji = \"system\"").emoji,
+            EmojiDefault::Font,
+            "a section's key of the same name is not this one"
+        );
     }
 
     /// `vs16_width` reads two words, and anything else is `two` and said.

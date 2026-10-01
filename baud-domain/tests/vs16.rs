@@ -68,3 +68,41 @@ fn widens_answers_the_table() {
         assert_eq!(vs16::widens(Codepoint::from_char(c)), want, "{c:?}");
     }
 }
+
+#[test]
+fn the_emoji_presentation_ranges_are_the_pinned_files() {
+    let path = format!(
+        "{}/../docs/research/sources/unicode-emoji-data.txt",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut set = std::collections::BTreeSet::new();
+    for l in text.lines() {
+        let l = l.split('#').next().unwrap().trim();
+        let Some((cps, prop)) = l.split_once(';') else {
+            continue;
+        };
+        if prop.trim() != "Emoji_Presentation" {
+            continue;
+        }
+        let (lo, hi) = match cps.trim().split_once("..") {
+            Some((a, b)) => (a, b),
+            None => (cps.trim(), cps.trim()),
+        };
+        let (lo, hi) = (
+            u32::from_str_radix(lo, 16).unwrap(),
+            u32::from_str_radix(hi, 16).unwrap(),
+        );
+        set.extend(lo..=hi);
+    }
+    assert!(
+        set.len() > 1000,
+        "positive control: the file parsed ({})",
+        set.len()
+    );
+    for v in 0..=0x10ffffu32 {
+        if let Some(cp) = Codepoint::new(v) {
+            assert_eq!(vs16::presents_as_emoji(cp), set.contains(&v), "U+{v:04X}");
+        }
+    }
+}

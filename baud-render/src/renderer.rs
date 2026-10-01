@@ -13,7 +13,7 @@ use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::smoothing::Smoothing;
 use crate::stack::FaceStyle;
-use crate::stack::{FaceIx, Stack};
+use crate::stack::{EmojiDefault, FaceIx, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
@@ -288,6 +288,16 @@ pub struct ClusterGlyph {
     pub phase: Phase,
 }
 
+/// The codepoint after a cell's base in its cluster -- its variation
+/// selector, if it has one -- read from the cluster store; `None` for a cell
+/// with no marks.
+fn selector(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
+    match cell.flags.is_marked() {
+        true => term.cluster_marks(cell).next().and_then(Codepoint::new),
+        false => None,
+    }
+}
+
 /// Whether `cp` is an icon codepoint -- the Private Use Areas -- whose
 /// placement the Nerd Fonts patcher's rules own (note Z, scope C), not the
 /// centring a text glyph takes.
@@ -486,6 +496,9 @@ pub struct Renderer<'f, 'a> {
     /// Whether outlines are drawn as macOS's font smoothing draws them;
     /// the embedder's to set (`Renderer::set_smoothing`), off until it does.
     smoothing: Smoothing,
+    /// How a character with no selector chooses between a text face and a
+    /// colour one; the embedder's (`Renderer::set_emoji_default`).
+    emoji: EmojiDefault,
     cols: Cols,
     rows: Rows,
     prev: Vec<PackedCell>,
@@ -661,6 +674,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cache: RunCache::new(),
             atlas: Atlas::new(),
             smoothing: Smoothing::Off,
+            emoji: EmojiDefault::Font,
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
             prev: Vec::new(),
@@ -758,6 +772,38 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // resolved again: a stale look keys a glyph the map does not hold,
         // and the cell path draws nothing there.
         self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
+    }
+
+    /// How a character with no selector is drawn (`EmojiDefault`). A change
+    /// moves faces under glyphs the atlas, the map and the overlay hold, so
+    /// it starts them again, as a change of smoothing does.
+    pub fn set_emoji_default(&mut self, emoji: EmojiDefault) {
+        if emoji == self.emoji {
+            return;
+        }
+        self.emoji = emoji;
+        self.atlas.reset();
+        #[cfg(feature = "exceptions")]
+        self.singles.clear();
+        self.known = Prev::Unknown;
+    }
+
+    /// What [`Renderer::set_emoji_default`] last set.
+    pub fn emoji_default(&self) -> EmojiDefault {
+        self.emoji
+    }
+
+    /// The face `base` is drawn from in `style`, given the codepoint after
+    /// it in its cluster: the one place the presentation is applied, so a
+    /// path cannot pick a face another path does not.
+    pub fn face_for(
+        &self,
+        base: Codepoint,
+        selector: Option<Codepoint>,
+        style: FaceStyle,
+    ) -> FaceIx {
+        self.stack
+            .select_presented(base, style, self.emoji.presentation(base, selector))
     }
 
     /// Whether outlines are smoothed.
@@ -1653,7 +1699,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 phase: Phase::ZERO,
             }];
         }
-        let face = self.stack.select_styled(base, style);
+        let face = self.face_for(base, cps.get(1).copied(), style);
         let phase = self.phase_in(face, base, span);
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
@@ -1703,7 +1749,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 face: FaceIx::PRIMARY,
             });
         }
-        let face = self.stack.select_styled(cp, style);
+        let face = self.face_for(cp, None, style);
         let clusters = [ClusterIn {
             cps: vec![cp],
             at: CellIx(0),
@@ -2200,7 +2246,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             }
             let style = self.face_style(row[c]);
-            let face = self.stack.select_styled(base, style);
+            let face = self.face_for(base, selector(term, row[c]), style);
             // Gather the run: consecutive drawn cells on this face. A bold
             // cell and a regular one are on two faces when a bold face
             // exists, so the style splits the run through the face.
@@ -2223,8 +2269,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let Some(cp) = cell.content.as_codepoint() else {
                     break;
                 };
-                if crate::boxes::covers(cp)
-                    || self.stack.select_styled(cp, self.face_style(cell)) != face
+                // The run's first cell is taken whatever the test says: the
+                // face above was chosen for it, and a run that could stop
+                // before its first cell would never advance -- a hang, not
+                // a wrong pixel, if the two ever disagreed.
+                if c > start
+                    && (crate::boxes::covers(cp)
+                        || self.face_for(cp, selector(term, cell), self.face_style(cell)) != face)
                 {
                     break;
                 }
@@ -2365,7 +2416,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
-                    let face = self.stack.select_styled(cp, style);
+                    let face = self.face_for(cp, None, style);
                     let one = [ClusterIn {
                         cps: vec![cp],
                         at: CellIx(0),
@@ -2375,7 +2426,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     s
                 }
             };
-            let face = self.stack.select_styled(cp, style);
+            let face = self.face_for(cp, None, style);
             let mine: Vec<Placed> = shaped
                 .glyphs()
                 .iter()

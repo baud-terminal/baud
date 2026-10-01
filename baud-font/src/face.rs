@@ -695,6 +695,15 @@ impl<'a> Face<'a> {
         self.morx.as_ref()
     }
 
+    /// Whether `g` draws in colour: it has `COLR` layers, or a bitmap in the
+    /// face's first strike. A face can carry both kinds -- a `COLR` font's
+    /// unlayered glyphs are outlines -- so this asks about the glyph, not the
+    /// face.
+    pub fn is_colour(&self, g: GlyphId) -> bool {
+        self.layers(g).is_some()
+            || (!self.strikes().is_zero() && self.bitmap(Index::ZERO, g).is_some())
+    }
+
     /// The `COLR` v0 layers of `g`, bottom first, or `None` for a glyph the
     /// table does not describe.
     pub fn layers(&self, g: GlyphId) -> Option<Layers<'a>> {
