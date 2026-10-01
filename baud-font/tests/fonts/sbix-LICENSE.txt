@@ -1,0 +1,4 @@
+sbix-strikes.ttf is written by scripts/gen-sbix-fixture.py from nothing but
+that script: its images are solid colour fields the script draws and its
+tables are written from scratch. It carries no third-party data and is
+distributed under the repository's licence, CC-BY-NC-SA-4.0 (Cargo.toml).

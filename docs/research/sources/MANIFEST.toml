@@ -4651,6 +4651,21 @@ group  = "J"
 # Derived, not fetched: the sha256 is of the generator's output, and the
 # committed fixture must hash to it (baud-font/tests/oracle.rs).
 
+[sources.font-sbix-strikes]
+key    = "font-sbix-strikes"
+title  = "sbix-strikes.ttf -- four sbix strikes holding every per-glyph case: a glyph in one strike only, flip, flip to dupe, two flips, an unreadable PNG, a dupe loop"
+author = "scripts/gen-sbix-fixture.py"
+year   = 2026
+venue  = "baud-font/tests/fonts/sbix-strikes.ttf (the repository's licence, beside it)"
+url    = "scripts/gen-sbix-fixture.py"
+file   = ""
+sha256 = "d90a17f799f32812b10e069ac34d7d6c6c2e2580bbaf675ceb22c30c54884af2"
+bytes  = 2192
+status = "external"
+group  = "J"
+# Derived, not fetched: the sha256 is of the generator's output, and the
+# committed fixture must hash to it (baud-font/tests/oracle.rs).
+
 [sources.font-bungee-tint-regular]
 key    = "font-bungee-tint-regular"
 title  = "Bungee Tint Regular 2.001 -- a COLR version 0 face: 1,063 layered glyphs over 2,126 layers, CPAL with 8 palettes of 2 entries"

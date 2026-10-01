@@ -72,7 +72,7 @@ mod standard_encoding;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};
-pub use bitmap::{Bitmap, Placement, Ppem, Strike};
+pub use bitmap::{Bitmap, Mirror, Placement, Ppem, Strike};
 pub use buffer::{Attached, Buffer, Cluster, Glyph, Ignorable, Mark, Positioned};
 pub use cmap::Variation;
 pub use colr::{Layer, Layers, Palette, PaletteEntry, Rgba};

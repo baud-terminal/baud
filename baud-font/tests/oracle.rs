@@ -623,7 +623,8 @@ fn sha256_hex(data: &[u8]) -> String {
 
 #[test]
 fn the_committed_faces_are_the_ones_the_manifest_pins() {
-    // Seven OFL faces, each with its licence beside it and each hash-pinned in
+    // Seven OFL faces and one generated sbix fixture, each with its licence
+    // beside it and each hash-pinned in
     // the research manifest; a test font that is not pinned is a byte string
     // nobody can re-fetch, and one whose bytes drift from the pin is a
     // different font wearing the name.
@@ -641,6 +642,7 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
             "JetBrainsMono-Regular.ttf",
             "JetBrainsMono-Variable.ttf",
             "NotoColorEmoji-subset.ttf",
+            "sbix-strikes.ttf",
         ]
     );
     let manifest = std::fs::read_to_string(concat!(
@@ -667,6 +669,7 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
         "font-jetbrains-mono-regular",
         "font-jetbrains-mono-variable",
         "font-noto-color-emoji-subset",
+        "font-sbix-strikes",
     ]) {
         let lic = p.with_file_name(format!(
             "{}-LICENSE.txt",

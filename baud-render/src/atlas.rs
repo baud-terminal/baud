@@ -4,10 +4,20 @@
 //!
 //! A glyph is resolved the first time it is asked for and never again
 //! while the atlas lives; a size or font change starts a new atlas. A
-//! face's bitmap strike (`sbix`, `CBDT`) is tried first at the strike
-//! nearest the cell, then its `COLR` layers painted through palette zero,
-//! then the outline as a mask -- the order Apple Color Emoji, Noto Color
-//! Emoji and Bungee Tint each need.
+//! face's bitmap strike (`sbix`, `CBDT`) is tried first, then its `COLR`
+//! layers painted through palette zero, then the outline as a mask -- the
+//! order Apple Color Emoji, Noto Color Emoji and Bungee Tint each need.
+//!
+//! **A strike is chosen per glyph, among the strikes that hold it**: the
+//! smallest at or above the cell's size in whole pixels, else the largest,
+//! skipping any where the glyph is empty or its PNG will not decode. The
+//! specifications require a glyph with an image in any strike be drawn from
+//! one (`[[source: ms-opentype-sbix]]`, `[[source: apple-ttrm-sbix]]`),
+//! and CoreText was measured doing exactly this on Apple Color Emoji, whose
+//! strikes leave 177 glyphs empty in some sizes and not others: the melting
+//! face is empty at 40, 48 and 52 ppem and CoreText draws it from 64 there.
+//! One strike a face, the rule this replaced, drew those glyphs as nothing,
+//! 99 of them at the app's default 26 px.
 //!
 //! **A slot's position is arithmetic, and growing keeps every one of
 //! them.** The sheet is a stack of bands; a band is a strip `h` texels
@@ -38,7 +48,8 @@ use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
-    Bounds, Canvas, Face, Fit, Palette, PaletteEntry, Phase, Png, Px, Rasterizer, Scale, Strike,
+    Bounds, Canvas, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px, Rasterizer,
+    Scale, Strike,
 };
 use std::collections::HashMap;
 
@@ -576,43 +587,60 @@ impl Atlas {
         slot
     }
 
-    /// The strike whose pixels per em is nearest the cell, preferring the
-    /// first at or above it, and the glyph's image on it scaled to fit.
-    /// A bitmap cannot be drawn at a fraction of a pixel, so only `phase`'s
-    /// whole pixels move it.
+    /// The glyph's image from the strike CoreText draws it from: among the
+    /// strikes that hold it and decode, the smallest at or above the cell's
+    /// size in whole pixels, else the largest -- then mirrored if a
+    /// `'flip'` said so, and scaled to fit. A bitmap cannot be drawn at a
+    /// fraction of a pixel, so only `phase`'s whole pixels move it.
     fn bitmap(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale, phase: Phase) -> Option<Slot> {
         let strikes = face.strikes();
         if strikes.is_zero() {
             return None;
         }
         let target = scale.px(f32::from(face.units_per_em().value()));
-        let mut best: Option<(Index, f32)> = None;
+        // CoreText compares a strike with the side of the square it draws,
+        // the size rounded half up: 40.5 px takes 48, 40.4 takes 40.
+        let whole = (target + 0.5).floor();
+        let below = |p: Ppem| f32::from(p.value()) < whole;
+        let mut order: Vec<(Ppem, Index)> = Vec::new();
         let mut i = Index::ZERO;
         while strikes.holds(i) {
-            if let Some(ppem) = face.strike_ppem(i) {
-                let p = f32::from(ppem.value());
-                let score = if p >= target {
-                    p - target
-                } else {
-                    (target - p) * 4.0
-                };
-                if best.is_none_or(|(_, s)| score < s) {
-                    best = Some((i, score));
-                }
+            if let Some(p) = face.strike_ppem(i) {
+                order.push((p, i));
             }
             i = i.next();
         }
-        let (strike, _) = best?;
-        let bitmap = face.bitmap(strike, id)?;
-        let png = Png::parse(bitmap.png.as_slice()).ok()?;
-        let (raw_len, rgba_len) = (png.raw_len()?, png.rgba_len()?);
-        if self.raw.len() < raw_len {
-            self.raw.resize(raw_len, 0);
+        // At or above first, smallest first; then below, largest first.
+        order.sort_by(|a, b| {
+            let (x, y) = (below(a.0), below(b.0));
+            x.cmp(&y)
+                .then(if x { b.0.cmp(&a.0) } else { a.0.cmp(&b.0) })
+        });
+        let (bitmap, size) = order.iter().find_map(|&(_, strike)| {
+            let bitmap = face.bitmap(strike, id)?;
+            let png = Png::parse(bitmap.png.as_slice()).ok()?;
+            let (raw_len, rgba_len) = (png.raw_len()?, png.rgba_len()?);
+            if self.raw.len() < raw_len {
+                self.raw.resize(raw_len, 0);
+            }
+            if self.rgba.len() < rgba_len {
+                self.rgba.resize(rgba_len, 0);
+            }
+            let size = png.decode(&mut self.raw, &mut self.rgba).ok()?;
+            Some((bitmap, size))
+        })?;
+        if bitmap.mirror == Mirror::LeftRight {
+            // Left to right within the image's own width, before scaling:
+            // the image the font names, then drawn as any other.
+            let w = slots(Px::of(size.width));
+            for row in self.rgba[..w * slots(Px::of(size.height)) * 4].chunks_exact_mut(w * 4) {
+                for x in 0..w / 2 {
+                    for c in 0..4 {
+                        row.swap(x * 4 + c, (w - 1 - x) * 4 + c);
+                    }
+                }
+            }
         }
-        if self.rgba.len() < rgba_len {
-            self.rgba.resize(rgba_len, 0);
-        }
-        let size = png.decode(&mut self.raw, &mut self.rgba).ok()?;
         let factor = target / f32::from(bitmap.ppem.value());
         let (sw, sh) = (size.width, size.height);
         let dw = (sw as f32 * factor).round().max(1.0) as i64;

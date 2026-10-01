@@ -9,17 +9,39 @@
 //! `BitmapSize`, line metrics, a glyph range, a `ppem` and an array of index
 //! subtables that map a glyph range to an image location and format.
 //!
-//! **What is read and what is refused.** `sbix`: `'png '` records and
-//! `'dupe'` redirections (bounded at ten deep, because a dupe can point at
-//! itself); `'jpg '`, `'tiff'` and Apple's undocumented `'flip'` answer
-//! `None`. `CBLC`: index formats 1 through 5 and image formats 17, 18 and 19
-//! -- the PNG ones; the byte- and bit-aligned mono formats belong to `EBDT`
-//! and are not colour emoji. Every offset is bounded by its table.
+//! **What is read and what is refused.** `sbix`: `'png '` records,
+//! `'dupe'` redirections and Apple's undocumented `'flip'`, both bounded at
+//! ten hops between them, because either can point at itself; `'jpg '` and
+//! `'tiff'` answer `None`. `CBLC`: index formats 1 through 5 and image formats
+//! 17, 18 and 19 -- the PNG ones; the byte- and bit-aligned mono formats
+//! belong to `EBDT` and are not colour emoji. Every offset is bounded by its
+//! table.
+//!
+//! **`'flip'` is a `'dupe'` that mirrors.** Its payload is a glyph id, like
+//! a dupe's, and the glyph draws as that glyph's image mirrored left to
+//! right within the image's own width, at that glyph's offsets. Apple Color
+//! Emoji carries 108 such glyphs in every strike, the people facing right
+//! (`U+1F3C3 U+200D U+27A1`). Measured against CoreText on that face at
+//! native strike sizes, the mirror within the image matches at zero pixel
+//! error and a mirror about the origin, a vertical one or a rotation do not;
+//! on modified copies, neither glyph's advance moves the axis and the
+//! flip's own offsets are ignored. FreeType 2.14 agrees on all of that
+//! (its sbix image loader in `ttsbit.c`).
+//!
+//! **A chain of flips mirrors once.** The two disagree only here, on a chain
+//! no known font contains: FreeType toggles per flip, so a flip of a flip
+//! draws upright, while CoreText, Apple's own renderer of its own format,
+//! draws any chain holding a flip mirrored exactly once. baud follows
+//! CoreText (Jev 0.91, confidence 0.81, under the bar, so the owner's to
+//! overturn).
 //!
 //! **Strikes are enumerated, not chosen.** Which strike a renderer wants for
 //! a cell size is a policy the compositor owns; this module answers what the
 //! face has, so the oracle differential can walk every strike rather than
-//! agree with a heuristic.
+//! agree with a heuristic. A glyph can be present in some strikes and empty
+//! in others -- Apple Color Emoji has 177 such glyphs -- so "the face has a
+//! bitmap for this glyph" is a question about every strike, which
+//! [`Sbix::bitmap`] answers one strike at a time.
 
 use crate::bytes::{Array, Bytes, Count, FromBe, Index, Len, Offset};
 use baud_domain::GlyphId;
@@ -50,15 +72,27 @@ pub enum Strike {
     Cbdt,
 }
 
-/// One glyph's image: PNG bytes, still encoded, with where to put them.
+/// Whether a bitmap draws as stored or mirrored left to right within its
+/// own width: an `sbix` `'flip'` record anywhere on the way to its image.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Mirror {
+    AsStored,
+    LeftRight,
+}
+
+/// One glyph's image: PNG bytes, still encoded, with where to put them and
+/// whether to mirror them.
 #[derive(Clone, Copy)]
 pub struct Bitmap<'a> {
     pub png: Bytes<'a>,
     pub placement: Placement,
     pub ppem: Ppem,
     pub strike: Strike,
+    pub mirror: Mirror,
 }
 
+/// Hops through `'dupe'` and `'flip'` records together before a glyph is
+/// refused: a chain can loop.
 const DUPE_DEPTH: u8 = 10;
 
 /// `sbix`: a version, flags, and `numStrikes` offsets to strikes.
@@ -76,6 +110,10 @@ impl<'a> Sbix<'a> {
             return None;
         }
         let n: u32 = data.read(Offset::of(4u32))?;
+        // A count whose offsets run past the table is refused whole: a
+        // strike is walked by every renderer per glyph, so a hostile count
+        // of four billion would be four billion failed reads a glyph.
+        let _: Array<'a, u32> = data.array(Offset::of(8u32), Count::of(n))?;
         Some(Sbix {
             data,
             strikes: Count::of(n),
@@ -98,11 +136,14 @@ impl<'a> Sbix<'a> {
         self.data.read(at).map(Ppem)
     }
 
-    /// Glyph `g`'s PNG in strike `i`, following `dupe` redirections.
+    /// Glyph `g`'s PNG in strike `i`, following `dupe` and `flip`
+    /// redirections within the strike; `None` where the strike holds
+    /// nothing for it.
     pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
         let strike = self.strike_at(i)?;
         let ppem = Ppem(self.data.read(strike)?);
         let mut g = g;
+        let mut mirror = Mirror::AsStored;
         let mut depth = 0u8;
         loop {
             if depth == DUPE_DEPTH {
@@ -131,11 +172,17 @@ impl<'a> Sbix<'a> {
                         placement: Placement { x, y },
                         ppem,
                         strike: Strike::Sbix,
+                        mirror,
                     });
                 }
                 b"dupe" => {
                     let target: u16 = payload.read(Offset::ZERO)?;
                     g = GlyphId::from_shaper(target);
+                }
+                b"flip" => {
+                    let target: u16 = payload.read(Offset::ZERO)?;
+                    g = GlyphId::from_shaper(target);
+                    mirror = Mirror::LeftRight;
                 }
                 _ => return None,
             }
@@ -238,6 +285,8 @@ impl<'a> Cbdt<'a> {
         // Noto Color Emoji shipped with 2.0 before the specification settled
         // on 3.0, and the layout is the same.
         let n: u32 = cblc.read(Offset::of(4u32))?;
+        // As for `sbix`: size records that run past the table refuse it.
+        cblc.slice(Offset::of(8u32), SIZE_RECORD.times(Count::of(n))?)?;
         Some(Cbdt {
             cblc,
             cbdt,
@@ -373,6 +422,7 @@ impl<'a> Cbdt<'a> {
             },
             ppem,
             strike: Strike::Cbdt,
+            mirror: Mirror::AsStored,
         })
     }
 }

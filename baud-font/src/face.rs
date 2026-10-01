@@ -703,13 +703,34 @@ impl<'a> Face<'a> {
         self.morx.as_ref()
     }
 
-    /// Whether `g` draws in colour: it has `COLR` layers, or a bitmap in the
-    /// face's first strike. A face can carry both kinds -- a `COLR` font's
-    /// unlayered glyphs are outlines -- so this asks about the glyph, not the
-    /// face.
+    /// Whether `g` draws in colour: it has `COLR` layers, or a bitmap in
+    /// any strike. A face can carry both kinds -- a `COLR` font's unlayered
+    /// glyphs are outlines -- so this asks about the glyph, not the face.
+    ///
+    /// **Any strike, not the first.** A glyph can be empty in some strikes
+    /// and present in others, and the specifications require it be drawn
+    /// from one that has it (`[[source: ms-opentype-sbix]]`,
+    /// `[[source: apple-ttrm-sbix]]`): Apple Color Emoji's first strike, 20
+    /// ppem, lacks 96 glyphs the others carry, the pink heart U+1FA77 among
+    /// them, and asking it alone answered that the heart was not colour. The
+    /// renderer's atlas falls back across strikes, so the two ask the same
+    /// question.
     pub fn is_colour(&self, g: GlyphId) -> bool {
-        self.layers(g).is_some()
-            || (!self.strikes().is_zero() && self.bitmap(Index::ZERO, g).is_some())
+        self.layers(g).is_some() || self.has_bitmap(g)
+    }
+
+    /// Whether some strike holds an image for `g`, through any `dupe` or
+    /// `flip` on the way.
+    pub fn has_bitmap(&self, g: GlyphId) -> bool {
+        let strikes = self.strikes();
+        let mut i = Index::ZERO;
+        while strikes.holds(i) {
+            if self.bitmap(i, g).is_some() {
+                return true;
+            }
+            i = i.next();
+        }
+        false
     }
 
     /// The `COLR` v0 layers of `g`, bottom first, or `None` for a glyph the

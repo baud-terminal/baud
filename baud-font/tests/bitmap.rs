@@ -11,7 +11,10 @@
 //! **Corpus.** The committed fixtures always: `NotoColorEmoji-subset.ttf`,
 //! a `CBDT` face re-encoded across every index and image format the reader
 //! implements (`scripts/gen-cbdt-fixture.py` says which glyphs are which),
-//! and `BungeeTint-Regular.ttf`, a `COLR` v0 face with eight palettes. On
+//! `BungeeTint-Regular.ttf`, a `COLR` v0 face with eight palettes, and
+//! `sbix-strikes.ttf`, four strikes holding every per-glyph case
+//! (`scripts/gen-sbix-fixture.py` lists them), one unreadable PNG among
+//! them, which both decoders must refuse and which is counted. On
 //! macOS every face under `/System/Library/Fonts` as well, which is where
 //! Apple Color Emoji's 31,707 `sbix` PNGs come from; a face with no strikes
 //! and no colour costs one parse and contributes nothing.
@@ -23,10 +26,21 @@
 //! for by decision D10, and is counted when the oracle paints it with
 //! anything but solid layers. Both counts are asserted, one to be non-zero
 //! where the corpus reaches it and one to be zero on the corpus as it is.
+//!
+//! **`'flip'` is read by the test, not the oracle.** `ttf-parser` answers
+//! `None` for Apple's undocumented `'flip'` records, where baud answers the
+//! target's image to be mirrored. So for every glyph baud says to mirror,
+//! the test reads the redirections out of the raw `sbix` itself -- a second
+//! spelling, kept to the same ten hops -- and requires a `'flip'` on the
+//! way and baud's PNG to be the oracle's image of the glyph the chain ends
+//! at, byte for byte and at its offsets. Apple Color Emoji carries 972 such
+//! records a face; the count is asserted where the corpus reaches it.
 
 use baud_domain::GlyphId;
 use baud_font::bytes::Index;
-use baud_font::{Face, FaceIndex, Palette, PaletteEntry, Png, PngError, Rgba, Strike, faces};
+use baud_font::{
+    Face, FaceIndex, Mirror, Palette, PaletteEntry, Png, PngError, Rgba, Strike, faces,
+};
 use std::path::{Path, PathBuf};
 use ttf_parser::RgbaColor;
 use ttf_parser::colr::{ClipBox, CompositeMode, Paint, Painter};
@@ -67,17 +81,29 @@ fn corpus() -> Vec<PathBuf> {
     v
 }
 
+/// A count the tally keeps, typed so the audit's floor need not move for it.
+#[derive(Default, Debug, PartialEq, Eq)]
+struct Counted(usize);
+
+impl Counted {
+    fn bump(&mut self) {
+        self.0 += 1;
+    }
+}
+
 #[derive(Default, Debug)]
 struct Tally {
     faces: usize,
     strikes: usize,
     sbix_bitmaps: usize,
+    sbix_flips: Counted,
     cbdt_bitmaps: usize,
     absent_agreed: usize,
     cbdt_y_translated: usize,
     pngs_decoded: usize,
     pixels: usize,
     interlaced_refused: usize,
+    refused_by_both: Counted,
     layered_glyphs: usize,
     layers_agreed: usize,
     colr_v1_only: usize,
@@ -170,14 +196,49 @@ fn decode_both(bytes: &[u8], t: &mut Tally, what: &str) {
     };
     let mut raw = vec![0u8; png.raw_len().expect("a strike PNG has a bounded size")];
     let mut rgba = vec![0u8; png.rgba_len().unwrap()];
-    let size = png
-        .decode(&mut raw, &mut rgba)
-        .unwrap_or_else(|e| panic!("{what}: {e:?}"));
+    let size = match png.decode(&mut raw, &mut rgba) {
+        Ok(size) => size,
+        Err(e) => {
+            // A strike may carry a PNG nobody can read; `sbix-strikes.ttf`
+            // does on purpose. The oracle must refuse it too.
+            let mut dec = png::Decoder::new(bytes);
+            dec.set_transformations(png::Transformations::EXPAND);
+            let theirs = dec.read_info().and_then(|mut r| {
+                let mut buf = vec![0u8; r.output_buffer_size()];
+                r.next_frame(&mut buf).map(|_| ())
+            });
+            assert!(
+                theirs.is_err(),
+                "{what}: baud refuses ({e:?}) a PNG the oracle reads"
+            );
+            t.refused_by_both.bump();
+            return;
+        }
+    };
     let (w, h, theirs) = oracle_rgba(bytes);
     assert_eq!((size.width, size.height), (w, h), "{what}: size");
     assert!(rgba == theirs, "{what}: RGBA bytes differ");
     t.pngs_decoded += 1;
     t.pixels += rgba.len() / 4;
+}
+
+/// One `sbix` record's graphic type and, for a redirection, the glyph it
+/// names: read straight from the table, so the test does not ask baud.
+fn sbix_record(sbix: &[u8], strike: Index, glyph: GlyphId) -> Option<([u8; 4], GlyphId)> {
+    let be32 = |at: usize| -> Option<u32> {
+        Some(u32::from_be_bytes(sbix.get(at..at + 4)?.try_into().ok()?))
+    };
+    let at = usize::try_from(be32(8 + 4 * usize::try_from(strike.value()).ok()?)?).ok()?;
+    let g = glyph.index();
+    let start = usize::try_from(be32(at + 4 + 4 * g)?).ok()?;
+    let end = usize::try_from(be32(at + 4 + 4 * (g + 1))?).ok()?;
+    if end < start + 10 {
+        return None;
+    }
+    let rec = at + start;
+    let kind: [u8; 4] = sbix.get(rec + 4..rec + 8)?.try_into().ok()?;
+    let target = u16::from_be_bytes(sbix.get(rec + 8..rec + 10)?.try_into().ok()?);
+    Some((kind, GlyphId::from_shaper(target)))
 }
 
 fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
@@ -206,6 +267,7 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
             match (mine, img) {
                 (None, None) => t.absent_agreed += 1,
                 (Some(b), Some(img)) => {
+                    assert_eq!(b.mirror, Mirror::AsStored, "{what} g{g}: mirrored");
                     assert_eq!(
                         img.format,
                         ttf_parser::RasterImageFormat::PNG,
@@ -236,6 +298,39 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
                         t,
                         &format!("{what} g{g} @{}", ppem.value()),
                     );
+                }
+                (Some(b), None) if b.mirror == Mirror::LeftRight => {
+                    let sbix = theirs
+                        .raw_face()
+                        .table(ttf_parser::Tag::from_bytes(b"sbix"))
+                        .unwrap_or_else(|| panic!("{what} g{g}: mirrored without sbix"));
+                    let (mut h, mut flipped) = (gid, false);
+                    let mut hops = 0;
+                    let img = loop {
+                        assert!(hops < 10, "{what} g{g}: chain past ten hops");
+                        hops += 1;
+                        let (kind, target) = sbix_record(sbix, s, h)
+                            .unwrap_or_else(|| panic!("{what} g{g}: no record for {h:?}"));
+                        match &kind {
+                            b"flip" => flipped = true,
+                            b"dupe" => {}
+                            other => panic!("{what} g{g}: {other:?} is no redirection"),
+                        }
+                        h = target;
+                        let th = ttf_parser::GlyphId(u16::try_from(h.index()).unwrap());
+                        if let Some(img) = theirs.glyph_raster_image(th, ppem.value()) {
+                            break img;
+                        }
+                    };
+                    assert!(flipped, "{what} g{g}: mirrored with no flip on the way");
+                    assert!(b.png.as_slice() == img.data, "{what} g{g}: PNG bytes");
+                    assert_eq!(
+                        (b.placement.x, b.placement.y),
+                        (img.x, img.y),
+                        "{what} g{g}"
+                    );
+                    t.sbix_flips.bump();
+                    decode_both(b.png.as_slice(), t, &format!("{what} g{g} flip"));
                 }
                 (mine, img) => panic!(
                     "{what} g{g} @{}: baud {:?}, oracle {:?}",
@@ -365,9 +460,13 @@ fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
     if cfg!(target_os = "macos") {
         assert!(t.strikes >= 10, "{}", t.strikes);
         assert!(t.sbix_bitmaps >= 30_000, "{}", t.sbix_bitmaps);
+        // 108 people facing right in each of nine strikes.
+        assert!(t.sbix_flips.0 >= 972, "{:?}", t.sbix_flips);
         assert!(t.pngs_decoded >= 30_000, "{}", t.pngs_decoded);
     }
     assert_eq!(t.interlaced_refused, 0);
+    // `sbix-strikes.ttf`'s one unreadable PNG, at 40 ppem; none elsewhere.
+    assert_eq!(t.refused_by_both, Counted(1));
     assert_eq!(
         t.colr_v1_only, 0,
         "a COLR v1-only face joined the corpus; count it here"
@@ -435,5 +534,114 @@ fn a_png_the_decoder_refuses_is_named() {
         let mut raw = vec![0u8; p.raw_len().unwrap()];
         let mut rgba = vec![0u8; p.rgba_len().unwrap()];
         assert!(p.decode(&mut raw, &mut rgba).is_err());
+    }
+}
+
+#[test]
+fn the_sbix_fixture_answers_every_case_in_every_strike() {
+    // `scripts/gen-sbix-fixture.py`: strikes at 10, 20, 40 and 80 ppem.
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fonts/sbix-strikes.ttf"
+    ))
+    .unwrap();
+    let face = Face::parse(&data).unwrap();
+    let ppems: Vec<u16> = (0..face.strikes().value())
+        .map(|s| face.strike_ppem(Index::of(s)).unwrap().value())
+        .collect();
+    assert_eq!(ppems, [10, 20, 40, 80]);
+    let g = GlyphId::from_shaper;
+    for s in 0..4u32 {
+        let i = Index::of(s);
+        let ppem = ppems[usize::try_from(s).unwrap()];
+        let a = face.bitmap(i, g(1)).expect("A is in every strike");
+        assert_eq!(a.mirror, Mirror::AsStored);
+        assert_eq!((a.placement.x, a.placement.y), (0, 0));
+        // B is in the 80 strike only, H in the 10 strike only.
+        assert_eq!(face.bitmap(i, g(2)).is_some(), ppem == 80, "B @{ppem}");
+        assert_eq!(face.bitmap(i, g(8)).is_some(), ppem == 10, "H @{ppem}");
+        // C flips A, D flips a dupe of A, G flips C: each is A's PNG,
+        // mirrored once, at A's offsets rather than C's own (7, 3).
+        for (glyph, name) in [(3, "C"), (4, "D"), (7, "G")] {
+            let b = face
+                .bitmap(i, g(glyph))
+                .unwrap_or_else(|| panic!("{name} @{ppem}"));
+            assert_eq!(b.mirror, Mirror::LeftRight, "{name} @{ppem}");
+            assert!(b.png.as_slice() == a.png.as_slice(), "{name} @{ppem}");
+            assert_eq!((b.placement.x, b.placement.y), (0, 0), "{name} @{ppem}");
+        }
+        // J is a dupe of A, as stored.
+        let j = face.bitmap(i, g(10)).unwrap();
+        assert_eq!(j.mirror, Mirror::AsStored);
+        assert!(j.png.as_slice() == a.png.as_slice());
+        // E is a record in every strike; at 40 its PNG does not decode.
+        let e = face.bitmap(i, g(5)).unwrap();
+        let png = Png::parse(e.png.as_slice()).unwrap();
+        let mut raw = vec![0u8; png.raw_len().unwrap()];
+        let mut rgba = vec![0u8; png.rgba_len().unwrap()];
+        assert_eq!(
+            png.decode(&mut raw, &mut rgba).is_err(),
+            ppem == 40,
+            "E @{ppem}"
+        );
+        // F holds nothing; I is a dupe of itself, refused after ten hops.
+        assert!(face.bitmap(i, g(6)).is_none(), "F @{ppem}");
+        assert!(face.bitmap(i, g(9)).is_none(), "I @{ppem}");
+    }
+    // Colour is a question about every strike: B is colour though the first
+    // strike lacks it. F and the dupe loop I are not.
+    for (glyph, colour) in [
+        (1, true),
+        (2, true),
+        (3, true),
+        (4, true),
+        (5, true),
+        (6, false),
+        (7, true),
+        (8, true),
+        (9, false),
+        (10, true),
+    ] {
+        assert_eq!(face.is_colour(g(glyph)), colour, "glyph {glyph}");
+    }
+}
+
+/// The byte offset of table `tag` in a single-face sfnt.
+fn table_at(data: &[u8], tag: &[u8; 4]) -> usize {
+    let n = usize::from(u16::from_be_bytes([data[4], data[5]]));
+    (0..n)
+        .map(|i| 12 + 16 * i)
+        .find(|&r| &data[r..r + 4] == tag)
+        .map(|r| {
+            usize::try_from(u32::from_be_bytes(data[r + 8..r + 12].try_into().unwrap())).unwrap()
+        })
+        .unwrap_or_else(|| panic!("no {tag:?}"))
+}
+
+#[test]
+fn a_strike_count_past_the_table_reads_as_no_strikes() {
+    // Every renderer walks the strikes for every glyph, so a hostile count
+    // is a hang rather than a malformed answer. Patched to four billion, each
+    // table is refused whole; the unpatched files are the controls.
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts/");
+    for (file, tag, at) in [
+        ("sbix-strikes.ttf", b"sbix", 4),
+        ("NotoColorEmoji-subset.ttf", b"CBLC", 4),
+    ] {
+        let clean = std::fs::read(format!("{dir}{file}")).unwrap();
+        assert!(
+            Face::parse(&clean).unwrap().strikes().value() > 0,
+            "{file}: control"
+        );
+        // One count that overflows the arithmetic and one that fits it and
+        // still runs past the table.
+        for count in [u32::MAX, 100_000] {
+            let mut data = clean.clone();
+            let t = table_at(&data, tag) + at;
+            data[t..t + 4].copy_from_slice(&count.to_be_bytes());
+            let face = Face::parse(&data).unwrap();
+            assert_eq!(face.strikes().value(), 0, "{file} {count}");
+            assert!(!face.is_colour(GlyphId::from_shaper(1)), "{file} {count}");
+        }
     }
 }
