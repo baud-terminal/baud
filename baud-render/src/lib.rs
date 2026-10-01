@@ -83,7 +83,7 @@ pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };
 pub use smoothing::{Smoothing, level_of};
-pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, Presentation, Stack};
+pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,
 };

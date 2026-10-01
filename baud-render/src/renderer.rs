@@ -13,7 +13,7 @@ use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
 use crate::smoothing::Smoothing;
 use crate::stack::FaceStyle;
-use crate::stack::{EmojiDefault, FaceIx, Stack};
+use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
@@ -460,6 +460,9 @@ pub struct ImageUpload {
 
 pub struct Renderer<'f, 'a> {
     stack: Stack<'f, 'a>,
+    /// Which face draws each codepoint, per style and presentation
+    /// (`Stack::table`): built here once, so `face_for` is a lookup.
+    faces_of: FaceTable,
     scales: Vec<Scale>,
     /// Per face, a digest per `GSUB` lookup the grid features name, so a
     /// cache miss opens only the lookups that can touch the run.
@@ -656,6 +659,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let faces = stack.each().collect();
         let defaults = (theme.fg, theme.bg);
         let mut r = Renderer {
+            faces_of: stack.table(),
             stack,
             scales,
             #[cfg(feature = "exceptions")]
@@ -797,13 +801,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// it in its cluster: the one place the presentation is applied, so a
     /// path cannot pick a face another path does not.
     pub fn face_for(
-        &self,
+        &mut self,
         base: Codepoint,
         selector: Option<Codepoint>,
         style: FaceStyle,
     ) -> FaceIx {
-        self.stack
-            .select_presented(base, style, self.emoji.presentation(base, selector))
+        let p = self.emoji.presentation(base, selector);
+        self.faces_of.face(&self.stack, base, style, p)
+    }
+
+    /// The table [`Renderer::face_for`] reads, built from the stack when the
+    /// renderer is made.
+    pub fn face_table(&self) -> &FaceTable {
+        &self.faces_of
     }
 
     /// Whether outlines are smoothed.

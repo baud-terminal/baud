@@ -153,20 +153,37 @@ pub const EMOJI_PRESENTATION: [(u32, u32); 81] = [
     (0x1FAEF, 0x1FAF8),
 ];
 
+/// The first codepoint past every `Emoji_Presentation` range: the bitmap
+/// covers below it, and everything at or above it answers no.
+const PRESENTATION_LIMIT: u32 = 0x2_0000;
+
+/// [`EMOJI_PRESENTATION`] as a bitmap, one bit a codepoint below
+/// [`PRESENTATION_LIMIT`]: 16 KB, built by the compiler, so the question a
+/// renderer asks per cell is one load rather than a search.
+static PRESENTATION_BITS: [u64; 2048] = presentation_bits();
+
+const fn presentation_bits() -> [u64; 2048] {
+    let mut bits = [0u64; 2048];
+    let mut r = 0;
+    while r < EMOJI_PRESENTATION.len() {
+        let (lo, hi) = EMOJI_PRESENTATION[r];
+        let mut v = lo;
+        while v <= hi {
+            bits[(v >> 6) as usize] |= 1 << (v & 63);
+            v += 1;
+        }
+        r += 1;
+    }
+    bits
+}
+
 /// Whether `cp` is `Emoji_Presentation=Yes`.
 pub fn presents_as_emoji(cp: Codepoint) -> bool {
     let v = cp.value();
-    EMOJI_PRESENTATION
-        .binary_search_by(|&(lo, hi)| {
-            if hi < v {
-                core::cmp::Ordering::Less
-            } else if lo > v {
-                core::cmp::Ordering::Greater
-            } else {
-                core::cmp::Ordering::Equal
-            }
-        })
-        .is_ok()
+    v < PRESENTATION_LIMIT
+        && PRESENTATION_BITS
+            .get(usize::try_from(v >> 6).unwrap_or(usize::MAX))
+            .is_some_and(|w| w >> (v & 63) & 1 == 1)
 }
 
 /// What a `U+FE0F` after a listed base does to its width: the embedder's

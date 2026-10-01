@@ -634,6 +634,14 @@ impl<'a> Face<'a> {
         self.cmap.as_ref()?.glyph(c)
     }
 
+    /// Every codepoint range `cmap` could map -- candidates for
+    /// [`Face::glyph`], a superset of what it answers (`Cmap::candidates`).
+    pub fn candidates(&self, f: impl FnMut(Codepoint, Codepoint)) {
+        if let Some(cmap) = &self.cmap {
+            cmap.candidates(f);
+        }
+    }
+
     /// What `cmap` format 14 says about `c` followed by variation selector
     /// `vs`.
     pub fn variation(&self, c: Codepoint, vs: Codepoint) -> Variation {

@@ -181,6 +181,43 @@ impl<'a> Cmap<'a> {
         None
     }
 
+    /// Every codepoint range a Unicode subtable could map, handed to `f` as
+    /// candidates: a superset of what [`Cmap::glyph`] answers. A format 4
+    /// segment whose glyphs are all zero, or a range an earlier subtable
+    /// shadows, is still offered -- the caller asks `glyph` for the answer,
+    /// so this can over-approximate and never under-approximate, and it
+    /// spares a caller probing all of Unicode one codepoint at a time.
+    /// Surrogates are trimmed from a range's ends; a range across them is
+    /// offered whole, the surrogates inside answering nothing.
+    pub fn candidates(&self, mut f: impl FnMut(Codepoint, Codepoint)) {
+        let mut emit = |lo: u32, hi: u32| {
+            let lo = if (0xD800..=0xDFFF).contains(&lo) {
+                0xE000
+            } else {
+                lo
+            };
+            let hi = if (0xD800..=0xDFFF).contains(&hi) {
+                0xD7FF
+            } else {
+                hi.min(0x10_FFFF)
+            };
+            if let (Some(a), Some(b)) = (Codepoint::new(lo), Codepoint::new(hi)) {
+                if a.value() <= b.value() {
+                    f(a, b);
+                }
+            }
+        };
+        let mut i = Index::ZERO;
+        while self.records.holds(i) {
+            if let Some(sub) = self.subtable(i) {
+                if sub.is_unicode() {
+                    sub.candidates(&mut emit);
+                }
+            }
+            i = i.next();
+        }
+    }
+
     pub fn variation(&self, c: Codepoint, vs: Codepoint) -> Variation {
         let mut i = Index::ZERO;
         while self.records.holds(i) {
@@ -228,6 +265,52 @@ impl<'a> Subtable<'a> {
             Format::MANY_TO_ONE => self.format13(c),
             _ => None,
         }
+    }
+
+    /// The ranges this subtable could map, for [`Cmap::candidates`]: what
+    /// each format's own lookup searches, read the same bounded way.
+    fn candidates(&self, f: &mut impl FnMut(u32, u32)) -> Option<()> {
+        match self.format {
+            Format::BYTE => f(0, 255),
+            Format::SEGMENTS => {
+                let seg_x2: u16 = self.data.read(Offset::of(6u32))?;
+                let segs = Count::of(seg_x2 / 2);
+                let ends: Array<'a, u16> = self.data.array(Offset::of(14u32), segs)?;
+                let stride = Len::of(2).times(segs)?;
+                let starts: Array<'a, u16> =
+                    self.data.array(Offset::of(16u32).plus(stride)?, segs)?;
+                let mut i = Index::ZERO;
+                while segs.holds(i) {
+                    let (lo, hi) = (starts.get(i)?, ends.get(i)?);
+                    if lo <= hi {
+                        f(u32::from(lo), u32::from(hi));
+                    }
+                    i = i.next();
+                }
+            }
+            Format::TRIMMED => {
+                let first: u16 = self.data.read(Offset::of(6u32))?;
+                let count: u16 = self.data.read(Offset::of(8u32))?;
+                if count > 0 {
+                    let first = u32::from(first);
+                    f(first, first + u32::from(count) - 1);
+                }
+            }
+            Format::GROUPS | Format::MANY_TO_ONE => {
+                let n: u32 = self.data.read(Offset::of(12u32))?;
+                let groups: Array<'a, Group> = self.data.array(Offset::of(16u32), Count::of(n))?;
+                let mut i = Index::ZERO;
+                while groups.count().holds(i) {
+                    let g = groups.get(i)?;
+                    if g.0 <= g.1 {
+                        f(g.0, g.1);
+                    }
+                    i = i.next();
+                }
+            }
+            _ => {}
+        }
+        Some(())
     }
 
     /// Format 0: a 256-entry byte array for the first 256 codepoints.

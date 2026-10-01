@@ -107,6 +107,133 @@ impl EmojiDefault {
     }
 }
 
+/// What one face does with one codepoint, for [`Stack::choose`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Draws {
+    No,
+    Text,
+    Colour,
+}
+
+/// The face every codepoint is drawn from, per style and presentation:
+/// [`Stack::select_presented`] as a lookup (`Stack::table`). Two stages: a
+/// block of 256 codepoints names a row, and identical rows are stored once,
+/// so the blocks no face reaches -- most of Unicode -- share one.
+pub struct FaceTable {
+    /// `COMBOS` runs of `BLOCKS` row ids, one run per style and
+    /// presentation; [`FaceTable::UNFILLED`] until the block is decided.
+    blocks: Vec<u16>,
+    rows: Vec<[u8; 256]>,
+    /// Row to id, so a block identical to one already decided shares it.
+    index: std::collections::HashMap<[u8; 256], u16>,
+    /// Per block, the faces whose `cmap` could reach it; emptied when the
+    /// block is filled.
+    proposed: Vec<Vec<u8>>,
+    /// The row every combination takes where no face reaches.
+    idle: [u16; FaceTable::COMBOS],
+    /// How many blocks have been filled on demand.
+    filled: Filled,
+}
+
+impl FaceTable {
+    const BLOCKS: usize = 0x1100;
+    const COMBOS: usize = 8;
+
+    const UNFILLED: u16 = u16::MAX;
+
+    fn empty(proposed: Vec<Vec<u8>>) -> FaceTable {
+        FaceTable {
+            blocks: vec![FaceTable::UNFILLED; FaceTable::COMBOS * FaceTable::BLOCKS],
+            rows: Vec::new(),
+            index: std::collections::HashMap::new(),
+            proposed,
+            idle: [0; FaceTable::COMBOS],
+            filled: Filled(0),
+        }
+    }
+
+    /// The styles and presentations in table order: the style's two-bit code
+    /// times two, plus one for colour.
+    fn combos() -> impl Iterator<Item = (FaceStyle, Presentation)> {
+        FaceStyle::ALL
+            .into_iter()
+            .flat_map(|s| [(s, Presentation::Text), (s, Presentation::Colour)])
+    }
+
+    fn combo(style: FaceStyle, p: Presentation) -> Combo {
+        Combo(
+            usize::try_from(style.code().0).unwrap_or(0) * 2
+                + usize::from(p == Presentation::Colour),
+        )
+    }
+
+    fn intern(&mut self, row: [u8; 256]) -> RowId {
+        if let Some(&id) = self.index.get(&row) {
+            return RowId(id);
+        }
+        let id = u16::try_from(self.rows.len()).unwrap_or(u16::MAX);
+        self.rows.push(row);
+        self.index.insert(row, id);
+        RowId(id)
+    }
+
+    /// The face `c` is drawn from in `style` when it asks for `p`, deciding
+    /// `c`'s block from `stack` the first time any cell lands in it. `stack`
+    /// must be the one the table was made from.
+    pub fn face(
+        &mut self,
+        stack: &Stack<'_, '_>,
+        c: Codepoint,
+        style: FaceStyle,
+        p: Presentation,
+    ) -> FaceIx {
+        let v = c.value();
+        let blk = Block::of(c).0;
+        let at = FaceTable::combo(style, p).0 * FaceTable::BLOCKS + blk;
+        if self.blocks[at] == FaceTable::UNFILLED {
+            stack.fill(self, Block(blk));
+        }
+        FaceIx(self.rows[usize::from(self.blocks[at])][usize::try_from(v & 0xff).unwrap_or(0)])
+    }
+}
+
+/// What the table holds, for a test or a report to print: the bytes of the
+/// block index and the distinct rows, the rows, and how many blocks have been
+/// decided on demand since it was made.
+impl core::fmt::Display for FaceTable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "{} KB, {} distinct rows, {} blocks filled on demand",
+            (self.blocks.len() * 2 + self.rows.len() * 256) / 1024,
+            self.rows.len(),
+            self.filled.0
+        )
+    }
+}
+
+/// A block of 256 codepoints: the table's first stage.
+#[derive(Clone, Copy)]
+struct Block(usize);
+
+impl Block {
+    fn of(c: Codepoint) -> Block {
+        Block(usize::try_from(c.value() >> 8).unwrap_or(0))
+    }
+}
+
+/// A style and presentation's run in the block index.
+#[derive(Clone, Copy)]
+struct Combo(usize);
+
+/// A distinct row's index.
+#[derive(Clone, Copy)]
+struct RowId(u16);
+
+/// Blocks decided on demand.
+#[derive(Clone, Copy)]
+struct Filled(usize);
+
 /// What a face is for in a [`Stack`]: part of the fallback chain every
 /// character tries in order, or the face one style tries first.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -250,6 +377,97 @@ impl<'f, 'a> Stack<'f, 'a> {
         let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
         own.or_else(|| self.each().find(|ix| !self.styled.holds(*ix) && wants(*ix)))
             .unwrap_or_else(|| self.select_styled(c, style))
+    }
+
+    /// [`Stack::select_presented`] decided from what each face does with
+    /// the character rather than by asking the faces: `draws[i]` is face
+    /// `i`'s answer. The order is `select_presented`'s and then
+    /// `select_styled`'s, spelled once more; [`FaceTable`] is built from this
+    /// and held to `select_presented` at every codepoint by a test.
+    fn choose(&self, draws: &[Draws], style: FaceStyle, p: Presentation) -> FaceIx {
+        let want = match p {
+            Presentation::Text => Draws::Text,
+            Presentation::Colour => Draws::Colour,
+        };
+        let at = |ix: FaceIx| draws.get(ix.index()).copied().unwrap_or(Draws::No);
+        let chain = |ok: &dyn Fn(Draws) -> bool| {
+            self.each()
+                .find(|ix| !self.styled.holds(*ix) && ok(at(*ix)))
+        };
+        let own = self.styled.get(self.effective(style));
+        own.filter(|f| at(*f) == want)
+            .or_else(|| chain(&|d| d == want))
+            .or_else(|| own.filter(|f| at(*f) != Draws::No))
+            .or_else(|| chain(&|d| d != Draws::No))
+            .unwrap_or(FaceIx::PRIMARY)
+    }
+
+    /// The table [`Stack::select_presented`] becomes a lookup into. It
+    /// starts with every block unfilled: each face's `cmap` proposes the
+    /// blocks it could reach (`Face::candidates`), and a block no face
+    /// proposes is decided now, as the primary throughout. The rest are
+    /// decided the first time a cell lands in them ([`FaceTable::face`]),
+    /// so a launch pays for the blocks its first frame touches and not for
+    /// all of CJK.
+    pub fn table(&self) -> FaceTable {
+        let mut proposed: Vec<Vec<u8>> = vec![Vec::new(); FaceTable::BLOCKS];
+        for (i, face) in self.faces.iter().enumerate() {
+            let Ok(i) = u8::try_from(i) else { continue };
+            face.candidates(|a, b| {
+                for blk in Block::of(a).0..=Block::of(b).0 {
+                    if let Some(list) = proposed.get_mut(blk) {
+                        if list.last() != Some(&i) {
+                            list.push(i);
+                        }
+                    }
+                }
+            });
+        }
+        let mut t = FaceTable::empty(proposed);
+        let none = vec![Draws::No; self.faces.len()];
+        for (combo, (style, p)) in FaceTable::combos().enumerate() {
+            let row = [self.choose(&none, style, p).0; 256];
+            t.idle[combo] = t.intern(row).0;
+        }
+        for blk in 0..FaceTable::BLOCKS {
+            if t.proposed[blk].is_empty() {
+                for combo in 0..FaceTable::COMBOS {
+                    t.blocks[combo * FaceTable::BLOCKS + blk] = t.idle[combo];
+                }
+            }
+        }
+        t
+    }
+
+    /// Decide every entry of block `blk` of `t`, for all eight styles and
+    /// presentations at once: one `cmap` lookup and colour test per face
+    /// that proposed the block, per codepoint.
+    fn fill(&self, t: &mut FaceTable, blk: Block) {
+        let blk = blk.0;
+        let faces = core::mem::take(&mut t.proposed[blk]);
+        let mut draws = vec![Draws::No; self.faces.len()];
+        let mut rows = [[0u8; 256]; FaceTable::COMBOS];
+        for lo in 0..256u32 {
+            let v = u32::try_from(blk).unwrap_or(0) * 256 + lo;
+            let cp = Codepoint::new(v);
+            for &i in &faces {
+                let f = &self.faces[usize::from(i)];
+                draws[usize::from(i)] = match cp.and_then(|c| f.glyph(c)) {
+                    None => Draws::No,
+                    Some(g) if f.is_colour(g) => Draws::Colour,
+                    Some(_) => Draws::Text,
+                };
+            }
+            let at = usize::try_from(lo).unwrap_or(0);
+            for (combo, (style, p)) in FaceTable::combos().enumerate() {
+                rows[combo][at] = self.choose(&draws, style, p).0;
+            }
+        }
+        for (combo, row) in rows.into_iter().enumerate() {
+            let id = t.intern(row);
+            t.blocks[combo * FaceTable::BLOCKS + blk] = id.0;
+        }
+        t.filled.0 += 1;
     }
 
     /// The first face that maps `c`; the primary when none does, so its
