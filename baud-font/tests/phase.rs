@@ -54,7 +54,15 @@ fn centring_is_half_the_slack() {
         |p: Phase| left_edge(&face, '|', scale, p) - left_edge(&face, '|', scale, Phase::ZERO);
     assert!((shift(narrow) + 0.2).abs() < 0.005, "{}", shift(narrow));
     assert!((shift(wide) - 0.3).abs() < 0.005, "{}", shift(wide));
-    assert_eq!(Phase::centring(scale, m, Px::of(11)), None, "2.6 px apart");
+    // A two-cell span takes more than a pixel; the whole pixels move the
+    // mask and the stem lands where the fraction says.
+    let two = Phase::centring(scale, m, Px::of(16)).unwrap();
+    assert!((shift(two) - 3.8).abs() < 0.005, "{}", shift(two));
+    assert_eq!(
+        Phase::centring(scale, m, Px::of(20)),
+        None,
+        "11.6 px of slack in 20"
+    );
 }
 
 /// A stem's edge moves by the phase, across a pixel boundary as well as

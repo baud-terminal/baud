@@ -175,6 +175,11 @@ would have to join the atlas key.
 - CJK from a fallback face is centred in its two cells by one offset per
   face, from the face's ideograph advance, at em scale (Jev 1.00): within
   0.16 px, against 1-3 px left today.
+  **Built**: a fallback face that maps 水 is offset by half the slack between
+  two cells and its 水 (`face_phases` in `renderer.rs`; `Phase` now spans
+  more than a pixel, whose whole part only moves the mask).
+  `baud-render/tests/cjk_centring.rs` holds Han, kana and Hangul boxes to
+  their designed offset within 0.3 px at 13-28 px and after a zoom.
 
 ## Deferred
 

@@ -23,8 +23,8 @@ use baud_domain::{
 };
 use baud_font::bytes::Count;
 use baud_font::{
-    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Px, Scale,
-    Shaper, Walked,
+    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Phase, Px,
+    Scale, Shaper, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -577,11 +577,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         rows: Rows,
     ) -> Option<Renderer<'f, 'a>> {
         let metrics = Metrics::of(stack.primary(), size)?;
-        let scales = stack
+        let scales: Vec<Scale> = stack
             .faces()
             .iter()
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
+        let phases = face_phases(&stack, &scales, &metrics);
         let digests = stack
             .faces()
             .iter()
@@ -633,7 +634,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             defaults,
             blend,
             cache: RunCache::new(),
-            atlas: Atlas::new(metrics.phase),
+            atlas: Atlas::new(phases),
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
             prev: Vec::new(),
@@ -708,7 +709,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .map(|f| Scale::of(size.value(), f.units_per_em()))
             .collect();
         self.metrics = metrics;
-        self.atlas.reset(metrics.phase);
+        self.atlas
+            .reset(face_phases(&self.stack, &self.scales, &metrics));
         #[cfg(feature = "exceptions")]
         self.singles.clear();
         self.known = Prev::Unknown;
@@ -2343,4 +2345,33 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         }
     }
+}
+
+/// Where each face's outlines sit in their span, by face index (note J).
+///
+/// The primary, its styled faces and every fallback face keep the grid
+/// phase: half the slack between the cell and the primary's `M`. A fallback
+/// face that maps 水 (U+6C34) is a CJK face, and its ideographs are drawn two
+/// cells wide, so the whole face is centred by half the slack between two
+/// cells and its own 水: within 0.16 px of the span's centre for Hiragino
+/// and Apple SD Gothic Neo, where the grid phase left them 1-3 px left. One
+/// offset a face, as measured; a narrow glyph drawn from such a face takes
+/// it too, and the default stack reaches almost none (Hiragino maps no
+/// half-width forms).
+fn face_phases(stack: &Stack<'_, '_>, scales: &[Scale], metrics: &Metrics) -> Vec<Phase> {
+    let ideograph = Codepoint::from_char('\u{6C34}');
+    let two = Px::of(metrics.cell_w.value().saturating_mul(2));
+    stack
+        .each()
+        .map(|ix| {
+            let f = stack.face(ix);
+            if ix == FaceIx::PRIMARY || stack.is_styled(ix) {
+                return metrics.phase;
+            }
+            f.glyph(ideograph)
+                .and_then(|g| f.default_advance(g))
+                .and_then(|adv| Phase::centring(scales[ix.index()], adv, two))
+                .unwrap_or(metrics.phase)
+        })
+        .collect()
 }

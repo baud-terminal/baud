@@ -316,30 +316,33 @@ impl Scale {
     }
 }
 
-/// Where a glyph sits horizontally inside its cell: a fraction of a pixel
-/// to the right, in 1/256 px so it compares exactly.
+/// Where a glyph sits horizontally inside its span: an offset to the
+/// right, in 1/256 px so it compares exactly.
 ///
 /// A cell is a whole number of pixels and the font's advance is not, so
 /// rasterising at the cell's left edge leaves all the rounding slack on the
 /// right. [`Phase::centring`] is half of it, the one offset ghostty's
 /// CoreText path draws every glyph at (note J, decision 7): text is centred
 /// in the block cursor at every size, and spacing does not change, because
-/// every glyph moves by the same amount.
+/// every glyph moves by the same amount. A CJK fallback face is centred the
+/// same way in its two cells, which can take more than a pixel; the whole
+/// pixels only move the mask, and the fraction is what is rasterised.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Phase(i16);
 
 impl Phase {
-    /// No offset: the glyph origin on the cell's left edge.
+    /// No offset: the glyph origin on the span's left edge.
     pub const ZERO: Phase = Phase(0);
 
-    /// Half the slack between a cell `cell` pixels wide and an `advance`
-    /// at `scale`, rounded to 1/256 px; `None` when the two are two pixels
-    /// or more apart, which a rounded cell never is.
-    pub fn centring(scale: Scale, advance: Advance, cell: Px) -> Option<Phase> {
-        let cell = f32::from(u16::try_from(cell.0).ok()?);
-        let slack = cell - scale.px(f32::from(advance.value()));
+    /// Half the slack between a span `span` pixels wide and an `advance`
+    /// at `scale`, rounded to 1/256 px; `None` when the advance is not
+    /// within half the span of it, which says the face does not belong in
+    /// that span at all.
+    pub fn centring(scale: Scale, advance: Advance, span: Px) -> Option<Phase> {
+        let span = f32::from(u16::try_from(span.0).ok()?);
+        let slack = span - scale.px(f32::from(advance.value()));
         let q = round(slack * 128.0);
-        (q.is_finite() && q.abs() < 256.0).then_some(Phase(q as i16))
+        (q.is_finite() && slack.abs() < span / 2.0).then_some(Phase(q as i16))
     }
 
     fn px(self) -> f32 {

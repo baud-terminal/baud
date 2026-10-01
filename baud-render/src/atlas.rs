@@ -356,20 +356,22 @@ pub struct Atlas {
     raw: Vec<u8>,
     rgba: Vec<u8>,
     stats: AtlasStats,
-    /// Where every outline is drawn inside its cell, from the metrics the
-    /// sheets are for. It is given at [`Atlas::new`] and [`Atlas::reset`]
-    /// and nowhere else, so no slot is ever at a phase the sheet is not.
-    phase: Phase,
+    /// Where each face's outlines are drawn inside their span, by face
+    /// index, from the metrics the sheets are for: the grid phase for the
+    /// primary, a two-cell centring for a CJK fallback face. Given at
+    /// [`Atlas::new`] and [`Atlas::reset`] and nowhere else, so no slot is
+    /// ever at a phase the sheet is not; a face past the end draws at zero.
+    phases: Vec<Phase>,
 }
 
 impl Default for Atlas {
     fn default() -> Self {
-        Atlas::new(Phase::ZERO)
+        Atlas::new(Vec::new())
     }
 }
 
 impl Atlas {
-    pub fn new(phase: Phase) -> Atlas {
+    pub fn new(phases: Vec<Phase>) -> Atlas {
         let mut a = Atlas {
             generation: Generation::default(),
             mask: Sheet::new(Side::FIRST),
@@ -386,7 +388,7 @@ impl Atlas {
             raw: Vec::new(),
             rgba: Vec::new(),
             stats: AtlasStats::default(),
-            phase,
+            phases,
         };
         a.clear_mask(Side::FIRST);
         a.clear_color(Side::FIRST);
@@ -472,8 +474,8 @@ impl Atlas {
     /// Start over at the first side: every slot is gone, the sheets are
     /// replaced whole, and the grow count moves so the glyph map and the
     /// overlay rebuild what they kept. What a change of font size needs.
-    pub fn reset(&mut self, phase: Phase) {
-        self.phase = phase;
+    pub fn reset(&mut self, phases: Vec<Phase>) {
+        self.phases = phases;
         // **At the side the session has reached, not back at the first.**
         // Every bitmap is at the wrong pixel size after a rescale, so every
         // slot has to go -- but how much room this terminal's repertoire
@@ -488,6 +490,10 @@ impl Atlas {
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
         self.stats.grown.bump();
+    }
+
+    fn phase(&self, ix: FaceIx) -> Phase {
+        self.phases.get(ix.index()).copied().unwrap_or(Phase::ZERO)
     }
 
     pub fn generation(&self) -> Generation {
@@ -552,11 +558,11 @@ impl Atlas {
         }
         let slot = self
             .bitmap(face, id, scale)
-            .or_else(|| self.layered(face, id, scale))
-            .or_else(|| self.rasterise(face, id, scale));
+            .or_else(|| self.layered(face, ix, id, scale))
+            .or_else(|| self.rasterise(face, ix, id, scale));
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
-        if slot.is_some() || self.fits_nothing_anyway(face, id, scale) {
+        if slot.is_some() || self.fits_nothing_anyway(face, ix, id, scale) {
             self.map.insert(key, slot);
         }
         slot
@@ -658,14 +664,14 @@ impl Atlas {
 
     /// `COLR` v0: every layer's outline painted in its palette colour into
     /// one image, bottom layer first.
-    fn layered(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale) -> Option<Slot> {
+    fn layered(&mut self, face: &Face<'_>, ix: FaceIx, id: GlyphId, scale: Scale) -> Option<Slot> {
         let layers = face.layers(id)?;
         // The union box of every layer decides the image.
         let mut b = Bounds::new();
         for layer in layers {
             face.outline(layer.glyph, &mut b);
         }
-        let fit = Fit::at(&b, scale, self.phase)?;
+        let fit = Fit::at(&b, scale, self.phase(ix))?;
         let cells = fit.extent.cells()?;
         let need = fit.extent.scratch()?;
         if self.scratch.len() < need {
@@ -749,16 +755,28 @@ impl Atlas {
     }
 
     /// Whether `id` has no ink at all, so `None` is its permanent answer.
-    fn fits_nothing_anyway(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale) -> bool {
+    fn fits_nothing_anyway(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+    ) -> bool {
         let mut b = Bounds::new();
         face.outline(id, &mut b);
-        Fit::at(&b, scale, self.phase).is_none()
+        Fit::at(&b, scale, self.phase(ix)).is_none()
     }
 
-    fn rasterise(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale) -> Option<Slot> {
+    fn rasterise(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+    ) -> Option<Slot> {
         let mut b = Bounds::new();
         face.outline(id, &mut b);
-        let fit = Fit::at(&b, scale, self.phase)?;
+        let fit = Fit::at(&b, scale, self.phase(ix))?;
         let need = fit.extent.scratch()?;
         if self.scratch.len() < need {
             self.scratch.resize(need, 0.0);
@@ -948,7 +966,7 @@ mod tests {
     /// texture it rewrote.
     #[test]
     fn growing_keeps_every_rectangle_and_every_texel() {
-        let mut a = Atlas::new(Phase::ZERO);
+        let mut a = Atlas::new(Vec::new());
         let (x, y) = a
             .mask
             .take(Px::of(10), Px::of(20))
@@ -979,9 +997,9 @@ mod tests {
     /// can watch the one that concerns it rather than both.
     #[test]
     fn a_reset_voids_what_growing_keeps() {
-        let mut a = Atlas::new(Phase::ZERO);
+        let mut a = Atlas::new(Vec::new());
         let before = a.stats;
-        a.reset(Phase::ZERO);
+        a.reset(Vec::new());
         assert_eq!(a.stats.grown.value(), before.grown.value() + 1);
         assert_eq!(a.stats.enlarged.value(), before.enlarged.value());
     }

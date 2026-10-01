@@ -161,6 +161,11 @@ impl<'f, 'a> Stack<'f, 'a> {
         }
     }
 
+    /// Whether `ix` is a styled face rather than one of the chain.
+    pub fn is_styled(&self, ix: FaceIx) -> bool {
+        self.styled.holds(ix)
+    }
+
     pub fn primary(&self) -> &'f Face<'a> {
         &self.faces[0]
     }
