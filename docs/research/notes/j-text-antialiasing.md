@@ -34,21 +34,31 @@ moved outward, not a reshaped coverage curve (`profile.swift`).
   with Y the Rec.709 luminance of the linearised foreground. The steps fall
   at encoded fills 0.39 / 0.65 / 0.815 / 0.945, which linearise to
   0.125 / 0.375 / 0.625 / 0.875 (`sweep.swift`). The background never enters
-  (`fgbg.swift`). Red, blue, magenta and mid grey land in level 1; green,
-  yellow and cyan in 2; white in 4; black in 0.
+  (`fgbg.swift`). With full-channel colours: black and blue (0, 0, 255) land
+  in level 0; red, magenta and mid grey in 1; orange in 2; green and cyan in
+  3; yellow and white in 4.
 - **The amount.** Total stroke gain `(0.0115 + 0.0050 n) * ppem` device px,
   capped at about 0.60 px (`fine.swift`). It depends on device pixels, not on
   how the scale was reached: 13 pt at 2x and 26 px at 1x are byte-identical.
   So at 2x a black stem gains about 0.30 px and a white one 0.60 px.
-- **It is not isotropic.** Pixel dumps at 22-32 px fit a box, not a disc:
-  top edges gain 2d, bottom edges gain nothing, left and right edges gain d
-  each, corners stay square, with `d = min((0.0058 + 0.0025 n) * ppem, 0.30)`.
-  The stem metrics in the probes only see horizontal growth, which is why
-  they read as isotropic. The box model matches CoreText at 22-32 px to a
-  mean per-pixel error of 0.0145; an isotropic disc of the same d is at 0.059.
-  It also fits at 12-16 px. **At 11 px the shape is unexplained**, and was
-  measured only in an unflipped (y-up) bitmap context, so "top" must be
-  confirmed as glyph-top in baud's y-down raster before it is built.
+- **It is not isotropic.** The device-space shape is dilated by the box
+  `[-d, d] x [0, 2d]`, extended toward the top of the bitmap: top edges gain
+  2d, bottom edges nothing, left and right edges d each, corners stay square,
+  with `d = min((0.0058 + 0.0025 n) * ppem, 0.30)` exact per edge to the u8
+  step from 9 to 48 px. The cap is on d. The stem metrics in the probes only
+  see horizontal growth, which is why they read as isotropic.
+- **Toward device-up, not glyph-up.** In unflipped, CTM-flipped and AppKit
+  flipped contexts the 2d edge is the bitmap's top; a text matrix that turns
+  the glyph upside down puts it on the glyph's baseline side. In baud's y-down
+  masks the growth is toward smaller y, which for upright text is the glyph's
+  top.
+- **A box, not a disc.** On diagonal-rich glyphs the box matches CoreText's
+  own outline to a mean per-pixel error of 0.002-0.003 at 11-30 px; a disc of
+  radius d shifted d up is at 0.02-0.025. One or two convex corner pixels a
+  glyph read up to 0.13 lower than the box; that residue is unexplained.
+- **The 11 px misfit was CoreText's 1x snap.** At an exact integer ppem up to
+  18, CoreText snaps zones after dilating, so no single box fits there; at
+  ppem + 0.001 the box fits at every size and level.
 - **AppKit's default** (`NSAttributedString` into a bitmap) is exactly level 0
   for black text and level 4 for white.
 
@@ -149,6 +159,23 @@ A per-face or per-glyph phase is ruled out: centring a Nerd icon's 1-em
 advance throws its ink 3-7 px sideways, and a phase depending on the span
 would have to join the atlas key.
 
+**Decided since, for building.**
+
+- The dilated mask is rasterised at 16x, run through a separable sliding
+  max over the box, and box-filtered down: exactly the measured model (Jev
+  0.97). Only outline glyphs dilate; procedural box drawing, `COLR` layers and
+  bitmap strikes do not.
+- Nerd Font icons are sized by a table generated at build time from the
+  pinned font-patcher against the embedded Symbols Nerd Font Mono, with
+  Nerd Fonts' own patched JetBrains Mono as the oracle (Jev 1.00): 99.4% of
+  icons within 0.5 px, against 0 under today's em scaling, where 10,566 of
+  10,623 overflow their cell. Stretched powerline glyphs keep the patcher's
+  overlap into the neighbour cell (Jev 0.97), and skip the grid phase. Where
+  the rules apply is still open.
+- CJK from a fallback face is centred in its two cells by one offset per
+  face, from the face's ideograph advance, at em scale (Jev 1.00): within
+  0.16 px, against 1-3 px left today.
+
 ## Deferred
 
 **LCD subpixel anti-aliasing.** Three rounds; Jev ended at 0.75 for an
@@ -199,10 +226,12 @@ difference everywhere except green on red. Jev picked ghostty's rule at
   14 px an icon is 14 px wide in an 8 px cell and runs into the next one.
 - **CJK from a fallback face sits 1-3 px left of centre.** ghostty scales
   such faces to an ideograph width instead.
-- **baud's curve flattening cuts small curves.** A quadratic that deviates
-  from its chord by less than 0.577 px is drawn as the chord (the ab_glyph
-  rule the rasteriser is held to), up to about 0.14 px inside the curve at
-  13 px.
+- **Curve flattening.** baud draws a quadratic that deviates from its chord
+  by less than 0.577 px as the chord (the ab_glyph rule the rasteriser is held
+  to), up to about 0.14 px inside the curve at 13 px. CoreGraphics flattens
+  more coarsely, at about 1 device px at 1x (inferred: a path filled at 16x
+  with flatness 16 reproduces CoreText's unsmoothed masks to 0.0009). Whether
+  baud should flatten finer is open.
 
 ## Jev
 
