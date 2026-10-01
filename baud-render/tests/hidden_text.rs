@@ -18,8 +18,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows};
 use baud_font::{Face, Px};
 use baud_render::{
-    Blend, Blink, Blinking, Damage, GlyphMap, Overlay, PxSize, Renderer, Resolved, Scene, Stack,
-    StyleStamp, Theme,
+    Blend, Blink, Blinking, Damage, GlyphMap, MaySwap, Overlay, PxSize, Renderer, Resolved, Scene,
+    Stack, StyleStamp, Theme,
 };
 use support::{Canvas, WS, font, paint};
 
@@ -195,7 +195,13 @@ fn a_blinking_slot_off_screen_is_not_seen() {
     let mut stamp = StyleStamp::default();
     let mut seen = |t: &Term<'_>, r: &mut Renderer<'_, '_>| {
         r.sync_styles(t, &mut styles, &mut stamp);
-        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.ensure(
+            t.view(Rows::ZERO),
+            &styles,
+            MaySwap::NONE,
+            r,
+            &mut candidates,
+        );
         overlay.ensure(
             &Scene {
                 term: t,
@@ -251,7 +257,13 @@ fn a_hidden_cells_records_are_not_drawn() {
         feed(&mut t, bytes);
         r.set_blink(phase);
         r.resolve_styles_into(&t, &mut styles);
-        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.ensure(
+            t.view(Rows::ZERO),
+            &styles,
+            MaySwap::NONE,
+            r,
+            &mut candidates,
+        );
         overlay.ensure(
             &Scene {
                 term: &t,

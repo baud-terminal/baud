@@ -27,9 +27,9 @@ use baud_present_macos::{
 use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
-    Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
-    Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
-    Transition, Window, back_for, gutter, place, thumb,
+    Look, MapEntry, MaySwap, Overlay, Press, PxSize, Renderer, Resolved, Scene,
+    Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target,
+    Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -469,6 +469,9 @@ struct App {
     caret: Caret<HostTime>,
     focus: baud_core::Focus,
     blink_choice: crate::config::BlinkChoice,
+    /// What `font_smoothing` said; the system's half is re-read with the
+    /// caret's.
+    font_smoothing: crate::config::SmoothingChoice,
     warned_blink: Done,
     /// Whether the first tick has read the system's caret yet.
     caret_read: Done,
@@ -549,6 +552,8 @@ struct Boot {
     /// What `[cursor] blink` said, and when a blink stops without input.
     blink_choice: crate::config::BlinkChoice,
     cursor_stop: crate::config::StopAfter,
+    /// What `font_smoothing` said, which decides with the system's setting.
+    font_smoothing: crate::config::SmoothingChoice,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -673,7 +678,7 @@ impl Boot {
         // At a placeholder grid: the renderer follows the terminal
         // (`Renderer::fit`) once the grid is known, and the cell metrics --
         // what the grid is computed from -- do not depend on it.
-        let renderer = Renderer::new(
+        let mut renderer = Renderer::new(
             crate::host::stack(&cfg, faces),
             PxSize::of(cfg.font_size * scale as f32).expect("size"),
             theme,
@@ -682,6 +687,10 @@ impl Boot {
             Rows::of_index(24),
         )
         .expect("cell metrics");
+        // Font smoothing (note J), as the config and the system say: read
+        // here, before the first frame draws a glyph, and again at every
+        // focus gain (`read_caret_system`).
+        renderer.set_smoothing(cfg.font_smoothing.resolve(os_smoothing()));
         startup_mark("renderer");
         Boot {
             request,
@@ -700,6 +709,7 @@ impl Boot {
             cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink.power_on()),
             blink_choice: cfg.cursor_blink,
             cursor_stop: cfg.cursor_stop,
+            font_smoothing: cfg.font_smoothing,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
@@ -735,6 +745,7 @@ impl App {
             cursor,
             blink_choice,
             cursor_stop,
+            font_smoothing,
             screen_transition,
             scroll,
             trail_scroll,
@@ -944,6 +955,7 @@ impl App {
             caret: Caret::new(host_now(), Cycle::APPKIT, Gate::Free, cursor_stop),
             focus: baud_core::Focus::Lost,
             blink_choice,
+            font_smoothing,
             warned_blink: Done::No,
             caret_read: Done::No,
             next_damage: Damage::Incremental,
@@ -1344,29 +1356,36 @@ impl App {
                     &mut cell.style_stamps[set],
                 );
                 if sliding {
+                    // The leaving row is never selected and never holds the
+                    // cursor (the shader's row there is past every one).
                     let above = self.term.view(Rows::of_index(back.index() + 1));
                     cell.maps.live.ensure(
                         above,
                         &cell.styles_mem[set][..],
+                        MaySwap::NONE,
                         &mut self.renderer,
                         &mut cell.candidates,
                     );
                 }
-                cell.maps.live.ensure(
-                    view,
-                    &cell.styles_mem[set][..],
-                    &mut self.renderer,
-                    &mut cell.candidates,
-                );
-                let cursor = live_cursor(&self.term, self.back)
-                    .map(|(r, c)| (r, c, self.term.cursor_style()))
-                    .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
+                let cursor_at = live_cursor(&self.term, self.back)
+                    .map(|(r, c)| (r, c, self.term.cursor_style()));
                 // Row 9: the drawn cursor sits after the last predicted
-                // glyph, for the shader and for the overlay's own paint.
-                let cursor = match (cursor, self.predictions.last()) {
+                // glyph, for the shader and for the overlay's own paint --
+                // and for the walk, which is told of a block cursor before
+                // the blink filter: an entry this frame does not draw costs
+                // one insert, and a flip then finds it in the map.
+                let cursor_at = match (cursor_at, self.predictions.last()) {
                     (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
                     (c, _) => c,
                 };
+                cell.maps.live.ensure(
+                    view,
+                    &cell.styles_mem[set][..],
+                    MaySwap::of(highlight, cursor_at),
+                    &mut self.renderer,
+                    &mut cell.candidates,
+                );
+                let cursor = cursor_at.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
                 // **D4: the window, copied into this frame's slot.** The
                 // rows the view names, in screen order, so what the shader
                 // reads is a still image of the screen rather than a grid
@@ -5092,6 +5111,11 @@ impl Driver {
     /// gain. Not observed: a change made while baud keeps focus lands at the
     /// next gain.
     fn read_caret_system(&mut self) {
+        // Font smoothing's system half, read where the caret's is: a change
+        // in System Settings lands at the next focus gain. The renderer does
+        // nothing when the answer has not moved.
+        let smoothing = self.app.font_smoothing.resolve(os_smoothing());
+        self.app.renderer.set_smoothing(smoothing);
         let start = Instant::now();
         let cycle = os_cycle();
         let switch = if os_at_least_15() {
@@ -6097,6 +6121,19 @@ fn os_cycle() -> Cycle {
         d.doubleForKey(&NSString::from_str("NSTextInsertionPointBlinkPeriodOff")),
         Cycle::APPKIT,
     )
+}
+
+/// What macOS says about font smoothing: `AppleFontSmoothing` as AppKit
+/// reads it (`SystemSmoothing::of_defaults`). `objectForKey` first, because
+/// `integerForKey` answers 0 for an absent key and 0 is the one value that
+/// turns smoothing off.
+fn os_smoothing() -> crate::config::SystemSmoothing {
+    let d = NSUserDefaults::standardUserDefaults();
+    let key = NSString::from_str("AppleFontSmoothing");
+    let value = d
+        .objectForKey(&key)
+        .map(|_| i64::try_from(d.integerForKey(&key)).unwrap_or(1));
+    crate::config::SystemSmoothing::of_defaults(value)
 }
 
 /// Whether this is macOS 15 or later, where the non-blinking switch exists.

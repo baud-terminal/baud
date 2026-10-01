@@ -34,6 +34,12 @@ theme = "auto"
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
 colorspace = "srgb"
 
+# Whether text is drawn the way macOS's font smoothing draws it: each glyph
+# grown a little for its colour, heavier for light text. "auto" follows the
+# system's setting (Appearance > "Use font smoothing when available"); "on"
+# and "off" decide here. Off on Linux unless "on".
+font_smoothing = "auto"
+
 
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.

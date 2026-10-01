@@ -46,6 +46,7 @@ mod renderer;
 mod scroll;
 mod scrollbar;
 mod select;
+mod smoothing;
 mod stack;
 mod trail;
 mod transition;
@@ -53,12 +54,12 @@ pub mod ufo;
 mod units;
 
 pub use atlas::{
-    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Tex, TexRect,
+    Atlas, AtlasStats, Code, Dirty, Generation, GlyphLook, Kind, Replaced, Side, Slot, Tex, TexRect,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
-    BlockCursor, Candidate, CellKey, Drawn, GlyphMap, MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration,
-    MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
+    BlockCursor, Candidate, CellKey, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS, MapEntry,
+    MapGeneration, MapStats, MaySwap, NO_INK, Resolved, Selected, Shapes, Swaps, Text, look_of,
 };
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
@@ -69,8 +70,9 @@ pub use metrics::{Metrics, PxSize};
 pub use overlay::{MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
-    Blink, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame, ImagePlacement,
-    ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp, StyleSync, VideoFlash,
+    Blink, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame, GlyphSource,
+    ImagePlacement, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp, StyleSync,
+    VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{
@@ -80,6 +82,7 @@ pub use scrollbar::{
 pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };
+pub use smoothing::{Smoothing, level_of};
 pub use stack::{FaceIx, FaceRole, FaceStyle, Stack};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,

@@ -4,7 +4,7 @@
 //! string, integer and decimal scalars, a bracketed list of strings that may
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
-//! `font_size`, `padding`, `colorspace`, `theme`, and the eight under
+//! `font_size`, `padding`, `colorspace`, `font_smoothing`, `theme`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -80,6 +80,8 @@ pub struct Config {
     /// wants the theme's numbers read as the wider gamut on purpose. The
     /// compositor converts to each display from there.
     pub colorspace: Space,
+    /// `font_smoothing`: `"auto"` by default, which follows the system.
+    pub font_smoothing: SmoothingChoice,
     /// Which palette a rendition resolves against, and whether the system
     /// decides. `Auto` follows the effective appearance -- the macOS
     /// driver re-reads it on every style change; the Linux driver has no
@@ -423,6 +425,67 @@ pub enum ScrollMode {
     Smooth,
 }
 
+/// `font_smoothing`: whether outlines are drawn the way macOS's font
+/// smoothing draws them (note J) -- as the system says, or always, or never.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SmoothingChoice {
+    /// As the system says: macOS's `AppleFontSmoothing`; off on Linux,
+    /// where no system draws text this way.
+    Auto,
+    On,
+    Off,
+}
+
+/// What the system says about font smoothing: macOS's setting, read by the
+/// driver. Linux has none to ask (`SmoothingChoice::without_system`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SystemSmoothing {
+    On,
+    Off,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl SystemSmoothing {
+    /// From `AppleFontSmoothing` as AppKit reads it, measured by
+    /// `scripts/text-probes/appkit-smoothing.swift`: absent, 1, 2 and 3 all
+    /// draw the same smoothed text and 0 draws it plain. (A bare
+    /// CoreGraphics context ignores the key; AppKit's text is what a user
+    /// sees the setting change.)
+    pub fn of_defaults(value: Option<i64>) -> SystemSmoothing {
+        match value {
+            Some(0) => SystemSmoothing::Off,
+            _ => SystemSmoothing::On,
+        }
+    }
+}
+
+impl SmoothingChoice {
+    /// The smoothing where no system draws text this way: `auto` is off,
+    /// and `on` asks for it anyway.
+    #[cfg(any(not(target_os = "macos"), test))]
+    pub fn without_system(self) -> baud_render::Smoothing {
+        match self {
+            SmoothingChoice::On => baud_render::Smoothing::CoreText,
+            SmoothingChoice::Auto | SmoothingChoice::Off => baud_render::Smoothing::Off,
+        }
+    }
+
+    /// The smoothing the renderer draws with, given what the system says.
+    #[cfg(any(target_os = "macos", test))]
+    pub fn resolve(self, system: SystemSmoothing) -> baud_render::Smoothing {
+        use baud_render::Smoothing;
+        match (self, system) {
+            (SmoothingChoice::On, _) | (SmoothingChoice::Auto, SystemSmoothing::On) => {
+                Smoothing::CoreText
+            }
+            (SmoothingChoice::Off, _) | (SmoothingChoice::Auto, SystemSmoothing::Off) => {
+                Smoothing::Off
+            }
+        }
+    }
+}
+
 /// The colour space the surface is tagged with.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Space {
@@ -441,6 +504,7 @@ impl Config {
             font_size: 13.0,
             padding: 8.0,
             colorspace: Space::Srgb,
+            font_smoothing: SmoothingChoice::Auto,
             theme: ThemeChoice::Auto,
             floor: baud_render::Floor::DEFAULT,
             palette_light: None,
@@ -520,6 +584,19 @@ impl Config {
                                 "config: theme {other:?} is not auto, dark or light; using auto"
                             ));
                             ThemeChoice::Auto
+                        }
+                    };
+                }
+                ("", "font_smoothing") => {
+                    self.font_smoothing = match value.trim().trim_matches('"') {
+                        "auto" => SmoothingChoice::Auto,
+                        "on" => SmoothingChoice::On,
+                        "off" => SmoothingChoice::Off,
+                        other => {
+                            said.push(format!(
+                                "config: font_smoothing {other:?} is not auto, on or off; using auto"
+                            ));
+                            SmoothingChoice::Auto
                         }
                     };
                 }
@@ -1956,6 +2033,69 @@ shadow     = "never"
         assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
     }
 
+    /// `font_smoothing` reads three words, and anything else is `auto`
+    /// and said.
+    #[test]
+    fn font_smoothing_is_auto_unless_named() {
+        assert_eq!(read("").font_smoothing, SmoothingChoice::Auto);
+        assert_eq!(
+            read("font_smoothing = \"on\"").font_smoothing,
+            SmoothingChoice::On
+        );
+        assert_eq!(
+            read("font_smoothing = \"off\"").font_smoothing,
+            SmoothingChoice::Off
+        );
+        assert_eq!(
+            read("font_smoothing = \"auto\"").font_smoothing,
+            SmoothingChoice::Auto
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("font_smoothing = \"heavy\"");
+        assert_eq!(c.font_smoothing, SmoothingChoice::Auto);
+        assert_eq!(said.len(), 1, "a bad value is said: {said:?}");
+        // A section's key of the same name is not this one.
+        assert_eq!(
+            read("[glass]\nfont_smoothing = \"off\"").font_smoothing,
+            SmoothingChoice::Auto
+        );
+    }
+
+    /// `AppleFontSmoothing` as AppKit reads it: 0 is off and anything else,
+    /// absent included, is on; `auto` follows it, and `on` and `off` do not.
+    #[test]
+    fn smoothing_follows_the_system_only_under_auto() {
+        use baud_render::Smoothing;
+        assert_eq!(SystemSmoothing::of_defaults(None), SystemSmoothing::On);
+        assert_eq!(SystemSmoothing::of_defaults(Some(0)), SystemSmoothing::Off);
+        for v in [1, 2, 3, -1] {
+            assert_eq!(SystemSmoothing::of_defaults(Some(v)), SystemSmoothing::On);
+        }
+        for (choice, on, off) in [
+            (SmoothingChoice::Auto, Smoothing::CoreText, Smoothing::Off),
+            (
+                SmoothingChoice::On,
+                Smoothing::CoreText,
+                Smoothing::CoreText,
+            ),
+            (SmoothingChoice::Off, Smoothing::Off, Smoothing::Off),
+        ] {
+            assert_eq!(choice.resolve(SystemSmoothing::On), on, "{choice:?}");
+            assert_eq!(choice.resolve(SystemSmoothing::Off), off, "{choice:?}");
+        }
+        // With no system to ask, `auto` is what an off system says.
+        for choice in [
+            SmoothingChoice::Auto,
+            SmoothingChoice::On,
+            SmoothingChoice::Off,
+        ] {
+            assert_eq!(
+                choice.without_system(),
+                choice.resolve(SystemSmoothing::Off)
+            );
+        }
+    }
+
     /// **The committed example must parse to what it documents**, and
     /// the first draft of it did not: `fonts` sat after the `[glass]`
     /// header, so the namespace this change introduces swallowed the font
@@ -1974,6 +2114,7 @@ shadow     = "never"
         assert_eq!(c.padding, 8.0);
         assert_eq!(c.theme, ThemeChoice::Auto);
         assert_eq!(c.colorspace, Space::Srgb);
+        assert_eq!(c.font_smoothing, SmoothingChoice::Auto);
         // Its `fonts` examples are commented out -- an uncommented one would
         // make a copied example replace the embedded default -- so the
         // stack is the built-in one, embedded face first.

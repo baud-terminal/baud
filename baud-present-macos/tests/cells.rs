@@ -31,9 +31,9 @@ use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
     Argb, Blend, Blink, Candidate, Corners, Damage, FaceRole, FaceStyle, GlyphMap, Highlight,
-    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene,
-    Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
-    Transition, VideoFlash, Widths, Window, quad_coverage,
+    Hover, Instance, Kind, Look, MaySwap, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved,
+    Scene, Scroll, Scroller, Segment, Shape, Smear, Smoothing, Stack, StyleStamp, Theme, Trail,
+    TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -163,21 +163,23 @@ impl Arms<'_, '_> {
         // reads each cell's face style from the synced table.
         self.renderer
             .sync_styles(t, self.styles_mem, &mut self.stamp);
-        self.map.ensure(
-            view,
-            self.styles_mem,
-            &mut self.renderer,
-            &mut self.candidates,
-        );
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
-        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0)
-            .then(|| {
-                let (r, c) = t.cursor();
-                (r, c, t.cursor_style())
-            })
-            .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
+        let shown = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
+            let (r, c) = t.cursor();
+            (r, c, t.cursor_style())
+        });
+        // The walk is told of the cursor whatever its blink phase, as the
+        // app tells it.
+        self.map.ensure(
+            view,
+            self.styles_mem,
+            MaySwap::of(self.highlight, shown),
+            &mut self.renderer,
+            &mut self.candidates,
+        );
+        let cursor = shown.filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         self.exceptions.ensure(
             &Scene {
                 term: t,
@@ -2069,6 +2071,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.map.ensure(
         t.view(Rows::of_count(1)),
         arms.styles_mem,
+        MaySwap::NONE,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2249,6 +2252,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.map.ensure(
         t.view(Rows::of_count(1)),
         arms.styles_mem,
+        MaySwap::NONE,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2459,6 +2463,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         arms.map.ensure(
             t.view(Rows::of_count(1)),
             arms.styles_mem,
+            MaySwap::NONE,
             &mut arms.renderer,
             &mut arms.candidates,
         );
@@ -2535,6 +2540,81 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             );
             assert!(differing(&a, &regular) > 0, "SGR {sgr} reached the pixels");
         }
+    }
+    // **Font smoothing (note J).** Each outline is grown for the level of
+    // the colour it is finally drawn in. The cell arm keys its map on the
+    // look the slot carries for that side -- the foreground's, or the
+    // background's under an odd number of swaps -- and the instance arm
+    // takes it from the colour `emit` reads, so the two agree only if both
+    // read the swaps alike. Colours at different levels, a selection, a
+    // block cursor alone and inside the selection, `?5`, `OSC 12`, a box
+    // character, a colour emoji, a mark and a ligature window. The block
+    // cursor sits on the one `H`, drawn nowhere else: had its letter been
+    // drawn at the background's level in another cell, the map would hold
+    // the swapped look without the walk inserting it.
+    {
+        let (w, _) = arms.renderer.frame_size();
+        let m = arms.renderer.metrics();
+        let cell = (
+            usize::try_from(m.cell_w.value()).unwrap(),
+            usize::try_from(m.cell_h.value()).unwrap(),
+        );
+        let w = usize::try_from(w.value()).unwrap();
+        feed(
+            &mut t,
+            "\x1b[0m\x1b[2J\x1b[H\x1b[2 q\x1b[?25h\
+             \x1b[38;2;255;255;255mwhite H -> x\x1b[0m\r\n\
+             \x1b[38;2;0;0;0;48;2;255;255;255mblack on white\x1b[0m\r\n\
+             \x1b[38;2;0;205;0mgreen text // ::\x1b[0m\r\n\
+             marks e\u{301} a\u{308} o\u{302}\r\n\
+             box \u{250c}\u{2500}\u{2510} \u{2588} watch \u{231a} end\x1b[1;7H"
+                .as_bytes(),
+        );
+        let stats = |arms: &Arms<'_, '_>| {
+            let s = arms.exceptions.stats();
+            (s.cells.value(), s.windows.value())
+        };
+        arms.highlight = Some(Highlight {
+            from: (Row::from_index(1), Col::at_index(0)),
+            to: (Row::from_index(2), Col::at_index(6)),
+            region: Region::Stream,
+        });
+        let (off, _) = arms.draw(&mut t);
+        let off_stats = stats(&arms);
+        arms.renderer.set_smoothing(Smoothing::CoreText);
+        for (bytes, name) in [
+            (b"".as_slice(), "a block cursor alone"),
+            (
+                b"\x1b[2;3H".as_slice(),
+                "a block cursor inside the selection",
+            ),
+            (b"\x1b[?5h".as_slice(), "reverse video"),
+            (
+                b"\x1b[?5l\x1b]12;rgb:ff/00/00\x07\x1b[1;7H".as_slice(),
+                "an OSC 12 cursor",
+            ),
+        ] {
+            feed(&mut t, bytes);
+            let (a, b) = arms.draw(&mut t);
+            let bx = diff_box(&a, &b, w, cell);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree with smoothing on, {name}, in cells {bx:?}"
+            );
+            assert_eq!(
+                stats(&arms),
+                off_stats,
+                "the records are the ones smoothing off draws, {name}: \
+                 a probe that missed the look would hand every window cell \
+                 to the records"
+            );
+        }
+        feed(&mut t, b"\x1b]112\x07\x1b[1;7H");
+        let (on, _) = arms.draw(&mut t);
+        assert!(differing(&on, &off) > 0, "smoothing reached the pixels");
+        arms.highlight = None;
+        arms.renderer.set_smoothing(Smoothing::Off);
     }
 }
 

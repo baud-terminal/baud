@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, GlyphLook, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 use crate::cellmap::{BlockCursor, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
@@ -11,6 +11,7 @@ use crate::metrics::{Metrics, PxSize};
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
+use crate::smoothing::Smoothing;
 use crate::stack::FaceStyle;
 use crate::stack::{FaceIx, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
@@ -274,11 +275,22 @@ enum Starter {
 #[derive(Clone, Copy, Debug)]
 pub struct ClusterGlyph {
     pub id: GlyphId,
+    /// Where the glyph comes from, so a smoothed look can draw the same
+    /// glyph again for another text colour.
+    pub source: GlyphSource,
     /// `None` for a glyph with no ink -- a space, a spacer a ligature
     /// leaves behind -- which is still the glyph the cell draws.
     pub slot: Option<crate::atlas::Slot>,
     pub dx: i32,
     pub dy: i32,
+}
+
+/// Where a cluster's glyph is drawn from: a face's outline or image, or
+/// baud's own mask for box drawing, which no look changes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GlyphSource {
+    Face(FaceIx),
+    Procedural,
 }
 
 /// What a codepoint shapes to alone: the glyph the cell shader draws for
@@ -460,6 +472,9 @@ pub struct Renderer<'f, 'a> {
     blend: Blend,
     cache: RunCache,
     atlas: Atlas,
+    /// Whether outlines are drawn as macOS's font smoothing draws them;
+    /// the embedder's to set (`Renderer::set_smoothing`), off until it does.
+    smoothing: Smoothing,
     cols: Cols,
     rows: Rows,
     prev: Vec<PackedCell>,
@@ -635,6 +650,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blend,
             cache: RunCache::new(),
             atlas: Atlas::new(phases),
+            smoothing: Smoothing::Off,
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
             prev: Vec::new(),
@@ -715,6 +731,49 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.singles.clear();
         self.known = Prev::Unknown;
         Some(())
+    }
+
+    /// Whether outlines are drawn as macOS's font smoothing draws them
+    /// (note J). A change starts the atlas over, as a new size does: every
+    /// outline slot was drawn for the old answer.
+    pub fn set_smoothing(&mut self, smoothing: Smoothing) {
+        if smoothing == self.smoothing {
+            return;
+        }
+        self.smoothing = smoothing;
+        self.atlas
+            .reset(face_phases(&self.stack, &self.scales, &self.metrics));
+        #[cfg(feature = "exceptions")]
+        self.singles.clear();
+        self.known = Prev::Unknown;
+        // The resolved table carries the looks (`Shapes`), so every slot is
+        // resolved again: a stale look keys a glyph the map does not hold,
+        // and the cell path draws nothing there.
+        self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
+    }
+
+    /// Whether outlines are smoothed.
+    pub fn smoothing(&self) -> Smoothing {
+        self.smoothing
+    }
+
+    /// The look an outline painted in `color` is drawn with.
+    pub fn look(&self, color: Argb) -> GlyphLook {
+        self.smoothing.look(color)
+    }
+
+    /// A cluster glyph's slot for `look`: the one it was resolved with
+    /// when the look is plain or the glyph is baud's own, else the same
+    /// glyph drawn again for that look.
+    pub fn restyle(&mut self, g: &ClusterGlyph, look: GlyphLook) -> Option<crate::atlas::Slot> {
+        match (look, g.source) {
+            (GlyphLook::Plain, _) | (_, GlyphSource::Procedural) => g.slot,
+            (look, GlyphSource::Face(face)) => {
+                let scale = self.scales[face.index()];
+                let f = self.stack.face(face);
+                self.atlas.slot(f, face, g.id, scale, look)
+            }
+        }
     }
 
     /// The selection to draw on the next frame, in the view's screen
@@ -1540,10 +1599,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         (self.cols, self.rows)
     }
 
-    /// The glyph a codepoint draws as a cluster of one: the face the stack
-    /// selects, shaped alone so a single substitution still applies, its
-    /// atlas slot with the shaper's offsets folded into the placement.
-    /// `None` when it draws nothing. What the cell path's map holds.
     /// A whole cluster -- a base and its attached codepoints -- shaped by
     /// itself: every glyph with its atlas slot and its offsets in pixels.
     /// What the overlay draws for a marked cell; the shaper is the one
@@ -1557,6 +1612,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // attached to it: the shaper is not consulted.
             return vec![ClusterGlyph {
                 id: GlyphId::from_shaper(0),
+                source: GlyphSource::Procedural,
                 slot: self.procedural(base),
                 dx: 0,
                 dy: 0,
@@ -1572,9 +1628,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let f = self.stack.face(face);
         let mut out = Vec::new();
         for p in shaped.glyphs() {
-            let slot = self.atlas.slot(f, face, p.id, scale);
+            let slot = self.atlas.slot(f, face, p.id, scale, GlyphLook::Plain);
             out.push(ClusterGlyph {
                 id: p.id,
+                source: GlyphSource::Face(face),
                 slot,
                 dx: scale.px(f32::from(p.dx)).round() as i32,
                 dy: scale.px(f32::from(p.dy)).round() as i32,
@@ -1583,7 +1640,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
-    pub fn single(&mut self, cp: Codepoint, style: FaceStyle) -> Option<Single> {
+    /// The glyph a codepoint draws as a cluster of one, with `look`: the
+    /// face the stack selects, shaped alone so a single substitution still
+    /// applies, its atlas slot with the shaper's offsets folded into the
+    /// placement. `None` when it draws nothing. What the cell path's map
+    /// holds.
+    pub fn single(&mut self, cp: Codepoint, style: FaceStyle, look: GlyphLook) -> Option<Single> {
         if crate::boxes::covers(cp) {
             // `PairRole::Neither` is load-bearing: with both pair bits clear
             // the cell is never a ligature candidate, never gathered into a
@@ -1606,7 +1668,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let role = self.pairs[face.index()].role(p.id);
-        let slot = self.atlas.slot(f, face, p.id, scale).map(|mut slot| {
+        let slot = self.atlas.slot(f, face, p.id, scale, look).map(|mut slot| {
             slot.left += scale.px(f32::from(p.dx)).round() as i32;
             slot.top -= scale.px(f32::from(p.dy)).round() as i32;
             slot
@@ -1692,10 +1754,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 if cell < at || cell >= end {
                     continue;
                 }
-                let slot = self.atlas.slot(f, facex, p.id, scale);
+                let slot = self.atlas.slot(f, facex, p.id, scale, GlyphLook::Plain);
                 if let Some(o) = out.get_mut(cell) {
                     o.push(ClusterGlyph {
                         id: p.id,
+                        source: GlyphSource::Face(facex),
                         slot,
                         dx: scale.px(f32::from(p.dx)).round() as i32,
                         dy: scale.px(f32::from(p.dy)).round() as i32,
@@ -1852,6 +1915,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.theme.opaque_bg(style) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
+        // The looks a glyph is drawn in on either side of a swap, for the
+        // cell path to key its map on (note J): from the opaque colours, as
+        // the CPU path's `emit` takes them; alpha never enters a level.
+        shapes = shapes.with_looks(self.smoothing.look(fg), self.smoothing.look(bg));
         // Which underline is drawn is the style's own bit. The three colon
         // styles *replace* the straight line rather than adding to it, so the
         // straight-line bit is set only for the two that draw one.
@@ -2235,7 +2302,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let style = self.face_style(cell);
             // The single-codepoint answer depends on the style, so the memo
             // keys on both; a codepoint is 21 bits and the style sits above.
-            let memo = crate::cellmap::CellKey::of(cp, style).0;
+            let memo = crate::cellmap::CellKey::of(cp, style, GlyphLook::Plain).0;
             let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
@@ -2314,9 +2381,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
         let range = self.row_cells(r);
         for p in shaped.glyphs() {
-            let Some(slot) = self.atlas.slot(f, face, p.id, scale) else {
-                continue;
-            };
             let col = start.index() + usize::from(p.cell.0);
             // A glyph belongs to the cell it is placed at; a hidden cell's
             // are dropped here rather than kept out of the run, so a run
@@ -2329,6 +2393,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .get(range.start + col)
                 .copied()
                 .unwrap_or(self.defaults.0);
+            // The colour first: a smoothed outline is drawn for it.
+            let look = self.smoothing.look(color);
+            let Some(slot) = self.atlas.slot(f, face, p.id, scale, look) else {
+                continue;
+            };
             let dx = scale.px(f32::from(p.dx)).round() as i32;
             let dy = scale.px(f32::from(p.dy)).round() as i32;
             let x = i32::try_from(col).unwrap_or(0) * cell_w + dx + slot.left;

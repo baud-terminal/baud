@@ -23,6 +23,7 @@ env -u SDKROOT swiftc -sdk "$(/usr/bin/xcrun --sdk macosx --show-sdk-path)" -O s
 | `blend.swift` | a glyph's pixels against its alpha-only mask, black on white and white on black, in sRGB and linear-sRGB contexts | CoreText's grayscale blend is OVER on the stored values: `bg + a(fg - bg)`, the same arithmetic as baud's native blend |
 | `zones.swift` | flat-edge positions (x-height, cap, baseline, descender) at 1x per ppem | the 1x vertical snap: only at integer device ppem up to 18, x-height overshoot rounded, cap snapped except at 14 and 15 px, baseline and descender untouched |
 | `snapdet.swift` | per-glyph top-ink height at an integer ppem and at ppem + 0.001; `COLS=1` compares width profiles, `SCALE=2` renders at 2x | the snap needs an exact integer device ppem, is vertical only, and happens for every font tried (Menlo, Monaco, Andale Mono, Courier, Helvetica) |
+| `appkit-smoothing.swift` | AppKit text ink under `AppleFontSmoothing` absent and 0-3, set in the argument domain | absent, 1, 2 and 3 draw the same smoothed text and 0 draws it plain; a bare CoreGraphics context ignores the key |
 
 The anisotropy of the dilation (tops +2d, bottoms +0, sides +d, square
 corners) was fitted from pixel dumps by a Rust harness against these

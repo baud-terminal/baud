@@ -140,7 +140,7 @@ pub fn run() {
     // and the dim follows the half drawn.
     let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
-    let renderer = Renderer::new(
+    let mut renderer = Renderer::new(
         crate::host::stack(&cfg, faces),
         PxSize::of(cfg.font_size).expect("size"),
         theme,
@@ -149,6 +149,9 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
+    // No system here draws text the way macOS's smoothing does, so `auto`
+    // is off; `on` asks for it anyway.
+    renderer.set_smoothing(cfg.font_smoothing.without_system());
     crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
     // The cell height for the Sixel cursor advance, before the first feed;
     // re-set on every `configure`.

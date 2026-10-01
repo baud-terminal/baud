@@ -182,7 +182,13 @@ would have to join the atlas key.
   and baud's, at 18 sizes and five levels; the whole smoothed mask within
   0.0021-0.0075 mean of CoreText's; CoreGraphics' cubic fill within 2
   codes; and the level is the fill's Rec.709 luminance in colour as well as
-  grey (21 fills; Rec.601 mispredicts 19 of 63 fill-and-size cases). The fixtures are written by
+  grey (21 fills; Rec.601 mispredicts 19 of 63 fill-and-size cases).
+  **Known gap**: the fixtures are at 9.001-18.001 px because CoreText's
+  vertical snap -- x-height and cap height moved to whole pixels -- acts at
+  an integer device ppem up to 18, and the box model is fitted without it.
+  Real 1x sizes are integers (13 px), so at 1x baud's smoothed text will
+  still differ from macOS in its x-height and cap height until the
+  autohinter lands; at 2x (26, 28 px) there is no snap. The fixtures are written by
   `scripts/text-probes/smooth-fixtures.swift` and `smooth-cubics.swift`.
   The renderer does not use it yet.
 - Nerd Font icons are sized by a table generated at build time from the

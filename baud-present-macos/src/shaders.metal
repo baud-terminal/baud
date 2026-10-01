@@ -1082,6 +1082,13 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // `the_face_style_bits_match_the_shader`.
 #define FACE_SHIFT 10u
 #define KEY_STYLE_SHIFT 21u
+// The looks a glyph is drawn in (note J's smoothing), three bits each in the
+// resolved slot -- the foreground's, then the background's -- and the three
+// the key carries above the style. Must match `Shapes::FG_LOOK_SHIFT`,
+// `Shapes::BG_LOOK_SHIFT` and `CellKey::LOOK_SHIFT`.
+#define FG_LOOK_SHIFT 12u
+#define BG_LOOK_SHIFT 15u
+#define KEY_LOOK_SHIFT 23u
 
 // Whether the cell's own text -- its glyph, underline and strike -- is
 // hidden: `SGR 8`, or `SGR 5` in its off phase. Hidden text draws its
@@ -1108,6 +1115,15 @@ static bool selected(constant CU& u, uint content, uint col, uint row) {
     bool after_from = row > u.sel_from_row || (row == u.sel_from_row && col >= u.sel_from_col);
     bool before_to = row < u.sel_to_row || (row == u.sel_to_row && col <= u.sel_to_col);
     return after_from && before_to;
+}
+
+// Whether the cell's glyph is drawn in its background's colour: the
+// selection's swap and the block cursor's each exchange the two, and
+// `OSC 12` replaces only the background, so it is the swaps' parity. Must
+// match `Swaps::ink`.
+static bool swapped(constant CU& u, uint content, uint col, uint row) {
+    bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y;
+    return selected(u, content, col, row) != block;
 }
 
 // The cell's colours after the selection's swap and then the block
@@ -1188,7 +1204,9 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     if (content > 0x10FFFFu) return o;
     uint shapes = styles[cell.y & 0xffffu].shapes;
     if (hidden(u, shapes)) return o;
-    uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT);
+    uint look = (shapes >> (swapped(u, content, col, uint(lrow)) ? BG_LOOK_SHIFT : FG_LOOK_SHIFT)) & 7u;
+    uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT)
+                       | (look << KEY_LOOK_SHIFT);
     uint mask = u.map_slots - 1u;
     uint i = (key * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;

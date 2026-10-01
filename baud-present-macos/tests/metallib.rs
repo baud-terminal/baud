@@ -306,6 +306,11 @@ fn the_face_style_bits_match_the_shader() {
     for (name, want) in [
         ("FACE_SHIFT", baud_render::Shapes::FACE_SHIFT),
         ("KEY_STYLE_SHIFT", baud_render::CellKey::STYLE_SHIFT),
+        // The smoothing looks (note J): a drift probes a key the walk never
+        // inserted, and every smoothed cell draws nothing.
+        ("FG_LOOK_SHIFT", baud_render::Shapes::FG_LOOK_SHIFT),
+        ("BG_LOOK_SHIFT", baud_render::Shapes::BG_LOOK_SHIFT),
+        ("KEY_LOOK_SHIFT", baud_render::CellKey::LOOK_SHIFT),
     ] {
         let prefix = format!("#define {name} ");
         let line = src
