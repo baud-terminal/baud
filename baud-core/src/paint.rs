@@ -807,6 +807,64 @@ impl<'a, 'b> Paint<'a, 'b> {
             true => {}
             false => self.view.set_cluster(r, owner, id),
         }
+        // **A `U+FE0F` after a listed base makes it two cells** (`vs16.rs`).
+        // The codepoint before it decides, as ghostty's `graphemeWidthEffect`
+        // does: `U+2620 U+FE0F` inside a ZWJ family widens nothing, because
+        // the family's base is wide already, and a mark between the base and
+        // the selector means the selector is not the base's.
+        if cp.value() == 0xFE0F && self.cold.vs16 == Vs16Width::Two {
+            let before = match n {
+                1 => cell.content.as_codepoint(),
+                _ => Codepoint::new(cps[n - 2]),
+            };
+            if before.is_some_and(vs16::widens) {
+                self.widen(r, owner.col());
+            }
+        }
+    }
+
+    /// Make the narrow character at `(r, o)` two cells wide, as its `U+FE0F`
+    /// asks: in place when the row has room, with the cursor moved past the
+    /// new tail; and at the right margin, moved whole to the next row as a
+    /// wide character that cannot fit is, leaving its cell blank -- ghostty's
+    /// rule. The margin case needs `DECAWM`, and asks nothing about it: only
+    /// a write with autowrap on leaves the cursor past the last column, where
+    /// `x + 1 == cx` can hold for a base on it.
+    ///
+    /// Only the write in progress: the character directly left of the
+    /// cursor, and not one already wide -- a cursor moved onto a wide
+    /// character's tail has that character directly left of it.
+    #[cold]
+    #[inline(never)]
+    fn widen(&mut self, r: Row, o: Col) {
+        let x = o.index();
+        if x + 1 != self.cx.index()
+            || self
+                .view
+                .get(r, Col::at_index(x + 1))
+                .content
+                .is_wide_tail()
+        {
+            return;
+        }
+        let cell = self.view.get(r, o);
+        let tail = PackedCell::wide_tail(cell.style, cell.flags.without_cluster());
+        let blank = PackedCell::empty_with(self.style);
+        if o < self.cold.right {
+            self.view.put_glyph(r, o, cell, Some(tail), blank);
+            self.cells = self.cells.plus(1);
+            self.overwrite_images(Col::at_index(x + 1), Col::at_index(x + 2));
+            self.advance(Count::ONE);
+        } else if o == self.cold.right && self.cold.right > self.cold.left {
+            self.view.put_glyph(r, o, blank, None, blank);
+            self.wrap();
+            let start = self.cx;
+            self.view.put_glyph(self.cy, start, cell, Some(tail), blank);
+            self.cells = self.cells.plus(2);
+            self.overwrite_images(start, Col::at_index(start.index() + 2));
+            self.advance(Count::of(2));
+        }
+        self.row_written = self.row_written.max(self.cx);
     }
 
     /// A run of one width, eight cells to a store.

@@ -231,7 +231,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
 | one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster | done — `ClusterBreak` consulted in `put_cp`; continuations attach to the base cell |
 | `Emoji_Presentation=Yes` is two columns | done — regional indicators are EAW `N`, so a flag measured from East Asian Width alone is half-width |
-| DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set; baud has no mode that stops clustering |
+| DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set, and it is true: a `U+FE0F` after a base `[[source: emoji-variation-sequences]]` lists widens it to two cells (keycap bases excepted); configured to one cell it answers `4`; no sequence changes it |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
 | `ESC % @` — select ISO 8859-1 | done — switches the live input encoding |
 | `CSI ? 1020 $ p` — DECRQM on xterm's `utf8` resource | done — mirrors the **live** encoding, `1` or `2`, as xterm does |
@@ -378,6 +378,14 @@ honest answer then: `2` would have told an application the mode existed and was
 merely off, whereupon it would set it and believe it took effect. The row moved
 when the implementation did, which is the only order that keeps the answer
 true.
+
+**Until 2026-10-01 the `3` was half false.** Mode 2027's text is about width
+as well as clustering, and a text-default emoji followed by `U+FE0F` stayed
+one cell. It is two cells now -- the owner's call, after research and Jev's
+0.99, recorded in CLAUDE.md -- in place when the row has room and moved whole
+to the next row at the right margin, as ghostty does. `vs16_width.rs` pins
+it. The answer stays permanent rather than resettable because bubbletea v2
+sends `?2027l` on exit, behind the shell.
 
 **ISO 8859-1 is honoured; the rest of the legacy charsets are not.**
 `[[source: ctlseqs]]` gives `ESC % @` and `ESC % G` as the two selectors, and

@@ -614,6 +614,19 @@ bytes  = 107324
 status = "retrieved"
 group  = "G"
 
+[sources.emoji-variation-sequences]
+key    = "emoji-variation-sequences"
+title  = "emoji-variation-sequences.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-variation-sequences.txt"
+file   = "unicode-emoji-variation-sequences.txt"
+sha256 = "bb3d09ef03f206012c7532dd52dc0a21c9efddba0135ea4cf0d9201b8b9bba7e"
+bytes  = 38315
+status = "retrieved"
+group  = "G"
+
 [sources.dcp-data]
 key    = "dcp-data"
 title  = "DerivedCoreProperties.txt, Unicode Character Database 17.0.0"

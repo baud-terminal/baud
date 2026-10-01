@@ -430,7 +430,7 @@ fn pins() -> Vec<Pin> {
         Pin {
             path: "utf8/cat-cjk.raw",
             diverging_boundaries: Boundary::of(80),
-            first_cells: Cells::of(173),
+            first_cells: Cells::of(165),
             reason: CLUSTERING,
         },
         Pin {
@@ -442,7 +442,7 @@ fn pins() -> Vec<Pin> {
         Pin {
             path: "utf8/less-cjk.raw",
             diverging_boundaries: Boundary::of(21),
-            first_cells: Cells::of(173),
+            first_cells: Cells::of(165),
             reason: CLUSTERING,
         },
         Pin {

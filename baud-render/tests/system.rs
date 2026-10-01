@@ -21,7 +21,7 @@ fn fnv64(data: &[u8]) -> u64 {
 
 /// `(menlo digest, emoji digest, frame digest)`; regenerate with
 /// `GOLDEN_PRINT=1`.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x08507896dded893c);
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xa34267dc5f1593f4);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

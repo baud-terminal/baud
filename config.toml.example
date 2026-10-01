@@ -40,6 +40,13 @@ colorspace = "srgb"
 # and "off" decide here. Off on Linux unless "on".
 font_smoothing = "auto"
 
+# How wide a text-default emoji is when a U+FE0F asks for emoji presentation,
+# such as a heart followed by U+FE0F. "two" cells, which tmux, fish, macOS
+# bash, helix and lipgloss assume; "one" for a session whose programs measure
+# with a legacy wcwidth (zsh prompts outside tmux, readline and ncurses on
+# glibc). DECRQM ?2027 reports it; nothing an application sends changes it.
+vs16_width = "two"
+
 
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.

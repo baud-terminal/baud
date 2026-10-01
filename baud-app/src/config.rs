@@ -4,7 +4,7 @@
 //! string, integer and decimal scalars, a bracketed list of strings that may
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
-//! `font_size`, `padding`, `colorspace`, `font_smoothing`, `theme`, and the eight under
+//! `font_size`, `padding`, `colorspace`, `font_smoothing`, `vs16_width`, `theme`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -147,6 +147,10 @@ pub struct Config {
     /// strokes and coloured spaces, for yazi -- and the claim is the reader's
     /// to make rather than baud's to guess.
     pub sixel: baud_domain::SixelClaim,
+    /// `vs16_width`: whether a `U+FE0F` makes a text-default emoji two cells,
+    /// `"two"` by default (owner, 2026-10-01), or one for a session whose
+    /// programs measure with a legacy `wcwidth`. `DECRQM ?2027` reports it.
+    pub vs16_width: baud_domain::Vs16Width,
 }
 
 /// The material, and the dimming over it.
@@ -519,6 +523,7 @@ impl Config {
             glass: Glass::defaults(),
             images: crate::host::IMAGE_BUDGET,
             sixel: baud_domain::SixelClaim::No,
+            vs16_width: baud_domain::Vs16Width::Two,
             source: None,
         }
     }
@@ -584,6 +589,18 @@ impl Config {
                                 "config: theme {other:?} is not auto, dark or light; using auto"
                             ));
                             ThemeChoice::Auto
+                        }
+                    };
+                }
+                ("", "vs16_width") => {
+                    self.vs16_width = match value.trim().trim_matches('"') {
+                        "two" => baud_domain::Vs16Width::Two,
+                        "one" => baud_domain::Vs16Width::One,
+                        other => {
+                            said.push(format!(
+                                "config: vs16_width {other:?} is not two or one; using two"
+                            ));
+                            baud_domain::Vs16Width::Two
                         }
                     };
                 }
@@ -2033,6 +2050,24 @@ shadow     = "never"
         assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
     }
 
+    /// `vs16_width` reads two words, and anything else is `two` and said.
+    #[test]
+    fn vs16_width_is_two_unless_named() {
+        use baud_domain::Vs16Width;
+        assert_eq!(read("").vs16_width, Vs16Width::Two);
+        assert_eq!(read("vs16_width = \"one\"").vs16_width, Vs16Width::One);
+        assert_eq!(read("vs16_width = \"two\"").vs16_width, Vs16Width::Two);
+        let mut c = Config::defaults();
+        let said = c.apply("vs16_width = \"three\"");
+        assert_eq!(c.vs16_width, Vs16Width::Two);
+        assert_eq!(said.len(), 1, "a bad value is said: {said:?}");
+        assert_eq!(
+            read("[glass]\nvs16_width = \"one\"").vs16_width,
+            Vs16Width::Two,
+            "a section's key of the same name is not this one"
+        );
+    }
+
     /// `font_smoothing` reads three words, and anything else is `auto`
     /// and said.
     #[test]
@@ -2172,7 +2207,9 @@ shadow     = "never"
             .lines()
             .filter(|l| {
                 l.split_once(" =").is_some_and(|(k, _)| {
-                    !k.is_empty() && k.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+                    !k.is_empty()
+                        && k.bytes()
+                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
                 })
             })
             .count();

@@ -393,6 +393,8 @@ pub struct Cold {
     /// embedder's ([`Term::set_initial_cursor_style`]), a blinking block
     /// until it says otherwise.
     pub(crate) initial_cursor: CursorStyle,
+    /// Whether a `U+FE0F` widens its base ([`Term::set_vs16_width`]).
+    pub(crate) vs16: Vs16Width,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -537,6 +539,7 @@ impl Cold {
             cursor_style: CursorStyle::BlinkingBlock,
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
+            vs16: Vs16Width::Two,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,
@@ -1754,6 +1757,19 @@ impl<'b> Term<'b> {
     /// What [`Term::set_initial_cursor_style`] last set.
     pub fn initial_cursor_style(&self) -> CursorStyle {
         self.cold.initial_cursor
+    }
+
+    /// Whether a `U+FE0F` after a base `[[source: emoji-variation-sequences]]`
+    /// lists makes it two cells wide. The embedder's power-on choice, called
+    /// once before the child writes anything; `DECRQM ?2027` answers 3 for
+    /// `Two`, the default, and 4 for `One`, and no sequence changes it.
+    pub fn set_vs16_width(&mut self, w: Vs16Width) {
+        self.cold.vs16 = w;
+    }
+
+    /// What [`Term::set_vs16_width`] last set.
+    pub fn vs16_width(&self) -> Vs16Width {
+        self.cold.vs16
     }
 
     /// The `[[source: kitty-keyboard]]` enhancement flags in force on the

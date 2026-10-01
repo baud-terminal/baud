@@ -1649,8 +1649,15 @@ impl Paint<'_, '_> {
             //
             // `?2027`: this core clusters per `[[source: uax29]]` and has no
             // mode that stops it, so `1` would invite an application to try
-            // turning it off. `3` is the value DECRPM has for exactly this.
-            PrivateMode::GraphemeClustering => ModeState::PermanentlySet,
+            // turning it off. `3` is the value DECRPM has for exactly this,
+            // and it is true: a `U+FE0F` widens its base (`Paint::attach`).
+            // Configured to one cell, the answer is `4`: neither is an answer
+            // an application can change, because bubbletea v2 resets `?2027`
+            // on exit, behind the shell.
+            PrivateMode::GraphemeClustering => match self.cold.vs16 {
+                Vs16Width::Two => ModeState::PermanentlySet,
+                Vs16Width::One => ModeState::PermanentlyReset,
+            },
             _ => ModeState::NotRecognized,
         }
     }

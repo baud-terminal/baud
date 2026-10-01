@@ -565,6 +565,8 @@ struct Boot {
     images: baud_domain::ImageBudget,
     /// Whether the DA claims Sixel, from `[images] advertise_sixel`.
     sixel: baud_domain::SixelClaim,
+    /// Whether a `U+FE0F` widens its base, from `vs16_width`.
+    vs16_width: baud_domain::Vs16Width,
 }
 
 impl Boot {
@@ -715,6 +717,7 @@ impl Boot {
             trail_scroll: cfg.trail_scroll,
             images: cfg.images,
             sixel: cfg.sixel,
+            vs16_width: cfg.vs16_width,
         }
     }
 
@@ -751,6 +754,7 @@ impl App {
             trail_scroll,
             images,
             sixel,
+            vs16_width,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -897,6 +901,7 @@ impl App {
         // the cell height in pixels; re-set on every `rescale`.
         term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
         term.set_sixel_claim(sixel);
+        term.set_vs16_width(vs16_width);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         App {

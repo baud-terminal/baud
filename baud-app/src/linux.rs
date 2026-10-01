@@ -160,6 +160,7 @@ pub fn run() {
         cell_px(renderer.metrics().cell_h),
     );
     term.set_sixel_claim(cfg.sixel);
+    term.set_vs16_width(cfg.vs16_width);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),

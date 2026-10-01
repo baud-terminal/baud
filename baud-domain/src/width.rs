@@ -10,9 +10,9 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 /// question is whether the *preceding* character is upgraded, which is a
 /// grapheme-cluster property. baud did not cluster when the field was
 /// removed, so it could never have been read. It clusters now (UAX #29, GB11
-/// included), and a `U+FE0F` attaches to its base without changing the
-/// base's width: the question is answerable and not answered, which is
-/// recorded rather than reintroduced as a setting nothing acts on.
+/// included), and the question is answered where the cluster is: the core
+/// widens a listed base when its `U+FE0F` attaches ([`crate::vs16`]), and the
+/// embedder's choice is [`crate::Vs16Width`], not a field here.
 #[derive(Clone, Copy, Default)]
 pub struct WidthTable {
     pub ambiguous: AmbiguousWidth,
