@@ -149,9 +149,6 @@ pub fn run() {
         Rows::of_index(usize::from(FIRST.ws_row)),
     )
     .expect("cell metrics");
-    // No system here draws text the way macOS's smoothing does, so `auto`
-    // is off; `on` asks for it anyway.
-    renderer.set_smoothing(cfg.font_smoothing.without_system());
     renderer.set_emoji_default(cfg.emoji);
     crate::host::tell_defaults(&mut term, renderer.theme(), baud_core::Overrides::Keep);
     // The cell height for the Sixel cursor advance, before the first feed;

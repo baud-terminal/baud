@@ -317,6 +317,7 @@ fn solid(t: Thumb, color: Argb) -> Instance {
         v: Tex(0),
         color,
         kind: Kind::Solid,
+        curve: baud_domain::contrast::CurveRow::default(),
     }
 }
 

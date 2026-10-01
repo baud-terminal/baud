@@ -1,8 +1,8 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Code, GlyphLook, Kind, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
 use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
-use crate::cellmap::{BlockCursor, CellSpan, Resolved, Selected, Shapes, Swaps, Text};
+use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
 use crate::effect::Vfx;
@@ -11,13 +11,13 @@ use crate::metrics::{Metrics, PxSize};
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
-use crate::smoothing::Smoothing;
 use crate::stack::FaceStyle;
 use crate::stack::{EmojiDefault, FaceIx, FaceTable, Stack};
 use crate::trail::{self, Drawn, Rect, Smear, TrailLook};
 use crate::transition::{self, Transition, Veil};
 use crate::units::{Band, Tally};
 use baud_core::Term;
+use baud_domain::contrast::CurveRow;
 use baud_domain::{
     Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen, ImageId,
     PackedCell, Row, Rows,
@@ -369,7 +369,14 @@ fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
         v: Tex(0),
         color,
         kind: Kind::Solid,
+        curve: CurveRow::default(),
     }
+}
+
+/// The contrast curve row text painted in `c` takes: its encoded colour,
+/// alpha aside (`baud_domain::contrast`). Called once per rendition slot.
+fn curve_row(c: Argb) -> CurveRow {
+    CurveRow::of(c.r().get(), c.g().get(), c.b().get())
 }
 
 /// One cell's input to the shaper: its base and attached codepoints.
@@ -496,9 +503,6 @@ pub struct Renderer<'f, 'a> {
     blend: Blend,
     cache: RunCache,
     atlas: Atlas,
-    /// Whether outlines are drawn as macOS's font smoothing draws them;
-    /// the embedder's to set (`Renderer::set_smoothing`), off until it does.
-    smoothing: Smoothing,
     /// How a character with no selector chooses between a text face and a
     /// colour one; the embedder's (`Renderer::set_emoji_default`).
     emoji: EmojiDefault,
@@ -522,6 +526,9 @@ pub struct Renderer<'f, 'a> {
     theme_gen: ThemeGen,
     bg: Vec<Argb>,
     fg: Vec<Argb>,
+    /// Per cell, the contrast curve row its glyph takes, beside the colour
+    /// it is painted in: the slot's row for the side the swaps leave it on.
+    curve: Vec<CurveRow>,
     /// Per cell, whether its text draws, beside its colours: the glyphs
     /// emitted for a hidden cell are dropped where they are emitted, so a
     /// run shapes the same in both blink phases.
@@ -677,7 +684,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blend,
             cache: RunCache::new(),
             atlas: Atlas::new(),
-            smoothing: Smoothing::Off,
             emoji: EmojiDefault::Font,
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
@@ -690,6 +696,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
+            curve: Vec::new(),
             text: Vec::new(),
             row_blinks: Vec::new(),
             per_row: Vec::new(),
@@ -760,24 +767,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         Some(())
     }
 
-    /// Whether outlines are drawn as macOS's font smoothing draws them
-    /// (note J). A change starts the atlas over, as a new size does: every
-    /// outline slot was drawn for the old answer.
-    pub fn set_smoothing(&mut self, smoothing: Smoothing) {
-        if smoothing == self.smoothing {
-            return;
-        }
-        self.smoothing = smoothing;
-        self.atlas.reset();
-        #[cfg(feature = "exceptions")]
-        self.singles.clear();
-        self.known = Prev::Unknown;
-        // The resolved table carries the looks (`Shapes`), so every slot is
-        // resolved again: a stale look keys a glyph the map does not hold,
-        // and the cell path draws nothing there.
-        self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
-    }
-
     /// How a character with no selector is drawn (`EmojiDefault`). A change
     /// moves faces under glyphs the atlas, the map and the overlay hold, so
     /// it starts them again, as a change of smoothing does.
@@ -814,30 +803,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// renderer is made.
     pub fn face_table(&self) -> &FaceTable {
         &self.faces_of
-    }
-
-    /// Whether outlines are smoothed.
-    pub fn smoothing(&self) -> Smoothing {
-        self.smoothing
-    }
-
-    /// The look an outline painted in `color` is drawn with.
-    pub fn look(&self, color: Argb) -> GlyphLook {
-        self.smoothing.look(color)
-    }
-
-    /// A cluster glyph's slot for `look`: the one it was resolved with
-    /// when the look is plain or the glyph is baud's own, else the same
-    /// glyph drawn again for that look.
-    pub fn restyle(&mut self, g: &ClusterGlyph, look: GlyphLook) -> Option<crate::atlas::Slot> {
-        match (look, g.source) {
-            (GlyphLook::Plain, _) | (_, GlyphSource::Procedural) => g.slot,
-            (look, GlyphSource::Face(face)) => {
-                let scale = self.scales[face.index()];
-                let f = self.stack.face(face);
-                self.atlas.slot(f, face, g.id, scale, look, g.phase)
-            }
-        }
     }
 
     /// Where a cluster whose base is `base`, on `face`, sits in `span`:
@@ -1228,6 +1193,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.cur = vec![PackedCell::EMPTY; cells];
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
+        self.curve = vec![CurveRow::default(); cells];
         self.text = vec![Text::Drawn; cells];
         self.row_blinks = vec![Blinking::Unseen; rows.index()];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
@@ -1720,9 +1686,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let f = self.stack.face(face);
         let mut out = Vec::new();
         for p in shaped.glyphs() {
-            let slot = self
-                .atlas
-                .slot(f, face, p.id, scale, GlyphLook::Plain, phase);
+            let slot = self.atlas.slot(f, face, p.id, scale, phase);
             out.push(ClusterGlyph {
                 id: p.id,
                 source: GlyphSource::Face(face),
@@ -1735,18 +1699,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
-    /// The glyph a codepoint draws as a cluster of one, with `look`: the
+    /// The glyph a codepoint draws as a cluster of one: the
     /// face the stack selects, shaped alone so a single substitution still
     /// applies, its atlas slot with the shaper's offsets folded into the
     /// placement. `None` when it draws nothing. What the cell path's map
     /// holds.
-    pub fn single(
-        &mut self,
-        cp: Codepoint,
-        style: FaceStyle,
-        look: GlyphLook,
-        span: CellSpan,
-    ) -> Option<Single> {
+    pub fn single(&mut self, cp: Codepoint, style: FaceStyle, span: CellSpan) -> Option<Single> {
         if crate::boxes::covers(cp) {
             // `PairRole::Neither` is load-bearing: with both pair bits clear
             // the cell is never a ligature candidate, never gathered into a
@@ -1772,7 +1730,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let phase = self.phase_in(face, cp, span);
         let slot = self
             .atlas
-            .slot(f, face, p.id, scale, look, phase)
+            .slot(f, face, p.id, scale, phase)
             .map(|mut slot| {
                 slot.left += scale.px(f32::from(p.dx)).round() as i32;
                 slot.top -= scale.px(f32::from(p.dy)).round() as i32;
@@ -1867,9 +1825,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .get(cell)
                     .and_then(|(cps, span)| cps.first().map(|&b| self.phase_in(facex, b, *span)))
                     .unwrap_or(self.metrics.phase);
-                let slot = self
-                    .atlas
-                    .slot(f, facex, p.id, scale, GlyphLook::Plain, phase);
+                let slot = self.atlas.slot(f, facex, p.id, scale, phase);
                 if let Some(o) = out.get_mut(cell) {
                     o.push(ClusterGlyph {
                         id: p.id,
@@ -2031,10 +1987,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.theme.opaque_bg(style) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
-        // The looks a glyph is drawn in on either side of a swap, for the
-        // cell path to key its map on (note J): from the opaque colours, as
-        // the CPU path's `emit` takes them; alpha never enters a level.
-        shapes = shapes.with_looks(self.smoothing.look(fg), self.smoothing.look(bg));
+        // The contrast curve a glyph takes on either side of a swap
+        // (`baud_domain::contrast`), chosen here once per rendition so a
+        // pixel only looks its row up: from the opaque colours, the ones a
+        // glyph is painted in; alpha never enters the curve.
+        let curves = Curves::of(curve_row(fg), curve_row(bg));
         // Which underline is drawn is the style's own bit. The three colon
         // styles *replace* the straight line rather than adding to it, so the
         // straight-line bit is set only for the two that draw one.
@@ -2074,6 +2031,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             bg,
             underline,
             shapes,
+            curves,
         }
     }
 
@@ -2141,6 +2099,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
             let (fg, hidden) = (d.fg, d.text == Text::Hidden);
             self.fg[range.start + c] = fg;
+            self.curve[range.start + c] = d.curve;
             self.bg[range.start + c] = d.bg;
             self.text[range.start + c] = d.text;
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
@@ -2422,7 +2381,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let style = self.face_style(cell);
             // The single-codepoint answer depends on the style, so the memo
             // keys on both; a codepoint is 21 bits and the style sits above.
-            let memo = crate::cellmap::CellKey::of(cp, style, GlyphLook::Plain, CellSpan::One).0;
+            let memo = crate::cellmap::CellKey::of(cp, style, CellSpan::One).0;
             let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
@@ -2479,6 +2438,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .get(range.start + col.index())
             .copied()
             .unwrap_or(self.defaults.0);
+        let curve = self
+            .curve
+            .get(range.start + col.index())
+            .copied()
+            .unwrap_or_default();
         let x = i32::try_from(col.index()).unwrap_or(0) * cell_w + slot.left;
         let y = top + baseline + slot.top;
         out.push(Instance {
@@ -2490,6 +2454,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             v: slot.y,
             color,
             kind: slot.kind,
+            curve,
         });
     }
 
@@ -2513,8 +2478,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .get(range.start + col)
                 .copied()
                 .unwrap_or(self.defaults.0);
-            // The colour first: a smoothed outline is drawn for it.
-            let look = self.smoothing.look(color);
+            let curve = self
+                .curve
+                .get(range.start + col)
+                .copied()
+                .unwrap_or_default();
             // The cluster's place in its span, from the cell its base
             // writes: a mark at that cell moves with it.
             let span = CellSpan::at(&self.cur[range.clone()], Col::at_index(col));
@@ -2526,7 +2494,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
                 _ => self.metrics.phase,
             };
-            let Some(slot) = self.atlas.slot(f, face, p.id, scale, look, phase) else {
+            let Some(slot) = self.atlas.slot(f, face, p.id, scale, phase) else {
                 continue;
             };
             let dx = scale.px(f32::from(p.dx)).round() as i32;
@@ -2542,6 +2510,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 v: slot.y,
                 color,
                 kind: slot.kind,
+                curve,
             });
         }
     }

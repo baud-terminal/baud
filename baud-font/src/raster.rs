@@ -144,12 +144,6 @@ impl<'a> Canvas<'a> {
         self.extent
     }
 
-    /// The extent and the accumulation buffer, for a pass that takes the
-    /// coverage in `f32` rather than through [`Canvas::coverage`].
-    pub(crate) fn into_parts(self) -> (Extent, &'a mut [f32]) {
-        (self.extent, self.a)
-    }
-
     fn deposit(&mut self, at: i64, v: f32) -> Option<()> {
         *self.a.get_mut(usize::try_from(at).ok()?)? += v;
         Some(())

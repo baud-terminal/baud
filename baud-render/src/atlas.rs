@@ -38,8 +38,7 @@ use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
-    Bounds, Canvas, Dilation, Face, Fit, Palette, PaletteEntry, Phase, Png, Px, Rasterizer, Scale,
-    SmoothLevel, Smoother, Strike,
+    Bounds, Canvas, Face, Fit, Palette, PaletteEntry, Phase, Png, Px, Rasterizer, Scale, Strike,
 };
 use std::collections::HashMap;
 
@@ -127,50 +126,11 @@ struct GlyphIx(u16);
 struct GlyphKey {
     face: FaceIx,
     glyph: GlyphIx,
-    look: GlyphLook,
     /// Where the glyph sits in its span: the grid phase for one cell, or
     /// the cluster's centring in two. One glyph is drawn at each phase it
     /// is asked at -- a one-cell text glyph in a two-cell span, a cluster's
     /// mark at its base's offset.
     phase: Phase,
-}
-
-/// How an outline is drawn: as its outline, or grown the way macOS's font
-/// smoothing grows it for text of one luminance level (note J,
-/// `baud_font::Smoother`). A bitmap strike or `COLR` layers are drawn as
-/// they are whatever the look, so they are kept once, under `Plain`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub enum GlyphLook {
-    Plain,
-    Smooth(SmoothLevel),
-}
-
-impl GlyphLook {
-    /// The three bits the cell path keys a glyph on (`Shapes`'s look
-    /// fields, `CellKey::LOOK_SHIFT`): 0 for plain, so a renderer that never
-    /// smooths composes the key it always did, and 1 to 5 for levels 0 to 4.
-    pub fn code(self) -> Code {
-        Code(match self {
-            GlyphLook::Plain => 0,
-            GlyphLook::Smooth(SmoothLevel::L0) => 1,
-            GlyphLook::Smooth(SmoothLevel::L1) => 2,
-            GlyphLook::Smooth(SmoothLevel::L2) => 3,
-            GlyphLook::Smooth(SmoothLevel::L3) => 4,
-            GlyphLook::Smooth(SmoothLevel::L4) => 5,
-        })
-    }
-
-    /// The look a [`GlyphLook::code`] names; anything else is plain.
-    pub fn from_code(c: Code) -> GlyphLook {
-        match c.0 {
-            1 => GlyphLook::Smooth(SmoothLevel::L0),
-            2 => GlyphLook::Smooth(SmoothLevel::L1),
-            3 => GlyphLook::Smooth(SmoothLevel::L2),
-            4 => GlyphLook::Smooth(SmoothLevel::L3),
-            5 => GlyphLook::Smooth(SmoothLevel::L4),
-            _ => GlyphLook::Plain,
-        }
-    }
 }
 
 /// One band: a strip of the sheet `h` texels tall starting at row `y`,
@@ -397,8 +357,6 @@ pub struct Atlas {
     /// mask is a function of the cell, so `reset` voids it with `map`.
     procedural: HashMap<u32, Option<Slot>>,
     scratch: Vec<f32>,
-    /// The dilation's line buffer, for a smoothed outline.
-    line: Vec<f32>,
     coverage: Vec<u8>,
     raw: Vec<u8>,
     rgba: Vec<u8>,
@@ -425,7 +383,6 @@ impl Atlas {
             map: HashMap::new(),
             procedural: HashMap::new(),
             scratch: Vec::new(),
-            line: Vec::new(),
             coverage: Vec::new(),
             raw: Vec::new(),
             rgba: Vec::new(),
@@ -583,52 +540,34 @@ impl Atlas {
 
     /// The image of `id` in `face`, resolved on the first ask: its bitmap
     /// strike nearest `scale`, else its `COLR` layers, else its outline as
-    /// a mask drawn with `look`. `None` for a glyph that draws nothing.
-    ///
-    /// **A colour image is kept once, under `Plain`, whatever look asks.**
-    /// Only an outline differs by look, so a smoothed look that misses
-    /// looks for a colour image before it draws the outline: an emoji on
-    /// five text colours is one slot, not five.
+    /// an exact-coverage mask. `None` for a glyph that draws nothing. One
+    /// raster a glyph and phase: the text-contrast curve is applied when the
+    /// mask is composited (`baud_domain::contrast`), not here.
     pub fn slot(
         &mut self,
         face: &Face<'_>,
         ix: FaceIx,
         id: GlyphId,
         scale: Scale,
-        look: GlyphLook,
         phase: Phase,
     ) -> Option<Slot> {
         let glyph = GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX));
         let key = GlyphKey {
             face: ix,
             glyph,
-            look,
             phase,
         };
         if let Some(known) = self.map.get(&key) {
             return *known;
         }
-        let plain = GlyphKey {
-            face: ix,
-            glyph,
-            look: GlyphLook::Plain,
-            phase,
-        };
-        if look != GlyphLook::Plain {
-            if let Some(Some(s)) = self.map.get(&plain) {
-                if s.kind == Kind::Color {
-                    return Some(*s);
-                }
-            }
-        }
         if let Some(s) = self
             .bitmap(face, id, scale, phase)
             .or_else(|| self.layered(face, id, scale, phase))
         {
-            self.map.insert(plain, Some(s));
+            self.map.insert(key, Some(s));
             return Some(s);
         }
-        let slot = self.rasterise(face, id, scale, look, phase);
+        let slot = self.rasterise(face, id, scale, phase);
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
         if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase) {
@@ -857,7 +796,6 @@ impl Atlas {
         face: &Face<'_>,
         id: GlyphId,
         scale: Scale,
-        look: GlyphLook,
         phase: Phase,
     ) -> Option<Slot> {
         let mut b = Bounds::new();
@@ -867,33 +805,14 @@ impl Atlas {
         if self.coverage.len() < cells {
             self.coverage.resize(cells, 0);
         }
-        match look {
-            GlyphLook::Plain => {
-                let need = fit.extent.scratch()?;
-                if self.scratch.len() < need {
-                    self.scratch.resize(need, 0.0);
-                }
-                let canvas = Canvas::new(fit.extent, &mut self.scratch)?;
-                let mut r = Rasterizer::new(canvas, fit.transform);
-                face.outline(id, &mut r);
-                r.finish().coverage(&mut self.coverage[..cells])?;
-            }
-            GlyphLook::Smooth(level) => {
-                let ppem = scale.px(f32::from(face.units_per_em().value()));
-                let d = Dilation::smoothing(level, ppem)?;
-                let need = Smoother::canvas(&fit)?.scratch()?;
-                if self.scratch.len() < need {
-                    self.scratch.resize(need, 0.0);
-                }
-                let line = Dilation::line(fit.extent)?.cells()?;
-                if self.line.len() < line {
-                    self.line.resize(line, 0.0);
-                }
-                let mut r = Smoother::new(&fit, &mut self.scratch)?;
-                face.outline(id, &mut r);
-                r.finish(d, &mut self.line, &mut self.coverage[..cells])?;
-            }
+        let need = fit.extent.scratch()?;
+        if self.scratch.len() < need {
+            self.scratch.resize(need, 0.0);
         }
+        let canvas = Canvas::new(fit.extent, &mut self.scratch)?;
+        let mut r = Rasterizer::new(canvas, fit.transform);
+        face.outline(id, &mut r);
+        r.finish().coverage(&mut self.coverage[..cells])?;
         self.stats.rasterised.bump();
         let (w, h) = (fit.extent.w, fit.extent.h);
         let (x, y) = loop {

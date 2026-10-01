@@ -4,6 +4,7 @@
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
+use baud_domain::contrast::CurveRow;
 
 /// A screen coordinate in pixels, signed so a glyph may hang off an edge.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -24,15 +25,17 @@ impl Instance {
         b[8..10].copy_from_slice(&self.u.0.to_le_bytes());
         b[10..12].copy_from_slice(&self.v.0.to_le_bytes());
         b[12..16].copy_from_slice(&self.color.0.to_le_bytes());
-        b[16..20].copy_from_slice(&self.kind.code().0.to_le_bytes());
+        let word = self.kind.code().0 | (u32::from(self.curve.get()) << 16);
+        b[16..20].copy_from_slice(&word.to_le_bytes());
         b
     }
 }
 
 /// One drawn glyph: where on screen, which atlas rectangle on which
-/// texture, what colour. Twenty bytes, `repr(C)` over `repr(transparent)`
-/// newtypes and a `repr(u32)` kind, so a buffer of them is what a vertex
-/// fetch reads: `i16 x, y; u16 w, h, u, v; u32 color; u32 kind`.
+/// texture, what colour. The shader reads [`Instance::to_bytes`], twenty
+/// bytes: `i16 x, y; u16 w, h, u, v; u32 color; u32 kind`, the kind code
+/// in the last word's low half and the contrast curve row in its high half.
+/// Nothing reinterprets the struct's own memory, so its layout is free.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Instance {
@@ -44,4 +47,8 @@ pub struct Instance {
     pub v: Tex,
     pub color: Argb,
     pub kind: Kind,
+    /// The contrast curve row a `Kind::Mask` is bent by before it is
+    /// blended (`baud_domain::contrast`); ignored by every other kind. It
+    /// rides in the kind word's high half, so the record stays 20 bytes.
+    pub curve: CurveRow,
 }

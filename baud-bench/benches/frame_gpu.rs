@@ -136,22 +136,13 @@ fn main() {
             ws_col: c.parse().expect("cols"),
         }
     });
-    // `FRAME_SMOOTH=1`: macOS font smoothing on (note J), every outline
-    // drawn grown for its colour's level -- an 8x supersample a glyph, so
-    // what it costs is a first frame's misses.
-    let smoothing = match std::env::var("FRAME_SMOOTH").as_deref() {
-        Ok("1") => baud_render::Smoothing::CoreText,
-        Ok("0") | Err(_) => baud_render::Smoothing::Off,
-        Ok(other) => panic!("FRAME_SMOOTH={other:?} is not 0 or 1"),
-    };
-    println!("smoothing: {smoothing:?}");
     // `FRAME_PX`: the size in device pixels, 14 by default; the app on a
     // Retina panel draws 14 pt at 28.
     let px: f32 =
         std::env::var("FRAME_PX").map_or(14.0, |v| v.parse().expect("FRAME_PX is a size"));
     println!("px: {px}");
     let fresh = || {
-        let mut r = Renderer::new(
+        Renderer::new(
             Stack::new(&faces).unwrap(),
             PxSize::of(px).unwrap(),
             theme.clone(),
@@ -159,9 +150,7 @@ fn main() {
             Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
         )
-        .unwrap();
-        r.set_smoothing(smoothing);
-        r
+        .unwrap()
     };
     let mut gpu = Gpu::new().expect("a Metal device");
     let probe = fresh();
@@ -437,22 +426,11 @@ fn main() {
                         map.ensure(
                             t.view(Rows::of_index(1)),
                             styles_mem,
-                            baud_render::MaySwap::NONE,
                             &mut r,
                             &mut candidates,
                         );
                     }
-                    let shown = t.cursor_visible().then(|| {
-                        let (row, col) = t.cursor();
-                        (row, col, t.cursor_style())
-                    });
-                    map.ensure(
-                        t.viewport(),
-                        styles_mem,
-                        baud_render::MaySwap::of(None, shown),
-                        &mut r,
-                        &mut candidates,
-                    );
+                    map.ensure(t.viewport(), styles_mem, &mut r, &mut candidates);
                     s.parts[part].map += tc.elapsed();
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();

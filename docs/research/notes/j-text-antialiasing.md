@@ -7,6 +7,17 @@ was found, what was decided, and what was deferred, with the numbers each
 decision rests on. It supersedes D7 of `j-rendering.md` on two counts:
 baud will now thicken text on macOS, and it will hint at small sizes.
 
+**Superseded on weight, 2026-10-01.** The owner ruled that macOS and Linux
+draw the same pixels, so a model that copies one system's text is out; the
+literature ranks no model above another at these weights, and the owner
+chose DirectWrite's grayscale contrast curve (Jev 0.80, with plain
+blending the runner-up at 0.19). baud now rasterises every glyph once, as
+exact coverage, and bends the coverage by the curve for the colour it is
+drawn in -- a compiled 2 MB table, `baud_domain::contrast` -- on every
+path and every system, with no switch. The CoreText dilation below was
+built, gated and then removed with its key; the measurements stand as
+research, and `scripts/text-probes/` keeps the probes that took them.
+
 Everything measured here is JetBrains Mono 2.304, baud's rasteriser against
 CoreText on this Mac (macOS 27.0), unless a row says otherwise. The CoreText
 probes are committed in `scripts/text-probes/` with a table of what each
@@ -190,7 +201,7 @@ would have to join the atlas key.
   still differ from macOS in its x-height and cap height until the
   autohinter lands; at 2x (26, 28 px) there is no snap. The fixtures are written by
   `scripts/text-probes/smooth-fixtures.swift` and `smooth-cubics.swift`.
-  The renderer does not use it yet.
+  It shipped in the renderer and was removed on 2026-10-01 (above).
 - Nerd Font icons are sized by a table generated at build time from the
   pinned font-patcher against the embedded Symbols Nerd Font Mono, with
   Nerd Fonts' own patched JetBrains Mono as the oracle (Jev 1.00): 99.4% of

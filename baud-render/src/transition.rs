@@ -64,6 +64,7 @@ pub fn instance(v: Veil, bg: Argb) -> Instance {
         v: Tex(0),
         color: bg.with_alpha(v.alpha),
         kind: Kind::Solid,
+        curve: baud_domain::contrast::CurveRow::default(),
     }
 }
 

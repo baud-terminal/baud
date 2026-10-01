@@ -23,7 +23,9 @@ fragment float4 bg_fragment(BgOut in [[stage_in]],
     return float4(c.rgb * c.a, c.a);
 }
 
-struct GOut { float4 pos [[position]]; float2 uv; float4 color; uint kind [[flat]]; };
+// `curve` is the text-contrast curve row a mask is bent by
+// (`baud_domain::contrast`): a pixel looks its coverage up in that row.
+struct GOut { float4 pos [[position]]; float2 uv; float4 color; uint kind [[flat]]; uint curve [[flat]]; };
 
 // An effect trail's two record kinds, `Kind::Band` and `Kind::Particle`.
 #define KIND_BAND 4u
@@ -33,29 +35,37 @@ vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                          device const Inst* insts [[buffer(0)]],
                          constant U& u [[buffer(1)]]) {
     Inst i = insts[iid];
+    // The kind word: the kind in the low half, a mask's contrast curve row
+    // in the high half (`Instance::to_bytes`).
+    uint kind = i.kind & 0xffffu;
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = float2(i.xy) + c * float2(i.wh);
     float2 n = p / u.viewport;
     GOut o;
     o.pos = float4(n.x * 2.0 - 1.0, 1.0 - n.y * 2.0, 0.0, 1.0);
-    float2 side = i.kind == 1u ? u.color : u.mask;
+    float2 side = kind == 1u ? u.color : u.mask;
     o.uv = (float2(i.uv) + c * float2(i.wh)) / side;
     // A particle is a shape over its record: the effect's fragment function
     // reads where in it a pixel is, -1 to 1 on each axis.
-    if (i.kind == KIND_PARTICLE) o.uv = c * 2.0 - 1.0;
+    if (kind == KIND_PARTICLE) o.uv = c * 2.0 - 1.0;
     uint col = i.color;
     o.color = float4(float((col >> 16) & 0xffu), float((col >> 8) & 0xffu),
                      float(col & 0xffu), float(col >> 24)) / 255.0;
-    o.kind = i.kind;
+    o.kind = kind;
+    o.curve = i.kind >> 16;
     return o;
 }
 
 fragment float4 glyph_fragment(GOut in [[stage_in]],
                                texture2d<float> mask [[texture(0)]],
                                texture2d<float> color [[texture(1)]],
-                               sampler s [[sampler(0)]]) {
+                               sampler s [[sampler(0)]],
+                               device const uchar* curves [[buffer(0)]]) {
     if (in.kind == 0u) {
-        float a = in.color.a * mask.sample(s, in.uv).r;
+        // The exact coverage, bent by the glyph's contrast curve: a lookup
+        // into the compiled table, never arithmetic per pixel.
+        uint cov = uint(mask.sample(s, in.uv).r * 255.0 + 0.5);
+        float a = in.color.a * float(curves[in.curve * 256u + cov]) / 255.0;
         return float4(in.color.rgb * a, a);
     }
     if (in.kind == 1u) {
@@ -1038,7 +1048,7 @@ struct CU {
     // Rust side binds that many: `CellUniforms`, which checks it.
     uint pad;
 };
-struct Style { uint fg; uint bg; uint ul; uint shapes; };
+struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
 
 struct FlatOut { float4 pos [[position]]; float4 color; };
@@ -1082,13 +1092,6 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // `the_face_style_bits_match_the_shader`.
 #define FACE_SHIFT 10u
 #define KEY_STYLE_SHIFT 21u
-// The looks a glyph is drawn in (note J's smoothing), three bits each in the
-// resolved slot -- the foreground's, then the background's -- and the three
-// the key carries above the style. Must match `Shapes::FG_LOOK_SHIFT`,
-// `Shapes::BG_LOOK_SHIFT` and `CellKey::LOOK_SHIFT`.
-#define FG_LOOK_SHIFT 12u
-#define BG_LOOK_SHIFT 15u
-#define KEY_LOOK_SHIFT 23u
 // Set in the key when the character spans two cells -- the next cell is
 // its wide tail: its glyph is centred in them, a slot of its own. Must
 // match `CellKey::SPAN_SHIFT`.
@@ -1196,7 +1199,7 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const Entry* entries [[buffer(3)]],
                               device const uchar* overlay [[buffer(4)]]) {
     GOut o;
-    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u;
+    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u; o.curve = 0u;
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     // The overlay is a screen-cell mask; index it by the screen row, not
@@ -1208,12 +1211,16 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     if (content > 0x10FFFFu) return o;
     uint shapes = styles[cell.y & 0xffffu].shapes;
     if (hidden(u, shapes)) return o;
-    uint look = (shapes >> (swapped(u, content, col, uint(lrow)) ? BG_LOOK_SHIFT : FG_LOOK_SHIFT)) & 7u;
+    // The contrast curve row for the side the swaps leave the glyph on:
+    // the slot's foreground half, or its background half when swapped
+    // (`Curves::row`).
+    uint curves = styles[cell.y & 0xffffu].curves;
+    uint curve = swapped(u, content, col, uint(lrow)) ? (curves >> 16) : (curves & 0xffffu);
     // Two cells when the next cell is this one's wide tail: the grid says
     // the width there (`CellSpan::at`), not the cell's flags.
     uint two = (col + 1u < u.grid.x && cell_at(u, cells, col + 1u, dr).x == WIDE_TAIL) ? 1u : 0u;
     uint key = content | (((shapes >> FACE_SHIFT) & 3u) << KEY_STYLE_SHIFT)
-                       | (look << KEY_LOOK_SHIFT) | (two << KEY_SPAN_SHIFT);
+                       | (two << KEY_SPAN_SHIFT);
     uint mask = u.map_slots - 1u;
     uint i = (key * 0x9E3779B1u) >> u.map_shift;
     Entry e; bool found = false;
@@ -1236,6 +1243,7 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.uv = (float2(e.rect.xy) + c * wh) / side;
     o.color = unpack(fgw);
     o.kind = e.kind;
+    o.curve = curve;
     return o;
 }
 
@@ -1252,7 +1260,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]]) {
     GOut o;
-    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u;
+    o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u; o.curve = 0u;
     uint which = iid % SHAPE_SLOTS, ci = iid / SHAPE_SLOTS;
     uint col = ci % u.grid.x, dr = ci / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);

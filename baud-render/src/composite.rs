@@ -81,8 +81,9 @@ impl<'p> Target<'p> {
     }
 
     /// Paints `inst` over the pixels, clipped to the buffer and to the
-    /// rows of `band`: a mask in the instance's colour, a colour image as
-    /// it is, or a solid rectangle.
+    /// rows of `band`: a mask in the instance's colour, its coverage bent
+    /// by the instance's contrast curve, a colour image as it is, or a solid
+    /// rectangle.
     pub fn over(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, band: Band) {
         let (w, h) = (usize::from(inst.w.0), usize::from(inst.h.0));
         let (u, v) = (usize::from(inst.u.0), usize::from(inst.v.0));
@@ -115,7 +116,9 @@ impl<'p> Target<'p> {
                         if cov == 0 {
                             continue;
                         }
-                        blend.over(color, dst, Coverage(cov))
+                        // The text-contrast curve, a lookup: the exact
+                        // coverage bent for the colour the glyph is in.
+                        blend.over(color, dst, Coverage(inst.curve.apply(cov)))
                     }
                     Kind::Solid => blend.over(color, dst, Coverage(255)),
                     // A quad's record is only its bounds; the pixels come

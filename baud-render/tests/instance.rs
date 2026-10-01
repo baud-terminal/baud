@@ -3,6 +3,7 @@
 //! u, v; u32 color; u32 kind`. A change here that the shader does not
 //! follow draws every glyph somewhere else.
 
+use baud_domain::contrast::CurveRow;
 use baud_render::{Argb, Instance, Kind, Screen, Tex};
 
 fn sample(kind: Kind) -> Instance {
@@ -15,13 +16,14 @@ fn sample(kind: Kind) -> Instance {
         v: Tex(0xFFFE),
         color: Argb(0xAABBCCDD),
         kind,
+        curve: CurveRow::default(),
     }
 }
 
 #[test]
 fn the_record_is_twenty_little_endian_bytes() {
-    assert_eq!(core::mem::size_of::<Instance>(), Instance::BYTES);
     let b = sample(Kind::Mask).to_bytes();
+    assert_eq!(b.len(), Instance::BYTES);
     assert_eq!(&b[0..2], &(-3i16).to_le_bytes());
     assert_eq!(&b[2..4], &0x1234i16.to_le_bytes());
     assert_eq!(&b[4..6], &7u16.to_le_bytes());
@@ -47,4 +49,22 @@ fn every_kind_has_the_code_the_shader_switches_on() {
         assert_eq!(kind.code().0, code, "{kind:?}");
         assert_eq!(&sample(kind).to_bytes()[16..20], &code.to_le_bytes());
     }
+}
+
+/// The contrast curve's row rides in the kind word's high half, where the
+/// shader's `glyph_vertex` reads it (`i.kind >> 16`), and leaves the kind
+/// code in the low half.
+#[test]
+fn the_curve_row_rides_in_the_kind_words_high_half() {
+    let row = CurveRow::of(0x20, 0x40, 0x60);
+    assert_ne!(
+        row,
+        CurveRow::default(),
+        "a dark colour takes a row of its own"
+    );
+    let mut i = sample(Kind::Mask);
+    i.curve = row;
+    let word = u32::from_le_bytes(i.to_bytes()[16..20].try_into().unwrap());
+    assert_eq!(word & 0xffff, Kind::Mask.code().0);
+    assert_eq!(word >> 16, u32::from(row.get()));
 }

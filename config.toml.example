@@ -34,12 +34,6 @@ theme = "auto"
 # "display-p3" to read the theme's numbers as the wider gamut on purpose.
 colorspace = "srgb"
 
-# Whether text is drawn the way macOS's font smoothing draws it: each glyph
-# grown a little for its colour, heavier for light text. "auto" follows the
-# system's setting (Appearance > "Use font smoothing when available"); "on"
-# and "off" decide here. Off on Linux unless "on".
-font_smoothing = "auto"
-
 # How wide a text-default emoji is when a U+FE0F asks for emoji presentation,
 # such as a heart followed by U+FE0F. "two" cells, which tmux, fish, macOS
 # bash, helix and lipgloss assume; "one" for a session whose programs measure

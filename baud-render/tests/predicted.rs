@@ -10,7 +10,7 @@ mod support;
 
 use baud_domain::{CellFlags, Codepoint, Col, Cols, Content, PackedCell, Row};
 use baud_font::Face;
-use baud_render::{Argb, Overlay, Resolved, Shapes};
+use baud_render::{Argb, Curves, Overlay, Resolved, Shapes};
 use support::{font, renderer};
 
 fn styles() -> Vec<Resolved> {
@@ -20,6 +20,7 @@ fn styles() -> Vec<Resolved> {
             bg: Argb(0xFF000000),
             underline: Argb(0xFFFFFFFF),
             shapes: Shapes::default(),
+            curves: Curves::default(),
         };
         8
     ]

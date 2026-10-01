@@ -32,7 +32,7 @@ generators write the fixtures `baud-font`'s smoothing is gated against:
 
 | generator | writes | for |
 |---|---|---|
-| `smooth-fixtures.swift <font> <dir>` | `ct-smooth-<ppem>.bin`: CoreText's masks of every printable ASCII glyph and five block elements, smoothing off and at each level, 9.001-48 px | `baud-font/tests/smooth.rs`, run against `baud-font/tests/fonts/JetBrainsMono-Regular.ttf` |
+| `smooth-fixtures.swift <font> <dir>` | `ct-smooth-<ppem>.bin`: CoreText's masks of every printable ASCII glyph and five block elements, smoothing off and at each level, 9.001-48 px | the CoreText gate of macOS's model, removed with it on 2026-10-01; kept to re-take the fixtures if the model is ever re-measured |
 | `smooth-cubics.swift <out>` | `cg-cubics.bin`: cubic circles and blobs, some left open, filled by CoreGraphics at flatness 1 | the same test's cubic gate: JetBrains Mono has no cubics |
 | `smooth-colours.swift <font> <out>` | `ct-colours.bin`: CoreText's full block in 21 coloured fills over black, smoothing off and on, at 13.001, 20 and 28 px | the same test's level gate: a grey fixture cannot tell Rec.709 from Rec.601 |
 

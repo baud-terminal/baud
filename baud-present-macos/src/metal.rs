@@ -474,6 +474,10 @@ pub struct Gpu {
     quad_pipe: LatePipe,
     effect_pipes: [LatePipe; Effect::COUNT],
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
+    /// The text-contrast curves, `baud_domain::contrast::CURVES`, copied
+    /// once: `glyph_fragment` reads a mask's coverage through the row its
+    /// glyph carries.
+    curves: Buffer,
     instances: Vec<Buffer>,
     ring: Ring,
     background: Option<Background>,
@@ -631,6 +635,20 @@ fn upload_rect(
             row_bytes,
         );
     }
+}
+
+/// A shared buffer holding the text-contrast curves, copied once from the
+/// compiled table.
+fn curve_buffer(device: &ProtocolObject<dyn MTLDevice>) -> Option<Buffer> {
+    let table: &[u8] = &baud_domain::contrast::CURVES;
+    let buffer =
+        device.newBufferWithLength_options(table.len(), MTLResourceOptions::StorageModeShared)?;
+    let ptr = buffer.contents().cast::<u8>();
+    // SAFETY: a shared buffer's contents are CPU-addressable for its whole
+    // length, which is the table's, and no command has been encoded with it.
+    let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), table.len()) };
+    dst.copy_from_slice(table);
+    Some(buffer)
 }
 
 /// A `repr(C)` slice over the first `n` elements of a shared buffer's
@@ -795,6 +813,7 @@ impl Gpu {
         sd.setMinFilter(MTLSamplerMinMagFilter::Nearest);
         sd.setMagFilter(MTLSamplerMinMagFilter::Nearest);
         let sampler = device.newSamplerStateWithDescriptor(&sd)?;
+        let curves = curve_buffer(&device)?;
         let instances = (0..RING)
             .map(|_| {
                 device.newBufferWithLength_options(
@@ -815,6 +834,7 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             sampler,
+            curves,
             instances,
             ring: Ring(0),
             background: None,
@@ -1169,6 +1189,7 @@ impl Gpu {
             enc.setRenderPipelineState(&self.glyph_pipe);
             enc.setFragmentTexture_atIndex(Some(mask), 0);
             enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+            enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
             for (i, (inst, tex)) in draws.iter().enumerate() {
                 // Only `viewport` (0,1) and `color` (8,9) are read by
                 // `glyph_vertex`; `color` is the image size, so uv spans 0..1
@@ -1274,6 +1295,7 @@ impl Gpu {
                 enc.setFragmentTexture_atIndex(Some(mask), 0);
                 enc.setFragmentTexture_atIndex(Some(color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
                 enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                     MTLPrimitiveType::TriangleStrip,
                     0,
@@ -1609,6 +1631,7 @@ impl Gpu {
                 enc.setFragmentTexture_atIndex(Some(&mask), 0);
                 enc.setFragmentTexture_atIndex(Some(&color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
+                enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
                 enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                     MTLPrimitiveType::TriangleStrip,
                     0,
@@ -1743,6 +1766,7 @@ fn image_instance(p: &ImagePlacement) -> Instance {
         v: Tex(0),
         color: Argb(0),
         kind: Kind::Color,
+        curve: baud_domain::contrast::CurveRow::default(),
     }
 }
 

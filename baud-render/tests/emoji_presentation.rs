@@ -208,7 +208,7 @@ fn the_cell_paths_map_follows_a_change_of_default() {
         eprintln!("skipped: the faces are macOS's");
         return;
     }
-    use baud_render::{CellSpan, GlyphLook, GlyphMap, MaySwap, Resolved, StyleStamp};
+    use baud_render::{CellSpan, GlyphMap, Resolved, StyleStamp};
     let jbm = font("JetBrainsMono-Regular.ttf");
     let emoji = std::fs::read(EMOJI).unwrap();
     let faces = [
@@ -240,22 +240,11 @@ fn the_cell_paths_map_follows_a_change_of_default() {
     let mut candidates = Vec::new();
     let mut face_of_bolt = |r: &mut Renderer<'_, '_>, t: &Term<'_>| {
         r.sync_styles(t, &mut styles, &mut stamp);
-        map.ensure(
-            t.view(Rows::ZERO),
-            &styles,
-            MaySwap::NONE,
-            r,
-            &mut candidates,
-        );
-        map.probe(
-            cp('⚡'),
-            FaceStyle::Regular,
-            GlyphLook::Plain,
-            CellSpan::Two,
-        )
-        .expect("the bolt is mapped")
-        .face()
-        .0
+        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.probe(cp('⚡'), FaceStyle::Regular, CellSpan::Two)
+            .expect("the bolt is mapped")
+            .face()
+            .0
     };
     assert_eq!(face_of_bolt(&mut r, &t), 0, "Font: JetBrains Mono's bolt");
     r.set_emoji_default(EmojiDefault::System);

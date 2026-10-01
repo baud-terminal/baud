@@ -46,7 +46,6 @@ mod renderer;
 mod scroll;
 mod scrollbar;
 mod select;
-mod smoothing;
 mod stack;
 mod trail;
 mod transition;
@@ -54,12 +53,12 @@ pub mod ufo;
 mod units;
 
 pub use atlas::{
-    Atlas, AtlasStats, Code, Dirty, Generation, GlyphLook, Kind, Replaced, Side, Slot, Tex, TexRect,
+    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Tex, TexRect,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{
-    BlockCursor, Candidate, CellKey, CellSpan, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS, MapEntry,
-    MapGeneration, MapStats, MaySwap, NO_INK, Resolved, Selected, Shapes, Swaps, Text, look_of,
+    BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS,
+    MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
 };
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
@@ -82,7 +81,6 @@ pub use scrollbar::{
 pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
 };
-pub use smoothing::{Smoothing, level_of};
 pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,

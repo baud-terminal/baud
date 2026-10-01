@@ -31,9 +31,9 @@ use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
     Argb, Blend, Blink, Candidate, Corners, Damage, FaceRole, FaceStyle, GlyphMap, Highlight,
-    Hover, Instance, Kind, Look, MaySwap, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved,
-    Scene, Scroll, Scroller, Segment, Shape, Smear, Smoothing, Stack, StyleStamp, Theme, Trail,
-    TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
+    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene,
+    Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
+    Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -170,12 +170,9 @@ impl Arms<'_, '_> {
             let (r, c) = t.cursor();
             (r, c, t.cursor_style())
         });
-        // The walk is told of the cursor whatever its blink phase, as the
-        // app tells it.
         self.map.ensure(
             view,
             self.styles_mem,
-            MaySwap::of(self.highlight, shown),
             &mut self.renderer,
             &mut self.candidates,
         );
@@ -2071,7 +2068,6 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.map.ensure(
         t.view(Rows::of_count(1)),
         arms.styles_mem,
-        MaySwap::NONE,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2252,7 +2248,6 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.map.ensure(
         t.view(Rows::of_count(1)),
         arms.styles_mem,
-        MaySwap::NONE,
         &mut arms.renderer,
         &mut arms.candidates,
     );
@@ -2463,7 +2458,6 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         arms.map.ensure(
             t.view(Rows::of_count(1)),
             arms.styles_mem,
-            MaySwap::NONE,
             &mut arms.renderer,
             &mut arms.candidates,
         );
@@ -2561,18 +2555,16 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "DEC line drawing reached the pixels"
         );
     }
-    // **Font smoothing (note J).** Each outline is grown for the level of
-    // the colour it is finally drawn in. The cell arm keys its map on the
-    // look the slot carries for that side -- the foreground's, or the
-    // background's under an odd number of swaps -- and the instance arm
-    // takes it from the colour `emit` reads, so the two agree only if both
-    // read the swaps alike. Colours at different levels, a selection, a
-    // block cursor alone and inside the selection, `?5`, `OSC 12`, a box
-    // character, a colour emoji, a mark and a ligature window. The block
-    // cursor sits on the one `H`, drawn nowhere else: had its letter been
-    // drawn at the background's level in another cell, the map would hold
-    // the swapped look without the walk inserting it.
+    // **Text contrast: DirectWrite's grayscale curve.** A mask's coverage is
+    // bent by the curve its colour's row names before it is blended, on both
+    // arms through the one `glyph_fragment`. Two arms running one shader
+    // agree about any curve, a missing one included, so the instance arm is
+    // also held to a reference composited here from the atlas's own mask
+    // through `baud_domain::contrast`: every glyph pixel within one step.
+    // The control is the same reference with no curve, which must miss --
+    // so a shader that skipped the lookup cannot pass.
     {
+        let kept = (arms.highlight.take(), arms.window.take(), arms.trail.take());
         let (w, _) = arms.renderer.frame_size();
         let m = arms.renderer.metrics();
         let cell = (
@@ -2580,61 +2572,79 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             usize::try_from(m.cell_h.value()).unwrap(),
         );
         let w = usize::try_from(w.value()).unwrap();
-        feed(
-            &mut t,
-            "\x1b[0m\x1b[2J\x1b[H\x1b[2 q\x1b[?25h\
-             \x1b[38;2;255;255;255mwhite H -> x\x1b[0m\r\n\
-             \x1b[38;2;0;0;0;48;2;255;255;255mblack on white\x1b[0m\r\n\
-             \x1b[38;2;0;205;0mgreen text // ::\x1b[0m\r\n\
-             marks e\u{301} a\u{308} o\u{302}\r\n\
-             box \u{250c}\u{2500}\u{2510} \u{2588} watch \u{231a} end\x1b[1;7H"
-                .as_bytes(),
-        );
-        let stats = |arms: &Arms<'_, '_>| {
-            let s = arms.exceptions.stats();
-            (s.cells.value(), s.windows.value())
+        let lines = [
+            "\x1b[38;2;0;0;0;48;2;255;255;255m",
+            "\x1b[38;2;255;255;255;48;2;0;0;0m",
+            "\x1b[38;2;128;128;128;48;2;20;24;28m",
+            "\x1b[38;2;30;90;200;48;2;250;240;220m",
+        ];
+        let text = "Hamburgefonstiv 0123 @#&";
+        let paint = |t: &mut Term<'_>, body: &str| {
+            let mut bytes = String::from("\x1b[0m\x1b[2J\x1b[H\x1b[?25l");
+            for sgr in lines {
+                bytes.push_str(sgr);
+                bytes.push_str(body);
+                bytes.push_str("\x1b[0m\r\n");
+            }
+            feed(t, bytes.as_bytes());
         };
-        arms.highlight = Some(Highlight {
-            from: (Row::from_index(1), Col::at_index(0)),
-            to: (Row::from_index(2), Col::at_index(6)),
-            region: Region::Stream,
-        });
-        let (off, _) = arms.draw(&mut t);
-        let off_stats = stats(&arms);
-        arms.renderer.set_smoothing(Smoothing::CoreText);
-        for (bytes, name) in [
-            (b"".as_slice(), "a block cursor alone"),
-            (
-                b"\x1b[2;3H".as_slice(),
-                "a block cursor inside the selection",
-            ),
-            (b"\x1b[?5h".as_slice(), "reverse video"),
-            (
-                b"\x1b[?5l\x1b]12;rgb:ff/00/00\x07\x1b[1;7H".as_slice(),
-                "an OSC 12 cursor",
-            ),
-        ] {
-            feed(&mut t, bytes);
-            let (a, b) = arms.draw(&mut t);
-            let bx = diff_box(&a, &b, w, cell);
-            assert_eq!(
-                differing(&a, &b),
-                0,
-                "the arms disagree with smoothing on, {name}, in cells {bx:?}"
-            );
-            assert_eq!(
-                stats(&arms),
-                off_stats,
-                "the records are the ones smoothing off draws, {name}: \
-                 a probe that missed the look would hand every window cell \
-                 to the records"
-            );
-        }
-        feed(&mut t, b"\x1b]112\x07\x1b[1;7H");
-        let (on, _) = arms.draw(&mut t);
-        assert!(differing(&on, &off) > 0, "smoothing reached the pixels");
-        arms.highlight = None;
-        arms.renderer.set_smoothing(Smoothing::Off);
+        paint(&mut t, &" ".repeat(text.chars().count()));
+        let (plain, _) = arms.draw(&mut t);
+        paint(&mut t, text);
+        let (a, b) = arms.draw(&mut t);
+        let bx = diff_box(&a, &b, w, cell);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on the contrast curve, in cells {bx:?}"
+        );
+        let atlas = arms.renderer.atlas();
+        let side = usize::try_from(atlas.side().value()).unwrap();
+        let mask = atlas.pixels();
+        let glyphs: Vec<Instance> = arms
+            .renderer
+            .instances()
+            .filter(|i| i.kind == Kind::Mask)
+            .copied()
+            .collect();
+        assert!(glyphs.len() > 60, "the scene drew its glyphs");
+        let reference = |curved: bool| {
+            let mut out = plain.clone();
+            for g in &glyphs {
+                let color = unit_color(g.color);
+                for y in 0..usize::from(g.h.0) {
+                    for x in 0..usize::from(g.w.0) {
+                        let cov = mask[(usize::from(g.v.0) + y) * side + usize::from(g.u.0) + x];
+                        let bent = if curved { g.curve.apply(cov) } else { cov };
+                        let al = color[3] * f32::from(bent) / 255.0;
+                        let src = [color[0] * al, color[1] * al, color[2] * al, al];
+                        let px = usize::try_from(i32::from(g.x.0)).unwrap() + x;
+                        let py = usize::try_from(i32::from(g.y.0)).unwrap() + y;
+                        let at = py * w + px;
+                        out[at] = over(src, out[at]);
+                    }
+                }
+            }
+            out
+        };
+        let off_by = |want: &[u32]| {
+            a.iter()
+                .zip(want)
+                .filter(|&(&g, &r)| {
+                    (0..4).any(|k| {
+                        let (g, r) = ((g >> (8 * k)) & 0xff, (r >> (8 * k)) & 0xff);
+                        g.abs_diff(r) > 1
+                    })
+                })
+                .count()
+        };
+        let curved = off_by(&reference(true));
+        assert_eq!(curved, 0, "the GPU's glyphs follow the contrast curve");
+        assert!(
+            off_by(&reference(false)) > 200,
+            "the curve reaches the pixels: an uncurved reference must miss"
+        );
+        (arms.highlight, arms.window, arms.trail) = kept;
     }
     // **A glyph narrower than its two cells is centred in them (note Z,
     // decision B).** JetBrains Mono's `⚡ ﹢ ｛ ｝` are one cell's advance in a

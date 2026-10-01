@@ -355,7 +355,6 @@ impl Overlay {
                 self.stats.cells.bump();
                 mask[y * cols + x] |= MASK_RECORD;
                 Overlay::emit(
-                    r,
                     records,
                     (x, y),
                     &glyphs,
@@ -431,7 +430,6 @@ impl Overlay {
             };
             if let Some(drawn) = hit {
                 Overlay::paint_window(
-                    r,
                     piece,
                     drawn,
                     y,
@@ -453,10 +451,9 @@ impl Overlay {
                     .zip(shaped)
                     .map(|((x, cell, cps), glyphs)| {
                         let style = crate::cellmap::face_of(scene.styles, *cell);
-                        let look = crate::cellmap::look_of(scene.styles, *cell);
                         let alone = scene
                             .map
-                            .probe(cps[0], style, look, CellSpan::at(row, Col::at_index(*x)))
+                            .probe(cps[0], style, CellSpan::at(row, Col::at_index(*x)))
                             .map(|e| e.glyph());
                         let same = !cell.flags.is_marked()
                             && glyphs.len() == 1
@@ -467,7 +464,6 @@ impl Overlay {
                     })
                     .collect();
                 Overlay::paint_window(
-                    r,
                     piece,
                     &drawn,
                     y,
@@ -500,7 +496,6 @@ impl Overlay {
                     .probe(
                         cp,
                         crate::cellmap::face_of(scene.styles, *cell),
-                        crate::cellmap::look_of(scene.styles, *cell),
                         CellSpan::at(row, Col::at_index(x)),
                     )
                     .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
@@ -584,7 +579,6 @@ impl Overlay {
             pan: Px::of(0),
         };
         Overlay::emit(
-            r,
             records,
             (x, y),
             &glyphs,
@@ -603,7 +597,6 @@ impl Overlay {
     /// drawn by records.
     #[allow(clippy::too_many_arguments)]
     fn paint_window(
-        r: &mut Renderer<'_, '_>,
         piece: &[(usize, PackedCell, Vec<Codepoint>)],
         drawn: &[Option<Vec<ClusterGlyph>>],
         y: Row,
@@ -617,16 +610,15 @@ impl Overlay {
             if let Some(glyphs) = glyphs {
                 stats.cells.bump();
                 mask[y.index() * geom.cols.index() + x] |= MASK_RECORD;
-                Overlay::emit(r, records, (*x, y.index()), glyphs, *cell, paint, geom);
+                Overlay::emit(records, (*x, y.index()), glyphs, *cell, paint, geom);
             }
         }
     }
 
     /// The records for one cell's glyphs, coloured as the shader would
-    /// colour the cell, and drawn in the look that colour asks for.
+    /// colour the cell, and bent by the contrast curve that colour takes.
     #[allow(clippy::too_many_arguments)]
     fn emit(
-        r: &mut Renderer<'_, '_>,
         records: &mut Vec<Instance>,
         at: (usize, usize),
         glyphs: &[ClusterGlyph],
@@ -676,9 +668,9 @@ impl Overlay {
         let oy = i32::try_from(y).unwrap_or(0) * cell_h
             + baseline
             + i32::try_from(geom.pan.value()).unwrap_or(0);
-        let look = r.look(color);
+        let curve = d.curve;
         for g in glyphs {
-            let Some(slot) = r.restyle(g, look) else {
+            let Some(slot) = g.slot else {
                 continue;
             };
             records.push(Instance {
@@ -690,6 +682,7 @@ impl Overlay {
                 v: slot.y,
                 color,
                 kind: slot.kind,
+                curve,
             });
         }
     }

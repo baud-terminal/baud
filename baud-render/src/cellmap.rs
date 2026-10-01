@@ -19,12 +19,13 @@
 //! nothing can count the ligatures that would have formed without shaping
 //! the runs, which is the work this path exists not to do.
 
-use crate::atlas::{Code, GlyphLook, Kind, Tex};
+use crate::atlas::{Code, Kind, Tex};
 use crate::color::Argb;
 use crate::instance::Screen;
 use crate::picture::Pictured;
 use crate::renderer::{Blink, PairRole, Renderer, Single};
 use crate::units::Tally;
+use baud_domain::contrast::CurveRow;
 use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, Row, Viewport};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
@@ -50,15 +51,6 @@ pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::Fac
         .map_or(crate::FaceStyle::Regular, |s| s.shapes.face())
 }
 
-/// The look a cell's own foreground is drawn in, from its resolved slot:
-/// the key every probe for a glyph's identity uses, since the walk inserts
-/// it for every cell (`GlyphMap::ensure`).
-pub fn look_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> GlyphLook {
-    styles
-        .get(cell.style.index())
-        .map_or(GlyphLook::Plain, |s| s.shapes.look(Ink::Own))
-}
-
 /// Which side of a cell's colours its glyph is drawn in: its own
 /// foreground, or its background after an odd number of swaps -- the
 /// selection's and the block cursor's (`Resolved::drawn`).
@@ -72,7 +64,7 @@ impl Swaps {
     /// Which side the glyph is drawn in: each swap exchanges the two
     /// colours and `OSC 12` replaces only the background, so the glyph is
     /// the background's colour exactly when the swaps are odd. Held to
-    /// `Resolved::drawn` by `the_ink_is_the_drawn_foregrounds_side`.
+    /// `Resolved::drawn` by `the_ink_is_the_drawn_foregrounds_row`.
     pub fn ink(self) -> Ink {
         let selected = self.selected == Selected::Yes;
         let block = matches!(self.block, BlockCursor::Yes(_));
@@ -81,41 +73,6 @@ impl Swaps {
         } else {
             Ink::Own
         }
-    }
-}
-
-/// The cells a frame may draw swapped, for the map walk to insert their
-/// other look: the selection, and the block cursor whatever its blink
-/// phase -- a flip must not find its cell's glyph missing.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct MaySwap {
-    pub highlight: Option<crate::Highlight>,
-    pub block: Option<(Row, Col)>,
-}
-
-impl MaySwap {
-    pub const NONE: MaySwap = MaySwap {
-        highlight: None,
-        block: None,
-    };
-
-    /// The selection, and the cursor when its shape is a block: whether
-    /// this frame draws it is not asked, so a blink flip finds the cell's
-    /// swapped look already in the map.
-    pub fn of(
-        highlight: Option<crate::Highlight>,
-        cursor: Option<(Row, Col, baud_domain::CursorStyle)>,
-    ) -> MaySwap {
-        use baud_domain::CursorStyle::{BlinkingBlock, SteadyBlock};
-        MaySwap {
-            highlight,
-            block: cursor
-                .and_then(|(r, c, s)| matches!(s, BlinkingBlock | SteadyBlock).then_some((r, c))),
-        }
-    }
-
-    fn at(&self, y: Row, x: Col, content: baud_domain::Content) -> bool {
-        self.block == Some((y, x)) || self.highlight.is_some_and(|h| h.selects(y, x, content))
     }
 }
 
@@ -150,9 +107,9 @@ impl CellSpan {
 }
 
 /// A map entry's key: the codepoint with the face style above it, and the
-/// look above that, or [`CellKey::EMPTY`]. A codepoint is 21 bits, so the
-/// style's two bits and the look's three fit above it and the key stays
-/// one word; the cell shader composes the
+/// span above that, or [`CellKey::EMPTY`]. A codepoint is 21 bits, so the
+/// style's two bits and the span's one fit above it and the key stays one
+/// word; the cell shader composes the
 /// same key from the cell and its resolved slot (`KEY_STYLE_SHIFT`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(transparent)]
@@ -161,21 +118,17 @@ pub struct CellKey(pub u32);
 impl CellKey {
     pub const EMPTY: CellKey = CellKey(u32::MAX);
     pub const STYLE_SHIFT: u32 = 21;
-    pub const LOOK_SHIFT: u32 = 23;
     /// One bit: set when the character spans two cells, whose glyph is
     /// centred in them (`Renderer::phase_in`) and so is another slot.
     pub const SPAN_SHIFT: u32 = 26;
 
-    pub fn of(cp: Codepoint, style: crate::FaceStyle, look: GlyphLook, span: CellSpan) -> CellKey {
+    pub fn of(cp: Codepoint, style: crate::FaceStyle, span: CellSpan) -> CellKey {
         let two = match span {
             CellSpan::One => 0,
             CellSpan::Two => 1,
         };
         CellKey(
-            cp.value()
-                | (style.code().0 << CellKey::STYLE_SHIFT)
-                | (look.code().0 << CellKey::LOOK_SHIFT)
-                | (two << CellKey::SPAN_SHIFT),
+            cp.value() | (style.code().0 << CellKey::STYLE_SHIFT) | (two << CellKey::SPAN_SHIFT),
         )
     }
 }
@@ -396,10 +349,9 @@ impl<'m> GlyphMap<'m> {
         &self,
         cp: Codepoint,
         style: crate::FaceStyle,
-        look: GlyphLook,
         span: CellSpan,
     ) -> Option<&MapEntry> {
-        let key = CellKey::of(cp, style, look, span);
+        let key = CellKey::of(cp, style, span);
         let mut i = MapSlot::home(key);
         for _ in 0..MAP_SLOTS {
             let e = &self.entries[i.0];
@@ -443,7 +395,6 @@ impl<'m> GlyphMap<'m> {
         &mut self,
         vp: Viewport<'_>,
         styles: &[Resolved],
-        swaps: MaySwap,
         r: &mut Renderer<'_, '_>,
         candidates: &mut Vec<Candidate>,
     ) {
@@ -468,32 +419,12 @@ impl<'m> GlyphMap<'m> {
                     continue;
                 };
                 let style = face_of(styles, *cell);
-                let shapes = styles
-                    .get(cell.style.index())
-                    .map_or(Shapes::default(), |s| s.shapes);
-                let look = shapes.look(Ink::Own);
                 let span = CellSpan::at(row, Col::at_index(x));
-                // A cell the frame may draw swapped is drawn at its
-                // background's look: make sure that entry is there too.
-                let other = shapes.look(Ink::Swapped);
-                if other != look
-                    && swaps.at(Row::from_index(y), Col::at_index(x), cell.content)
-                    && self.probe(cp, style, other, span).is_none()
-                {
-                    self.stats.misses.bump();
-                    let single = r.single(cp, style, other, span);
-                    if r.atlas_stats().grown.value() != self.grown.value() {
-                        self.grown = r.atlas_stats().grown;
-                        self.clear();
-                    }
-                    self.insert(MapEntry::of(CellKey::of(cp, style, other, span), single));
-                    changed = true;
-                }
-                let (glyph, starts, ends, face) = match self.probe(cp, style, look, span) {
+                let (glyph, starts, ends, face) = match self.probe(cp, style, span) {
                     Some(e) => (e.glyph(), e.starts_pair(), e.ends_pair(), e.face()),
                     None => {
                         self.stats.misses.bump();
-                        let single = r.single(cp, style, look, span);
+                        let single = r.single(cp, style, span);
                         if r.atlas_stats().grown.value() != self.grown.value() {
                             self.grown = r.atlas_stats().grown;
                             self.clear();
@@ -503,7 +434,7 @@ impl<'m> GlyphMap<'m> {
                         {
                             self.clear();
                         }
-                        let e = MapEntry::of(CellKey::of(cp, style, look, span), single);
+                        let e = MapEntry::of(CellKey::of(cp, style, span), single);
                         self.insert(e);
                         changed = true;
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
@@ -576,31 +507,6 @@ impl Shapes {
         Shapes(self.0 | s.0)
     }
 
-    /// Where the look the cell's foreground is drawn in sits: three bits,
-    /// [`GlyphLook::code`]; the background's three above it. The cell
-    /// shader takes one or the other by the swaps' parity.
-    pub const FG_LOOK_SHIFT: u32 = 12;
-    pub const BG_LOOK_SHIFT: u32 = 15;
-
-    /// The looks a glyph in this rendition is drawn in on either side.
-    pub fn with_looks(self, fg: GlyphLook, bg: GlyphLook) -> Shapes {
-        let cleared = self.0 & !((7 << Shapes::FG_LOOK_SHIFT) | (7 << Shapes::BG_LOOK_SHIFT));
-        Shapes(
-            cleared
-                | (fg.code().0 << Shapes::FG_LOOK_SHIFT)
-                | (bg.code().0 << Shapes::BG_LOOK_SHIFT),
-        )
-    }
-
-    /// The look a glyph is drawn in on `ink`'s side.
-    pub fn look(self, ink: Ink) -> GlyphLook {
-        let shift = match ink {
-            Ink::Own => Shapes::FG_LOOK_SHIFT,
-            Ink::Swapped => Shapes::BG_LOOK_SHIFT,
-        };
-        GlyphLook::from_code(Code((self.0 >> shift) & 7))
-    }
-
     pub fn with_face(self, style: crate::FaceStyle) -> Shapes {
         Shapes((self.0 & !(3 << Shapes::FACE_SHIFT)) | (style.code().0 << Shapes::FACE_SHIFT))
     }
@@ -617,8 +523,9 @@ impl Shapes {
 
 /// One rendition table slot resolved to what a cell draws with: the
 /// foreground, the background with the default background's alpha applied,
-/// the underline colour, and which shapes to draw. Sixteen bytes,
-/// `repr(C)`, four `u32`s.
+/// the underline colour, which shapes to draw, and the text-contrast curve
+/// rows its glyph takes on either side ([`Curves`]). Twenty bytes,
+/// `repr(C)`, five `u32`s.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Resolved {
@@ -626,6 +533,31 @@ pub struct Resolved {
     pub bg: Argb,
     pub underline: Argb,
     pub shapes: Shapes,
+    pub curves: Curves,
+}
+
+/// The contrast curve rows a glyph of one rendition is drawn with
+/// (`baud_domain::contrast`): the foreground's in the low half, the
+/// background's in the high half, for a glyph drawn swapped. Chosen once,
+/// when the slot is resolved, so a pixel only looks its row up; the cell
+/// shader takes one half by the swaps' parity ([`Swaps::ink`]).
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Curves(pub u32);
+
+impl Curves {
+    pub fn of(own: CurveRow, swapped: CurveRow) -> Curves {
+        Curves(u32::from(own.get()) | (u32::from(swapped.get()) << 16))
+    }
+
+    /// The row a glyph drawn on `ink`'s side takes.
+    pub fn row(self, ink: Ink) -> CurveRow {
+        let half = match ink {
+            Ink::Own => self.0 & 0xffff,
+            Ink::Swapped => self.0 >> 16,
+        };
+        CurveRow::at(u16::try_from(half).unwrap_or(0)).unwrap_or_default()
+    }
 }
 
 /// `Resolved::BYTES` is what the cell shader's `struct Style` is laid out
@@ -634,7 +566,7 @@ pub struct Resolved {
 const _: () = assert!(core::mem::size_of::<Resolved>() == Resolved::BYTES);
 
 impl Resolved {
-    pub const BYTES: usize = 16;
+    pub const BYTES: usize = 20;
 
     /// Whether the cell's own text draws: its glyph, its underline and its
     /// strike. **Hidden text draws its background and nothing of its own**,
@@ -691,6 +623,7 @@ impl Resolved {
             fg,
             bg,
             text: self.text(s.blink),
+            curve: self.curves.row(s.ink()),
         }
     }
 }
@@ -733,4 +666,7 @@ pub struct Drawn {
     pub fg: Argb,
     pub bg: Argb,
     pub text: Text,
+    /// The contrast curve row the glyph takes: the slot's row for the side
+    /// the swaps leave the glyph's colour on.
+    pub curve: CurveRow,
 }

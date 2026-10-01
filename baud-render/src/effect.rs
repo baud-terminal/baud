@@ -330,6 +330,7 @@ impl Vfx {
                     v: Tex(0),
                     color: fill.with_alpha(Chan::from_u8(0xFF)),
                     kind: Kind::Band,
+                    curve: baud_domain::contrast::CurveRow::default(),
                 });
             }
             band += unit;
@@ -345,6 +346,7 @@ impl Vfx {
                 v: Tex(0),
                 color: fill.with_alpha(Chan::from_unit(s.glow)),
                 kind: Kind::Particle,
+                curve: baud_domain::contrast::CurveRow::default(),
             });
         });
     }

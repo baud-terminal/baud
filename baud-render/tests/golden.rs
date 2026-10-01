@@ -29,16 +29,20 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// cava carry box drawing and braille, drawn by `baud_render::boxes`
 /// rather than by JetBrains Mono, so their digests are baud's own masks:
 /// btop's graph braille was `.notdef` boxes in the font and is now dots.
+/// Every outline's coverage is bent by its colour's text-contrast curve
+/// (`baud_domain::contrast`), which moved every pin with outline text in
+/// it; cava's frame is all procedural blocks at full coverage, where every
+/// curve is the identity, and did not move.
 const GOLDEN: [(&str, u64); 9] = [
-    ("ascii/asciiquarium.raw", 0xe3acd80f4bdde85a),
-    ("utf8/btop.raw", 0xa46b9842ac32a124),
-    ("ascii/cat-scroll.raw", 0x4d40b1848c392577),
-    ("ascii/git-log.raw", 0x5cc0a0f94d1c95ac),
-    ("ascii/less-pager.raw", 0x5fc54cb2598e903c),
-    ("utf8/cat-cjk.raw", 0xd3534f5289611987),
+    ("ascii/asciiquarium.raw", 0xac3842702a843af5),
+    ("utf8/btop.raw", 0x378fe94215f0d9b5),
+    ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
+    ("ascii/git-log.raw", 0x2303bd10c2107db7),
+    ("ascii/less-pager.raw", 0x41e082191ab41018),
+    ("utf8/cat-cjk.raw", 0x5011333ef97ad177),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x6a28b4e80a1684c8),
+    ("utf8/vim-unicode.raw", 0x6133ccd7046f674c),
 ];
 
 #[test]
@@ -97,7 +101,7 @@ fn every_recording_paints_to_its_pinned_frame() {
 /// that the pin is the table's.
 #[test]
 fn git_log_paints_to_its_pinned_light_frame() {
-    const LIGHT_GIT_LOG: u64 = 0x633657c94fe3c2fd;
+    const LIGHT_GIT_LOG: u64 = 0x8ccf93fcb310b1da;
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let bytes = recording("ascii/git-log.raw");
