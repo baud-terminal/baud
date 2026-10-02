@@ -281,7 +281,7 @@ fn every_test_named_in_the_docs_exists() {
         }
     }
     // **`baud-core` is in this list because the gate must follow the code.**
-    // The new core carries its own tests and `CLAUDE.md` cites them; a
+    // The new core carries its own tests and `docs/record.md` cites them; a
     // collector that walked only core2 would report every one of them as a
     // citation to nothing, which is the "instrumentation outlived what fed it"
     // failure this repo already records twice.
@@ -346,7 +346,7 @@ fn every_test_named_in_the_docs_exists() {
             "term_cursor_blink_update",
             "foot's C function that arms its cursor blink timer only while the \
              window has focus, quoted in `baud-app/src/caret.rs` and in \
-             CLAUDE.md's cursor section as the rule baud's blink follows",
+             the record's cursor section as the rule baud's blink follows",
         ),
         (
             "n_tty_receive_buf_common",
@@ -494,6 +494,16 @@ fn nothing_disclaimed_is_also_marked_done() {
         "## Unmeasured — do not assert",
         "## Things already tried that lost",
     ];
+    // The positive control. Both sections live in CLAUDE.md, and the loop below
+    // skips a file without them, so a renamed or moved heading would leave this
+    // gate checking nothing and passing.
+    let claude = fs::read_to_string(root.join("CLAUDE.md")).expect("CLAUDE.md");
+    for start in DISCLAIMERS {
+        assert!(
+            claude.contains(start),
+            "CLAUDE.md has no `{start}` section, so this gate would check nothing"
+        );
+    }
     let mut contradictions = Vec::new();
     for f in ["CLAUDE.md", "docs/vt-coverage.md", "README.md"] {
         let Ok(src) = fs::read_to_string(root.join(f)) else {
@@ -547,7 +557,7 @@ fn nothing_disclaimed_is_also_marked_done() {
 #[test]
 fn the_ladder_arithmetic_holds() {
     const MIB: f64 = (1u64 << 20) as f64;
-    let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
+    let text = fs::read_to_string(root().join("docs/record.md")).expect("docs/record.md");
 
     // `| `wrap` | ... | **5,850** | 1.0 | 49.1 GB/s |`
     let mut checked = 0usize;
@@ -610,7 +620,7 @@ fn the_ladder_arithmetic_holds() {
 #[test]
 fn the_cycles_per_byte_table_agrees_with_itself() {
     const MIB: f64 = (1u64 << 20) as f64;
-    let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
+    let text = fs::read_to_string(root().join("docs/record.md")).expect("docs/record.md");
 
     let mut clocks: Vec<(String, f64)> = Vec::new();
     let mut in_table = false;
@@ -662,5 +672,32 @@ fn the_cycles_per_byte_table_agrees_with_itself() {
             .iter()
             .map(|(n, c)| format!("{n} {c:.2}"))
             .collect::<Vec<_>>()
+    );
+}
+
+/// **CLAUDE.md stays at its budget.** Claude Code loads it whole into every
+/// session, again after every compaction and into every subagent but Explore,
+/// and when its content changes mid-session it sends the whole file again while
+/// the old copy stays. At 1,348,237 bytes it was about 511,500 of the 560,688
+/// tokens a session started with, and two copies were more than the 1,000,000
+/// window: every edit to it since 2026-09-27 was followed by "Prompt is too
+/// long" (note H, `docs/research/notes/h-session-context-budget.md`).
+///
+/// The 285 dated records moved to `docs/record.md` on 2026-10-02, the owner's
+/// decision, and `BUDGET` is the size that left. It is a ratchet, the convention
+/// `audit_all.sh` keeps: lower it in the same commit whenever the file shrinks,
+/// and raise it only in a commit of its own that says why. Records and
+/// decisions go to `docs/record.md`.
+#[test]
+fn claude_md_stays_within_its_budget() {
+    const BUDGET: usize = 70_822;
+    let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
+    let chars = text.chars().count();
+    assert!(
+        chars <= BUDGET,
+        "CLAUDE.md is {chars} characters, over its budget of {BUDGET}. Every session \
+         loads it whole and an edit sends it again to every open session: put records \
+         and decisions in docs/record.md, and raise BUDGET only in a commit of its own \
+         that says why"
     );
 }
