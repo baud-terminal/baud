@@ -239,6 +239,70 @@ unmerged fontations pull request (1631) uses a flag with a 4-record bound, every
 hop in one strike. HarfBuzz's own `sbix` code, skrifa, ttf-parser, swash,
 cosmic-text and resvg do not support `flip`.
 
+## 5. Round four: where the flip questions and the symbol face stand
+
+The owner gave provisional answers (toggle; across strikes) and asked for more
+research where Jev scored low.
+
+**Where hops are read.** A model of CoreText's walk reproduces all 697
+recorded CoreText cells across 20 test fonts; reading the whole chain in
+CoreText's chosen strike reproduces 499 (MEASURED). The walk follows at most
+one record at each strike that holds the current glyph, skips the rest, stops
+at the first holding strike at or above the size or else the last holding
+strike in table order, and needs an image there. Both specifications require
+the glyph to be drawn: Apple, "if any strike has a bitmap for a particular
+glyph, the bitmap for that glyph will always be drawn"; Microsoft, "must be
+drawn using a bitmap from some strike" (READ). CoreText draws nothing in 84
+measured cases where every strike holds the whole chain, 11 of them with only
+`dupe` and `png ` records, and takes a glyph's first record from the table's
+first strike, so a glyph whose drawn strike holds a complete image was drawn
+as another glyph, mirrored. Only CoreText reads across strikes: FreeType 2.14
+reads in the chosen strike (MEASURED on a font built to tell the two apart,
+with 24 CoreText predictions written first and matched), as do Qt, Skia's
+FreeType scaler, OpenJDK, zig-lib-opentype, swash and cherenkov (READ).
+CoreText chooses and resolves at the device size, font size times the display
+scale (MEASURED).
+
+**How many mirrors.** Apple is the only producer of `flip` found, on macOS and
+in the iOS, tvOS, watchOS and visionOS 27 simulator runtimes (1,320 font
+files), and no Apple font chains a flip or a `dupe`; every flip glyph is named
+`<base>.u27A1`, after the rightward-direction character (MEASURED). UTS #51
+section 2.10, since revision 17: "If direction ZWJ sequences are supported and
+the base emoji already faces that direction, the direction emoji should be
+ignored" (READ); its bearing on glyph records is inferred. No producer, Apple
+text, patent or Unicode document gives a chain a meaning.
+
+**Corrections to section 4, from the renderer survey.**
+
+- The toggle reaches users only through FreeType 2.14 and later. FreeType
+  2.13.3 and earlier answer any `flip`, single or chained, with
+  `Unimplemented_Feature` (MEASURED): the long-term distributions (Debian 13,
+  Ubuntu 24.04, Fedora 43, RHEL 10) and the copies vendored in WezTerm on every
+  system, kitty's Linux binary and Ghostty's Linux build.
+- Chrome on Linux, ChromeOS and Android draws through Fontations, which passes
+  a flip's two-byte payload on as a PNG, so nothing draws; "WebKit-Skia on
+  Linux" in section 4 is WebKit only.
+- Pillow 11.3 (FreeType 2.13.3) errors on a flip and Pillow 12.3 (2.14.3)
+  toggles (MEASURED).
+- The `mpdf` toggle is Gravity PDF's fork (pull request 292).
+- HarfBuzz returns nothing for a flip, so LibreOffice's PDF export draws
+  nothing visible and GTK4's GPU renderer draws a flip glyph as a silhouette in
+  the text colour (READ, the last step inferred).
+
+**The symbol face** (the owner's screenshot: Claude Code's mode arrows as
+boxes, its bullet as a colour emoji). U+23F5 is in no face of baud's stack and
+U+23FA only in Apple Color Emoji. Of every installed font only STIX Two Math
+2.13 (OFL 1.1, byte-identical to upstream v2.13b171) has both as text, and
+macOS's own fallback picks it for both (MEASURED). DejaVu Sans Mono 2.37, the
+first Linux fallback, has neither. The unmodified file is 838,652 bytes; baud
+embeds 3,718,412 bytes of fonts today. A subset would have to be renamed,
+because STIX's licence reserves the name "TM Math".
+
+**Jev, round four:** in the chosen strike 0.93 at 0.87; mirror once 0.67 at
+0.51 (toggle 0.32); the two axes together, once in the chosen strike 0.45
+against FreeType's toggle 0.35; the symbol face embedded 0.74 at 0.61 (hybrid
+0.25, system font only 0.01).
+
 ## How the numbers were taken
 
 - `scripts/strike-count-fonts.py` writes every hostile font above, and the
