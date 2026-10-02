@@ -49,6 +49,12 @@ fn committed() -> Vec<PathBuf> {
 
 fn corpus() -> Vec<PathBuf> {
     let mut v = committed();
+    // The symbol face baud embeds: a 4,605-glyph CFF face, held here before
+    // it draws anything in a terminal.
+    v.push(PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf"
+    )));
     if cfg!(target_os = "macos") {
         for f in [
             "/System/Library/Fonts/Menlo.ttc",

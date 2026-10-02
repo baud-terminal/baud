@@ -49,8 +49,9 @@ cp "$BIN" "$APP/Contents/MacOS/baud"
 
 # The embedded fonts' licences travel with the binary that carries them, as
 # the upstream archives ship them: JetBrains Mono's OFL and AUTHORS, and the
-# Nerd Fonts icon face's MIT licence and its icon-set licence table.
-for DIR in jetbrains-mono symbols-nerd-font; do
+# Nerd Fonts icon face's MIT licence and its icon-set licence table, and STIX
+# Two Math's OFL.
+for DIR in jetbrains-mono symbols-nerd-font stix-two-math; do
   mkdir -p "$APP/Contents/Resources/fonts/$DIR"
 done
 cp "$ROOT/baud-app/fonts/jetbrains-mono/OFL.txt" \
@@ -61,6 +62,9 @@ cp "$ROOT/baud-app/fonts/symbols-nerd-font/LICENSE" \
   "$ROOT/baud-app/fonts/symbols-nerd-font/README.md" \
   "$ROOT/baud-app/fonts/symbols-nerd-font/SOURCE" \
   "$APP/Contents/Resources/fonts/symbols-nerd-font/"
+cp "$ROOT/baud-app/fonts/stix-two-math/OFL.txt" \
+  "$ROOT/baud-app/fonts/stix-two-math/SOURCE" \
+  "$APP/Contents/Resources/fonts/stix-two-math/"
 
 # Ad-hoc sign, so the bundle has a stable identity for TCC/accessibility and
 # runs without a quarantine prompt after a local build.

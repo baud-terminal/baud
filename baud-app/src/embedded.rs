@@ -1,13 +1,15 @@
 //! The fonts baud carries inside its binary: JetBrains Mono in its four
-//! styles, and Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized
-//! to one cell -- behind them. So a machine with no font configured still
+//! styles, Symbols Nerd Font Mono -- the Nerd Fonts icons alone, sized to
+//! one cell -- behind them, and STIX Two Math last, for the symbols no other
+//! default face has (the owner's call, 2026-10-02). So a machine with no font configured still
 //! draws JetBrains Mono, its ligatures, real bold and italic, and the icons.
 //! The owner's choice, 2026-09-29: the plain styles plus the icon face
 //! rather than four patched Nerd Font files, which carry the same ~10,600
 //! icons again in every style.
 //!
-//! The files are JetBrains Mono v2.304's `fonts/ttf/JetBrainsMono-*.ttf` and
-//! Nerd Fonts v3.5.1's `SymbolsNerdFontMono-Regular.ttf`, unmodified; each
+//! The files are JetBrains Mono v2.304's `fonts/ttf/JetBrainsMono-*.ttf`,
+//! Nerd Fonts v3.5.1's `SymbolsNerdFontMono-Regular.ttf` and STIX Two
+//! v2.13b171's `STIXTwoMath-Regular.otf`, unmodified; each
 //! directory's `SOURCE` records where they came from, and their licences sit
 //! beside them and ship in the app bundle.
 
@@ -43,6 +45,14 @@ pub const BOLD_ITALIC: Embedded = Embedded {
 pub const SYMBOLS: Embedded = Embedded {
     name: "SymbolsNerdFontMono-Regular.ttf (embedded)",
     bytes: include_bytes!("../fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+};
+
+/// The symbol face, last in the default stack on both systems: U+23F5 and
+/// U+23FA, which Claude Code draws, are in no other default face, and of
+/// every font installed on macOS only STIX Two Math has them as text.
+pub const STIX: Embedded = Embedded {
+    name: "STIXTwoMath-Regular.otf (embedded)",
+    bytes: include_bytes!("../fonts/stix-two-math/STIXTwoMath-Regular.otf"),
 };
 
 #[cfg(test)]
@@ -83,6 +93,7 @@ mod tests {
             (ITALIC, 276_840, 0x328e_eb84_de91_fb86, 2),
             (BOLD_ITALIC, 279_832, 0x2643_2855_1691_33bf, 3),
             (SYMBOLS, 2_610_012, 0x0b68_1ba2_bef4_facd, 0),
+            (STIX, 838_652, 0x8f3f_ef33_d83d_1544, 0),
         ] {
             assert_eq!(e.bytes.len(), len, "{}", e.name);
             assert_eq!(fnv(e.bytes), hash, "{}", e.name);
@@ -99,6 +110,12 @@ mod tests {
         let sym = std::fs::read_to_string(format!("{dir}/symbols-nerd-font/SOURCE")).unwrap();
         assert!(sym.contains("fe471e538392f51910faab985fa8e192a39dd3426125edd15b71b3680df0e749"));
         assert!(sym.contains("2610012"));
+        let stix = std::fs::read_to_string(format!("{dir}/stix-two-math/SOURCE")).unwrap();
+        assert!(stix.contains("3a5f3f26f40d5698b3c62dd085d48d6663696a3f80825aab8b553d5097518e8c"));
+        assert!(stix.contains("838652"));
+        let stix_ofl = std::fs::read_to_string(format!("{dir}/stix-two-math/OFL.txt")).unwrap();
+        assert!(stix_ofl.contains("The STIX Fonts Project Authors"));
+        assert!(stix_ofl.contains("SIL OPEN FONT LICENSE Version 1.1"));
         let ofl = std::fs::read_to_string(format!("{dir}/jetbrains-mono/OFL.txt")).unwrap();
         assert!(ofl.contains("Copyright 2020 The JetBrains Mono Project Authors"));
         assert!(ofl.contains("SIL OPEN FONT LICENSE Version 1.1"));
@@ -125,6 +142,8 @@ mod tests {
             "jetbrains-mono/AUTHORS.txt",
             "symbols-nerd-font/LICENSE",
             "symbols-nerd-font/README.md",
+            "stix-two-math/OFL.txt",
+            "stix-two-math/SOURCE",
         ] {
             assert!(script.contains(f), "bundle-macos.sh copies {f}");
         }
@@ -142,6 +161,20 @@ mod tests {
         let folder = Codepoint::new(0xF07B).unwrap();
         for e in [REGULAR, BOLD, ITALIC, BOLD_ITALIC] {
             assert!(face(e).glyph(folder).is_none(), "{}: no Nerd icon", e.name);
+        }
+    }
+
+    /// The symbols the symbol face is there for are in it and in no face in
+    /// front of it: Claude Code's mode arrow U+23F5 and its bullet U+23FA.
+    #[test]
+    fn the_symbol_face_carries_what_the_faces_before_it_lack() {
+        let stix = face(STIX);
+        for cp in [0x23F5, 0x23FA] {
+            let c = Codepoint::new(cp).unwrap();
+            assert!(stix.glyph(c).is_some(), "U+{cp:04X} is in STIX Two Math");
+            for e in [REGULAR, SYMBOLS] {
+                assert!(face(e).glyph(c).is_none(), "{}: no U+{cp:04X}", e.name);
+            }
         }
     }
 

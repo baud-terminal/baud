@@ -1114,8 +1114,9 @@ const DEFAULT_FACES: [&str; 6] = [
 /// place changes nothing for text), then the system faces as they were:
 /// Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does not
 /// (extended Latin, polytonic Greek, Georgian, more arrows), decided with
-/// Jev (0.98), 2026-09-29. Last, the three styled faces, which are not in
-/// the fallback chain.
+/// Jev (0.98), 2026-09-29. Then the embedded STIX Two Math, last in the
+/// chain, for the symbols none of those has (the owner's call, 2026-10-02).
+/// Last, the three styled faces, which are not in the fallback chain.
 #[cfg(target_os = "macos")]
 fn default_faces() -> Vec<FaceSpec> {
     [
@@ -1124,6 +1125,7 @@ fn default_faces() -> Vec<FaceSpec> {
     ]
     .into_iter()
     .chain(DEFAULT_FACES.iter().map(|s| FaceSpec::parse(s)))
+    .chain([FaceSpec::embedded(crate::embedded::STIX)])
     .chain(styled_faces())
     .collect()
 }
@@ -1141,8 +1143,8 @@ fn styled_faces() -> [FaceSpec; 3] {
 
 /// The embedded JetBrains Mono and icon face first; then, since Linux has no one system
 /// mono, the first of the usual DejaVu Sans Mono locations that exists, for
-/// what JetBrains Mono does not map, and Noto Color Emoji where it is. A
-/// config names anything else.
+/// what JetBrains Mono does not map, Noto Color Emoji where it is, and the
+/// embedded STIX Two Math last, as on macOS. A config names anything else.
 #[cfg(target_os = "linux")]
 fn default_faces() -> Vec<FaceSpec> {
     const MONO: &[&str] = &[
@@ -1171,6 +1173,7 @@ fn default_faces() -> Vec<FaceSpec> {
     .into_iter()
     .chain(first(MONO))
     .chain(first(EMOJI))
+    .chain([FaceSpec::embedded(crate::embedded::STIX)])
     .chain(styled_faces())
     .collect()
 }
@@ -1212,6 +1215,8 @@ mod tests {
             ("Hangul", 0xD55C),
             ("Devanagari", 0x0928),
             ("emoji", 0x1F600),
+            ("Claude Code's mode arrow", 0x23F5),
+            ("Claude Code's bullet", 0x23FA),
         ] {
             let c = Codepoint::new(cp).expect("a codepoint");
             assert!(
@@ -1829,8 +1834,9 @@ shadow     = "never"
     }
 
     /// The default stack starts with the embedded JetBrains Mono Regular and
-    /// the icon face, and on macOS keeps Menlo right behind them; the three
-    /// embedded styles are its styled faces, out of the chain. A config's
+    /// the icon face, and on macOS keeps Menlo right behind them; the embedded
+    /// STIX Two Math ends the chain; the three embedded styles are its styled
+    /// faces, out of the chain. A config's
     /// `fonts` replaces the stack, and the icon face follows it.
     #[test]
     fn the_default_stack_starts_with_the_embedded_font() {
@@ -1846,6 +1852,11 @@ shadow     = "never"
             d.faces[2].path
         );
         let n = d.faces.len();
+        assert!(
+            is(&d.faces[n - 4], crate::embedded::STIX),
+            "{}",
+            d.faces[n - 4].path
+        );
         for (f, e, style) in [
             (&d.faces[n - 3], BOLD, FaceStyle::Bold),
             (&d.faces[n - 2], ITALIC, FaceStyle::Italic),
