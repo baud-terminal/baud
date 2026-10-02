@@ -713,8 +713,10 @@ impl<'a> Face<'a> {
     /// `[[source: apple-ttrm-sbix]]`): Apple Color Emoji's first strike, 20
     /// ppem, lacks 96 glyphs the others carry, the pink heart U+1FA77 among
     /// them, and asking it alone answered that the heart was not colour. The
-    /// renderer's atlas falls back across strikes, so the two ask the same
-    /// question.
+    /// renderer's atlas falls back across strikes, so the two ask nearly the
+    /// same question: the atlas also needs the PNG to decode, so a glyph whose
+    /// every image is unreadable is colour here and draws nothing there
+    /// (`a_glyph_whose_every_image_is_unreadable_is_colour_and_draws_nothing`).
     pub fn is_colour(&self, g: GlyphId) -> bool {
         self.layers(g).is_some() || self.has_bitmap(g)
     }

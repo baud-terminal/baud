@@ -23,6 +23,10 @@ use proptest::prelude::*;
 
 const JETBRAINS: &[u8] = include_bytes!("fonts/JetBrainsMono-Regular.ttf");
 const NOTO_SUBSET: &[u8] = include_bytes!("fonts/NotoColorEmoji-subset.ttf");
+/// Six `sbix` strikes of `png `, `dupe` and `flip` records, loops and a
+/// chain at the hop bound among them: a flipped byte lands in a redirection
+/// or an offset, which is where a hop bound that misses a kind would spin.
+const SBIX: &[u8] = include_bytes!("fonts/sbix-strikes.ttf");
 /// 2.5 KB of `gvar`-heavy font: a flipped byte lands in the variation data
 /// far more often than in a real face.
 const GVAR_CASES: &[u8] = include_bytes!("var/gvar-cases.ttf");
@@ -63,6 +67,33 @@ fn table_range(data: &[u8], tag: [u8; 4]) -> (usize, usize) {
         .unwrap()
 }
 
+/// Every byte of `SBIX`'s `sbix` table but the two ramps' PNGs (glyphs 27
+/// and 29), which are nine tenths of it and are the decoder's to survive --
+/// `a_mutated_png_never_panics` reaches the decoder -- not the table's.
+fn sbix_structure() -> Vec<usize> {
+    let (start, len) = table_range(SBIX, *b"sbix");
+    let be32 = |at: usize| {
+        usize::try_from(u32::from_be_bytes(SBIX[at..at + 4].try_into().unwrap())).unwrap()
+    };
+    let mut ramps = Vec::new();
+    for k in 0..be32(start + 4) {
+        let strike = start + be32(start + 8 + 4 * k);
+        for g in [27, 29] {
+            ramps.push(strike + be32(strike + 4 + 4 * g)..strike + be32(strike + 4 + 4 * (g + 1)));
+        }
+    }
+    let reach: Vec<usize> = (start..start + len)
+        .filter(|i| !ramps.iter().any(|r| r.contains(i)))
+        .collect();
+    // The positive control: the ramps were found, and the rest is left.
+    assert!(
+        reach.len() > 4_000 && reach.len() < len / 5,
+        "{}",
+        reach.len()
+    );
+    reach
+}
+
 /// A sink that discards everything: the property is that emitting does not
 /// panic, not what is emitted.
 struct Null;
@@ -94,6 +125,9 @@ fn exercise(data: &[u8]) {
             let _ = face.advance(g);
             let _ = face.side_bearing(g);
             let _ = face.outline(g, &mut Null);
+        }
+        for g in 0..count.min(256) {
+            let _ = face.is_colour(baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap()));
         }
         let strikes = face.strikes().value().min(16);
         for st in 0..strikes {
@@ -251,6 +285,21 @@ proptest! {
         let mut data = JETBRAINS.to_vec();
         for (at, byte) in flips {
             data[at] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_mutated_sbix_face_never_panics(
+        flips in proptest::collection::vec((any::<u32>(), any::<u8>()), 1..16)
+    ) {
+        // Into the `sbix` table's structure: the strike offsets, the glyph
+        // offsets, the records' offsets and kinds and the redirections.
+        let reach = sbix_structure();
+        let mut data = SBIX.to_vec();
+        for (at, byte) in flips {
+            let i = reach[usize::try_from(at).unwrap_or(0) % reach.len()];
+            data[i] = byte;
         }
         exercise(&data);
     }

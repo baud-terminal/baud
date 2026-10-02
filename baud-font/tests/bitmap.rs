@@ -12,9 +12,9 @@
 //! a `CBDT` face re-encoded across every index and image format the reader
 //! implements (`scripts/gen-cbdt-fixture.py` says which glyphs are which),
 //! `BungeeTint-Regular.ttf`, a `COLR` v0 face with eight palettes, and
-//! `sbix-strikes.ttf`, four strikes holding every per-glyph case
-//! (`scripts/gen-sbix-fixture.py` lists them), one unreadable PNG among
-//! them, which both decoders must refuse and which is counted. On
+//! `sbix-strikes.ttf`, six strikes holding every per-glyph case
+//! (`scripts/gen-sbix-fixture.py` lists them), seven unreadable PNGs among
+//! them, which both decoders must refuse and which are counted. On
 //! macOS every face under `/System/Library/Fonts` as well, which is where
 //! Apple Color Emoji's 31,707 `sbix` PNGs come from; a face with no strikes
 //! and no colour costs one parse and contributes nothing.
@@ -31,10 +31,14 @@
 //! `None` for Apple's undocumented `'flip'` records, where baud answers the
 //! target's image to be mirrored. So for every glyph baud says to mirror,
 //! the test reads the redirections out of the raw `sbix` itself -- a second
-//! spelling, kept to the same ten hops -- and requires a `'flip'` on the
-//! way and baud's PNG to be the oracle's image of the glyph the chain ends
-//! at, byte for byte and at its offsets. Apple Color Emoji carries 972 such
-//! records a face; the count is asserted where the corpus reaches it.
+//! spelling, which refuses a chain past ten redirections, one more than
+//! baud's bound, so it never refuses what baud draws -- and requires a
+//! `'flip'` on the way and baud's PNG to be the oracle's image of the glyph
+//! the chain ends at, byte for byte and at its offsets. Each mirrored lookup
+//! is counted: Apple Color Emoji's two faces give 972 each, one per `'flip'`
+//! record, and the fixture 84 -- fourteen glyphs that resolve through a flip,
+//! in each of six strikes, from 66 `'flip'` records. The count is asserted
+//! exactly off macOS and as at least both on it.
 
 use baud_domain::GlyphId;
 use baud_font::bytes::Index;
@@ -460,13 +464,20 @@ fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
     if cfg!(target_os = "macos") {
         assert!(t.strikes >= 10, "{}", t.strikes);
         assert!(t.sbix_bitmaps >= 30_000, "{}", t.sbix_bitmaps);
-        // 108 people facing right in each of nine strikes.
-        assert!(t.sbix_flips.0 >= 972, "{:?}", t.sbix_flips);
+        // 108 people facing right in each of nine strikes, in both of
+        // Apple Color Emoji's faces, and the fixture's 84.
+        assert!(t.sbix_flips.0 >= 1_944 + 84, "{:?}", t.sbix_flips);
         assert!(t.pngs_decoded >= 30_000, "{}", t.pngs_decoded);
     }
     assert_eq!(t.interlaced_refused, 0);
-    // `sbix-strikes.ttf`'s one unreadable PNG, at 40 ppem; none elsewhere.
-    assert_eq!(t.refused_by_both, Counted(1));
+    // `sbix-strikes.ttf`'s unreadable PNGs: E's at 40 ppem and Q's in all
+    // six strikes; none elsewhere.
+    assert_eq!(t.refused_by_both, Counted(7));
+    // The fixture mirrors C, D, G, K, P, R2 to R9 and U in each of six
+    // strikes.
+    if !cfg!(target_os = "macos") {
+        assert_eq!(t.sbix_flips, Counted(84));
+    }
     assert_eq!(
         t.colr_v1_only, 0,
         "a COLR v1-only face joined the corpus; count it here"
@@ -539,7 +550,7 @@ fn a_png_the_decoder_refuses_is_named() {
 
 #[test]
 fn the_sbix_fixture_answers_every_case_in_every_strike() {
-    // `scripts/gen-sbix-fixture.py`: strikes at 10, 20, 40 and 80 ppem.
+    // `scripts/gen-sbix-fixture.py`: strikes at 10, 20, 26, 40, 52 and 80 ppem.
     let data = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fonts/sbix-strikes.ttf"
@@ -549,9 +560,9 @@ fn the_sbix_fixture_answers_every_case_in_every_strike() {
     let ppems: Vec<u16> = (0..face.strikes().value())
         .map(|s| face.strike_ppem(Index::of(s)).unwrap().value())
         .collect();
-    assert_eq!(ppems, [10, 20, 40, 80]);
+    assert_eq!(ppems, [10, 20, 26, 40, 52, 80]);
     let g = GlyphId::from_shaper;
-    for s in 0..4u32 {
+    for s in 0..6u32 {
         let i = Index::of(s);
         let ppem = ppems[usize::try_from(s).unwrap()];
         let a = face.bitmap(i, g(1)).expect("A is in every strike");
@@ -584,12 +595,77 @@ fn the_sbix_fixture_answers_every_case_in_every_strike() {
             ppem == 40,
             "E @{ppem}"
         );
-        // F holds nothing; I is a dupe of itself, refused after ten hops.
+        // F holds nothing; I is a dupe of itself and L a flip of itself,
+        // each refused at the bound.
         assert!(face.bitmap(i, g(6)).is_none(), "F @{ppem}");
         assert!(face.bitmap(i, g(9)).is_none(), "I @{ppem}");
+        assert!(face.bitmap(i, g(12)).is_none(), "L @{ppem}");
+        // K is a dupe of C: the flip comes second and still mirrors.
+        let k = face.bitmap(i, g(11)).unwrap();
+        assert_eq!(k.mirror, Mirror::LeftRight, "K @{ppem}");
+        assert!(k.png.as_slice() == a.png.as_slice(), "K @{ppem}");
+        // M is in the 20 and 52 strikes only.
+        assert_eq!(
+            face.bitmap(i, g(13)).is_some(),
+            ppem == 20 || ppem == 52,
+            "M @{ppem}"
+        );
+        // N's image sits at its own offsets; P flips N and sits at N's,
+        // not its own (1, 1).
+        let n = face.bitmap(i, g(14)).unwrap();
+        assert_eq!(
+            (n.mirror, n.placement.x, n.placement.y),
+            (Mirror::AsStored, 5, -4),
+            "N @{ppem}"
+        );
+        let p = face.bitmap(i, g(15)).unwrap();
+        assert_eq!(
+            (p.mirror, p.placement.x, p.placement.y),
+            (Mirror::LeftRight, 5, -4),
+            "P @{ppem}"
+        );
+        assert!(p.png.as_slice() == n.png.as_slice(), "P @{ppem}");
+        // Q has a record everywhere and none of its PNGs decodes.
+        let q = face.bitmap(i, g(16)).unwrap();
+        let png = Png::parse(q.png.as_slice()).unwrap();
+        let mut raw = vec![0u8; png.raw_len().unwrap()];
+        let mut rgba = vec![0u8; png.rgba_len().unwrap()];
+        assert!(png.decode(&mut raw, &mut rgba).is_err(), "Q @{ppem}");
+        // R1 to R10: ten redirections alternating flip and dupe, then A.
+        // The bound is ten records between both kinds, so R1, which needs
+        // eleven, is refused and R2, which needs ten, is A's image mirrored.
+        // R10 is a dupe of A alone, as stored.
+        assert!(face.bitmap(i, g(17)).is_none(), "R1 @{ppem}");
+        for r in 2..=10u16 {
+            let b = face
+                .bitmap(i, g(16 + r))
+                .unwrap_or_else(|| panic!("R{r} @{ppem}"));
+            let want = if r < 10 {
+                Mirror::LeftRight
+            } else {
+                Mirror::AsStored
+            };
+            assert_eq!(b.mirror, want, "R{r} @{ppem}");
+            assert!(b.png.as_slice() == a.png.as_slice(), "R{r} @{ppem}");
+        }
+        // U flips T's ramp; S stores the ramp mirrored, as its own image.
+        let (t, u, sm) = (
+            face.bitmap(i, g(27)).unwrap(),
+            face.bitmap(i, g(28)).unwrap(),
+            face.bitmap(i, g(29)).unwrap(),
+        );
+        assert_eq!(
+            (t.mirror, u.mirror, sm.mirror),
+            (Mirror::AsStored, Mirror::LeftRight, Mirror::AsStored),
+            "T, U, S @{ppem}"
+        );
+        assert!(u.png.as_slice() == t.png.as_slice(), "U @{ppem}");
+        assert!(sm.png.as_slice() != t.png.as_slice(), "S @{ppem}");
     }
-    // Colour is a question about every strike: B is colour though the first
-    // strike lacks it. F and the dupe loop I are not.
+    // Colour is a question about every strike: B and M are colour though the
+    // first strike lacks them. F, the loops I and L and the chain R1 that
+    // runs past the bound are not. Q is, though no image of it decodes: a
+    // gap, pinned (the PNG is not decoded to answer the question).
     for (glyph, colour) in [
         (1, true),
         (2, true),
@@ -601,6 +677,18 @@ fn the_sbix_fixture_answers_every_case_in_every_strike() {
         (8, true),
         (9, false),
         (10, true),
+        (11, true),
+        (12, false),
+        (13, true),
+        (14, true),
+        (15, true),
+        (16, true),
+        (17, false),
+        (18, true),
+        (26, true),
+        (27, true),
+        (28, true),
+        (29, true),
     ] {
         assert_eq!(face.is_colour(g(glyph)), colour, "glyph {glyph}");
     }
@@ -619,29 +707,116 @@ fn table_at(data: &[u8], tag: &[u8; 4]) -> usize {
 }
 
 #[test]
-fn a_strike_count_past_the_table_reads_as_no_strikes() {
-    // Every renderer walks the strikes for every glyph, so a hostile count
-    // is a hang rather than a malformed answer. Patched to four billion, each
-    // table is refused whole; the unpatched files are the controls.
+fn a_strike_count_past_the_table_or_the_bound_reads_as_no_strikes() {
+    // Every renderer walks the strikes for every glyph, so a hostile count is
+    // a hang rather than a malformed answer. Each table is refused whole when
+    // its count overflows the arithmetic, when it passes the 255 bound -- 256
+    // offsets fit the fixture's 53,565-byte `sbix`, so only the bound refuses
+    // that one -- and when the table is cut short of its own records. The
+    // unpatched files are the controls.
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts/");
-    for (file, tag, at) in [
-        ("sbix-strikes.ttf", b"sbix", 4),
-        ("NotoColorEmoji-subset.ttf", b"CBLC", 4),
+    for (file, tag) in [
+        ("sbix-strikes.ttf", b"sbix"),
+        ("NotoColorEmoji-subset.ttf", b"CBLC"),
     ] {
         let clean = std::fs::read(format!("{dir}{file}")).unwrap();
         assert!(
             Face::parse(&clean).unwrap().strikes().value() > 0,
             "{file}: control"
         );
-        // One count that overflows the arithmetic and one that fits it and
-        // still runs past the table.
-        for count in [u32::MAX, 100_000] {
+        let refused = |data: &[u8], what: &str| {
+            let face = Face::parse(data).unwrap();
+            assert_eq!(face.strikes().value(), 0, "{file}: {what}");
+            assert!(!face.is_colour(GlyphId::from_shaper(1)), "{file}: {what}");
+        };
+        for count in [u32::MAX, 256] {
             let mut data = clean.clone();
-            let t = table_at(&data, tag) + at;
+            let t = table_at(&data, tag) + 4;
             data[t..t + 4].copy_from_slice(&count.to_be_bytes());
-            let face = Face::parse(&data).unwrap();
-            assert_eq!(face.strikes().value(), 0, "{file} {count}");
-            assert!(!face.is_colour(GlyphId::from_shaper(1)), "{file} {count}");
+            refused(&data, &format!("count {count}"));
         }
+        // The table's own length cut to 12 bytes: its count stands, its
+        // records do not fit.
+        let mut data = clean.clone();
+        let n = usize::from(u16::from_be_bytes([data[4], data[5]]));
+        let r = (0..n)
+            .map(|i| 12 + 16 * i)
+            .find(|&r| &data[r..r + 4] == tag)
+            .unwrap();
+        data[r + 12..r + 16].copy_from_slice(&12u32.to_be_bytes());
+        refused(&data, "cut to 12 bytes");
     }
+    // The bound's other side: 255 strikes are read, so it is the bound that
+    // refuses 256 and not the offsets running out.
+    let mut data = std::fs::read(format!("{dir}sbix-strikes.ttf")).unwrap();
+    let t = table_at(&data, b"sbix") + 4;
+    data[t..t + 4].copy_from_slice(&255u32.to_be_bytes());
+    assert_eq!(Face::parse(&data).unwrap().strikes().value(), 255);
+    // The Noto subset's 288-byte `CBLC` cannot hold 256 size records, so the
+    // records check refuses that count before the bound is asked. A `CBLC`
+    // grown to hold them -- the first size record repeated, appended past the
+    // file's end and pointed at from the table directory -- is refused by the
+    // bound alone at 256 and read at 255.
+    let noto = std::fs::read(format!("{dir}NotoColorEmoji-subset.ttf")).unwrap();
+    for (count, strikes) in [(255u32, 255u32), (256, 0)] {
+        let data = with_cblc_of(&noto, count);
+        assert_eq!(
+            Face::parse(&data).unwrap().strikes().value(),
+            strikes,
+            "CBLC grown to {count} size records"
+        );
+    }
+}
+
+/// `data` with its `CBLC` replaced by one of `count` size records, each a
+/// copy of the original's first: the new table is appended, four-aligned,
+/// and its directory record repointed. Checksums are not read.
+fn with_cblc_of(data: &[u8], count: u32) -> Vec<u8> {
+    const SIZE_RECORD: usize = 48;
+    let n = usize::from(u16::from_be_bytes([data[4], data[5]]));
+    let r = (0..n)
+        .map(|i| 12 + 16 * i)
+        .find(|&r| &data[r..r + 4] == b"CBLC")
+        .unwrap();
+    let at = table_at(data, b"CBLC");
+    let mut table = data[at..at + 4].to_vec();
+    table.extend_from_slice(&count.to_be_bytes());
+    let first = &data[at + 8..at + 8 + SIZE_RECORD];
+    for _ in 0..count {
+        table.extend_from_slice(first);
+    }
+    let mut out = data.to_vec();
+    out.resize(out.len().next_multiple_of(4), 0);
+    let offset = u32::try_from(out.len()).unwrap();
+    let length = u32::try_from(table.len()).unwrap();
+    out.extend_from_slice(&table);
+    out[r + 8..r + 12].copy_from_slice(&offset.to_be_bytes());
+    out[r + 12..r + 16].copy_from_slice(&length.to_be_bytes());
+    out
+}
+
+#[test]
+fn the_sbix_fixture_is_what_its_generator_writes() {
+    // The generator's table is the fixture's documentation, so the committed
+    // bytes must be what it writes; otherwise the table describes another
+    // file. Both Pythons on the development Mac write the same bytes; a
+    // zlib other than Mark Adler's (zlib-ng) deflates differently and would
+    // fail this without the fixture having changed.
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::env::temp_dir().join(format!("baud-sbix-{}.ttf", std::process::id()));
+    let ran = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-sbix-fixture.py"))
+        .arg(&out)
+        .status()
+        .expect("python3 to run the generator");
+    assert!(ran.success(), "gen-sbix-fixture.py failed");
+    let fresh = std::fs::read(&out).unwrap();
+    std::fs::remove_file(&out).unwrap();
+    let committed =
+        std::fs::read(format!("{root}/baud-font/tests/fonts/sbix-strikes.ttf")).unwrap();
+    assert!(
+        fresh == committed,
+        "sbix-strikes.ttf is not what scripts/gen-sbix-fixture.py writes: regenerate it \
+         and re-pin font-sbix-strikes in MANIFEST.toml"
+    );
 }

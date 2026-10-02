@@ -9,13 +9,17 @@
 //! order Apple Color Emoji, Noto Color Emoji and Bungee Tint each need.
 //!
 //! **A strike is chosen per glyph, among the strikes that hold it**: the
-//! smallest at or above the cell's size in whole pixels, else the largest,
-//! skipping any where the glyph is empty or its PNG will not decode. The
-//! specifications require a glyph with an image in any strike be drawn from
-//! one (`[[source: ms-opentype-sbix]]`, `[[source: apple-ttrm-sbix]]`),
-//! and CoreText was measured doing exactly this on Apple Color Emoji, whose
-//! strikes leave 177 glyphs empty in some sizes and not others: the melting
-//! face is empty at 40, 48 and 52 ppem and CoreText draws it from 64 there.
+//! smallest at or above the cell's size rounded half up to a whole pixel,
+//! else the largest, skipping any where the glyph is empty or its PNG will
+//! not decode. The specifications require a glyph with an image in any
+//! strike be drawn from one (`[[source: ms-opentype-sbix]]`,
+//! `[[source: apple-ttrm-sbix]]`), and CoreText was measured taking this
+//! order on Apple Color Emoji for the square it draws, whose strikes leave
+//! 177 glyphs empty in some sizes and not others: the melting face is empty
+//! at 40, 48 and 52 ppem and CoreText draws it from 64 there. That square
+//! is the size from 24 px up, and on a copy of the face opened from its
+//! bytes; below 24 px CoreText enlarges the system font's square and takes
+//! a larger strike, which baud does not follow.
 //! One strike a face, the rule this replaced, drew those glyphs as nothing,
 //! 99 of them at the app's default 26 px.
 //!
@@ -550,7 +554,8 @@ impl Atlas {
     }
 
     /// The image of `id` in `face`, resolved on the first ask: its bitmap
-    /// strike nearest `scale`, else its `COLR` layers, else its outline as
+    /// from a strike that holds it (see [`Atlas::bitmap`]), else its `COLR`
+    /// layers, else its outline as
     /// an exact-coverage mask. `None` for a glyph that draws nothing. One
     /// raster a glyph and phase: the text-contrast curve is applied when the
     /// mask is composited (`baud_domain::contrast`), not here.
@@ -587,9 +592,11 @@ impl Atlas {
         slot
     }
 
-    /// The glyph's image from the strike CoreText draws it from: among the
-    /// strikes that hold it and decode, the smallest at or above the cell's
-    /// size in whole pixels, else the largest -- then mirrored if a
+    /// The glyph's image from a strike that holds it: among the strikes
+    /// that hold it and decode, the smallest at or above the cell's size
+    /// rounded half up, else the largest -- CoreText's order for the square
+    /// it draws, which below 24 px on the system font is larger than the
+    /// size and is not followed here -- then mirrored if a
     /// `'flip'` said so, and scaled to fit. A bitmap cannot be drawn at a
     /// fraction of a pixel, so only `phase`'s whole pixels move it.
     fn bitmap(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale, phase: Phase) -> Option<Slot> {
@@ -599,8 +606,11 @@ impl Atlas {
         }
         let target = scale.px(f32::from(face.units_per_em().value()));
         // CoreText compares a strike with the side of the square it draws,
-        // the size rounded half up: 40.5 px takes 48, 40.4 takes 40.
-        let whole = (target + 0.5).floor();
+        // the size rounded half up: 40.5 px takes 48, 40.4 takes 40. The
+        // target comes back through the scale in f32, which turns 26.5 px on
+        // an 800-unit em into 26.499998; snapped to 1/1024 px first, a half
+        // stays a half.
+        let whole = ((target * 1024.0).round() / 1024.0 + 0.5).floor();
         let below = |p: Ppem| f32::from(p.value()) < whole;
         let mut order: Vec<(Ppem, Index)> = Vec::new();
         let mut i = Index::ZERO;
@@ -631,7 +641,8 @@ impl Atlas {
         })?;
         if bitmap.mirror == Mirror::LeftRight {
             // Left to right within the image's own width, before scaling:
-            // the image the font names, then drawn as any other.
+            // the image the font names, then drawn as any other. A row is
+            // never empty: the decoder refuses a zero side (PNG 11.2.2).
             let w = slots(Px::of(size.width));
             for row in self.rgba[..w * slots(Px::of(size.height)) * 4].chunks_exact_mut(w * 4) {
                 for x in 0..w / 2 {

@@ -8,8 +8,8 @@
 //! **What the face holds, measured.** 3,844 glyphs in strikes at 20, 26,
 //! 32, 40, 48, 52, 64, 96 and 160 ppem. 177 are empty in some strikes and
 //! present in others -- the melting face U+1FAE0 is empty at 40, 48 and 52,
-//! the pink heart U+1FA77 at 20, 26, 40, 48 and 52, and the family the
-//! corpus carries 1,041 times at 40, 48 and 52 -- and 108 are `'flip'` in
+//! the pink heart U+1FA77 at 20, 26, 40, 48 and 52, and the family
+//! `cat-cjk.raw` carries 1,041 times at 40, 48 and 52 -- and 108 are `'flip'` in
 //! every strike, the people facing right. With one strike chosen per size,
 //! 99 glyphs drew nothing at the app's default 26 px, and every flip drew
 //! nothing at every size.
@@ -97,10 +97,11 @@ fn census(face: &Face<'_>) -> (Vec<u16>, Vec<u16>, Vec<u16>) {
     (partial, flips, whole)
 }
 
-/// One size either side of every strike: where the choice changes.
-const SIZES: [f32; 22] = [
+/// One size either side of every strike, 20 to 160: where the choice
+/// changes. Above 160 every glyph draws from its largest strike.
+const SIZES: [f32; 27] = [
     10.0, 14.0, 16.0, 20.0, 21.0, 24.0, 26.0, 27.0, 28.0, 32.0, 33.0, 36.0, 40.0, 41.0, 44.0, 48.0,
-    49.0, 52.0, 53.0, 56.0, 64.0, 80.0,
+    49.0, 52.0, 53.0, 56.0, 64.0, 65.0, 80.0, 96.0, 97.0, 160.0, 161.0,
 ];
 
 #[test]
@@ -190,12 +191,20 @@ fn colour_is_asked_of_every_strike() {
     let heart = face.glyph(Codepoint::new(0x1FA77).unwrap()).unwrap();
     assert!(face.bitmap(Index::ZERO, heart).is_none());
     assert!(face.is_colour(heart));
-    // Every glyph that draws from some strike is colour; none that draws
-    // from none is.
+    // Every glyph that draws from some strike is colour.
     let (partial, flips, whole) = census(&face);
     assert_eq!((partial.len(), flips.len()), (177, 108));
     for g in partial.iter().chain(&flips).chain(&whole) {
         assert!(face.is_colour(GlyphId::from_shaper(*g)), "glyph {g}");
+    }
+    // And a glyph empty in every strike is not colour: there are 136, and
+    // the face has no `COLR` to answer for them instead.
+    let empty: Vec<u16> = (0..face.glyph_count().value())
+        .filter(|&g| !partial.contains(&g) && !flips.contains(&g) && !whole.contains(&g))
+        .collect();
+    assert_eq!(empty.len(), 136);
+    for g in empty {
+        assert!(!face.is_colour(GlyphId::from_shaper(g)), "glyph {g}");
     }
 }
 

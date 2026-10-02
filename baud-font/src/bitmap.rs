@@ -10,8 +10,9 @@
 //! subtables that map a glyph range to an image location and format.
 //!
 //! **What is read and what is refused.** `sbix`: `'png '` records,
-//! `'dupe'` redirections and Apple's undocumented `'flip'`, both bounded at
-//! ten hops between them, because either can point at itself; `'jpg '` and
+//! `'dupe'` redirections and Apple's undocumented `'flip'`, bounded together
+//! at ten records read -- nine hops -- because either can point at itself;
+//! `'jpg '` and
 //! `'tiff'` answer `None`. `CBLC`: index formats 1 through 5 and image formats
 //! 17, 18 and 19 -- the PNG ones; the byte- and bit-aligned mono formats
 //! belong to `EBDT` and are not colour emoji. Every offset is bounded by its
@@ -91,9 +92,21 @@ pub struct Bitmap<'a> {
     pub mirror: Mirror,
 }
 
-/// Hops through `'dupe'` and `'flip'` records together before a glyph is
-/// refused: a chain can loop.
+/// Records read through `'dupe'` and `'flip'` together, the image's own
+/// included, before a glyph is refused: ten records is nine hops. A chain
+/// can loop.
 const DUPE_DEPTH: u8 = 10;
+
+/// The most strikes a table may claim before it is refused whole. Every
+/// question about a glyph walks the strikes -- the atlas per glyph and size,
+/// [`crate::Face::is_colour`] per codepoint of a face-table block -- and a
+/// count is the font's to state: a 4.2 MB `sbix` of 1,048,576 offsets that
+/// fit it made each face-table block fill take about 0.65 s. The colour
+/// faces measured carry one (Noto Color Emoji) and nine (Apple Color Emoji),
+/// and no colour font on the development Mac carries more. 255 is Jev's pick
+/// (0.38 at confidence 0.08, against 64 at 0.35 and no bound at 0.27): a
+/// recommendation, not settled.
+const MAX_STRIKES: u32 = 255;
 
 /// `sbix`: a version, flags, and `numStrikes` offsets to strikes.
 #[derive(Clone, Copy)]
@@ -110,9 +123,11 @@ impl<'a> Sbix<'a> {
             return None;
         }
         let n: u32 = data.read(Offset::of(4u32))?;
-        // A count whose offsets run past the table is refused whole: a
-        // strike is walked by every renderer per glyph, so a hostile count
-        // of four billion would be four billion failed reads a glyph.
+        // A count past `MAX_STRIKES`, or whose offsets run past the table,
+        // is refused whole: every renderer walks the strikes per glyph.
+        if n > MAX_STRIKES {
+            return None;
+        }
         let _: Array<'a, u32> = data.array(Offset::of(8u32), Count::of(n))?;
         Some(Sbix {
             data,
@@ -285,7 +300,10 @@ impl<'a> Cbdt<'a> {
         // Noto Color Emoji shipped with 2.0 before the specification settled
         // on 3.0, and the layout is the same.
         let n: u32 = cblc.read(Offset::of(4u32))?;
-        // As for `sbix`: size records that run past the table refuse it.
+        // As for `sbix`: too many sizes, or records past the table, refuse it.
+        if n > MAX_STRIKES {
+            return None;
+        }
         cblc.slice(Offset::of(8u32), SIZE_RECORD.times(Count::of(n))?)?;
         Some(Cbdt {
             cblc,

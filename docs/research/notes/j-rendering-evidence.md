@@ -445,8 +445,9 @@ tests off-Mac.
 
 ## E10. Colour emoji formats
 
-`sbix` (macOS, PNG strikes, skip the undocumented `flip`/`emjc` graphic
-types), `CBDT`/`CBLC` formats 17/18/19 (Noto on Linux and Android, 10.7 MB
+`sbix` (macOS, PNG strikes, skip the undocumented `emjc` graphic type;
+~~skip `flip`~~ -- `flip` is read as a `dupe` that mirrors since CLAUDE.md's
+"A colour bitmap is drawn from a strike that holds it"), `CBDT`/`CBLC` formats 17/18/19 (Noto on Linux and Android, 10.7 MB
 at v2.051) and `COLRv0` + `CPAL` (layered glyphs, trivial) share one PNG
 decoder and a blit; allsorts spends 2,484 + 1,651 + 327 lines on the three
 (`[[source: ms-opentype-sbix]]`, `[[source: apple-ttrm-sbix]]`,

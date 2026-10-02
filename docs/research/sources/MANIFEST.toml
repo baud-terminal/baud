@@ -1636,12 +1636,18 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/sbix"
 file   = ""
-sha256 = "6717dc4cdf5c663d09ee7f017c93cf803a49c92eea465bddd9eca21ecb19de6d"
-bytes  = 56855
+sha256 = "c75d44afb8a755e08037552d23ff0a3edeb3ba04f16cfff8810ff8e6dcf3d55b"
+bytes  = 56478
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-01 from curl's default User-Agent, which no longer gives the
+# first pin's bytes; a browser User-Agent gets an injected script and other bytes
+# (ed4b35ff...) around the same text. The fetch was read for the rule baud
+# follows -- "If the application is using
+# bitmap data to draw text and there is bitmap data for a glyph in any strike,
+# then the glyph must be drawn using a bitmap from some strike."
 
 [sources.adobe-5176-cff]
 key    = "adobe-5176-cff"
@@ -1725,12 +1731,17 @@ year   = 2026
 venue  = "developer.apple.com/fonts"
 url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6sbix.html"
 file   = ""
-sha256 = "78224a48cbea3e5231bc7f9b401dea991fbed3ef07c96d0e4c172c682f22aff2"
-bytes  = 116749
+sha256 = "cf2e783ef0c29a41fab178801ffb0fb3b4f3e996a91339ff89871ca8eb7f74b6"
+bytes  = 115442
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-01: a fetch no longer gives the first pin's bytes, and
+# whether the page changed or only what is served to this client is not known.
+# The fresh fetch was read for the rule baud follows -- "if any strike has a
+# bitmap for a particular glyph, the bitmap for that glyph will always be
+# drawn."
 
 [sources.apple-ttrm-morx]
 key    = "apple-ttrm-morx"
@@ -4653,14 +4664,14 @@ group  = "J"
 
 [sources.font-sbix-strikes]
 key    = "font-sbix-strikes"
-title  = "sbix-strikes.ttf -- four sbix strikes holding every per-glyph case: a glyph in one strike only, flip, flip to dupe, two flips, an unreadable PNG, a dupe loop"
+title  = "sbix-strikes.ttf -- six sbix strikes holding every per-glyph case: a glyph in one strike only or two, flip, flip to dupe, dupe to flip, two flips, offsets, unreadable PNGs, dupe and flip loops, a chain at the hop bound, a ramp and its mirror"
 author = "scripts/gen-sbix-fixture.py"
 year   = 2026
 venue  = "baud-font/tests/fonts/sbix-strikes.ttf (the repository's licence, beside it)"
 url    = "scripts/gen-sbix-fixture.py"
 file   = ""
-sha256 = "d90a17f799f32812b10e069ac34d7d6c6c2e2580bbaf675ceb22c30c54884af2"
-bytes  = 2192
+sha256 = "1116aa6d1d2b7f8acdffecfc019ba3a63832792af5659134d0282e018fa5f74f"
+bytes  = 54320
 status = "external"
 group  = "J"
 # Derived, not fetched: the sha256 is of the generator's output, and the
