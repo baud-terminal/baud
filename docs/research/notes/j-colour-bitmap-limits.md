@@ -79,9 +79,21 @@ strike's `dupe`s once, not built, would remove the loops' tenfold.
 
 **What each bound costs at launch** (MEASURED at 255 and 4,096, DERIVED from
 their linearity elsewhere): 64 strikes about 10 ms, or 85 ms with `dupe` loops;
-255 strikes 38 ms, or 0.34 s; 65,535 strikes about 10 s, or 87 s. A budget on
-the build's own work, strikes x glyphs at 2^20, holds it to about 2.4 ms, or
-21 ms.
+255 strikes 38 ms, or 0.34 s; 65,535 strikes about 10 s, or 87 s. For `CBLC`
+with sorted records and one pass a size (section 3), 64 sizes about 43 ms and
+255 about 0.17 s, over a shared 4 MB array.
+
+**A budget on the build's own work.** Counted as every strike-glyph pair the
+build asks about plus every `CBLC` subtable record it reads, both known from the
+table before the build starts, a budget of 2^20 holds the build to about 21 ms
+(`sbix` records that are all `dupe` loops, 20 ns a pair) and 3.5 ms for `CBLC`
+(3.3 ns a pair, 0.86 ns a record). Counting pairs alone does not bound `CBLC`: a
+4-glyph face could carry 262,144 sizes sharing a 4 MB array of 524,288 records,
+and one pass a size would read 2^37 records, about 2 minutes (DERIVED). Apple
+Color Emoji's work is 34,596 and Noto Color Emoji's 4,049. A work budget bounds
+the build, not the strike count: a one-glyph face may carry 2^20 strikes, and the
+atlas, which reads and sorts every strike's ppem once per glyph and size it
+draws, would do so over all of them (unmeasured).
 
 **Real fonts** (MEASURED, a census of 32,042 font files from Debian sid and
 the archive, Fedora, Arch, openSUSE, FreeBSD 14, Google Fonts, ReactOS and
@@ -252,7 +264,7 @@ confidence":
 |---|---|---|---|
 | strike bound on the walk | 255, 0.38 at 0.08; SPLIT 0.63 at 0.53 | SPLIT 0.58 at 0.44 | re-posed below |
 | index or walk | -- | -- | index 0.98 at 0.97 |
-| bound on the index's build | -- | -- | PAIRS and none tied at 0.43 (0.30); with where fonts come from and what no bound does at launch, PAIRS 0.78 at 0.72 |
+| bound on the index's build | -- | -- | PAIRS and none tied at 0.43 (0.30); with where fonts come from and what no bound does at launch, PAIRS 0.78 at 0.72; counting `CBLC`'s records too (WORK), 0.95 at 0.94 |
 | `CBLC` subtables | -- | binary search 0.58, with a cap 0.41 (0.44) | sorted records required 0.95 at 0.92 |
 | flip, the old options | mirror once 0.91 at 0.81, then 0.88 at 0.76 | CoreText exactly 0.38 at 0.16 | split in two below |
 | flip, how many mirrors | -- | -- | once 0.82 at 0.74; with both readings stated, toggle 0.52 and once 0.48 (0.27) |
@@ -260,6 +272,9 @@ confidence":
 
 What moved them, as far as the requests show (Jev returns no reasons):
 
+- An option's arithmetic was wrong. PAIRS counted strikes x glyphs and missed
+  `CBLC`'s subtable records, so it did not bound a `CBLC` build; corrected, the
+  same question went from 0.78 to 0.95.
 - Options that differed on two axes at once split the vote. Round two's
   subtable options S and SK both binary-search, and its flip options F and C
   both mirror once; asked one axis at a time, the subtable question settled.
