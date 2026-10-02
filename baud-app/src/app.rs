@@ -1521,7 +1521,8 @@ impl App {
                             self.gpu_stats = g;
                         }
                         // Still in flight: the completion wakes us. The
-                        // set stays free, since nothing committed into it.
+                        // presenter gave this frame's tag back, so the set
+                        // stays free and no reshape waits on it.
                         Some(Drawn::Busy) => return,
                         None => {}
                     }
@@ -1718,11 +1719,12 @@ impl App {
     fn present_counts(&self) -> String {
         match self.presenter.as_ref().map(Presenter::counts) {
             Some(c) => format!(
-                "present: {} landed, {} shown, {} superseded, {} deferred, {} built over a live frame, last gpu {:?}",
+                "present: {} landed, {} shown, {} superseded, {} deferred, {} given back, {} built over a live frame, last gpu {:?}",
                 c.landed,
                 c.shown,
                 c.superseded,
                 c.deferred,
+                c.abandoned,
                 self.wrote_in_flight.value(),
                 c.gpu
             ),

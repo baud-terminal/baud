@@ -44,8 +44,28 @@ use baud_font::Px;
 use baud_render::{Argb, Renderer};
 use journal::{Counts, FrameTag, Journal, Reshape, SetIx};
 pub use macos_liquid_glass::drawable::ColorSpace as SurfaceSpace;
-use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, Waker};
+use macos_liquid_glass::drawable::{ColorSpace, DrawableView, Surface, SurfaceHandle, Waker};
 use std::sync::Arc;
+
+/// Who hears that a frame landed: the view's [`Waker`] in the app, and
+/// whatever a test watches with. Both calls come from the GPU's completion
+/// thread.
+pub trait Wake: Send + Sync + 'static {
+    /// The surface to put on the layer now.
+    fn present(&self, surface: &SurfaceHandle);
+    /// Wake the responder.
+    fn wake(&self);
+}
+
+impl Wake for Waker {
+    fn present(&self, surface: &SurfaceHandle) {
+        Waker::present(self, surface);
+    }
+
+    fn wake(&self) {
+        Waker::wake(self);
+    }
+}
 
 /// How many surfaces rotate: one showing, one the compositor may still be
 /// reading for the previous transaction, one being drawn.
@@ -305,13 +325,14 @@ impl Presenter {
 
     /// What the GPU does when a frame into the next surface is done: hand
     /// that surface to the main thread and wake the responder, through the
-    /// view's waker, from the GPU's thread.
-    fn on_done(&mut self, waker: Waker, set: Option<SetIx>) -> Done {
+    /// view's waker, from the GPU's thread. The tag comes back with it, for
+    /// [`Presenter::settle`] to give back if the GPU never takes the frame.
+    fn on_done<W: Wake>(&mut self, waker: W, set: Option<SetIx>) -> (Done, FrameTag) {
         let handle = self.surfaces[self.next.0].handle();
         let tag = self.tag(set);
         let epoch = Arc::clone(&self.epoch);
         let journal = Arc::clone(&self.journal);
-        Done::Notify(Arc::new(move |landing| {
+        let done = Done::Notify(Arc::new(move |landing| {
             // **Recorded, and shown anyway.** The verdict is taken here and
             // deliberately not acted on: a count of frames that reached the
             // layer after their surfaces were replaced is only a measurement
@@ -322,7 +343,37 @@ impl Presenter {
                 waker.present(&handle);
             }
             waker.wake();
-        }))
+        }));
+        (done, tag)
+    }
+
+    /// A frame tagged, drawn with `draw` into the next surface, and settled:
+    /// the one way both GPU paths commit, so neither can mint a tag the
+    /// other would give back.
+    fn commit_with<W: Wake>(
+        &mut self,
+        waker: W,
+        set: Option<SetIx>,
+        draw: impl FnOnce(&mut Gpu, &Target, Done) -> Option<Drawn>,
+    ) -> Option<Drawn> {
+        let (done, tag) = self.on_done(waker, set);
+        let drawn = match &mut self.draw {
+            Draw::Gpu { gpu, targets } => targets
+                .get(self.next.0)
+                .and_then(|target| draw(gpu, target, done)),
+            Draw::Cpu => None,
+        };
+        self.settle(tag, drawn)
+    }
+
+    /// A drawn frame will land through its completion. Anything else --
+    /// `Busy`, a resource the draw could not make, no target -- committed
+    /// nothing, so nothing will land it, and its tag is given back.
+    fn settle(&mut self, tag: FrameTag, drawn: Option<Drawn>) -> Option<Drawn> {
+        if !matches!(drawn, Some(Drawn::Frame(_))) {
+            self.journal.abandon(tag);
+        }
+        drawn.map(|d| self.committed(d))
     }
 
     fn committed(&mut self, drawn: Drawn) -> Drawn {
@@ -335,15 +386,12 @@ impl Presenter {
     /// Commits the renderer's converted frame -- the instance path -- into
     /// the next surface, to be shown when the GPU is done. The GPU path
     /// only; `None` otherwise, or when a Metal resource could not be made.
-    pub fn draw(&mut self, waker: Waker, renderer: &mut Renderer<'_, '_>) -> Option<Drawn> {
+    pub fn draw<W: Wake>(&mut self, waker: W, renderer: &mut Renderer<'_, '_>) -> Option<Drawn> {
         // The instance path converts on the main thread and builds into
         // the presenter's own ring, so it holds none of the caller's sets.
-        let done = self.on_done(waker, None);
-        let Draw::Gpu { gpu, targets } = &mut self.draw else {
-            return None;
-        };
-        let drawn = gpu.draw(renderer, targets.get(self.next.0)?, done)?;
-        Some(self.committed(drawn))
+        self.commit_with(waker, None, |gpu, target, done| {
+            gpu.draw(renderer, target, done)
+        })
     }
 
     /// The instance path drawn and shown now: the GPU waited for and the
@@ -385,18 +433,15 @@ impl Presenter {
 
     /// Commits the raw grid -- the cell path -- into the next surface, to be
     /// shown when the GPU is done. The GPU path only.
-    pub fn draw_cells(
+    pub fn draw_cells<W: Wake>(
         &mut self,
-        waker: Waker,
+        waker: W,
         renderer: &mut Renderer<'_, '_>,
         input: &CellInput<'_>,
     ) -> Option<Drawn> {
-        let done = self.on_done(waker, Some(input.set));
-        let Draw::Gpu { gpu, targets } = &mut self.draw else {
-            return None;
-        };
-        let drawn = gpu.draw_cells(renderer, input, targets.get(self.next.0)?, done)?;
-        Some(self.committed(drawn))
+        self.commit_with(waker, Some(input.set), |gpu, target, done| {
+            gpu.draw_cells(renderer, input, target, done)
+        })
     }
 
     /// The GPU, to lend memory from, on the GPU path.

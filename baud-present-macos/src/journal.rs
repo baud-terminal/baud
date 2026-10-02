@@ -192,6 +192,8 @@ pub struct Journal {
     /// no set and still samples the atlas.
     flying: AtomicU64,
     deferred: AtomicU64,
+    /// Frames tagged and then never committed: see [`Journal::abandon`].
+    abandoned: AtomicU64,
     /// The last completed frame's GPU nanoseconds.
     gpu_nanos: AtomicU64,
     /// The GPU end of every frame handed to the layer, in landing order,
@@ -229,6 +231,10 @@ pub struct Counts {
     /// Reshapes -- a reflow or a rescale -- that waited for a frame to
     /// land rather than writing memory it was reading.
     pub deferred: u64,
+    /// Frames tagged for a draw that committed nothing -- the GPU was
+    /// still reading the last one, or a resource could not be made -- and
+    /// given back, so that no reshape waits for a landing that cannot come.
+    pub abandoned: u64,
     /// The last completed frame's own start-to-end on the GPU, from the
     /// stamps Metal puts on the command buffer. Recorded where it exists:
     /// on the completion, by the handler that already runs there. Nothing
@@ -255,6 +261,29 @@ impl Journal {
             self.wheel.committed(set, frame);
         }
         self.flying.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Gives back a frame [`Journal::commit`] recorded and the GPU never
+    /// took: the draw found a frame still in flight and answered `Busy`, or
+    /// could not make a resource, so no completion will ever land it. Its
+    /// set is free and it no longer counts as flying.
+    ///
+    /// **Without it one such draw broke zoom for the life of the window.**
+    /// The tag was minted before the GPU's busy check, so a `present` that
+    /// arrived mid-frame -- a relayout, a theme flip -- left `flying` at one
+    /// with nothing to land it; every [`Journal::reshape`] after that
+    /// answered `Wait`, and every zoom deferred itself forever while the
+    /// frames, paced by the GPU's own counter, went on drawing.
+    pub fn abandon(&self, tag: FrameTag) {
+        if tag.set.is_some() {
+            self.wheel.landed(tag.frame);
+        }
+        self.flying
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                Some(n.saturating_sub(1))
+            })
+            .ok();
+        self.abandoned.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Whether the unringed memory may be written now.
@@ -343,6 +372,7 @@ impl Journal {
             shown: self.shown.load(Ordering::Relaxed),
             superseded: self.superseded.load(Ordering::Relaxed),
             deferred: self.deferred.load(Ordering::Relaxed),
+            abandoned: self.abandoned.load(Ordering::Relaxed),
             gpu: Duration::from_nanos(self.gpu_nanos.load(Ordering::Relaxed)),
             ended: HostTime::of_nanos(self.ended_nanos.load(Ordering::Acquire)),
         }
@@ -351,7 +381,7 @@ impl Journal {
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameTag, Journal, Landing};
+    use super::{FrameTag, Journal, Landing, Reshape, SetState};
     use baud_domain::{Fate, FrameGen, HostTime, SwapEpoch};
     use core::time::Duration;
 
@@ -361,6 +391,73 @@ mod tests {
             gpu: Duration::ZERO,
             ended: HostTime::ZERO,
         }
+    }
+
+    /// The defect behind "zoom stopped working": a draw that committed
+    /// nothing left its tag flying for good, and every reshape after it
+    /// waited. Given back, the set and the reshape are free again, and it is
+    /// not counted as a landing.
+    #[test]
+    fn a_tag_the_gpu_never_took_is_given_back() {
+        let epoch = SwapEpoch::new();
+        let j = Journal::default();
+        let set = j.wheel().building().expect("a free set");
+        let frame = FrameGen::FIRST.next();
+        j.commit(Some(set), frame);
+        assert_eq!(
+            j.reshape(),
+            Reshape::Wait,
+            "a tagged frame counts as flying"
+        );
+        assert_eq!(j.wheel().state(set), SetState::Held);
+        j.abandon(FrameTag {
+            frame,
+            swap: epoch.current(),
+            set: Some(set),
+        });
+        assert_eq!(
+            j.reshape(),
+            Reshape::Now,
+            "nothing is reading once it is back"
+        );
+        assert_eq!(j.wheel().state(set), SetState::Free, "and its set is free");
+        let c = j.counts();
+        assert_eq!(
+            (c.landed, c.shown, c.abandoned),
+            (0, 0, 1),
+            "an abandoned frame is not a landing"
+        );
+    }
+
+    /// The control: giving one frame back leaves a frame that is really in
+    /// flight reading, and holding its own set, until it lands -- so the
+    /// fix cannot pass by freeing everything.
+    #[test]
+    fn giving_one_tag_back_leaves_a_live_frame_reading() {
+        let epoch = SwapEpoch::new();
+        let j = Journal::default();
+        let tag = |frame, set| FrameTag {
+            frame,
+            swap: epoch.current(),
+            set: Some(set),
+        };
+        let live = FrameGen::FIRST.next();
+        let first = j.wheel().building().expect("a set");
+        j.commit(Some(first), live);
+        let dud = live.next();
+        let second = j.wheel().building().expect("another");
+        j.commit(Some(second), dud);
+        j.abandon(tag(dud, second));
+        assert_eq!(j.wheel().state(second), SetState::Free);
+        assert_eq!(
+            j.wheel().state(first),
+            SetState::Held,
+            "the live frame keeps its set"
+        );
+        assert_eq!(j.reshape(), Reshape::Wait, "and is still reading");
+        j.land(tag(live, first), &epoch, quiet());
+        assert_eq!(j.reshape(), Reshape::Now);
+        assert_eq!(j.counts().shown, 1);
     }
 
     #[test]
