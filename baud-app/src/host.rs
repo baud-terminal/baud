@@ -284,7 +284,7 @@ mod tests {
         );
         let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
         let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
-        for (extra, faces, folder_in) in [("", 2, 1), ("font_fallback = false\n", 1, 0)] {
+        for (extra, faces, folder_in) in [("", 3, 1), ("font_fallback = false\n", 1, 0)] {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
@@ -297,6 +297,37 @@ mod tests {
             let stack = super::stack(&cfg, loaded);
             assert_eq!(stack.select(a).index(), 0, "{extra:?}");
             assert_eq!(stack.select(folder).index(), folder_in, "{extra:?}");
+        }
+    }
+
+    /// **Claude Code's arrow and bullet draw from STIX behind a configured
+    /// font** (the owner's call of 2026-10-03). The committed plain JetBrains
+    /// Mono has neither U+23F5 nor U+23FA, and neither has the icon face, so
+    /// the renderer's stack selects STIX, third; with `font_fallback = false`
+    /// both fall to the named face's `.notdef`.
+    #[test]
+    fn claude_codes_symbols_draw_from_stix_behind_a_configured_font() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf"
+        );
+        let arrow = baud_domain::Codepoint::new(0x23F5).unwrap();
+        let bullet = baud_domain::Codepoint::new(0x23FA).unwrap();
+        for (extra, faces, drawn_by) in [("", 3, 2), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let loaded = super::load_faces(&cfg);
+            assert_eq!(loaded.len(), faces, "{extra:?}");
+            for c in [arrow, bullet] {
+                assert!(
+                    loaded[0].glyph(c).is_none(),
+                    "the control: not in the named face"
+                );
+            }
+            let stack = super::stack(&cfg, loaded);
+            assert_eq!(stack.select(arrow).index(), drawn_by, "{extra:?}");
+            assert_eq!(stack.select(bullet).index(), drawn_by, "{extra:?}");
         }
     }
 

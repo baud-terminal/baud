@@ -21,7 +21,9 @@
 //! starts with the embedded JetBrains Mono and its Nerd Fonts icon face, with
 //! JetBrains Mono's Bold, Italic and Bold Italic as the styled faces -- so the
 //! app runs with no config at all. A configured `fonts` replaces that stack
-//! and keeps the embedded icon face last, for the icons the named faces lack,
+//! and keeps the embedded icon face and then STIX Two Math behind it, for the
+//! icons and symbols the named faces lack (the owner's call of 2026-10-03, as
+//! every terminal that bundles faces keeps them behind a configured font),
 //! unless `font_fallback = false`. A configured stack has no styled faces
 //! yet: naming them waits on fonts by family name.
 
@@ -65,8 +67,9 @@ pub struct Config {
     pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
-    /// Whether the embedded icon face follows a `fonts` stack the config names,
-    /// already folded into `faces` by the time the config is read.
+    /// Whether the embedded icon face and STIX Two Math follow a `fonts` stack
+    /// the config names, already folded into `faces` by the time the config
+    /// is read.
     pub font_fallback: FontFallback,
     /// Points; pixels are this times the backing scale.
     pub font_size: f32,
@@ -753,7 +756,7 @@ impl Config {
                         "false" => FontFallback::Off,
                         other => {
                             said.push(format!(
-                                "config: font_fallback = {other:?} is not true or false; the embedded icon face stays behind the stack"
+                                "config: font_fallback = {other:?} is not true or false; the embedded icon and symbol faces stay behind the stack"
                             ));
                             FontFallback::Embedded
                         }
@@ -837,6 +840,7 @@ impl Config {
         if let Some(mut faces) = named {
             if self.font_fallback == FontFallback::Embedded {
                 faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
+                faces.push(FaceSpec::embedded(crate::embedded::STIX));
             }
             self.faces = faces;
         }
@@ -1874,9 +1878,10 @@ shadow     = "never"
         let mut c = Config::defaults();
         let said = c.apply("fonts = [\"/a.ttf\"]\n");
         assert!(said.is_empty(), "{said:?}");
-        assert_eq!(c.faces.len(), 2);
+        assert_eq!(c.faces.len(), 3);
         assert!(matches!(c.faces[0].from, FaceFrom::File));
         assert!(is(&c.faces[1], SYMBOLS));
+        assert!(is(&c.faces[2], crate::embedded::STIX));
     }
 
     /// Whether `f` is the embedded font `e`, by its bytes.
@@ -1889,16 +1894,22 @@ shadow     = "never"
     }
 
     /// A configured stack keeps the embedded icon face behind it, so what
-    /// none of the named faces carries -- a Nerd Fonts icon -- still draws; and
+    /// none of the named faces carries -- a Nerd Fonts icon -- still draws (and
+    /// STIX after it, below); and
     /// `font_fallback = false` leaves the stack exactly as named, whichever
     /// of the two keys comes first.
     #[test]
     fn a_configured_stack_keeps_the_embedded_font_behind_it() {
         let c = read("fonts = [\"/a.ttf\", \"/b.ttc@2\"]\n");
-        assert_eq!(c.faces.len(), 3);
+        assert_eq!(c.faces.len(), 4);
         assert_eq!(c.faces[0].path, "/a.ttf");
         assert_eq!(c.faces[1].path, "/b.ttc");
         assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
+        assert!(
+            is(&c.faces[3], crate::embedded::STIX),
+            "{}",
+            c.faces[3].path
+        );
         assert_eq!(c.font_fallback, FontFallback::Embedded);
         for text in [
             "fonts = [\"/a.ttf\"]\nfont_fallback = false\n",
@@ -1910,8 +1921,29 @@ shadow     = "never"
             assert_eq!(c.faces[0].path, "/a.ttf", "{text}");
         }
         let c = read("font_fallback = true\nfonts = [\"/a.ttf\"]\n");
-        assert_eq!(c.faces.len(), 2);
+        assert_eq!(c.faces.len(), 3);
         assert!(is_symbols(&c.faces[1]));
+    }
+
+    /// The owner's call of 2026-10-03: the symbol face follows a configured
+    /// stack as the icon face does, after it and under the same switch, so a
+    /// stack whose faces lack Claude Code's arrow and bullet still draws them,
+    /// and `font_fallback = false` still leaves the stack exactly as named.
+    #[test]
+    fn a_configured_stack_keeps_the_symbol_face_last() {
+        let c = read("fonts = [\"/a.ttf\"]\n");
+        assert_eq!(c.faces.len(), 3);
+        assert!(is_symbols(&c.faces[1]), "{}", c.faces[1].path);
+        assert!(
+            is(&c.faces[2], crate::embedded::STIX),
+            "{}",
+            c.faces[2].path
+        );
+        let c = read("fonts = [\"/a.ttf\"]\nfont_fallback = false\n");
+        assert!(
+            c.faces.iter().all(|f| !is(f, crate::embedded::STIX)),
+            "the switch turns the symbol face off too"
+        );
     }
 
     /// With no `fonts` the embedded faces are already in the stack, so the switch
@@ -2172,7 +2204,11 @@ shadow     = "never"
         // which is the namespace working, not a defect.
         assert_eq!(c.faces.len(), Config::defaults().faces.len());
         let c = read("fonts = [\n  \"a\",\n  \"b@2\",\n]\n[glass]\ndim_dark = 0.3\n");
-        assert_eq!(c.faces.len(), 3, "the two named and the embedded fallback");
+        assert_eq!(
+            c.faces.len(),
+            4,
+            "the two named and the two embedded fallbacks"
+        );
         assert_eq!(c.faces[1].path, "b");
         assert_eq!(c.faces[1].index, 2);
         assert!(is_symbols(&c.faces[2]));

@@ -8,7 +8,8 @@
 # Bold, Italic and Bold Italic faces) and Symbols Nerd Font Mono (the Nerd Fonts
 # icons), with Menlo, the emoji, symbol and CJK
 # system faces behind it. `fonts` below replaces that stack, and the embedded
-# font stays behind it for what your faces lack unless `font_fallback = false`.
+# icon and symbol faces stay behind it for what your faces lack unless
+# `font_fallback = false`.
 
 # Points; pixels are this times the display's backing scale.
 font_size = 13
@@ -65,8 +66,9 @@ emoji = "font"
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
-# Whether the embedded icon face follows a `fonts` stack you named. true, the
-# default, keeps it behind your faces; false leaves the stack exactly as named.
+# Whether the embedded icon face and STIX Two Math follow a `fonts` stack you
+# named. true, the default, keeps them behind your faces, the icons first; false
+# leaves the stack exactly as named.
 # Without `fonts` it changes nothing: the embedded faces are the stack then.
 font_fallback = true
 
