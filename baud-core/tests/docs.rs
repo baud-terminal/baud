@@ -47,7 +47,13 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
         let p = e.path();
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if p.is_dir() {
-            if matches!(name, "target" | ".git" | "node_modules" | ".devenv") {
+            // `.claude` is Claude Code's own directory, untracked: workflows,
+            // settings and research copies whose plans name files and tests
+            // that later commits create. It is not this repository's docs.
+            if matches!(
+                name,
+                "target" | ".git" | "node_modules" | ".devenv" | ".claude"
+            ) {
                 continue;
             }
             // Pinned copies of other projects' files, hash-locked by

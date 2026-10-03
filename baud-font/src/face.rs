@@ -15,7 +15,7 @@
 //! rule `ttf-parser` applies and the differential in `tests/oracle.rs` holds
 //! this crate to.
 
-use crate::bitmap::{Bitmap, Cbdt, Ppem, Sbix};
+use crate::bitmap::{Bitmap, Cbdt, Ppem, ReadStrike, Records, Sbix, StrikeState};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
@@ -391,7 +391,9 @@ impl<'a> Face<'a> {
             .table(Tag::SBIX)
             .and_then(|t| Sbix::parse(t, Count::of(u32::from(face.glyphs.0))));
         face.cbdt = match (face.table(Tag::CBLC), face.table(Tag::CBDT)) {
-            (Some(cblc), Some(cbdt)) => Cbdt::parse(cblc, cbdt),
+            (Some(cblc), Some(cbdt)) => {
+                Cbdt::parse(cblc, cbdt, Count::of(u32::from(face.glyphs.0)))
+            }
             _ => None,
         };
         face.colr = face.table(Tag::COLR).and_then(Colr::parse);
@@ -673,12 +675,39 @@ impl<'a> Face<'a> {
         }
     }
 
-    /// Glyph `g`'s PNG in strike `i`, still encoded, with its placement.
-    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+    /// Whether strike `i` is read and how, or why it is refused: `None` past
+    /// [`Face::strikes`] or where the strike's `ppem` does not read. An `sbix`
+    /// strike is always read; a `CBLC` size is refused when its index subtable
+    /// records run past the table or their first glyphs decrease.
+    pub fn strike(&self, i: Index) -> Option<StrikeState> {
         if let Some(s) = &self.sbix {
-            s.bitmap(i, g)
+            Some(StrikeState::Read(ReadStrike::new(
+                i,
+                s.ppem(i)?,
+                Records::Disjoint,
+            )))
         } else {
-            self.cbdt.as_ref()?.bitmap(i, g)
+            self.cbdt.as_ref()?.state(i)
+        }
+    }
+
+    /// Glyph `g`'s PNG in a strike already checked by this face's
+    /// [`Face::strike`]; a [`ReadStrike`] from another face can answer wrongly.
+    pub fn bitmap_in(&self, s: ReadStrike, g: GlyphId) -> Option<Bitmap<'a>> {
+        if let Some(sb) = &self.sbix {
+            sb.bitmap(s.index(), g)
+        } else {
+            self.cbdt.as_ref()?.bitmap_in(s, g)
+        }
+    }
+
+    /// Glyph `g`'s PNG in strike `i`, still encoded, with its placement:
+    /// [`Face::strike`] checked on every call, then [`Face::bitmap_in`]. A
+    /// renderer that asks a strike for many glyphs keeps the [`ReadStrike`].
+    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+        match self.strike(i)? {
+            StrikeState::Read(s) => self.bitmap_in(s, g),
+            StrikeState::Refused(_) => None,
         }
     }
 
@@ -722,7 +751,8 @@ impl<'a> Face<'a> {
     }
 
     /// Whether some strike holds an image for `g`, through any `dupe` or
-    /// `flip` on the way.
+    /// `flip` on the way: the reference walk over every strike, which a
+    /// refused `CBLC` size answers nothing in.
     pub fn has_bitmap(&self, g: GlyphId) -> bool {
         let strikes = self.strikes();
         let mut i = Index::ZERO;

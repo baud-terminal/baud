@@ -36,6 +36,23 @@
 //! CoreText (Jev 0.91, confidence 0.81, under the bar, so the owner's to
 //! overturn).
 //!
+//! **A `CBLC` size is read only when its records are sorted.** `CBLC`'s
+//! formats are "downward compatible extensions of the EBDT and EBLC tables"
+//! (`[[source: ms-opentype-cblc]]`), and EBLC's index subtable records "must
+//! be sorted by firstGlyphIndex, and records should not have overlapping glyph
+//! ID ranges" (`[[source: ms-opentype-eblc]]`). A size whose records run past
+//! the table, or whose first glyphs decrease, is refused whole, and the rest
+//! of the table still draws ([`StrikeState`]). Overlap is a "should not", so
+//! an overlapping size is read and a glyph answers from the first record that
+//! holds it, as FreeType, ttf-parser and HarfBuzz do: by binary search when no
+//! record starts inside another or when each record also ends no earlier
+//! than the one before, and by walking the records only on a size where one
+//! nests inside another ([`Records`]). A glyph at or past the face's
+//! `numGlyphs` has no bitmap, as in `sbix`. Format 4's pairs are searched
+//! among the real ones; the extra pair only marks where the last image ends.
+//! The owner's calls of 2026-10-02 (sorted records) and 2026-10-03 (format 4,
+//! and the first record on an overlap); note J has the research.
+//!
 //! **Strikes are enumerated, not chosen.** Which strike a renderer wants for
 //! a cell size is a policy the compositor owns; this module answers what the
 //! face has, so the oracle differential can walk every strike rather than
@@ -46,6 +63,7 @@
 
 use crate::bytes::{Array, Bytes, Count, FromBe, Index, Len, Offset};
 use baud_domain::GlyphId;
+use core::cmp::Ordering;
 
 /// Pixels per em a strike was rendered at.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -90,6 +108,69 @@ pub struct Bitmap<'a> {
     pub ppem: Ppem,
     pub strike: Strike,
     pub mirror: Mirror,
+}
+
+/// A strike whose records were checked: the only key [`crate::Face::bitmap_in`]
+/// takes, so a renderer checks a strike once and then asks it per glyph. It
+/// answers only for the face that issued it: asked of another face, it reads
+/// that face's size [`ReadStrike::index`] with the first face's search, which
+/// can answer from a size the second face refuses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ReadStrike {
+    index: Index,
+    ppem: Ppem,
+    records: Records,
+}
+
+impl ReadStrike {
+    pub(crate) fn new(index: Index, ppem: Ppem, records: Records) -> ReadStrike {
+        ReadStrike {
+            index,
+            ppem,
+            records,
+        }
+    }
+
+    pub fn index(self) -> Index {
+        self.index
+    }
+
+    pub fn ppem(self) -> Ppem {
+        self.ppem
+    }
+
+    pub fn records(self) -> Records {
+        self.records
+    }
+}
+
+/// How a read `CBLC` size's index subtable records are searched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Records {
+    /// No record starts inside an earlier one: a binary search over the firsts.
+    Disjoint,
+    /// Records overlap, but each also ends no earlier than the one before: a
+    /// binary search over the lasts finds the first record that holds a glyph.
+    Staircase,
+    /// A record ends before one in front of it: the records are walked.
+    Nested,
+}
+
+/// Why a `CBLC` size is not read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StrikeRefusal {
+    /// Its index subtable records do not lie wholly in the table -- a list
+    /// that starts past the table's end, even an empty one, included.
+    PastTable,
+    /// Record `at` starts before the record listed ahead of it.
+    Unsorted { at: Index },
+}
+
+/// What a strike is: read, with its search, or refused, with the reason.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum StrikeState {
+    Read(ReadStrike),
+    Refused(StrikeRefusal),
 }
 
 /// Records read through `'dupe'` and `'flip'` together, the image's own
@@ -284,18 +365,47 @@ impl FromBe for BigMetrics {
     }
 }
 
-/// `CBLC` and `CBDT` together.
+/// An index subtable record: its first and last glyph, and its subtable's
+/// offset from the start of the record list.
+#[derive(Clone, Copy)]
+struct Range(u16, u16, u32);
+
+impl FromBe for Range {
+    const SIZE: Len = Len::of(8);
+    fn parse_be(b: &[u8]) -> Option<Self> {
+        Some(Range(
+            u16::parse_be(b)?,
+            u16::parse_be(b.get(2..)?)?,
+            u32::parse_be(b.get(4..)?)?,
+        ))
+    }
+}
+
+/// A format-4 pair: a glyph and its image's offset.
+#[derive(Clone, Copy)]
+struct Pair(u16, u16);
+
+impl FromBe for Pair {
+    const SIZE: Len = Len::of(4);
+    fn parse_be(b: &[u8]) -> Option<Self> {
+        Some(Pair(u16::parse_be(b)?, u16::parse_be(b.get(2..)?)?))
+    }
+}
+
+/// `CBLC` and `CBDT` together, and the face's glyph count, which bounds
+/// every glyph a size can answer.
 #[derive(Clone, Copy)]
 pub struct Cbdt<'a> {
     cblc: Bytes<'a>,
     cbdt: Bytes<'a>,
     sizes: Count,
+    glyphs: Count,
 }
 
 const SIZE_RECORD: Len = Len::of(48);
 
 impl<'a> Cbdt<'a> {
-    pub fn parse(cblc: Bytes<'a>, cbdt: Bytes<'a>) -> Option<Cbdt<'a>> {
+    pub fn parse(cblc: Bytes<'a>, cbdt: Bytes<'a>, glyphs: Count) -> Option<Cbdt<'a>> {
         // The version is not checked: the reference readers skip it because
         // Noto Color Emoji shipped with 2.0 before the specification settled
         // on 3.0, and the layout is the same.
@@ -309,6 +419,7 @@ impl<'a> Cbdt<'a> {
             cblc,
             cbdt,
             sizes: Count::of(n),
+            glyphs,
         })
     }
 
@@ -330,37 +441,117 @@ impl<'a> Cbdt<'a> {
         Some(Ppem(u16::from(ppem)))
     }
 
-    /// Glyph `g`'s PNG in strike `i`, with its metrics from wherever the
-    /// image format keeps them.
-    pub fn bitmap(&self, i: Index, g: GlyphId) -> Option<Bitmap<'a>> {
+    /// Size `i`'s index subtable records, when every one lies in the table:
+    /// where the record list starts, and the records.
+    fn records(&self, size: Offset) -> Option<(Offset, Array<'a, Range>)> {
+        let list = Offset::of(self.cblc.read::<u32>(size)?);
+        let count: u32 = self.cblc.read(size.plus(Len::of(8))?)?;
+        Some((list, self.cblc.array(list, Count::of(count))?))
+    }
+
+    /// Whether size `i` is read, and how its records are searched, or why it
+    /// is refused: one pass over the records. Refused when they run past the
+    /// table or a record starts before the one listed ahead of it; read
+    /// otherwise, disjoint when every record starts after the last glyph of
+    /// the one before, a staircase when each also ends no earlier, nested
+    /// when one ends before a record in front of it.
+    pub fn state(&self, i: Index) -> Option<StrikeState> {
         let size = self.size_at(i)?;
         let ppem = self.ppem(i)?;
-        let array_at: u32 = self.cblc.read(size)?;
-        let subtables: u32 = self.cblc.read(size.plus(Len::of(8))?)?;
+        let Some((_, records)) = self.records(size) else {
+            return Some(StrikeState::Refused(StrikeRefusal::PastTable));
+        };
+        let (mut disjoint, mut staircase) = (true, true);
+        let mut before: Option<Range> = None;
+        let mut j = Index::ZERO;
+        while records.count().holds(j) {
+            let r = records.get(j)?;
+            if let Some(p) = before {
+                if r.0 < p.0 {
+                    return Some(StrikeState::Refused(StrikeRefusal::Unsorted { at: j }));
+                }
+                disjoint &= r.0 > p.1;
+                staircase &= r.1 >= p.1;
+            }
+            before = Some(r);
+            j = j.next();
+        }
+        let records = if disjoint {
+            Records::Disjoint
+        } else if staircase {
+            Records::Staircase
+        } else {
+            Records::Nested
+        };
+        Some(StrikeState::Read(ReadStrike::new(i, ppem, records)))
+    }
+
+    /// Glyph `g`'s PNG in a read size: below the face's glyph count, inside
+    /// the size's start..end range, from the first record that holds it. That
+    /// record is the last of those starting at or before `g` when no record
+    /// starts inside another; on a staircase, the first ending at or after
+    /// `g`; and on a nested size, found by walking the records that start at
+    /// or before `g`.
+    pub fn bitmap_in(&self, s: ReadStrike, g: GlyphId) -> Option<Bitmap<'a>> {
+        let size = self.size_at(s.index())?;
+        let gid = u16::try_from(g.index()).ok()?;
+        if !self.glyphs.holds(Index::of(gid)) {
+            return None;
+        }
         let first: u16 = self.cblc.read(size.plus(Len::of(40))?)?;
         let last: u16 = self.cblc.read(size.plus(Len::of(42))?)?;
-        let gid = u16::try_from(g.index()).ok()?;
         if !(first..=last).contains(&gid) {
             return None;
         }
-        // The IndexSubTableArray: (first, last, offset) triples, the offset
-        // relative to the array's own start.
-        let array = Offset::of(array_at);
-        let mut j = Index::ZERO;
-        let count = Count::of(subtables);
-        let (sub_first, header_at) = loop {
-            if !count.holds(j) {
-                return None;
-            }
-            let rec = array.at(j, Len::of(8))?;
-            let f: u16 = self.cblc.read(rec)?;
-            let l: u16 = self.cblc.read(rec.plus(Len::of(2))?)?;
-            let off: u32 = self.cblc.read(rec.plus(Len::of(4))?)?;
-            if (f..=l).contains(&gid) {
-                break (f, array.plus(Len::of(off))?);
-            }
-            j = j.next();
+        let (list, records) = self.records(size)?;
+        // How many records start at or before the glyph: the disjoint and the
+        // nested search stop there.
+        let starting = || {
+            records.partition_point(|r: &Range| {
+                if r.0 <= gid {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            })
         };
+        let r = match s.records() {
+            Records::Disjoint => records.get(starting()?.prev()?).filter(|r| gid <= r.1)?,
+            Records::Staircase => {
+                let ends = |r: &Range| {
+                    if r.1 < gid {
+                        Ordering::Less
+                    } else {
+                        Ordering::Greater
+                    }
+                };
+                records
+                    .get(records.partition_point(ends)?)
+                    .filter(|r| r.0 <= gid)?
+            }
+            Records::Nested => {
+                let k = starting()?;
+                let mut j = Index::ZERO;
+                loop {
+                    if j >= k {
+                        return None;
+                    }
+                    let r = records.get(j)?;
+                    if r.0 <= gid && gid <= r.1 {
+                        break r;
+                    }
+                    j = j.next();
+                }
+            }
+        };
+        self.image(s.ppem(), list, r, g)
+    }
+
+    /// The image record `r` locates for glyph `g`, with its metrics from
+    /// wherever the image format keeps them.
+    fn image(&self, ppem: Ppem, list: Offset, r: Range, g: GlyphId) -> Option<Bitmap<'a>> {
+        let gid = u16::try_from(g.index()).ok()?;
+        let (sub_first, header_at) = (r.0, list.plus(Len::of(r.2))?);
         let header = IndexHeader {
             index_format: IndexFormat::parse(self.cblc.read(header_at)?)?,
             image_format: ImageFormat::parse(self.cblc.read(header_at.plus(Len::of(2))?)?)?,
@@ -386,22 +577,19 @@ impl<'a> Cbdt<'a> {
                 header.image_data.plus(Len::of(u32::from(off)))?
             }
             IndexFormat::Sparse => {
+                // The n + 1 pairs must lie in the table, but only the first n
+                // name glyphs: the last marks where the last image ends. The
+                // pairs are in glyph order, so a glyph is where a binary search
+                // puts it, or absent.
                 let n: u32 = self.cblc.read(body)?;
-                let pairs = Count::of(n.checked_add(1)?);
                 let pairs_at = body.plus(Len::of(4))?;
-                let mut k = Index::ZERO;
-                loop {
-                    if !pairs.holds(k) {
-                        return None;
-                    }
-                    let at = pairs_at.at(k, Len::of(4))?;
-                    let id: u16 = self.cblc.read(at)?;
-                    if id == gid {
-                        let off: u16 = self.cblc.read(at.plus(Len::of(2))?)?;
-                        break header.image_data.plus(Len::of(u32::from(off)))?;
-                    }
-                    k = k.next();
+                let _: Array<'a, Pair> = self.cblc.array(pairs_at, Count::of(n.checked_add(1)?))?;
+                let pairs: Array<'a, Pair> = self.cblc.array(pairs_at, Count::of(n))?;
+                let p = pairs.get(pairs.partition_point(|p| p.0.cmp(&gid))?)?;
+                if p.0 != gid {
+                    return None;
                 }
+                header.image_data.plus(Len::of(u32::from(p.1)))?
             }
             IndexFormat::SparseConstant => {
                 let image_size: u32 = self.cblc.read(body)?;

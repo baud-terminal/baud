@@ -27,6 +27,9 @@ const NOTO_SUBSET: &[u8] = include_bytes!("fonts/NotoColorEmoji-subset.ttf");
 /// chain at the hop bound among them: a flipped byte lands in a redirection
 /// or an offset, which is where a hop bound that misses a kind would spin.
 const SBIX: &[u8] = include_bytes!("fonts/sbix-strikes.ttf");
+/// A `CBLC` size for each way the lookup refuses or reads one but a nested
+/// record, which `cblc.rs`'s surgeries and H1 cover (`scripts/gen-cblc-fixture.py`).
+const CBLC_CASES: &[u8] = include_bytes!("bitmap/cblc-cases.ttf");
 /// 2.5 KB of `gvar`-heavy font: a flipped byte lands in the variation data
 /// far more often than in a real face.
 const GVAR_CASES: &[u8] = include_bytes!("var/gvar-cases.ttf");
@@ -133,10 +136,27 @@ fn exercise(data: &[u8]) {
         for st in 0..strikes {
             let st = Index::of(st);
             let _ = face.strike_ppem(st);
+            let read = match face.strike(st) {
+                Some(baud_font::StrikeState::Read(s)) => Some(s),
+                _ => None,
+            };
             for g in 0..count.min(256) {
                 let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());
-                if let Some(b) = face.bitmap(st, g) {
+                let b = face.bitmap(st, g);
+                if let Some(b) = b {
                     decode(b.png.as_slice());
+                }
+                // A checked strike answers what the per-call check answers.
+                if let Some(s) = read {
+                    let png =
+                        |b: Option<baud_font::Bitmap<'_>>| b.map(|b| b.png.as_slice().to_vec());
+                    assert_eq!(
+                        png(face.bitmap_in(s, g)),
+                        png(b),
+                        "strike {}, glyph {}",
+                        st.value(),
+                        g.index()
+                    );
                 }
             }
         }
@@ -300,6 +320,27 @@ proptest! {
         for (at, byte) in flips {
             let i = reach[usize::try_from(at).unwrap_or(0) % reach.len()];
             data[i] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_mutated_cblc_face_never_panics(
+        cases in any::<bool>(),
+        flips in proptest::collection::vec((any::<u32>(), any::<u8>()), 1..16),
+        glyphs in proptest::option::of(any::<u16>()),
+    ) {
+        // Into a `CBLC` table -- the Noto subset's 288 bytes or the cases
+        // fixture's 776 -- its size records, index subtable records and
+        // subtables, and sometimes the face's glyph count as well.
+        let mut data = if cases { CBLC_CASES } else { NOTO_SUBSET }.to_vec();
+        let (at, len) = table_range(&data, *b"CBLC");
+        for (i, byte) in flips {
+            data[at + usize::try_from(i).unwrap_or(0) % len] = byte;
+        }
+        if let Some(n) = glyphs {
+            let (maxp, _) = table_range(&data, *b"maxp");
+            data[maxp + 4..maxp + 6].copy_from_slice(&n.to_be_bytes());
         }
         exercise(&data);
     }

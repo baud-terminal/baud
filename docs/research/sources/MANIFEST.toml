@@ -1606,12 +1606,14 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cbdt"
 file   = ""
-sha256 = "3dad3e17417f35fc6e4c9bc7053a2dfc39efaea3eeac32682a0f52cce0f2f081"
-bytes  = 56518
+sha256 = "8afac8de349652bd174768d3c50cc221db6fe9cc89521e1e7ef64be547e84cb0"
+bytes  = 56141
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-03 (was 3dad3e17..., 56,518 bytes; note J records the drift);
+# image formats 17, 18 and 19 read as before.
 
 [sources.ms-opentype-cblc]
 key    = "ms-opentype-cblc"
@@ -1621,12 +1623,31 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cblc"
 file   = ""
-sha256 = "c0b1f403ab920446ac6bed82da69eed27c959f0229cf670f9adba75c4bde4280"
-bytes  = 52217
+sha256 = "00bed8a273953b901271623d0c0f997bc0ccd5dda75fc1e41094ef5aac821030"
+bytes  = 51840
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-03 (was c0b1f403..., 52,217 bytes). It defines CBLC as a
+# "downward compatible" extension of EBLC, whose index subtables it does not restate.
+
+[sources.ms-opentype-eblc]
+key    = "ms-opentype-eblc"
+title  = "EBLC -- Embedded Bitmap Location Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/eblc"
+file   = ""
+sha256 = "b806b0e5ad1a2db3ad1d92ad9309de2571725d97dc00e4eb94df26e391bb51eb"
+bytes  = 70438
+status = "external"
+group  = "J"
+# Read and hash-verified 2026-10-03; not committed -- a vendor HTML page. The index
+# subtable rules CBLC inherits: "Records must be sorted by firstGlyphIndex, and
+# records should not have overlapping glyph ID ranges"; format 4's numGlyphs + 1
+# pairs, the last only marking where the last image ends.
 
 [sources.ms-opentype-sbix]
 key    = "ms-opentype-sbix"

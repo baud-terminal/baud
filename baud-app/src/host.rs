@@ -5,7 +5,8 @@
 
 use crate::config::Config;
 use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, WinSize};
-use baud_font::{Face, FaceIndex, Px};
+use baud_font::bytes::Index;
+use baud_font::{Face, FaceIndex, Px, StrikeRefusal, StrikeState};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -126,6 +127,9 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
             .map(|(d, f)| {
                 let face = Face::parse_index(d, FaceIndex::of(f.index))
                     .unwrap_or_else(|_| panic!("font {}: not a face", f.path));
+                for line in bitmap_refusals(&f.path, &face) {
+                    crate::warn!("{line}");
+                }
                 startup_mark(&format!(
                     "parse {}",
                     f.path.rsplit('/').next().unwrap_or("")
@@ -135,6 +139,56 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
             .collect::<Vec<_>>()
             .into_boxed_slice(),
     )
+}
+
+/// One line for a face whose `CBLC` sizes are not all read: how many, the
+/// first and why. A font that loses sizes to the specification's sorting rule
+/// says so once, at launch, rather than drawing from fewer sizes in silence;
+/// a face whose sizes all read, or that has none, says nothing.
+pub fn bitmap_refusals(path: &str, face: &Face<'_>) -> Vec<String> {
+    let strikes = face.strikes();
+    let mut first = None;
+    let mut refused = 0u32;
+    let mut i = Index::ZERO;
+    while strikes.holds(i) {
+        if let Some(StrikeState::Refused(why)) = face.strike(i) {
+            refused += 1;
+            first.get_or_insert((i, why));
+        }
+        i = i.next();
+    }
+    let Some((at, why)) = first else {
+        return Vec::new();
+    };
+    let ppem = face.strike_ppem(at).map_or(0, |p| p.value());
+    let reason = match why {
+        StrikeRefusal::Unsorted { at: j } => format!(
+            "lists its index subtable records out of order: record {} starts before record {}",
+            j.value(),
+            j.prev().map_or(0, |p| p.value())
+        ),
+        StrikeRefusal::PastTable => {
+            "points its index subtable records past the end of its table".to_string()
+        }
+    };
+    let n = strikes.value();
+    let head = if n == 1 {
+        "its one CBLC size is not read".to_string()
+    } else {
+        let verb = if refused == 1 { "is" } else { "are" };
+        format!("{refused} of its {n} CBLC sizes {verb} not read")
+    };
+    let tail = if n == 1 {
+        ""
+    } else if refused == n {
+        "; no size draws"
+    } else {
+        "; the other sizes still draw"
+    };
+    vec![format!(
+        "font {path}: {head}: size {} ({ppem} ppem) {reason}{tail}",
+        at.value()
+    )]
 }
 
 /// The launch clock: `startup_begin` is the first thing `main` does, and
@@ -297,6 +351,73 @@ mod tests {
             let stack = super::stack(&cfg, loaded);
             assert_eq!(stack.select(a).index(), 0, "{extra:?}");
             assert_eq!(stack.select(folder).index(), folder_in, "{extra:?}");
+        }
+    }
+
+    /// **A refused `CBLC` size is said once, at launch.** The Noto subset
+    /// with its first two index subtable records swapped lists them out of
+    /// order, and with 100 records claimed they run past its table: either
+    /// way its one size is refused and the launch log says which and why. The
+    /// cases fixture refuses two of six sizes and names the first. The clean
+    /// subset, the `sbix` fixture and JetBrains Mono say nothing.
+    #[test]
+    fn a_refused_size_is_reported_and_a_clean_face_is_not() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../baud-font/tests/fonts/");
+        let noto = std::fs::read(format!("{dir}NotoColorEmoji-subset.ttf")).unwrap();
+        let n = usize::from(u16::from_be_bytes([noto[4], noto[5]]));
+        let r = (0..n)
+            .map(|i| 12 + 16 * i)
+            .find(|&r| &noto[r..r + 4] == b"CBLC")
+            .unwrap();
+        let at =
+            usize::try_from(u32::from_be_bytes(noto[r + 8..r + 12].try_into().unwrap())).unwrap();
+        let mut swapped = noto.clone();
+        swapped[at + 56..at + 64].copy_from_slice(&noto[at + 64..at + 72]);
+        swapped[at + 64..at + 72].copy_from_slice(&noto[at + 56..at + 64]);
+        let face = baud_font::Face::parse(&swapped).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("noto.ttf", &face),
+            vec![
+                "font noto.ttf: its one CBLC size is not read: size 0 (109 ppem) lists its index subtable \
+                 records out of order: record 1 starts before record 0"
+                    .to_string()
+            ]
+        );
+        // The records claimed past the table: 100 of them, at CBLC+16.
+        let mut past = noto.clone();
+        past[at + 16..at + 20].copy_from_slice(&100u32.to_be_bytes());
+        let face = baud_font::Face::parse(&past).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("noto.ttf", &face),
+            vec![
+                "font noto.ttf: its one CBLC size is not read: size 0 (109 ppem) points its index \
+                 subtable records past the end of its table"
+                    .to_string()
+            ]
+        );
+        // Several sizes, two refused: the first is named and the rest still draw.
+        let cases = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/bitmap/cblc-cases.ttf"
+        ))
+        .unwrap();
+        let face = baud_font::Face::parse(&cases).unwrap();
+        assert_eq!(
+            super::bitmap_refusals("cases.ttf", &face),
+            vec![
+                "font cases.ttf: 2 of its 6 CBLC sizes are not read: size 1 (30 ppem) lists its index \
+                 subtable records out of order: record 1 starts before record 0; the other sizes still draw"
+                    .to_string()
+            ]
+        );
+        for clean in [
+            "NotoColorEmoji-subset.ttf",
+            "sbix-strikes.ttf",
+            "JetBrainsMono-Regular.ttf",
+        ] {
+            let data = std::fs::read(format!("{dir}{clean}")).unwrap();
+            let face = baud_font::Face::parse(&data).unwrap();
+            assert!(super::bitmap_refusals(clean, &face).is_empty(), "{clean}");
         }
     }
 
