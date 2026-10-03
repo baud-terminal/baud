@@ -428,3 +428,64 @@ strikes that hold it, and `flip` is drawn -- and the panel was redrawn with
 it: Apple's row is complete at 40 px, and the other three rows did not
 change. The page says the earlier panel was wrong. CLAUDE.md, "A colour
 bitmap is drawn from a strike that holds it", has the measurements.
+
+## Does a bundled face follow a configured stack? (2026-10-03)
+
+The owner embedded STIX Two Math last in the default stacks (2026-10-02; the
+record's "STIX Two Math is embedded, last in the default stacks"). A
+configured `fonts` replaces the default stack, and behind it baud appends only
+the embedded icon face, under `font_fallback`. So the fix does not reach a
+configured stack, the owner's included. Whether STIX should follow a
+configured stack too (FOLLOW) or stay in the default stack only
+(DEFAULT_ONLY) went to Jev at 0.54, so the prior art was read at source for
+this one axis.
+
+Read from clones on 2026-10-03: WezTerm cab2516 · Ghostty befcdfd · kitty
+7d37453 · Alacritty d692748 with crossfont 0.8.1 (a93d1ee, the version it
+locks) · foot cb27717 with fcft 1ff7e79 · iTerm2 91411f5.
+
+| terminal | a configured font keeps the bundled faces? | keeps the system cascade? | order behind a configured font | switch |
+|---|---|---|---|---|
+| WezTerm | yes: JetBrains Mono, Noto Color Emoji and Symbols Nerd Font Mono are appended to every list (`config/src/font.rs:597-617`) | yes: CoreText per character, or fontconfig | user list → bundled names (an installed copy of a family wins) → system → built-in database | system only: `font_locator = "ConfigDirsOnly"`; bundled only at build time (`vendor-*` features) |
+| Ghostty | yes: JetBrains Mono and Symbols Nerd Font; Noto emoji off macOS; Apple Color Emoji by name on macOS (`src/font/SharedGridSet.zig:158-408`) | yes: CoreText or fontconfig, regular style | user families → embedded → emoji → discovery | none at runtime |
+| kitty | yes: Symbols Nerd Font Mono, loaded unconditionally (`kitty/main.py:375`) | yes | `font_family` and `symbol_map` → system → bundled Nerd (on macOS the Nerd face comes earlier, for the private use area only) | none |
+| Alacritty | bundles none | yes: CoreText's cascade for "en" plus Apple Symbols (crossfont `src/darwin/mod.rs:66-93`), or `FcFontSort` | family → system | none |
+| foot | bundles none | yes: fontconfig's sorted list, appended last (fcft `fcft.c:1349-1353`) | primary → user fallbacks → fontconfig | none |
+| iTerm2 | bundles none | yes: CoreText's implicit substitution in `CTLine` | ASCII font, non-ASCII font, special exceptions → CoreText | none found |
+
+* **Every terminal that bundles faces keeps them behind a configured font,
+  with no runtime switch.** Two maintainers were asked for one and declined:
+  kitty #7866 ("adding a builtin nerd font doesn't change anything except that
+  now those matches actually render the symbols instead of squares") and
+  WezTerm #3349 (the user's list is tried first, so no switch is needed).
+  WezTerm's docs say so: "WezTerm will still append its default fallback to
+  whatever list you specify" (`docs/config/fonts.md:41-42`).
+* **The closest analogue to STIX, a face a terminal names itself for
+  coverage, follows too.** WezTerm's macOS fallback always includes Menlo and
+  Apple Symbols; Menlo went in as "the only font on macOS that contains
+  U+2718" (#849, and the changelog). crossfont always appends Apple Symbols,
+  and Ghostty always appends Apple Color Emoji. No terminal bundles a math or
+  symbols face.
+* **On this Mac STIX Two Math is the only system font with U+23F5**, of 387
+  files scanned (the first face of each collection), and CoreText returns it
+  for U+23F5 and U+23FA by each route these terminals call:
+  `CTFontCreateForString`, the default cascade list, and `CTLine`. So each of
+  them draws Claude Code's arrow behind a configured font from the face baud
+  embeds. That is inferred from the API calls, not from running each terminal.
+* **What the prior art shows going wrong is order, not following.** Ghostty
+  #7204 (its bundled Nerd glyph for U+2665 pre-empting Menlo's) and #12200
+  (bundled Noto Emoji pre-empting text glyphs) are bundled faces placed ahead
+  of better ones. baud puts STIX last.
+
+**What FOLLOW changes in the owner's stack**, from CoreText's character sets,
+crediting each code point to the first face in the stack that has it (not
+baud's presentation-aware choice): of STIX's 4,611 code points, 1,877 are
+boxes today and would draw from STIX, U+23F5 among them. 43 held only by
+Apple Color Emoji would turn from colour to STIX's text glyph under the
+default `font` rule, U+23FA among them (U+23E9-23F3, U+26BD, U+26C4, U+26F5,
+U+2702, U+2709, U+2B1B and others), as 40 did in the default stack when the
+owner chose the embed.
+
+**Jev:** FOLLOW 0.54 with baud's own precedent only; 0.88 (confidence 0.76)
+with the prior art; 0.90 (confidence 0.79) with the measured consequence and
+the owner's earlier trade. On the review page 2026-10-03.
