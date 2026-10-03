@@ -1,11 +1,15 @@
 # AA. The shell's locale, and Hebrew
 
-**Status: open.** The owner's bug of 2026-10-03, with the screenshot: Hebrew
-typed at the zsh prompt in baud showed, letter by letter, `�<0099>�<0097>�<0099>`.
-The owner: "sorry but zsh works fine with hebtrew in mac terminal". The cause
-is the shell's locale and the fix is baud's; once it is fixed the letters still
-cannot draw, because no face baud has maps Hebrew. Both are open decisions
-(section 7). RTL -- reordering, mirroring, an RTL cursor -- is not touched
+**Status: the locale half is built** (2026-10-03; `docs/record.md`, "A shell
+started from the Dock is given a locale"); the face, the Backspace flag's
+route, Linux and the per-language step are open (section 7).
+
+The owner's bug of 2026-10-03, with the screenshot: Hebrew typed at the zsh
+prompt in baud showed, letter by letter, `�<0099>�<0097>�<0099>`. The owner:
+"sorry but zsh works fine with hebtrew in mac terminal". The cause is the
+shell's locale and the fix is baud's; with it built the letters still cannot
+draw, because no face baud has maps Hebrew, and they show as the first face's
+missing-glyph box. RTL -- reordering, mirroring, an RTL cursor -- is not touched
 here: the owner asked for it ("the best one - windows level", research "beyond
 vts") and said not to start that research until they say so.
 
@@ -45,19 +49,22 @@ shell fixes the very next letter (measured).
 ## 2. Why the shell has no locale
 
 baud gives its child its own environment, less 48 outer-terminal identity names
-(`OUTER`, `baud-app/src/pty.rs:114-178`, whose only `LC_` names are iTerm2's
+(`OUTER`, `baud-app/src/pty.rs:116-180`, whose only `LC_` names are iTerm2's
 `LC_TERMINAL*`), plus `TERM`, `COLORTERM`, `TERM_PROGRAM` and
-`TERM_PROGRAM_VERSION` (`OURS`, `:185-191`), built in `child_env` (`:198-217`)
-and passed to `execve`; the macOS and Linux drivers share it (source). Nothing
-in baud sets `LANG` or `LC_*`, and the bundle's `Info.plist` has no
-`LSEnvironment` (measured, each search with a positive control).
+`TERM_PROGRAM_VERSION` (`OURS`, `:187-193`), built in `child_env` (`:220-243`)
+and passed to `execve`; the macOS and Linux drivers share it (source). Before
+2026-10-03 nothing in baud set `LANG` or `LC_*`; since then `child_env` sets
+`LANG` when the parent names no locale (section 7, item 1). The bundle's
+`Info.plist` has no `LSEnvironment` (measured, each search with a positive
+control).
 
 An app the Dock or Finder starts inherits launchd's environment, which has no
 locale: `launchctl getenv LANG` is empty, and the live environments of two
 apps launchd started (KeepingYouAwake, Discord, read with `ps -wwE`) carry
 `PATH`, `HOME` and `SHELL` and no `LANG` or `LC_*` (measured). None of the
 owner's zsh startup files sets one (measured, with controls). So a baud started
-from the Dock hands zsh no locale, and zsh runs in C.
+from the Dock handed zsh no locale, and zsh ran in C, until the fill of
+2026-10-03.
 
 A baud started from a terminal is different: `open -g target/baud.app` run from
 a shell gave the app that shell's whole environment, `LANG=en_US.UTF-8` and the
@@ -117,13 +124,18 @@ override such as `en_US@rg=ilzzzz` reports region `IL`, and `en_IL.UTF-8`
 does not exist -- a derivation must fall back. `scripts/locale/cold_probe.c`:
 in a fresh process the first CoreFoundation read takes 1.2-2.4 ms (a further run
 up to 4.8 ms), a validation 0.18-0.31 ms, `C.UTF-8` 0.05-0.07 ms; warm, each is
-under 0.3 us (three rounds). Inside baud this is unmeasured: the shell is
-spawned before AppKit starts (`baud-app/src/app.rs:4561-4564`), so the read
-would run cold on every Dock launch.
+under 0.3 us (three rounds). Inside baud, measured once the fill was built,
+over twelve launches with launchd's environment: 0.376-0.890 ms by
+`shell_locale`'s own clock, median 0.719. The fresh-process figure does not
+describe the read there (measured). The shell is spawned before AppKit starts
+(`baud-app/src/app.rs:4561-4564`), but after CoreGraphics's `display_scale`, an
+AppKit class call and `Boot::prepare` (`:4570`, `:4575`, `:4588`; source).
+Whether any of these is why the read is cheaper is unmeasured. The launch's
+`pty` mark does not resolve the read (the record has the ranges).
 
 ## 5. Found on the way: Backspace and a whole UTF-8 character
 
-baud's `forkpty` passes no termios (`pty.rs:343-348`), so the pseudo-terminal
+baud's `forkpty` passes no termios (`pty.rs:568-573`), so the pseudo-terminal
 starts with the kernel default `-iutf8`. In line-input mode -- `cat`, `read` --
 a Hebrew letter followed by Backspace leaves its lead byte `d7` in the line;
 with `iutf8` the line is empty; the control `ab` Backspace leaves `61` every
@@ -134,7 +146,7 @@ the child before `exec` (`slave.c:248-261`). baud's `forkpty` creates and forks
 in one call, so the three routes are: pass a termios into `forkpty` (built by
 hand, since a Dock launch has no tty to copy), `openpty` then `fork` and
 `login_tty`, or `tcsetattr` on the child's terminal before `execve` (which
-`tcsetattr`'s async-signal safety permits, against `pty.rs:193-197`'s rule that
+`tcsetattr`'s async-signal safety permits, against `pty.rs:216-219`'s rule that
 the child does nothing but the exec).
 
 ## 6. Hebrew once the locale is right
@@ -176,21 +188,26 @@ say Noto Sans Hebrew is proportional; W's Hebrew test string has no points.
 
 ## 7. Open decisions
 
-1. **How baud gives the shell a locale.** Recommended: set `LANG` only when
-   `LC_ALL`, `LC_CTYPE` and `LANG` are all unset or empty (an empty `LANG` is
-   replaced, never doubled; `LC_TERMINAL*` is not a locale), to the first
-   candidate that validates as in section 4: the user's identifier with
-   `.UTF-8`, then language and region, then `en_US.UTF-8`, then `C.UTF-8`; and
-   nothing if none does. Computed once in the parent through one function that
-   both the spawn and its tests call, and gated on the launch's `pty` mark.
-   Sub-questions: kitty's per-language step (a Hebrew speaker whose region macOS
-   lacks would get `he_IL.UTF-8` rather than `en_US.UTF-8`), and whether Linux
-   fills an unset `LANG` at all (no terminal does; validating in a nix-built
-   parent proves nothing about a host libc the shell uses; it fails safe).
-2. **The Backspace flag**: whether to set `IUTF8`, and by which route.
+1. **How baud gives the shell a locale: built.** `LANG` is set only when
+   `LC_ALL`, `LC_CTYPE` and `LANG` are all unset or empty. An empty `LANG` is
+   replaced, never doubled, and `LC_TERMINAL*` is not a locale. The value is
+   the first candidate that validates as in section 4: the user's identifier
+   without its `@` keywords, with `.UTF-8`, then language and region, then
+   `en_US.UTF-8`, then `C.UTF-8`. Nothing is set if none validates. Jev chose this at 1.00,
+   confidence 0.99. Two sub-questions scored under the bar and are built the
+   cautious way, for the owner to decide:
+   - **kitty's per-language step**, left out (with 0.53, without 0.47,
+     confidence 0.06). With it, a Hebrew speaker whose region macOS lacks
+     would get `he_IL.UTF-8` rather than `en_US.UTF-8`.
+   - **Linux**, which passes its environment on as before (inherit 0.56, fill
+     0.44, confidence 0.12). No terminal surveyed fills there, and validating
+     in a nix-built parent proves nothing about the host libc the shell uses.
+2. **The Backspace flag**: Jev would set `IUTF8` (0.98, confidence 0.96). The
+   route is open: a termios into `forkpty` 0.59, `openpty` and `login_tty`
+   0.21, `tcsetattr` in the child 0.20, confidence 0.39. Not built.
 3. **Which face draws Hebrew**: folded into note W's open fallback-font
    question, with Liberation Mono as the candidate that fits the cell and is
    the same on every system, to be re-measured against W's amended bundle and
    rendered before it is asked.
 
-Each goes to Jev before the owner; nothing above is built yet.
+Each open one goes to the owner's review page, with its picture.

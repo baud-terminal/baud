@@ -2,8 +2,10 @@
 //! macOS and polled beside the compositor's socket on Linux.
 //!
 //! The one place this binary calls libc: `forkpty`, `execve`, `read`,
-//! `write`, `poll`, the `TIOCSWINSZ` ioctl, `mmap` for the font files, and
-//! CoreGraphics for the display's scale before AppKit exists. On macOS the reader thread
+//! `write`, `poll`, the `TIOCSWINSZ` ioctl, `mmap` for the font files,
+//! CoreGraphics for the display's scale before AppKit exists, and
+//! CoreFoundation and `newlocale` for a shell whose environment names no
+//! locale. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
 //! every `read(2)` -- 4096 bytes at a time, which is what `N_TTY_BUF_SIZE`
 //! and the Darwin clist hand back anyway -- to the main thread over a
@@ -190,14 +192,37 @@ const OURS: [(&str, &str); 4] = [
     ("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION")),
 ];
 
+/// The variables a shell reads its locale from: `LC_ALL` outranks every
+/// category, `LC_CTYPE` sets the one that decides how input bytes become
+/// characters, and `LANG` stands under both.
+const LOCALE: [&str; 3] = ["LC_ALL", "LC_CTYPE", "LANG"];
+
+/// **Whether the parent names a locale**: one of [`LOCALE`] set and not
+/// empty -- POSIX reads an empty one as unset. Other `LC_` names do not
+/// count: each sets one category and leaves the character type to `LANG`,
+/// and iTerm2's `LC_TERMINAL` is a terminal's name, not a locale's. The one
+/// test both [`spawn_env`] and [`child_env`] ask, so the two cannot
+/// disagree about when a locale is filled.
+fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
+    parent
+        .iter()
+        .any(|(k, v)| !v.is_empty() && LOCALE.iter().any(|l| l.as_bytes() == k.as_bytes()))
+}
+
 /// The child's environment: the parent's, less every variable in
-/// [`OUTER`] and every one baud sets, then baud's own in [`OURS`]. Built in
-/// the parent, before the fork, so the child does nothing between `fork`
-/// and `exec` but the exec -- no `putenv`, which may reallocate the
-/// environment array in a process that was multi-threaded a moment ago.
-fn child_env(parent: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<CString> {
+/// [`OUTER`] and every one baud sets, then baud's own in [`OURS`] -- and
+/// `LANG` set to `locale` when the parent names no locale
+/// ([`names_a_locale`]), replacing an empty one rather than adding a second
+/// that `getenv`, which reads the first, would never see. Built in the
+/// parent, before the fork, so the child does nothing between `fork` and
+/// `exec` but the exec -- no `putenv`, which may reallocate the environment
+/// array in a process that was multi-threaded a moment ago.
+fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
+    let fill = locale.filter(|_| !names_a_locale(&parent));
     let dropped = |k: &[u8]| {
-        OUTER.iter().any(|o| o.as_bytes() == k) || OURS.iter().any(|(o, _)| o.as_bytes() == k)
+        OUTER.iter().any(|o| o.as_bytes() == k)
+            || OURS.iter().any(|(o, _)| o.as_bytes() == k)
+            || (fill.is_some() && k == b"LANG")
     };
     let mut env: Vec<CString> = parent
         .into_iter()
@@ -213,7 +238,195 @@ fn child_env(parent: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<CStr
         OURS.iter()
             .filter_map(|(k, v)| CString::new(format!("{k}={v}")).ok()),
     );
+    env.extend(fill.and_then(|l| CString::new(format!("LANG={l}")).ok()));
     env
+}
+
+/// **The environment a shell is spawned with**: [`child_env`], with a
+/// locale asked of `locale` only when the parent names none. A Dock launch
+/// inherits launchd's environment, which has no locale, and zsh in the C
+/// locale reads each byte of a UTF-8 character as a character of its own:
+/// the owner's Hebrew came out as `U+FFFD` and `<0099>`
+/// (`docs/research/notes/aa-shell-locale.md`). On macOS the answer is
+/// CoreFoundation's, and a launch from a terminal, which passes its `LANG`
+/// on, never pays for it.
+fn spawn_env(
+    parent: Vec<(OsString, OsString)>,
+    locale: impl FnOnce() -> Option<String>,
+) -> Vec<CString> {
+    let found = (!names_a_locale(&parent)).then(locale).flatten();
+    child_env(parent, found.as_deref())
+}
+
+/// **The names a shell's locale is tried as**, in order, each as UTF-8 and
+/// each once: the user's identifier without its `@` keywords (a region
+/// override, `en_US@rg=ilzzzz`, is no part of a POSIX name), their language
+/// and region (`zh_CN` for `zh-Hans_CN`), then `en_US`, then `C`. Language
+/// and region can name a locale the system lacks -- English in Israel,
+/// `en_IL` -- which is why each name is checked rather than trusted.
+#[cfg(target_os = "macos")]
+fn locale_candidates(
+    identifier: Option<&str>,
+    language: Option<&str>,
+    region: Option<&str>,
+) -> Vec<String> {
+    fn given(s: Option<&str>) -> Option<&str> {
+        s.filter(|s| !s.is_empty())
+    }
+    let own = given(identifier)
+        .map(|id| id.split_once('@').map_or(id, |(base, _)| base))
+        .filter(|base| !base.is_empty())
+        .map(str::to_string);
+    let pair = given(language)
+        .zip(given(region))
+        .map(|(l, r)| format!("{l}_{r}"));
+    let mut names: Vec<String> = Vec::new();
+    for base in own
+        .into_iter()
+        .chain(pair)
+        .chain(["en_US".to_string(), "C".to_string()])
+    {
+        let name = format!("{base}.UTF-8");
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// The first of `candidates` that `valid` accepts.
+#[cfg(target_os = "macos")]
+fn first_valid(candidates: &[String], valid: impl Fn(&str) -> bool) -> Option<String> {
+    candidates.iter().find(|c| valid(c)).cloned()
+}
+
+/// **Whether the system has `name` as a UTF-8 locale**: `newlocale` loads
+/// it for every category and its character set reads `UTF-8`. Every
+/// category, because `LANG` feeds them all and a shell's
+/// `setlocale(LC_ALL, "")` fails whole when one cannot load -- the
+/// character type alone accepts `UTF-8`, which the whole mask refuses. The
+/// character set, because `C`, `POSIX` and a bare `en_US` all load and are
+/// not UTF-8. An empty name is refused first: `newlocale` reads it as the
+/// environment's own locale, the one being replaced. Measured on macOS 27
+/// (`scripts/locale/validate_probe.c`).
+#[cfg(target_os = "macos")]
+fn is_utf8_locale(name: &str) -> bool {
+    use crate::sys::{CODESET, LC_ALL_MASK, freelocale, newlocale, nl_langinfo_l};
+    if name.is_empty() {
+        return false;
+    }
+    let Ok(name) = CString::new(name) else {
+        return false;
+    };
+    // SAFETY: `name` is NUL-terminated and outlives the call; a null base
+    // asks for a new object.
+    let locale = unsafe { newlocale(LC_ALL_MASK, name.as_ptr(), core::ptr::null_mut()) };
+    if locale.is_null() {
+        return false;
+    }
+    // SAFETY: `locale` is the live object just made, freed once here after
+    // the string `nl_langinfo_l` returns for it -- which lives as long as
+    // the object does -- has been read.
+    unsafe {
+        let set = nl_langinfo_l(CODESET, locale);
+        let utf8 = !set.is_null() && std::ffi::CStr::from_ptr(set).to_bytes() == b"UTF-8";
+        freelocale(locale);
+        utf8
+    }
+}
+
+/// A CoreFoundation string as text: `None` for null, or for one longer than
+/// 63 bytes -- a locale's identifier, language or region is a few letters.
+#[cfg(target_os = "macos")]
+fn cf_text(s: crate::sys::CfString) -> Option<String> {
+    if s.is_null() {
+        return None;
+    }
+    let mut buf = [0u8; 64];
+    let size = crate::sys::CfIndex::try_from(buf.len()).ok()?;
+    // SAFETY: `s` is a live string, owned by a locale that outlives the
+    // call or a framework constant, and `buf` is writable for the `size`
+    // bytes passed.
+    let ok = unsafe {
+        crate::sys::CFStringGetCString(
+            s,
+            buf.as_mut_ptr().cast(),
+            size,
+            crate::sys::CF_STRING_ENCODING_UTF8,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    Some(
+        std::ffi::CStr::from_bytes_until_nul(&buf)
+            .ok()?
+            .to_str()
+            .ok()?
+            .to_string(),
+    )
+}
+
+/// The user's locale identifier, language and region, as CoreFoundation
+/// reads them from their preferences -- `en_US`, `en` and `US` on this Mac
+/// -- whatever the environment says.
+#[cfg(target_os = "macos")]
+fn users_locale() -> (Option<String>, Option<String>, Option<String>) {
+    use crate::sys::{
+        CF_LOCALE_COUNTRY_CODE, CF_LOCALE_LANGUAGE_CODE, CFLocaleCopyCurrent,
+        CFLocaleGetIdentifier, CFLocaleGetValue, CFRelease,
+    };
+    // SAFETY: `CFLocaleCopyCurrent` has no preconditions and returns a
+    // reference this function owns, checked for null and released once;
+    // the strings the `Get` calls return belong to the locale and are
+    // copied out before it is released. The keys are framework constants,
+    // read as the pointers they are.
+    unsafe {
+        let locale = CFLocaleCopyCurrent();
+        if locale.is_null() {
+            return (None, None, None);
+        }
+        let got = (
+            cf_text(CFLocaleGetIdentifier(locale)),
+            cf_text(CFLocaleGetValue(locale, CF_LOCALE_LANGUAGE_CODE)),
+            cf_text(CFLocaleGetValue(locale, CF_LOCALE_COUNTRY_CODE)),
+        );
+        CFRelease(locale);
+        got
+    }
+}
+
+/// **The locale a shell is given when its environment names none**: the
+/// user's, as CoreFoundation reads their preferences, if the system has it
+/// as UTF-8, else the first fallback that is ([`locale_candidates`]);
+/// `None` when none is, which leaves the environment as it was. What it
+/// cost, and that it was asked at all, print under `BAUD_STARTUP`.
+#[cfg(target_os = "macos")]
+fn shell_locale() -> Option<String> {
+    let asked = std::time::Instant::now();
+    let (identifier, language, region) = users_locale();
+    let found = first_valid(
+        &locale_candidates(
+            identifier.as_deref(),
+            language.as_deref(),
+            region.as_deref(),
+        ),
+        is_utf8_locale,
+    );
+    crate::host::startup_note(&format!(
+        "locale: {} in {:.3} ms",
+        found.as_deref().unwrap_or("none"),
+        asked.elapsed().as_secs_f64() * 1e3
+    ));
+    found
+}
+
+/// On Linux the parent's environment passes on as it is, as it does from
+/// every terminal surveyed (note AA, section 3); whether baud should fill
+/// an unset `LANG` there is open.
+#[cfg(target_os = "linux")]
+fn shell_locale() -> Option<String> {
+    None
 }
 
 /// `prog` as a path `execve` can take: itself when it names a path, else
@@ -283,7 +496,19 @@ impl Pty {
     /// so it had nothing to send and the zero stood until the window changed.
     fn fork(ws: crate::sys::Winsize) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
-        Pty::fork_with(ws, cmd, child_env(std::env::vars_os()))
+        Pty::fork_from(ws, cmd, std::env::vars_os().collect(), shell_locale)
+    }
+
+    /// [`Pty::fork`] with every input given: the command, the parent's
+    /// environment and where a locale comes from when the parent names
+    /// none -- so a test runs the whole spawn, the locale included.
+    fn fork_from(
+        ws: crate::sys::Winsize,
+        cmd: Option<String>,
+        parent: Vec<(OsString, OsString)>,
+        locale: impl FnOnce() -> Option<String>,
+    ) -> Option<crate::sys::Fd> {
+        Pty::fork_with(ws, cmd, spawn_env(parent, locale))
     }
 
     /// [`Pty::fork`] with the command and the environment given rather
@@ -835,7 +1060,7 @@ mod tests {
         want.push("BAUD_KEPT=yes".into());
         want.push("HOME=/nowhere".into());
         want.sort();
-        assert_eq!(strings(&child_env(outer_parent())), want);
+        assert_eq!(strings(&child_env(outer_parent(), None)), want);
     }
 
     /// The list is what it says: no entry is one of baud's own, which
@@ -866,20 +1091,10 @@ mod tests {
         let master = Pty::fork_with(
             text_area(&size, Px::of(8), Px::of(16)),
             Some("exec /usr/bin/env".into()),
-            child_env(outer_parent()),
+            child_env(outer_parent(), None),
         )
         .expect("forkpty");
-        let mut out = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            // SAFETY: `buf` is a live, writable buffer of the length passed.
-            let n = unsafe { crate::sys::read(master, buf.as_mut_ptr().cast(), buf.len()) };
-            let Ok(n) = usize::try_from(n) else { break };
-            if n == 0 {
-                break;
-            }
-            out.extend_from_slice(&buf[..n]);
-        }
+        let out = read_all(master);
         let text = String::from_utf8_lossy(&out);
         let lines: Vec<&str> = text.lines().map(|l| l.trim_end_matches('\r')).collect();
         assert!(
@@ -904,6 +1119,332 @@ mod tests {
                 "the child inherited {gone}: {text:?}"
             );
         }
+    }
+
+    /// `outer_parent()` with `extra` added.
+    fn parent_with(extra: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        let mut parent = outer_parent();
+        parent.extend(
+            extra
+                .iter()
+                .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+        );
+        parent
+    }
+
+    fn langs(env: &[CString]) -> Vec<String> {
+        strings(env)
+            .into_iter()
+            .filter(|e| e.starts_with("LANG="))
+            .collect()
+    }
+
+    /// **A shell that inherited no locale is given the one baud found**,
+    /// once, beside everything else as before. The name is `he_IL.UTF-8` so
+    /// that neither this Mac's locale nor a test runner's own `LANG` can pass
+    /// it by accident.
+    #[test]
+    fn a_child_with_no_locale_is_given_the_one_baud_found() {
+        let mut want = ours();
+        want.push("BAUD_KEPT=yes".into());
+        want.push("HOME=/nowhere".into());
+        want.push("LANG=he_IL.UTF-8".into());
+        want.sort();
+        assert_eq!(
+            strings(&child_env(outer_parent(), Some("he_IL.UTF-8"))),
+            want
+        );
+    }
+
+    /// A locale the parent named wins: its `LANG`, or an `LC_ALL` or
+    /// `LC_CTYPE`, which outrank `LANG`, leaves the environment as given.
+    #[test]
+    fn a_locale_the_parent_set_is_kept() {
+        let env = child_env(parent_with(&[("LANG", "fr_FR.UTF-8")]), Some("he_IL.UTF-8"));
+        assert_eq!(langs(&env), ["LANG=fr_FR.UTF-8"]);
+        for (k, v) in [("LC_ALL", "he_IL.UTF-8"), ("LC_CTYPE", "UTF-8")] {
+            let env = child_env(parent_with(&[(k, v)]), Some("he_IL.UTF-8"));
+            assert!(
+                langs(&env).is_empty(),
+                "{k} named a locale: {:?}",
+                strings(&env)
+            );
+            assert!(strings(&env).contains(&format!("{k}={v}")), "{k} kept");
+        }
+    }
+
+    /// An empty variable is no locale: an empty `LANG` is replaced, never
+    /// doubled -- `getenv` reads the first entry, which would be the empty
+    /// one -- and empty `LC_ALL` and `LC_CTYPE` do not stop the fill.
+    #[test]
+    fn an_empty_locale_variable_is_replaced_not_duplicated() {
+        let env = child_env(parent_with(&[("LANG", "")]), Some("he_IL.UTF-8"));
+        assert_eq!(langs(&env), ["LANG=he_IL.UTF-8"]);
+        let env = child_env(
+            parent_with(&[("LC_ALL", ""), ("LC_CTYPE", "")]),
+            Some("he_IL.UTF-8"),
+        );
+        assert_eq!(langs(&env), ["LANG=he_IL.UTF-8"]);
+    }
+
+    /// iTerm2's `LC_TERMINAL` and `LC_TERMINAL_VERSION` name a terminal, not
+    /// a locale: they go as outer identity and do not stop the fill.
+    #[test]
+    fn lc_terminal_is_a_terminal_not_a_locale() {
+        let env = child_env(
+            parent_with(&[("LC_TERMINAL", "iTerm2"), ("LC_TERMINAL_VERSION", "3.5")]),
+            Some("he_IL.UTF-8"),
+        );
+        assert_eq!(langs(&env), ["LANG=he_IL.UTF-8"]);
+        assert!(!strings(&env).iter().any(|e| e.starts_with("LC_TERMINAL")));
+    }
+
+    /// The spawn asks for a locale only when the parent named none -- the
+    /// answer is CoreFoundation's, read from the user's preferences -- fills
+    /// it then, and leaves the environment as before when none is found. An
+    /// empty `LANG` and `LC_TERMINAL` alone name none; `LC_ALL` and
+    /// `LC_CTYPE` do.
+    #[test]
+    fn the_spawn_asks_for_a_locale_only_when_the_parent_named_none() {
+        let asked = |parent: Vec<(OsString, OsString)>| {
+            let called = std::cell::Cell::new(false);
+            let env = spawn_env(parent, || {
+                called.set(true);
+                Some("he_IL.UTF-8".into())
+            });
+            (called.get(), langs(&env))
+        };
+        let filled = vec!["LANG=he_IL.UTF-8".to_string()];
+        assert_eq!(
+            asked(parent_with(&[("LANG", "fr_FR.UTF-8")])),
+            (false, vec!["LANG=fr_FR.UTF-8".to_string()])
+        );
+        assert_eq!(
+            asked(parent_with(&[("LC_ALL", "he_IL.UTF-8")])),
+            (false, vec![])
+        );
+        assert_eq!(
+            asked(parent_with(&[("LC_CTYPE", "UTF-8")])),
+            (false, vec![])
+        );
+        assert_eq!(asked(outer_parent()), (true, filled.clone()));
+        assert_eq!(asked(parent_with(&[("LANG", "")])), (true, filled.clone()));
+        assert_eq!(
+            asked(parent_with(&[("LC_TERMINAL", "iTerm2")])),
+            (true, filled)
+        );
+        assert_eq!(
+            strings(&spawn_env(outer_parent(), || None)),
+            strings(&child_env(outer_parent(), None))
+        );
+    }
+
+    /// The names a shell's locale is tried as: the user's identifier
+    /// without its `@` keywords, their language and region, then `en_US`
+    /// and `C`, each as UTF-8 and each once. The first the system has wins;
+    /// none, nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_candidates_run_from_the_users_locale_to_the_fallbacks() {
+        assert_eq!(
+            locale_candidates(Some("he_IL"), Some("he"), Some("IL")),
+            ["he_IL.UTF-8", "en_US.UTF-8", "C.UTF-8"]
+        );
+        assert_eq!(
+            locale_candidates(Some("en_US@rg=ilzzzz"), Some("en"), Some("IL")),
+            ["en_US.UTF-8", "en_IL.UTF-8", "C.UTF-8"]
+        );
+        assert_eq!(
+            locale_candidates(None, None, None),
+            ["en_US.UTF-8", "C.UTF-8"]
+        );
+        let he_us = locale_candidates(Some("he_US"), Some("he"), Some("US"));
+        assert_eq!(
+            first_valid(&he_us, |n| n != "he_US.UTF-8"),
+            Some("en_US.UTF-8".into())
+        );
+        assert_eq!(first_valid(&he_us, |_| false), None);
+    }
+
+    /// Only a UTF-8 locale the system has is handed over. Refused: an empty
+    /// name (which `newlocale` reads as the environment's), C and POSIX
+    /// (ASCII), names the system lacks, a bare `en_US` (no codeset), and
+    /// `UTF-8`, which the character type alone would accept. The positive
+    /// controls are names every Mac has.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_a_utf8_locale_the_system_has_is_accepted() {
+        for bad in [
+            "",
+            "C",
+            "POSIX",
+            "bogus_XX.UTF-8",
+            "en_IL.UTF-8",
+            "en_US",
+            "UTF-8",
+            "en_US.utf8",
+        ] {
+            assert!(!is_utf8_locale(bad), "{bad:?} was accepted");
+        }
+        for good in ["en_US.UTF-8", "he_IL.UTF-8", "C.UTF-8"] {
+            assert!(is_utf8_locale(good), "{good} was refused");
+        }
+        let he_us = locale_candidates(Some("he_US"), Some("he"), Some("US"));
+        assert_eq!(
+            first_valid(&he_us, is_utf8_locale),
+            Some("en_US.UTF-8".into())
+        );
+    }
+
+    /// On this Mac the user's locale is found, and it is one the system has.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_users_locale_is_found_and_is_utf8() {
+        let found = shell_locale().expect("en_US.UTF-8 and C.UTF-8 are on every Mac");
+        assert!(is_utf8_locale(&found), "{found}");
+    }
+
+    /// Everything a forked child writes, until it exits.
+    fn read_all(master: crate::sys::Fd) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            // SAFETY: `buf` is a live, writable buffer of the length passed.
+            let n = unsafe { crate::sys::read(master, buf.as_mut_ptr().cast(), buf.len()) };
+            let Ok(n) = usize::try_from(n) else { break };
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+        out
+    }
+
+    /// **A shell a pty forks counts a Hebrew letter as one character**, and
+    /// names the locale it was given -- through the whole spawn,
+    /// [`Pty::fork_from`], from a parent that named none. Without a locale
+    /// (the control) the same command counts the letter's two bytes, so the
+    /// probe can fire.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_shell_spawned_without_a_locale_counts_a_hebrew_letter_as_one() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let run = |locale: Option<&str>| {
+            let locale = locale.map(str::to_string);
+            let master = Pty::fork_from(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some(r#"printf '%s|' "$LANG"; printf '\327\231' | /usr/bin/wc -m"#.into()),
+                outer_parent(),
+                move || locale,
+            )
+            .expect("forkpty");
+            String::from_utf8_lossy(&read_all(master)).replace(char::is_whitespace, "")
+        };
+        assert_eq!(run(Some("he_IL.UTF-8")), "he_IL.UTF-8|1");
+        assert_eq!(
+            run(None),
+            "|2",
+            "the control: with no locale the letter is two bytes"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn holds(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// **zsh echoes a typed Hebrew letter whole** -- the owner's symptom at
+    /// its source. zsh runs on the pty with no rc file; once its line editor
+    /// is reading (it turns bracketed paste on, `CSI ? 2004 h`, as it starts
+    /// each line -- zsh takes no prompt from the environment, so the prompt
+    /// cannot be the marker), the letter's two bytes are typed, then Return
+    /// (zsh answers that no such command exists) and `exit`. With a locale
+    /// the echo carries `d7 99` and no `<0099>`; without one (the control)
+    /// zsh prints `<0099>`, as it did on the owner's screen.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn zsh_echoes_a_hebrew_letter_whole() {
+        let echo = |locale: Option<&str>| -> Vec<u8> {
+            let size = WinSize {
+                ws_col: 80,
+                ws_row: 24,
+            };
+            let locale = locale.map(str::to_string);
+            let master = Pty::fork_from(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some("exec /bin/zsh -f -i".into()),
+                outer_parent(),
+                move || locale,
+            )
+            .expect("forkpty");
+            let (tx, rx) = channel::<Vec<u8>>();
+            let reader = std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                loop {
+                    // SAFETY: `buf` is a live, writable buffer of the length passed.
+                    let n = unsafe { crate::sys::read(master, buf.as_mut_ptr().cast(), buf.len()) };
+                    let Ok(n) = usize::try_from(n) else { break };
+                    if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            });
+            let mut seen = Vec::new();
+            let wait_for = |seen: &mut Vec<u8>, needle: &[u8], from: usize| {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while !holds(&seen[from.min(seen.len())..], needle) {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    match rx.recv_timeout(left) {
+                        Ok(chunk) => seen.extend(chunk),
+                        Err(_) => panic!(
+                            "zsh never wrote {:?}: {:?}",
+                            String::from_utf8_lossy(needle),
+                            String::from_utf8_lossy(seen)
+                        ),
+                    }
+                }
+            };
+            let typed = |bytes: &[u8]| {
+                // SAFETY: `bytes` is a live buffer of the length passed.
+                let n = unsafe { crate::sys::write(master, bytes.as_ptr().cast(), bytes.len()) };
+                assert_eq!(
+                    usize::try_from(n).ok(),
+                    Some(bytes.len()),
+                    "the pty took the bytes"
+                );
+            };
+            const READING: &[u8] = b"\x1b[?2004h";
+            wait_for(&mut seen, READING, 0);
+            let first_line = seen.len();
+            typed(b"\xd7\x99\r");
+            wait_for(&mut seen, READING, first_line);
+            typed(b"exit\r");
+            for chunk in rx {
+                seen.extend(chunk);
+            }
+            reader.join().expect("the reader");
+            seen
+        };
+        let with = echo(Some("he_IL.UTF-8"));
+        assert!(
+            holds(&with, b"\xd7\x99"),
+            "the letter's bytes: {:?}",
+            String::from_utf8_lossy(&with)
+        );
+        assert!(
+            !holds(&with, b"<0099>"),
+            "zsh escaped the letter: {:?}",
+            String::from_utf8_lossy(&with)
+        );
+        let without = echo(None);
+        assert!(
+            holds(&without, b"<0099>"),
+            "the control: with no locale zsh prints <0099>: {:?}",
+            String::from_utf8_lossy(&without)
+        );
     }
 
     /// What the kernel holds for the pty behind `master` -- read back rather
@@ -969,7 +1510,7 @@ mod tests {
         let master = Pty::fork_with(
             first,
             Some("exec /bin/cat".into()),
-            child_env(outer_parent()),
+            child_env(outer_parent(), None),
         )
         .expect("forkpty");
         assert_eq!(ask(master), first, "the fork did not carry the pixels");

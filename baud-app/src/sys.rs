@@ -8,12 +8,14 @@
 //! opens close-on-exec, answers the length from `metadata` and closes on
 //! drop; that took the surface from twenty-five items to ten. Everything
 //! left is something `std` has no API for: a pty, an ioctl, a poll over
-//! two descriptors, a mapping, Darwin's raw uptime clock, and a symbol
-//! looked up at run time because older systems do not have it.
+//! two descriptors, a mapping, Darwin's raw uptime clock, a symbol
+//! looked up at run time because older systems do not have it, and the
+//! user's locale -- read from CoreFoundation and checked with `newlocale`
+//! -- for a shell whose environment names none.
 //!
 //! **Every layout and constant below is checked against the platform's own
-//! headers** by `tests/abi.rs`, which compiles a C probe with `cc` and
-//! compares what it prints. A wrong *signature* usually fails to link; a
+//! headers** by this file's tests, which compile a C probe with `cc` and
+//! compare what it prints. A wrong *signature* usually fails to link; a
 //! wrong *field order* compiles, links, and quietly reads the wrong
 //! member, so the struct half cannot be left to reading.
 
@@ -153,6 +155,100 @@ unsafe extern "C" {
 // **A symbol looked up rather than linked**, because it exists only from
 // macOS 15: `AXPrefersNonBlinkingTextInsertionIndicator`. Linking it would
 // fail to load on an older system; looking it up answers null there.
+/// A locale object as `newlocale` hands one out: opaque, freed by
+/// [`freelocale`]. Used to check a locale name before a shell is given it.
+#[cfg(target_os = "macos")]
+pub type Locale = *mut c_void;
+
+/// `newlocale`'s mask for every category. `LANG` feeds them all, and a
+/// shell's `setlocale(LC_ALL, "")` fails as a whole when one cannot load,
+/// so a name is checked against all of them, not the character type alone
+/// (which accepts `UTF-8`, a name the whole mask refuses).
+#[cfg(target_os = "macos")]
+pub const LC_ALL_MASK: c_int = 63;
+
+/// `nl_langinfo`'s item, an `int`.
+#[cfg(target_os = "macos")]
+pub type NlItem = c_int;
+
+/// The item that names a locale's character set.
+#[cfg(target_os = "macos")]
+pub const CODESET: NlItem = 0;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    pub fn newlocale(mask: c_int, name: *const c_char, base: Locale) -> Locale;
+    pub fn nl_langinfo_l(item: NlItem, locale: Locale) -> *const c_char;
+    pub fn freelocale(locale: Locale);
+}
+
+/// CoreFoundation's signed count, a `long`.
+#[cfg(target_os = "macos")]
+pub type CfIndex = core::ffi::c_long;
+
+/// The encoding `CFStringGetCString` is asked to write in, a `UInt32`.
+#[cfg(target_os = "macos")]
+pub type CfStringEncoding = u32;
+
+/// `kCFStringEncodingUTF8`.
+#[cfg(target_os = "macos")]
+pub const CF_STRING_ENCODING_UTF8: CfStringEncoding = 0x0800_0100;
+
+/// CoreFoundation's `Boolean`, an `unsigned char`.
+#[cfg(target_os = "macos")]
+pub type CfBoolean = u8;
+
+/// A CoreFoundation locale, as `CFLocaleCopyCurrent` hands one out: an
+/// opaque reference the caller releases.
+#[cfg(target_os = "macos")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct CfLocale(*const c_void);
+
+/// A CoreFoundation string: an opaque reference, here only ever one a
+/// locale owns or a framework constant, so nothing releases it.
+#[cfg(target_os = "macos")]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct CfString(*const c_void);
+
+#[cfg(target_os = "macos")]
+impl CfLocale {
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl CfString {
+    pub fn is_null(self) -> bool {
+        self.0.is_null()
+    }
+}
+
+// The user's locale, from their preferences rather than the environment,
+// which a Dock launch leaves without one.
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    pub fn CFLocaleCopyCurrent() -> CfLocale;
+    pub fn CFLocaleGetIdentifier(locale: CfLocale) -> CfString;
+    /// Declared returning a string: the two keys below are the only ones
+    /// asked, and the value of each is one, or null.
+    pub fn CFLocaleGetValue(locale: CfLocale, key: CfString) -> CfString;
+    pub fn CFStringGetCString(
+        s: CfString,
+        buf: *mut c_char,
+        size: CfIndex,
+        encoding: CfStringEncoding,
+    ) -> CfBoolean;
+    pub fn CFRelease(locale: CfLocale);
+    #[link_name = "kCFLocaleLanguageCode"]
+    pub static CF_LOCALE_LANGUAGE_CODE: CfString;
+    #[link_name = "kCFLocaleCountryCode"]
+    pub static CF_LOCALE_COUNTRY_CODE: CfString;
+}
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     pub fn dlopen(path: *const c_char, mode: c_int) -> *mut c_void;
@@ -180,7 +276,11 @@ mod tests {
 #include <sys/mman.h>
 #include <time.h>
 #ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
 #include <dlfcn.h>
+#include <langinfo.h>
+#include <locale.h>
+#include <xlocale.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -204,6 +304,16 @@ int main(void) {
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
 #endif
 #ifdef __APPLE__
+    printf("locale_t.size=%zu\n", sizeof(locale_t));
+    printf("nl_item.size=%zu\n", sizeof(nl_item));
+    printf("LC_ALL_MASK=%lld\n", (long long)LC_ALL_MASK);
+    printf("CODESET=%lld\n", (long long)CODESET);
+    printf("CFIndex.size=%zu\n", sizeof(CFIndex));
+    printf("CFStringEncoding.size=%zu\n", sizeof(CFStringEncoding));
+    printf("Boolean.size=%zu\n", sizeof(Boolean));
+    printf("CFLocaleRef.size=%zu\n", sizeof(CFLocaleRef));
+    printf("CFStringRef.size=%zu\n", sizeof(CFStringRef));
+    printf("kCFStringEncodingUTF8=%lld\n", (long long)kCFStringEncodingUTF8);
     printf("RTLD_LAZY=%lld\n", (long long)RTLD_LAZY);
     printf("RTLD_LOCAL=%lld\n", (long long)RTLD_LOCAL);
     printf("RTLD_NOLOAD=%lld\n", (long long)RTLD_NOLOAD);
@@ -279,6 +389,19 @@ int main(void) {
         #[cfg(target_os = "linux")]
         assert_eq!(h["nfds.size"], size_of::<Nfds>() as i128);
         assert_eq!(h["request.size"], size_of::<c_ulong>() as i128);
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
+            assert_eq!(h["nl_item.size"], size_of::<NlItem>() as i128);
+            assert_eq!(h["CFIndex.size"], size_of::<CfIndex>() as i128);
+            assert_eq!(
+                h["CFStringEncoding.size"],
+                size_of::<CfStringEncoding>() as i128
+            );
+            assert_eq!(h["Boolean.size"], size_of::<CfBoolean>() as i128);
+            assert_eq!(h["CFLocaleRef.size"], size_of::<CfLocale>() as i128);
+            assert_eq!(h["CFStringRef.size"], size_of::<CfString>() as i128);
+        }
     }
 
     #[test]
@@ -294,6 +417,12 @@ int main(void) {
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));
+            assert_eq!(h["LC_ALL_MASK"], i128::from(LC_ALL_MASK));
+            assert_eq!(h["CODESET"], i128::from(CODESET));
+            assert_eq!(
+                h["kCFStringEncodingUTF8"],
+                i128::from(CF_STRING_ENCODING_UTF8)
+            );
             assert_eq!(h["RTLD_LAZY"], i128::from(RTLD_LAZY));
             assert_eq!(h["RTLD_LOCAL"], i128::from(RTLD_LOCAL));
             assert_eq!(h["RTLD_NOLOAD"], i128::from(RTLD_NOLOAD));
