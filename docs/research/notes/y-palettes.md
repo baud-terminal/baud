@@ -5,7 +5,7 @@ and `534643a`, which built steps 1 and 2 of section 12 in another session
 while this was being written, are described from their commits and tests. Line numbers in baud files are at
 `c836eaf` unless a line says otherwise. This note
 is V16 of note V, re-researched after the owner's answers of 2026-09-25 and
-decided by his answers of 2026-09-29. It synthesises eight source sweeps
+decided by their answers of 2026-09-29. It synthesises eight source sweeps
 (formats, switching, notify, floor, lightset, lscolors, baud's own code, and
 vogix). Each sweep was checked by a second agent whose job was to refute it,
 and two critics then read the draft, one against the owner's words and one
@@ -63,14 +63,14 @@ contrast floor on what it draws. Section 3 is the evidence.
 ## 1. What the owner said, in order
 
 Verbatim, from the transcripts, read record by record rather than from
-session summaries. Option texts he selected are labelled as option texts, not
-as his words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
+session summaries. Option texts they selected are labelled as option texts, not
+as their words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
 
 1. **2026-09-25, on V16** (<session> l.5295): "no what i mean is there
    terminal has LS_COLORS i think or somethig like that, what other VTs are
    doing? as i know there are a bunch like base16/24/ansi/etc and i have also
    vogix16 so maybe research here is needed".
-2. **21:57:44Z, an option he selected** (l.6523; the question at l.6522):
+2. **21:57:44Z, an option they selected** (l.6523; the question at l.6522):
    "Theme pair + legible default (Recommended)". The option text: "`[palette]
    light`/`dark` naming vogix16 day/night, base16/base24, or ghostty-format
    files, switched live with macOS appearance (ghostty, kitty, contour,
@@ -92,7 +92,7 @@ as his words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
    later work". On the mapping, endorsing the recommended option "Published
    mapping + contrast floor": "i like what you recommend so we need to have a
    type so we can also support base24 or future ones, i like it". **The
-   option text he endorsed, in full**: "Each format's own published mapping
+   option text they endorsed, in full**: "Each format's own published mapping
    (so a scheme looks as it does in kitty, ghostty, wezterm; vogix16 by
    vogix's templates), plus a narrow floor that nudges text only when it would
    be invisible against its own background (ghostty documents 1.1 as a good
@@ -102,8 +102,8 @@ as his words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
    "again, this should align with how osx settings are, isn't that what
    glassterm is doing, it depends on the osx settings".
 6. **Standing rules**: "we need to support such protocols fully, always!"
-   (<session> l.5251, his message); "i always want you to research first" and
-   "it needs to be VERY EXTREMLY OPTIMIZED" (his spelling), which survive only
+   (<session> l.5251, their message); "i always want you to research first" and
+   "it needs to be VERY EXTREMLY OPTIMIZED" (their spelling), which survive only
    in the session's compaction summaries as "the owner, verbatim" (l.7068,
    l.7660), the raw messages predating the compaction and not read; and, for
    caching, tables and residency, baud's own idioms first.
@@ -126,7 +126,7 @@ as his words. Session <session> is 2026-09-25; session <session> is 2026-09-29.
    (Recommended)" (l.962), whose question said "fix anything under 3:1".
    Faint and the floor's default: the option "Fix faint; floor on
    (Recommended)" (l.962). **The thresholds 1.2, 3.0 and 4.5 are the
-   questions' and options' numbers, not figures he typed.**
+   questions' and options' numbers, not figures they typed.**
 
 
 ## 2. Decisions taken
@@ -143,7 +143,7 @@ twelve owner questions; nothing in this list is open.
    30-47; [[source: base24-styling]] 45-70). ghostty and other ansi16-style
    files keep their own `background` and `foreground` as the page and the
    text. Entries 16-21 are parsed and not written, so 16-255 stay xterm's.
-   **A scheme type that other formats can join later**, as he asked: "we need
+   **A scheme type that other formats can join later**, as they asked: "we need
    to have a type so we can also support base24 or future ones".
 3. **The built-in light sixteen is Modus Operandi**, the sixteen hex values of
    the Emacs `ansi-color` mapping:
@@ -158,7 +158,7 @@ twelve owner questions; nothing in this list is open.
    committed test holds the sixteen values as constants.
 4. **The palette follows System Settings > Appearance** (AppleInterfaceStyle).
    The glass keeps following Icon & widget style. On the owner's Mac the two
-   disagree (Appearance Dark, widget ClearLight), so by default he sees the
+   disagree (Appearance Dark, widget ClearLight), so by default they see the
    dark half.
 5. **An OS flip under `theme = "auto"` resets program colours**: the OSC 4,
    10, 11 and 12 overrides are dropped when the palette flips, the rule kitty,
@@ -255,7 +255,7 @@ iTerm2 PTYSession.m, each with its COLORTERM line as the positive control
 that absence holds for PTYSession.m only). Distributions and frameworks set
 it: Fedora's colorls.sh, oh-my-zsh, vivid, dircolors-solarized. VERIFIED.
 
-**What the owner actually runs** (read from his home-manager files; VERIFIED
+**What the owner actually runs** (read from their home-manager files; VERIFIED
 by the lscolors sweep and its refuter):
 
 - `ls`, `ll`, `la`, `lt` are aliases for **lsd 1.2.0**. LS_COLORS is unset, so
@@ -268,7 +268,7 @@ by the lscolors sweep and its refuter):
   230 (1.12), group 187 (1.28), size small 229 (1.10), dates 40/42/36
   (1.70/1.65/2.44), grey 245 (3.00). Its permission colours are ANSI slots
   1-3, which the palette does reach.
-- `lls` is `command ls`. His interactive PATH holds no ls but `/bin/ls`, so it
+- `lls` is `command ls`. Their interactive PATH holds no ls but `/bin/ls`, so it
   is **BSD ls with no colour** (no CLICOLOR, no `-G`). GNU ls 9.11 reaches it
   only inside a devenv shell such as baud's.
 - `BAT_THEME=ansi`, `MANPAGER=bat -l man`, and delta with `syntax-theme =
@@ -1498,7 +1498,7 @@ item 7). This section records what was read so the work is not redone. The
 Vogix Design System is **unpublished**: on 2026-09-27, `git ls-remote` showed
 GitHub `main` = tag v0.2.0 = `ca0ad76`, and no published ref contained
 `c79140a`. On 2026-09-29 the local vogix16-themes checkout is still at
-`c79140a` on branch vogix-design-system, and the owner says he has started
+`c79140a` on branch vogix-design-system, and the owner says they have started
 "vogix-themes v1.0.0-beta1", which is not in that checkout. **So every vogix
 file below is cited as a local path at the commit named, UNPINNED, never as a
 manifest key**, and everything here describes `c79140a`, not the beta.
@@ -1560,7 +1560,7 @@ monochromatic and next 8 are functional", "that is a MUST") reads naturally as
 the old file layout, base00-07 greys and base08-0F functional, which `c79140a`
 keeps as roles 1-6 functional; it is recorded, not re-asked.
 
-**vogix-app items found, not acted on** (his repository, out of scope): the
+**vogix-app items found, not acted on** (their repository, out of scope): the
 README above; templates repeating the normals in ANSI 9-14
 (console.palette.vogix:10-15) where the design has distinct brights; three
 polarity rules where the spec has one; no ls or eza template, though

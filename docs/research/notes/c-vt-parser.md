@@ -6,7 +6,7 @@ parser, which is the de-facto specification every modern terminal is written
 against.*
 
 This note exists to answer one question: **baud implements Williams' machine and
-then adds a state he does not have. Why is that not a bug?**
+then adds a state that machine does not have. Why is that not a bug?**
 
 `docs/vt-coverage.md` asserts the answer in one sentence and cites this file for
 it. For most of the project's life this file did not exist, so the assertion
@@ -60,7 +60,7 @@ compiled.
 
 ## What this does not claim
 
-- Not that Williams is wrong. His parser is correct for what it specifies —
+- Not that Williams is wrong. The parser is correct for what it specifies —
   a byte-oriented DEC terminal. UTF-8 is outside its scope, not contrary to it.
 - Not that the extra state is free. It adds a branch to the `ground` hot path.
   The domain-type port that introduced it measured +5.0%, −0.4%, −3.4%, −0.9%

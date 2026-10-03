@@ -648,7 +648,7 @@ exact in `f32`; the unit test pins `tent`'s own result.
 **Not built, recorded**: the runtime cache for a configured variable font
 -- the owner asked for one ("in runtime create a cache for next time") and
 it has no consumer until fonts can be named by family, so it waits for that
-and for his reading of what it caches; transformed components, which
+and for the owner's reading of what it caches; transformed components, which
 fontTools flattens with the transform applied and no font here carries;
 value-record devices.
 
