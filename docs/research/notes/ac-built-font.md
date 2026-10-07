@@ -148,6 +148,432 @@ owner's order is the system fallback, once it exists: asked with
 `CTFontCreateForString` for Hebrew behind FiraCode Nerd Font, CoreText answers
 Courier New (measured 2026-10-07).
 
+## 4a. Hebrew: the Cascadia-based prototype, four rounds
+
+After the owner rejected the bridge and the generated letters, a font survey put
+Cascadia Mono's Hebrew (Liron Lavi Turkenich; OFL with the Reserved Font Name
+"Cascadia Code") first. It is sans and gives the narrow letters long heads.
+Jev gave it 0.52 against Noto refit 0.32, at confidence 0.40, and the owner
+answered "0.52 is very low" and "we need to improve it a lot". Four rounds
+followed on 2026-10-07. Rounds 1-3 each had an independent critic agent; round 4
+was re-measured in session without one. The files are in
+`.claude/research/hebrew-improve/` (git-excluded: build scripts, fonts, renders,
+critic logs); this section is the record.
+
+**What it is.** Cascadia's wght-400 Hebrew from the GitHub release
+(v2407.24), re-weighted to JetBrains Mono's stems (90/82), 630 units tall,
+centred in the 600-unit cell, merged into a copy of JetBrains Mono Regular 2.304.
+It appends one mark-to-base lookup to JetBrains Mono's `mark` feature and one
+mark-to-mark lookup to its `mkmk` feature, plus one GDEF mark filtering set.
+Gated on every output: JetBrains Mono's 1743 glyphs, `hmtx`, `cmap`, GDEF
+classes, `GSUB` and first five `GPOS` lookups unchanged; OTS clean; Latin through
+baud byte-identical to stock JetBrains Mono at 28 and 56 px.
+
+**What the rounds did** (all measured through baud's scratch renderer and
+HarfBuzz unless marked):
+
+- All 20 points drawn with JetBrains Mono's dot (116 units); stock Cascadia
+  Mono maps only 8, so sheva, the hatafs, hiriq, tsere, segol, qubuts, meteg and
+  rafe draw as boxes (its `cmap`). Marks follow JetBrains Mono's convention:
+  zero advance, ink placed by anchors. Unattached points sit at the heights of its
+  U+0307 and U+0323.
+- Below-points share one centre per non-descending letter: the spread is 0.0
+  units, after round 2's anchor search had moved them 146-158 units sideways.
+- Meteg attaches to the vowel before it through `mkmk`, 24 units to its left.
+  A filtering set lets it step past a dagesh. baud places it where HarfBuzz does,
+  checked at 200 px, and control fonts with the lookup unhooked fail as
+  predicted. In round 4 it passes 217 of 297 letter-vowel-meteg clusters
+  (round 3: 224; the 7 lost are on qof, below), by the round-3 critic's script.
+- Two-row points have dot gaps of at least 40 and stay at or above -275,
+  except as below.
+- **baud places a mark on a whole pixel.** Moving sheva and the hatafs 10
+  units lower under ג ט ל ס ש renders byte-identical to the unmoved font at 28 px
+  and differs at 56 px (`cmp` on the PPMs). At 28 px, round 3's sheva touched ש ט ס:
+  the pixel row between letter and dot read 93-127 on a 16-216 scale. So round 4
+  puts those points on -293, one pixel lower at 28 and 56 px. The darkest row
+  between them then reads 16-31, background or nearly. The cost is that the
+  lowest dot reaches the line's last pixel row.
+- Lamed's holam has two options 39 units apart: L1 beside the mast tip, 70.2
+  units from a neighbouring shin's dot, and L2 above the mast inside the cell. At
+  28 px L1 touches the mast's corner.
+- Narrow letters, five variants: A is Cascadia's 292 head (0.49 of the cell),
+  B a 372 head with a kotz, C a right foot, D a 312 head with a kotz on vav, yod
+  and zayin, and E a foot on both sides. A width ladder put the point where vav
+  starts to read as resh at about 348 (0.58). In the same reading B's vav reads
+  as resh or dalet, C's as a Latin l and E's as a dotless i (E's zayin as I); A
+  and D read as themselves, and A's vav still floats. All of it was judged by
+  non-native readers from baud renders, so it is the owner's to check.
+
+**Still wrong:**
+
+- Meteg fails on 80 of 297 clusters. With hataf segol it sits 20 units out of
+  the cell, with qubuts 6, and on final letters it leaves the cell. On qof it
+  lands on the leg with every vowel: round 3 had moved qof's vowels to the cell
+  edge to make room, and round 4 put them back under the bowl.
+- Rare combinations overflow the cell sideways: qof with hataf segol by 104
+  units, final tsadi with qubuts by 140.
+- After "1" an unattached holam vanishes into the digit, as JetBrains Mono's
+  own U+0307 does.
+- Only Regular existed after round 4; section 4b has the other three styles.
+- Cascadia's `name` table carries a Microsoft copyright preamble (nameID 13)
+  that ships with the font, which is the owner's call. The Reserved Font Name
+  forces a rename.
+- A page of pointed text still loses points in baud-core's cluster store,
+  whatever the font: 4 on the eight test lines, drawn plain.
+
+**Jev after round 4**, with the still-wrong list in the request: CASCADIA_BASE
+0.87 at confidence 0.84, COMMISSION 0.11, LICENSE_NARKISS 0.01, NOTO_REFIT
+0.01, JULIA_BASE 0.00. That is under the 0.9 bar, and part of the rise is that
+only Cascadia was iterated (Noto refit had one round). On lamed it gave L2 0.60
+at 0.20. On narrow letters it gave A 0.72 at 0.65 (C 0.15, D 0.13, B and E 0).
+These are the second asks. The first carried round 3's meteg count, and it
+described C's and E's feet as JetBrains Mono's way of filling i and l without
+their misreads. On that framing the narrow answer was E 0.36, A 0.30, C 0.26 at
+0.20, so the omission moved it and the route barely (0.88 at 0.85).
+
+**The owner's call.** Shown baud's version beside stock Cascadia, David Mono,
+JuliaMono and the bridge, all through baud, the owner said "baud loooks better"
+(2026-10-07): baud builds its Hebrew on this prototype. Narrow letters and
+lamed's holam stay open on the review page (version 7). Cascadia's Bold carries
+the same 39 Hebrew code points as its Regular; its Italic carries none, so the
+Italic will be a slant.
+
+## 4b. Hebrew in four styles, and which way italic leans
+
+Built on 2026-10-07 by one workflow: a builder, an independent critic, a fix
+round, and a second critic. The research on lean direction ran beside them.
+Files are in `.claude/research/hebrew-improve/bi/` (git-excluded), and this
+section is the record.
+
+**What was built.**
+
+- **Bold.** Cascadia's variable font at wght 700, its maximum and the closest
+  to JetBrains Mono Bold's stems. Dilation and erosion take up the remainder,
+  and the built stems measure 125 vertical and 113 horizontal, which are JetBrains
+  Mono Bold's.
+- **Italic.** The upright sheared 9° about y = 315, outlines and anchors in one
+  transform. That is JetBrains Mono Italic's angle (`post.italicAngle` -9.0).
+  Both leans are built: right, with the Latin, and left.
+- **Bold Italic.** The Bold, sheared the same two ways.
+- **Merging.** Each style merges into that style's own JetBrains Mono file.
+
+There are 21 fonts, counting the A/D and L1/L2 variants. All 21 pass the
+generalised gate (29 of 29 against their own style's JetBrains Mono, whose 5
+`GPOS` lookups stay unchanged) and OTS. Latin through baud is byte-identical to
+stock JetBrains Mono at 28 and 56 px in 42 of 42 renders. Regular's tables
+equal round 4's except the `head` dates.
+
+**baud's style path, proven.** The scratch renderer loads styled faces with
+`Stack::with_roles`, the call the app makes, and writes an SGR into every cell.
+
+- Stock JetBrains Mono under SGR 1, 3 and 1;3 is byte-identical to drawing that
+  style's file as the primary face.
+- With only the Regular Hebrew in the stack, bold and italic Hebrew are
+  byte-identical to Regular Hebrew. So baud today draws them unsynthesised, as
+  `Stack::effective` says.
+- Styled Hebrew drawn through the merged files is byte-identical to the styled
+  file drawn alone. Critic 1 checked all 11 styled builds; critic 2 made 72
+  comparisons across 18 builds.
+
+**Vowel points in Bold: not finished.**
+
+- **The builder's Bold** used JetBrains Mono Bold's dot (134), a 30-unit gap
+  between the sheva's dots and a -300 floor. Critic 1 found the sheva and hatafs
+  touching ס, and in the right-leaning Bold Italic ש and ט, at 28 px: 71 to 89 on
+  round 4's single-column measure, against Regular's 16-31. It also found a text
+  gate failure on dagesh (21.1-24.0 against 25).
+- **The fix round** shrank the vowel dot to 120 and the dagesh to 104, and split
+  the sheva's rest position (-36) from its position under ג ט ל ס ש (-58).
+  Every dipping cell then read 16 at 28 px, and no gate failed.
+- **Critic 2** measured the gap between the two dots in two dimensions and
+  found them fused, no dark row between them, under every letter:
+
+  | Bold sheva, dot-to-dot | 26 px | 32 px | 38 px |
+  |---|---|---|---|
+  | fix round | 132 | 134 | 116 |
+  | builder | 83 | 71 | 44 |
+  | Regular | 109 | 66 | 16 |
+
+  The fix round's single-column measure had counted the fused pair as one dot.
+  It had also cleared the builder's fusion at 30, 36 and 42 px. On the Retina
+  even sizes from 24 to 44 px, each version fuses at four. A fused sheva is a
+  short bar, close to a meteg.
+- **The italics** also got worse at 32 and 38 px. For example Italic right went
+  52 → 94 at 32 px and 16 → 69 at 38 px, because their re-chosen floors moved
+  the pixel phase.
+- **Regular at 26 px**, baud's default size here, also touches under the dipping
+  letters (135) and fuses its sheva's dots (109), by critic 2's measure.
+
+**The third pass.** It scored three things together at every size from 20 to
+56 px, with the ranking fixed before any search:
+
+- the gap to the letter (critic 2's two-dimensional bottleneck);
+- the gap between the sheva's dots;
+- how much of the lower dot falls below the cell.
+
+The thresholds: a gap of 40 or less is clean, 41-90 faint, above 90 touching. A
+cut of 0.02 or less is clean, up to 0.179 faint, and above that cut. 0.179 is
+Regular's own value at 28 px.
+
+- **What changed.** The Bold vowel dot went from 120 × 106 to 120 × 98, and the
+  gap between the sheva's dots from 30 to 40. Under ג ט ל ס ש the sheva and
+  hatafs now drop 26 units below their rest position, a whole pixel at every
+  size from 20 to 56. The same geometry goes into both Bold Italics.
+- **What stayed.** The dagesh (104 × 92) and every letter are unchanged.
+  Regular and the regular-weight Italics are byte-identical to the fix round.
+
+Critic 2's measure of the gap between the sheva's dots, worst over the probe:
+
+| Sheva, dot-to-dot | 24 px | 26 px | 28 px | 32 px | 38 px |
+|---|---|---|---|---|---|
+| Bold, fix round | 109 | 132 | 48 | 134 | 116 |
+| Bold, third pass | 62 | 124 | **35** | 80 | **35** |
+| Bold Italic right, third pass | 48 | 123 | **35** | 80 | **35** |
+| Regular (unchanged) | 37 | 109 | 55 | 66 | 16 |
+
+- **At 28 px**, the owner's size, the letter gap (16) and the gap between the
+  dots (35) are clean in Bold and both Bold Italics. The cut is faint: 0.16,
+  against Regular's 0.179.
+- **At 38 px** all three are clean.
+- **At 32 px** the dots are faint (80). The Bold Italics' hataf segol reads 91,
+  one grey level into touching.
+- **At 26 px**, baud's default size here, the dots still fuse (124) and the
+  lower dot is cut (0.40). The letter gap is clean (21).
+
+**Why 26 px cannot be clean with round dots.**
+
+- At 26 px baud's cell puts the baseline at round(26.52) = 27 and the cell
+  height at round(34.32) = 34 (`baud-render/src/metrics.rs`). That leaves 7
+  pixel rows below the baseline.
+- Under ג ט ל ס ש, one of those rows is the letter's overshoot and one must be
+  air. The remaining 5 rows must hold a dot, air and a dot.
+- That fits only dots about 80 units tall. A dot that short holds Regular's ink
+  only if it is about 150 wide, which is a dash.
+- Regular reads touching, touching, clean at 26 px too. So the problem is
+  two-row points at baud's default size, not Bold alone.
+
+The three options for 26 px are:
+
+1. as built;
+2. no drop under ג ט ל ס ש, Regular's way, which in the simulator makes the
+   letters touch at 20-26 px;
+3. a short or dash-shaped dot, which changes the dot at every size.
+
+**All three options, rendered** (fourth pass; candidate fonts, not gated). Each
+cell gives letter gap / dot-to-dot / cut:
+
+| Bold | 26 px | 28 px | 30 px |
+|---|---|---|---|
+| 1, as built | 21 / 124 / 0.40 | 16 / 35 / 0.16 | clean |
+| 2, no drop at 26 px | 100 / 124 / 0.00 | as 1 | as 1 |
+| 3, round dot 90 × 80 | 18 / 18 / 0.01 | 16 / 74 / 0.00 | dots 75 |
+| 3, dash 150 × 80 | 18 / 19 / 0.01 | 16 / 84 / 0.00 | dots 92 |
+| Regular, as built | 135 / 109 / 0.01 | 74 / 55 / 0.18 | |
+| Regular, dash 150 × 80 | 39 / 16 / 0.02 | 16 / 78 / 0.00 | dots 86 |
+
+Notes on the table:
+
+- I re-rendered critic 2's probe with each candidate font. Every value
+  matches the agent's, except two.
+  - At 28 px the round dot reads 74 here against the agent's 77.
+  - At 30 px option 3 reads 75 (round) and 92 (dash) on the plain sheva. The
+    agent's measure, which also takes in the hatafs, reads fused at 30 px for
+    both.
+- **Option 2** also touches at 24 px.
+- **Option 3:**
+  - The round dot carries about 59% of Regular's ink. The dash keeps Regular's
+    ink but draws every two- and three-dot point as short dashes, which shows at
+    56 px.
+  - Its Bold candidates also shorten the plain qamats to 192 units. Otherwise
+    the hataf qamats, 224 tall, rises onto the letter.
+
+**Jev on these** (2026-10-08, every cost above in the request):
+
+- **26 px:** as built, 0.61 at confidence 0.48. The round dot got 0.29, no drop
+  0.09 and the dash 0.01.
+- **If a short dot is chosen:** Regular gets it too, 0.95 at 0.90.
+- **The dot:** 120 × 98, settled at 0.99 at 0.98, against a rounder 119 × 102.
+- **The dagesh:** keep 104, 0.87 at 0.80. 106 got 0.13; redrawing letters for an
+  equal dagesh got 0.00.
+
+The 26 px choice and the dagesh are on the review page (version 10) as 1d and
+1e.
+
+**Checked independently.** I re-rendered critic 2's probe on the third pass's
+fonts with critic 2's own renderer. Controls of the fix round came out
+byte-identical to critic 2's renders. Critic 2's scripts then give the same
+dot-to-dot table and the same 8-connected regression list as the agent's
+report. Every gate passes on all 21 fonts:
+
+- the generalised gate, 29 of 29;
+- OTS;
+- critic 2's strip-and-compare gate, which fails a fresh 1-unit perturbation;
+- Latin identical to stock;
+- the style path, 72 of 72;
+- no meteg cluster newly failing;
+- no overpaint in 282 renders.
+
+**What got worse against the fix round.** 45-53 size-metric pairs improved per
+bold style. These got worse:
+
+- At 20 px the cut went from clean to faint in all three bold styles. The
+  26-unit drop rounds to a pixel there; the fix round's 22 rounded to none.
+- Some marks fused where they sit side by side in one row: the hataf segol's
+  two dots, and a hataf's bar against its dot. These went from faint to fused in
+  Bold at 21 px, and in Bold Italic right at 20 and 29 px. Fusion of this kind
+  also stands, unchanged, at 21-23 px in Bold and at 20-21 px in Bold Italic
+  left.
+- Single-row points under ג ט ל ס ש:
+  - 34 cells crossed a line on critic 2's 4-connected gap. 34 did on the
+    8-connected gap, plus הְ and רְ in Bold at 21 px (40 → 43). Most crossed
+    by 5 grey levels or fewer: 25 of 34, and 30 of 36.
+  - The largest are in Bold Italic left: שִׁ at 35 px, 87 → 115; לִ at 46 px,
+    40 → 91; לֵ at 40 px, 84 → 99. Bold has one: סֵ at 35 px, 83 → 94.
+  - The anchors did not move. These points have the flatter dot's top at the
+    same height.
+
+**For the owner.** The dot is 120 × 98, 3% less ink than Regular's and flatter
+than JetBrains Mono Bold's own (width over height 1.22 against 1.13). Only dots
+98 units tall read clean between the dots at 28 px. The dagesh, 104 × 92, is now
+smaller than the vowel dot; the three prior-art fonts keep the two equal. 106 is
+the ceiling, because 108 fails the clearance check in Bold Italic right.
+
+**Meteg in the right lean.** Round 3's critic script (297 letter-vowel-meteg
+clusters) passes:
+
+| Regular | Bold | Italic right | Italic left | Bold Italic right | Bold Italic left |
+|---|---|---|---|---|---|
+| 217 | 172 | 125 | 261 | 55 | 236 |
+
+The right shear moves points under a letter about 70 units left. JetBrains Mono
+Italic's own dot-below sits 67 units left of its upright one, so that is the same
+direction. Meteg, left of its vowel, then leaves the cell. The cell-fit step
+moves the vowels' base anchors back into the cell but not meteg's mark-to-mark
+position. The third pass left this unfitted: its counts are the ones above, and
+Bold Italic right still passes 55.
+
+**The fourth pass fitted it** (`fit_meteg` in the scratch build, right lean only).
+
+- **How it works.** Where a vowel and its meteg together overflow the cell more
+  than the upright pair did, that letter's base anchor for the vowel moves
+  right. Three limits apply:
+  - the vowel moves at most as far as the shear moved it at its own height,
+    73-80 units;
+  - the vowel never comes closer to its letter than before;
+  - the vowel alone never overflows the cell more than before.
+- **The meteg itself was already right.** Its mark-to-mark relation to the vowel
+  was the upright one, sheared: 23.7 units to the vowel against 24.0 upright. The
+  shear carries vowel and meteg left together.
+- **Why not move the vowel only before a meteg.** baud's shaper takes GPOS types
+  4, 6 and 9 only, and the gates hold GSUB byte-identical to JetBrains Mono's.
+
+I re-ran round 3's meteg check on the fourth pass's fonts:
+
+| Meteg passes, of 297 | Regular | Bold | Italic right | Italic left | Bold Italic right | Bold Italic left |
+|---|---|---|---|---|---|---|
+| third pass | 217 | 172 | 125 | 261 | 55 | 236 |
+| fourth pass | 217 | 172 | **185** | 261 | **143** | 236 |
+
+- **No cluster newly fails** in any of the 21 fonts. I compared every table
+  against the third pass's fonts. Only the 8 right-lean files differ, and only in
+  `GPOS`, `head` and `name`; the other 13 are table-identical.
+- **The right lean still trails upright.** It fails 32 (Italic) and 29 (Bold
+  Italic) clusters that upright passes, all with meteg out of the cell, and
+  passes none that upright fails. The left lean passes 46 and 66 that upright
+  fails.
+- **In all 27 sheva clusters of the right lean, meteg's box is not left of the
+  sheva's.** The slanted lower dot reaches further left.
+  - In 26 of them the 20-unit clearance holds (23.7 units to the sheva), so
+    this is the boxes overlapping, not ink touching.
+  - With ק, meteg lands on the leg, as it does with every vowel in Regular.
+- **The cost.** A base anchor serves its letter and vowel with or without a
+  meteg. So 106 (Italic) and 166 (Bold Italic) of the 297 letter-vowel anchors
+  moved right in ordinary pointed text, by 2-78 units, median 54 / 62. Those
+  vowels sit roughly where the upright puts them, instead of following the
+  slant.
+  - On the probe, 68 cells got better and 21 worse in Italic right, and 51 / 11
+    in Bold Italic right. The per-size categories are unchanged.
+  - The worst cells at 26 px are שֱׁ in Italic right, 82 → 103, and שֻׁ in Bold
+    Italic right, 87 → 98.
+- **A looser fit,** letting the vowel come closer to its letter, would give 210 /
+  157 at 77 / 65 worse cells. That was simulated only.
+- **Gates on the changed files:** the generalised gate 29 of 29, OTS, critic 2's
+  gate (which fails a fresh perturbation), the clearance sets, overpaint, the
+  style path and Latin identity all pass.
+- **Jev on keeping the fit** (2026-10-08, the costs above in the request): keep
+  the strict fit, 0.96 at confidence 0.94. A looser fit got 0.01 and no fit 0.03.
+  Settled.
+
+**Which way italic Hebrew leans: the evidence.** Each lean was measured as the
+stem angle against the font's own upright, with JetBrains Mono Italic reading
++9.0 as the positive control.
+
+- **Latin-first families that added Hebrew lean it right, at the Latin angle.**
+  That holds for 11 lineages: Monotype's Arial, Courier New and Times New Roman;
+  Liberation/Arimo/Cousine/Tinos, whose Hebrew outlines are not Monotype's;
+  Open Sans; Rubik (22 letters an exact 12° shear); Google Sans; FiraGO; DejaVu
+  Sans; Libertine/Biolinum; Bona Nova; GNU FreeFont; and Everson Mono. In a
+  Latin-first family the shear records what the build did, not necessarily a
+  judgement about Hebrew.
+- **Hebrew-first families split.**
+  - Right: Maxim Iorsh's Culmus obliques (Aharoni, Frank Ruehl, Miriam Mono,
+    Nachlieli), and Monotype's Hebrew-only New Peninim MT Inclined (about 16°,
+    while its `post.italicAngle` says 0).
+  - Left: Yoram Gnat's four Culmus families, and Iorsh's David CLM Italic. In
+    Simple CLM the Hebrew is the upright sheared exactly -13° while the Latin in
+    the same file leans +13°.
+- **The monospaced fonts.**
+  - Right: Courier New, Cousine/Liberation Mono, Miriam Mono CLM, FreeMono and
+    Everson Mono.
+  - Left: JuliaMono, 5°, against its Latin's 10° right.
+  - Upright: David Mono and the JetBrains Mono bridge.
+  - No Hebrew in any italic: Cascadia's 125 italic faces.
+- **Writers for right:**
+  - Bruno Maag (Ubuntu's Hebrew, 2010) concedes that reading-direction logic
+    points left, but chose right because Hebrew sits beside Latin and its digits.
+  - John Hudson leaned Adobe Hebrew Italic right for bilingual harmony and shared
+    punctuation (2008). He added that dalet and resh "become attenuated" when
+    leaning left (2013).
+  - Michal Sahar (2017) followed right-handed handwriting.
+  - The Shuneet designer (2016) switched to right because Ctrl-I gives Israelis a
+    right lean.
+- **Writers for left:**
+  - AlefAlefAlef's Yaki Hasid (2013) writes that the Hebrew slant leans left, and
+    that a right-leaning Hebrew is *muteh* rather than *natui*. Avraham Kornfeld's
+    Frank-Ri (2019) leans everything left 14°, its Latin included. Both
+    translations are a non-native reader's and unverified.
+  - Ismar David's 1950s David Cursive leaned left.
+  - Jonathan Rosenne (2009) wrote "forward", read here as left.
+- **Neutral:**
+  - W3C's r12a calls it a personal choice.
+  - The CSS Working Group resolved in 2023 (csswg-drafts#8914) that an engine
+    which synthesizes oblique SHOULD offer both directions, and in 2025 to add
+    left/right keywords.
+- **Terminals.** Every synthetic oblique read at source shears right without
+  consulting the script: FreeType, fontconfig, Blink, WebKit, iTerm2, WezTerm,
+  ghostty and Wine's DirectWrite. On this Mac, kitty's italic Hebrew falls back
+  to Courier New Italic (right, 12°). ghostty and WezTerm draw it upright.
+
+**What it means for baud.** baud's digits, quotes and Latin come from JetBrains
+Mono Italic, which leans right, and are gated unchanged. A left lean therefore
+puts both directions on one line, as in `git commit -m "תיקון באג"` or
+`v1.2 בְּרֵאשִׁית`. The two remedies left-leaning fonts used are both
+unavailable: Frank-Ri leaned its Latin left, and Khaled Hosny kept digits and
+punctuation upright.
+
+**Jev on the lean, asked three times.**
+
+| Ask | Default lean | Confidence | Offer the other lean too |
+|---|---|---|---|
+| without the meteg count | right 0.77 | 0.54 | yes 0.88, at 0.76 |
+| with the unfitted meteg count | left 0.65 | 0.30 | yes 0.88, at 0.76 |
+| with the fitted count and its cost | left 0.57 | 0.14 | yes 0.87, at 0.74 |
+
+The default is a coin toss on the evidence. Shipping both behind one setting
+holds near 0.87. The question is on the review page (version 10) as 1c, with
+both leans re-rendered from the fourth pass's fonts. The owner, a native reader,
+decides.
+
 ## 5. The build
 
 A design checked against the repository and a working prototype (fontTools
