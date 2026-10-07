@@ -290,3 +290,37 @@ is settled, so both go to the owner.
 - **Cost:** one directory listing, about 0.1 ms cold and 75-91 us warm, only on
   the step's path (measured). It costs the owner nothing, since `en_US`
   validates first.
+
+## 9. The working directory (2026-10-06)
+
+A Dock launch has a second gap. Apps that LaunchServices starts run with
+working directory `/`: Terminal's and Finder's processes read `/` with `lsof`
+(measured). baud never changes directory -- `baud-app/src` has no `chdir` or
+`set_current_dir` -- and the forked shell inherits baud's directory (source).
+So a Dock-launched baud's shell starts in `/`. Terminal's shells start in home
+only because its `login -pf` changes there (inferred).
+
+Prior art, read at source:
+
+- **Ghostty** befcdfd sends the shell home when its parent is launchd
+  (`getppid() == 1`, `src/os/desktop.zig:17-35`), and otherwise inherits. It
+  changes directory in the forked child (`src/Command.zig:217`) and puts `PWD`
+  in the child's environment (`src/termio/Exec.zig:864`).
+- **kitty** 7d37453 changes its whole process to `~` when LaunchServices
+  launched it (`kitty/main.py:651-653`), and also when its directory is not a
+  directory (`:574-579`).
+- **Alacritty** d692748 changes its whole process to home on every macOS start,
+  even from a shell (`alacritty/src/main.rs:178-179`).
+
+baud itself resolves four kinds of path against its own directory: the config
+search's last entry, a relative `config.toml` (`baud-app/src/config.rs:1014`),
+and user-given font (`:1170`), theme (`palette.rs:104`) and `BAUD_TRACE`
+(`app.rs:3514`) paths (source).
+
+Jev settled when: the shell goes home when baud's parent is launchd, as
+Ghostty does, and inherits otherwise (0.94, confidence 0.92). How did not
+settle. With the prior art, changing directory in the child before exec read
+0.91 at confidence 0.81. Once baud's own relative paths were added, it flipped:
+changing baud's whole process directory, first thing in `main`, 0.78 at
+confidence 0.56. Only on a launchd launch does that move those lookups from `/`
+to home. It goes to the owner.
