@@ -1,6 +1,12 @@
 # W. Fallback fonts: what other terminals do, and what baud could bundle
 
-**Status: open, on the owner's review page.** The owner's rule of 2026-10-01
+**Status: superseded on 2026-10-07 by note AC.** The owner chose: the configured
+font, then baud's embedded font built from JetBrains Mono, the Nerd patch and
+baud's own patches, then the system's choice at run time, with no custom
+inheritance hacks (read as no run-time per-glyph rules; whether build-time lists
+count is open, note AC decision 6) and no parts of other fonts. That is closest to option E below, with baud's own
+glyphs in place of a bundle of other fonts. The rest of this note stands as the
+research. **Status before that: open, on the owner's review page.** The owner's rule of 2026-10-01
 is that macOS and Linux draw identical pixels. Today they do not, past the
 two embedded faces. Behind the embedded JetBrains Mono and Symbols Nerd Font
 Mono, baud reads system files by path (`baud-app/src/config.rs`): on macOS
