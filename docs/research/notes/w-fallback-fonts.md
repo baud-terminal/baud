@@ -80,8 +80,10 @@ contour d8ce17b · rio 3762438.
 | contour | nothing | CoreText `CTFontCopyDefaultCascadeListForLanguages(NSLocale.preferredLanguages)`; fontconfig `FcFontSort` after `FcDefaultSubstitute`; DirectWrite; Windows hardcodes seguiemj/seguisym | system ("emoji" family) | U+FFFD from primary face | No |
 | rio (sugarloaf) | Cascadia Code NF variable + italic (~4.9 MB), Symbols Nerd Font Mono (1.9 MB) | mac: cascade list + `CTFontCreateForString`; Linux: `FcFontSort` with charset **and an explicit FC_LANG from the environment**; Windows: font-kit | system (mac: Apple Color Emoji opened lazily by path) | primary font (font id 0) `.notdef` | No |
 
-**Nobody bundles CJK, Hangul, Devanagari, Hebrew, Arabic or general symbols.** Every terminal
-gets those from the system. The bundled set across all nine is: a Latin monospace family, a
+**Nobody bundles a face for CJK, Hangul, Devanagari, Hebrew, Arabic or general symbols.** Every
+terminal gets those from the system, with one accidental exception found later (note AA,
+section 6, 2026-10-03): rio's bundled Cascadia Code NF carries Hebrew in its Latin face, 27
+letters and 10 of the 24 points, so rio draws Hebrew from its own bundle. The bundled set across all nine is: a Latin monospace family, a
 Nerd Font symbols face, and (wezterm everywhere / ghostty off-mac) one Noto emoji face.
 
 ### Per terminal
@@ -279,6 +281,34 @@ emoji string is the string's three U+200D, not an emoji.
 For comparison, Menlo (the system's /System/Library/Fonts/Menlo.ttc, four
 faces, 2,728 codepoints, not redistributable) covers none of the seven
 strings.
+
+**Hebrew, added 2026-10-03 (note AA, section 6).** The Hebrew test string above
+has no vowel points, and the table has no monospaced Hebrew face. Measured
+since: coverage and widths with fontTools, and placement by drawing through
+baud's own renderer:
+
+- **Noto Sans Hebrew 3.001** (the full TTF above, 66,156 bytes) is proportional.
+  Its letters run 0.295-0.730 em against a 0.6 em cell. In baud, shin's ink runs
+  into lamed's cell and touches it. Its points sit on their letters, because it
+  lists its mark positioning under the Latin and default scripts as well as
+  Hebrew, and baud shapes with those (measured, its `GPOS`).
+- **Liberation Mono 2.1.5**, the upstream release (319,508 bytes, sha256
+  `f2b83c76...`, SIL OFL 1.1 with Reserved Font Names Arimo, Tinos, Cousine and
+  Liberation), has 27 of 27 letters at a fixed 0.6001 em, all 20 points and the
+  31 cantillation marks. Its marks have zero advance; nixpkgs' rebuild, first
+  measured, gives them full width, and baud draws the two alike. Placed last
+  it fills only boxes, but behind this note's minimal bundle it draws no
+  Hebrew, since Noto Sans Hebrew comes first (note AA, section 8).
+- **Cascadia Code 2407.024** (upstream, 598,060 bytes, OFL 1.1) has 27 letters
+  and 8 of the 20 points, no cantillation, at a fixed 0.586 em. Its Cascadia
+  Mono is Windows Terminal's bundled default face.
+- **Courier New**, macOS's own, is the only monospaced Hebrew face installed on
+  macOS. It cannot be shipped.
+
+In baud, Liberation Mono's and Courier New's points land one cell to the right
+of their letters, and Cascadia's partly so, because baud shapes with the Latin
+script; placing them is per-script shaping. The Hebrew face is on the owner's
+review page (v8).
 
 ### CJK
 

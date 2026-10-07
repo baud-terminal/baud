@@ -85,21 +85,21 @@ box also carries a "?" (measured, rendered).
 ## 3. What other terminals do
 
 Read at source (Ghostty befcdfd, kitty 7d37453, WezTerm cab2516, Alacritty
-d692748, iTerm2 91411f5, foot cb27717; Terminal.app from its documentation and
-its sessions' environment):
+d692748, iTerm2 91411f5, foot cb27717); Terminal.app 2.15 from its binary's
+disassembly (sha256 596e8940..., macOS 27.0; the second round, section 8):
 
 | terminal | when | sets | from | checked, then |
 |---|---|---|---|---|
 | Ghostty | `LANG` unset or empty | `LANG` | the user's locale, `ll_CC.UTF-8` (`src/os/locale.zig:21-27, 93-120`) | `setlocale`; an invalid `LANG` becomes `en_US.UTF-8`, on every OS (`:30-76`) |
-| kitty | `LANG` not in the environment | `LANG` | the identifier, then `lang_country`, then the first `/usr/share/locale/<lang>_*`, then `en_US` (`kitty/main.py:391-410`) | the bare name with `newlocale`; `.UTF-8` appended unchecked |
+| kitty | `LANG` not in the environment | `LANG` | the identifier, then `lang_country`, then, for a language other than English, the first `/usr/share/locale/<lang>_*` sorted by name, then `en_US` (`kitty/main.py:391-410`) | the bare name with `newlocale`; the step's pick and `.UTF-8` appended unchecked |
 | WezTerm | `LANG` unset or empty | `LANG` | `ll_CC.UTF-8`, or `ll.UTF-8` | `setlocale(LC_CTYPE)`; `en_US.UTF-8` unchecked |
 | Alacritty | the process locale is C | `LC_ALL`, else `LC_CTYPE=UTF-8` | the user's locale | `setlocale`; issue #7360 asks it to stop setting `LC_ALL`, and PR #7421, which deleted the locale code, was closed: "You just broke macOS entirely" |
 | iTerm2 | always, in its default mode | `LANG`, else `LC_CTYPE` | preferred languages and region (`PTYSession.m:3328-3374`) | `setlocale` per candidate; a dialog, then `LC_CTYPE=UTF-8` |
-| Terminal.app | a profile checkbox, on by default | `LANG` | the user's locale | inferred |
+| Terminal.app | a profile setting, `SetLanguageEnvironmentVariables` | `LANG`, else `LC_CTYPE=UTF-8` | `identifier.UTF-8`, `lang_country.UTF-8`, the bare forms, then every `/usr/share/locale/<lang>_*` as `.UTF-8` in directory order, English included | `setlocale` per candidate; `LC_CTYPE=UTF-8` only if `setlocale` accepts it |
 | foot (Linux) | never for the child | -- | -- | its own `C.UTF-8`, then `en_US.UTF-8` |
 
-None validates its final fallback; none of the six fills an unset `LANG` on
-Linux. ssh forwards locale variables by default here
+Ghostty, kitty and WezTerm do not validate their final fallback; Terminal.app
+and iTerm2 do. None of the six fills an unset `LANG` on Linux. ssh forwards locale variables by default here
 (`/etc/ssh/ssh_config.d/100-macos.conf`: `SendEnv LANG LC_*`; measured), so
 whatever baud sets travels to remote hosts as Terminal's does.
 
@@ -163,11 +163,15 @@ one column (`baud-core/tests/encoding/width.rs:32-41`; libc agrees).
 
 Candidates measured: on this Mac, Courier New is the only monospaced face with
 Hebrew, and it is what CoreText itself falls back to. Liberation Mono 2.1.5
-(314,744 bytes, SIL OFL 1.1 with Reserved Font Names "Arimo", "Tinos",
-"Cousine" and "Liberation") is fixed-width at 1229/2048 em for Latin, letters
-and points alike, with 27 of 27 letters and 24 of 24 points. Noto Sans Hebrew
-2.003 is proportional, its letters 0.235-0.703 em, the widest wider than a
-0.6 em cell. The Nerd Font build of Cascadia Code has 27 letters and 10 points
+(SIL OFL 1.1 with Reserved Font Names "Arimo", "Tinos", "Cousine" and
+"Liberation") has 27 of 27 letters and all 24 code points U+05B0-05C7, its
+letters at 1229/2048 em like its Latin. The file measured here was nixpkgs'
+rebuild (314,744 bytes), which gives every glyph 1229 units; the upstream
+release (319,508 bytes) gives its 51 Hebrew marks zero advance, and is the file
+a pin would take (section 8). baud draws the two identically, since it zeroes
+a mark's advance. Noto Sans Hebrew 2.003 is proportional, its letters
+0.235-0.703 em, and 3.001, the version note W lists, 0.295-0.730 em; the widest
+is wider than a 0.6 em cell. The Nerd Font build of Cascadia Code has 27 letters and 10 points
 at a fixed 1200/2048; upstream Cascadia Code is OFL 1.1. Liberation Mono placed
 last fills 556 boxes in the owner's stack, 413 in the macOS default and 455 in
 the Linux default -- 133 of each Hebrew -- and takes nothing from another
@@ -211,3 +215,78 @@ say Noto Sans Hebrew is proportional; W's Hebrew test string has no points.
    rendered before it is asked.
 
 Each open one goes to the owner's review page, with its picture.
+
+## 8. The second round (2026-10-04)
+
+The face and the per-language step were researched again, because Jev scored
+both under the bar; the Backspace route and Linux reran after a usage limit
+stopped them. The evidence is untracked, in `.claude/research/open-calls/`.
+Asked again with these facts, Jev chose Liberation Mono at 0.75 against waiting
+for note W at 0.24, confidence 0.68 (first round 0.60, confidence 0.50), and
+flipped on the step: without it 0.60, with it 0.40, confidence 0.21. Neither
+is settled, so both go to the owner.
+
+**The face.**
+
+- **The file a pin would take is the upstream release**, 319,508 bytes, sha256
+  `f2b83c763e8afd21709333370bed4774337fae82267937e2b5aea7e2fbd922c1`, not
+  nixpkgs' rebuild. The two differ only in `hmtx` (measured). OFL-FAQ 5.9 makes
+  a rebuild a Modified Version, which may not carry the reserved names (doc).
+- **Placed last in the owner's stack, it only fills boxes.** By baud's own
+  selector (`Stack::select_presented` over every scalar value, under text,
+  colour and the system default), it fills 556 code points and moves none
+  from another face (measured). 133 are Hebrew: 27 letters, 20 points, 31
+  cantillation marks, 46 presentation forms and 9 others. The other 423 are
+  phonetic and Latin Extended letters, combining marks, archaic Cyrillic,
+  Coptic and U+20BF.
+- **A mark draws in its base's face.** `a` + U+0346 draws FiraCode's `a` and
+  FiraCode's missing glyph for the mark, though Liberation and STIX both map
+  it (measured). So a face missing a point draws a box for it. Cascadia Mono
+  2407.24, the default face Windows Terminal bundles (microsoft/terminal
+  2b5336c), has 8 of the 20 points and no cantillation. Sheva, hiriq, tsere and
+  segol would draw as boxes (inferred from its `cmap` and the measured rule).
+- **Liberation's Hebrew anchors are reachable under `hebr` only** (measured, its
+  `GPOS`). baud shapes with `latn` or the default, which is why its points sit
+  one cell right. Per-script shaping would place them with the font's own
+  anchors. Noto Sans Hebrew lists the same kind of lookups under `latn` and
+  `DFLT` as well, which is why its points already sit on their letters
+  (measured).
+- **Cost, in one harness**: `Face::parse` 0.21 us against STIX's 0.50 us, and
+  4.2-4.3 us more on the first frame's block-0 fill, ranges disjoint
+  (measured). Each binary grows by 319,508 bytes.
+- **No terminal embeds Liberation Mono** (searched in nine trees). fontconfig
+  makes it Linux's stand-in for Courier New, the face CoreText falls back to
+  for Hebrew (source).
+- **Windows Terminal shapes by script and does not reorder right-to-left
+  text.** It never sets a bidi level, and conhost presents RTL text in logical
+  order for `vim -H` (source). This is one fact; the RTL research is not
+  opened.
+- **Order decides against note W.** Behind W's minimal bundle, whose Noto Sans
+  Hebrew comes first, Liberation draws no Hebrew. Behind Noto Sans Mono it
+  draws 14 code points (measured). Embedding it now amounts to deciding W's
+  Hebrew slot now.
+- **Noto Sans Hebrew 3.001** covers 134 Hebrew code points, Liberation's 133 and
+  U+05EF. Placed last it fills those 134 and moves nothing (measured).
+
+**The per-language step.**
+
+- **Terminal.app 2.15 does the step**, read from its binary. It tries every
+  `/usr/share/locale/<lang>_*` in directory order, English included, so
+  English in Israel gets `en_NZ.UTF-8` (measured, a reimplementation). kitty
+  does it sorted by name with English excluded; Ghostty and WezTerm give
+  `en_US.UTF-8` (source).
+- **kitty's maintainer chose it over baud's current answer.** On 2023-07-01
+  they merged a fallback to `en_US` (PR #6409, 503a0bdd), then put the step in
+  front of it 44 minutes later (22c2687432) (source).
+- **The step changes no character handling.** All 83 UTF-8 locales on macOS 27
+  link `LC_CTYPE` to `C.UTF-8`'s (measured). It changes dates, money, numbers,
+  collation and messages.
+- **Under `he_IL.UTF-8`, `date` and `ls -l` print Hebrew month names**
+  (measured). baud cannot draw them until a face lands (inferred).
+- **What it changes:** kitty's rule changes baud's answer for 211 of the 1060
+  identifiers CoreFoundation offers (measured). Its picks are alphabetical
+  (`es` to `es_AR`, `fr` to `fr_BE`) and ignore the script (`zh-Hant` to
+  `zh_CN`).
+- **Cost:** one directory listing, about 0.1 ms cold and 75-91 us warm, only on
+  the step's path (measured). It costs the owner nothing, since `en_US`
+  validates first.
