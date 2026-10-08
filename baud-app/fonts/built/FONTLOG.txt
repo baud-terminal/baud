@@ -1,0 +1,276 @@
+FONTLOG for baud's embedded font: baud-app/fonts/built/
+
+This is the SIL Open Font License's FONTLOG for the modified fonts in this directory:
+what they are, what changed against what they came from, what was chosen in the
+meantime, and what is still wrong. The licence is OFL.txt and the authors are listed in
+AUTHORS.txt. MANIFEST records how the files are built and pins every input and output.
+
+The record of the design work is note AC, docs/research/notes/ac-built-font.md: section
+4a covers the Regular, 4b the other styles and the italic lean, and 6 the open decisions.
+
+On macOS, scripts/bundle-macos.sh puts this directory's OFL.txt, FONTLOG.txt,
+AUTHORS.txt and MANIFEST, and glyphs/languages/hebrew/'s OFL.txt and SOURCE, in the app
+bundle beside the other embedded fonts' licences. Nothing packages baud for Linux yet; a
+Linux package must carry the same files.
+
+
+THE FILES
+
+Regular.ttf  JetBrains Mono 2.304 Regular plus Hebrew. The variant is A-L2.
+Bold.ttf     JetBrains Mono 2.304 Bold plus Hebrew. The variant is A-L2.
+
+There is no Italic.ttf or BoldItalic.ttf. Those two slots stay stock JetBrains Mono
+(baud-app/fonts/jetbrains-mono/) for now, which is the interim pick below. In those
+slots, Hebrew draws from the stack's chain, so it comes out upright and at Regular
+weight.
+
+Both files are built by scripts/build-fonts.sh from baud-app/fonts/jetbrains-mono/ and
+baud-app/fonts/glyphs/languages/hebrew/ (see SOURCE there). The script refuses to
+write bytes other than these sha256s:
+
+  Regular.ttf  df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f
+  Bold.ttf     a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3
+
+They are the gated final3 files (note AC 4b; ea07610d... and c508ee5a...) with the two
+conformance fixes in the CHANGELOG and nothing else: take the 6-byte hebr script record
+out of GSUB and of GPOS and both tables are final3's byte for byte, and every other
+table but name (nameID 7) and head (its checksum) is final3's. The gates were run
+again on these bytes on 2026-10-08 (CHANGELOG).
+
+Running scripts/build-fonts.sh --check rebuilds both and compares them with MANIFEST.
+scripts/build-fonts.sh --italics rebuilds the four italic recipes (both leans) and
+compares each with its gated hash; none of them is embedded.
+
+
+WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
+(each file against the stock file of its own style, measured with fontTools 4.63.0)
+
+- 52 code points added, all in U+05B0-U+05F4:
+  - the 27 letters, U+05D0-U+05EA;
+  - the points: the vowels (nikud), dagesh, meteg, rafe, the shin and sin dots, the
+    upper and lower dots and qamats qatan (U+05B0-U+05BD, U+05BF, U+05C1, U+05C2,
+    U+05C4, U+05C5, U+05C7);
+  - maqaf, paseq, sof pasuq, geresh and gershayim.
+  U+05C6 and the Yiddish ligatures U+05F0-U+05F2 are not mapped. The glyph count goes
+  from 1743 to 1795, and the stock glyph order is an exact prefix, so every existing
+  glyph keeps its ID.
+- No stock glyph changed: 0 glyf records, 0 advances and 0 cmap entries changed or
+  lost. GSUB is byte-identical but for one added script record, hebr (below): with it
+  taken out, every byte is stock's. The 20 combining points advance 0, and the 27
+  letters and 5 punctuation marks advance 600 (one cell).
+- GPOS goes from 5 lookups to 7. The 5 stock lookups are unchanged. The two new ones
+  are mark-to-base (type 4), for the points on the letters, and mark-to-mark (type 6),
+  for meteg on the vowel before it. They are appended to the existing mark and mkmk
+  features. GDEF classes the 52 new glyphs (32 base, 20 mark; every stock glyph keeps
+  its class) and gains a fourth mark filtering set, which only the new mark-to-mark
+  lookup uses.
+- GSUB and GPOS each gain a hebr script record, between DFLT and latn, naming DFLT's
+  Script table: the same default language system and feature indices (in GPOS, mark
+  and mkmk). Microsoft's 'Developing OpenType Fonts for Hebrew Script' registers hebr,
+  and HarfBuzz's Hebrew shaper applies GPOS only when the script it chose is hebr.
+  baud selects latn first, so what baud draws does not change.
+- OS/2 sets the Hebrew Unicode range bit (ulUnicodeRange1 bit 11) and the Hebrew code
+  page bit (ulCodePageRange1 bit 5).
+- In the name table, the family is "Proto Hebrew Mono C". nameID 3 carries the
+  prototype tag. nameID 0 carries JetBrains' copyright line followed by Microsoft's,
+  with the Reserved Font Name Cascadia Code. nameID 7 carries both trademark notices,
+  each as its source font has it: "JetBrains Mono is a trademark of JetBrains s.r.o.
+  Cascadia Code is a trademark of the Microsoft group of companies." (OFL-FAQ
+  1.1-update7, Q3.7: "Any trademark notices must remain in any derivative fonts").
+  nameIDs 8, 9, 11 and 12 are still JetBrains' manufacturer, designers and URLs, and
+  nameID 13 is still JetBrains Mono's OFL sentence. baud reads no name table, so none
+  of this changes what baud draws. The family name is an open call; see below.
+
+
+WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT
+
+The source is Cascadia Mono from Cascadia Code v2407.24 (Microsoft; Hebrew designer
+Liron Lavi Turkenich), taken as its variable font. Regular starts from the wght 400
+instance and Bold from wght 700, the axis maximum and the closest to JetBrains Mono
+Bold's stems. The steps (note AC 4a and 4b):
+
+- The letters are re-weighted by erosion and dilation to JetBrains Mono's strokes:
+  90 vertical and 82 horizontal in Regular, 125 and 113 in Bold.
+- They are scaled to a 630-unit letter height and centred in the 600-unit cell. Of
+  the 27 letters, 17 top out at 630, 9 at 631-640, and lamed's mast at 794 in Regular
+  and 797 in Bold.
+- The descenders of qof and the final forms are shortened to JetBrains Mono's -180.
+- Tav's counter is widened.
+- Every vowel point is redrawn on JetBrains Mono's own dot and placed by a clearance
+  search against the letter. The Regular dot is 116; the Bold dot is 120 x 98 and the
+  Bold dagesh 104.
+- Meteg attaches to the vowel before it.
+- Two-row points (sheva, the hatafs) drop under ג ט ל ס ש so their top dot does not
+  touch the letter.
+
+Nothing from Cascadia's Latin is used.
+
+
+INTERIM PICKS
+(Jev's probability for its choice; 0.9 or above counts as settled, anything below is
+interim)
+
+- Tree: NEW_PATH_A2, interim, 0.74. Stock JetBrains Mono stays at
+  baud-app/fonts/jetbrains-mono/ as the base. The Hebrew inputs live in
+  baud-app/fonts/glyphs/languages/hebrew/ and the outputs here.
+- Bold: BOLD_A_L2_AS_BUILT, settled, 0.99. This is the gated Bold-A-L2 design, its
+  bytes changed only by the two conformance fixes. That also answers 1d and 1e as
+  built for now (both below).
+- Regular: the gated Regular-A-L2 design, its bytes changed only by the two
+  conformance fixes; the review page's shown defaults for 1a (A) and 1b (L2).
+  Interim; the owner's call.
+- Italic and Bold Italic: STOCK_ITALIC, interim, 0.57. The slots stay stock JetBrains
+  Mono, so no lean and no shear is baked in. The build keeps both leans' recipes
+  (--italics).
+- Inputs: COMMIT_VF, settled, 0.93. Cascadia's variable font is committed with SOURCE
+  and its licence, and the build instances it.
+- Name bytes: KEEP_FINAL3_BYTES, settled, 0.95, superseded for two fields on
+  2026-10-08. That pick was asked without the dropped trademark notice in its
+  premise. Re-asked with both gaps and the standards' text, Jev chose FIX_NOW at 0.52
+  against KEEP_FINAL3_BYTES at 0.48, confidence 0.04, below the bar; the owner's rule
+  decided: a departure from the standard or the licence is a defect, so both were
+  fixed now (CHANGELOG). The rest of the name table (the prototype family name,
+  nameID 3's tag) stays until decision 11, and is renamed once then.
+- Push: COMMIT_LOCAL_HOLD_PUSH, interim, 0.81. Committed on the local branch; nothing
+  is pushed and no release bundle is made until the licence call is answered.
+- Configured stacks: INCLUDE_REGULAR_FOLLOW, interim, 0.59. The decision is that a
+  configured font list gets this Regular appended after the configured faces, before
+  the icon face and STIX. It is a change to baud-app/src/config.rs, not to these
+  files, and these files do not make it.
+
+
+OPEN OWNER CALLS
+(nothing here answers them)
+
+1a  Which vav, yod, zayin and final nun: narrow-letter variant A, B, C, D or E. The
+    interim is A.
+1b  Holam on lamed: beside the mast (L1) or above it, inside the cell (L2). The
+    interim is L2.
+1c  Which way italic Hebrew leans: right, with JetBrains Mono Italic's Latin and
+    digits; left; or both behind a setting. The interim is neither, because the
+    italic slots are stock.
+1d  Vowel points at 26 px, baud's default size, where no round dot fits in the rows
+    below the baseline: as built, no drop under ג ט ל ס ש, or a short or dash-shaped
+    dot. The interim is as built.
+1e  The Bold dagesh: keep 104, a little smaller than the vowel dots, or 106. The
+    interim is 104.
+
+Licence. Cascadia's repository LICENSE is plain OFL 1.1 under Microsoft's copyright
+line with the Reserved Font Name. The release binary's own nameID 13 is a different
+text: it opens "Microsoft supplied font. You may use this font to create, display,
+and print content as permitted by the license terms or terms of use, of the
+Microsoft product, service, or content in which this font was included. ... Any
+other use is prohibited." and then gives OFL-based terms. The files here carry
+Microsoft's copyright line in nameID 0 and JetBrains Mono's OFL sentence in nameID
+13. They do not carry that text, and OFL.txt here carries both copyright lines over
+the OFL 1.1. Whether that is enough to ship is the owner's call.
+
+Also unasked: whether the build modules under glyphs/languages/hebrew/build/ and
+casanchors.py beside them are Font Software under the OFL or baud code under the
+repository's licence. anchors-400.json and anchors-700.json are data read out of
+Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, and the
+licence call should confirm it.
+
+The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0")
+and makes no exception for baud-app/fonts/**. OFL condition 5: "The Font Software,
+modified or unmodified, in part or in whole, must be distributed entirely under this
+license, and must not be distributed under any other license." The repository's
+licence must carve these files out, or otherwise be reconciled with the OFL, before
+anything is pushed. This holds for the stock fonts as well as for these.
+
+Name. Decision 11 in note AC is the family's name. It may not use the Reserved Font
+Name Cascadia Code, nor either of its words (SIL's OFL-FAQ 1.1-update7, Q5.4: "You may
+not use individual words from the Reserved Font Names"), and it should not be
+"JetBrains Mono", which is JetBrains' trademark. The prototype name and JetBrains'
+nameIDs 8, 9, 11 and 12 stay until then; nameID 7 keeps both trademark notices.
+
+Shear or optical italic. Every italic recipe in the build is the upright design
+sheared 9 degrees about y = 315, outlines and anchors in one transform, which is
+JetBrains Mono Italic's angle. That is a plain shear, not optically corrected. The
+owner's words were "i do think we want italic in hebrew". The session recorded them
+as slanted to match JetBrains Mono's italic and optically corrected like its rounds,
+not a plain shear, but that is a reading. The question goes to the owner with a
+rendered comparison before any italic is embedded.
+
+
+KNOWN DEFECTS
+(From note AC 4a and 4b, except the last three -- meteg with CGJ, the unmapped code
+points and U+20AA -- and the Bold meteg item's detail, which were measured on these
+files on 2026-10-08 and are not in note AC. None of these is fixed by this build. Two
+earlier gaps, the missing hebr script record and Cascadia's dropped trademark notice,
+were fixed; see the CHANGELOG.)
+
+- Meteg fails on 80 of 297 clusters in Regular. With hataf segol it sits 20 units out
+  of the cell and with qubuts 6, and on final letters it leaves the cell. On qof it
+  lands on the leg.
+- Meteg fails on 125 of 297 clusters in Bold (it passes 172; note AC 4b). On these
+  bytes, with HarfBuzz 12.3.0 under latn, the lookups baud selects (baud's own shaper
+  gives the same on bet with hataf patah and hataf segol): on the 22 letters without a
+  descender, meteg sits up to 60 units out of the cell with hataf segol, 42 with
+  qubuts, and 10 with hataf patah and hataf qamats, which Regular keeps inside; on the
+  five with one, qof and four final forms, 32 of 55 clusters leave the cell.
+- Rare combinations overflow the cell sideways: qof with hataf segol by 104 units,
+  and final tsadi with qubuts by 140 (Regular; Bold unmeasured).
+- After the digit 1, an unattached holam vanishes into it, as JetBrains Mono's own
+  U+0307 does (Regular; Bold unmeasured).
+- Bold at 26 px: the sheva's two dots fuse (dot-to-dot 124) and the lower dot is cut
+  (0.40). At 28 px the reading is letter gap 16, dots 35, cut 0.16, and at 38 px it is
+  clean.
+- Regular at 26 px touches under the dipping letters (135) and fuses its sheva's dots
+  (109).
+- At 20 px the cut went from clean to faint in the bold styles, against the round
+  before.
+- The narrow letters were judged by non-native readers from baud renders, so they are
+  the owner's to check (1a).
+- A meteg spelled to sit right of its vowel, as Unicode 17 section 9.1 gives it --
+  <meteg, CGJ, vowel> -- draws on the vowel. Measured in baud's shaper: in Regular,
+  bet + meteg + CGJ + sheva puts meteg at x 259..341, y -186..-36, over the sheva at
+  x 242..358, y -275..-26 (Bold: 244..357 over 240..360), and hataf patah is the
+  same. Meteg lands exactly where bet + meteg alone puts it, on the letter's anchor:
+  no vowel precedes it for the mark-to-mark lookup. HarfBuzz 12.3.0 under latn gives
+  the same boxes. The left spellings, <vowel, meteg> and <hataf, ZWNJ, meteg>, come
+  out left of the vowel, and the ZWNJ moves nothing: in all 297 letter-vowel clusters
+  of both styles, meteg lands where it does without it (HarfBuzz 12.3.0 under latn;
+  baud's shaper on bet), so the meteg items above apply to both spellings. In Bold,
+  bet + hataf patah + ZWNJ + meteg puts meteg at x -10..103, 10 units past the cell's
+  left edge, and with hataf segol at -60..53 (Regular: 26..108, inside; with hataf
+  segol -20..62, 20 out).
+- U+05C6, the cantillation marks U+0591-U+05AF and the presentation forms
+  U+FB1D-U+FB4F are not mapped.
+- U+20AA NEW SHEQEL SIGN is not mapped, though the code page 1255 bit is set (it is
+  cp1255's 0xA4) and Cascadia Mono maps it. No embedded face maps it. On macOS the
+  default stack draws it from Menlo (measured by cmap); on Linux it comes from DejaVu
+  Sans Mono if that face maps it (unmeasured); with no system face it draws as a box.
+
+Not the font's defects, but what a reader sees:
+
+- baud has no bidi, so Hebrew draws in typed order.
+- baud-core's cluster store drops vowel points in longer pointed text (note AC,
+  decision 16).
+
+
+CHANGELOG
+
+2026-10-08 (i-am-logger, baud): first version. Hebrew, variant A-L2, added to
+  JetBrains Mono 2.304 Regular and Bold as Regular.ttf and Bold.ttf.
+2026-10-08 (i-am-logger, baud): two conformance fixes, in every recipe (the four
+  italic recipes too). No outline, anchor, glyph, lookup or feature changed.
+  - nameID 7 carries Cascadia's trademark notice after JetBrains Mono's. The final3
+    build had dropped it, against OFL-FAQ 1.1-update7, Q3.7.
+  - GSUB and GPOS carry a hebr script record naming DFLT's Script table. Before it,
+    HarfBuzz's Hebrew shaper ignored the anchors and placed the points by combining
+    class. Measured with HarfBuzz 12.3.0 (uharfbuzz 0.53.2), script Hebr,
+    right-to-left: bet + dagesh + qamats puts the dagesh at y 264..368, inside bet,
+    where it was at -189..-85, below the baseline (Bold: 274..366, was -172..-80); on
+    pointed Genesis 1:1 without cantillation or sof pasuq (seven words, 34 clusters),
+    shaped as Hebr right-to-left and as Latn left-to-right, 0 clusters now differ
+    between the two, against 18 before, in each style. baud's shaper is unchanged:
+    1,646 Hebrew clusters shape the same with the old and new files.
+  The gates were run again on these bytes. OTS passes. The generalised gate fails
+  two checks, "GSUB byte-identical" and "GPOS scripts unchanged", and the
+  strip-and-compare gate four, "GPOS minus appended != JBM GPOS", "mark reach set
+  differs", "mkmk reach set differs" and "GSUB differs": each only because of the
+  hebr record, and with it taken out every check of both passes, as on final3. Every
+  style-path, Latin and floor render is pixel-identical to final3's. That checks the
+  latn path only: baud's shaper selects latn, else DFLT (baud-font/src/layout.rs), so
+  no render reads the hebr record, whose effect is the HarfBuzz measurement above.

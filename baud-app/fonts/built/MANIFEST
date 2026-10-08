@@ -1,0 +1,45 @@
+# baud-app/fonts/built/MANIFEST: what scripts/build-fonts.sh built, from what, and how.
+# Written by scripts/build-fonts.sh. 'scripts/build-fonts.sh --check' rebuilds and compares
+# every line that does not start with '#'; '#' lines are the building machine's facts.
+# system aarch64-darwin
+# python-env /nix/store/4lihgzwa48piw220kw0dzpsix9sl36z4-python3-3.14.7-env
+nixpkgs 7dd199b0e2993e37b4775ed66b1c291699608c9f fetchTarball-sha256 08kxnni9l87i089hy7p9a7yr64w6h9x5m2cc7k2hn455hidm9mm3
+package python 3.14.7
+package fonttools 4.63.0
+package skia-pathops 0.9.2
+package numpy 2.5.2
+package scipy 1.18.1
+package uharfbuzz 0.53.2 (HarfBuzz 12.3.0)
+pin USE_HARFBUZZ_REPACKER=True (build/pin.py)
+env SOURCE_DATE_EPOCH=315532800
+env PYTHONHASHSEED=0
+env PYTHONDONTWRITEBYTECODE=1
+env HEBREW_WORK=<a temporary directory holding the instances>
+python-flags -s, under env -i
+recipe Regular STYLE=Regular LEAN=R VARIANT=A LAMED=L2 DIP_FLOOR=1 LOWEST_DIP=-293
+recipe Bold STYLE=Bold LEAN=R BOLD_DOT_W=120 BOLD_DOT_H=98 BOLD_GV=40 BOLD_HATAF_BAR_MIN_DROP=3 BOLD_LOWEST_TWO=-272.0 BOLD_LOWEST_DIP=-298.0 BOLD_SEG_PITCH=133 BOLD_QUB_DX=146 BOLD_QUB_PITCH=134.4 BOLD_SEG_HOME=-43 BOLD_QUB_HOME=-42 UID_TAG=prototype-bi-bold2 BOLD_HATAF_GAP=46 VARIANT=A LAMED=L2 DIP_FLOOR=1 LOWEST_DIP=-293
+step instance build/instance.py CascadiaMono.ttf 400 cas400.ttf; build/instance.py CascadiaMono.ttf 700 cas700.ttf
+step anchors casanchors.py cas400.ttf anchors-400.json; casanchors.py cas700.ttf anchors-700.json (each must equal the committed file)
+step build build/build.py <style>.ttf, once per recipe
+input 08026f617eea315caca59898784e999f6cdb2d0c34d2040deeb042bcdc359fa2 baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
+input 51882cd3cdba4e16f220f44ddb08a635c38c44ea6e0975db2574f4be6f958238 baud-app/fonts/glyphs/languages/hebrew/OFL.txt
+input e9de63db0be49591f607204de85eefeca3d9ead280eebd594e96f1fd19a01f1d baud-app/fonts/glyphs/languages/hebrew/SOURCE
+input 7721d034aebf0f102a3b870de16d9afd41d8785df87cd912bcf0790bfd11e603 baud-app/fonts/glyphs/languages/hebrew/anchors-400.json
+input 36553f6adc137ee7d0df3876b1cfe919566a6306782d7d6ecd461ac0c5b03fb6 baud-app/fonts/glyphs/languages/hebrew/anchors-700.json
+input 22a655aae5ac5633e1d3630f90cb27c520cf850f955e878e10b69bfea4cef17d baud-app/fonts/glyphs/languages/hebrew/build/build.py
+input 22faf5368c712bed1dfb0eff50a357230eeb1f517c0079f87abd599c3f8b8166 baud-app/fonts/glyphs/languages/hebrew/build/design.py
+input 88a407e9a8c648b665cd7f9667ad6d9ffe04daa04edfd5bcc8fd97474dab1487 baud-app/fonts/glyphs/languages/hebrew/build/design2.py
+input 2b554a298f02c366ffed8a7c846b7aa968e5ef897cc0a0eef277617ff02c856b baud-app/fonts/glyphs/languages/hebrew/build/design3.py
+input 1523deded540f1b43bff5db7714388fcafa8965442cd76263f557eb2e9135ad5 baud-app/fonts/glyphs/languages/hebrew/build/field.py
+input ff20199e66063fb770f7e9128079f4a4ead9396469371d66037ea8a68e3f9fd7 baud-app/fonts/glyphs/languages/hebrew/build/geom.py
+input 8cead41e709842e60658869856f350613364c94937afb6ab12d1227cafa8a343 baud-app/fonts/glyphs/languages/hebrew/build/instance.py
+input 5fd0c881bbf32d48dfb1d646a622d69bf95f928b77ca8e1061d1c0ed32b2ae14 baud-app/fonts/glyphs/languages/hebrew/build/narrow.py
+input 1845f24f27aa4a66f0d86db7f5a5e51706d82bdc739ac75d0e00c36a0f73caf1 baud-app/fonts/glyphs/languages/hebrew/build/pin.py
+input 818f6a59c95845e32c5a8f20d1cefe55c0588508663dddc7575e53d31aad850a baud-app/fonts/glyphs/languages/hebrew/build/style.py
+input 134370f01a2193c447165de0d76cf0549e939d5a9c3097ffada7ad670c3dcab9 baud-app/fonts/glyphs/languages/hebrew/casanchors.py
+input a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf
+input 5590990c82e097397517f275f430af4546e1c45cff408bde4255dad142479dcb baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf
+intermediate 7670e8a65b21e6c06db84f03cdd5e28711f55d8458c9e0482611235249f6b9d1 cas400.ttf (the wght 400 instance; not committed)
+intermediate dcfd67fdd811153235a5b9f44efd7b14a5bd9f82990b67b810ab090cb6db33f9 cas700.ttf (the wght 700 instance; not committed)
+output df06669a5d7748344b34f62dcdf50fb2a2141080d1e0ebb969d928780160122f baud-app/fonts/built/Regular.ttf
+output a02eb8b1a509d9ddb468c1a422dfeeb5949bf39acc7c5cfa48749f1c179890d3 baud-app/fonts/built/Bold.ttf

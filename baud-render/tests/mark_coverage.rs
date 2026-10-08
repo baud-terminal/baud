@@ -450,6 +450,9 @@ fn a_dropped_mark_no_longer_blocks_a_composition() {
 fn a_bold_cluster_its_bold_face_cannot_draw_falls_to_the_chain() {
     use baud_render::{Blend, FaceRole, PxSize, Stack, Theme};
     let (j, f) = jbm_and_fira();
+    // Stock JetBrains Mono Bold. The embedded Bold is this file with Hebrew
+    // added, and what this test reads of it, U+0301 and U+0305, is the same
+    // in both.
     let bold = std::fs::read(format!(
         "{}/../baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf",
         env!("CARGO_MANIFEST_DIR")

@@ -588,9 +588,11 @@ A design checked against the repository and a working prototype (fontTools
 - **The tool**: a fontTools script run by a developer, its outputs committed and
   held by tests. The prototype (fontTools 4.63.0 from an unpinned `<nixpkgs>`) is
   byte-identical across reruns and hash seeds on this Mac (measured); under
-  devenv's pinned nixpkgs and across machines it is unmeasured, and the build
-  must pin `USE_HARFBUZZ_REPACKER=False`, which changed the bytes in the merge
-  prototype (measured).
+  devenv's pinned nixpkgs and across machines it is unmeasured. This design said
+  the build must pin `USE_HARFBUZZ_REPACKER=False`, which changed the bytes in
+  the merge prototype (measured). The Hebrew build pins it True instead: with
+  False, or with no uharfbuzz, GPOS comes out different (same length, equal XML)
+  and the outputs miss the gated bytes (section 5a).
   Building in `build.rs` would put Python in every build for no gain; a Rust
   writer extending `baud-font`'s `bake.rs` is possible but needs `cmap`, layout
   and `GDEF` merging, with the script as its oracle.
@@ -618,6 +620,125 @@ A design checked against the repository and a working prototype (fontTools
   clusters checked separately); a pixel test per component; the licences shipped; and a
   determinism check that rebuilds and compares.
 
+## 5a. The Hebrew build, built (2026-10-08)
+
+The owner typed Hebrew into baud and every letter drew as JetBrains Mono's
+`.notdef` box. Then they said "i thought we have our own font that has hebrew".
+The Cascadia-based Hebrew (section 4a) had been gated in four styles since
+2026-10-07, but it was never merged into the font the app loads. This section is
+what was built that day. The record ("baud's own Hebrew is in the embedded font,
+Regular and Bold, built from committed sources") carries the Jev table, the
+tests and the verifier's measurements.
+
+**The tree**, the interim layout (NEW_PATH_A2, below the bar):
+
+- `baud-app/fonts/jetbrains-mono/` stays the stock base.
+- `glyphs/languages/hebrew/` holds Cascadia Mono's variable font, its OFL,
+  SOURCE, both anchor files, `casanchors.py` and `build/`.
+- `built/` holds `Regular.ttf`, `Bold.ttf`, MANIFEST, OFL.txt, FONTLOG.txt and
+  AUTHORS.txt.
+
+The section 5 design's `base/` and `icons/` moves wait.
+
+**The tool.** `scripts/build-fonts.sh` runs a Python pinned to nixpkgs
+`7dd199b0` by `fetchTarball`.
+
+- Every step runs under `env -i` with only `SOURCE_DATE_EPOCH`,
+  `PYTHONHASHSEED`, `PYTHONDONTWRITEBYTECODE`, `HEBREW_WORK` and the recipe's
+  variables.
+- It refuses to write unless the outputs equal the hashes it expects.
+- `--check` rebuilds into a temporary directory and compares every MANIFEST
+  line. It fails on a one-unit change to a design constant (measured).
+- The four italic recipes, both leans, also reproduce (`--italics`). Nothing
+  embeds them.
+- fontTools' GPOS repacker, uharfbuzz, is pinned on. Section 5's "pin False"
+  would have given other GPOS bytes (same length, equal XML), so HarfBuzz is a
+  build-time dependency. Nothing of it reaches baud at run time.
+
+**The bytes.**
+
+- `built/Regular.ttf` (`df06669a...`) and `built/Bold.ttf` (`a02eb8b1...`) are
+  `bi/bold2/final3`'s Regular-A-L2 and Bold-A-L2 plus two conformance fixes.
+- A pre-commit review found the gated bytes departed from:
+  - the OFL-FAQ, Q3.7: "Any trademark notices must remain in any derivative
+    fonts", where nameID 7 had dropped Cascadia's;
+  - Microsoft's Hebrew script spec, which registers `hebr`, where the font had
+    no `hebr` record. Without it, HarfBuzz's Hebrew shaper ignores the anchors.
+- So nameID 7 now carries JetBrains' notice and then Cascadia's, each byte for
+  byte from its source font. A `hebr` record naming DFLT's Script table is
+  spliced into GSUB and GPOS.
+- Removing that 6-byte record gives the gated tables exactly. Every glyph, cmap,
+  metric, GDEF and lookup byte is unchanged.
+- Under HarfBuzz's Hebrew shaper, the clusters of pointed Genesis 1:1 that
+  differ from Latin shaping went from 18 of 34 to 0.
+- baud's shaping did not move (0 of 1,646 clusters), because it reads `latn`
+  first.
+- Jev split 0.52 against 0.48 on fixing this now (confidence 0.04), and the
+  owner's rule (the standard is the requirement) decided it.
+
+**What the app embeds.** Regular and Bold are the built files, using the review
+page's defaults (1a = A, 1b = L2), which are interim and the owner's call.
+Italic and Bold Italic stay stock (STOCK_ITALIC, below the bar), so italic
+Hebrew draws upright Regular from the chain until 1c is answered.
+
+**A configured stack is followed by the embedded Regular, then the icon face,
+then STIX** (`config.rs`, the `FontFallback::Embedded` branch). This is
+decision 8, asked again with its measured scope: 0.92 at 0.88, so interim under
+the bar read on confidence.
+
+- By cmap it moves 458 code points for a FiraCode stack (450 for the owner's
+  former FiraCode Nerd Font Mono):
+  - the 52 Hebrew;
+  - 38 that were boxes;
+  - 360 that drew from STIX;
+  - 8 that drew from the icon face.
+- The default stack already resolves those 360 and 8 from JetBrains Mono.
+- No system tier follows a configured stack yet (decision 9).
+
+**Unmeasured:**
+
+- the Latin shaping and frame cost of GPOS going from 5 lookups to 7;
+- the binary-size delta (the font data grows 12,628 B);
+- Linux pixels;
+- any committed test drawing the built fonts on Metal.
+
+**Two corrections to earlier sections:**
+
+- Overpaint is not evidence about a font, because baud-render's CPU compositor
+  clips each glyph to its own row's band.
+- Section 4a's "Regular's tables equal round 4's except the head dates" is
+  stale: the files were byte-identical, head included.
+
+**Known defects added to FONTLOG** (not in sections 4a and 4b):
+
+- Meteg spelled with CGJ draws on the vowel (measured, Regular and Bold).
+- U+20AA is unmapped although the code-page 1255 bit is set.
+- U+05C6, U+0591-05AF and U+FB1D-FB4F are unmapped.
+- Bold meteg's per-vowel failures.
+
+**Still the owner's:**
+
+- 1a-1e.
+- The family name: OFL-FAQ Q5.4 allows neither word of "Cascadia Code", and it
+  should not be "JetBrains Mono".
+- Shear or optically corrected italic: every built italic is a plain 9-degree
+  shear, while the session's reading of the owner's call was "optically
+  corrected".
+- The italic lean.
+- The licence call.
+
+The licence call, stated precisely: the built files carry Microsoft's copyright
+line, with the Reserved Font Name, in nameID 0, and JetBrains Mono's OFL sentence
+in nameID 13. They do not carry the Cascadia release binary's "Microsoft supplied
+font ... Any other use is prohibited".
+
+**Push blockers:**
+
+- The repository LICENSE (CC BY-NC-SA 4.0) has no exception for
+  `baud-app/fonts/**`. OFL condition 5 requires the fonts be "distributed
+  entirely under this license", and this holds for the stock fonts too.
+- Nothing packages the OFL for Linux.
+
 ## 6. Open decisions
 
 From the build research. Jev's first answers (2026-10-07; probability of its choice,
@@ -641,7 +762,9 @@ items 1-3 and 5-12 in brackets; items 4, 13 and 14 were not asked. All go to the
    baud patch, and until then it stays a face, is merged, or goes. [stays a face,
    0.93 at 0.89]
 8. The built font behind a configured stack: the Regular only, or a chain per style.
-   [Regular only, 0.83 at 0.66]
+   [Regular only, 0.83 at 0.66; built 2026-10-08 under the first build ask's 0.59
+   (interim); a second ask with its measured scope gave 0.92 at 0.88, still
+   interim under the bar read on confidence (section 5a)]
 9. macOS system fallback: the cascade at launch, per character, or both. [cascade at
    launch, 0.92 at 0.88]
 10. Linux system fallback: linked, `dlopen`ed or a subprocess. [linked, 0.46 at 0.19]
@@ -650,7 +773,8 @@ items 1-3 and 5-12 in brackets; items 4, 13 and 14 were not asked. All go to the
     and is JetBrains' trademark, to which the OFL grants no right. [a new name,
     0.86 at 0.72]
 12. Inputs committed, or fetched by pinned hash at build time. [committed, 0.60 at
-    0.20]
+    0.20; for the Hebrew build, COMMIT_VF 0.93 at 0.89, built as the interim
+    (section 5a)]
 13. Which gap blocks baud draws itself, in what order, and which stay with the
     system: Claude Code's and common TUI symbols first is the measured case.
 14. How baud's own glyphs are made per block: generated to JetBrains Mono's

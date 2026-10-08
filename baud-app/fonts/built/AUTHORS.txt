@@ -1,0 +1,24 @@
+# This is the official list of project authors for copyright purposes.
+# This file is distinct from the CONTRIBUTORS.txt file.
+# See the latter for an explanation.
+# 
+# Names should be added to this file as:
+# Name or Organization <email address>
+
+JetBrains <>
+Philipp Nurullin <philipp.nurullin@jetbrains.com>
+Konstantin Bulenkov <kb@jetbrains.com>
+
+# The Hebrew (U+05B0-U+05F4) in these files is derived from Cascadia Mono, Cascadia
+# Code v2407.24 (baud-app/fonts/glyphs/languages/hebrew/SOURCE): Copyright (c) 2019 -
+# Present, Microsoft Corporation, with Reserved Font Name Cascadia Code. Designers per
+# that release's README.md (line 78) and the font's nameID 9.
+
+Microsoft Corporation
+Aaron Bell (Cascadia's font designer)
+Liron Lavi Turkenich (Cascadia's Hebrew designer)
+
+# Modified for baud: the Hebrew re-weighted, fitted to JetBrains Mono's cell, every
+# vowel point redrawn, and merged into JetBrains Mono (FONTLOG.txt).
+
+i-am-logger (baud)

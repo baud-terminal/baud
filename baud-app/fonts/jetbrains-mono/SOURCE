@@ -1,4 +1,7 @@
-JetBrains Mono 2.304, Regular, Bold, Italic and Bold Italic: baud's embedded text faces.
+JetBrains Mono 2.304, Regular, Bold, Italic and Bold Italic. The Italic and Bold Italic
+are baud's embedded faces as they are. The Regular and Bold are the base that
+scripts/build-fonts.sh builds baud-app/fonts/built/ from; the built files are what is
+embedded in those two styles (built/FONTLOG.txt).
 
 Release:   JetBrains Mono v2.304
 Archive:   https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip

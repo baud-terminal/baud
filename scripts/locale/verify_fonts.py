@@ -13,7 +13,9 @@ FACES = [
     ("Apple SD Gothic Neo @0", "/System/Library/Fonts/AppleSDGothicNeo.ttc", 0, 0xAC00),
     ("Apple Color Emoji @0", "/System/Library/Fonts/Apple Color Emoji.ttc", 0, 0x1F600),
     ("Apple Symbols", "/System/Library/Fonts/Apple Symbols.ttf", None, 0x2600),
-    ("JetBrains Mono Regular (embedded)", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf", None, 0x41),
+    # Stock JetBrains Mono, as embedded when this check was run. The embedded
+    # Regular is now baud-app/fonts/built/Regular.ttf, this file with Hebrew added.
+    ("JetBrains Mono Regular (stock)", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf", None, 0x41),
     ("STIX Two Math (embedded)", "baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf", None, 0x23F5),
     ("Symbols NFM (embedded)", "baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf", None, 0xF07B),
     ("Menlo @0", "/System/Library/Fonts/Menlo.ttc", 0, 0x41),

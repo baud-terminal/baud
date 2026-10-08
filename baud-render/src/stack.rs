@@ -527,10 +527,12 @@ mod tests {
 
     const FOLDER: u32 = 0xF07B;
 
-    /// The embedded shape: JetBrains Mono Regular, the icon face, then the
-    /// three styles. Text of a style takes its own face; a character that
-    /// face lacks -- an icon -- takes the fallback chain, never another
-    /// style's face; and regular text never lands in a styled face.
+    /// The default stack's shape, on stock JetBrains Mono: Regular, the icon
+    /// face, then the three styles. (The embedded Regular and Bold are these
+    /// files with Hebrew added, which nothing here draws.) Text of a style
+    /// takes its own face; a character that face lacks -- an icon -- takes
+    /// the fallback chain, never another style's face; and regular text never
+    /// lands in a styled face.
     #[test]
     fn a_style_draws_from_its_own_face_and_falls_back_to_the_chain() {
         let files = [

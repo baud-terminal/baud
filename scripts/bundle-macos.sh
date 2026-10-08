@@ -50,10 +50,20 @@ cp "$BIN" "$APP/Contents/MacOS/baud"
 # The embedded fonts' licences travel with the binary that carries them, as
 # the upstream archives ship them: JetBrains Mono's OFL and AUTHORS, and the
 # Nerd Fonts icon face's MIT licence and its icon-set licence table, and STIX
-# Two Math's OFL.
-for DIR in jetbrains-mono symbols-nerd-font stix-two-math; do
+# Two Math's OFL. The built Regular and Bold -- JetBrains Mono with baud's
+# Hebrew -- carry their own OFL, FONTLOG, AUTHORS and MANIFEST, and the
+# Hebrew's source, Cascadia Mono, its OFL and SOURCE.
+for DIR in jetbrains-mono symbols-nerd-font stix-two-math built glyphs/languages/hebrew; do
   mkdir -p "$APP/Contents/Resources/fonts/$DIR"
 done
+cp "$ROOT/baud-app/fonts/built/OFL.txt" \
+  "$ROOT/baud-app/fonts/built/FONTLOG.txt" \
+  "$ROOT/baud-app/fonts/built/AUTHORS.txt" \
+  "$ROOT/baud-app/fonts/built/MANIFEST" \
+  "$APP/Contents/Resources/fonts/built/"
+cp "$ROOT/baud-app/fonts/glyphs/languages/hebrew/OFL.txt" \
+  "$ROOT/baud-app/fonts/glyphs/languages/hebrew/SOURCE" \
+  "$APP/Contents/Resources/fonts/glyphs/languages/hebrew/"
 cp "$ROOT/baud-app/fonts/jetbrains-mono/OFL.txt" \
   "$ROOT/baud-app/fonts/jetbrains-mono/AUTHORS.txt" \
   "$ROOT/baud-app/fonts/jetbrains-mono/SOURCE" \

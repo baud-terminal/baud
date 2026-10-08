@@ -18,14 +18,17 @@
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
 //! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
 //! none is found or a field is absent, the defaults are the stack that
-//! starts with the embedded JetBrains Mono and its Nerd Fonts icon face, with
-//! JetBrains Mono's Bold, Italic and Bold Italic as the styled faces -- so the
-//! app runs with no config at all. A configured `fonts` replaces that stack
-//! and keeps the embedded icon face and then STIX Two Math behind it, for the
-//! icons and symbols the named faces lack (the owner's call of 2026-10-03, as
-//! every terminal that bundles faces keeps them behind a configured font),
-//! unless `font_fallback = false`. A configured stack has no styled faces
-//! yet: naming them waits on fonts by family name.
+//! starts with baud's embedded font -- JetBrains Mono, with baud's Hebrew in
+//! its Regular and Bold -- and its Nerd Fonts icon face, with the embedded
+//! Bold, Italic and Bold Italic as the styled faces -- so the app runs with
+//! no config at all. A configured `fonts` replaces that stack and keeps the
+//! embedded Regular, the icon face and then STIX Two Math behind it, for the
+//! Hebrew, icons and symbols the named faces lack (the owner's order:
+//! configured, then baud's embedded font, then the system, which is not
+//! built for a configured stack yet (note AC decision 9); and the owner's
+//! call of 2026-10-03, as every terminal that bundles faces keeps them behind
+//! a configured font), unless `font_fallback = false`. A configured stack has
+//! no styled faces yet: naming them waits on fonts by family name.
 
 use baud_domain::{CursorBlink, CursorShape};
 
@@ -49,10 +52,11 @@ pub enum FaceFrom {
     Embedded(&'static [u8]),
 }
 
-/// Whether the embedded icon face follows a configured stack as its last face,
-/// so a glyph none of the named faces carries -- a Nerd Fonts icon -- draws
-/// from it instead of as `.notdef`. kitty, wezterm and ghostty all put their
-/// bundled symbols behind the user's fonts the same way.
+/// Whether the embedded faces follow a configured stack -- the embedded
+/// Regular, then the icon face, then STIX Two Math -- so a glyph none of the
+/// named faces carries, Hebrew or a Nerd Fonts icon, draws from them instead
+/// of as `.notdef`. kitty, wezterm and ghostty all put their bundled symbols
+/// behind the user's fonts the same way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FontFallback {
     Embedded,
@@ -67,9 +71,9 @@ pub struct Config {
     pub source: Option<std::path::PathBuf>,
     /// The fallback stack, first face first.
     pub faces: Vec<FaceSpec>,
-    /// Whether the embedded icon face and STIX Two Math follow a `fonts` stack
-    /// the config names, already folded into `faces` by the time the config
-    /// is read.
+    /// Whether the embedded Regular, the icon face and STIX Two Math follow
+    /// a `fonts` stack the config names, already folded into `faces` by the
+    /// time the config is read.
     pub font_fallback: FontFallback,
     /// Points; pixels are this times the backing scale.
     pub font_size: f32,
@@ -756,7 +760,7 @@ impl Config {
                         "false" => FontFallback::Off,
                         other => {
                             said.push(format!(
-                                "config: font_fallback = {other:?} is not true or false; the embedded icon and symbol faces stay behind the stack"
+                                "config: font_fallback = {other:?} is not true or false; the embedded faces stay behind the stack"
                             ));
                             FontFallback::Embedded
                         }
@@ -838,7 +842,21 @@ impl Config {
             }
         }
         if let Some(mut faces) = named {
+            // The owner's order: the configured faces, then baud's embedded
+            // font, then the system, which is not built for a configured
+            // stack yet (note AC decision 9). The embedded Regular goes first
+            // of the three, so it draws whatever the named faces lack and it
+            // maps: the 52 Hebrew code points, which were `.notdef`, and
+            // whatever else JetBrains Mono maps. By cmap, not rendering, that
+            // is 458 code points behind
+            // `baud-font/tests/fonts/FiraCode-Regular.ttf`: the 52, 360 that
+            // drew from STIX before, 8 from the icon face (U+23FB-23FE,
+            // U+26A1, U+276E-276F, U+2B58) and 38 more that were boxes.
+            // Regular only: a configured stack has no styled faces, so its
+            // bold and italic Hebrew draws from this face too, upright and
+            // regular weight.
             if self.font_fallback == FontFallback::Embedded {
+                faces.push(FaceSpec::embedded(crate::embedded::REGULAR));
                 faces.push(FaceSpec::embedded(crate::embedded::SYMBOLS));
                 faces.push(FaceSpec::embedded(crate::embedded::STIX));
             }
@@ -1113,9 +1131,10 @@ const DEFAULT_FACES: [&str; 6] = [
     "/System/Library/Fonts/Kohinoor.ttc@0",
 ];
 
-/// The embedded JetBrains Mono first, the embedded icon face right behind
-/// it (Jev's rule, 2026-09-29: it carries only private-use icons, so its
-/// place changes nothing for text), then the system faces as they were:
+/// The embedded Regular first -- JetBrains Mono with baud's Hebrew -- the
+/// embedded icon face right behind it (Jev's rule, 2026-09-29: it carries
+/// only private-use icons, so its place changes nothing for text), then the
+/// system faces as they were:
 /// Menlo keeps the 1,593 codepoints it maps and JetBrains Mono does not
 /// (extended Latin, polytonic Greek, Georgian, more arrows), decided with
 /// Jev (0.98), 2026-09-29. Then the embedded STIX Two Math, last in the
@@ -1134,8 +1153,11 @@ fn default_faces() -> Vec<FaceSpec> {
     .collect()
 }
 
-/// JetBrains Mono's Bold, Italic and Bold Italic, each the face its style
-/// is drawn from: never synthesised while a real face exists.
+/// The embedded Bold -- JetBrains Mono Bold with baud's Hebrew -- and
+/// JetBrains Mono's stock Italic and Bold Italic, each the face its style is
+/// drawn from: never synthesised while a real face exists. The italics map
+/// no Hebrew for now (STOCK_ITALIC, interim), so italic Hebrew falls to the
+/// chain and draws from the embedded Regular.
 fn styled_faces() -> [FaceSpec; 3] {
     use baud_render::FaceStyle;
     [
@@ -1145,7 +1167,7 @@ fn styled_faces() -> [FaceSpec; 3] {
     ]
 }
 
-/// The embedded JetBrains Mono and icon face first; then, since Linux has no one system
+/// The embedded Regular and icon face first; then, since Linux has no one system
 /// mono, the first of the usual DejaVu Sans Mono locations that exists, for
 /// what JetBrains Mono does not map, Noto Color Emoji where it is, and the
 /// embedded STIX Two Math last, as on macOS. A config names anything else.
@@ -1837,11 +1859,12 @@ shadow     = "never"
         assert_eq!(said.len(), 2, "and it is said: {said:?}");
     }
 
-    /// The default stack starts with the embedded JetBrains Mono Regular and
-    /// the icon face, and on macOS keeps Menlo right behind them; the embedded
-    /// STIX Two Math ends the chain; the three embedded styles are its styled
-    /// faces, out of the chain. A config's
-    /// `fonts` replaces the stack, and the icon face follows it.
+    /// The default stack starts with the embedded Regular -- JetBrains Mono
+    /// with baud's Hebrew -- and the icon face, and on macOS keeps Menlo right
+    /// behind them; the embedded STIX Two Math ends the chain; the three
+    /// embedded styles are its styled faces, out of the chain. A config's
+    /// `fonts` replaces the stack, and the embedded Regular, the icon face
+    /// and STIX follow it.
     #[test]
     fn the_default_stack_starts_with_the_embedded_font() {
         use crate::embedded::{BOLD, BOLD_ITALIC, ITALIC, REGULAR, SYMBOLS};
@@ -1878,10 +1901,11 @@ shadow     = "never"
         let mut c = Config::defaults();
         let said = c.apply("fonts = [\"/a.ttf\"]\n");
         assert!(said.is_empty(), "{said:?}");
-        assert_eq!(c.faces.len(), 3);
+        assert_eq!(c.faces.len(), 4);
         assert!(matches!(c.faces[0].from, FaceFrom::File));
-        assert!(is(&c.faces[1], SYMBOLS));
-        assert!(is(&c.faces[2], crate::embedded::STIX));
+        assert!(is(&c.faces[1], REGULAR));
+        assert!(is(&c.faces[2], SYMBOLS));
+        assert!(is(&c.faces[3], crate::embedded::STIX));
     }
 
     /// Whether `f` is the embedded font `e`, by its bytes.
@@ -1893,22 +1917,27 @@ shadow     = "never"
         is(f, crate::embedded::SYMBOLS)
     }
 
-    /// A configured stack keeps the embedded icon face behind it, so what
-    /// none of the named faces carries -- a Nerd Fonts icon -- still draws (and
-    /// STIX after it, below); and
-    /// `font_fallback = false` leaves the stack exactly as named, whichever
-    /// of the two keys comes first.
+    /// A configured stack keeps the embedded font behind it -- the Regular,
+    /// for the Hebrew and whatever else the named faces lack and it maps,
+    /// then the icon face, so a Nerd Fonts icon still draws (and STIX after
+    /// it, below); and `font_fallback = false` leaves the stack exactly as
+    /// named, whichever of the two keys comes first.
     #[test]
     fn a_configured_stack_keeps_the_embedded_font_behind_it() {
         let c = read("fonts = [\"/a.ttf\", \"/b.ttc@2\"]\n");
-        assert_eq!(c.faces.len(), 4);
+        assert_eq!(c.faces.len(), 5);
         assert_eq!(c.faces[0].path, "/a.ttf");
         assert_eq!(c.faces[1].path, "/b.ttc");
-        assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
         assert!(
-            is(&c.faces[3], crate::embedded::STIX),
+            is(&c.faces[2], crate::embedded::REGULAR),
             "{}",
-            c.faces[3].path
+            c.faces[2].path
+        );
+        assert!(is_symbols(&c.faces[3]), "{}", c.faces[3].path);
+        assert!(
+            is(&c.faces[4], crate::embedded::STIX),
+            "{}",
+            c.faces[4].path
         );
         assert_eq!(c.font_fallback, FontFallback::Embedded);
         for text in [
@@ -1921,8 +1950,38 @@ shadow     = "never"
             assert_eq!(c.faces[0].path, "/a.ttf", "{text}");
         }
         let c = read("font_fallback = true\nfonts = [\"/a.ttf\"]\n");
-        assert_eq!(c.faces.len(), 3);
-        assert!(is_symbols(&c.faces[1]));
+        assert_eq!(c.faces.len(), 4);
+        assert!(is_symbols(&c.faces[2]));
+    }
+
+    /// **The embedded Regular follows a configured stack** -- the owner's
+    /// order, configured faces, then baud's embedded font, then the system,
+    /// which is not built for a configured stack yet (note AC decision 9)
+    /// -- after the named faces and ahead of the icon face and STIX, as a
+    /// fallback face and never a styled one, and under the same switch:
+    /// `font_fallback = false` takes it away with the other two.
+    #[test]
+    fn the_embedded_regular_follows_a_configured_stack_before_the_icons() {
+        let c = read("fonts = [\"/a.ttf\"]\n");
+        assert!(matches!(c.faces[0].from, FaceFrom::File));
+        assert!(
+            is(&c.faces[1], crate::embedded::REGULAR),
+            "{}",
+            c.faces[1].path
+        );
+        assert_eq!(c.faces[1].role, baud_render::FaceRole::Fallback);
+        assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
+        assert!(
+            is(&c.faces[3], crate::embedded::STIX),
+            "{}",
+            c.faces[3].path
+        );
+        assert_eq!(c.faces.len(), 4);
+        let c = read("fonts = [\"/a.ttf\"]\nfont_fallback = false\n");
+        assert!(
+            c.faces.iter().all(|f| !is(f, crate::embedded::REGULAR)),
+            "the switch turns the embedded Regular off too"
+        );
     }
 
     /// The owner's call of 2026-10-03: the symbol face follows a configured
@@ -1932,12 +1991,12 @@ shadow     = "never"
     #[test]
     fn a_configured_stack_keeps_the_symbol_face_last() {
         let c = read("fonts = [\"/a.ttf\"]\n");
-        assert_eq!(c.faces.len(), 3);
-        assert!(is_symbols(&c.faces[1]), "{}", c.faces[1].path);
+        assert_eq!(c.faces.len(), 4);
+        assert!(is_symbols(&c.faces[2]), "{}", c.faces[2].path);
         assert!(
-            is(&c.faces[2], crate::embedded::STIX),
+            is(&c.faces[3], crate::embedded::STIX),
             "{}",
-            c.faces[2].path
+            c.faces[3].path
         );
         let c = read("fonts = [\"/a.ttf\"]\nfont_fallback = false\n");
         assert!(
@@ -1965,7 +2024,7 @@ shadow     = "never"
         assert_eq!(said.len(), 1, "{said:?}");
         assert!(said[0].contains("font_fallback"), "{said:?}");
         assert_eq!(c.font_fallback, FontFallback::Embedded);
-        assert!(is_symbols(&c.faces[1]));
+        assert!(is_symbols(&c.faces[2]));
     }
 
     /// Every theme the macOS app builds carries the floor it was given. The
@@ -2206,12 +2265,12 @@ shadow     = "never"
         let c = read("fonts = [\n  \"a\",\n  \"b@2\",\n]\n[glass]\ndim_dark = 0.3\n");
         assert_eq!(
             c.faces.len(),
-            4,
-            "the two named and the two embedded fallbacks"
+            5,
+            "the two named and the three embedded fallbacks"
         );
         assert_eq!(c.faces[1].path, "b");
         assert_eq!(c.faces[1].index, 2);
-        assert!(is_symbols(&c.faces[2]));
+        assert!(is_symbols(&c.faces[3]));
         assert_eq!(c.glass.dim_dark, 0.3);
     }
 }

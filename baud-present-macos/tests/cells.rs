@@ -1086,22 +1086,24 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         env!("CARGO_MANIFEST_DIR")
     ))
     .expect("face");
-    // The embedded styles and icon face behind them, so the scene's bold,
-    // italic and bold-italic cells are drawn from their own faces on both
-    // arms: the cell arm through the style bits in its glyph-map key, the
-    // instance arm through the stack. Two arms that both ignored the style
-    // would agree, which is why the styled scene carries its own control.
-    let embedded = |p: &str| {
+    // Stock JetBrains Mono's styles -- the embedded Bold is its Bold with
+    // Hebrew added, and the scene draws no Hebrew -- and the embedded icon
+    // face behind them, so the scene's bold, italic and bold-italic cells
+    // are drawn from their own faces on both arms: the cell arm through the
+    // style bits in its glyph-map key, the instance arm through the stack.
+    // Two arms that both ignored the style would agree, which is why the
+    // styled scene carries its own control.
+    let app_font = |p: &str| {
         std::fs::read(format!(
             "{}/../baud-app/fonts/{p}",
             env!("CARGO_MANIFEST_DIR")
         ))
         .expect("face")
     };
-    let symbols = embedded("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
-    let bold = embedded("jetbrains-mono/JetBrainsMono-Bold.ttf");
-    let italic = embedded("jetbrains-mono/JetBrainsMono-Italic.ttf");
-    let bold_italic = embedded("jetbrains-mono/JetBrainsMono-BoldItalic.ttf");
+    let symbols = app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf");
+    let bold = app_font("jetbrains-mono/JetBrainsMono-Bold.ttf");
+    let italic = app_font("jetbrains-mono/JetBrainsMono-Italic.ttf");
+    let bold_italic = app_font("jetbrains-mono/JetBrainsMono-BoldItalic.ttf");
     let faces = [
         Face::parse(&data).expect("parse"),
         Face::parse(&noto).expect("parse"),

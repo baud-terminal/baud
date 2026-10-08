@@ -20,7 +20,10 @@ const WS: WinSize = WinSize {
     ws_col: 16,
 };
 
-fn embedded(path: &str) -> Vec<u8> {
+/// A font under `baud-app/fonts/`. The text styles here are stock JetBrains
+/// Mono's: the embedded Regular and Bold are those files with Hebrew added,
+/// and this text is Latin and an icon, which the two draw alike.
+fn app_font(path: &str) -> Vec<u8> {
     std::fs::read(format!(
         "{}/../baud-app/fonts/{path}",
         env!("CARGO_MANIFEST_DIR")
@@ -39,11 +42,11 @@ struct Files {
 impl Files {
     fn load() -> Files {
         Files {
-            regular: embedded("jetbrains-mono/JetBrainsMono-Regular.ttf"),
-            bold: embedded("jetbrains-mono/JetBrainsMono-Bold.ttf"),
-            italic: embedded("jetbrains-mono/JetBrainsMono-Italic.ttf"),
-            bold_italic: embedded("jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
-            symbols: embedded("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+            regular: app_font("jetbrains-mono/JetBrainsMono-Regular.ttf"),
+            bold: app_font("jetbrains-mono/JetBrainsMono-Bold.ttf"),
+            italic: app_font("jetbrains-mono/JetBrainsMono-Italic.ttf"),
+            bold_italic: app_font("jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
+            symbols: app_font("symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
         }
     }
 

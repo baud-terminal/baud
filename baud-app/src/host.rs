@@ -323,13 +323,103 @@ mod tests {
         }
     }
 
+    /// **The default stack draws Hebrew from the embedded font** -- the
+    /// owner's boxes (2026-10-08), on the path a launch takes: `Config::defaults`,
+    /// `load_faces`, the renderer's stack. Alef, shin and sheva -- two letters
+    /// and a point -- map in the embedded Regular, which regular text draws
+    /// from, and bold text draws them from the embedded Bold. Linux loads its
+    /// faces through the same two calls.
+    #[test]
+    fn the_default_stack_draws_hebrew_from_the_embedded_font() {
+        use baud_render::FaceStyle;
+        let cfg = crate::config::Config::defaults();
+        let faces = super::load_faces(&cfg);
+        let stack = super::stack(&cfg, faces);
+        let n = faces.len();
+        for cp in [0x05D0, 0x05E9, 0x05B0] {
+            let c = baud_domain::Codepoint::new(cp).unwrap();
+            assert!(
+                faces[0].glyph(c).is_some(),
+                "U+{cp:04X}: the embedded Regular, faces[0], does not map it, so it draws as \
+                 the primary's .notdef box"
+            );
+            assert_eq!(stack.select_styled(c, FaceStyle::Regular).index(), 0);
+            assert!(faces[n - 3].glyph(c).is_some(), "U+{cp:04X}: the Bold face");
+            assert_eq!(
+                stack.select_styled(c, FaceStyle::Bold).index(),
+                n - 3,
+                "U+{cp:04X}: bold Hebrew draws from the embedded Bold"
+            );
+            // Italic and Bold Italic are stock JetBrains Mono for now
+            // (STOCK_ITALIC, interim): index 0 here is the embedded Regular
+            // drawing it, which the first assert proves maps it -- not the
+            // primary's .notdef, which is also index 0.
+            for (style, ix) in [(FaceStyle::Italic, n - 2), (FaceStyle::BoldItalic, n - 1)] {
+                assert!(
+                    faces[ix].glyph(c).is_none(),
+                    "U+{cp:04X}, {style:?}: the premise of the interim -- its face is stock \
+                     JetBrains Mono, with no Hebrew; a face that maps it is an italic Hebrew \
+                     build, and this test moves with it"
+                );
+                assert_eq!(
+                    stack.select_styled(c, style).index(),
+                    0,
+                    "U+{cp:04X}, {style:?}: the italic slots stay stock until the owner answers \
+                     the lean (1c) and has seen that the built italics are a plain shear, so \
+                     the chain answers: the embedded Regular, upright and regular weight"
+                );
+            }
+        }
+    }
+
+    /// **A configured stack draws Hebrew from the embedded Regular behind
+    /// it**, the owner's order: the configured faces, then baud's embedded
+    /// font, then the system, which is not built for a configured stack yet
+    /// (note AC decision 9). FiraCode, named alone in `fonts`, maps no
+    /// Hebrew; the embedded Regular follows it, ahead of the icon face and
+    /// STIX, and draws alef, while Latin stays with FiraCode. With
+    /// `font_fallback = false` the stack is FiraCode alone and alef is its
+    /// `.notdef`.
+    #[test]
+    fn a_configured_stack_draws_hebrew_from_the_embedded_regular() {
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/fonts/FiraCode-Regular.ttf"
+        );
+        let alef = baud_domain::Codepoint::new(0x05D0).unwrap();
+        let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
+        for (extra, faces, alef_in) in [("", 4, 1), ("font_fallback = false\n", 1, 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
+            assert!(said.is_empty(), "{said:?}");
+            let loaded = super::load_faces(&cfg);
+            assert_eq!(loaded.len(), faces, "{extra:?}");
+            assert!(
+                loaded[0].glyph(alef).is_none(),
+                "the control: FiraCode has no Hebrew"
+            );
+            let stack = super::stack(&cfg, loaded);
+            assert_eq!(stack.select(a).index(), 0, "{extra:?}: Latin stays");
+            assert_eq!(stack.select(alef).index(), alef_in, "{extra:?}");
+            if alef_in != 0 {
+                assert!(
+                    matches!(cfg.faces[alef_in].from,
+                        crate::config::FaceFrom::Embedded(b) if b == crate::embedded::REGULAR.bytes),
+                    "alef is drawn by the embedded Regular, not by {}",
+                    cfg.faces[alef_in].path
+                );
+            }
+        }
+    }
+
     /// **An icon the configured font lacks draws from the embedded one.**
     /// The committed plain JetBrains Mono carries the Powerline arrows but
     /// not the Nerd Fonts icons; named alone in `fonts`, the renderer's stack
-    /// still finds Font Awesome's folder, U+F07B, in the embedded face behind
-    /// it, and text stays with the named face. With `font_fallback = false`
-    /// the stack is the named face alone and the folder falls to its
-    /// `.notdef`.
+    /// still finds Font Awesome's folder, U+F07B, in the embedded icon face
+    /// behind it, and text stays with the named face. Four faces, the icon
+    /// face third: the embedded Regular follows a configured stack ahead of
+    /// it, and has no icons either. With `font_fallback = false` the stack is
+    /// the named face alone and the folder falls to its `.notdef`.
     #[test]
     fn an_icon_the_configured_font_lacks_draws_from_the_embedded_one() {
         let font = concat!(
@@ -338,7 +428,7 @@ mod tests {
         );
         let folder = baud_domain::Codepoint::new(0xF07B).unwrap();
         let a = baud_domain::Codepoint::new(u32::from('a')).unwrap();
-        for (extra, faces, folder_in) in [("", 3, 1), ("font_fallback = false\n", 1, 0)] {
+        for (extra, faces, folder_in) in [("", 4, 2), ("font_fallback = false\n", 1, 0)] {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
@@ -423,9 +513,10 @@ mod tests {
 
     /// **Claude Code's arrow and bullet draw from STIX behind a configured
     /// font** (the owner's call of 2026-10-03). The committed plain JetBrains
-    /// Mono has neither U+23F5 nor U+23FA, and neither has the icon face, so
-    /// the renderer's stack selects STIX, third; with `font_fallback = false`
-    /// both fall to the named face's `.notdef`.
+    /// Mono has neither U+23F5 nor U+23FA, and neither has the embedded
+    /// Regular behind it nor the icon face, so the renderer's stack selects
+    /// STIX, fourth; with `font_fallback = false` both fall to the named
+    /// face's `.notdef`.
     #[test]
     fn claude_codes_symbols_draw_from_stix_behind_a_configured_font() {
         let font = concat!(
@@ -434,7 +525,7 @@ mod tests {
         );
         let arrow = baud_domain::Codepoint::new(0x23F5).unwrap();
         let bullet = baud_domain::Codepoint::new(0x23FA).unwrap();
-        for (extra, faces, drawn_by) in [("", 3, 2), ("font_fallback = false\n", 1, 0)] {
+        for (extra, faces, drawn_by) in [("", 4, 3), ("font_fallback = false\n", 1, 0)] {
             let mut cfg = crate::config::Config::defaults();
             let said = cfg.apply(&format!("{extra}fonts = [\"{font}\"]\n"));
             assert!(said.is_empty(), "{said:?}");
