@@ -5,7 +5,10 @@
 //! Mono, reporting the per-frame cost split into conversion (style
 //! resolution, shaping through the run cache, atlas lookups) and
 //! compositing, plus the counters that say two arms did equal work: rows
-//! dirtied, instances emitted, cache hits and misses, glyphs rasterised.
+//! dirtied, instances emitted, cache hits and misses, glyphs rasterised,
+//! and the codepoints left out of a cluster no face draws whole because
+//! the face that keeps it lacks them (`unmapped`, the last rep's total;
+//! `Renderer::marks_unmapped` says what it counts).
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 
@@ -88,7 +91,7 @@ fn main() {
     let (w, h) = r.pixel_size();
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!(
-        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7}",
+        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>8}",
         "recording",
         "frames",
         "us/frame",
@@ -98,6 +101,7 @@ fn main() {
         "inst",
         "hit%",
         "raster",
+        "coloured",
         "grown",
         "differs",
         "span",
@@ -105,7 +109,8 @@ fn main() {
         "start",
         "shaped",
         "morx",
-        "bigram"
+        "bigram",
+        "unmapped"
     );
     /// The best rep's sums.
     struct Rep {
@@ -219,7 +224,7 @@ fn main() {
     let c = r.cache_stats();
     let hit = 100.0 * c.hits.value() as f64 / (c.hits.value() + c.misses.value()).max(1) as f64;
     println!(
-        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1}",
+        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>8}",
         which,
         frames,
         total.as_secs_f64() * 1e6 / frames as f64,
@@ -237,6 +242,7 @@ fn main() {
         exc[3] as f64 / frames as f64,
         exc[4] as f64 / frames as f64,
         exc[5] as f64 / frames as f64,
-        exc[6] as f64 / frames as f64
+        exc[6] as f64 / frames as f64,
+        r.marks_unmapped().value()
     );
 }

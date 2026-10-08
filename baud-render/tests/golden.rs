@@ -32,17 +32,25 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// Every outline's coverage is bent by its colour's text-contrast curve
 /// (`baud_domain::contrast`), which moved every pin with outline text in
 /// it; cava's frame is all procedural blocks at full coverage, where every
-/// curve is the identity, and did not move.
+/// curve is the identity, and did not move. cat-cjk and vim-unicode moved
+/// when a cluster's marks that no face draws stopped drawing as `.notdef`
+/// boxes (`Renderer::marks_unmapped`): with JetBrains Mono alone, in
+/// cat-cjk the joined emoji of a ZWJ sequence and the vowel signs of 18
+/// Devanagari letters, and in vim-unicode the Hebrew points it lacks, a
+/// flag's second regional indicator and a Devanagari conjunct's tail. 61 and
+/// 77 cells changed, as many as codepoints were left out, every one in or just
+/// right of a cell whose marks were; with the drop disabled both frames are
+/// their old pins again.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0xac3842702a843af5),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x5011333ef97ad177),
+    ("utf8/cat-cjk.raw", 0x786d9146ab908ecd),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x6133ccd7046f674c),
+    ("utf8/vim-unicode.raw", 0x89a42c53798a4c46),
 ];
 
 #[test]

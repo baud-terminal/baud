@@ -82,7 +82,7 @@ fn scene(t: &mut Term<'_>) {
           \x1b[38;2;200;100;50mtrue colour\x1b[0m \x1b[48;5;27;38;5;226mindexed\x1b[0m \x1b[58;5;196;4mul red\x1b[0m\r\n\
           box \xe2\x94\x8c\xe2\x94\x80\xe2\x94\x90 braille \xe2\xa3\xbf end \x1b[38;2;200;0;0;48;2;0;0;200m\xe2\x96\x80\xe2\x96\x80 \xe2\x94\x80\x1b[0;7;32m\xe2\x96\x84\x1b[0m image\r\n\
           \xe2\x94\x8f\xe2\x94\x81\xe2\x94\xb3\xe2\x94\x93 \xe2\x95\x94\xe2\x95\x90\xe2\x95\xa6\xe2\x95\x97 \xe2\x95\xad\xe2\x94\x80\xe2\x95\xae \xe2\x95\xb1\xe2\x95\xb2\xe2\x95\xb3 \xe2\x94\x84\xe2\x94\x8c\xe2\x95\x8c \xe2\x96\x80\xe2\x96\x84\xe2\x96\x88\xe2\x96\x8c\xe2\x96\x90\xe2\x96\x91\xe2\x96\x92\xe2\x96\x93\xe2\x96\x9a\xe2\x96\x9f \xe2\xa0\x81\xe2\xa0\xbf\xe2\xa3\x80\xe2\xa2\xb2 \x1b[31m\xe2\x94\x8f\xe2\x94\x81\xe2\x94\x93\x1b[0m\r\n\
-          marks e\xcc\x81 a\xcc\x88 o\xcc\x82 composed\r\n\
+          marks e\xcc\x81 a\xcc\x88 o\xcc\x82 q\xcc\x96\xcc\x81 composed\r\n\
           arrows a -> b => c != d <= e // f :: g <- end\r\n",
     );
     // A band that runs to the very last column, and one that stops a cell
@@ -1110,6 +1110,20 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         Face::parse(&italic).expect("parse"),
         Face::parse(&bold_italic).expect("parse"),
     ];
+    // The marks row's `q` + U+0316 + U+0301 is the cluster no face draws
+    // whole: U+0316 is in none of these, so both arms keep it on JetBrains
+    // Mono and drop the mark before shaping (`Renderer::marks_unmapped`).
+    // A cluster that moves to another face cannot be built from this stack
+    // without a box spilling out of its cell -- the Noto subset has `1` and
+    // U+20E3 but not the keycap ligature -- so that path is compared on the
+    // CPU, in `baud-render/tests/mark_coverage.rs`.
+    for (i, f) in faces.iter().enumerate() {
+        assert!(
+            f.glyph(baud_domain::Codepoint::new(0x316).unwrap())
+                .is_none(),
+            "the premise: face {i} lacks U+0316"
+        );
+    }
     let roles = [
         FaceRole::Fallback,
         FaceRole::Fallback,
@@ -1205,11 +1219,11 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     ] {
         feed(&mut t, shape);
         let (a, b) = arms.draw(&mut t);
-        // Three marked cells, and seven ligature pairs under JetBrains
+        // Four marked cells, and seven ligature pairs under JetBrains
         // Mono, each shaped in a window and drawn by at least one record.
         eprintln!("overlay {name}: {:?}", arms.exceptions.stats());
         assert!(
-            arms.exceptions.stats().cells.value() >= 3 + 7,
+            arms.exceptions.stats().cells.value() >= 4 + 7,
             "the marked and ligature cells went to the records: {:?}",
             arms.exceptions.stats()
         );
@@ -1222,6 +1236,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         assert!(
             drawn > a.len() / 2,
             "the instance arm drew the scene, {name}"
+        );
+        assert!(
+            arms.renderer.marks_unmapped().value() > 0,
+            "the dropped-mark cluster reached the drop, {name}"
         );
         let diff = differing(&a, &b);
         let (pw, _) = arms.renderer.frame_size();

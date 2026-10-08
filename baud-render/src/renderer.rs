@@ -1,7 +1,10 @@
 //! The frame: rows that changed, converted and painted.
 
 use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
-use crate::cache::{CacheStats, CellIx, Key, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
+use crate::cache::{
+    CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
+    Shaped,
+};
 use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
@@ -19,13 +22,13 @@ use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
-    Attrs, Chan, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen, ImageId,
-    PackedCell, Row, Rows,
+    Attrs, Chan, ClusterSlot, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen,
+    ImageId, PackedCell, Row, Rows,
 };
 use baud_font::bytes::Count;
 use baud_font::{
-    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Phase, Px,
-    Scale, Shaper, Walked,
+    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Normalised,
+    Phase, Px, Scale, Shaper, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -288,16 +291,6 @@ pub struct ClusterGlyph {
     pub phase: Phase,
 }
 
-/// The codepoint after a cell's base in its cluster -- its variation
-/// selector, if it has one -- read from the cluster store; `None` for a cell
-/// with no marks.
-fn selector(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
-    match cell.flags.is_marked() {
-        true => term.cluster_marks(cell).next().and_then(Codepoint::new),
-        false => None,
-    }
-}
-
 /// Whether `cp` is an icon codepoint -- the Private Use Areas -- whose
 /// placement the Nerd Fonts patcher's rules own (note Z, scope C), not the
 /// centring a text glyph takes.
@@ -470,6 +463,12 @@ pub struct Renderer<'f, 'a> {
     /// Which face draws each codepoint, per style and presentation
     /// (`Stack::table`): built here once, so `face_for` is a lookup.
     faces_of: FaceTable,
+    /// Which face draws each marked cluster (`Stack::select_cluster`),
+    /// remembered, so `face_for` stays a lookup for a cell with marks too.
+    cluster_faces: ClusterMemo<FaceIx>,
+    /// Whether a face draws all of a marked cluster, remembered, so a run
+    /// the cache misses asks `shape` a lookup per marked cell too.
+    cluster_covers: ClusterMemo<Cover>,
     scales: Vec<Scale>,
     /// Per face, a digest per `GSUB` lookup the grid features name, so a
     /// cache miss opens only the lookups that can touch the run.
@@ -609,6 +608,10 @@ pub struct Renderer<'f, 'a> {
     /// How many image pixel-snapshots have been built, cumulative -- a static
     /// image bumps it once, not once a frame, which is what the gate checks.
     image_snapshots: Tally,
+    /// How many codepoints were left out of a cluster before shaping because
+    /// the face that keeps it lacks them, cumulative
+    /// ([`Renderer::marks_unmapped`]).
+    marks_unmapped: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
     storage: Vec<Glyph>,
@@ -667,6 +670,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let defaults = (theme.fg, theme.bg);
         let mut r = Renderer {
             faces_of: stack.table(),
+            cluster_faces: ClusterMemo::new(Question::Face, FaceIx::PRIMARY),
+            cluster_covers: ClusterMemo::new(Question::Cover, Cover::Whole),
             stack,
             scales,
             #[cfg(feature = "exceptions")]
@@ -724,6 +729,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             image_uploads: Vec::new(),
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
+            marks_unmapped: Tally::of(0),
             dirty: Vec::new(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
         };
@@ -786,17 +792,88 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.emoji
     }
 
-    /// The face `base` is drawn from in `style`, given the codepoint after
-    /// it in its cluster: the one place the presentation is applied, so a
-    /// path cannot pick a face another path does not.
-    pub fn face_for(
-        &mut self,
-        base: Codepoint,
-        selector: Option<Codepoint>,
-        style: FaceStyle,
-    ) -> FaceIx {
-        let p = self.emoji.presentation(base, selector);
-        self.faces_of.face(&self.stack, base, style, p)
+    /// The face a cluster is drawn from in `style`, `cps` being a cell's
+    /// base and the codepoints attached to it: the one place the
+    /// presentation and the marks are applied, so a path cannot pick a face
+    /// another path does not. The base's face is a lookup into the
+    /// [`FaceTable`], its presentation from the codepoint after it; a cell
+    /// with marks then takes the first face, that one and then the fallback
+    /// chain, that has the base and every mark ([`Stack::select_cluster`]),
+    /// remembered per cluster so it too is a probe -- one a frame, or two
+    /// for a marked cell that ends a run, which is asked again as the next
+    /// run's first (`Renderer::face_of_cell`). A cell with no
+    /// marks stops at the table, as it always has: the cluster half is out
+    /// of line (`Renderer::cluster_face`) so the table lookup is all a
+    /// caller inlines.
+    #[inline]
+    pub fn face_for(&mut self, cps: &[Codepoint], style: FaceStyle) -> FaceIx {
+        let Some(&base) = cps.first() else {
+            return FaceIx::PRIMARY;
+        };
+        let p = self.emoji.presentation(base, cps.get(1).copied());
+        let face = self.faces_of.face(&self.stack, base, style, p);
+        match cps {
+            [_] => face,
+            _ => self.cluster_face(cps, face),
+        }
+    }
+
+    /// [`Renderer::face_for`] for a cell with marks, given `face`, its
+    /// base's.
+    #[inline(never)]
+    fn cluster_face(&mut self, cps: &[Codepoint], face: FaceIx) -> FaceIx {
+        let stack = &self.stack;
+        self.cluster_faces
+            .answer(face, cps, || stack.select_cluster(cps, face))
+    }
+
+    /// [`Renderer::face_for`] for the cell at `cell` of the grid: with its
+    /// marks when it has them, read from the cluster store, and with its
+    /// base alone when it has none -- which reads nothing and allocates
+    /// nothing, so the run path's unmarked cells pay what they paid before
+    /// a marked cell's face became its whole cluster's. A marked cell reads
+    /// its marks here and again where the run gathers its codepoints, which
+    /// is a second read of a few codepoints a marked cell may pay -- onto
+    /// the stack, a base and the most the cluster store holds
+    /// (`ClusterSlot::CAPACITY`), so the read allocates nothing.
+    fn face_of_cell(&mut self, term: &Term<'_>, cell: PackedCell, base: Codepoint) -> FaceIx {
+        let style = self.face_style(cell);
+        if !cell.flags.is_marked() {
+            return self.face_for(core::slice::from_ref(&base), style);
+        }
+        let mut cps = [base; 1 + ClusterSlot::CAPACITY];
+        let mut marks = 0;
+        for (slot, m) in cps[1..]
+            .iter_mut()
+            .zip(term.cluster_marks(cell).filter_map(Codepoint::new))
+        {
+            *slot = m;
+            marks += 1;
+        }
+        self.face_for(&cps[..=marks], style)
+    }
+
+    /// How many codepoints have been left out of a cluster before it was
+    /// shaped, since the renderer was made: once no face in the stack draws
+    /// a cluster whole, the ones the face that keeps it -- its base's --
+    /// lacks, which it would have drawn as a `.notdef`
+    /// ([`Renderer::face_for`], `Normalised::without_unmapped`). That is
+    /// not "marks no face draws": a mark another face maps is counted when
+    /// that face lacks the letter or another of the marks, and an attached
+    /// codepoint that is not a combining mark -- a flag's second regional
+    /// indicator, an emoji joined after a ZWJ -- is counted as a mark is.
+    /// Not counted: the codepoints the shaper's normalisation cuts past its
+    /// sixteenth, and the marks on a box-drawing, block or braille cell,
+    /// which baud draws from its own masks and never shapes.
+    ///
+    /// Counted when a cluster is shaped, so a run the cache answers is not
+    /// counted again, and a cell drawn by both paths -- the run and the cell
+    /// path's overlay -- is counted once by each: a ligature window shaped
+    /// in chunks counts a cell only in the chunk that owns it, not again as
+    /// a neighbour's context
+    /// (`mark_coverage::the_overlay_counts_a_dropped_mark_once_across_window_chunks`).
+    pub fn marks_unmapped(&self) -> Tally {
+        self.marks_unmapped
     }
 
     /// The table [`Renderer::face_for`] reads, built from the stack when the
@@ -1675,13 +1752,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 phase: Phase::ZERO,
             }];
         }
-        let face = self.face_for(base, cps.get(1).copied(), style);
+        let face = self.face_for(cps, style);
         let phase = self.phase_in(face, base, span);
         let clusters = [ClusterIn {
             cps: cps.to_vec(),
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, &clusters);
+        let shaped = self.shape(face, &clusters, ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -1717,12 +1794,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 face: FaceIx::PRIMARY,
             });
         }
-        let face = self.face_for(cp, None, style);
+        let face = self.face_for(core::slice::from_ref(&cp), style);
         let clusters = [ClusterIn {
             cps: vec![cp],
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, &clusters);
+        let shaped = self.shape(face, &clusters, ..);
         let p = *shaped.glyphs().first()?;
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
@@ -1813,7 +1890,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     at: CellIx(u8::try_from(i).unwrap_or(u8::MAX)),
                 })
                 .collect();
-            let shaped = self.shape(facex, &clusters);
+            // What the context cells drop is counted by the chunk that
+            // owns them, so a mark is counted once however the window is
+            // cut.
+            let own = CellIx(u8::try_from(at - lo).unwrap_or(u8::MAX))
+                ..CellIx(u8::try_from(end - lo).unwrap_or(u8::MAX));
+            let shaped = self.shape(facex, &clusters, own);
             for p in shaped.glyphs() {
                 let cell = lo + usize::from(p.cell.0);
                 // Only this chunk's own cells; the context either side
@@ -2214,13 +2296,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     .index();
                 continue;
             }
-            let style = self.face_style(row[c]);
-            let face = self.face_for(base, selector(term, row[c]), style);
+            let face = self.face_of_cell(term, row[c], base);
             // Gather the run: consecutive drawn cells on this face. A bold
             // cell and a regular one are on two faces when a bold face
-            // exists, so the style splits the run through the face.
+            // exists, so the style splits the run through the face, and a
+            // cell whose marks move it to another face splits it too.
             let start = c;
             let mut clusters: Vec<ClusterIn> = Vec::new();
+            // The key folds the face and then every codepoint of every cell.
+            // That is all a run's shaping depends on: a cluster moved to
+            // another face is on that face's key, and the marks a face that
+            // keeps a cluster cannot draw -- left out before shaping, in
+            // `shape` -- are decided by that face and those codepoints alone.
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
             // The counts behind the `exceptions` feature: a cmap lookup, a
             // digest test and a pair test per cell, which the bench reads
@@ -2241,10 +2328,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // The run's first cell is taken whatever the test says: the
                 // face above was chosen for it, and a run that could stop
                 // before its first cell would never advance -- a hang, not
-                // a wrong pixel, if the two ever disagreed.
+                // a wrong pixel, if the two ever disagreed. Both ask
+                // `face_of_cell`, so a marked cell is asked with its whole
+                // cluster both times.
                 if c > start
-                    && (crate::boxes::covers(cp)
-                        || self.face_for(cp, selector(term, cell), self.face_style(cell)) != face)
+                    && (crate::boxes::covers(cp) || self.face_of_cell(term, cell, cp) != face)
                 {
                     break;
                 }
@@ -2295,7 +2383,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let shaped = match self.cache.get(key) {
                 Some(s) => s,
                 None => {
-                    let s = self.shape(face, &clusters);
+                    let s = self.shape(face, &clusters, ..);
                     self.cache.put(key, s);
                     s
                 }
@@ -2324,15 +2412,60 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.per_row[r.index()] = instances;
     }
 
-    fn shape(&mut self, face: FaceIx, clusters: &[ClusterIn]) -> Shaped {
+    /// `clusters` shaped as one run on `face`; what a face that keeps a
+    /// cluster cannot draw is left out and counted for the clusters `own`
+    /// holds -- all of them, except in a ligature window's chunk, whose
+    /// context cells are another chunk's to count.
+    fn shape(
+        &mut self,
+        face: FaceIx,
+        clusters: &[ClusterIn],
+        own: impl core::ops::RangeBounds<CellIx>,
+    ) -> Shaped {
         let f = self.stack.face(face);
         let mut shaper = Shaper::new(f, &mut self.storage);
         shaper.accelerate(&self.digests[face.index()]);
         for cl in clusters {
-            if shaper
-                .push_cluster(&cl.cps, Cluster(u16::from(cl.at.0)))
-                .is_none()
-            {
+            let at = Cluster(u16::from(cl.at.0));
+            // **A mark the face cannot draw is left out, and counted.** A
+            // cluster reaches a face that cannot draw it whole only when no
+            // face can -- `face_for` would have chosen that one -- and the
+            // `.notdef` it would map such a mark to is a base with a full
+            // advance in JetBrains Mono: the box drew a cell to the right
+            // and every mark after it over the box (Jev A_DROP, 0.99). What
+            // is left is the letter and the marks the face has, which the
+            // shaper takes as it takes any cluster; a face that draws the
+            // cluster whole is handed it untouched, and which of the two a
+            // cluster is on a face is remembered, as its face is, so a run
+            // the cache misses pays a probe per marked cell rather than a
+            // normalisation. The dropped set follows from the face and the
+            // codepoints alone, which the run cache's key folds, so a cached
+            // run never needs it recomputed.
+            let pushed = match cl.cps.as_slice() {
+                [_, _, ..] => {
+                    let cover =
+                        self.cluster_covers.answer(face, &cl.cps, || {
+                            match Normalised::of(f, &cl.cps).covered() {
+                                true => Cover::Whole,
+                                false => Cover::Partial,
+                            }
+                        });
+                    if cover == Cover::Whole {
+                        shaper.push_cluster(&cl.cps, at)
+                    } else {
+                        let kept = Normalised::without_unmapped(f, &cl.cps);
+                        let pushed = shaper.push_cluster(kept.as_slice(), at);
+                        if pushed.is_some() && own.contains(&cl.at) {
+                            self.marks_unmapped.add(Tally::of(
+                                usize::try_from(kept.dropped().value()).unwrap_or(0),
+                            ));
+                        }
+                        pushed
+                    }
+                }
+                cps => shaper.push_cluster(cps, at),
+            };
+            if pushed.is_none() {
                 break;
             }
         }
@@ -2385,17 +2518,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let alone = match self.singles.get(&memo) {
                 Some(s) => *s,
                 None => {
-                    let face = self.face_for(cp, None, style);
+                    let face = self.face_for(core::slice::from_ref(&cp), style);
                     let one = [ClusterIn {
                         cps: vec![cp],
                         at: CellIx(0),
                     }];
-                    let s = self.shape(face, &one).glyphs().first().map(|p| (face, *p));
+                    let s = self
+                        .shape(face, &one, ..)
+                        .glyphs()
+                        .first()
+                        .map(|p| (face, *p));
                     self.singles.insert(memo, s);
                     s
                 }
             };
-            let face = self.face_for(cp, None, style);
+            let face = self.face_for(core::slice::from_ref(&cp), style);
             let mine: Vec<Placed> = shaped
                 .glyphs()
                 .iter()

@@ -90,7 +90,7 @@ pub use morx::Morx;
 pub use outline::{Drawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
-pub use shape::{CombiningClass, Shaped, Shaper};
+pub use shape::{CombiningClass, Kept, Normalised, Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

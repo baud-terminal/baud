@@ -604,7 +604,7 @@ All file:line citations are at e138e34 on `smooth-scroll` [source] unless tagged
 | images, pictures | renderer.rs:1293-1384, 1466-1468 | Anchored to logical cells. terminal-wg: images are not flipped by default (a protocol may add a flip flag); alignment "should be revised". Box-drawing characters are class ON and reorder in RTL paragraphs. |
 | script selection | baud-font/src/layout.rs:713-723, 727-777; gsub.rs:151-237; gpos.rs:128; renderer.rs:207, 641-664 | `lang_sys` takes no script argument. Per-script shaping needs one, plus per-(face, script) pairs, digests and extent, itemisation from Scripts.txt, and a mark sort by HarfBuzz's modified (SBL) combining classes (Q6). |
 | Arabic joining | layout.rs:612-643; gsub.rs:4-10; gpos.rs:1-10; buffer.rs:11-15; cache.rs:14 | Features are fixed at {ccmp, calt, liga} plus mark and mkmk. Only GSUB types 1, 4, 6 and 7 and GPOS types 4, 6 and 9 are implemented. The glyph buffer may only shrink, and runs are cut at 32 cells and at face changes. Joining needs per-glyph feature masks, rlig, possibly GSUB types 2 (which breaks the shrink-only rule) and 8, GPOS cursive, and context across run cuts. |
-| fonts | baud-app/src/config.rs:840-846, 1101-1135; baud-render/src/stack.rs:122-131, 248-254, 357-475 | The fallback chain is fixed at startup. A configured `fonts` list gets only the embedded symbols face and STIX appended. A face is chosen by the base codepoint, and marks draw in the base's face. |
+| fonts | baud-app/src/config.rs:840-846, 1101-1135; baud-render/src/stack.rs:122-131, 248-254, 357-475 | The fallback chain is fixed at startup. A configured `fonts` list gets only the embedded symbols face and STIX appended. A face is chosen by the base codepoint. Until Q23 marks drew in the base's face. Since Q23 (2026-10-07), a cell with marks takes the first face that draws its whole cluster: the base's face first, then the unstyled fallback chain in order. If no face does, the base's face keeps the cluster, and the attached codepoints it lacks are dropped and counted in `Renderer::marks_unmapped`. |
 | Wayland | baud-present-wayland (src/shm.rs, window.rs) | Not mapped against the visual-column changes. "Same pixels on every OS" requires the RTL scene to pass there too. |
 
 ### 7.2 The cluster store blocks pointed text, with or without bidi
@@ -839,7 +839,186 @@ Options:
 - (b) Bundle a monospace Hebrew face, such as Liberation Mono (Jev scored it 0.75 in note AA). Superseded: Hebrew is to come from baud's own patch on JetBrains Mono (TODO.md:2554). No Arabic face was measured besides Courier New.
 - (c) Bundled faces first, the system last. This is the owner's answer.
 
-If fallback ever selects faces per whole cluster, it must leave default-ignorable characters (ZWNJ, ZWJ, LRM, RLM, ALM, the embeddings and the isolates) out of the coverage test. Ghostty (run.zig:352-380 @befcdfd) and foot (#2049) fell back, or drew U+FFFD, because of them. This is not yet a problem in baud: it selects the face by base codepoint, and already skips `Ignorable::Yes` glyphs when drawing (renderer.rs:2342; baud-font shape.rs:15-17) [source; critic].
+If fallback ever selects faces per whole cluster, it must leave default-ignorable characters (ZWNJ, ZWJ, LRM, RLM, ALM, the embeddings and the isolates) out of the coverage test. Ghostty (run.zig:352-380 @befcdfd) and foot (#2049) fell back, or drew U+FFFD, because of them. This was not a problem in baud while it selected the face by base codepoint, and it already skipped `Ignorable::Yes` glyphs when drawing (baud-font shape.rs:15-17) [source; critic]. Since Q23 (2026-10-07) baud does select a marked cell's face per whole cluster, and its coverage test, `Normalised::covered` in baud-font/src/shape.rs, exempts every `Ignorable::Yes` codepoint, the variation selectors among them. `mark_coverage::an_ignorable_is_not_a_mark_a_face_must_have` pins it on a stack where only the second face maps ZWJ and ZWNJ.
+
+**Q23. A cluster whose marks one face does not all draw.** (Decided by Jev on 2026-10-07 and built the same day.)
+
+**The bug.** baud chose a cluster's face from its base codepoint alone. When
+that face lacked one of the marks, the shaper mapped the mark to `.notdef`.
+JetBrains Mono classes `.notdef` as a base with a full-cell advance. So a box
+drew one cell to the right, and every later mark landed over the box instead of
+over the letter.
+
+Measured on q + U+0316 + U+0301 with JetBrains Mono alone:
+
+- q draws at 0, the box at +1 cell, and the acute at +1 cell.
+- HarfBuzz (uharfbuzz on the same file) gives the same positions: q 600,
+  `.notdef` 600, the acute 0 at offset 0. So the shaper is faithful, and the
+  fix belongs above it.
+- Nothing counted the loss.
+
+**What others do, read at source** (a read-only workflow, 2026-10-07; every line is
+cited at the commit named, and nothing was built or run):
+
+| Terminal | Face for a cluster with marks | When no face draws them all | Counted |
+|---|---|---|---|
+| Ghostty (befcdfd, run.zig:318-382) | First of: the base's face, then each mark's own fallback face, that maps the base and every mark except FE0E, FE0F and ZWJ | The whole cell becomes U+FFFD; the letter is lost (run.zig:229-262) | no |
+| kitty (7d37453, fonts.c:652-854) | One face must map the base and every rendered mark; a single mark may be met by a precomposed form; else a fallback search for the whole cell text | The whole cell draws kitty's missing-glyph box (fonts.c:2141-2147) | no |
+| foot / fcft (cb27717 / 1ff7e79, fcft.c:2262-2394) | First face in the whole fallback list whose charset has every codepoint, ZWJ exempt | The primary face with `.notdef`, baud's old failure (fcft.c:2391-2393) | no |
+| WezTerm (372548, harfbuzz.rs:412-493) | Reshapes any cluster holding `.notdef` with the next face, recursively | The primary face with `.notdef`; its box drifts a cell right too | no |
+| Alacritty (d692748, glyph_cache.rs:200-265) | No shaping: each mark from its own first covering face, drawn at the base cell's origin | A mark no face has draws nothing | no |
+| Windows Terminal (099afa4, AtlasEngine.cpp:880-1236) | DirectWrite's `MapCharacters` decides, and its cluster rule is closed source; its maintainer says it splits ZWJ emoji (#18167) | One U+FFFD per cell the unmapped range reaches the end of, at the cell's width (1218-1232). A range that ends inside a cell, such as a missing mark before another mark, draws nothing | no |
+
+Ghostty fixed exactly this bug in 2023 (commit e6edf3105: "combining
+characters ... rendering as boxes"; issue #337, PR #339).
+
+The default-ignorables have broken this kind of coverage test elsewhere:
+
+- Ghostty exempts only FE0E, FE0F and ZWJ. It added ZWJ (42c4f5271, #914)
+  because "U+200D isn't meant to be provided by any font".
+- foot #2049: an LRM inside a grapheme sent fcft looking for a font that
+  covers it.
+- kitty exempts the whole non-rendered set: Cf, Other_Default_Ignorable and
+  VS1-VS16 (gen/wcwidth.py:1129-1131).
+
+**Decided (Jev, 0.99 at confidence 0.98, every cost below in the request).**
+
+Jev was asked three times:
+
+- **First ask, earlier the same day, before the prior art above was read.**
+  It offered three fixes and put a face per whole cluster at 0.83
+  (confidence 0.74, under the bar). That option kept the base's face, box
+  included, when no face covers the cluster.
+- **Second ask, with the prior art and the costs in the request.** The
+  no-cover case was split into dropping and replacing, and A_DROP scored
+  0.99.
+- **Third ask, after a refuter found two of the second request's premises
+  wrong (corrected under the costs below).** A_DROP scored 0.99 at
+  confidence 0.99.
+
+- A cell with marks draws from the first face that covers the base and every
+  mark. The candidates are the face its base would get, then the fallback chain
+  in order.
+- Coverage is judged after the shaper's own normalisation, so a precomposed
+  form counts. Default-ignorables and variation selectors are never required.
+- If no face covers the cluster, the base keeps its face, and only the marks
+  that face cannot draw are dropped, before shaping, and counted.
+- Unmarked cells take the old path.
+
+The costs Jev weighed:
+
+- **Faces can mix inside a word.** Once note AC's Hebrew is built, a
+  configured font with Hebrew letters but no points will draw pointed letters
+  from baud's embedded face. Ghostty, kitty, foot and WezTerm all accept this.
+  Today no embedded face maps Hebrew, and a configured stack appends only the
+  icon face and STIX, so those points are dropped and counted.
+- **A styled face is not in the fallback chain.** So a bold letter whose bold
+  face lacks a mark draws from a regular face, as in Ghostty. Today this
+  reaches the default stack. The embedded JetBrains Mono Bold, Italic and
+  Bold Italic lack U+0305, U+0313 and U+0316, which Menlo maps, so a bold
+  q + U+0305 draws from Menlo Regular
+  (`mark_coverage::a_bold_cluster_its_bold_face_cannot_draw_falls_to_the_chain`).
+  A configured `fonts` stack has no styled face at all (config.rs:840-846).
+  - The second request to Jev said the embedded font had every point in every
+    style, so this cost reached only configured styled fonts, which baud does
+    not load.
+  - Both premises were wrong: the first describes note AC's planned font, not
+    the built one.
+  - The third ask corrected both, and the answer stood.
+- **A coverage test runs per marked cell, remembered per cluster.** Only the
+  run path is priced: the frame bench's convert step, on synthetic marked
+  payloads. Where every face has the marks it read +1.7%, with the ranges
+  overlapping, so there is no result. The cell path's overlay is the app's
+  default path, and it is unmeasured. See the record entry.
+
+The alternatives scored 0.01 or less:
+
+- replacing the whole cell (Ghostty, kitty);
+- the base's face only, dropping marks;
+- overlaying each missing mark from another face (Alacritty).
+
+**Built (2026-10-07).** One definition answers every path:
+
+- `Normalised` in baud-font/src/shape.rs is the shaper's normalisation, moved
+  out of `push_cluster` unchanged. `covered()` and `without_unmapped()` judge
+  the same sequence the shaper maps.
+- `Stack::select_cluster` in baud-render/src/stack.rs walks the base's face and
+  then the fallback chain. `Renderer::face_for` in baud-render/src/renderer.rs
+  asks it for a cell with marks and remembers the answer per cluster. So a
+  marked cell costs a memo probe a frame rather than a walk of the chain, or
+  two probes when it breaks a run, since it is asked again as the next run's
+  first (`Renderer::face_of_cell`).
+  - On a run-cache miss, `shape` asks a second memo once per marked cell:
+    whether the face draws the cluster whole.
+  - A cell with no marks reads the face table, as before.
+- The run path, the overlay's marks pass and the overlay's ligature window all
+  ask `face_for`. A marked cell whose cluster moved face leaves the window and
+  is drawn by the marks pass.
+- `without_unmapped` repeats normalise-then-drop until a pass drops nothing.
+  A reviewer found that one pass is not enough. U+1F82 decomposes three levels
+  deep, and the normalisation takes two. So for U+1F82 + U+0301 the first pass
+  kept U+1F00 as the base and dropped only U+0345, its ypogegrammeni. The
+  shaper then took U+1F00 apart again, and U+0313, which JetBrains Mono lacks,
+  drew as an uncounted box one cell right.
+  `mark_coverage::a_base_the_face_lacks_comes_apart_until_every_mark_left_is_drawn`
+  pins that.
+- `Renderer::marks_unmapped` counts what was dropped, per shaping: every
+  codepoint after the first of the normalised cluster that the kept face lacks
+  and that is not default-ignorable.
+  - That includes attached codepoints that are not combining marks, and the
+    parts of a precomposed base the face lacks: U+1F82 + U+0301 counts 2, for
+    U+0345 and U+0313.
+  - A ligature window shaped in chunks counts a cell only in the chunk that
+    owns it.
+  - Not counted: codepoints the normalisation cuts past its sixteenth, and marks
+    on box-drawing, block or braille cells.
+
+The tests are `baud-render/tests/mark_coverage.rs` and
+`baud-render/tests/missing_mark.rs`. The cost is in the record (docs/record.md,
+"A cluster no face draws whole drops what its face lacks, counted").
+
+**Open.**
+
+- **The owner's call: attached codepoints that are not marks.** As built, the
+  drop also covers an emoji after a ZWJ, a skin-tone modifier and a flag's
+  second regional indicator. On an emoji face that lacks a newer member, a
+  ZWJ sequence draws what is left of it. This comes from reading the code, not
+  from a probe: woman + ZWJ + laptop on a face without the laptop draws a bare
+  woman, a different emoji, and nothing on screen says so.
+  - The alternative drops only combining marks. A cluster with any other
+    codepoint its face lacks draws as one `.notdef` box in its cell, counted.
+  - Jev put the built rule at 0.55 against 0.45 (confidence 0.10), so the owner
+    decides from renders of both.
+- **Pre-existing, outside the brief.** An unmarked precomposed character its
+  face lacks, such as U+1F00 on JetBrains Mono, still decomposes in the shaper
+  and draws an uncounted box one cell right.
+  - On the cell path, which is the default, `Renderer::single` keeps only the
+    first glyph, so it also loses marks the face has.
+  - U+1FB0 draws as a bare alpha without its breve, and U+1E09 as ç without its
+    acute, though JetBrains Mono maps U+0306 and U+0301 and the run path draws
+    both. The two paths draw such a cell differently.
+- **Pre-existing, widened by this change.** During a smooth scroll, the row
+  leaving the screen draws each marked cell's letter alone, from the cell map,
+  until the row has slid out. The cell shader reads no overlay mask for that
+  row; see the comment in `the_cell_arm_draws_what_the_instance_arm_draws`,
+  baud-present-macos/tests/cells.rs.
+  - Its marks were always lost there.
+  - A letter whose variation selector moves it to another face already drew
+    from the letter's own face there.
+  - Now a cluster that `face_for` moves to another face for its marks does too,
+    for example q+U+0305 to Fira.
+- **As designed, noted for the owner.** The walk down the chain tests the cmap
+  only:
+  - it ignores presentation, so U+263A U+FE0F U+0301 draws a text smiley with
+    the acute;
+  - a text keycap moves to a colour face that maps its two codepoints, even
+    when that face has no keycap ligature.
+    - On the Noto test subset, which maps both codepoints but has no keycap
+      ligature, U+20E3 then draws as its own glyph 17 px right of the `1`,
+      outside the cell, with `marks_unmapped` at 0. That comes from a
+      reviewer's probe on [JetBrains Mono, Noto subset], not re-run.
+    - Apple Color Emoji forms the ligature, and nothing spills.
+    - HEAD was not run on this case.
 
 ## 9. Sources to pin
 

@@ -272,58 +272,43 @@ impl BaseBox {
     }
 }
 
-/// A shaping pass over one face: push clusters, then finish.
-pub struct Shaper<'f, 'a, 'b> {
+/// A cluster as the shaper maps it on one face: a base and its
+/// attachments after [`Shaper::push_cluster`]'s normalisation -- what the
+/// face cannot draw decomposed, the marks in canonical order, and each
+/// composed onto its starter where the face has the composite.
+///
+/// **The one spelling of those rules.** `push_cluster` maps exactly this
+/// sequence, and a renderer asks the same value which face draws a cluster
+/// ([`Normalised::covered`]) and what a face it keeps must leave out
+/// ([`Normalised::without_unmapped`]) -- so a face is never judged to draw
+/// a cluster the shaper would then box. `q` + U+0316 + U+0301 on JetBrains
+/// Mono is `q`, a `.notdef` the face classes as a base with a full advance,
+/// and the acute over the box one cell right: a judgement made on the
+/// codepoints as typed, rather than on what is mapped, would differ from
+/// this one exactly where decomposition or composition changed the
+/// sequence.
+#[derive(Clone, Copy)]
+pub struct Normalised<'f, 'a> {
     face: &'f Face<'a>,
-    buf: Buffer<'b>,
-    missing: Count,
-    /// Per-lookup digests for `GSUB`, when the caller keeps them.
-    digests: &'f [Digest],
+    seq: [Codepoint; CLUSTER_MAX],
+    len: Count,
 }
 
-impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
-    pub fn new(face: &'f Face<'a>, storage: &'b mut [Glyph]) -> Self {
-        Shaper {
-            face,
-            buf: Buffer::new(storage),
-            missing: Count::ZERO,
-            digests: &[],
-        }
-    }
-
-    /// Hands the shaper the digests [`crate::Gsub::digests`] filled for
-    /// this face, so `finish` opens only the lookups that can match. A
-    /// renderer keeps one slice per face; the result is the same either
-    /// way, and `tests/shape.rs` says so on every fixture.
-    pub fn accelerate(&mut self, digests: &'f [Digest]) {
-        self.digests = digests;
-    }
-
-    fn glyph_of(&mut self, c: Codepoint) -> GlyphId {
-        match self.face.glyph(c) {
-            Some(g) => g,
-            None => {
-                self.missing = Count::of(self.missing.value().saturating_add(1));
-                GlyphId::NOTDEF
-            }
-        }
-    }
-
-    /// Adds one cluster -- a base followed by its attachments -- as cell
-    /// `cell`. `None` when the storage is full, leaving the buffer as it
-    /// was before the call.
-    pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
+impl<'f, 'a> Normalised<'f, 'a> {
+    /// `cps` -- a base followed by its attachments, at most `CLUSTER_MAX` of
+    /// them read -- normalised for `face`.
+    pub fn of(face: &'f Face<'a>, cps: &[Codepoint]) -> Normalised<'f, 'a> {
         // Normalise into a small local sequence: compose what the face can
         // draw composed, decompose what it cannot draw at all.
         let mut seq = [Codepoint::from_char(' '); CLUSTER_MAX];
         let mut n = 0usize;
         for &c in cps.iter().take(CLUSTER_MAX) {
-            if self.face.glyph(c).is_none() {
+            if face.glyph(c).is_none() {
                 if let Some((a, b)) = decompose(c) {
                     // One level, then again on the first part, which is how a
                     // doubly precomposed character (U+1E09) comes apart.
                     let (a, a2) = match decompose(a) {
-                        Some((a0, Some(a1))) if self.face.glyph(a).is_none() => (a0, Some(a1)),
+                        Some((a0, Some(a1))) if face.glyph(a).is_none() => (a0, Some(a1)),
                         _ => (a, None),
                     };
                     for part in [Some(a), a2, b].into_iter().flatten() {
@@ -373,7 +358,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 let blocked = m > s + 1 && (blocking == 0 || blocking >= class);
                 if class != 0 && !blocked && Ignorable::of(c) == Ignorable::No {
                     if let Some(composed) = compose(out[s], c) {
-                        if self.face.glyph(composed).is_some() {
+                        if face.glyph(composed).is_some() {
                             out[s] = composed;
                             continue;
                         }
@@ -382,7 +367,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                 if class == 0 && m == s + 1 && Ignorable::of(c) == Ignorable::No {
                     // Two starters adjacent: a Hangul jamo pair.
                     if let Some(composed) = compose(out[s], c) {
-                        if self.face.glyph(composed).is_some() {
+                        if face.glyph(composed).is_some() {
                             out[s] = composed;
                             continue;
                         }
@@ -398,6 +383,165 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             out[m] = c;
             m += 1;
         }
+        Normalised {
+            face,
+            seq: out,
+            len: Count::of(u8::try_from(m).unwrap_or(0)),
+        }
+    }
+
+    /// The sequence the shaper maps, base first.
+    pub fn as_slice(&self) -> &[Codepoint] {
+        &self.seq[..self.len.slot()]
+    }
+
+    /// Whether the face has a glyph for every codepoint of the sequence that
+    /// is not default-ignorable, so the cluster draws from it with no
+    /// `.notdef`. A joiner, a mark of direction or a variation selector the
+    /// face lacks is hidden whatever face draws it ([`Ignorable`]), so it is
+    /// never required: Ghostty and foot fell back, or drew U+FFFD, for the
+    /// joiners and the marks of direction a face did not map (note AB,
+    /// section 8).
+    pub fn covered(&self) -> bool {
+        self.as_slice()
+            .iter()
+            .all(|&c| Ignorable::of(c) == Ignorable::Yes || self.face.glyph(c).is_some())
+    }
+
+    /// `cps` without the marks `face` has no glyph for, and how many were
+    /// left out: the codepoints to hand [`Shaper::push_cluster`], whose
+    /// normalisation of them maps nothing after the first that is not
+    /// default-ignorable and that the face lacks. The first codepoint of
+    /// the normalised sequence is never left out: it is the base, or the
+    /// first part of a base the face lacks, and a base no face draws is the
+    /// `.notdef` that says so. (A cluster that begins with a mark -- which
+    /// only a caller of `Renderer::cluster` can build, since the core hangs a
+    /// mark on the cell before it -- is the exception: canonical order can
+    /// sort a lower-class mark the face lacks to the front, and that is kept
+    /// as a `.notdef`.)
+    ///
+    /// **One pass is not enough, so it passes until nothing is dropped.**
+    /// What is left is normalised again, and that can change it two ways.
+    /// A composition a dropped mark blocked takes place -- `a` + U+0305 +
+    /// U+0309 on JetBrains Mono draws the `ả` it has for `a` + U+0309,
+    /// which is what the letter looks like with the overline never typed.
+    /// And a base the face lacks comes apart further, since the
+    /// normalisation takes two levels of a decomposition at a time: U+1F82 +
+    /// U+0301 is U+1F00, the grave, the acute and U+0345 after one pass, and
+    /// U+1F00 is alpha + U+0313, which JetBrains Mono also lacks -- left at
+    /// one pass, the shaper took it apart and drew U+0313 as a `.notdef` a
+    /// cell to the right, uncounted. So each pass normalises what the last
+    /// one kept and drops from that, and the codepoints returned are the
+    /// last pass's input, whose normalisation was judged and found to
+    /// need nothing dropped: `push_cluster` maps exactly what was judged.
+    /// The walk ends because a pass that does not end it drops a codepoint,
+    /// and a codepoint enters only as typed or as a part of a codepoint the
+    /// face lacks taken apart -- the base, or a mark the first pass splits
+    /// (U+0344 is U+0308 + U+0301) -- and every decomposition is finite:
+    /// U+1F82's is three levels, so it takes three passes. A cap of
+    /// `CLUSTER_MAX` passes bounds a hang the argument rules out.
+    pub fn without_unmapped(face: &'f Face<'a>, cps: &[Codepoint]) -> Kept {
+        let mut kept = Kept {
+            seq: [Codepoint::from_char(' '); CLUSTER_MAX],
+            len: Count::ZERO,
+            dropped: Count::ZERO,
+        };
+        let mut n = 0usize;
+        for &c in cps.iter().take(CLUSTER_MAX) {
+            kept.seq[n] = c;
+            n += 1;
+        }
+        kept.len = Count::of(u8::try_from(n).unwrap_or(0));
+        for _ in 0..CLUSTER_MAX {
+            let normalised = Normalised::of(face, kept.as_slice());
+            let mut next = [Codepoint::from_char(' '); CLUSTER_MAX];
+            let mut m = 0usize;
+            let mut dropped = Count::ZERO;
+            for (i, &c) in normalised.as_slice().iter().enumerate() {
+                if i > 0 && Ignorable::of(c) == Ignorable::No && face.glyph(c).is_none() {
+                    dropped = dropped.plus(Count::of(1u8)).unwrap_or(dropped);
+                    continue;
+                }
+                next[m] = c;
+                m += 1;
+            }
+            if dropped.is_zero() {
+                break;
+            }
+            kept.seq = next;
+            kept.len = Count::of(u8::try_from(m).unwrap_or(0));
+            kept.dropped = kept.dropped.plus(dropped).unwrap_or(kept.dropped);
+        }
+        kept
+    }
+}
+
+/// A cluster with the marks its face cannot draw left out
+/// ([`Normalised::without_unmapped`]).
+#[derive(Clone, Copy)]
+pub struct Kept {
+    seq: [Codepoint; CLUSTER_MAX],
+    len: Count,
+    dropped: Count,
+}
+
+impl Kept {
+    /// The codepoints to hand [`Shaper::push_cluster`].
+    pub fn as_slice(&self) -> &[Codepoint] {
+        &self.seq[..self.len.slot()]
+    }
+
+    /// How many codepoints were left out, over every pass.
+    pub fn dropped(&self) -> Count {
+        self.dropped
+    }
+}
+
+/// A shaping pass over one face: push clusters, then finish.
+pub struct Shaper<'f, 'a, 'b> {
+    face: &'f Face<'a>,
+    buf: Buffer<'b>,
+    missing: Count,
+    /// Per-lookup digests for `GSUB`, when the caller keeps them.
+    digests: &'f [Digest],
+}
+
+impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
+    pub fn new(face: &'f Face<'a>, storage: &'b mut [Glyph]) -> Self {
+        Shaper {
+            face,
+            buf: Buffer::new(storage),
+            missing: Count::ZERO,
+            digests: &[],
+        }
+    }
+
+    /// Hands the shaper the digests [`crate::Gsub::digests`] filled for
+    /// this face, so `finish` opens only the lookups that can match. A
+    /// renderer keeps one slice per face; the result is the same either
+    /// way, and `tests/shape.rs` says so on every fixture.
+    pub fn accelerate(&mut self, digests: &'f [Digest]) {
+        self.digests = digests;
+    }
+
+    fn glyph_of(&mut self, c: Codepoint) -> GlyphId {
+        match self.face.glyph(c) {
+            Some(g) => g,
+            None => {
+                self.missing = Count::of(self.missing.value().saturating_add(1));
+                GlyphId::NOTDEF
+            }
+        }
+    }
+
+    /// Adds one cluster -- a base followed by its attachments -- as cell
+    /// `cell`, mapping the sequence [`Normalised::of`] makes of it. `None`
+    /// when the storage is full, leaving the buffer as it was before the
+    /// call.
+    pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
+        let normalised = Normalised::of(self.face, cps);
+        let out = normalised.as_slice();
+        let m = out.len();
         // Map through cmap, folding a variation selector into the glyph
         // before it where format 14 says to.
         let start = self.buf.len();

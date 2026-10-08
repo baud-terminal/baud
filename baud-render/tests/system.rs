@@ -20,8 +20,14 @@ fn fnv64(data: &[u8]) -> u64 {
 }
 
 /// `(menlo digest, emoji digest, frame digest)`; regenerate with
-/// `GOLDEN_PRINT=1`.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x7f18e3531a712d78);
+/// `GOLDEN_PRINT=1`. The frame moved when a cluster's marks that no face
+/// draws stopped drawing as `.notdef` boxes (`Renderer::marks_unmapped`):
+/// here the vowel signs of the recording's 18 Devanagari letters, which
+/// neither Menlo nor Apple Color Emoji has: 18 cells changed, every one in
+/// or just right of a letter whose vowel sign was left out. Every emoji
+/// cluster is Apple Color Emoji's whole and drew as it did; drawn from the
+/// base's face with nothing left out, the frame is its old pin again.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xd17caacd3a6fa319);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

@@ -2,7 +2,7 @@
 
 use crate::atlas::Code;
 use baud_domain::{Attrs, Codepoint};
-use baud_font::Face;
+use baud_font::{Face, Normalised};
 
 /// A face's position in the stack. A byte, because a fallback chain of
 /// more than 255 faces is a configuration error rather than a font stack.
@@ -468,6 +468,33 @@ impl<'f, 'a> Stack<'f, 'a> {
             t.blocks[combo * FaceTable::BLOCKS + blk] = id.0;
         }
         t.filled.0 += 1;
+    }
+
+    /// The face a cluster with marks is drawn from, given `first`, the face
+    /// its base alone is drawn from ([`Stack::select_presented`], its style
+    /// and presentation honoured): the first face, `first` and then the
+    /// fallback chain in order, that has the base and every mark that is not
+    /// default-ignorable after the shaper's own normalisation
+    /// ([`Normalised::covered`]); `first` when none has, which then draws the
+    /// marks it has and drops the rest (`Renderer::shape`). Jev A_DROP, 0.99:
+    /// before this a mark the base's face lacked drew as a `.notdef` that
+    /// JetBrains Mono advances a full cell, so every mark after it landed
+    /// over the box in the next cell.
+    ///
+    /// **A styled face is not in the chain**, here as everywhere: a bold
+    /// cluster whose bold face lacks a mark is looked for in the regular
+    /// faces like any other the bold face cannot draw, and drawn regular if
+    /// one of them has it all. Ghostty does the same; the alternative, a
+    /// bold letter whose mark is dropped, loses the mark to keep the weight.
+    pub fn select_cluster(&self, cps: &[Codepoint], first: FaceIx) -> FaceIx {
+        let covers = |ix: FaceIx| Normalised::of(self.face(ix), cps).covered();
+        if covers(first) {
+            return first;
+        }
+        self.each()
+            .filter(|ix| *ix != first && !self.styled.holds(*ix))
+            .find(|ix| covers(*ix))
+            .unwrap_or(first)
     }
 
     /// The first face that maps `c`; the primary when none does, so its

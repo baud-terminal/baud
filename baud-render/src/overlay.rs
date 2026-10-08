@@ -490,7 +490,7 @@ impl Overlay {
             if cell.content == Content::WIDE_TAIL {
                 continue;
             }
-            let entry = cell.content.as_codepoint().and_then(|cp| {
+            let mut entry = cell.content.as_codepoint().and_then(|cp| {
                 scene
                     .map
                     .probe(
@@ -500,6 +500,28 @@ impl Overlay {
                     )
                     .map(|e| (cp, e.face(), e.starts_pair() || e.ends_pair()))
             });
+            // A marked cell is drawn from the face its whole cluster takes
+            // (`Renderer::face_for`), which the map's entry for its base
+            // alone does not know. One its marks move off the window's face
+            // is cut out of the window and left to the marked cells' pass,
+            // which draws it through `Renderer::cluster` on that face -- as
+            // the run path draws it, in a run of its own. Only a marked cell
+            // reads its style a second time, its marks and `face_for`; a
+            // cell with none pays what it paid before. Not on the leaving
+            // row of a slide, which the shader draws from the map alone
+            // (`cell_glyph_vertex` reads no mask there): a marked cell there
+            // draws its base, from its base's face, for that one row.
+            let mut cps: Vec<Codepoint> = Vec::new();
+            if let Some((cp, face, _)) = entry {
+                if cell.flags.is_marked() {
+                    let style = crate::cellmap::face_of(scene.styles, *cell);
+                    cps.push(cp);
+                    cps.extend(scene.term.cluster_marks(*cell).filter_map(Codepoint::new));
+                    if u32::try_from(r.face_for(&cps, style).index()).ok() != Some(face.0) {
+                        entry = None;
+                    }
+                }
+            }
             let cut = match entry {
                 None => true,
                 Some((_, _, in_rules)) => !in_rules,
@@ -516,11 +538,8 @@ impl Overlay {
             if first.is_none() {
                 first = Some(face);
             }
-            let mut cps = vec![cp];
-            for mk in scene.term.cluster_marks(*cell) {
-                if let Some(c) = Codepoint::new(mk) {
-                    cps.push(c);
-                }
+            if cps.is_empty() {
+                cps.push(cp);
             }
             piece.push((x, *cell, cps));
         }
