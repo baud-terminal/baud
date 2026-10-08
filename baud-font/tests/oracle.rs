@@ -136,6 +136,51 @@ struct Tally {
     cff2_unimplemented: usize,
 }
 
+impl Tally {
+    /// Adds another file's tally to this one. Destructured whole, so a field
+    /// added to `Tally` and not summed here does not compile -- a count left
+    /// out would read zero, and a positive control on it would fail for the
+    /// merge rather than for the fonts.
+    fn absorb(&mut self, other: Tally) {
+        let Tally {
+            files,
+            faces,
+            parse_disagreements,
+            field_disagreements,
+            glyphs_agreed,
+            cmap_agreed,
+            cmap_hits,
+            variations_agreed,
+            variation_hits,
+            notdef_normalised,
+            oracle_defects_hit,
+            outlines_agreed,
+            outline_hits,
+            outline_presence_normalised,
+            gvar_refusals,
+            cff2_unimplemented,
+        } = other;
+        self.files += files;
+        self.faces += faces;
+        self.parse_disagreements.extend(parse_disagreements);
+        self.field_disagreements.extend(field_disagreements);
+        self.glyphs_agreed += glyphs_agreed;
+        self.cmap_agreed += cmap_agreed;
+        self.cmap_hits += cmap_hits;
+        self.variations_agreed += variations_agreed;
+        self.variation_hits += variation_hits;
+        self.notdef_normalised += notdef_normalised;
+        for (mine, theirs) in self.oracle_defects_hit.iter_mut().zip(oracle_defects_hit) {
+            *mine += theirs;
+        }
+        self.outlines_agreed += outlines_agreed;
+        self.outline_hits += outline_hits;
+        self.outline_presence_normalised += outline_presence_normalised;
+        self.gvar_refusals += gvar_refusals;
+        self.cff2_unimplemented += cff2_unimplemented;
+    }
+}
+
 /// One outline operation with its coordinates as `f32` bits, so equality is
 /// bit equality and `-0.0` is not `0.0`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -442,37 +487,81 @@ fn compare_face(
     }
 }
 
+/// Every face in one file, compared and tallied on its own.
+fn compare_file(path: &Path, cps: &[u32]) -> Tally {
+    let mut t = Tally::default();
+    let data = std::fs::read(path).unwrap();
+    let name = path.file_name().unwrap().to_string_lossy().to_string();
+    t.files += 1;
+    let ours_n = faces(&data).map(|n| n.value()).ok();
+    let theirs_n = ttf_parser::fonts_in_collection(&data).or(Some(1));
+    if ours_n != theirs_n {
+        t.parse_disagreements.push(format!(
+            "{name}: faces: baud {ours_n:?} / ttf-parser {theirs_n:?}"
+        ));
+        return t;
+    }
+    for i in 0..ours_n.unwrap_or(0) {
+        let face = format!("{name}#{i}");
+        match pair(&data, i) {
+            (Some(a), Some(b)) => {
+                t.faces += 1;
+                compare_face(&face, &a, &b, &mut t, cps);
+            }
+            (None, None) => {}
+            (a, b) => t.parse_disagreements.push(format!(
+                "{face}: parse: baud {} / ttf-parser {}",
+                a.is_some(),
+                b.is_some()
+            )),
+        }
+    }
+    t
+}
+
 #[test]
 fn every_face_on_this_machine_agrees_with_ttf_parser() {
     let cps = codepoints();
-    let mut t = Tally::default();
-    for path in corpus() {
-        let data = std::fs::read(&path).unwrap();
-        let name = path.file_name().unwrap().to_string_lossy().to_string();
-        t.files += 1;
-        let ours_n = faces(&data).map(|n| n.value()).ok();
-        let theirs_n = ttf_parser::fonts_in_collection(&data).or(Some(1));
-        if ours_n != theirs_n {
-            t.parse_disagreements.push(format!(
-                "{name}: faces: baud {ours_n:?} / ttf-parser {theirs_n:?}"
-            ));
-            continue;
-        }
-        for i in 0..ours_n.unwrap_or(0) {
-            let face = format!("{name}#{i}");
-            match pair(&data, i) {
-                (Some(a), Some(b)) => {
-                    t.faces += 1;
-                    compare_face(&face, &a, &b, &mut t, &cps);
-                }
-                (None, None) => {}
-                (a, b) => t.parse_disagreements.push(format!(
-                    "{face}: parse: baud {} / ttf-parser {}",
-                    a.is_some(),
-                    b.is_some()
-                )),
+    let files = corpus();
+    // **One file a thread at a time, summed in corpus order.** Each file is
+    // compared on its own, so the corpus is split across every core. Each
+    // worker takes the next file, largest first, so Apple Color Emoji and the
+    // CJK collections start at once rather than last and alone. The tallies
+    // are then added in the corpus's own order, so every count and every
+    // disagreement message is the same as one thread's. Peak memory is the
+    // files in flight: on this Mac's eighteen cores the eighteen largest are
+    // ~626 of the 813 MB, against Apple Color Emoji's 192 MB alone before.
+    let mut order: Vec<usize> = (0..files.len()).collect();
+    order.sort_by_key(|&i| core::cmp::Reverse(std::fs::metadata(&files[i]).map_or(0, |m| m.len())));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(files.len().max(1));
+    let mut slots: Vec<Option<Tally>> = (0..files.len()).map(|_| None).collect();
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut done = Vec::new();
+                    loop {
+                        let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&i) = order.get(k) else { break };
+                        done.push((i, compare_file(&files[i], &cps)));
+                    }
+                    done
+                })
+            })
+            .collect();
+        for h in handles {
+            let done = h.join().unwrap_or_else(|e| std::panic::resume_unwind(e));
+            for (i, t) in done {
+                slots[i] = Some(t);
             }
         }
+    });
+    let mut t = Tally::default();
+    for slot in slots {
+        t.absorb(slot.expect("every file was compared"));
     }
 
     // Positive controls: the corpus is real and the comparison reached the

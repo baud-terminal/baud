@@ -4,7 +4,8 @@
 
 ```sh
 cargo build --release                # baud-core + harnesses
-cargo test  --release -p baud-core   # the whole suite: VT conformance, properties, known bugs, perf floors, coverage
+cargo test  --release -p baud-core   # the whole suite: VT conformance, properties, known bugs, coverage
+cargo nextest run --release --workspace && cargo test --release --doc --workspace   # every crate across all cores, as `devenv test` runs it
 bash audit_all.sh                    # the type-system gate
 cargo build --release -p baud-core --target x86_64-unknown-none   # bare metal
 ```

@@ -41,12 +41,21 @@ in
     # audit_all.sh shells out to impl_audit.py; the gate must not depend on
     # whatever python happens to be on the host.
     pkgs.python3
+    # `test:unit` runs the tests through nextest (the owner's call,
+    # 2026-10-07): `cargo test` runs the ~120 test binaries one after
+    # another, so a binary with one long test left the other cores idle until
+    # it finished. nextest runs every test of every binary across all cores,
+    # each in its own process. It does not run doctests, so `test:unit` runs
+    # those after it with `cargo test --doc`.
+    pkgs.cargo-nextest
   ];
 
   # Development scripts
   scripts.dev-test.exec = ''
     echo "Running tests..."
-    RUSTFLAGS="-D warnings" cargo test --release --no-fail-fast ${scope} --all-features
+    RUSTFLAGS="-D warnings" cargo nextest run --release --no-fail-fast ${scope} --all-features; a=$?
+    RUSTFLAGS="-D warnings" cargo test --release --doc ${scope} --all-features; b=$?
+    [ "$a" -eq 0 ] && [ "$b" -eq 0 ]
   '';
 
   scripts.dev-fmt.exec = ''
@@ -96,7 +105,9 @@ in
     # caught by the same gap and fixed only for itself.
     cargo check --quiet --all-targets ${scope} || { echo "FAILED: check"; exit 1; }
     echo "=== test ==="
-    RUSTFLAGS="-D warnings" cargo test --release --quiet --no-fail-fast ${scope} || { echo "FAILED: test"; exit 1; }
+    RUSTFLAGS="-D warnings" cargo nextest run --release --cargo-quiet --no-fail-fast ${scope}; a=$?
+    RUSTFLAGS="-D warnings" cargo test --release --quiet --doc ${scope}; b=$?
+    [ "$a" -eq 0 ] && [ "$b" -eq 0 ] || { echo "FAILED: test"; exit 1; }
     echo "=== bare metal ==="
     cargo build --release --quiet -p baud-core --target ${bareTarget} || { echo "FAILED: bare"; exit 1; }
     echo "=== linux ==="
@@ -269,18 +280,28 @@ in
       after = [ "test:clippy" ];
     };
 
-    # --release is load-bearing, not an optimisation. baud-core/tests/perf_floor.rs
-    # asserts throughput floors (100 MB/s spans, 70 MB/s cells); an unoptimised
-    # build misses them by an order of magnitude, so the suite would fail on the
-    # profile rather than on the code. BUILD.md runs the same tests in release.
+    # --release is for speed now, not correctness. The throughput floors this
+    # comment once cited (baud-core/tests/perf_floor.rs) left with baud-core2
+    # (5562be5), and the last wall-clock bound became a bench on 2026-09-22
+    # (docs/record.md, "A timing bound in `cargo test` measured the load, and it
+    # is a bench now"), so nothing in the suite fails on the profile. A debug run
+    # takes minutes where release takes seconds (docs/record.md, "The tests run
+    # on every core, the owner's call of 2026-10-07"). BUILD.md runs the same
+    # tests in release.
     "test:unit" = {
       # `--no-fail-fast`, the owner's call 2026-09-22: cargo stops at the
       # first failing test binary, and a wall-clock flake once stopped this
       # run at 81 of 119 -- which read as one red test rather than a partial
-      # run. One red binary must not hide the rest. It does not un-skip the
-      # gates chained after this task: cargo still exits non-zero, so a red
-      # run here still stops `test:bare` and everything `after` it.
-      exec = "RUSTFLAGS='-D warnings' cargo test --release --quiet --no-fail-fast ${scope}";
+      # run. One red binary must not hide the rest. nextest takes the same
+      # flag, and the doctests run whether or not it passed. It does not
+      # un-skip the gates chained after this task: the task still exits
+      # non-zero if either half failed, so a red run here still stops
+      # `test:bare` and everything `after` it.
+      #
+      # nextest rather than `cargo test`, the owner's call 2026-10-07; why is
+      # at `pkgs.cargo-nextest` above. It builds the same test binaries,
+      # with the same profile and flags, through `cargo test --no-run`.
+      exec = "RUSTFLAGS='-D warnings' cargo nextest run --release --cargo-quiet --no-fail-fast ${scope}; a=$?; RUSTFLAGS='-D warnings' cargo test --release --quiet --doc ${scope}; b=$?; [ \"$a\" -eq 0 ] && [ \"$b\" -eq 0 ]";
       after = [ "test:check" ];
     };
 

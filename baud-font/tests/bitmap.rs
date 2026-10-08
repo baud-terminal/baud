@@ -45,6 +45,7 @@ use baud_font::bytes::Index;
 use baud_font::{
     Face, FaceIndex, Mirror, Palette, PaletteEntry, Png, PngError, Rgba, Strike, faces,
 };
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use ttf_parser::RgbaColor;
 use ttf_parser::colr::{ClipBox, CompositeMode, Paint, Painter};
@@ -113,6 +114,49 @@ struct Tally {
     colr_v1_only: usize,
     palettes: usize,
     colors_agreed: usize,
+}
+
+impl Tally {
+    /// Adds another unit's tally to this one. Destructured whole, so a field
+    /// added to `Tally` and not summed here does not compile -- a count left
+    /// out would read zero, and a positive control on it would fail for the
+    /// merge rather than for the fonts.
+    fn absorb(&mut self, other: Tally) {
+        let Tally {
+            faces,
+            strikes,
+            sbix_bitmaps,
+            sbix_flips: Counted(sbix_flips),
+            cbdt_bitmaps,
+            absent_agreed,
+            cbdt_y_translated,
+            pngs_decoded,
+            pixels,
+            interlaced_refused,
+            refused_by_both: Counted(refused_by_both),
+            layered_glyphs,
+            layers_agreed,
+            colr_v1_only,
+            palettes,
+            colors_agreed,
+        } = other;
+        self.faces += faces;
+        self.strikes += strikes;
+        self.sbix_bitmaps += sbix_bitmaps;
+        self.sbix_flips.0 += sbix_flips;
+        self.cbdt_bitmaps += cbdt_bitmaps;
+        self.absent_agreed += absent_agreed;
+        self.cbdt_y_translated += cbdt_y_translated;
+        self.pngs_decoded += pngs_decoded;
+        self.pixels += pixels;
+        self.interlaced_refused += interlaced_refused;
+        self.refused_by_both.0 += refused_by_both;
+        self.layered_glyphs += layered_glyphs;
+        self.layers_agreed += layers_agreed;
+        self.colr_v1_only += colr_v1_only;
+        self.palettes += palettes;
+        self.colors_agreed += colors_agreed;
+    }
 }
 
 /// What `ttf-parser` paints: for `COLR` v0 that is `outline_glyph` then
@@ -245,25 +289,34 @@ fn sbix_record(sbix: &[u8], strike: Index, glyph: GlyphId) -> Option<([u8; 4], G
     Some((kind, GlyphId::from_shaper(target)))
 }
 
-fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
+/// What one unit of work compares of a face: a run of one strike's glyphs,
+/// or the face's layers and palettes, which also counts the face.
+enum Part {
+    Strike(Index, Range<u32>),
+    Colour,
+}
+
+fn compare_face(path: &Path, data: &[u8], i: u32, part: &Part, t: &mut Tally) {
     let Ok(ours) = Face::parse_index(data, FaceIndex::of(i)) else {
         return;
     };
     let Ok(theirs) = ttf_parser::Face::parse(data, i) else {
         return;
     };
-    t.faces += 1;
     let what = format!("{}#{i}", path.display());
     let glyphs = u32::from(ours.glyph_count().value());
 
-    // Strikes: every glyph of every strike, by bytes.
-    for s in 0..ours.strikes().value() {
-        t.strikes += 1;
-        let s = Index::of(s);
+    // Strikes: every glyph of every strike, by bytes, one run of a strike's
+    // glyphs at a time. The run that starts a strike counts it.
+    if let Part::Strike(s, run) = part {
+        if run.start == 0 {
+            t.strikes += 1;
+        }
+        let s = *s;
         let ppem = ours
             .strike_ppem(s)
             .unwrap_or_else(|| panic!("{what}: strike {s:?} has no ppem"));
-        for g in 0..glyphs {
+        for g in run.clone() {
             let gid = GlyphId::from_shaper(u16::try_from(g).unwrap());
             let mine = ours.bitmap(s, gid);
             let img = theirs
@@ -344,7 +397,9 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
                 ),
             }
         }
+        return;
     }
+    t.faces += 1;
 
     // Layers: every glyph, every palette.
     let palettes = ours.palettes().value();
@@ -431,20 +486,245 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
     }
 }
 
+/// Glyphs in one strike piece. By the profile's per-strike times each of
+/// Apple Color Emoji's two 160 ppem strikes is 3.29-3.30 s over 3,844
+/// glyphs, so 128 of them are ~0.11 s, against the ~0.77 s each of
+/// eighteen workers gets of the whole 13.9 s; the 20 ppem pieces, which
+/// go last, are ~3-4 ms.
+const PIECE: u32 = 128;
+
+/// Face `i`'s strikes cut into pieces of `PIECE` glyphs, each with `ppem`
+/// squared times its glyphs, which ranks the pieces by the pixels they
+/// decode. A strike of a face with no glyphs is still one piece, so it is
+/// still counted and its `ppem` still asked for; a face either parser
+/// refuses has none, as `compare_face` returns for it.
+fn cut(data: &[u8], i: u32) -> Vec<(Part, u64)> {
+    let Ok(ours) = Face::parse_index(data, FaceIndex::of(i)) else {
+        return Vec::new();
+    };
+    if ttf_parser::Face::parse(data, i).is_err() {
+        return Vec::new();
+    }
+    let glyphs = u32::from(ours.glyph_count().value());
+    let mut pieces = Vec::new();
+    for s in 0..ours.strikes().value() {
+        let s = Index::of(s);
+        let px = ours
+            .strike_ppem(s)
+            .map_or(0, |p| u64::from(p.value()).pow(2));
+        let mut start = 0;
+        loop {
+            let end = glyphs.min(start + PIECE);
+            pieces.push((Part::Strike(s, start..end), px * u64::from(end - start)));
+            start = end;
+            if start == glyphs {
+                break;
+            }
+        }
+    }
+    pieces
+}
+
+/// A unit's result, or the panic `quietly` kept from it.
+type Kept<T> = std::thread::Result<T>;
+
+/// One face as its file's reader leaves it: its strike pieces, cut but not
+/// yet compared, and its layers and palettes, compared.
+type FaceRead = (Kept<Vec<(Part, u64)>>, Kept<Tally>);
+
+/// One file, read once, by whichever worker took it: its faces, or the
+/// panic `quietly` kept from counting them, and its bytes, kept only when a
+/// piece will need them.
+fn open(path: &Path) -> Option<(Vec<u8>, Kept<Vec<FaceRead>>)> {
+    let data = std::fs::read(path).ok()?;
+    let per_face = quietly(|| faces(&data).map(|n| n.value()).unwrap_or(1)).map(|n| {
+        (0..n)
+            .map(|i| {
+                let pieces = quietly(|| cut(&data, i));
+                let colour = quietly(|| {
+                    let mut t = Tally::default();
+                    compare_face(path, &data, i, &Part::Colour, &mut t);
+                    t
+                });
+                (pieces, colour)
+            })
+            .collect::<Vec<FaceRead>>()
+    });
+    let shared = per_face
+        .iter()
+        .flatten()
+        .any(|(p, _)| p.as_ref().is_ok_and(|p| !p.is_empty()));
+    Some((if shared { data } else { Vec::new() }, per_face))
+}
+
+/// Runs `work` on every unit across the cores and answers each result at
+/// its unit's index, so they are read in corpus order whichever thread ran
+/// which. Workers take the next unit off one counter, the largest `cost`
+/// first, so the big units start at once rather than last and alone. A
+/// panic outside `quietly` is raised again here.
+fn spread<U: Sync, R: Send>(
+    units: &[U],
+    cost: impl Fn(&U) -> u64,
+    work: impl Fn(&U) -> R + Sync,
+) -> Vec<R> {
+    let mut order: Vec<usize> = (0..units.len()).collect();
+    order.sort_by_cached_key(|&k| core::cmp::Reverse(cost(&units[k])));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(units.len().max(1));
+    let mut slots: Vec<Option<R>> = (0..units.len()).map(|_| None).collect();
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut done = Vec::new();
+                    while let Some(&k) =
+                        order.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+                    {
+                        done.push((k, work(&units[k])));
+                    }
+                    done
+                })
+            })
+            .collect();
+        for h in handles {
+            for (k, r) in h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)) {
+                slots[k] = Some(r);
+            }
+        }
+    });
+    slots
+        .into_iter()
+        .map(|r| r.expect("every unit ran"))
+        .collect()
+}
+
+thread_local! {
+    /// Set while this thread runs a unit inside `quietly`.
+    static QUIET: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// `f`'s result, or its panic, kept rather than printed. Several units can
+/// fail in one run, and which printed first would be the scheduler's
+/// choice; `settle` runs the first in corpus order again on the test
+/// thread instead, where it prints as one thread's did. The hook is quiet
+/// only on a thread inside this call, and passes every other panic on.
+fn quietly<R>(f: impl FnOnce() -> R) -> Kept<R> {
+    static HOOK: std::sync::Once = std::sync::Once::new();
+    HOOK.call_once(|| {
+        let loud = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            if !QUIET.get() {
+                loud(info);
+            }
+        }));
+    });
+    QUIET.set(true);
+    let kept = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    QUIET.set(false);
+    kept
+}
+
+/// A unit's result; or, for the first unit in corpus order that panicked,
+/// that unit run again on this thread, so the failure reported is the one a
+/// single thread would have stopped at, with its own message and location.
+/// A unit that panicked on a worker and passes here would be a comparison
+/// that is not deterministic, and fails as one.
+fn settle<T>(kept: Kept<T>, again: impl FnOnce()) -> T {
+    kept.unwrap_or_else(|e| {
+        again();
+        let why = e
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| e.downcast_ref::<&str>().copied())
+            .unwrap_or("a panic with no message");
+        panic!("passed on the test thread, after panicking on a worker: {why}")
+    })
+}
+
 #[test]
 fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
+    // **Read once, then cut where the time is.** On one thread an
+    // instrumented run spent 13.94 s in Apple Color Emoji's eighteen
+    // strikes, 3.29-3.30 s in each 160 ppem one, and under 5 ms in every
+    // other file: split by file, one worker holds nearly all of it, and by
+    // strike, a quarter. So each file is read once, by whichever worker takes
+    // it, largest first, which counts its faces, compares their layers and
+    // palettes and cuts their strikes into `PIECE`-glyph pieces; then the
+    // workers take the pieces, the most pixels first, over bytes they all
+    // share. Each piece and each face's colour is its own tally, summed
+    // below in the order one thread visits them, so every count is one
+    // thread's -- and so is a failure, because the first in that order, a
+    // file's face count among them, is run again on this thread (`settle`).
+    //
+    // Peak memory is the first pass's files in flight: on this Mac's
+    // eighteen cores the eighteen largest are 625 of the corpus's 814 MB,
+    // and a counting allocator put the live heap's peak at 592-596 MiB,
+    // against 184 MiB on one thread. The pieces then share Apple Color
+    // Emoji's 183 MiB and add ~7 MiB between the eighteen workers, each
+    // holding one PNG's buffers at a time, a 160 ppem image's the largest.
+    let paths = corpus();
+    let opened = spread(
+        &paths,
+        |p| std::fs::metadata(p).map_or(0, |m| m.len()),
+        |p| open(p),
+    );
+    let pieces: Vec<(&Path, &[u8], u32, &Part, u64)> = paths
+        .iter()
+        .zip(&opened)
+        .filter_map(|(p, o)| Some((p.as_path(), o.as_ref()?)))
+        .flat_map(|(p, (data, per_face))| {
+            per_face
+                .iter()
+                .flatten()
+                .zip(0u32..)
+                .flat_map(move |((pieces, _), i)| {
+                    pieces
+                        .iter()
+                        .flatten()
+                        .map(move |(part, cost)| (p, data.as_slice(), i, part, *cost))
+                })
+        })
+        .collect();
+    let done = spread(
+        &pieces,
+        |p| p.4,
+        |&(path, data, i, part, _)| {
+            quietly(|| {
+                let mut t = Tally::default();
+                compare_face(path, data, i, part, &mut t);
+                t
+            })
+        },
+    );
+    let mut done = done.into_iter();
     let mut t = Tally::default();
     let mut files = 0;
-    for path in corpus() {
-        let Ok(data) = std::fs::read(&path) else {
+    for (path, o) in paths.iter().zip(opened) {
+        let Some((_, per_face)) = o else {
             continue;
         };
-        let n = faces(&data).map(|n| n.value()).unwrap_or(1);
-        for i in 0..n {
-            compare_face(&path, &data, i, &mut t);
+        let reread = || std::fs::read(path).expect("a file read once reads again");
+        let per_face = settle(per_face, || {
+            let _ = faces(&reread()).map(|n| n.value()).unwrap_or(1);
+        });
+        for ((pieces, colour), i) in per_face.into_iter().zip(0u32..) {
+            for (part, _) in settle(pieces, || {
+                cut(&reread(), i);
+            }) {
+                let kept = done.next().expect("a result for every piece");
+                t.absorb(settle(kept, || {
+                    compare_face(path, &reread(), i, &part, &mut Tally::default());
+                }));
+            }
+            t.absorb(settle(colour, || {
+                compare_face(path, &reread(), i, &Part::Colour, &mut Tally::default());
+            }));
         }
         files += 1;
     }
+    assert!(done.next().is_none(), "a piece no face accounts for");
     eprintln!("{files} files: {t:#?}");
 
     // Positive controls, so a corpus that reaches nothing cannot pass.
