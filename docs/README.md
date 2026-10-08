@@ -8,7 +8,7 @@ question got answered inline.
 
 | | for | read when |
 |---|---|---|
-| [architecture.md](architecture.md) | contributors | before touching code — the data path and the constraints that shaped it |
+| [architecture.md](architecture.md) | contributors | before touching code — the crates, the constraints and the invariants; its data path is `baud-core2`'s, kept until someone writes this core's |
 | [protocols/](protocols/) | anyone | **start here for a protocol** — one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests |
 | [vt-coverage.md](vt-coverage.md) | anyone | checking whether a specific operation works. One row per operation |
 | [protocol-decisions.md](protocol-decisions.md) | contributors | something looks like a gap and you want to know if it is deliberate |

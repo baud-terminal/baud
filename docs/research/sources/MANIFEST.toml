@@ -1707,12 +1707,16 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2"
 file   = ""
-sha256 = "94066f794b42facf7ee1e51c326d316457886436e0bde3797c9203d1b155475e"
-bytes  = 178177
+sha256 = "017a2093ae0478b0f44d5a64825ac2ce51fb144bdd69a020f27183f9cff158b8"
+bytes  = 177827
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-08: the url had come to serve 177,827 bytes against the
+# 178,177 first pinned (94066f79...), whose bytes were never committed. Two
+# fetches that day hashed alike; the page still titles itself 1.9.1, and the
+# ScriptList sentence baud-font/src/layout.rs quotes is in it verbatim.
 
 [sources.ms-opentype-fvar]
 key    = "ms-opentype-fvar"

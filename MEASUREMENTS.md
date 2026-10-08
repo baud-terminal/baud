@@ -233,9 +233,9 @@ Alongside it, from the same four runs, on the recordings it was paired with:
 | **`utf8/cava.raw`** | **567.4** | 447.4 | 319.5 | 366.0 |
 | `ascii/asciiquarium.raw` | **553.7** | 371.1 | 200.8 | 244.2 |
 
-**alacritty beats ghostty on cava and on nothing else here**, which is worth
-noticing rather than smoothing over: cava is the region-scrolling payload, and
-ghostty's row falls furthest exactly where the scrolling regions are.
+**alacritty is ahead of ghostty on two of the five rows here, cava and
+asciiquarium**, and behind on cat-scroll, btop and vim. This sentence used to
+say cava alone, against the table's own asciiquarium row.
 
 ## Against other implementations, on generated payloads
 
@@ -270,15 +270,23 @@ not: `git-log` 853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 �
 
 **Grapheme segmentation is not on in every core.** libghostty-vt's mode 2027
 carries no default, so it segments only when an application asks. baud always
-segments and reports `?2027` as permanently set. Segmentation is 25-45% of
-baud's UTF-8 throughput, and switching it off writes 5.9% *more* cells, because
-an unclustered combining mark becomes its own cell. The CJK rows therefore
-compare unequal work.
+segments and reports `?2027` as permanently set. The CJK rows therefore compare
+unequal work. What segmentation costs `baud-core` was measured when its cluster
+machine landed: **-33%** on cat-cjk, -31% on less-cjk, -8.8% on vim and -7.5% on
+btop against the same core storing without it (the record, "GB11 and the rest
+of UAX #29: every glyph gap is zero, and it costs a third"). The figures this
+paragraph used to give -- segmentation as 25-45% of UTF-8 throughput, and 5.9%
+*more* cells with it off, because an unclustered combining mark becomes its own
+cell -- are `baud-core2`'s, from 9c65e75 (2026-08-28).
 
-**Throughput tracks escape density, not content.** btop and vim draw completely
-different things — truecolour box art against scroll regions over CJK and emoji
-— and have almost the same density (16.5 and 17.2 bytes per escape) and almost
-the same throughput. asciiquarium is three times denser and slower to match.
+**No single property of a recording predicts its cost.** btop and vim have the
+same escape density, one per 17 bytes, and differ 1.7x in cycles per byte; the
+difference between them is that vim carries wide characters and btop none.
+asciiquarium carries none and is the most expensive per byte, on escape density
+alone. So the cost is wide content *or* escape density, and neither predicts it
+by itself (the record, "The path split is the whole gap, and neither way of
+closing it works"). This paragraph used to say throughput tracks escape density
+and not content, which that measurement withdrew.
 
 ## baud's representations -- core2's, and there is one now
 

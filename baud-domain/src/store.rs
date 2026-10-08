@@ -274,8 +274,11 @@ pub enum Encoding {
     Ascii,
     /// Well-formed UTF-8. Decode to graphemes for width.
     Utf8,
-    /// DEC Special Graphics (`ESC ( 0`). Bytes map through a 96-entry table to
-    /// box-drawing codepoints; width is always 1.
+    /// DEC Special Graphics (`ESC ( 0`). DEC defines 32 positions, `0x5F`
+    /// through `0x7E`; `PackedCell::with_dec_graphics` maps the 31 from `0x60`
+    /// and leaves `0x5F` as `_`, an open departure (the record, "DEC Special
+    /// Graphics begins at 0x5F, and what it stores there is the owner's
+    /// call"). Width is always 1.
     DecGraphics,
     /// Uninterpretable. Render U+FFFD per byte, width 1 each. `cat /bin/ls`
     /// lands here and must render rather than be rejected.
