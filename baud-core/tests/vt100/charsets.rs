@@ -8,13 +8,19 @@
 //! * SO — "Switch to Alternate Character Set (Ctrl-N is Shift Out or LS1)."
 //! * SI — "Switch to Standard Character Set (Ctrl-O is Shift In or LS0)."
 //!
-//! **The glyph table is deliberately not implemented, and that is a sourcing
-//! decision.** ctlseqs names the set but gives no byte-to-glyph mapping, and
-//! `MANIFEST.toml` records `dec-special-graphics` as `gated` -- vt100.net
-//! publishes the table as a figure, so no claim may rest on it. baud therefore
-//! keeps the byte the application sent and marks the cell, which loses nothing:
-//! a renderer holding the table has everything it needs, and one that does not
-//! can say so. Translating to a guessed codepoint would be unrecoverable.
+//! **The glyph table is implemented, from `[[source: foot-vt100-0]]`, and the
+//! cell stays marked.** DEC's own tables name every glyph and give no Unicode
+//! codepoint (`[[source: vt100-ug-ch3]]` Table 3-9), so the codepoints are
+//! foot's judgement, cited as foot's. This header said the table was
+//! "deliberately not implemented" and that the cell keeps the byte, after both
+//! stopped being true.
+//!
+//! **It is one entry short.** DEC replaces "ASCII codes 137 through 176"
+//! (octal), `0x5F..0x7E`, `0x5F` being "Blank"; foot's table and baud's start
+//! at `0x60`. Which codepoint Blank stores is the owner's call, open in
+//! `docs/record.md`, "DEC Special Graphics begins at 0x5F, and what it stores
+//! there is the owner's call", so nothing here asserts what `0x5F` becomes, and
+//! nothing asserts that it stays `_` either.
 
 use crate::support;
 use baud_core::*;
@@ -95,10 +101,10 @@ fn an_unhandled_set_is_recorded_not_ignored() {
 ///
 /// This asserted `Charset::Ascii` — that UK was "treated as ASCII rather than
 /// as unknown" — and the reasoning was that the two differ by one glyph baud
-/// does not substitute. True, and beside the point: not substituting a glyph is
-/// a *rendering* decision, while reporting the wrong set to an embedder that
-/// asked is a lie about what the application designated. See
-/// `uk_is_designated_not_aliased_to_ascii`.
+/// did not substitute. Beside the point then, and not true now:
+/// `the_national_sets_substitute` puts `£` where UK sends `#`. Reporting the
+/// wrong set to an embedder that asked is a lie about what the application
+/// designated, whatever the glyph. See `uk_is_designated_not_aliased_to_ascii`.
 #[test]
 fn british_latin1_is_reported_as_uk() {
     assert_eq!(charset(b"\x1b(A"), Charset::Uk);
@@ -114,10 +120,12 @@ fn british_latin1_is_reported_as_uk() {
 /// **A byte under the line-drawing set is translated, and stays marked.**
 ///
 /// This asserted the byte was *untouched*, "the mapping needs a source baud
-/// lacks". The DEC manual's table really is pictures -- `MANIFEST.toml` records
-/// that the page was fetched and checked -- but `[[source: foot-vt100-0]]` is
-/// the same mapping in machine-readable form, cited as foot's rather than as
-/// DEC's, because that is whose judgement it is.
+/// lacks". DEC's tables name each glyph -- `[[source: vt100-ug-ch3]]` Table 3-9
+/// calls `q` "Horizontal line - Scan 5" -- and give no codepoint; the codepoints
+/// are `[[source: foot-vt100-0]]`'s, cited as foot's rather than as DEC's,
+/// because that is whose judgement it is. This said the DEC table "really is
+/// pictures", which is true of the VT220 manual's Table 2-4 and not of the
+/// VT100 User Guide's.
 ///
 /// Both halves matter. Translating and dropping the flag would lose where the
 /// character came from; marking without translating loses the character, and
@@ -164,14 +172,16 @@ fn the_line_drawing_set_maps_as_the_pinned_source_says() {
     }
 }
 
-/// Bytes outside `` ` ``..`~` are ASCII even under the graphics set.
+/// Bytes below the set are ASCII even under it.
+///
+/// DEC's set is `0x5F..0x7E`; `A` is below it.
 #[test]
 fn graphics_leaves_the_rest_of_ascii_alone() {
     let (g, _) = run(b"\x1b(0A");
     assert_eq!(
         g[0].content,
         run(b"A").0[0].content,
-        "the set differs from ASCII only in 0x60..0x7e"
+        "the set replaces 0x5F..0x7E, and `A` is below it"
     );
     assert!(g[0].flags.is_graphics(), "still marked, though");
 }
@@ -304,11 +314,12 @@ fn the_designator_is_not_printed() {
 /// silent conflation `CSI g` avoids by leaving unhandled parameters inert
 /// rather than aliasing them to `0`.
 ///
-/// baud records it and does not substitute the one differing glyph, for the
-/// same reason it does not translate DEC Special Graphics: `MANIFEST.toml`
-/// carries no machine-readable DEC source for either mapping. The distinction
-/// that matters is *recorded but not translated* versus *reported as something
-/// else*.
+/// This said baud records it "and does not substitute the one differing
+/// glyph, for the same reason it does not translate DEC Special Graphics".
+/// Both are translated now, UK through `[[source: xterm-charsets]]` and the
+/// line-drawing set through `[[source: foot-vt100-0]]`. What this pins is
+/// unchanged: the designation is *reported as itself*, not as something
+/// else.
 #[test]
 fn uk_is_designated_not_aliased_to_ascii() {
     let ws = support::CORPUS;
@@ -333,10 +344,10 @@ fn uk_is_designated_not_aliased_to_ascii() {
 /// with more useful ones for a given language", so *which* one it is decides
 /// which characters change.
 ///
-/// Recorded, not translated: the replacements are a glyph mapping and
-/// `MANIFEST.toml` carries no machine-readable DEC source for one. The
-/// distinction this pins is *named but untranslated* versus *indistinguishable
-/// from garbage*.
+/// The national ones are translated too, through `[[source: xterm-charsets]]`
+/// (`every_national_replacement_renders_as_its_table_says`); this said
+/// "recorded, not translated" after the tables landed. The distinction this
+/// pins is *named* versus *indistinguishable from garbage*.
 #[test]
 fn every_listed_single_byte_final_is_named() {
     let cases: &[(&[u8], Charset)] = &[
@@ -450,14 +461,19 @@ fn single_byte_finals_survive_the_two_intermediate_path() {
     assert_eq!(charset(b"\x1b(K"), Charset::National(Nrcs::German));
 }
 
-/// **The line-drawing table covers the whole set, not part of it.**
+/// **The line-drawing table covers `0x60..0x7E`, and the set is one wider.**
 ///
-/// DEC Special Graphics differs from ASCII only in `0x60..0x7E`, so 31 entries
-/// is the complete mapping rather than a useful subset. `MANIFEST.toml` still
-/// records `dec-special-graphics` as `gated` — the DEC-authored table was
-/// never obtained in machine-readable form and that stays true — while
-/// `[[source: foot-vt100-0]]` supplies the mapping. Reading the gate as a
-/// missing capability is the confusion this pins.
+/// This said the set "differs from ASCII only in `0x60..0x7E`, so 31 entries is
+/// the complete mapping rather than a useful subset", and it asserted that `_`
+/// is untouched. `[[source: vt100-ug-ch3]]` replaces "ASCII codes 137 through
+/// 176" (octal), `0x5F..0x7E`, the first of them "Blank", and so do
+/// `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]`
+/// Table 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. `_` is out of
+/// the "outside" list below because asserting it there pinned a departure from
+/// every DEC text read as correct. What `0x5F` stores is the owner's call, open in
+/// `docs/record.md`, "DEC Special Graphics begins at 0x5F, and what it stores
+/// there is the owner's call"; the red test for it, on the bulk run, the
+/// per-byte path and VT52 `ESC F`, waits for that answer.
 #[test]
 fn the_line_drawing_table_covers_the_whole_set() {
     for byte in 0x60u8..=0x7e {
@@ -471,15 +487,15 @@ fn the_line_drawing_table_covers_the_whole_set() {
             byte as char
         );
     }
-    // And nothing outside the range is touched.
-    for byte in [b'A', b'Z', b'0', b'9', b' ', b'_'] {
+    // And nothing below the set is touched. Not `_` (0x5F): see above.
+    for byte in [b'A', b'Z', b'0', b'9', b' ', b'^'] {
         let mut bytes = b"\x1b(0".to_vec();
         bytes.push(byte);
         let (g, _) = run(&bytes);
         assert_eq!(
             g[0].content.as_codepoint().map(|c| c.value()),
             Some(u32::from(byte)),
-            "0x{byte:02x} is outside 0x60..0x7e and is ASCII"
+            "0x{byte:02x} is below the set's 0x5F..0x7E and is ASCII"
         );
     }
 }

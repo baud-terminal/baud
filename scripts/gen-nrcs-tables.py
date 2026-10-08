@@ -2,11 +2,10 @@
 """Generate baud-domain/src/nrcs_data.rs from the pinned xterm source.
 
 The National Replacement Character Sets replace a handful of ASCII positions
-per language. No DEC-authored source gives the mapping in machine-readable
-form -- `MANIFEST.toml` records that the manual's tables are images -- and
-xterm's `charsets.h` does, as `MAP`/`UNI` macros carrying the Unicode
+per language. None of the DEC texts read gives a Unicode codepoint for them,
+and xterm's `charsets.h` does, as `MAP`/`UNI` macros carrying the Unicode
 codepoint. Cited as xterm's judgement rather than as DEC's, the same way the
-line-drawing table is cited as foot's.
+line-drawing table's codepoints are cited as foot's.
 """
 import re, sys, pathlib, collections
 

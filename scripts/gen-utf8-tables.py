@@ -5,11 +5,10 @@ The paper's Table 8 lists seven 2-byte error patterns and the algorithm ANDs
 three nibble-indexed lookups: high nibble of byte 1, low nibble of byte 1, high
 nibble of byte 2. A bit set in all three means that pair is invalid.
 
-**Generated, not transcribed**, for the reason `docs/vt-coverage.md` gives for
-refusing a hand-written DEC line-drawing table: a guessed table is
-unrecoverable and looks like it worked. Here it is worse than cosmetic -- a
-wrong entry makes the validator *accept* invalid UTF-8, and `E0 80 AF`
-decoding to `/` is a bug this project has already had once.
+**Generated, not transcribed**, because a guessed table is unrecoverable and
+looks like it worked. Here it is worse than cosmetic -- a wrong entry makes
+the validator *accept* invalid UTF-8, and `E0 80 AF` decoding to `/` is a bug
+this project has already had once.
 
 So the patterns are written as predicates over a byte pair, the tables are
 derived from them by construction, and then **every one of the 65,536 pairs is

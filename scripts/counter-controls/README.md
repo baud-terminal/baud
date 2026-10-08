@@ -58,4 +58,7 @@ the `CoreTypeByProcess` table's `swift-table` attribute carries a
 Bottleneck, Instruction Processing Bottleneck and Useful. It does not say which
 integer column is which, which is what these controls are for.
 
-`CLAUDE.md` carries the identifications and the swings they rest on.
+`CLAUDE.md` states the identifications; `docs/record.md` carries the swings
+they rest on ("cat-cjk is not memory-bound and not mispredict-bound: 2% and
+3%", and "idx1/idx2/idx4 are a dispatched-work family, and that closes an IPC
+misread").

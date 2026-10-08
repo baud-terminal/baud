@@ -13,13 +13,18 @@ if ! python3 scripts/scan-audit.py 5; then
   fail=1
 fi
 
-# **The ISA crates, on their own budget.** Three raw-integer sites and zero
-# signature primitives, and all three are the same site: the cast feeding
-# `LaneMask::from_movemask`, which is the one point where an intrinsic's return
-# value enters the type system. They were inside `baud-core+isa`'s 14 and
-# invisible there -- moving the scanners into their own crates moved the sites
-# with them, and this repo already records that "the gate must follow the code
-# in the same commit". It did not, for as long as one limit covered both.
+# **The ISA crates, on their own budget.** One raw-integer site and zero
+# signature primitives: the `as u32` feeding `LaneMask::from_movemask` in
+# `scan_avx2`, which is the one point where an intrinsic's return value enters
+# the type system. They were inside `baud-core+isa`'s 14 and invisible there --
+# moving the scanners into their own crates moved the sites with them, and this
+# repo already records that "the gate must follow the code in the same commit".
+# It did not, for as long as one limit covered both.
+#
+# **It was three, the same cast in three AVX2 scans, until 4089bc3
+# (2026-09-19) deleted `find_final` and `find_st` with theirs -- and the limit
+# stayed at 3 after**, slack that would have let two new casts land green. A
+# budget that is not equal to the count measures nothing; set at the count.
 isa=0
 isasig=0
 # **The other architecture's crate must still compile, and nothing checked it.**
@@ -68,11 +73,11 @@ for f in $files; do
   isasig=$((isasig + m))
   [ "$n" -gt 0 ] && echo "  ..   $f: $n + $m sig"
 done
-if [ "$isa" -gt 3 ] || [ "$isasig" -gt 0 ]; then
-  echo "  FAIL baud-isa*: $isa raw-integer sites, $isasig signature (limit 3 and 0)"
+if [ "$isa" -gt 1 ] || [ "$isasig" -gt 0 ]; then
+  echo "  FAIL baud-isa*: $isa raw-integer sites, $isasig signature (limit 1 and 0)"
   fail=1
 else
-  echo "  ok   baud-isa*: $isa and $isasig (limit 3 and 0, the movemask casts)"
+  echo "  ok   baud-isa*: $isa and $isasig (limit 1 and 0, the movemask cast)"
 fi
 
 # The new core, on its own budget. **Two, and every one enumerated**:
@@ -205,8 +210,9 @@ crate_audit "baud-font" 16 68 baud-font/src
 # `Key::fold(u32)`, `FaceIx::index -> usize`, and the two colour helpers
 # `triple(u8, u8, u8)` and `grey(u8)` that build an `Argb` from wire bytes.
 crate_audit "baud-render" 0 11 baud-render/src
-# baud-present-macos and baud-app: one signature primitive each, the same
-# edge -- `slots(Px) -> usize`, where a pixel count becomes a slice index.
+# baud-present-macos: one signature primitive, `slots(Px) -> usize`, where a
+# pixel count becomes a slice index. baud-app shares that edge, and its own
+# line below enumerates the rest of its count.
 crate_audit "baud-present-macos" 0 1 baud-present-macos/src
 # baud-wayland: seven raw sites and seven signature primitives, and the
 # floor is the kernel's socket ABI -- `sys.rs` declares `sendmsg`/`recvmsg`
@@ -225,10 +231,14 @@ crate_audit "baud-wayland" 7 7 baud-wayland/src
 # encoding and not an index) -- plus the byte cursor the lexer carries. The
 # keysym and the keycode are newtypes. Set at the count.
 crate_audit "baud-xkb" 10 6 baud-xkb/src
-# baud-present-wayland: 4 raw sites and 14 signature primitives, the kernel's
+# baud-present-wayland: 6 raw sites and 14 signature primitives, the kernel's
 # mapping ABI in `sys.rs` (`mmap`, `munmap`, `ftruncate`, `memfd_create`, as
-# the externs they are) and the pool's byte arithmetic -- a stride in words,
-# an offset into the file -- which the wire carries as `int`. Set at the count.
+# the externs they are, and the mapping's `len`) and the pool's byte
+# arithmetic -- a stride in words on the pool and on `present`, an offset into
+# the file -- which the wire carries as `int`; plus the keyboard's `group`
+# field and `bind`'s wire `name` and `version`, which sit one to a line and so
+# read to the audit as fields. Set at the count. (This comment said 4 from the
+# commit that set the limit at 6, 20ab159.)
 crate_audit "baud-present-wayland" 6 14 baud-present-wayland/src
 # baud-app: 1 raw site and 4 signature primitives. One is `slots(Px) ->
 # usize` in the presenter edge, as above; the other four are the kernel ABI

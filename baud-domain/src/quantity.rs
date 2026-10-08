@@ -160,10 +160,10 @@ impl Col {
     /// Only for interop with code that is not yet using [`Grid`]. Indexing a
     /// `Grid` takes a `Col` directly, so this should have no callers.
     ///
-    /// Backed by `usize`, not `u16`: measured, a `u16` cursor costs 11-15%
-    /// against `usize` on x86-64 because every op needs zero-extension and
-    /// masking. Narrow types belong in [`Cell`], where 10,000 of them sit in a
-    /// matrix and size is the throughput lever — not in an arithmetic path.
+    /// Backed by `usize`, not `u16`: a `u16` cursor adds zero-extension and
+    /// masking to every op on x86-64, at a cost unmeasured here. Narrow types
+    /// belong in [`Cell`], where 10,000 of them sit in a matrix and size is the
+    /// throughput lever — not in an arithmetic path.
     pub fn index(self) -> usize {
         self.0
     }

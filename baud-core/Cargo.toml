@@ -37,9 +37,9 @@ description = "A terminal emulator core: PTY bytes through VT parse into a grid.
 # check that catches it is one `objdump`: no `shrn` in `main` means the arm is
 # off.
 default = ["neon-scan"]
-# `Storage::boxed`, for hosts that have an allocator. The core itself never
+# `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
-# 24 MB of static storage.
+# the storage themselves.
 alloc = []
 # Ceiling arms. Each is incorrect by construction and off by default; they
 # exist so the next person re-measures where the time is instead of arguing
@@ -71,8 +71,11 @@ probe-double-break = []
 probe-double-attach = []
 # **A ceiling, not a probe**: the run gate always admits, so a run containing a
 # ZWJ or a regional indicator is bulk-written as separate characters. Incorrect
-# by construction and `cells_written` says so, which makes it an upper bound on
-# what the gate's fallback costs rather than a measurement of it.
+# by construction, and `a_flag_is_one_cluster` says so (four regional
+# indicators where two flags belong). `cells_written` is byte-identical on all
+# nine recordings, so on the corpus it is a like-for-like A/B rather than an
+# upper bound (`docs/record.md`, "Ten compiled arms had rotted, and nothing
+# built them to notice").
 ceiling-no-run-gate = []
 # `probe-double-classify` prices the property lookup by doing it twice.
 probe-double-classify = []
@@ -118,14 +121,15 @@ cell-table = []
 # disassembling `ingest2` puts 11 `addv.8h` in `main` where `feed` inlines and
 # zero `shrn` in baud's own code.
 #
-# **It is off because it costs `unsafe`.** `Scan`'s methods are `unsafe fn`, and
-# this crate is `forbid(unsafe_code)` -- which `lib.rs` drops only under this
-# feature, so the default build is unchanged. On aarch64 NEON is baseline, so
-# there is nothing to detect and no fallback to pick and the contract is
-# satisfied by the target alone; that makes the `unsafe` a formality rather than
-# a risk, and a formality is still a policy change the owner owns.
+# **It is on (see the top of `[features]`), and it costs no `unsafe` here.**
+# `Scan`'s methods are `unsafe fn` for `Avx2`'s sake; on aarch64 NEON is
+# baseline, so the contract is satisfied by the target alone, and
+# `baud-isa-aarch64` offers a safe inherent surface over its own impl. This
+# crate calls that and stays `forbid(unsafe_code)` unconditionally (`lib.rs`).
+# The first version of this arm dropped the `forbid` under the feature, which
+# is what this paragraph described until 2026-10-08.
 neon-scan = ["dep:baud-isa", "dep:baud-isa-aarch64"]
-# **The x86-64 twin, and it is off for two reasons rather than one.**
+# **The x86-64 twin, and it is off.**
 #
 # `scan_avx2` reads 32 bytes a step where `core::simd` reads 16, so unlike the
 # NEON arm -- which is the same width and a cheaper extraction -- this one is a
@@ -134,12 +138,14 @@ neon-scan = ["dep:baud-isa", "dep:baud-isa-aarch64"]
 # and four characters in a sixteen-byte block and a 256-bit register has nothing
 # to add to a fifteen-byte question.
 #
-# **It is unmeasured**, and this repo does not ship unmeasured throughput
-# changes. No x86-64 host is available here, and the closest prior is
-# discouraging: wiring `Scan::run` alone on aarch64 measured a flat null on all
-# nine, because the payloads with long printable runs are store-bound -- `cat`'s
-# write path sits at 74% of the machine's vectored-store ceiling, and that
-# argument does not depend on the architecture.
+# **It measured flat**: about 1% on `cat`, disjoint from base by 0.2 MB/s,
+# which is below anything the protocol can call, and overlapping on every other
+# row, on a CI runner (`docs/record.md`, "AVX2 is measured at last, and it is
+# ~1% on the rows it can reach"). That is the prior this paragraph gave before
+# it was measured: wiring `Scan::run`
+# alone on aarch64 was a flat null on all nine, because the payloads with long
+# printable runs are store-bound -- `cat`'s write path sits at 74% of the
+# machine's vectored-store ceiling.
 #
 # **And it needs a build that targets AVX2.** `#[cfg(target_feature = "avx2")]`
 # guards it, so `-C target-feature=+avx2` or a `target-cpu` implying it is
@@ -219,10 +225,10 @@ ceiling-implicit-tail = []
 [dependencies]
 baud-domain = { path = "../baud-domain" }
 
-# **Optional, target-gated, and off.** `baud-isa-aarch64` is `#![cfg(target_arch
-# = "aarch64")]`, so the dependency cannot exist elsewhere and neither can the
-# feature that wants it. See `neon-scan` in `[features]` for what it is for and
-# what it costs.
+# **Optional and target-gated; `neon-scan`, the default, turns the aarch64
+# pair on.** `baud-isa-aarch64` is `#![cfg(target_arch = "aarch64")]`, so the
+# dependency cannot exist elsewhere and neither can the feature that wants it.
+# See `neon-scan` in `[features]` for what it is for and what it costs.
 [target.'cfg(target_arch = "aarch64")'.dependencies]
 baud-isa = { path = "../baud-isa", optional = true }
 baud-isa-aarch64 = { path = "../baud-isa-aarch64", optional = true }

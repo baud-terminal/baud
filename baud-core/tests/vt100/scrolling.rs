@@ -530,8 +530,9 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
 /// **The same script, in the alternate screen.**
 ///
 /// This file had no alternate-screen scroll test at all, which is precisely the
-/// gap that hid the original full-screen bug: `CLAUDE.md` records that every
-/// test here "sets a region with DECSTBM first, which takes the copying path,
+/// gap that hid the original full-screen bug: `docs/record.md` ("Full-screen
+/// scroll: the grid is rotated, not copied") records that every test here
+/// "sets a region with DECSTBM first, which takes the copying path,
 /// so the most common scroll there is had no content test at all". The
 /// alternate screen is the same hole one screen over -- and it is where every
 /// full-screen application lives, so it is the screen a pager, an editor or a
@@ -541,8 +542,9 @@ fn mixed_line_movement_agrees_with_an_independent_model() {
 /// on the copying path, so that a green result afterwards is evidence about the
 /// rotation rather than about the test.
 ///
-/// `OpMode::Computed`, not `Runs`: in `Runs` a viewport reports representation
-/// and not rendered content, which is the harness trap `CLAUDE.md` names.
+/// core2 ran this in `OpMode::Computed`, not `Runs`, whose viewport reported
+/// representation rather than rendered content (`git show b10c006^:CLAUDE.md`,
+/// "Tests", lines 698-705). baud-core has one mode (see the top of this file).
 #[test]
 fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
     const ROWS: usize = 50;
@@ -648,8 +650,9 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
 /// saying plainly. In `OpMode::Runs` nothing renders spans -- `Term::row` and
 /// `viewport` read cells -- so a zeroed run count is invisible to every public
 /// accessor, and an attempt to write the failing test instead reproduced the
-/// harness trap `CLAUDE.md` records: a `Runs` viewport shows representation,
-/// so *every* case came back empty including the one that did nothing at all.
+/// harness trap core2's notes recorded (`git show b10c006^:CLAUDE.md`, lines
+/// 698-705): a `Runs` viewport shows representation, so *every* case came
+/// back empty including the one that did nothing at all.
 /// What is checkable is that the round trip is content-preserving in
 /// `Computed`, and that is what this asserts.
 #[test]

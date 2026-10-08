@@ -5,12 +5,6 @@ use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
 use baud_domain::*;
 
-/// A terminal: a cursor, a rendition, a grid, and where the parser stands.
-///
-/// **All of it behind one `&mut self`.** A C prototype of this loop used
-/// file-scope globals and ran 16-34% slower; `__restrict` recovered only 2.5%
-/// of that. The presumed mechanism is LLVM's `noalias`, and the rule that
-/// falls out is that state does not migrate to statics.
 /// Which screen buffer is live.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
@@ -67,10 +61,11 @@ pub struct Saved {
     pub(crate) style_raw: StyleWord,
     pub(crate) flags: CellFlags,
     /// **The four slots and which one `GL` invokes, not the resolved set.**
-    /// `[[source: vt510-decsc]]` lists "character sets G0-G3" among what DECSC
-    /// saves, and a saved *resolved* set restores into slots that no longer
-    /// agree with it -- the next `SI` would recompute from `g[gl]` and throw
-    /// the restore away.
+    /// `[[source: vt510-decsc]]` lists "Character sets (G0, G1, G2, or G3)
+    /// currently in GL and GR" among what DECSC saves, and a saved *resolved*
+    /// set restores into slots that no longer agree with it -- the next `SI`
+    /// would recompute from `g[gl]` and throw the restore away. `GR` is not
+    /// saved because this core does not model it.
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
     /// **`DECSCA`'s protection, which is not the same word as `flags`.**
@@ -583,6 +578,13 @@ pub enum Overrides {
     Drop,
 }
 
+/// A terminal: a cursor, a rendition, a grid, and where the parser stands.
+///
+/// **All of it behind one `&mut self`, and state does not migrate to
+/// statics.** A C prototype from before the import is said to have run slower
+/// with file-scope globals (`git show f5399fb:CLAUDE.md`, line 39); no harness,
+/// data or record survives, so no figure is quoted here, and the mechanism,
+/// LLVM's `noalias`, is presumed rather than shown.
 pub struct Term<'b> {
     /// Segment hashes, for the `ceiling-segment-cache` arm only.
     #[cfg(feature = "ceiling-segment-cache")]

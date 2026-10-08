@@ -123,9 +123,11 @@ sentence.
   4096 bytes a read; that is Darwin's pipe implementation
   (`bsd/kern/sys_pipe.c`) and it is not fetched. The claim is measured, not
   explained.
-* **Scheduling.** "`SCHED_FIFO` -- p99 50% worse" and the RTIC entry in
-  `CLAUDE.md` are measurements with no kernel source behind them. They are
-  results, not mechanisms, and are left as such.
+* **Scheduling.** "`SCHED_FIFO` -- p99 50% worse" is a prototype figure
+  (`git show f5399fb:README.md`, line 88) with no kernel source behind it: a
+  result, not a mechanism, and left as such. The RTIC entry `CLAUDE.md`
+  carried until b10c006 (`git show f5399fb:CLAUDE.md`, line 65) had no
+  measurement behind it either.
 * **`TTHIWAT` in practice.** `t_hiwat` at 9600 baud computes to
   `roundup(1216, CBSIZE)`, above the clist capacity, which is why the capacity
   binds. That arithmetic is from the source and is not separately measured;

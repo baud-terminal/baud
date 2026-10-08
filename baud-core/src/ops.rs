@@ -602,7 +602,7 @@ impl Paint<'_, '_> {
     // ---- rendition ------------------------------------------------------
 
     /// **A bounded table, open-addressed over its whole length so a distinct
-    /// rendition evicts another only when all `NSTYLE` slots are occupied.**
+    /// rendition evicts another only when every slot is occupied.**
     /// The read stays one load -- a cell holds the final slot as its `StyleId`
     /// and `resolve` is `tmpl[id]` -- and only the intern, run once per `SGR`
     /// rather than per cell, probes.
@@ -617,12 +617,11 @@ impl Paint<'_, '_> {
     /// chance of one collision in 1024 buckets, so "rare" was wrong.
     ///
     /// Linear probing fixes it without a search on the read. A distinct style
-    /// takes the first free or matching slot from its bucket, so it evicts a
-    /// *different* live style only when the probe wraps the whole table -- that
-    /// is, only when every one of the `NSTYLE` slots holds a live style, which
-    /// is the one case a fixed table cannot serve exactly. Below that the
-    /// mapping is **exact**: distinct renditions never share a slot and never
-    /// corrupt each other's colour.
+    /// takes the first free or matching slot from its bucket, so it evicts
+    /// another style only when the probe wraps the whole table -- that is,
+    /// only once every slot is filled, live or not, since no slot is ever
+    /// freed. Below that the mapping is **exact**: distinct renditions never
+    /// share a slot and never corrupt each other's colour.
     ///
     /// The cost is a probe on the write path, and the probe length is
     /// `1/(1 - load)` on average -- a fraction of a slot while the table is
@@ -639,9 +638,10 @@ impl Paint<'_, '_> {
     /// distinct renditions cannot: below capacity the mapping is exact. A
     /// garbage collector could not help, because nothing is dead to reclaim
     /// while the image is displayed; the fix is capacity, sized to what a screen
-    /// can show. Eviction remains only for a session that mints more than a
-    /// screenful of *distinct* renditions over its life -- an animation cycling
-    /// colours, not a still image -- and that is recorded rather than paid for.
+    /// can show. Eviction remains for a session that mints more *distinct*
+    /// renditions over its life than the table has slots -- an animation
+    /// cycling colours, not a still image -- and a cell still naming an evicted
+    /// slot is then recoloured: an open `SGR` bug, not a settled trade.
     ///
     /// **Inlined, because `restore` is its second caller.** With one caller
     /// LLVM inlined it into `apply_sgr`; when `DECRC` began interning the
@@ -651,9 +651,10 @@ impl Paint<'_, '_> {
     fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
         // `len` is a screen's worth of slots -- a power of two, always at least
-        // `NSTYLE`. Below that many distinct live renditions the mapping is
-        // exact, which is why a text-drawn image preview (one distinct rendition
-        // per cell) no longer scrambles: a screenful of them all fit.
+        // `NSTYLE`. Below that many distinct renditions interned since
+        // construction the mapping is exact, which is why a text-drawn image
+        // preview (one distinct rendition per cell) no longer scrambles: a
+        // screenful of them all fit.
         let len = self.tmpl.len();
         #[cfg(feature = "probe-double-intern")]
         core::hint::black_box(StyleId::bucket(raw, len));
@@ -677,8 +678,8 @@ impl Paint<'_, '_> {
                 Some(_) => k = (k + 1) & (len - 1),
             }
         }
-        // Every slot holds a live style: evict at the bucket, the only case a
-        // fixed table cannot serve exactly, and the read stays one load --
+        // Every slot is filled: evict at the bucket, the only case a fixed
+        // table cannot serve exactly, and the read stays one load --
         // except slot 0, the default every blank cell names without
         // interning it (`Term::new`), whose eviction would recolour them all.
         // Its bucket's victim is the slot after it.

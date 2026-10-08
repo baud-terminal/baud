@@ -42,8 +42,9 @@ fn alloc_sgr(n: usize) -> String {
 
 /// The row pitch the arm under measurement lays the grid out at.
 ///
-/// **One binary per arm**, because a runtime switch in the loop once measured
-/// a fake 13-17%. The default is what ships: the pitch `grid_stride` derives
+/// **One binary per arm**, because a runtime switch in the loop measures the
+/// switch (`CLAUDE.md`, "Runtime variant switches in the hot loop"). The
+/// default is what ships: the pitch `grid_stride` derives
 /// from the cache geometry. `stride-live` is the
 /// layout this core had before -- the live column count, the +14% over the
 /// aliasing one that the fixed pitch has to match. `stride-pad0` is the
@@ -130,7 +131,7 @@ fn main() {
     // **Homogeneous CJK.** `CLAUDE.md`'s 2,440 MB/s for this name is a
     // `baud-core2` figure (2026-08-28), and this generated payload did not
     // enter `ingest2` until core2 was deleted -- on `baud-core` it reads
-    // 1,137-1,159 over three launches at `44b4996`, and always has. Not a
+    // 1,137-1,159 over three launches at `4d8825d`, and always has. Not a
     // regression; a different core. `CLAUDE.md`'s `opcost` entry has the
     // attribution.
     //

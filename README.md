@@ -21,70 +21,91 @@
 
 </div>
 
-> A terminal emulator written in Rust, under construction.
+> A terminal emulator written in Rust. It runs on macOS; the Linux port has run
+> only headless.
 
 Named for Émile Baudot, whose 1874 code gave the unit its name. The lineage runs
 teletype → glass tty → terminal emulator, and a baud measures how fast symbols
 cross a line — which is what this is about.
 
+## What it is
+
+baud implements the standards, specifications and protocols a terminal answers
+to — ECMA-48, the DEC manuals, xterm's ctlseqs, the Unicode Standard and its
+annexes, the font formats, kitty's keyboard protocol — with the goal of running
+them faster than any shipping terminal on ingest throughput, input latency,
+frame rate under full-grid churn and memory **at once**.
+
+**The standard is the requirement; speed is how it is met.** The work is the
+standard compiled into tables indexed at build time, vectorised, and laid out to
+stay in cache. A result that is faster because it departs from a standard is a
+defect, not a win, and the departures known today are
+[listed below](#not-built-and-open-departures) as such.
+
+Only ingest is measured against other terminals today ([the number](#the-number)).
+Latency, frame time and memory are baud's own numbers, on one Mac
+([MEASUREMENTS.md](MEASUREMENTS.md)).
+
 ## Status
 
-**Under construction, and the hard half is done.** The VT protocol core — the
-part that turns a byte stream from a PTY into a grid — is complete, measured,
-and faster than every implementation it has been compared against. What is
-missing is everything between that grid and a window.
+**A terminal emulator that runs on macOS, with a Linux port that has run only
+headless.** The VT core is measured, and in its coverage table every row for
+an operation it implements is done except three at partial, DECSC, DECRC and
+the DEC Special Graphics table; the renderer, the shaper and the input path are
+built and run on macOS.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ 147 operations at **done** and 2 at **partial**, [enumerated against primary sources](docs/vt-coverage.md) — DECSC/DECRC are the partial pair: they save five of the seven items `[[source: vt510-decsc]]` lists |
+| **VT protocol** | ✅ [enumerated against primary sources](docs/vt-coverage.md): every row for an operation baud implements is **done** except three at **partial**: DECSC/DECRC, which save G0-G3 and which of them GL invokes but not GR (baud does not model it) or a single shift (SS2/SS3 are not implemented), and the DEC Special Graphics table, which leaves `0x5F` as `_`. What it does not implement is **out** with the reason in its row, or refused and counted. Some operations have no row yet, among them XTVERSION, answered and tested, and SS2/SS3 and the locking shifts LS2, LS3 and LS1R-LS3R, which count as unsupported |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
-| **Grid** | ✅ two storage representations, both measured |
-| **Throughput** | ✅ [ahead of ghostty on all nine recordings](#the-number) — 1.73–5.70× on committed capture |
-| Scrollback | ✅ in the core: the grid is a ring the screen is a window into, so a retired line stays where it was written and `Term::scrollback` reads the lines behind the window with no copy on the scroll. `Depth::DEFAULT` is 2,000 lines. Nothing in the app scrolls to it yet. (`baud-core2` stored `SB = 10_000` lines and **no accessor read above the viewport**, so it was never a feature.) |
-| Input path | ✅ [enumerated against sources](docs/input-coverage.md). The base layer is `baud_domain::encode_key` — cursor keys, keypad in both modes, 12 function keys, the VT220 editing keys, the VT52 keyboard, the meta/alt modes — and `baud-core::Term::key` reads the modes off the terminal and calls it. Both negotiated layers are done: fixterms `CSI u` through `modifyOtherKeys`, and kitty progressive enhancement in full — all five flags, the per-screen stack, and the `CSI ? u` query answered once every enhancement is honoured |
-| Reply channel | ◐ caller-provided. `baud-core` answers `DA` (under-claiming as a VT102), `DSR` 5/6 and `DECRQSS`; `DECRQM`, `XTVERSION` and highlight tracking are recognised and counted but unanswered, each for a named reason — a wrong-shaped answer is worse than silence |
-| Renderer | ⬜ not started |
-| Font shaping | ⬜ not started — and the largest unknown in the project |
+| **Text** | ✅ UTF-8 decoding against the standard's own vectors, width generated from `EastAsianWidth.txt`, and grapheme clustering that passes `GraphemeBreakTest.txt`. Marks past what the cluster store can hold are dropped and counted, an open departure (below) |
+| **Grid** | ✅ one representation: cells in a ring the screen is a window into, so a scroll copies nothing and `Term::scrollback` reads the lines behind the window. `Depth::DEFAULT` is 2,000 lines, and `Term::resize` reflows the primary in place |
+| **Throughput** | ✅ [ahead of ghostty on all nine recordings](#the-number) — 1.19–5.80× on committed capture |
+| **Replies** | ✅ answers DA (as a VT102), DSR 5/6, DECRQM, DECRQSS and XTVERSION. A query baud will not answer is counted, each refusal for a named reason — a wrong-shaped answer is worse than silence — and an `OSC 52` clipboard read gets silence |
+| **Input** | ✅ [enumerated against sources](docs/input-coverage.md). `baud_domain::encode_key` is the base layer, `modifyOtherKeys` and kitty's progressive enhancement in full, and `Term::key` reads the modes off the terminal and calls it. The app sends mouse reports and does stream and block selection and paste |
+| **Rendering** | ✅ `baud-render` draws on the CPU and builds what `baud-present-macos` draws on Metal, by two paths a pixel oracle holds against each other. Every frame figure is this Mac's unified-memory GPU |
+| **Shaping** | ✅ `baud-font` parses, shapes through GSUB, GPOS and morx, and rasterises with no engine dependency, exact against `hb-shape` on 480 fixtures, none of which separates per-script shaping from `latn`: it shapes every script as `latn` or `DFLT`, an open departure (below) |
+| **History in the app** | ✅ the wheel, a scrollbar that fades and widens as AppKit's does, and selection across the history |
+| **Linux** | ◐ ran headless under weston: no pointer input, nobody has looked at its pixels, and the GPU half is unstarted |
 
-So: you cannot run this as your terminal today. You can run its core, feed it a
-real escape stream, and measure it — which is what the rest of this file is
-about.
+[The record](docs/record.md) holds where each of these was measured and
+decided.
 
-## The road to a terminal
+## What is next
 
-The input path is done — the base key encoder plus both negotiated layers
-(fixterms `CSI u` and kitty progressive enhancement). The **renderer** is next,
-the owner's order.
+In the order [CLAUDE.md](CLAUDE.md) leaves it ("Next"):
 
-Then two questions decide whether the measurements above survive contact with a
-real terminal:
+1. **Linux, to where a person can use it.** The seat binds only the keyboard,
+   so there is no pointer: no wheel, no mouse reports, no selection. Then a
+   look at a frame's pixels, which the headless run could not give, then the
+   GPU half, Vulkan over dmabuf, on a machine with a GPU.
+2. **macOS key releases and modifier keys.** They wait on `keyUp:` and
+   `flagsChanged:` in the window crate; the core's side, kitty's event types,
+   is done.
+3. **A reset count the app acts on, then the core keeps the window over the
+   history** — V1 and V2 of the owner's decided list,
+   `docs/research/notes/v-open-decisions.md`.
 
-1. **Shaping.** Wire HarfBuzz and a glyph atlas into viewport materialisation,
-   then re-measure on mixed CJK/emoji/ligature content. If throughput holds
-   above ~50% of the kernel ceiling and full-damage frames stay under 2 ms, the
-   rest is engineering. If shaping drops it to 15%, the architecture needs a
-   shaping cache keyed on line content before anything else matters.
-2. **Real streams.** Replay captured sessions (`script -c "vim ..."`) instead of
-   synthetic payloads, and find out whether the margin survives real escape
-   traffic.
+The open departures below are not on this list because each is the owner's
+call, with the options set out in the note it names.
 
-After the renderer and shaping, it is a terminal.
-
-## Running it today
-
-There is no terminal binary yet — see [Status](#status). What exists is the
-core and the harness that measures it:
+## Running it
 
 ```sh
-devenv shell -- dev-test                       # the whole suite
-devenv shell -- cargo run --release -p baud-bench   # feed it through a real PTY
+devenv shell -- scripts/bundle-macos.sh         # target/baud.app: the terminal, `baud`, as an app
+devenv test                                     # the whole gate, as CI runs it
+devenv shell -- dev-bench cat-cjk               # baud-core alone on one recording, in memory
 ```
+
+`dev-bench` is `cargo bench -p baud-bench --bench ingest2 -- <payload> <reps>`,
+the instrument [CLAUDE.md](CLAUDE.md) says to verify a core change with
+("How to verify a change").
 
 ## Embedding the core
 
-`baud-core` is a `no_std` library and is usable now — it is the engine the
-terminal will be built on, and it is published because it is useful on its own
-for anything that needs to interpret a VT stream.
+`baud-core` is a `no_std` library and is usable on its own — it is the engine
+`baud-app` is built on, and it is published because it is useful for anything
+that needs to interpret a VT stream.
 
 ```rust
 use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
@@ -111,20 +132,22 @@ let owed = term.reply().len(); // e.g. the answer to a DSR
 let cells = term.cells().len(); // the grid, ring and all
 ```
 
-`OpMode` picks the representation and is fixed at startup:
-`Computed` and `Templated` materialise cells; `Runs` keeps byte spans and
-materialises on demand. In `Runs`, `viewport()` reports *representation*, not
-rendered content — see [architecture](docs/architecture.md).
+There is one representation: the core always materialises cells, into a ring
+the screen is a window into. `Term::scrollback` reads the history behind the
+window and `Term::resize` reflows the primary.
 
-## Why it exists
+## The two quantities
 
-Every result here is predicted by two quantities:
+Two quantities gate a change to the core:
 
-1. **Write amplification ≤ 1** — bytes written to memory per byte ingested.
+1. **Write amplification** — bytes written to memory per byte ingested.
 2. **Working set ≤ cache** — the structures touched per byte stay resident.
 
-Allocation is a *proxy* for these, not the thing. An immutable flat log that
-allocated nothing still cost 22%, because the array grew past cache.
+Allocation is a *proxy* for these, not the thing: "it doesn't allocate" is not
+a defence. A cell core cannot hold write amplification to 1 and is not meant
+to — one printable byte becomes an eight-byte cell, so 8x is a floor by
+construction ([the record](docs/record.md), "The pure-ASCII rung is at 74% of
+the machine's store bandwidth").
 
 ## The number
 
@@ -153,68 +176,22 @@ otherwise -- and the two scroll-heavy ASCII rows read 11% and 19% higher for
 it. The correction and the mechanism are in
 [MEASUREMENTS.md](MEASUREMENTS.md).
 
-**The two CJK rows moved +4% and +3% since the last table, and that is the NEON
-run scan now on by default.** `baud-isa-aarch64::Neon` extracts a lane mask with
-`shrn` where `core::simd`'s `to_bitmask` lowers to a horizontal reduction; on
-aarch64 that is a real instruction difference rather than a wider one, since
-both process sixteen bytes. Measured in isolation, six rounds with an A/A
-control interleaved: **cat-cjk +4.3%, less-cjk +3.7%**, disjoint from base and
-from the control, stable under reversing the arm order, every other recording
-overlapping -- which is the prediction holding, because the stride-three scan
-only fires on runs of three-byte characters.
+**On this table alacritty is ahead of ghostty on three rows** — asciiquarium,
+cava and less-cjk — and behind it on the other six.
 
-It costs no `unsafe` in `baud-core`, which still carries
-`#![forbid(unsafe_code)]` unconditionally: `Scan`'s methods are `unsafe fn` for
-`Avx2`'s sake, where AVX2 is not baseline, and `Neon` wraps them in a safe
-inherent surface because on aarch64 NEON *is* baseline and the obligation is
-satisfied by the target. `cargo build -p baud-bench --no-default-features` is
-the arm that turns it off.
-
-**Three rows moved since the previous table and the reason is a feature, not a
-regression.** That table was measured before grapheme clustering landed. Holding
-the ghostty ratio, which is the only thing comparable across two sessions:
-
-| | ratio then | now | |
-|---|---|---|---|
-| six rows -- cat-scroll, git-log, less-pager, btop, cava, asciiquarium | | | within **±3%** |
-| `vim-unicode` | 2.11x | 1.86x | **-12%** |
-| `cat-cjk` | 1.73x | 1.25x | **-27%** |
-| `less-cjk` | 2.84x | 1.92x | **-32%** |
-
-The three that fell are exactly the recordings carrying wide characters and
-emoji, and what changed is that baud now **segments them**. `U+1F468 ZWJ U+1F469
-ZWJ U+1F467` was three separate people on the screen and is one glyph now; the
-old numbers were for a core that did not do that work. Measured at the time:
-**-33% on cat-cjk**, of which +18.6% came back when the run gate was fixed.
-
-This is the second time a headline here has been withdrawn for the same reason.
-The first was the escape-dense rows, measured while the core parsed no escapes
-and blitted the parameter bytes to the screen as text -- *"that is cheap per byte
-and it is not parsing."* Same shape, different feature.
-
-**Absolutes are not comparable across the two tables and ratios are.** ghostty
-is down 4-15% and alacritty 23% in this run, on code that has not changed, so the
-box is not where it was. That is why the table above is one interleaved sweep and
-why the comparison is stated as a ratio.
+**The table's history is in [MEASUREMENTS.md](MEASUREMENTS.md)**, beside the
+same table: the NEON run scan's gain on the two CJK rows when it went on by
+default, the three rows that fell when grapheme clustering landed — a ZWJ
+family is one glyph now where it was three people — and what `baud-core2`, the
+core this one replaced, read on the same bytes before it was deleted.
 
 **There is one core.** `baud-core2` was the previous implementation and the
-reference this one was checked against; it has been deleted, and every row above
-is `baud-core`. For the record of what it read on the same bytes and the same
-box — cat-scroll 1107.2, git-log 1275.9, less-pager 1219.5, btop 792.6, vim
-508.8, less-cjk 478.8, cat-cjk 467.5, cava 457.7, asciiquarium 372.9 — the newer
-core is 1.16x to 1.71x ahead of it while rendering all nine cell for cell.
-
-What it carried that went with it was an oracle, not a feature: the only thing
-lost is the ability to drive two implementations over the same bytes and compare
-10,000 cells. Its rendering is frozen as data in `baud-core/tests/golden.rs`
-instead, which is strictly weaker — a golden capture finds regressions only on
-bytes somebody wrote down — and `baud-difftest` is now the one instrument that
-can disagree from outside.
-
-**`alacritty` beats `ghostty` on `cava` and on nothing else here.** cava is the
-one recording that scrolls inside a scrolling region it sets, and that is where
-ghostty's row falls furthest — an outside signal for something baud's own
-counters say from within.
+reference this one was checked against cell for cell; it is deleted, and every
+row above is `baud-core`. Its rendering is frozen as data in
+`baud-core/tests/golden.rs`, which is strictly weaker — a golden capture finds
+regressions only on bytes somebody wrote down — and two oracles outside this
+codebase can still disagree: `baud-difftest` against alacritty and
+`baud-sfte-difftest` against sfte, cell for cell.
 
 These are committed recordings of real programs, in `tests/recordings/`.
 
@@ -222,6 +199,12 @@ And on generated payloads, where every core is driven through the same
 harness. The streaming payload models `cat`, logs and build output;
 the TUI payload models a full-screen redraw. `multibench` generates both, so
 every core is handed the same bytes.
+
+**This table predates grapheme clustering (71715d3) and the scrollback ring
+(0a44e3f) in the core it names, and has not been re-taken.** It was taken at
+`e8035f6` (2026-09-09). MEASUREMENTS.md's table
+for the same harness is older still: 406141e (2026-08-29), on the core later
+renamed `baud-core2`.
 
 | core | streaming | TUI redraw |
 |---|---|---|
@@ -233,31 +216,83 @@ every core is handed the same bytes.
 | wezterm (full terminal) | 17.5 [17.3-17.7] | 32.5 [32.1-32.7] |
 
 MB/s. **Generated payloads read higher than any real capture** and their escape
-density matches no real program, so the recordings above are the guide and
-this table is the like-for-like comparison across cores.
+density matches no real program, so the recordings above are the guide.
 
 Two things belong with the number rather than under it:
 
 * **baud clusters, ghostty does not.** libghostty-vt's mode 2027 carries no
   default, so it does no grapheme segmentation unless an application asks.
-  baud always does, and it is 25-45% of baud's UTF-8 throughput — so the CJK
-  rows above are not comparing equal work.
-* **Throughput tracks escape density, not content.** A payload's ratio of
-  escape sequences to text is what these numbers measure, which is why
-  recordings are the guide and synthetic payloads are not.
+  baud always does. When clustering landed in `baud-core` it cost a third on
+  the two CJK recordings — cat-cjk -33%, less-cjk -31% — and gating the bulk
+  path per run instead of strictly brought back 18.6% and 17.6%
+  ([the record](docs/record.md), "GB11 and the rest of UAX #29: every glyph gap
+  is zero, and it costs a third"). The CJK rows do not compare equal work.
+* **Recordings are the guide, not payloads.** On `baud-core2` the cost had two
+  independent drivers, escape density and wide or emoji content, and neither
+  predicted a figure by itself ([the record](docs/record.md), "The path split
+  is the whole gap, and neither way of closing it works").
+
+## Not built, and open departures
+
+**Not built:**
+
+- **Linux, past headless.** No pointer input, so no wheel, mouse reports or
+  selection there; nobody has looked at a frame's pixels; the GPU half, Vulkan
+  over dmabuf, is unstarted.
+- **macOS key releases and modifier keys**, waiting on the window crate.
+- **Bidirectional text.** No UAX #9 and no ECMA-48 bidirectional controls
+  ([note AB](docs/research/notes/ab-right-to-left.md)).
+- **Search.**
+- **Any discrete GPU.** Every GPU figure is this Mac's unified memory.
+
+**Open departures from a standard**, each recorded as a defect and each the
+owner's call:
+
+- **DECSC/DECRC save G0-G3 and which of them GL invokes, but not GR, which
+  baud does not model, and no single shift, since SS2/SS3 are not
+  implemented** (`[[source: vt510-decsc]]` lists "Character sets (G0, G1, G2,
+  or G3) currently in GL and GR" and "Any single shift 2 (SS2) or single shift
+  3 (SS3) functions sent").
+- **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
+  replaces it with Blank; which code point Blank stores is the owner's call
+  ([the record](docs/record.md), "DEC Special Graphics begins at 0x5F, and what
+  it stores there is the owner's call").
+- **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
+  application to the script table for the text's own script and to `DFLT`
+  where there is none; `baud-font` takes no script argument
+  ([note AB](docs/research/notes/ab-right-to-left.md), Q6).
+- **Marks past what the cluster store holds are dropped**, and counted
+  ([note AB](docs/research/notes/ab-right-to-left.md), §7.2 and Q7).
+- **When no face draws a cluster whole, each attached code point its base's
+  face lacks is dropped**, and counted, where the Unicode Standard asks for a
+  placeholder ([note AD](docs/research/notes/ad-unrenderable-in-a-cell.md)).
+- **The rendition table never frees a slot**, so a session that mints more
+  distinct renditions than it has slots recolours cells that still name an
+  evicted one.
 
 ## Layout
 
 ```
-baud-domain/   the type system: quantities, VT operations, reports. no_std, no unsafe.
-baud-core/     the ingest core: parser and grid. no_std, no unsafe, one dependency.
-baud-bench/    ingest2, the single-payload instrument, and transport, the PTY ceiling.
-baud-difftest/ differential test against alacritty_terminal.
-bench-others/  the cross-implementation comparison.
+baud-domain/          the type system: quantities, VT operations, reports. no_std, no unsafe.
+baud-core/            the ingest core: parser and grid. no_std, no unsafe.
+baud-isa*/            the run scans by instruction set: the trait, aarch64 NEON, x86-64 AVX2.
+baud-font/            parsing, shaping and rasterisation, with no engine dependency. no_std.
+baud-render/          the compositor: cells to instances to pixels, on the CPU and the GPU.
+baud-present-macos/   the macOS window, display-link pacing and AppKit input, on Metal.
+baud-wayland/         the Wayland wire protocol, with no libwayland.
+baud-xkb/             an XKB keymap compiler, with no libxkbcommon.
+baud-present-wayland/ the Wayland window, on wl_shm.
+baud-app/             the terminal, `baud`: a pty, the core, the renderer and a window.
+baud-bench/           ingest2, the single-payload instrument; frame and opcost; transport, the PTY ceiling.
+baud-difftest/        differential test against alacritty_terminal.
+baud-sfte-difftest/   differential test against sfte.
+bench-others/         the cross-implementation comparison.
 ```
 
-`baud-core` depends on `baud-domain` and `zerocopy`. Both crates are `no_std`;
-`baud-core` is built for `x86_64-unknown-none` in CI to prove it.
+`baud-core` depends on `baud-domain`, which brings `zerocopy`, and on the
+`baud-isa*` crates only behind its run-scan features (`neon-scan`, the
+default, and `avx2-scan`). It is `no_std`, with `alloc` only behind its
+default-off feature, and CI builds it for `x86_64-unknown-none` to prove it.
 
 ## Building
 
@@ -265,14 +300,14 @@ Requires [Nix](https://nixos.org) and [devenv](https://devenv.sh) — the
 toolchain is nightly-pinned and reproduced from `devenv.nix`.
 
 ```sh
-devenv shell -- dev-ci      # the full gate: fmt, sources, clippy, check, test, bare, audit
+devenv test                 # the gate: what CI and the pre-push hook run
+devenv shell -- dev-ci      # the same checks as one script, less the per-feature and path tasks
 devenv shell -- dev-test    # tests only
 ```
 
-`dev-ci` is not an approximation of CI: `.github/workflows/ci.yml` runs
-`devenv test`, the same task set. **Add a check by adding a task, never by
-adding a step to the workflow.** The same suite runs on `git push` via a
-pre-push hook.
+`.github/workflows/ci.yml` runs `devenv test`, so a green gate here is the
+same task set CI runs. **Add a check by adding a task, never by adding a step
+to the workflow.** The same suite runs on `git push` via a pre-push hook.
 
 More in [BUILD.md](BUILD.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -282,34 +317,20 @@ More in [BUILD.md](BUILD.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | | |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | the data path and why it is shaped this way |
+| [docs/architecture.md](docs/architecture.md) | the constraints that shaped the core, and `baud-core2`'s data path |
 | [docs/protocols/](docs/protocols/) | one document per protocol level, mirroring the code and tests |
 | [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation |
+| [docs/input-coverage.md](docs/input-coverage.md) | what baud must send, enumerated the same way |
 | [docs/protocol-decisions.md](docs/protocol-decisions.md) | why the hard calls went the way they did |
-| [MEASUREMENTS.md](MEASUREMENTS.md) | every number, with the host that produced it |
-| [CLAUDE.md](CLAUDE.md) | working notes: what was tried and lost |
+| [docs/research/notes/](docs/research/notes/) | each source turned into an argument about baud, and the owner's open questions |
+| [MEASUREMENTS.md](MEASUREMENTS.md) | every current number, with the host that produced it |
+| [docs/record.md](docs/record.md) | the dated record of every measured change, and every decision |
+| [CLAUDE.md](CLAUDE.md) | working notes: the rules, and what was tried and lost |
 
 Every protocol claim traces to a primary source in `docs/research/sources/`,
 hash-pinned in `MANIFEST.toml` and gated by `scripts/check-sources.sh`. Control
 functions are not implemented from memory here — the spec has overruled
-confident guesses more than once, and the commit log says where.
-
-## Not done
-
-- **Rendering and font shaping.** No renderer exists; all render figures in
-  MEASUREMENTS.md are isolated cost models. Shaping is the largest unknown: a
-  warm glyph-cache hit is 1.1 ns and a fontconfig fallback is 245 µs, a
-  220,000× cliff.
-- **Reflow, selection, search.** All need random access by `(line, column)`
-  into variable-length spans.
-- **Scrollback.** Not stored. `baud-core2` stored it and nothing read it —
-  there was no accessor above the viewport, so it was never scrollback — and
-  `baud-core` does not store it at all. Either way there is nothing to scroll
-  back to until a renderer exists.
-- **A second implementation to check against.** `baud-core2` was that, and it
-  is gone; what it rendered is frozen as golden data, which catches regressions
-  on recorded bytes and cannot find an operation nobody wrote a test for.
-- **Concurrency and GPU.** Unevaluable on the hardware to hand.
+confident guesses more than once, and the record says where.
 
 ## Releases
 

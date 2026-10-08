@@ -33,27 +33,35 @@ pub enum Charset {
     /// silent conflation `CSI g` is careful to avoid by leaving unhandled
     /// parameters inert rather than aliasing them to `0`.
     ///
-    /// baud records the designation and does not substitute, for the reason
-    /// [`Charset::DecGraphics`] does not: the replacement is a *glyph* mapping,
-    /// and `MANIFEST.toml` carries no machine-readable DEC source for one. The
-    /// cell keeps the byte, so a renderer holding the table loses nothing and
-    /// nothing is guessed.
+    /// And it substitutes: `#` is `£`, through `[[source: xterm-charsets]]`'s
+    /// table, cited as xterm's judgement rather than as DEC's (`with_nrcs`).
+    /// This said baud "does not substitute" and that "the cell keeps the
+    /// byte"; neither has been true since the tables landed.
     Uk,
     /// `0` — "DEC Special Character and Line Drawing Set, VT100."
+    ///
+    /// Translated through `[[source: foot-vt100-0]]`'s 31 entries, `0x60..0x7E`,
+    /// and the cell keeps `CellFlags::GRAPHICS`. DEC's set is 32 entries and
+    /// begins at `0x5F`, "Blank" (`[[source: vt100-ug-ch3]]` Table 3-9), which
+    /// baud leaves as `_`: an open departure, the codepoint being the owner's
+    /// call. See docs/record.md, "DEC Special Graphics begins at 0x5F, and what
+    /// it stores there is the owner's call".
     DecGraphics,
     /// A national replacement set, named. See [`Nrcs`].
     National(Nrcs),
     /// `0` is [`Charset::DecGraphics`]; these are the other DEC sets reachable
     /// through a single final byte.
     Dec(DecSet),
-    /// Designated, recognised, and not translated. See [`CellFlags::GRAPHICS`]
-    /// for why translation needs a source baud does not have.
+    /// A final `[[source: ctlseqs]]` does not list, one byte or two
+    /// (`an_unlisted_final_is_still_other`,
+    /// `an_unlisted_multi_byte_final_is_counted`). Designated, so the slot is
+    /// not mistaken for ASCII, and not translated, there being no set to
+    /// translate by.
     ///
-    /// What reaches here now is a final byte `[[source: ctlseqs]]` does not
-    /// list, or one of the **multi-byte** finals — `% 6` Portuguese, `" >`
-    /// Greek, `& 4` DEC Cyrillic and the rest — which need a two-byte final
-    /// that `designate` does not parse. Those are named in
-    /// `docs/vt-coverage.md` rather than silently lumped in here.
+    /// This also named the **multi-byte** finals — `% 6` Portuguese, `" >`
+    /// Greek, `& 4` DEC Cyrillic and the rest — as reaching here because
+    /// `designate` did not parse a two-byte final. It does now, and
+    /// [`Charset::from_multi`] names each of them.
     Other,
 }
 
@@ -66,9 +74,11 @@ pub enum Charset {
 /// one it is decides which characters change, and an embedder that asked could
 /// not previously tell Finnish from a byte baud did not recognise.
 ///
-/// Recorded and not translated, for the reason `Charset::DecGraphics` is not:
-/// the replacements are a glyph mapping and `MANIFEST.toml` carries no
-/// machine-readable DEC source for one. The cell keeps the byte.
+/// Named and translated: each set's replacements come from
+/// `[[source: xterm-charsets]]`, cited as xterm's judgement rather than as
+/// DEC's, and `every_national_replacement_renders_as_its_table_says` drives
+/// every one through `Term`. This said "recorded and not translated" and "the
+/// cell keeps the byte" after the tables landed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Nrcs {
     /// `C` or `5`
@@ -143,8 +153,12 @@ impl Nrcs {
     }
 }
 
-/// DEC-defined sets other than the line-drawing one, reachable through a single
-/// final byte. Same deferral: designated, recorded, not translated.
+/// DEC-defined sets other than the line-drawing one. Designated and recorded,
+/// not translated. This said "same deferral", the national sets' reason, which
+/// was that no machine-readable source existed; `[[source: xterm-charsets]]`
+/// carries xterm's tables for DEC Technical, Supplemental Graphics, Cyrillic,
+/// Greek, Hebrew and Turkish, so for those what is missing is the translation,
+/// not a source.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DecSet {
     /// `<` — DEC Supplemental (VT200), and User Preferred Selection Set

@@ -7,9 +7,20 @@
 //! lookups are applied in `LookupList` order over the union of what the
 //! selected features name. [`Layout::lookups_for`] does that selection --
 //! script `latn` with its default language system, or `DFLT` -- and yields
-//! the sorted, deduplicated lookup indices. A terminal shapes one script's
-//! worth of Latin, symbols and emoji, so that is the whole of the script
-//! machinery it needs.
+//! the sorted, deduplicated lookup indices.
+//!
+//! **It takes no script argument, and that is an open departure, not a
+//! design.** Text in any script is shaped with `latn`'s features where the
+//! font has them. The specification directs an application to the Script
+//! table for the text's own script, and to `DFLT` where there is none: "An
+//! application should use a DFLT script table if there is not a script table
+//! associated with the specific script of the text being formatted, or if the
+//! text does not have a specific script (for example, it contains only
+//! symbols or punctuation)" (`[[source: ms-opentype-chapter2]]`, ScriptList
+//! table). So Latin text gets what the specification asks for, and text in
+//! another script, or in none, gets `latn`'s features wherever the font has a
+//! `latn` table. `docs/research/notes/ab-right-to-left.md`, Q6, holds the
+//! options; the choice is the owner's.
 //!
 //! **Coverage and classes** are the two ways a subtable names glyphs:
 //! `Coverage` answers an index for a glyph it lists, in format 1 as a

@@ -979,14 +979,13 @@ const fn csi_ignore(b: StreamByte) -> Edge {
     }
 }
 
-/// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
 /// Which ground a node returns to when its sequence or character completes.
 ///
 /// **This is the whole of what makes VT52 a sub-graph rather than a mode.**
 /// Every place that used to name `Node::Ground` as a next node now names this,
 /// so a character, a C0 or a cancelled sequence returns to the protocol it was
-/// in. The alternative -- a `terminal_mode` test on the path every byte takes
-/// -- is a runtime flag in the hot loop, which this file prices at 13-17%.
+/// in. The alternative is a `terminal_mode` test on the path every byte takes:
+/// a runtime flag in the hot loop, which the sub-graph replaces.
 pub(crate) const fn ground_of(node: Node) -> Node {
     match node {
         Node::Vt52Ground
@@ -1020,6 +1019,7 @@ const fn vt52(node: Node, b: StreamByte) -> Edge {
     }
 }
 
+/// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
 const fn string(b: StreamByte, enc: InputEncoding) -> Edge {
     // **`9C` is `ST` and ends the string, under Latin-1 only.** The seven-bit
     // form is `ESC \`, which the `StrEsc` node below takes; this is the same

@@ -58,9 +58,14 @@ Each is a decision with a cost, not an oversight:
 | | why |
 |---|---|
 | printer control (`CSI i`, VT52 `ESC ^ _ W X ] V`) | no printer; accepting silently is the `parsed` failure |
-| `?1001` highlight tracking | "requires a cooperating program, else xterm will hang" |
-| sixel, ReGIS, kitty graphics | image protocols; the `DCS`/`APC` payloads are consumed safely, which is the part that matters |
+| ReGIS, kitty graphics | ReGIS is historical; kitty's `f=100` needs a PNG decoder `baud-core` does not have. Both payloads are consumed safely, which is the part that matters |
 | `OSC 52` clipboard **reads** | a remote program could read back what the user last copied |
-| DEC line-drawing glyph table | no citable source; the byte and a flag reach the renderer instead of a guess |
+
+Three things this table listed are built; their rows are in
+[../vt-coverage.md](../vt-coverage.md). `?1001` highlight tracking is recorded
+and not drawn, and sixel is decoded and drawn; both rows are done. The DEC
+line-drawing glyph table translates `0x60..0x7E` and keeps `CellFlags::GRAPHICS`
+on the cell. Its row is **partial**: DEC's set also replaces `0x5F`, and baud
+leaves it as `_`, an open departure whose codepoint is the owner's call.
 
 Fuller reasoning in [../protocol-decisions.md](../protocol-decisions.md).

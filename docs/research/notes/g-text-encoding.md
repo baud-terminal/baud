@@ -205,11 +205,13 @@ gives `ESC % @` for the return. [[source: ecma35]] §15.4, [[source: iso10646-fc
 
 Consequence worth stating plainly in `docs/protocol-decisions.md`: SCS, SO/SI,
 SS2/SS3 in a UTF-8 stream are **non-conforming by the character-set standard**.
-xterm's `dec2ucs()` translation and baud's `CellFlags::GRAPHICS` annotation are
-*both* extensions beyond the standard; the standards cannot adjudicate between
-them. Argue SCS against xterm and ncurses, not against ECMA-35 — ECMA-35 does
-not reach it. (VTE's own source comment on keeping DEC Special Graphic:
-"This is still used by ncurses :-(".)
+xterm's translation and baud's are *both* extensions beyond the standard, and
+so is the `CellFlags::GRAPHICS` provenance baud keeps beside its translated
+codepoint; the standards cannot adjudicate between them. Argue SCS against
+xterm and ncurses, not against ECMA-35 — ECMA-35 does not reach it. (VTE's own
+source comment on keeping DEC Special Graphic: "This is still used by ncurses
+:-(".) This paragraph set xterm's translation against baud's "annotation",
+from when baud kept the byte and the flag; baud has translated since f297b21.
 
 **Trap:** 10646 §12.2 NOTE 1 deprecates `ESC % / G` (with the 02/15
 intermediate) — a *different* sequence from `ESC % G`. A skim concludes `ESC % G`
@@ -603,14 +605,23 @@ GitHub `/blob/` page (SPA shell, will not hash stably).
 | `wezterm-cell` | wezterm `wezterm-cell/src/lib.rs` | raw path at commit `78cd82dbba7315814bfbff40e246b8bed4b702e7` | `TeenyString` at L546-559 |
 | `wt-adaptdispatch` | microsoft/terminal `src/terminal/adapter/adaptDispatch.cpp` | raw path at commit `8c0a234f056910776e56afa3f8a38d6ddc3db33c` | pin `DispatchTypes.hpp` and `doc/cascadia/profiles.schema.json` (sha256 `f8fb9ede3130cbe81fdda58b82eee329d99ab9c70ed050178bcad76e9ade9769`) alongside |
 
-Note that `MANIFEST.toml`'s existing `dec-special-graphics` entry says no
-machine-readable mapping was obtained. That is true of *DEC-authored* sources
-and false as a statement about availability: xterm's `dec2ucs()`, VTE's
-`line_drawing_map`, kitty's `charset_translations` and foot's `vt100_0[]` are
-all fetchable and hashable, and they disagree (byte `0x5F`: foot leaves `_`,
-VTE and alacritty give U+0020, kitty via the Linux console gives U+00A0, xterm
-routes it elsewhere). The two statements should not be conflated in a file whose
-purpose is making citations checkable.
+Note that `MANIFEST.toml`'s `dec-special-graphics` entry said, when this was
+written, that no machine-readable mapping was obtained. That was true of the
+*DEC-authored* sources read and false as a statement about availability: xterm's
+`dec2ucs()`, VTE's `line_drawing_map`, kitty's `charset_translations` and foot's
+`vt100_0[]` are all fetchable and hashable, and they disagree on byte `0x5F`.
+foot leaves `_`, VTE and alacritty give U+0020, kitty and the Linux console give
+U+00A0, and xterm stores 0 and draws, copies and indexes it as `' '`
+(`[[source: xterm-charsets-c]]` line 435, `[[source: xterm-screen]]` lines
+1893-1894, `[[source: xterm-button]]`). The two statements should not be
+conflated in a file whose purpose is making citations checkable.
+
+What holds of the old statement is narrower: **none of the DEC texts read gives
+a Unicode codepoint**. The entry is `retrieved`, and `[[source: vt100-ug-ch3]]`
+beside it names the set's 32 positions in text, `0x5F` "Blank" first. baud's
+codepoints are foot's, and `0x5F`, which foot leaves as `_`, is open:
+docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores there
+is the owner's call".
 
 ---
 

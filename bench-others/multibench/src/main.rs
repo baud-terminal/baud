@@ -108,10 +108,12 @@ fn main() {
     }
 
     // **Real capture, when asked for.** The two payloads above are synthetic,
-    // and `CLAUDE.md` records that `payload::tui`'s escape density matches no
-    // real program -- real capture runs at 131-159 MB/s where it reaches
-    // 229-240. Every comparison against another implementation has been made
-    // on those two, which makes the ratios a statement about synthetic input.
+    // and `docs/record.md` ("Replay real capture instead of `payload::tui`")
+    // records that real capture ran at 131-159 MB/s where `baud-bench`'s
+    // synthetic `payload::tui` reached 229-240, on `baud-core2` through a PTY
+    // (9775b79). Comparisons against other implementations were made on the
+    // synthetic pair above until this switch, which made those ratios a
+    // statement about synthetic input.
     //
     // `RECORDINGS="a.raw,b.raw"` swaps in two files from
     // `tests/recordings/`, so the same interleaved, rotated harness

@@ -89,10 +89,11 @@ and it is still an inference. What would settle it is a counter.
 
 ## Which reopens a refusal
 
-`CLAUDE.md` says: "Hardware counters are not available on this machine even as
-root. SIP blocks the `cpc`, `fbt` and `pid` providers; only `profile` survives
-`sudo`. Cache misses, branch mispredicts and IPC need a recovery-mode reboot,
-so the two open anomalies … stay open."
+`CLAUDE.md` said, until `dc0eed4` (2026-08-29) withdrew it: "Hardware
+counters are not available on this machine even as root. SIP blocks the
+`cpc`, `fbt` and `pid` providers; only `profile` survives `sudo`. Cache
+misses, branch mispredicts and IPC need a recovery-mode reboot, so the two
+open anomalies … stay open."
 
 The first half is true and the conclusion is **scoped too widely**, in the way
 this project keeps recording. dtrace's `cpc` provider is SIP-blocked; dtrace is
@@ -104,6 +105,14 @@ That path is untested here for a boring reason: `xcrun xctrace` is absent on
 this box, because only the Command Line Tools are installed and not Xcode. So
 the blocker is **an install, not an architecture** — and whether Instruments
 needs SIP disabled is a question this note does not answer and should not guess.
+
+**Answered since.** `dc0eed4` (2026-08-29) found that `xctrace record
+--template 'CPU Counters'` records with no `sudo`. A later record found the
+"absent" tool was never absent: `/usr/bin/xctrace` is an `xcode-select` shim
+that answers "not found" under a `DEVELOPER_DIR` carrying no Instruments, and
+Xcode's own copy records fine (`docs/record.md`, "The counters run on
+baud-core now, and the elimination holds on the new core", which also reads
+the counters on `baud-core`).
 
 Two anomalies are recorded as unresolvable on the strength of the wider claim:
 the width tables at 5% and blanking at 38%. Both should be re-read against the
@@ -126,10 +135,12 @@ narrower one.
 - **The erase-path scan is untested.** `0e7cb84` applied the same pattern to
   `fill_counted` (`EL`/`ED`). The fix reverts both functions, so that one's cost
   is inferred from the shared shape rather than measured.
-- **The older blanking anomaly is not explained by this.** `CLAUDE.md` records
-  that a variant *skipping* blanking entirely measured 142–150 against 213–229 —
-  less work, slower. That is a different comparison from this one and this note
-  does not account for it. Do not fold the two together.
+- **The older blanking anomaly is not explained by this.** `docs/record.md`,
+  "Blanking, priced before `RowExtent`", records that a variant *skipping*
+  blanking entirely measured 142–150 against 213–229 — less work, slower —
+  and resolves it there as a harness artefact. That is a different comparison
+  from this one and this note does not account for it. Do not fold the two
+  together.
 - **Not read:** § 4.6.8 non-temporal accesses and § 4.22's non-temporal metrics,
   which are the documented tool for not polluting a cache with data used once.
   Relevant if a bounded blank is ever attempted again; no claim here rests on

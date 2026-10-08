@@ -19,15 +19,20 @@ use baud_domain::*;
 /// `N_TTY_BUF_SIZE` caps a tty read at 4095 bytes on Linux
 /// (`[[source: linux-n-tty]]`) and Darwin hands back 1024, the capacity of the
 /// replica's output clist (`TTYCLSIZE`, `[[source: xnu-tty-h]]`) -- so a larger
-/// buffer receives nothing extra. Smaller is not safe
-/// either: a control sequence that straddles a read has to be re-parsed from
-/// its first byte, and the parser carries no unbounded pushback.
+/// buffer receives nothing extra. A smaller one is not a correctness
+/// question: the parser keeps its state across reads, and
+/// `the_screen_does_not_depend_on_where_the_reads_fell` holds the screen equal
+/// for reads of 1 to 64 bytes and of 4096.
 pub const READ_CHUNK: usize = 4096;
 
-/// The ring the reads land in.
+/// The arena the reads land in.
 ///
-/// 1 MiB, because a sweep peaked there against a 2 MiB L2 and went *negative*
-/// by 64 MiB. Bigger is not better here; it is worse.
+/// 1 MiB, from a sweep on `baud-core2`'s ring, where reads advanced through
+/// the arena; it peaked there against a 2 MiB L2. Every caller outside the
+/// tests places each read at `BytePos::ZERO`, so on this core it is a ceiling
+/// on one read rather than a working set, and nothing walks it to re-sweep
+/// (`docs/record.md`, "A resize moves no cell, and the first fixed pitch was
+/// the wrong one").
 pub const ARENA: usize = 1 << 20;
 
 /// The widest and tallest grid addressable. A `CSI 8 ; r ; c t` past these is
@@ -111,12 +116,11 @@ pub struct Storage<'b> {
     /// of the index bytes. Storing it is how you stop computing it.
     pub(crate) cells3: &'b mut [PackedCell],
     /// The rendition table. A cell holds a [`StyleId`] *index* into this;
-    /// **bounded by construction**, open-addressed, and evicting only when
-    /// every slot is live, which is the contract every content-keyed table in
-    /// this project carries -- a growable one is the content-addressing
-    /// failure mode this repo records. **Slot 0 is reserved for the default**
-    /// (`Term::new`), which every blank cell names without interning it, and
-    /// is never evicted.
+    /// **bounded by construction**, open-addressed, and never freeing a slot,
+    /// so it evicts only once every slot is filled, live or not: a table keyed
+    /// on what an application sends needs a bound. **Slot 0 is reserved for
+    /// the default** (`Term::new`), which every blank cell names without
+    /// interning it, and is never evicted.
     ///
     /// `Option` rather than a parallel validity array: absent and occupied are
     /// two states of one thing, and a `bool` beside it is the missing enum the
@@ -692,8 +696,8 @@ impl Default for StyleBook {
 /// The log is a ring of `slots.len()` entries, one a write, naming the slot
 /// each write filled or evicted. The table fills each slot once and never
 /// frees one, so until it has taken as many writes as it has slots the log
-/// holds exactly the live slots, in the order they were filled; after that,
-/// every slot is live anyway. A renderer resolves each slot once and then
+/// holds exactly the filled slots, in the order they were filled; after
+/// that, every slot is filled anyway. A renderer resolves each slot once and then
 /// only the slots written since (`Term::styles_written`), where it used to
 /// resolve all of them every frame: at the app's 65,536 slots that was 159 us
 /// of a 190 us idle frame.

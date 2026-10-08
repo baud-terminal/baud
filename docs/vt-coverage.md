@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row — **no row carries this** |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Three rows carry it: DECSC, DECRC and the DEC Special Graphics glyph table |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,8 +53,14 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `partial`, `parsed` or `todo`, and `no_row_is_unfinished` in
-`baud-core/tests/coverage.rs` fails if one ever does.** `out` is the only status that
+**No row carries `parsed` or `todo`. Three carry `**partial**`, and
+`no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
+This paragraph said no row carried any of the three and that the test fails if
+one ever does. The test matches a status cell that starts with the bare word,
+and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
+Graphics glyph table all at `**partial**`. A check that saw them would fail on
+all three, and that is the right answer: each row names work that is not
+finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
 word game, satisfiable by relabelling anything inconvenient as out of scope.
@@ -419,13 +425,19 @@ for C1 controls, which baud does not act on, so printing them would invent
 characters the application did not send. That is xterm's `CASE_IGNORE`, and
 what ghostty does citing xterm.
 
-**The rest of the legacy charsets remain out.** baud already
-has the model for the one charset mechanism it does implement: `SCS`
-(`ESC ( 0`) sets `CellFlags::GRAPHICS` and the cell keeps the byte, so a
-renderer with the DEC table loses nothing and baud never guesses a glyph. It
-annotates rather than translates. Byte-level transcoding would put a table
-lookup on the per-byte ingest path, against the rule that the working set stays
-in cache — and `iconv` already does it, once, outside the hot loop.
+**The rest of the legacy charsets remain out.** The one charset mechanism
+baud implements, `SCS`, is a different thing from an input encoding: a
+designated set replaces a few positions of the 94 and leaves the stream's
+encoding alone. `ESC ( 0` replaces `0x60..0x7E` through
+`[[source: foot-vt100-0]]`'s table and keeps `CellFlags::GRAPHICS` on the cell
+(and should replace `0x5F` too; see the DEC Special Graphics row below), and
+the national sets replace a handful each through `[[source: xterm-charsets]]`.
+This paragraph said `SCS` "annotates rather than translates" and that the cell
+keeps the byte; both stopped being true when the tables landed. Under ASCII,
+`PackedCell::translate` returns before any table is read. Byte-level
+transcoding of a whole encoding would put a table lookup on the per-byte ingest
+path, against the rule that the working set stays in cache — and `iconv`
+already does it, once, outside the hot loop.
 
 ### The DCS prefix had the same merge, and the same three bugs
 
@@ -535,9 +547,10 @@ without these.
 | `ESC =` / `ESC >` | DECKPAM/DECKPNM | done |
 | `CSI ? 2 l` | DECANM — enter VT52 | done — see [protocols/vt52.md](protocols/vt52.md) |
 | `ESC # 8` | DECALN screen alignment | done |
-| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — mechanism, and DEC Special Graphics is translated |
-| `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII** |
-| `ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6` | NRCS: Finnish, Swedish, German, French Canadian, French, Italian, Spanish, Dutch, Swiss, Norwegian/Danish | done — each named as its own `Nrcs`; recorded, not translated |
+| `ESC ( ` / `ESC ) ` / `ESC * ` / `ESC + ` | charset designate G0-G3 | done — the mechanism: G0-G3 designated, G0 and G1 invoked into GL by SI and SO. What each set draws is in the rows below |
+| `ESC ( 0` / `ESC F` (VT52) | DEC Special Graphics glyph table | **partial** — `0x60..0x7E` translate through `[[source: foot-vt100-0]]`'s 31 entries, and the cell keeps `CellFlags::GRAPHICS`. **`0x5F` stays `_`**, where every DEC text read replaces it with Blank: `[[source: vt100-ug-ch3]]` Table 3-9 ("ASCII codes 137 through 176", octal), `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]` Table 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. None of the DEC texts read gives Blank a codepoint, so U+0020 or U+00A0 is the owner's call, open in docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores there is the owner's call". The gap is the same on the bulk run, the per-byte path and VT52 `ESC F` |
+| `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII**, and `#` is `£` through `[[source: xterm-charsets]]` |
+| `ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6` | NRCS: Finnish, Swedish, German, French Canadian, French, Italian, Spanish, Dutch, Swiss, Norwegian/Danish | done — each named as its own `Nrcs`, and translated through `[[source: xterm-charsets]]`'s tables (`every_national_replacement_renders_as_its_table_says`). This row said "recorded, not translated" after the tables landed |
 | `ESC ( < > I J` | DEC Supplemental, Technical, JIS-Katakana, JIS-Roman | done — each named as its own `DecSet` |
 | `ESC ( % 6` `" >` `% 2` `% =` | NRCS Portuguese, Greek, Turkish, Hebrew — two-byte finals | done — the parser keeps two intermediates now |
 | `ESC ( " 4` `" ?` `% 0` `% 5` `& 4` `% 3` `& 5` | DEC Hebrew, Greek, Turkish, Supplemental Graphics, Cyrillic, and the two whose mappings ctlseqs says are undocumented | done — designated and named; `% 3` and `& 5` share `DecSet::Undocumented` |

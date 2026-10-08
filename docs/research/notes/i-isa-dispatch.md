@@ -82,11 +82,13 @@ baud sets `lto = true`, so it would most likely still happen.
 
 "Most likely still happens, verified by nothing" is the specific failure this
 repo has already had. A refactor deleted `feed_avx2` outright and the benchmark
-kept printing `scan path: AVX2` from a stale flag, so a 175 → 195 MB/s loss was
-attributed to the type system instead. The CI step that greps the
-monomorphised binary for `vpmovmskb` exists because of that, and it would
-become the *only* thing standing between a crate split and a silently portable
-build.
+kept printing `scan path: AVX2` from a stale flag, so a loss was attributed
+to the type system instead. The CI step that grepped the monomorphised binary
+for `vpmovmskb` existed because of that, and it would have become the *only*
+thing standing between a crate split and a silently portable build. It went
+with `baud-core2`; its successor is the bench workflow's probe, which
+requires a 32-byte `vpmovmskb %ymm` in the AVX2 arm and fails on `cmp -s` if
+the two arms are one binary (`.github/workflows/bench.yml`).
 
 Against that, the split buys nothing the language does not already give:
 
@@ -142,10 +144,9 @@ The line falls in the same place for a second, independent reason. Domain
 newtypes are `repr(transparent)` and `#[inline(always)]`, and this repo has
 already measured that typing the hot path is free — so they cross a crate
 boundary the way they cross a function boundary. `feed_with` is the one thing
-that must not move: it holds all state behind `&mut self`, a measured 16-34%
-against file-scope globals, and it has to inline *into* the
-`#[target_feature]` entry point for the whole loop to get the extended feature
-set.
+that must not move: it holds all state behind `&mut self`, and it has to
+inline *into* the `#[target_feature]` entry point for the whole loop to get
+the extended feature set.
 
 The revised claim is not that a boundary would be slow — it most likely would
 not — but that the inlining stops being guaranteed by construction and becomes

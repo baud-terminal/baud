@@ -146,37 +146,98 @@ bytes  = 19404
 status = "retrieved"
 group  = "C"
 
-# DEC Special Graphics glyph mapping. NOT retrieved: vt100.net carries the table
-# as a figure, not as text, so there is no citable machine-readable mapping. The
-# charset designators are consumed and select nothing, and the translation is
-# NOT written from memory -- see docs/vt-coverage.md.
+# DEC Special Graphics: the set's own tables, in DEC's text. **Corrected
+# 2026-10-08; what stood here was wrong in three ways.** It said vt100.net
+# carries the table "as a figure, not as text", that the glyphs "are **SVG
+# images**, not names -- there is no 'HORIZONTAL LINE' to map", and that foot's
+# 31 entries are "the whole of `0x60..0x7E`, which is all the set differs from
+# ASCII in". `[[source: vt100-ug-ch3]]` Table 3-9 names every position in text,
+# `137 | _ | Blank` through `176 | ~ | Centered dot`, `161 | q | Horizontal line
+# - Scan 5` among them, and says the set replaces "ASCII codes 137 through 176"
+# (octal): **32 positions, `0x5F..0x7E`**, so foot's table, and baud's taken
+# from it, leaves `0x5F` untranslated. This page's Table 2-4 does draw columns
+# 6 and 7 as images; of the set's 32 positions only 5/15 is text, "(BLANK)", at
+# line 2433, column 5's `x="562.5"` on row 15's `y="802.0"`.
+# What holds of the old text: **none of the DEC sources read gives a Unicode
+# codepoint**. DEC names or draws each glyph; the codepoint every
+# implementation stores is its own judgement. See docs/record.md, "DEC Special Graphics begins at 0x5F, and
+# what it stores there is the owner's call".
+#
+# It was `gated`, with `url` at `table2-4.html` and nothing committed, though
+# the page had been fetched on 2026-08-27. That url 301s to
+# `chapter2.html#T2-4`, which serves these bytes; re-fetched 2026-10-08 and
+# committed, so the key is citable for what the page does say.
 [sources.dec-special-graphics]
 key    = "dec-special-graphics"
-title  = "DEC Special Graphics character set mapping"
-author = "Digital Equipment Corporation"
-year   = 1983
-venue  = "VT100/VT220 Programmer Reference"
-url    = "https://vt100.net/docs/vt220-rm/table2-4.html"
-file   = ""
-sha256 = ""
-bytes  = 0
-status = "gated"
+title  = "VT220 Programmer Reference Manual, EK-VT220-RM-002, chapter 2 -- Table 2-4, DEC Special Graphics Character Set"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1984
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt220-rm/chapter2.html"
+file   = "vt220-rm-chapter2.html"
+sha256 = "5ab34ac9fa4ae517a420b4ee738d329e53a274ce34a9f6d13c1d2cb8657cf6a8"
+bytes  = 847119
+status = "retrieved"
+group  = "C"
 
-# **The mapping is implemented; this source is not what supplied it.** `gated`
-# here means the DEC-authored table was never obtained in machine-readable
-# form, which stays true. `[[source: foot-vt100-0]]` carries the same 31
-# entries -- the whole of `0x60..0x7E`, which is all the set differs from ASCII
-# in -- and is cited as foot's judgement rather than as DEC's. A reader who
-# takes this row to mean baud cannot draw a box has read the provenance, not
-# the capability.
-# Fetched and checked on 2026-08-27: the page returns 200 and carries Table 2-4,
-# but the glyphs are **SVG images**, not names -- there is no "HORIZONTAL LINE"
-# to map. So the gate is accurate rather than merely stale: no DEC-authored
-# source gives a machine-readable byte-to-Unicode mapping, and any table built
-# here would be baud guessing what DEC's pictures mean. Implementations have
-# one (xterm's `dec2ucs()`, VTE, kitty, foot), but that is their judgement
-# rather than the specification, and citing it as DEC would be false.
-access = "Published as a figure/image rather than text; no machine-readable mapping obtained."
+# The DEC text that sizes the set. "If the Special Graphics set is selected,
+# the graphics for ASCII codes 137 through 176 [octal] will be replaced
+# according to Table 3-9", and Table 3-9 names all 32 in words. Fetched
+# 2026-10-08.
+[sources.vt100-ug-ch3]
+key    = "vt100-ug-ch3"
+title  = "VT100 User Guide, EK-VT100-UG-003, chapter 3: Programmer Information -- Table 3-9, Special Graphics Characters"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1981
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt100-ug/chapter3.html"
+file   = "vt100-ug-chapter3.html"
+sha256 = "f2264dfbfc0277b7a59764284336ab509011ce229f322dd0d2a61724d914c7b2"
+bytes  = 151667
+status = "retrieved"
+group  = "C"
+
+# The same set reached from VT52 mode. "ESC F ... Selects the special
+# characters and line drawing character set", and Table 5-15 compares it with
+# the VT52's own graphics set, its first row `137 | _ | Blank | Blank`. Table
+# 5-13 is the set as a figure, with "(BLANK)" at 5/15 in text (line 3677).
+# Fetched 2026-10-08.
+[sources.vt102-ug-ch5]
+key    = "vt102-ug-ch5"
+title  = "VT102 User Guide, EK-VT102-UG-003, chapter 5: Programmer Information -- Tables 5-13 and 5-15"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1982
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt102-ug/chapter5.html"
+file   = "vt102-ug-chapter5.html"
+sha256 = "8ce11bbe455c8c0817ab4ad6830ede66699b6131881d22ed6bb71d6d679c3655"
+bytes  = 320358
+status = "retrieved"
+group  = "C"
+
+# `external`, not `retrieved`: 74 MB, a scan with an OCR text layer, and the
+# pages read are stamped "COMPANY CONF - DEC Internal Use Only", so committing
+# it is a licence call this file does not make. Read and hashed 2026-10-08; bitsavers
+# answers 403 to curl's default user agent and 200 to a browser's. Cited for
+# Appendix A, the VT52 emulation: page A-20 (PDF page 1070), ESC F, "Selects
+# the special character and line drawing character set", with the Known
+# Deviation "all terminals since the VT52 have the same VT100 special graphics
+# set"; page A-21 (PDF page 1071), Table 2, whose first row is `5/15 | Blank |
+# blank`; and section 3.4.1, page 3-17 (PDF page 122), 2/0 SPACE: "As a graphic
+# character it has the visual representation of the absence of a graphic
+# symbol". The text layer is OCR and misreads ("VTS2" for VT52); every quote
+# here was read against the page image.
+[sources.dec-std-070]
+key    = "dec-std-070"
+title  = "DEC STD 070, Video Systems Reference Manual, EL-SM070-00"
+author = "Digital Equipment Corporation"
+year   = 1991
+venue  = "bitsavers.org"
+url    = "https://www.bitsavers.org/pdf/dec/standards/EL-SM070-00_DEC_STD_070_Video_Systems_Reference_Manual_Dec91.pdf"
+file   = ""
+sha256 = "d30c2ace1cebdd5a28454177d4d9610d9661110bbeb4b97773259313042962f2"
+bytes  = 74264381
+status = "external"
 group  = "C"
 
 [sources.vt510-decsca]
@@ -640,10 +701,19 @@ bytes  = 1134783
 status = "retrieved"
 group  = "G"
 
-# The mapping DEC's own manual does not give in machine-readable form, from an
-# implementation that does. **Cited as foot's, not as DEC's** -- it is foot's
-# judgement about what DEC's pictures mean, and every other terminal agrees,
-# but agreement between implementations is not a specification.
+# The codepoints DEC's manuals do not give, from an implementation that does.
+# **Cited as foot's, not as DEC's** -- it is foot's judgement about which
+# Unicode character each DEC glyph is, and agreement between implementations is
+# not a specification. **Corrected 2026-10-08:** this said "every other
+# terminal agrees", and two things in it were false. foot's table is 31
+# entries, `0x60..0x7E`, and the set is 32: `[[source: vt100-ug-ch3]]` replaces
+# 137 through 176 octal, `0x5F` "Blank" first, and foot leaves `0x5F` as `_`.
+# And over the 31, xterm, VTE, alacritty's `vte` crate, ghostty and wezterm
+# agree with foot while Linux and kitty put U+2591 LIGHT SHADE at `0x68`, where
+# DEC names "New line" and foot's U+2424 SYMBOL FOR NEWLINE is the one that
+# conforms. On `0x5F` they split four ways; see the keys below and
+# docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores
+# there is the owner's call".
 [sources.foot-vt100-0]
 key    = "foot-vt100-0"
 title  = "foot 1.21.0, terminal.c -- vt100_0[] DEC Special Graphics mapping"
@@ -655,6 +725,142 @@ file   = "foot-terminal.c"
 sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
 bytes  = 143121
 status = "retrieved"
+group  = "C"
+
+# Practice on DEC Special Graphics `0x5F`, read 2026-10-08 for the record "DEC
+# Special Graphics begins at 0x5F, and what it stores there is the owner's
+# call". Evidence of what implementations do, never of what is right. All
+# `external`: read and hash-verified against a fetch of the url, not committed.
+# Re-fetch and compare. The same commit of xterm as `[[source: xterm-charsets]]`.
+
+[sources.xterm-charsets-c]
+key    = "xterm-charsets-c"
+title  = "xterm patch #411, charsets.c -- xtermCharSetOut, DEC Special Graphics 0x5F stored as 0"
+author = "Thomas Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.c"
+file   = ""
+sha256 = "87f1bb0b23c7078ffa983a81ff230abf2bfc1cea9d3f26a9b721556ae9d7056b"
+bytes  = 18292
+status = "external"
+group  = "C"
+
+[sources.xterm-screen]
+key    = "xterm-screen"
+title  = "xterm patch #411, screen.c -- a cell holding 0 drawn as a space; the DECRQCRA checksum"
+author = "Thomas Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/screen.c"
+file   = ""
+sha256 = "dc7450221e30412d52d763c7a8bd61d7791a270340ad92fad2274c643d9fd72a"
+bytes  = 91264
+status = "external"
+group  = "C"
+
+[sources.xterm-button]
+key    = "xterm-button"
+title  = "xterm patch #411, button.c -- SaveText, a cell holding 0 copied as a space"
+author = "Thomas Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c"
+file   = ""
+sha256 = "243be0fe1e1882420e3eaade87134c0c475ff685e46c6040caaa9628d1524f11"
+bytes  = 162096
+status = "external"
+group  = "C"
+
+[sources.xterm-fontutils]
+key    = "xterm-fontutils"
+title  = "xterm patch #411, fontutils.c -- dec2ucs, the VT100 and VT52 graphics tables"
+author = "Thomas Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/fontutils.c"
+file   = ""
+sha256 = "5d0eef284c20dbbc5aa31ad1ed334cee6593861f71e88cd32d0ff14fdec82371"
+bytes  = 165828
+status = "external"
+group  = "C"
+
+[sources.vte-line-drawing-map]
+key    = "vte-line-drawing-map"
+title  = "VTE 0.80.0, src/vte.cc -- Terminal::character_replacement, line_drawing_map"
+author = "The GNOME Project"
+year   = 2025
+venue  = "VTE"
+url    = "https://raw.githubusercontent.com/GNOME/vte/0.80.0/src/vte.cc"
+file   = ""
+sha256 = "955c55e456afc1a46d23dc1478473fc62f6be1d6f9490611123c533622ba8363"
+bytes  = 427878
+status = "external"
+group  = "C"
+
+[sources.alacritty-vte-ansi]
+key    = "alacritty-vte-ansi"
+title  = "vte 0.15.0 (the crate alacritty and baud-difftest link), src/ansi.rs -- StandardCharset::map"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "vte crate"
+url    = "https://raw.githubusercontent.com/alacritty/vte/v0.15.0/src/ansi.rs"
+file   = ""
+sha256 = "2ce81d9282575b0f79d7a127463c177d966d1da13eea32d5ecbc0dc35f392b13"
+bytes  = 83726
+status = "external"
+group  = "C"
+
+[sources.linux-consolemap]
+key    = "linux-consolemap"
+title  = "Linux v6.12, drivers/tty/vt/consolemap.c -- translations[GRAF_MAP]"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "Linux"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/drivers/tty/vt/consolemap.c"
+file   = ""
+sha256 = "d23c6f85cf6d5c1c43bb74092565543ba2c1bc2383bc6a584ee922a5cef14ae5"
+bytes  = 26730
+status = "external"
+group  = "C"
+
+[sources.kitty-charsets]
+key    = "kitty-charsets"
+title  = "kitty v0.39.1, kitty/charsets.c -- the DEC Special Graphics translation table"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/charsets.c"
+file   = ""
+sha256 = "a0433059392b100f9412eb63031df9f2b9744aa65546d1524591edc9a6f4527a"
+bytes  = 12648
+status = "external"
+group  = "C"
+
+[sources.ghostty-charsets]
+key    = "ghostty-charsets"
+title  = "ghostty 1.1.3, src/terminal/charsets.zig -- dec_special"
+author = "Mitchell Hashimoto"
+year   = 2025
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/v1.1.3/src/terminal/charsets.zig"
+file   = ""
+sha256 = "eecfea5ee004cfde8c0620ffa1dd2d045fb14425c1da27ee18a794c8cbb8f4dc"
+bytes  = 3149
+status = "external"
+group  = "C"
+
+[sources.wezterm-performer]
+key    = "wezterm-performer"
+title  = "wezterm 20240203-110809-5046fc22, term/src/terminalstate/performer.rs -- remap_grapheme"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/term/src/terminalstate/performer.rs"
+file   = ""
+sha256 = "8fa1deaeb4610f0a76be95df189fc64300336028cf60e3781f2bd179c547b02a"
+bytes  = 47790
+status = "external"
 group  = "C"
 
 # The default `[[source: ctlseqs]]` documents `?1036`/`?1039` without stating.
@@ -722,8 +928,8 @@ bytes  = 143121
 status = "retrieved"
 group  = "C"
 
-# The per-language substitutions no DEC-authored source gives in
-# machine-readable form. **Cited as xterm's, not as DEC's** -- the macros carry
+# The per-language substitutions, for which none of the DEC texts read gives a
+# Unicode codepoint. **Cited as xterm's, not as DEC's** -- the macros carry
 # the Unicode codepoint alongside each replaced position, and 14 sets of them
 # is 162 substitutions nobody should transcribe by hand.
 [sources.xterm-charsets]

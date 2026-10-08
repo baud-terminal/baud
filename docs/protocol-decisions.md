@@ -55,23 +55,24 @@ Two rules the tests pin, because both failure modes are worse than silence:
 * **DA under-claims.** baud answers `CSI ? 6 c` (VT102). It now implements
   selective erase, which is a VT220 feature, and the answer still does not move
   -- a DA identity is a promise about *everything* in that level, and baud has
-  neither UDKs nor NRCS nor 132-column mode. Claiming VT220 would make
-  applications send sequences baud drops, which is the `parsed` failure by
-  another route.
+  no UDKs: DECUDK is under "Out of scope, with reasons" in
+  `docs/vt-coverage.md`. Claiming VT220 would
+  make applications send sequences baud drops, which is the `parsed` failure
+  by another route. This also said baud had no NRCS and no 132-column mode;
+  the national sets are designated and translated, and DECCOLM is done.
 * **An unsupported DSR gets no answer at all.** Replying with the wrong report
   shape is worse than not replying: the application parses whatever arrives as
   the report it asked for.
 
 **The alternate screen is a second buffer, not a mode bit.** `?1049` switches
 `Term` between two full grids, saving the cursor on the way in and restoring it
-on the way out, per `[[source: ctlseqs]]`. Two things make it cheaper than it
-looks. It has no scrollback -- no ring, no run table, no promotion -- so
-`OpMode::Runs` materialises directly there, and the O(1) ring-advance fast path
-in `scroll_region_up` is deliberately not taken on it: that path retires a line
-by moving the scrollback window, and using it on the alt screen would scroll the
-primary screen's history from under it. And the second grid is 10 MiB of
-*virtual* space that a terminal never running a full-screen program never faults
-in.
+on the way out, per `[[source: ctlseqs]]`. It keeps no history. A full-screen
+scroll rotates it as it rotates the primary, inside a ring of its own rows with
+its own rotation (`AltBuf`), and `retire` keeps no line on it, so rotating the
+alternate screen moves nothing of the primary's history. This said the
+alternate screen took no rotation and that `OpMode::Runs` materialised there,
+which was `baud-core2`'s; it also called the second grid 10 MiB of virtual
+space never faulted in, a figure not re-taken on this core.
 
 Entering twice must not re-save the cursor, or an application that sets the mode
 twice is restored to a position from inside the alt screen. The switch also
@@ -107,53 +108,78 @@ resumes at the **left margin**, not column 0), ICH, DCH, and DECIC/DECDC, and
 the write path folds the right margin into the loop bound it already computed —
 so with no margins set there is no extra branch.
 
-**Hyperlinks ride in spare cell bits.** `OSC 8`'s link index lives in the
-fourteen unused bits of `CellFlags`, because `PackedCell` is eight bytes *by
-measurement* and a ninth would round it to twelve. The URI table is bounded at
-`NLINK` and evicts on collision, like the style table and for the reason
-`CLAUDE.md` names: a URI is attacker-supplied content used as a key, and a
-structure keyed on that which grows without limit is the content-addressing
-failure mode. An evicted link renders as an ordinary cell.
+**Hyperlinks ride in spare cell bits.** `OSC 8`'s link index lives in seven
+bits of `CellFlags`, above its three flags and below the six bits of the cluster
+index, because `PackedCell` is eight bytes *by measurement* and a ninth would
+round it to twelve. The URI table is bounded at `NLINK`, 128, because a URI is
+attacker-supplied content used as a key, and a structure keyed on that which
+grows without limit is the content-addressing failure mode. **It refuses a
+collision rather than evicting**, unlike the style table: an evicted link would
+be a wrong destination under a cell whose text did not change. A refused link
+is counted in `links_refused` and its cells are plain text. This said the link
+took fourteen bits, and that the table evicts on collision and an evicted link
+renders as an ordinary cell.
 
-**Mouse reporting is SGR-only, and that is a correctness decision.** `?1000`,
-`?1002` and `?1003` select which events an application hears about; `?1006`
-selects the encoding. Without `?1006` baud reports **nothing**, and counts the
-drop in `mouse_unencodable`.
+**Mouse reports go in the encoding the application chose, and a position X10
+cannot name is refused.** `?1000`, `?1002` and `?1003` select which events an
+application hears about; `?1006` selects SGR, which has no ordinate limit, and
+without it baud sends X10 (`ESC [ M Cb Cx Cy`).
 
-The X10 encoding it declines to use puts each ordinate in one byte at
-`value + 32`, capping it at 223. baud's grid goes to 2048 columns. A report from
-column 400 in that scheme is not a truncated answer — it names a different cell,
-and the application acts on it. That is the wrong-shaped-answer rule applied to
-a report the terminal *sends*, and it is why the counter exists: an application
+X10 puts each ordinate in one byte at `value + 32`, capping it at 223. baud's
+grid goes to 2048 columns. A report from column 400 in that scheme is not a
+truncated answer — it names a different cell, and the application acts on it.
+So that position is refused and counted in `mouse_unencodable`, and every
+position that fits is sent. That is the wrong-shaped-answer rule applied to a
+report the terminal *sends*, and it is why the counter exists: an application
 that enables tracking and hears silence should be diagnosable from outside.
+
+This said reporting was SGR-only and that without `?1006` baud reported
+nothing. The reason covered column 400, and the refusal covered every report:
+an application speaking X10 on an 80x24 screen got silence where every byte was
+encodable.
 
 The core has no input device, so `Term::mouse_report` takes an event in
 `Col`/`Row` and returns whether it was queued. Pixel-to-cell division stays with
 the embedder, which is where the off-by-one would otherwise hide.
 
-**Character sets are designated, invoked and recorded — but not translated.**
-`ESC ( ) * + C` designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte
-written while the DEC Special Character and Line Drawing Set is active is
-carried to the cell **as the byte the application sent, flagged**
-(`CellFlags::GRAPHICS`) rather than as a translated codepoint.
+**Character sets are designated, invoked and translated.** `ESC ( ) * + C`
+designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte written under a
+set that replaces it becomes the character that set puts there.
 
-That is a sourcing decision, not a design preference. `[[source: ctlseqs]]`
-names the set — "C = 0 -> DEC Special Character and Line Drawing Set, VT100" —
-but gives no byte-to-glyph mapping, and `MANIFEST.toml` records
-`dec-special-graphics` as **gated**: vt100.net publishes the table as a figure,
-so no claim may rest on it. Writing the table from memory is exactly what
-"Do not implement a control function from memory" forbids, and this project has
-been overruled by the spec on smaller things.
+**DEC Special Graphics: the positions are DEC's and the codepoints are foot's.**
+`[[source: vt100-ug-ch3]]` names the set's glyphs in text, Table 3-9, for "ASCII
+codes 137 through 176" octal: 32 positions, `0x5F..0x7E`.
+`[[source: vt102-ug-ch5]]`, `[[source: dec-special-graphics]]` and
+`[[source: dec-std-070]]` agree. None of the four gives a Unicode codepoint, so
+the table takes `[[source: foot-vt100-0]]`'s, cited as foot's judgement. The
+cell holds the translated codepoint and keeps `CellFlags::GRAPHICS`, so a copy
+of `─` is `─` and the cell still says where it came from.
 
-Carrying the flag loses nothing recoverable: a renderer holding the table has
-the byte and the fact that it is a graphics byte, which is everything it needs.
-Translating to a guessed codepoint would be unrecoverable, and it would be the
-`parsed`-status failure in its worst form — the terminal would look like it
-worked. When a citable table is obtained, the mapping is a renderer change and
-these tests do not move.
+**baud has 31 of the 32, and `0x5F` is an open departure.** foot's table starts
+at `0x60`, so `ESC ( 0 _` stores `_` where DEC draws "Blank": on the bulk run,
+on the per-byte path and under VT52 `ESC F`. U+0020 and U+00A0 both conform in
+what they draw, and the texts do not choose between them, so the codepoint is
+the owner's call. It is open in docs/record.md, "DEC Special Graphics begins at
+0x5F, and what it stores there is the owner's call", and the coverage row is
+**partial** until it is answered.
 
-Sets baud does not distinguish are recorded as `Charset::Other` rather than
-folded into ASCII, so designating DEC Supplemental is not mistaken for a no-op.
+This section said the opposite: the cell kept "the byte the application sent,
+flagged", because `[[source: ctlseqs]]` names the set without a mapping and
+`MANIFEST.toml` recorded `dec-special-graphics` as gated. That was a reason not
+to guess, and not a reason never to have a table. f297b21 translated through
+foot's, and the DEC pages pinned since then name every position.
+
+**The UK and national sets translate too**, through `[[source: xterm-charsets]]`,
+cited as xterm's judgement (`every_national_replacement_renders_as_its_table_says`).
+
+**The other DEC sets are designated and not translated.** DEC Supplemental,
+Technical, Supplemental Graphics, Cyrillic, Greek, Hebrew, Turkish and the JIS
+pair are named (`Charset::Dec`), and a final `[[source: ctlseqs]]` does not list
+is `Charset::Other`. Neither is folded into ASCII, so designating DEC
+Supplemental is not mistaken for a no-op. `[[source: xterm-charsets]]` has
+xterm's maps for the Technical, Supplemental Graphics, Cyrillic, Greek, Hebrew,
+Turkish and JIS sets, matched to them by name, so what is missing is the
+translation, not a source. That is open.
 
 **OSC payloads are bounded, and truncated rather than dropped.** Every byte of
 an OSC is attacker-controlled -- a window title is whatever the far end of an
@@ -209,13 +235,17 @@ Declining is a decision and belongs in the record.
 
 | protocol | why not |
 |---|---|
-| **Highlight tracking** (`CSI ? 1001`) | `[[source: ctlseqs]]`: "this mode requires a cooperating program, else xterm will hang". A terminal that a sequence can hang is worse than one that ignores the sequence. |
-| **Sixel** (`DCS ... q`) | An image format, not a terminal protocol. Large surface, needs a palette and a raster buffer, and it does not interact with the ingest architecture baud exists to test. The `DCS` payload is already consumed safely, which is the part that matters for correctness. |
 | **ReGIS** | Vector graphics. No modern application emits it. |
-| **Kitty graphics** (`APC G`) | Same reasoning as sixel. Note baud already consumes `APC` payloads without executing them, which was a real bug before Tier 0 landed — the protocol is *safe to ignore*, which is the bar. |
-| **DECUDK**, user-defined keys | Input-side, and superseded by the kitty keyboard protocol for anything new. |
-| **National Replacement Character Sets** (DECNRCM) | Superseded by UTF-8. Documented here because `[[source: ctlseqs]]` carries them and a reader will ask. |
+| **Kitty graphics** (`APC G`) | `f=100` hands the terminal a PNG, which needs zlib, and `baud-core` decodes into caller memory with no allocator and no dependency. Note baud already consumes `APC` payloads without executing them, which was a real bug before Tier 0 landed — the protocol is *safe to ignore*, which is the bar. |
+| **DECUDK**, user-defined keys | It redefines what a key sends, which needs a table of user-programmable strings and a policy for who may set them. Out on scope; baud has an input path. |
+| **DECNRCM**, the national replacement mode | Superseded by UTF-8. Documented here because `[[source: ctlseqs]]` carries it and a reader will ask. The national *sets* are not declined: each is designated and translated (above). |
 | **Tektronix mode** (`ESC [ ? 3 8 h`) | A different terminal emulated inside this one. Historical. |
+
+Two rows that stood here were built anyway, and their rows in
+`docs/vt-coverage.md` are done. **Highlight tracking** (`CSI ? 1001`) is
+recorded, with the region, and not drawn: the "xterm will hang" warning
+describes an event loop, and `baud-core` has none. **Sixel** is decoded into
+caller memory with no external decoder and drawn by all three render paths.
 
 ---
 
@@ -223,13 +253,17 @@ Declining is a decision and belongs in the record.
 
 ## Still open
 
-**Kitty keyboard protocol** — the one recommendation not implemented. It
-fixes what terminals have never been able to express: Ctrl+Shift
-combinations, key release, and disambiguation of Escape. Input-side, so it
-needs an input path baud does not have — which is the real blocker, not the
-protocol.
-
+**~~Kitty keyboard protocol~~** — built: `encode_key` in `baud-domain`, with
+all five progressive-enhancement flags and the query answered (its row in
+`docs/vt-coverage.md` is done). The blocker this named was an input path, and
+`Term::key` is one. On macOS, key releases still wait on the window crate.
 [spec](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+
+**DEC Special Graphics `0x5F`** — Blank, U+0020 or U+00A0, the owner's call
+(above).
+
+**The other DEC sets** — designated and not translated, though
+`[[source: xterm-charsets]]` has xterm's maps for eight of them (above).
 
 ---
 

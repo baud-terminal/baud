@@ -163,21 +163,25 @@ impl CellFlags {
     /// `[[source: vt510-decsca]]`: "1 DECSED and DECSEL cannot erase
     /// characters."
     pub const PROTECTED: CellFlags = CellFlags(1);
-    /// The byte in this cell was written while the DEC Special Character and
-    /// Line Drawing Set was invoked into GL.
+    /// The character in this cell was written while the DEC Special Character
+    /// and Line Drawing Set was invoked into GL.
     ///
-    /// The cell keeps the byte the application sent, plus this flag, rather
-    /// than a translated codepoint. That is deliberate and it is a *sourcing*
-    /// decision, not a design preference: `[[source: ctlseqs]]` names the set
-    /// (`C = 0 -> DEC Special Character and Line Drawing Set, VT100`) but does
-    /// not give the byte-to-glyph mapping, and `MANIFEST.toml` records
-    /// `dec-special-graphics` as `gated` -- vt100.net publishes the table as a
-    /// figure, so no claim may rest on it. Translating here would mean writing
-    /// the table from memory, which this project has been wrong about before.
+    /// The cell holds the *translated* codepoint (`with_dec_graphics`) and this
+    /// flag besides, so it keeps where the character came from: a copy of `─`
+    /// is `─`, and the cell still says it was written under the line-drawing
+    /// set. In this core `refresh_flags` sets it and nothing outside the tests
+    /// tests the bit; `Charset::from_flags` would, through
+    /// `PackedCell::from_wire`, which has no caller.
     ///
-    /// Carrying the flag loses nothing: a renderer that has the table has
-    /// everything it needs, and one that does not can say so. Translating to a
-    /// guessed codepoint would be unrecoverable.
+    /// This said the cell keeps the byte rather than a translated codepoint,
+    /// because `MANIFEST.toml` recorded `dec-special-graphics` as `gated`.
+    /// Neither holds. The table is translated, and the DEC pages are pinned:
+    /// `[[source: vt100-ug-ch3]]` Table 3-9 names the set's 32 positions,
+    /// `0x5F..0x7E`, in text. None of the DEC texts read gives a codepoint, so
+    /// the 31 the table has are `[[source: foot-vt100-0]]`'s, and `0x5F`
+    /// "Blank" is still `_`: an open departure, U+0020 or U+00A0 being the
+    /// owner's call (docs/record.md, "DEC Special Graphics begins at 0x5F, and
+    /// what it stores there is the owner's call").
     pub const GRAPHICS: CellFlags = CellFlags(2);
     pub fn is_graphics(self) -> bool {
         self.0 & CellFlags::GRAPHICS.0 != 0
@@ -205,7 +209,9 @@ impl CellFlags {
     /// `grapheme_map`, so the map is consulted only for cells that have one.
     pub const MARKED: CellFlags = CellFlags(4);
 
-    /// Bits 3..16 carry the [`LinkId`].
+    /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`), and 10..16 the
+    /// [`ClusterId`]. This read "3..16", from before the cluster index took
+    /// the top six.
     ///
     /// **The link rides in the spare bits of this word rather than in a field
     /// of its own, and that is a measured constraint, not a packing game.**
@@ -325,16 +331,15 @@ impl PackedCell {
             flags: CellFlags::NONE,
         }
     }
-    /// A printable ASCII byte. The proof that it is printable is also the proof
-    /// that its codepoint equals its byte value.
     /// An ASCII byte under whatever character set `flags` says is invoked.
     ///
-    /// The one constructor for "a byte from the wire became a cell", so the
-    /// DEC Special Graphics translation cannot be applied on one path and
-    /// forgotten on another. `promote` replays stored runs and had exactly that
-    /// shape: the run carries the flags, and translating only in
-    /// `put_ascii_run` would have made a line's content depend on whether it
-    /// had been promoted yet.
+    /// Written (f297b21) for the core since retired as `baud-core2`, whose
+    /// `promote` replayed stored runs with their flags. Nothing in this core
+    /// calls it. The bulk path translates through `with_charset` in
+    /// `Grid::put_ascii_run` and the per-byte path through `translate`, both
+    /// with the set `Term` has invoked. The flags name only the line-drawing
+    /// set (`Charset::from_flags`), so this would leave a national set's byte
+    /// untranslated.
     pub fn from_wire(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         let proto = PackedCell {
             content: Content::EMPTY,
@@ -344,12 +349,6 @@ impl PackedCell {
         proto.with_charset(b, Charset::from_flags(flags))
     }
 
-    /// An ASCII byte under a named character set.
-    ///
-    /// **The one place a wire byte becomes a character.** Every set that
-    /// substitutes anything goes through here, so a path cannot honour DEC
-    /// graphics and forget Finnish -- which is exactly the shape `promote`
-    /// had before `from_wire` existed.
     /// The codepoint an ASCII byte stands for under a designated set.
     ///
     /// **Extracted so the two write paths translate through one rule.** The
@@ -357,8 +356,10 @@ impl PackedCell {
     /// translate at all, so a byte that reached `ground_uncommon` -- printable
     /// ASCII recovered after an ill-formed UTF-8 sequence, the case
     /// `[[source: unicode-ch3]]` § 3.9.5 names -- rendered untranslated. With
-    /// DEC Special Graphics designated, `<C2 41>` put an `A` on the screen
-    /// where every other route puts a line-drawing glyph.
+    /// DEC Special Graphics designated, `<C2 71>` put a `q` on the screen where
+    /// every other route puts `─`
+    /// (`ascii_recovered_after_a_bad_sequence_is_still_translated`). This read
+    /// `<C2 41>` and `A`, a byte outside the set, which is `A` on every route.
     pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
         // **ASCII is the answer, not a case of the general one.** Without this
         // the common path builds a throwaway `PackedCell`, runs the charset
@@ -378,6 +379,13 @@ impl PackedCell {
         }
     }
 
+    /// An ASCII byte under a named character set.
+    ///
+    /// **Every set that substitutes anything goes through here**, from
+    /// `Grid::put_ascii_run` and from `translate`, so a path cannot honour DEC
+    /// graphics and forget Finnish -- the shape `baud-core2`'s `promote` had
+    /// before `from_wire` existed. This doc sat on `translate` from 01b11dc,
+    /// which inserted `translate` between the two.
     pub fn with_charset(self, b: StreamByte, set: Charset) -> PackedCell {
         match set {
             Charset::DecGraphics => self.with_dec_graphics(b),
@@ -389,6 +397,8 @@ impl PackedCell {
         }
     }
 
+    /// A printable ASCII byte. The proof that it is printable is also the proof
+    /// that its codepoint equals its byte value.
     pub fn from_ascii(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         PackedCell {
             content: Content::codepoint(Codepoint::from_ascii(b)),
@@ -472,8 +482,15 @@ impl PackedCell {
     /// storing the result would lose the character -- selection and copy would
     /// hand back `q` where the screen shows `─`. Both, and neither is lost.
     ///
-    /// Bytes outside `` ` ``..`~` are unchanged: the set is ASCII everywhere
-    /// else, which is why the table is 31 entries rather than 128.
+    /// Bytes outside `` ` ``..`~` are unchanged, and at `0x5F` that is a
+    /// departure. DEC's set replaces 32 positions, `0x5F..0x7E`, and leaves
+    /// the rest ASCII (`[[source: vt100-ug-ch3]]`: "the graphics for ASCII
+    /// codes 137 through 176 will be replaced", octal). The table holds
+    /// `[[source: foot-vt100-0]]`'s 31, so `_` stays `_` where DEC draws
+    /// "Blank". Whether Blank stores U+0020 or U+00A0 is the owner's call
+    /// (docs/record.md, "DEC Special Graphics begins at 0x5F, and what it
+    /// stores there is the owner's call"), and the base here moves to `0x5F`
+    /// with the answer.
     pub fn with_dec_graphics(self, b: StreamByte) -> PackedCell {
         let v = b.raw_byte();
         let cp = match v.checked_sub(0x60) {
