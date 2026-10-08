@@ -696,7 +696,7 @@ fn the_cycles_per_byte_table_agrees_with_itself() {
 /// decisions go to `docs/record.md`.
 #[test]
 fn claude_md_stays_within_its_budget() {
-    const BUDGET: usize = 70_822;
+    const BUDGET: usize = 59_600;
     let text = fs::read_to_string(root().join("CLAUDE.md")).expect("CLAUDE.md");
     let chars = text.chars().count();
     assert!(
