@@ -516,7 +516,7 @@ which the owner's same-pixels rule does not allow.
 | B: a skin-tone modifier | dropped; the bare base draws | the base plus a missing-glyph indicator (UTS #51 § 2.4.1); a modifier is gc=Sk, a graphic character, so § 5.21.6 applies too | departs from § 5.21.6, and from the display UTS #51 describes (§ 2.4.1, whose "Unsupported" rows are descriptive) |
 | B: a ZWJ component | dropped; a shorter emoji draws | separate emoji, perhaps with a visible glue (UTS #51 § 2.5, § 2.2); the component is a graphic character (§ 5.21.6) | departs from § 5.21.6, and from the display UTS #51 describes (§ 2.5, descriptive) |
 | B: a reserved code point after a ZWJ (text from a later version, such as Emoji 18.0's U+1FAF9) | dropped; the base draws (measured on all three stacks) | not "blindly delete" it; a hex value, a box or a substitute glyph (§ 5.3, "Reserved and Private-Use Character Codes") | departs from § 5.3 |
-| B: a flag's second indicator | never on a shipped stack: every emoji face maps all 26 indicators. A pair the face has no flag for draws two letters past its two cells (spill, section 5.1) | letters in dotted squares, or one missing-flag glyph (Annex B.1), for any pair without a flag; for an invalid pair, C3 adds that the depiction must indicate "the presence of an invalid sequence", singleton letters allowed (if baud claims UTS #51) | partly: the letters are B.1's first option (or C3's singleton letters, for an invalid pair), but they overflow the cluster's cells and cover the next character |
+| B: a flag's second indicator | never on a shipped stack: every emoji face maps all 26 indicators. A pair the face has no flag for draws two letters past its two cells (spill, section 5.1). The letters are the face's own glyphs for a lone indicator: on Apple Color Emoji each is a letter in a dashed square; on Noto Color Emoji 2.042 each is a bare letter with no square (U+1F1E6 U+1F1E6 at 13 and 26 px, measured by baud's renderer, 2026-10-08; Noto 2.047 and 2.051 were not rendered) | letters in dotted squares, or one missing-flag glyph (Annex B.1), for any pair without a flag; for an invalid pair, C3 adds that the depiction must indicate "the presence of an invalid sequence", singleton letters allowed (if baud claims UTS #51) | partly: on Apple Color Emoji the letters are B.1's first option, with dashes where B.1 says dotted, as section 3 reads Terminal.app's dashed letters; on Noto 2.042 they are B.1's letters without its square. For an invalid pair, on either face, they are C3's singleton letters. On both faces they overflow the cluster's cells and cover the next character |
 | B: a ZWJ sequence under mode 2027, which baud answers permanently set | drawn as separate sub-images past the two cells, with or without a drop (sections 5.1 and 5.2; [[source: ad-obs-freq-emoji-rows]]). On Noto 2.042 and 2.047: 72 intact sequences with every code point mapped, the 59 intact wrestling sequences after the drop, 103 of the 106 the core alters (102 spill, one drops and spills) and 14 not fully qualified. On Noto 2.051: 103 core-altered and 4 not fully qualified. On macOS: 10 core-altered and 7 not fully qualified. The four bouncing-ball forms spill on every stack | "a single image with a width of 2 grid cells"; sub-images "must not be used as a fallback"; if it "cannot be rendered the display behavior is undefined" (mode 2027) | departs from a "must not" in a draft marked ALPHA, which baud claims at all times |
 | B: an unsupported or invalid tag sequence | the face's shaping decides: the bare black flag on Apple Color Emoji, Noto's own "?" flag (section 2.4) | the base with a missing-glyph indicator, overlay recommended (C.1.1); something visibly wrong (C.1.2) | Apple: departs from C.1.1 and C.1.2, if baud claims UTS #51 conformance; Noto: matches |
 | C: nothing draws the base, a lone code point | the primary face's `.notdef` | a last-resort glyph or missing-glyph box (§ 5.21.6) | matches when the primary's `.notdef` is inked; not under a configured SF Mono |
@@ -1102,6 +1102,18 @@ The Hindi denominator is not exact: conjunct clusters also attach consonants.
   store kept.** The rest are gone from the grid, and so from copy, which reads
   `Term` (app.rs:5731-5738). This is the part C7 and § 2.14.2 reach (section
   2.2).
+- **One verse is enough to lose a point in a fresh `Term`.** Genesis 1:1 as
+  section 7.3's renders feed it (verse 1 of [[source: sefaria-genesis-1]],
+  with the `<big>` tags stripped) keeps the resh of its last word without its
+  segol: U+05E8 is kept, U+05B6 is refused, and `marks_dropped` is 1, at 39
+  and at 80 columns. The last word fed alone keeps U+05E8 U+05B6 and refuses
+  nothing. Measured with baud's core at 5e5e934, whose sources are unchanged
+  since e0a611d, on 2026-10-08, after baud's renderer showed the missing
+  segol the same day. So what the verse writes before that word decides the
+  refusal: the store refusing on a collision or when full, as described
+  above (inferred; which of the two, and which earlier cluster, was not
+  traced). Every render of the verse lacks that segol whichever renderer
+  option draws it, so no option in section 6 can show it (Q7).
 
 ### 5.5 Unmeasured
 
@@ -1172,6 +1184,45 @@ The Hindi denominator is not exact: conjunct clusters also attach consonants.
     implement OSC 66, so this is one terminal's protocol, recorded as
     practice. The grid constraint rests on the core's fixed widths, § 5.21.6,
     mode 2027 and § 2.11.5.
+  - **What happens to a glyph that reaches below its row depends on the draw
+    path.** baud has three, and they differ (file:line at e0a611d; the four
+    files cited are unchanged at 5e5e934):
+    - **The CPU paint clips each row.** `paint` hands every instance of a
+      row that row's pixel band (renderer.rs:1661-1692), and `Target::over`
+      skips the pixel rows outside it (composite.rs:87-101). A glyph that
+      reaches below its row is cut off, not drawn over the next row.
+      Sideways, inside the row, it still covers the next character. Measured
+      by baud's renderer, 2026-10-08, with a prototype of e that puts a box
+      for a mark below under the lowest point already below: in Genesis 1:1
+      at 13 px the six boxes are counted as drawn and none of them shows; at
+      26 px five show only their top edge, on the row's last pixel row, and
+      the sixth does not show. Of the two marks in bet + qamats + etnahta and
+      bet + qamats + pashta, only the pashta box above shows, at 13 px
+      without its top line; the etnahta box below the qamats is cut off. The
+      placement is the prototype's own rule; a placement inside the cell was
+      not rendered.
+    - **The Metal instance path does not clip to a row.** It draws the
+      background pass held to the grid, then resets the scissor to the whole
+      target and draws every record (metal.rs:1494-1514), and its glyph
+      shader has no clip of its own (read from the code). So the same box
+      would be drawn over the top of the next row (inferred: the renders of
+      2026-10-08 composited the records in that order on the CPU, which is
+      not a GPU capture).
+    - **The app's default path on macOS is the cell shader** (app.rs:776-785:
+      `Request::Auto` with a GPU gives `Path::Cells`). No placeholder was
+      drawn through it, because the prototype hooks only the instance path.
+      For real points, a scratch Metal probe found the cell and instance
+      paths agree to 0 pixels at 14 and 26 px, and the points below pointed
+      letters draw into the next row at 26 px, where the CPU clips
+      (`docs/record.md`, "baud's
+      own Hebrew is in the embedded font, Regular and Bold, built from
+      committed sources"). So a placeholder below the row would likely cross
+      into the next row there too (inferred).
+
+    So a placeholder placed below its row is not drawn whole inside its
+    cells on any path: on the GPU paths it would cover the top of the next
+    row (inferred, above), and on the CPU path it is cut off, so that mark
+    shows nothing, or only an edge.
 - **Same pixels on every OS.** That is the owner's rule. The placeholder must
   not depend on the configured or system face: their `.notdef` glyphs and the
   OS's last-resort font differ by OS and by configuration. The embedded face's
@@ -1192,7 +1243,7 @@ are the design lens's estimates.
 | b2. the embedded Regular's `.notdef`, whatever is configured | replaces the cluster | a box in the cells | a box | A, B: partly, as b1. C: follows for a lone code point; partly for a cluster with attachments, as b1 | yes | the renderer needs a placeholder face beside the stack |
 | b3. the base face's `.notdef` (the BOX prototype) | replaces the cluster | a box, or nothing on Noto | — | A, B: partly, as b1; departs on Noto, where the glyph is blank. It relies on the base face following OpenType's recommendation (section 2.5) | no | small |
 | a. a box baud draws, sized to the cluster | replaces the cluster (base lost) | a box in the cells | a box | A, B: partly, as b1. C: follows for a lone code point; partly for a cluster with attachments, as b1 | yes | a procedural mask, about two per size |
-| e. a mark-sized placeholder where the mark would go | the base plus a small box above or below | a small box over the base, the overlay UTS #51 C.1.1 recommends for tag sequences "so that the sequence would have the same width" | — | A, B: follows where the placeholder can be told from a real mark and stays inside the cluster's cells: § 5.21.6's visible, generic glyph, one per missing code point, with the base kept. Partly where it reads as a mark, since § 5.21.6 asks for a "generic" glyph (a 3-px box below a Hebrew letter at 13 px reads as a hiriq), or where it crosses into the next row (section 3's overdraw judgement). Both are predicted in the notes below, not measured. For B, it is UTS #51 § 2.4.1's base and indicator for a modifier, although § 2.4.1 shows the indicator after the base where e overlays it, which is C.1.1's form for tags. For a tag sequence it is C.1.1's overlay. For a ZWJ component it is not § 2.5's separate emoji, which mode 2027 forbids | yes | placement without GPOS; the dropped code points must be recorded |
+| e. a mark-sized placeholder where the mark would go | the base plus a small box above or below | a small box over the base, the overlay UTS #51 C.1.1 recommends for tag sequences "so that the sequence would have the same width" | — | A, B: follows where the placeholder can be told from a real mark and stays inside the cluster's cells: § 5.21.6's visible, generic glyph, one per missing code point, with the base kept. Partly where it reads as a mark, since § 5.21.6 asks for a "generic" glyph (a 3-px box below a Hebrew letter at 13 px reads as a hiriq), or where it leaves its row: drawn over the next row on the GPU paths (section 3's overdraw judgement; inferred), or cut off on the CPU path, where that mark then shows nothing or only an edge (where nothing shows, § 5.21.6's "Displaying nothing", the reading row g carries). The first is predicted in the notes below, not measured; the second was rendered on the CPU path, under a prototype's placement below the lowest point already below (the grid constraint above). For B, it is UTS #51 § 2.4.1's base and indicator for a modifier, although § 2.4.1 shows the indicator after the base where e overlays it, which is C.1.1's form for tags. For a tag sequence it is C.1.1's overlay. For a ZWJ component it is not § 2.5's separate emoji, which mode 2027 forbids | yes | placement without GPOS; the dropped code points must be recorded |
 | c. a hex box | replaces the cluster | replaces the cluster | digits | A, B: partly, as b1. C: follows for a lone code point, since § 5.3 names the hexadecimal value; partly for a cluster with attachments, as b1 | only with baud's own digits | at 8 px only without a frame (see below); bounded atlas only if composed from 16 digit masks |
 | d. the Last Resort font, embedded | cannot serve A | legible in 2 cells | a framed block glyph | A: cannot serve. B: partly, as b1. C: follows for a lone code point, since § 5.3 names the Last Resort Font; partly for a cluster with attachments, as b1 | yes | +588 KB; illegible in one 8x17 cell (mockup) |
 | f. U+FFFD from the embedded face | replaces the cluster | replaces the cluster | U+FFFD | A, B: partly, as b1. U+FFFD is defined as "the general substitute character", which "can be substituted for any “unknown” character in another encoding that cannot be mapped" and "can also be used as one means of indicating a conversion error" (§ 23.8, [[source: unicode18-ch23]]). So on an assigned character a font lacks, it signals an error the text does not contain (reading). For a ZWJ sequence it is mode 2027's example. C: for a reserved code point it is § 5.3's "substitute glyph, such as that commonly shown for U+FFFD"; for an assigned one it follows § 5.21.6 in form, with the same misreading; for a cluster with attachments, partly, as b1 | yes | looks like a decode error |
@@ -1294,18 +1345,26 @@ and C.
 
 **Hebrew, the case the owner reads.**
 
-- **At HEAD no face maps Hebrew,** so every letter is case C.
-- **In the working tree,** the embedded Regular and Bold map every point in
-  U+05B0-U+05C7; U+05C6, the one they lack, is punctuation. No face anywhere
-  maps any of the 31 cantillation marks: not the embedded font, not the macOS
-  chain, not DejaVu Sans Mono.
+- **Before 22b53b4 no face in the default stacks mapped Hebrew,** so every
+  letter was case C.
+- **Since 22b53b4,** the embedded Regular and Bold map every point in
+  U+05B0-U+05C7; U+05C6, the one they lack, is punctuation. No face in baud's
+  stacks maps any of the 31 cantillation marks: not the embedded font, not
+  the macOS default chain, not DejaVu Sans Mono. Faces outside the stacks do:
+  SF Hebrew, Courier New, Arial Hebrew, Times New Roman and Tahoma on this Mac
+  (measured by cmap, 2026-10-08), which only a system tier could reach.
 - **Under e, on the working-tree font, Genesis 1:1-5 in Sefaria's Masoretic
   text would show a placeholder on 40 of its 45 words**
   ([[source: sefaria-genesis-1]]; measured, with the thin spaces around the
   paseq counted as spaces, and the `{פ}` paragraph marker and the paseq `׀`
   not counted as words). That is 41 marks, 32 below and 9 above. A
-  placeholder below an existing point below would cross into the next row,
-  since `emit` does not clip (renderer.rs:2598-2654; inferred, unmeasured).
+  placeholder put below an existing point below can leave the row. `emit`
+  does not clip (renderer.rs:2598-2654), but the CPU paint clips each row,
+  so there such a placeholder is cut off rather than drawn over the next
+  row; on the GPU paths it would cross into the next row (inferred). The
+  grid constraint above gives the three paths and what baud's renderer drew
+  on 2026-10-08: on the CPU path, none of Genesis 1:1's six boxes showed at
+  13 px.
 - **A face with letters and no points shows how dense case A gets.** In the
   Genesis 1:1-5 text of the working tree's untracked
   baud-core/tests/pointed_hebrew.rs, 128 of 197 letters (65%) carry one to
@@ -1420,8 +1479,13 @@ cannot draw?**
     § 5.21.6 where the placeholder can be told from a real mark and stays
     inside the cluster's cells: visible and generic, one per missing mark,
     with the base kept. Partly where it reads as a mark (a 3-px box below a
-    Hebrew letter at 13 px reads as a hiriq) or crosses into the next row
-    (section 3's overdraw judgement). Both are predictions (section 6).
+    Hebrew letter at 13 px reads as a hiriq) or leaves its row: drawn over the
+    next row on the GPU paths (section 3's overdraw judgement; inferred), or
+    cut off on the CPU path, so that mark shows nothing or only an edge
+    (where nothing shows, "Displaying nothing", as for g). The first is a
+    prediction; the second was rendered
+    on the CPU path, under the prototype's placement below the lowest point
+    already below (section 6, the grid constraint).
   - h then e: the real mark from another face where one has it, otherwise e.
     h follows § 5.13 and D52, which draw the mark's own glyph; CSS Fonts § 5.3
     step 3 does the same for CSS user agents (section 4). e as above.
@@ -1455,8 +1519,11 @@ a leading jamo, where the kept face lacks them (section 6, case B).
     spills on Noto 2.042 and 2.047 (Sark is counted both in 2.042's 78 and in
     its 418), and 4-14 not fully qualified sequences, three of macOS's seven
     altered by the core first (section 5.1). For a regional-indicator pair, partly: Annex B.1's letters (or C3's
-    singleton letters, for an invalid pair), without dotted squares and
-    outside the cells. For a ZWJ sequence, it is UTS #51 § 2.5's "fallback
+    singleton letters, for an invalid pair), outside the cells. On Apple Color
+    Emoji each letter sits in a dashed square, the face's own glyph for a lone
+    indicator, so it has B.1's square with dashes for dots; on Noto Color
+    Emoji 2.042 the letters have no square (section 2.7; measured by baud's
+    renderer, 2026-10-08). For a ZWJ sequence, it is UTS #51 § 2.5's "fallback
     sequence of separate emoji", and it departs from mode 2027 ("must not be
     used as a fallback") and from the grid constraint (section 6).
   - A box confined to the cluster's cells, either a (procedural) or b2 (the
