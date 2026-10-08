@@ -1,0 +1,456 @@
+stack=macos-HEAD file=bialik-hachnisini.raw.txt fresh=false
+  bytes=1468 frames=1 core_refused(Term::marks_dropped)=81 renderer_left_out(marks_unmapped, over all frames)=121
+  marked cells on screen summed over frames=137 distinct marked clusters=45
+  distinct clusters: whole on base face=0 whole on another face=0 drop=45 (codepoints left out=51) with .notdef=45
+  face drawing them: {"JetBrainsMono-Regular.ttf": 45}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x10 05B2x2 05B4x9 05B5x5 05B6x1 05B7x9 05B8x5 05B9x2 05BCx5 05C1x2 05C2x1
+stack=macos-HEAD file=bialik-hachnisini.raw.txt fresh=true
+  bytes=1468 frames=33 core_refused(Term::marks_dropped)=5 renderer_left_out(marks_unmapped, over all frames)=179
+  marked cells on screen summed over frames=198 distinct marked clusters=81
+  distinct clusters: whole on base face=0 whole on another face=0 drop=81 (codepoints left out=97) with .notdef=81
+  face drawing them: {"JetBrainsMono-Regular.ttf": 81}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x15 05B2x3 05B4x14 05B5x8 05B6x2 05B7x13 05B8x16 05B9x3 05BCx18 05C1x4 05C2x1
+stack=macos-HEAD file=gen-ch1-prefix.xml fresh=false
+  bytes=57372 frames=15 core_refused(Term::marks_dropped)=997 renderer_left_out(marks_unmapped, over all frames)=577
+  marked cells on screen summed over frames=541 distinct marked clusters=58
+  distinct clusters: whole on base face=0 whole on another face=0 drop=58 (codepoints left out=84) with .notdef=58
+  face drawing them: {"JetBrainsMono-Regular.ttf": 58}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x4 0592x1 0594x3 0596x3 0597x1 0599x1 059Cx1 05A3x3 05A5x3 05A8x2 05B0x6 05B1x1 05B4x8 05B5x6 05B6x1 05B7x7 05B8x10 05B9x5 05BCx12 05BDx1 05C1x5
+stack=macos-HEAD file=gen-ch1-prefix.xml fresh=true
+  bytes=57372 frames=757 core_refused(Term::marks_dropped)=6 renderer_left_out(marks_unmapped, over all frames)=1694
+  marked cells on screen summed over frames=1224 distinct marked clusters=346
+  distinct clusters: whole on base face=0 whole on another face=0 drop=346 (codepoints left out=611) with .notdef=346
+  face drawing them: {"JetBrainsMono-Regular.ttf": 346}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x23 0592x2 0594x22 0595x1 0596x28 0597x8 0599x12 059Ax1 059Bx8 059Cx6 059Ex2 05A0x2 05A1x1 05A3x29 05A4x12 05A5x27 05A7x4 05A8x15 05A9x4 05AEx1 05B0x20 05B1x1 05B2x4 05B4x49 05B5x41 05B6x35 05B7x42 05B8x67 05B9x25 05BBx1 05BCx70 05BDx27 05C1x17 05C2x4
+stack=macos-HEAD file=ar-muallaqa-imru-al-qais.raw.txt fresh=false
+  bytes=12685 frames=4 core_refused(Term::marks_dropped)=1117 renderer_left_out(marks_unmapped, over all frames)=1428
+  marked cells on screen summed over frames=2419 distinct marked clusters=63
+  distinct clusters: whole on base face=0 whole on another face=0 drop=63 (codepoints left out=71) with .notdef=63
+  face drawing them: {"JetBrainsMono-Regular.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 064Bx2 064Dx3 064Ex23 064Fx8 0650x16 0651x7 0652x10
+stack=macos-HEAD file=ar-muallaqa-imru-al-qais.raw.txt fresh=true
+  bytes=12685 frames=89 core_refused(Term::marks_dropped)=171 renderer_left_out(marks_unmapped, over all frames)=2442
+  marked cells on screen summed over frames=2219 distinct marked clusters=201
+  distinct clusters: whole on base face=0 whole on another face=0 drop=201 (codepoints left out=255) with .notdef=200
+  face drawing them: {"JetBrainsMono-Regular.ttf": 201}
+  codepoints left out, by codepoint (count of distinct clusters): 064Bx3 064Cx4 064Dx26 064Ex53 064Fx39 0650x40 0651x54 0652x28
+stack=macos-HEAD file=hi-bharat.raw.txt fresh=false
+  bytes=222084 frames=55 core_refused(Term::marks_dropped)=13473 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=20841 distinct marked clusters=63
+  distinct clusters: whole on base face=63 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Kohinoor.ttc": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=hi-bharat.raw.txt fresh=true
+  bytes=222084 frames=706 core_refused(Term::marks_dropped)=6218 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=13534 distinct marked clusters=848
+  distinct clusters: whole on base face=848 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Kohinoor.ttc": 848}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=iliad-book1-prefix.xml fresh=false
+  bytes=86714 frames=22 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=iliad-book1-prefix.xml fresh=true
+  bytes=86714 frames=854 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=asciiquarium.raw fresh=false
+  bytes=335479 frames=82 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=btop.raw fresh=false
+  bytes=524288 frames=128 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=cat-scroll.raw fresh=false
+  bytes=448460 frames=110 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=1
+  marked cells on screen summed over frames=1 distinct marked clusters=1
+  distinct clusters: whole on base face=0 whole on another face=0 drop=1 (codepoints left out=1) with .notdef=1
+  face drawing them: {"JetBrainsMono-Regular.ttf": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 0651x1
+stack=macos-HEAD file=git-log.raw fresh=false
+  bytes=501185 frames=123 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=less-pager.raw fresh=false
+  bytes=30146 frames=8 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=cat-cjk.raw fresh=false
+  bytes=327351 frames=80 core_refused(Term::marks_dropped)=72 renderer_left_out(marks_unmapped, over all frames)=2
+  marked cells on screen summed over frames=4407 distinct marked clusters=39
+  distinct clusters: whole on base face=12 whole on another face=26 drop=1 (codepoints left out=1) with .notdef=0
+  face drawing them: {"Apple Color Emoji.ttc": 8, "AppleSDGothicNeo.ttc": 26, "Hiragino Sans GB.ttc": 2, "Kohinoor.ttc": 3}
+  codepoints left out, by codepoint (count of distinct clusters): 309Ax1
+stack=macos-HEAD file=cava.raw fresh=false
+  bytes=636116 frames=156 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=less-cjk.raw fresh=false
+  bytes=84473 frames=21 core_refused(Term::marks_dropped)=2 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=1012 distinct marked clusters=19
+  distinct clusters: whole on base face=8 whole on another face=11 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Apple Color Emoji.ttc": 5, "AppleSDGothicNeo.ttc": 11, "Kohinoor.ttc": 3}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-HEAD file=vim-unicode.raw fresh=false
+  bytes=138571 frames=34 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=314
+  marked cells on screen summed over frames=962 distinct marked clusters=5
+  distinct clusters: whole on base face=2 whole on another face=0 drop=3 (codepoints left out=3) with .notdef=3
+  face drawing them: {"Apple Color Emoji.ttc": 1, "JetBrainsMono-Regular.ttf": 3, "Kohinoor.ttc": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x1 05B4x2
+stack=macos-wt file=bialik-hachnisini.raw.txt fresh=false
+  bytes=1468 frames=1 core_refused(Term::marks_dropped)=81 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=137 distinct marked clusters=45
+  distinct clusters: whole on base face=45 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 45}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=bialik-hachnisini.raw.txt fresh=true
+  bytes=1468 frames=33 core_refused(Term::marks_dropped)=5 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=198 distinct marked clusters=81
+  distinct clusters: whole on base face=81 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 81}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=gen-ch1-prefix.xml fresh=false
+  bytes=57372 frames=15 core_refused(Term::marks_dropped)=997 renderer_left_out(marks_unmapped, over all frames)=60
+  marked cells on screen summed over frames=541 distinct marked clusters=58
+  distinct clusters: whole on base face=36 whole on another face=0 drop=22 (codepoints left out=22) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 58}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x4 0592x1 0594x3 0596x3 0597x1 0599x1 059Cx1 05A3x3 05A5x3 05A8x2
+stack=macos-wt file=gen-ch1-prefix.xml fresh=true
+  bytes=57372 frames=757 core_refused(Term::marks_dropped)=6 renderer_left_out(marks_unmapped, over all frames)=327
+  marked cells on screen summed over frames=1224 distinct marked clusters=346
+  distinct clusters: whole on base face=138 whole on another face=0 drop=208 (codepoints left out=208) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 346}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x23 0592x2 0594x22 0595x1 0596x28 0597x8 0599x12 059Ax1 059Bx8 059Cx6 059Ex2 05A0x2 05A1x1 05A3x29 05A4x12 05A5x27 05A7x4 05A8x15 05A9x4 05AEx1
+stack=macos-wt file=ar-muallaqa-imru-al-qais.raw.txt fresh=false
+  bytes=12685 frames=4 core_refused(Term::marks_dropped)=1117 renderer_left_out(marks_unmapped, over all frames)=1428
+  marked cells on screen summed over frames=2419 distinct marked clusters=63
+  distinct clusters: whole on base face=0 whole on another face=0 drop=63 (codepoints left out=71) with .notdef=63
+  face drawing them: {"built-Regular.worktree.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 064Bx2 064Dx3 064Ex23 064Fx8 0650x16 0651x7 0652x10
+stack=macos-wt file=ar-muallaqa-imru-al-qais.raw.txt fresh=true
+  bytes=12685 frames=89 core_refused(Term::marks_dropped)=171 renderer_left_out(marks_unmapped, over all frames)=2442
+  marked cells on screen summed over frames=2219 distinct marked clusters=201
+  distinct clusters: whole on base face=0 whole on another face=0 drop=201 (codepoints left out=255) with .notdef=200
+  face drawing them: {"built-Regular.worktree.ttf": 201}
+  codepoints left out, by codepoint (count of distinct clusters): 064Bx3 064Cx4 064Dx26 064Ex53 064Fx39 0650x40 0651x54 0652x28
+stack=macos-wt file=hi-bharat.raw.txt fresh=false
+  bytes=222084 frames=55 core_refused(Term::marks_dropped)=13473 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=20841 distinct marked clusters=63
+  distinct clusters: whole on base face=63 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Kohinoor.ttc": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=hi-bharat.raw.txt fresh=true
+  bytes=222084 frames=706 core_refused(Term::marks_dropped)=6218 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=13534 distinct marked clusters=848
+  distinct clusters: whole on base face=848 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Kohinoor.ttc": 848}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=iliad-book1-prefix.xml fresh=false
+  bytes=86714 frames=22 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=iliad-book1-prefix.xml fresh=true
+  bytes=86714 frames=854 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=asciiquarium.raw fresh=false
+  bytes=335479 frames=82 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=btop.raw fresh=false
+  bytes=524288 frames=128 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=cat-scroll.raw fresh=false
+  bytes=448460 frames=110 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=1
+  marked cells on screen summed over frames=1 distinct marked clusters=1
+  distinct clusters: whole on base face=0 whole on another face=0 drop=1 (codepoints left out=1) with .notdef=1
+  face drawing them: {"built-Regular.worktree.ttf": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 0651x1
+stack=macos-wt file=git-log.raw fresh=false
+  bytes=501185 frames=123 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=less-pager.raw fresh=false
+  bytes=30146 frames=8 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=cat-cjk.raw fresh=false
+  bytes=327351 frames=80 core_refused(Term::marks_dropped)=72 renderer_left_out(marks_unmapped, over all frames)=2
+  marked cells on screen summed over frames=4407 distinct marked clusters=39
+  distinct clusters: whole on base face=12 whole on another face=26 drop=1 (codepoints left out=1) with .notdef=0
+  face drawing them: {"Apple Color Emoji.ttc": 8, "AppleSDGothicNeo.ttc": 26, "Hiragino Sans GB.ttc": 2, "Kohinoor.ttc": 3}
+  codepoints left out, by codepoint (count of distinct clusters): 309Ax1
+stack=macos-wt file=cava.raw fresh=false
+  bytes=636116 frames=156 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=less-cjk.raw fresh=false
+  bytes=84473 frames=21 core_refused(Term::marks_dropped)=2 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=1012 distinct marked clusters=19
+  distinct clusters: whole on base face=8 whole on another face=11 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Apple Color Emoji.ttc": 5, "AppleSDGothicNeo.ttc": 11, "Kohinoor.ttc": 3}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=macos-wt file=vim-unicode.raw fresh=false
+  bytes=138571 frames=34 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=962 distinct marked clusters=5
+  distinct clusters: whole on base face=5 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"Apple Color Emoji.ttc": 1, "Kohinoor.ttc": 1, "built-Regular.worktree.ttf": 3}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=bialik-hachnisini.raw.txt fresh=false
+  bytes=1468 frames=1 core_refused(Term::marks_dropped)=81 renderer_left_out(marks_unmapped, over all frames)=121
+  marked cells on screen summed over frames=137 distinct marked clusters=45
+  distinct clusters: whole on base face=0 whole on another face=0 drop=45 (codepoints left out=51) with .notdef=45
+  face drawing them: {"JetBrainsMono-Regular.ttf": 45}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x10 05B2x2 05B4x9 05B5x5 05B6x1 05B7x9 05B8x5 05B9x2 05BCx5 05C1x2 05C2x1
+stack=linux-HEAD file=bialik-hachnisini.raw.txt fresh=true
+  bytes=1468 frames=33 core_refused(Term::marks_dropped)=5 renderer_left_out(marks_unmapped, over all frames)=179
+  marked cells on screen summed over frames=198 distinct marked clusters=81
+  distinct clusters: whole on base face=0 whole on another face=0 drop=81 (codepoints left out=97) with .notdef=81
+  face drawing them: {"JetBrainsMono-Regular.ttf": 81}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x15 05B2x3 05B4x14 05B5x8 05B6x2 05B7x13 05B8x16 05B9x3 05BCx18 05C1x4 05C2x1
+stack=linux-HEAD file=gen-ch1-prefix.xml fresh=false
+  bytes=57372 frames=15 core_refused(Term::marks_dropped)=997 renderer_left_out(marks_unmapped, over all frames)=577
+  marked cells on screen summed over frames=541 distinct marked clusters=58
+  distinct clusters: whole on base face=0 whole on another face=0 drop=58 (codepoints left out=84) with .notdef=58
+  face drawing them: {"JetBrainsMono-Regular.ttf": 58}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x4 0592x1 0594x3 0596x3 0597x1 0599x1 059Cx1 05A3x3 05A5x3 05A8x2 05B0x6 05B1x1 05B4x8 05B5x6 05B6x1 05B7x7 05B8x10 05B9x5 05BCx12 05BDx1 05C1x5
+stack=linux-HEAD file=gen-ch1-prefix.xml fresh=true
+  bytes=57372 frames=757 core_refused(Term::marks_dropped)=6 renderer_left_out(marks_unmapped, over all frames)=1694
+  marked cells on screen summed over frames=1224 distinct marked clusters=346
+  distinct clusters: whole on base face=0 whole on another face=0 drop=346 (codepoints left out=611) with .notdef=346
+  face drawing them: {"JetBrainsMono-Regular.ttf": 346}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x23 0592x2 0594x22 0595x1 0596x28 0597x8 0599x12 059Ax1 059Bx8 059Cx6 059Ex2 05A0x2 05A1x1 05A3x29 05A4x12 05A5x27 05A7x4 05A8x15 05A9x4 05AEx1 05B0x20 05B1x1 05B2x4 05B4x49 05B5x41 05B6x35 05B7x42 05B8x67 05B9x25 05BBx1 05BCx70 05BDx27 05C1x17 05C2x4
+stack=linux-HEAD file=ar-muallaqa-imru-al-qais.raw.txt fresh=false
+  bytes=12685 frames=4 core_refused(Term::marks_dropped)=1117 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=2419 distinct marked clusters=63
+  distinct clusters: whole on base face=63 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=ar-muallaqa-imru-al-qais.raw.txt fresh=true
+  bytes=12685 frames=89 core_refused(Term::marks_dropped)=171 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=2219 distinct marked clusters=201
+  distinct clusters: whole on base face=200 whole on another face=1 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 201}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=hi-bharat.raw.txt fresh=false
+  bytes=222084 frames=55 core_refused(Term::marks_dropped)=13473 renderer_left_out(marks_unmapped, over all frames)=9119
+  marked cells on screen summed over frames=20841 distinct marked clusters=63
+  distinct clusters: whole on base face=0 whole on another face=0 drop=63 (codepoints left out=83) with .notdef=63
+  face drawing them: {"JetBrainsMono-Regular.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 0902x7 091Fx4 092Ex1 092Fx3 0930x2 0935x1 0937x3 093Cx2 093Ex11 093Fx5 0940x8 0943x1 0947x12 0948x2 094Bx2 094Dx19
+stack=linux-HEAD file=hi-bharat.raw.txt fresh=true
+  bytes=222084 frames=706 core_refused(Term::marks_dropped)=6218 renderer_left_out(marks_unmapped, over all frames)=16281
+  marked cells on screen summed over frames=13534 distinct marked clusters=848
+  distinct clusters: whole on base face=0 whole on another face=0 drop=848 (codepoints left out=1631) with .notdef=848
+  face drawing them: {"JetBrainsMono-Regular.ttf": 848}
+  codepoints left out, by codepoint (count of distinct clusters): 0901x19 0902x125 0903x3 0915x14 0916x4 0917x5 0918x5 091Ax12 091Bx1 091Cx5 091Ex3 091Fx30 0920x1 0921x7 0923x4 0924x38 0925x10 0926x19 0927x6 0928x8 092Ax14 092Bx2 092Cx8 092Dx7 092Ex22 092Fx59 0930x94 0932x17 0935x24 0936x2 0937x18 0938x10 0939x4 093Cx27 093Ex133 093Fx92 0940x72 0941x34 0942x31 0943x10 0947x65 0948x23 0949x11 094Bx79 094Cx15 094Dx439
+stack=linux-HEAD file=iliad-book1-prefix.xml fresh=false
+  bytes=86714 frames=22 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=iliad-book1-prefix.xml fresh=true
+  bytes=86714 frames=854 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=asciiquarium.raw fresh=false
+  bytes=335479 frames=82 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=btop.raw fresh=false
+  bytes=524288 frames=128 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=cat-scroll.raw fresh=false
+  bytes=448460 frames=110 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=1 distinct marked clusters=1
+  distinct clusters: whole on base face=1 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=git-log.raw fresh=false
+  bytes=501185 frames=123 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=less-pager.raw fresh=false
+  bytes=30146 frames=8 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=cat-cjk.raw fresh=false
+  bytes=327351 frames=80 core_refused(Term::marks_dropped)=72 renderer_left_out(marks_unmapped, over all frames)=1298
+  marked cells on screen summed over frames=4407 distinct marked clusters=39
+  distinct clusters: whole on base face=8 whole on another face=0 drop=31 (codepoints left out=46) with .notdef=30
+  face drawing them: {"JetBrainsMono-Regular.ttf": 31, "NotoColorEmoji.ttf": 8}
+  codepoints left out, by codepoint (count of distinct clusters): 093Ex1 0940x1 0947x1 3099x11 309Ax18
+stack=linux-HEAD file=cava.raw fresh=false
+  bytes=636116 frames=156 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-HEAD file=less-cjk.raw fresh=false
+  bytes=84473 frames=21 core_refused(Term::marks_dropped)=2 renderer_left_out(marks_unmapped, over all frames)=128
+  marked cells on screen summed over frames=1012 distinct marked clusters=19
+  distinct clusters: whole on base face=5 whole on another face=0 drop=14 (codepoints left out=18) with .notdef=13
+  face drawing them: {"JetBrainsMono-Regular.ttf": 14, "NotoColorEmoji.ttf": 5}
+  codepoints left out, by codepoint (count of distinct clusters): 093Ex1 0940x1 0947x1 3099x5 309Ax6
+stack=linux-HEAD file=vim-unicode.raw fresh=false
+  bytes=138571 frames=34 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=326
+  marked cells on screen summed over frames=962 distinct marked clusters=5
+  distinct clusters: whole on base face=1 whole on another face=0 drop=4 (codepoints left out=6) with .notdef=4
+  face drawing them: {"JetBrainsMono-Regular.ttf": 4, "NotoColorEmoji.ttf": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 05B0x1 05B4x2 0924x1 0947x1 094Dx1
+stack=linux-wt file=bialik-hachnisini.raw.txt fresh=false
+  bytes=1468 frames=1 core_refused(Term::marks_dropped)=81 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=137 distinct marked clusters=45
+  distinct clusters: whole on base face=45 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 45}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=bialik-hachnisini.raw.txt fresh=true
+  bytes=1468 frames=33 core_refused(Term::marks_dropped)=5 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=198 distinct marked clusters=81
+  distinct clusters: whole on base face=81 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 81}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=gen-ch1-prefix.xml fresh=false
+  bytes=57372 frames=15 core_refused(Term::marks_dropped)=997 renderer_left_out(marks_unmapped, over all frames)=60
+  marked cells on screen summed over frames=541 distinct marked clusters=58
+  distinct clusters: whole on base face=36 whole on another face=0 drop=22 (codepoints left out=22) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 58}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x4 0592x1 0594x3 0596x3 0597x1 0599x1 059Cx1 05A3x3 05A5x3 05A8x2
+stack=linux-wt file=gen-ch1-prefix.xml fresh=true
+  bytes=57372 frames=757 core_refused(Term::marks_dropped)=6 renderer_left_out(marks_unmapped, over all frames)=327
+  marked cells on screen summed over frames=1224 distinct marked clusters=346
+  distinct clusters: whole on base face=138 whole on another face=0 drop=208 (codepoints left out=208) with .notdef=0
+  face drawing them: {"built-Regular.worktree.ttf": 346}
+  codepoints left out, by codepoint (count of distinct clusters): 0591x23 0592x2 0594x22 0595x1 0596x28 0597x8 0599x12 059Ax1 059Bx8 059Cx6 059Ex2 05A0x2 05A1x1 05A3x29 05A4x12 05A5x27 05A7x4 05A8x15 05A9x4 05AEx1
+stack=linux-wt file=ar-muallaqa-imru-al-qais.raw.txt fresh=false
+  bytes=12685 frames=4 core_refused(Term::marks_dropped)=1117 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=2419 distinct marked clusters=63
+  distinct clusters: whole on base face=63 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=ar-muallaqa-imru-al-qais.raw.txt fresh=true
+  bytes=12685 frames=89 core_refused(Term::marks_dropped)=171 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=2219 distinct marked clusters=201
+  distinct clusters: whole on base face=200 whole on another face=1 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 201}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=hi-bharat.raw.txt fresh=false
+  bytes=222084 frames=55 core_refused(Term::marks_dropped)=13473 renderer_left_out(marks_unmapped, over all frames)=9119
+  marked cells on screen summed over frames=20841 distinct marked clusters=63
+  distinct clusters: whole on base face=0 whole on another face=0 drop=63 (codepoints left out=83) with .notdef=63
+  face drawing them: {"built-Regular.worktree.ttf": 63}
+  codepoints left out, by codepoint (count of distinct clusters): 0902x7 091Fx4 092Ex1 092Fx3 0930x2 0935x1 0937x3 093Cx2 093Ex11 093Fx5 0940x8 0943x1 0947x12 0948x2 094Bx2 094Dx19
+stack=linux-wt file=hi-bharat.raw.txt fresh=true
+  bytes=222084 frames=706 core_refused(Term::marks_dropped)=6218 renderer_left_out(marks_unmapped, over all frames)=16281
+  marked cells on screen summed over frames=13534 distinct marked clusters=848
+  distinct clusters: whole on base face=0 whole on another face=0 drop=848 (codepoints left out=1631) with .notdef=848
+  face drawing them: {"built-Regular.worktree.ttf": 848}
+  codepoints left out, by codepoint (count of distinct clusters): 0901x19 0902x125 0903x3 0915x14 0916x4 0917x5 0918x5 091Ax12 091Bx1 091Cx5 091Ex3 091Fx30 0920x1 0921x7 0923x4 0924x38 0925x10 0926x19 0927x6 0928x8 092Ax14 092Bx2 092Cx8 092Dx7 092Ex22 092Fx59 0930x94 0932x17 0935x24 0936x2 0937x18 0938x10 0939x4 093Cx27 093Ex133 093Fx92 0940x72 0941x34 0942x31 0943x10 0947x65 0948x23 0949x11 094Bx79 094Cx15 094Dx439
+stack=linux-wt file=iliad-book1-prefix.xml fresh=false
+  bytes=86714 frames=22 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=iliad-book1-prefix.xml fresh=true
+  bytes=86714 frames=854 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=asciiquarium.raw fresh=false
+  bytes=335479 frames=82 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=btop.raw fresh=false
+  bytes=524288 frames=128 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=cat-scroll.raw fresh=false
+  bytes=448460 frames=110 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=1 distinct marked clusters=1
+  distinct clusters: whole on base face=1 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {"DejaVuSansMono.ttf": 1}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=git-log.raw fresh=false
+  bytes=501185 frames=123 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=less-pager.raw fresh=false
+  bytes=30146 frames=8 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=cat-cjk.raw fresh=false
+  bytes=327351 frames=80 core_refused(Term::marks_dropped)=72 renderer_left_out(marks_unmapped, over all frames)=1298
+  marked cells on screen summed over frames=4407 distinct marked clusters=39
+  distinct clusters: whole on base face=8 whole on another face=0 drop=31 (codepoints left out=46) with .notdef=30
+  face drawing them: {"NotoColorEmoji.ttf": 8, "built-Regular.worktree.ttf": 31}
+  codepoints left out, by codepoint (count of distinct clusters): 093Ex1 0940x1 0947x1 3099x11 309Ax18
+stack=linux-wt file=cava.raw fresh=false
+  bytes=636116 frames=156 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=0
+  marked cells on screen summed over frames=0 distinct marked clusters=0
+  distinct clusters: whole on base face=0 whole on another face=0 drop=0 (codepoints left out=0) with .notdef=0
+  face drawing them: {}
+  codepoints left out, by codepoint (count of distinct clusters): 
+stack=linux-wt file=less-cjk.raw fresh=false
+  bytes=84473 frames=21 core_refused(Term::marks_dropped)=2 renderer_left_out(marks_unmapped, over all frames)=128
+  marked cells on screen summed over frames=1012 distinct marked clusters=19
+  distinct clusters: whole on base face=5 whole on another face=0 drop=14 (codepoints left out=18) with .notdef=13
+  face drawing them: {"NotoColorEmoji.ttf": 5, "built-Regular.worktree.ttf": 14}
+  codepoints left out, by codepoint (count of distinct clusters): 093Ex1 0940x1 0947x1 3099x5 309Ax6
+stack=linux-wt file=vim-unicode.raw fresh=false
+  bytes=138571 frames=34 core_refused(Term::marks_dropped)=0 renderer_left_out(marks_unmapped, over all frames)=12
+  marked cells on screen summed over frames=962 distinct marked clusters=5
+  distinct clusters: whole on base face=4 whole on another face=0 drop=1 (codepoints left out=3) with .notdef=1
+  face drawing them: {"NotoColorEmoji.ttf": 1, "built-Regular.worktree.ttf": 4}
+  codepoints left out, by codepoint (count of distinct clusters): 0924x1 0947x1 094Dx1

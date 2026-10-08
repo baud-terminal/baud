@@ -1,0 +1,186 @@
+### Marks mapped (cmap), per group: mapped/total
+| config | latin | greek | cyrillic | hebrew | arabic | devanagari |
+|---|---|---|---|---|---|---|
+| face:DejaVuSansMono | 67/250 | 8/11 | 7/63 | 0/51 | 13/52 | 0/53 |
+| face:JBM-built-wt | 23/250 | 5/11 | 7/63 | 20/51 | 0/52 | 0/53 |
+| face:JBM-stock | 23/250 | 5/11 | 7/63 | 0/51 | 0/52 | 0/53 |
+| face:Kohinoor | 0/250 | 0/11 | 0/63 | 0/51 | 0/52 | 34/53 |
+| face:Menlo | 67/250 | 8/11 | 7/63 | 0/51 | 0/52 | 0/53 |
+| stack:linux-HEAD-marks | 75/250 | 8/11 | 7/63 | 0/51 | 13/52 | 0/53 |
+| stack:linux-wt-marks | 75/250 | 8/11 | 7/63 | 20/51 | 13/52 | 0/53 |
+| stack:macos-HEAD-marks | 77/250 | 9/11 | 7/63 | 0/51 | 0/52 | 34/53 |
+| stack:macos-wt-marks | 77/250 | 9/11 | 7/63 | 20/51 | 0/52 | 34/53 |
+
+### kind=cross: outcome counts (core_altered = core did not keep the cluster as typed)
+| config | group | n | WHOLE_BASE_FACE | WHOLE_OTHER_FACE | DROP | NOTDEF_UNCOUNTED | BASE_UNMAPPED | core_altered | cps_dropped |
+|---|---|---|---|---|---|---|---|---|---|
+| face:DejaVuSansMono | latin | 13000 | 3692 | 0 | 9308 | 0 | 0 | 0 | 9308 |
+| face:DejaVuSansMono | greek | 539 | 452 | 0 | 87 | 0 | 0 | 0 | 87 |
+| face:DejaVuSansMono | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| face:DejaVuSansMono | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| face:DejaVuSansMono | arabic | 1872 | 468 | 0 | 1404 | 0 | 0 | 0 | 1404 |
+| face:DejaVuSansMono | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| face:JBM-built-wt | latin | 13000 | 1404 | 0 | 11596 | 0 | 0 | 0 | 11596 |
+| face:JBM-built-wt | greek | 539 | 294 | 0 | 245 | 0 | 0 | 0 | 245 |
+| face:JBM-built-wt | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| face:JBM-built-wt | hebrew | 1377 | 540 | 0 | 837 | 0 | 0 | 0 | 837 |
+| face:JBM-built-wt | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| face:JBM-built-wt | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| face:JBM-stock | latin | 13000 | 1404 | 0 | 11596 | 0 | 0 | 0 | 11596 |
+| face:JBM-stock | greek | 539 | 294 | 0 | 245 | 0 | 0 | 0 | 245 |
+| face:JBM-stock | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| face:JBM-stock | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| face:JBM-stock | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| face:JBM-stock | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| face:Kohinoor | latin | 13000 | 265 | 0 | 12735 | 0 | 0 | 0 | 12773 |
+| face:Kohinoor | greek | 539 | 0 | 0 | 11 | 0 | 528 | 0 | 588 |
+| face:Kohinoor | cyrillic | 4032 | 0 | 0 | 0 | 0 | 4032 | 0 | 4158 |
+| face:Kohinoor | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| face:Kohinoor | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| face:Kohinoor | devanagari | 1961 | 1258 | 0 | 703 | 0 | 0 | 0 | 703 |
+| face:Menlo | latin | 13000 | 3692 | 0 | 9308 | 0 | 0 | 0 | 9308 |
+| face:Menlo | greek | 539 | 452 | 0 | 87 | 0 | 0 | 0 | 87 |
+| face:Menlo | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| face:Menlo | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| face:Menlo | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| face:Menlo | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| stack:linux-HEAD-marks | latin | 13000 | 1404 | 2704 | 8892 | 0 | 0 | 0 | 8892 |
+| stack:linux-HEAD-marks | greek | 539 | 294 | 158 | 87 | 0 | 0 | 0 | 87 |
+| stack:linux-HEAD-marks | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| stack:linux-HEAD-marks | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| stack:linux-HEAD-marks | arabic | 1872 | 468 | 0 | 1404 | 0 | 0 | 0 | 1404 |
+| stack:linux-HEAD-marks | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| stack:linux-wt-marks | latin | 13000 | 1404 | 2704 | 8892 | 0 | 0 | 0 | 8892 |
+| stack:linux-wt-marks | greek | 539 | 294 | 158 | 87 | 0 | 0 | 0 | 87 |
+| stack:linux-wt-marks | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| stack:linux-wt-marks | hebrew | 1377 | 540 | 0 | 837 | 0 | 0 | 0 | 837 |
+| stack:linux-wt-marks | arabic | 1872 | 468 | 0 | 1404 | 0 | 0 | 0 | 1404 |
+| stack:linux-wt-marks | devanagari | 1961 | 0 | 0 | 0 | 0 | 1961 | 0 | 2120 |
+| stack:macos-HEAD-marks | latin | 13000 | 1404 | 2704 | 8892 | 0 | 0 | 0 | 8892 |
+| stack:macos-HEAD-marks | greek | 539 | 294 | 158 | 87 | 0 | 0 | 0 | 87 |
+| stack:macos-HEAD-marks | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| stack:macos-HEAD-marks | hebrew | 1377 | 0 | 0 | 0 | 0 | 1377 | 0 | 1377 |
+| stack:macos-HEAD-marks | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| stack:macos-HEAD-marks | devanagari | 1961 | 1258 | 0 | 703 | 0 | 0 | 0 | 703 |
+| stack:macos-wt-marks | latin | 13000 | 1404 | 2704 | 8892 | 0 | 0 | 0 | 8892 |
+| stack:macos-wt-marks | greek | 539 | 294 | 158 | 87 | 0 | 0 | 0 | 87 |
+| stack:macos-wt-marks | cyrillic | 4032 | 448 | 0 | 3584 | 0 | 0 | 0 | 3584 |
+| stack:macos-wt-marks | hebrew | 1377 | 540 | 0 | 837 | 0 | 0 | 0 | 837 |
+| stack:macos-wt-marks | arabic | 1872 | 0 | 0 | 0 | 0 | 1872 | 0 | 2132 |
+| stack:macos-wt-marks | devanagari | 1961 | 1258 | 0 | 703 | 0 | 0 | 0 | 703 |
+
+### kind=nfd: outcome counts (core_altered = core did not keep the cluster as typed)
+| config | group | n | WHOLE_BASE_FACE | WHOLE_OTHER_FACE | DROP | NOTDEF_UNCOUNTED | BASE_UNMAPPED | core_altered | cps_dropped |
+|---|---|---|---|---|---|---|---|---|---|
+| face:DejaVuSansMono | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:DejaVuSansMono | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:DejaVuSansMono | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:DejaVuSansMono | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| face:DejaVuSansMono | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 0 |
+| face:DejaVuSansMono | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| face:JBM-built-wt | latin | 497 | 444 | 0 | 51 | 0 | 2 | 0 | 51 |
+| face:JBM-built-wt | greek | 249 | 67 | 0 | 174 | 0 | 8 | 0 | 258 |
+| face:JBM-built-wt | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:JBM-built-wt | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| face:JBM-built-wt | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| face:JBM-built-wt | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| face:JBM-stock | latin | 497 | 444 | 0 | 51 | 0 | 2 | 0 | 51 |
+| face:JBM-stock | greek | 249 | 67 | 0 | 174 | 0 | 8 | 0 | 258 |
+| face:JBM-stock | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:JBM-stock | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| face:JBM-stock | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| face:JBM-stock | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| face:Kohinoor | latin | 497 | 173 | 0 | 322 | 0 | 2 | 0 | 342 |
+| face:Kohinoor | greek | 249 | 0 | 0 | 4 | 0 | 245 | 0 | 423 |
+| face:Kohinoor | cyrillic | 52 | 0 | 0 | 0 | 0 | 52 | 0 | 52 |
+| face:Kohinoor | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| face:Kohinoor | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| face:Kohinoor | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:Menlo | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| face:Menlo | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| face:Menlo | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| stack:linux-HEAD-marks | latin | 497 | 446 | 51 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-HEAD-marks | greek | 249 | 75 | 174 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-HEAD-marks | cyrillic | 52 | 52 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-HEAD-marks | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| stack:linux-HEAD-marks | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 3 |
+| stack:linux-HEAD-marks | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| stack:linux-wt-marks | latin | 497 | 446 | 51 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-wt-marks | greek | 249 | 75 | 174 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-wt-marks | cyrillic | 52 | 52 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-wt-marks | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| stack:linux-wt-marks | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 3 |
+| stack:linux-wt-marks | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 11 |
+| stack:macos-HEAD-marks | latin | 497 | 446 | 51 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-HEAD-marks | greek | 249 | 75 | 174 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-HEAD-marks | cyrillic | 52 | 52 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-HEAD-marks | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 36 |
+| stack:macos-HEAD-marks | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| stack:macos-HEAD-marks | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | latin | 497 | 446 | 51 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | greek | 249 | 75 | 174 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | cyrillic | 52 | 52 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| stack:macos-wt-marks | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 8 |
+| stack:macos-wt-marks | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+### kind=nfc: outcome counts (core_altered = core did not keep the cluster as typed)
+| config | group | n | WHOLE_BASE_FACE | WHOLE_OTHER_FACE | DROP | NOTDEF_UNCOUNTED | BASE_UNMAPPED | core_altered | cps_dropped |
+|---|---|---|---|---|---|---|---|---|---|
+| face:DejaVuSansMono | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:DejaVuSansMono | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:DejaVuSansMono | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:DejaVuSansMono | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| face:DejaVuSansMono | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 0 |
+| face:DejaVuSansMono | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| face:JBM-built-wt | latin | 497 | 444 | 0 | 0 | 51 | 2 | 0 | 0 |
+| face:JBM-built-wt | greek | 249 | 67 | 0 | 0 | 138 | 44 | 0 | 0 |
+| face:JBM-built-wt | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:JBM-built-wt | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| face:JBM-built-wt | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| face:JBM-built-wt | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| face:JBM-stock | latin | 497 | 444 | 0 | 0 | 51 | 2 | 0 | 0 |
+| face:JBM-stock | greek | 249 | 67 | 0 | 0 | 138 | 44 | 0 | 0 |
+| face:JBM-stock | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:JBM-stock | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| face:JBM-stock | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| face:JBM-stock | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| face:Kohinoor | latin | 497 | 173 | 0 | 0 | 322 | 2 | 0 | 0 |
+| face:Kohinoor | greek | 249 | 0 | 0 | 0 | 4 | 245 | 0 | 0 |
+| face:Kohinoor | cyrillic | 52 | 0 | 0 | 0 | 0 | 52 | 0 | 0 |
+| face:Kohinoor | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| face:Kohinoor | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| face:Kohinoor | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| face:Menlo | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| face:Menlo | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| face:Menlo | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| face:Menlo | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| stack:linux-HEAD-marks | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-HEAD-marks | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-HEAD-marks | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| stack:linux-HEAD-marks | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| stack:linux-HEAD-marks | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 0 |
+| stack:linux-HEAD-marks | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| stack:linux-wt-marks | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-wt-marks | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:linux-wt-marks | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| stack:linux-wt-marks | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| stack:linux-wt-marks | arabic | 8 | 5 | 0 | 0 | 0 | 3 | 0 | 0 |
+| stack:linux-wt-marks | devanagari | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
+| stack:macos-HEAD-marks | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-HEAD-marks | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-HEAD-marks | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| stack:macos-HEAD-marks | hebrew | 34 | 0 | 0 | 0 | 0 | 34 | 0 | 0 |
+| stack:macos-HEAD-marks | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| stack:macos-HEAD-marks | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | latin | 497 | 497 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | greek | 249 | 249 | 0 | 0 | 0 | 0 | 0 | 0 |
+| stack:macos-wt-marks | cyrillic | 52 | 50 | 0 | 0 | 0 | 2 | 0 | 0 |
+| stack:macos-wt-marks | hebrew | 34 | 33 | 0 | 0 | 0 | 1 | 0 | 0 |
+| stack:macos-wt-marks | arabic | 8 | 0 | 0 | 0 | 0 | 8 | 0 | 0 |
+| stack:macos-wt-marks | devanagari | 11 | 11 | 0 | 0 | 0 | 0 | 0 | 0 |

@@ -1,0 +1,8 @@
+# Note AD, 2026-10-08: baud-font at e0a611d (Shaper, Features::GRID) on Apple Color Emoji 22.0d3e2,
+# macOS 27.0. Visible glyph ids for the intact RGI sequence and for what the core keeps of it.
+tux RGI                  [2643]
+tux core-kept            [2643]
+person in tuxedo+tone    [2642]
+kneel RGI                [3013]
+kneel core-kept          [3012]
+kneel base+tone          [3012]

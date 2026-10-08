@@ -1,0 +1,8 @@
+# Note AD, 2026-10-08, macOS 27.0 (26A5425a): CTFontManagerCreateFontDescriptorsFromURL on each file.
+# The two NotoColorEmoji.ttf rows are 2.042 (Debian 12's package) and 2.051 (nixpkgs), in that order;
+# noto-missing.ttf and apple-missing.ttf are the engines lens's subsets (Noto CBDT, Apple sbix).
+noto/NotoColorEmoji.ttf: CTFontManagerCreateFontDescriptorsFromURL -> nil
+noto/NotoColorEmoji.ttf: CTFontManagerCreateFontDescriptorsFromURL -> nil
+engines/noto-missing.ttf: CTFontManagerCreateFontDescriptorsFromURL -> nil
+engines/apple-missing.ttf: CTFontManagerCreateFontDescriptorsFromURL -> 1 descriptor(s)
+jetbrains-mono/JetBrainsMono-Regular.ttf: CTFontManagerCreateFontDescriptorsFromURL -> 1 descriptor(s)

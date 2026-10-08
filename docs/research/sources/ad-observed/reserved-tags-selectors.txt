@@ -1,0 +1,114 @@
+# Note AD, 2026-10-08, the fixer's probe: each sequence through a fresh baud-core Term at e0a611d,
+# then each kept cell through baud_render::Renderer::cluster (face_for, select_cluster, the drop
+# rule; marks_unmapped is its counter) on the default macOS stack and two Linux stacks, 14 px.
+# dx is each glyph's pen offset from the cell's origin in cells. Faces: macOS 27.0 (26A5425a)
+# system fonts; JBM, Nerd and STIX from baud-app/fonts at e0a611d; DejaVu Sans Mono 2.37 and Noto
+# Color Emoji 2.051 from nixpkgs; Noto Color Emoji 2.042 from Debian 12's package.
+## stack=macos-HEAD (14 px, cell_w=8)
+[woman ZWJ U+1FAFF (reserved, Extended_Pictographic)] sent=1F469 200D 1FAFF core_refused=0 cells=1
+    kept=1F469 200D 1FAFF wide=true face=AppleColorEmoji marks_unmapped+=1 glyphs=[g1366@AppleColorEmoji dx=0.00]
+[woman ZWJ U+1FAF9 (Emoji 18.0, reserved in UCD 17.0)] sent=1F469 200D 1FAF9 core_refused=0 cells=1
+    kept=1F469 200D 1FAF9 wide=true face=AppleColorEmoji marks_unmapped+=1 glyphs=[g1366@AppleColorEmoji dx=0.00]
+[woman ZWJ U+1FC00 (reserved, Extended_Pictographic)] sent=1F469 200D 1FC00 core_refused=0 cells=1
+    kept=1F469 200D 1FC00 wide=true face=AppleColorEmoji marks_unmapped+=1 glyphs=[g1366@AppleColorEmoji dx=0.00]
+[U+1FAF9 alone (Emoji 18.0, reserved in UCD 17.0)] sent=1FAF9 core_refused=0 cells=1
+    kept=1FAF9 wide=false face=JBM marks_unmapped+=0 glyphs=[g0@JBM dx=0.00]
+[flag England (RGI tag sequence, control)] sent=1F3F4 E0067 E0062 E0065 E006E E0067 E007F core_refused=0 cells=1
+    kept=1F3F4 E0067 E0062 E0065 E006E E0067 E007F wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g995@AppleColorEmoji dx=0.00]
+[flag usca (valid, not RGI: UTS #51 C.1.1)] sent=1F3F4 E0075 E0073 E0063 E0061 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0063 E0061 E007F wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g993@AppleColorEmoji dx=0.00]
+[flag ushuh (invalid: UTS #51 C.1.2)] sent=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g993@AppleColorEmoji dx=0.00]
+[a + VS1 (a variation sequence, not assigned: not misplaced)] sent=0061 FE00 core_refused=0 cells=1
+    kept=0061 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + VS2 + VS1 (VS1 misplaced, D57h example 3)] sent=0061 FE01 FE00 core_refused=0 cells=1
+    kept=0061 FE01 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + U+0301 + VS1 (VS1 misplaced: follows a mark)] sent=0061 0301 FE00 core_refused=0 cells=1
+    kept=0061 0301 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g190@JBM dx=0.00]
+[a + VS16 + VS16 (the second misplaced)] sent=0061 FE0F FE0F core_refused=0 cells=1
+    kept=0061 FE0F FE0F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[VS1 first in a fresh Term (misplaced: follows nothing)] sent=FE00 core_refused=1 cells=0
+[a + CR + VS1 (misplaced, D57h example 1)] sent=0061 000D FE00 core_refused=1 cells=1
+    kept=0061 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + TAG a + CANCEL TAG (misplaced tags)] sent=0061 E0061 E007F core_refused=0 cells=1
+    kept=0061 E0061 E007F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[RI pair C Q (flag: Sark, RGI 17.0)] sent=1F1E8 1F1F6 core_refused=0 cells=1
+    kept=1F1E8 1F1F6 wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g425@AppleColorEmoji dx=0.00]
+[RI pair A A (not a flag)] sent=1F1E6 1F1E6 core_refused=0 cells=1
+    kept=1F1E6 1F1E6 wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g16@AppleColorEmoji dx=0.00, g16@AppleColorEmoji dx=1.75]
+[men with bunny ears: light, medium-light (RGI 17.0)] sent=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC core_refused=0 cells=1
+    kept=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g3714@AppleColorEmoji dx=0.00, g3717@AppleColorEmoji dx=0.00]
+[women wrestling: light, medium (RGI 17.0)] sent=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD core_refused=0 cells=1
+    kept=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD wide=true face=AppleColorEmoji marks_unmapped+=0 glyphs=[g3778@AppleColorEmoji dx=0.00, g3783@AppleColorEmoji dx=0.00]
+## stack=linux-HEAD-Noto-2.042 (14 px, cell_w=8)
+[woman ZWJ U+1FAFF (reserved, Extended_Pictographic)] sent=1F469 200D 1FAFF core_refused=0 cells=1
+    kept=1F469 200D 1FAFF wide=true face=Noto-2.042-debian12 marks_unmapped+=1 glyphs=[g597@Noto-2.042-debian12 dx=0.00]
+[woman ZWJ U+1FAF9 (Emoji 18.0, reserved in UCD 17.0)] sent=1F469 200D 1FAF9 core_refused=0 cells=1
+    kept=1F469 200D 1FAF9 wide=true face=Noto-2.042-debian12 marks_unmapped+=1 glyphs=[g597@Noto-2.042-debian12 dx=0.00]
+[woman ZWJ U+1FC00 (reserved, Extended_Pictographic)] sent=1F469 200D 1FC00 core_refused=0 cells=1
+    kept=1F469 200D 1FC00 wide=true face=Noto-2.042-debian12 marks_unmapped+=1 glyphs=[g597@Noto-2.042-debian12 dx=0.00]
+[U+1FAF9 alone (Emoji 18.0, reserved in UCD 17.0)] sent=1FAF9 core_refused=0 cells=1
+    kept=1FAF9 wide=false face=JBM marks_unmapped+=0 glyphs=[g0@JBM dx=0.00]
+[flag England (RGI tag sequence, control)] sent=1F3F4 E0067 E0062 E0065 E006E E0067 E007F core_refused=0 cells=1
+    kept=1F3F4 E0067 E0062 E0065 E006E E0067 E007F wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g1911@Noto-2.042-debian12 dx=0.00]
+[flag usca (valid, not RGI: UTS #51 C.1.1)] sent=1F3F4 E0075 E0073 E0063 E0061 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0063 E0061 E007F wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g1951@Noto-2.042-debian12 dx=0.00]
+[flag ushuh (invalid: UTS #51 C.1.2)] sent=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g1467@Noto-2.042-debian12 dx=0.00]
+[a + VS1 (a variation sequence, not assigned: not misplaced)] sent=0061 FE00 core_refused=0 cells=1
+    kept=0061 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + VS2 + VS1 (VS1 misplaced, D57h example 3)] sent=0061 FE01 FE00 core_refused=0 cells=1
+    kept=0061 FE01 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + U+0301 + VS1 (VS1 misplaced: follows a mark)] sent=0061 0301 FE00 core_refused=0 cells=1
+    kept=0061 0301 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g190@JBM dx=0.00]
+[a + VS16 + VS16 (the second misplaced)] sent=0061 FE0F FE0F core_refused=0 cells=1
+    kept=0061 FE0F FE0F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[VS1 first in a fresh Term (misplaced: follows nothing)] sent=FE00 core_refused=1 cells=0
+[a + CR + VS1 (misplaced, D57h example 1)] sent=0061 000D FE00 core_refused=1 cells=1
+    kept=0061 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + TAG a + CANCEL TAG (misplaced tags)] sent=0061 E0061 E007F core_refused=0 cells=1
+    kept=0061 E0061 E007F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[RI pair C Q (flag: Sark, RGI 17.0)] sent=1F1E8 1F1F6 core_refused=0 cells=1
+    kept=1F1E8 1F1F6 wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g207@Noto-2.042-debian12 dx=0.00, g221@Noto-2.042-debian12 dx=2.12]
+[RI pair A A (not a flag)] sent=1F1E6 1F1E6 core_refused=0 cells=1
+    kept=1F1E6 1F1E6 wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g205@Noto-2.042-debian12 dx=0.00, g205@Noto-2.042-debian12 dx=2.12]
+[men with bunny ears: light, medium-light (RGI 17.0)] sent=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC core_refused=0 cells=1
+    kept=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC wide=true face=Noto-2.042-debian12 marks_unmapped+=0 glyphs=[g2123@Noto-2.042-debian12 dx=0.00, g540@Noto-2.042-debian12 dx=2.12, g2165@Noto-2.042-debian12 dx=4.38]
+[women wrestling: light, medium (RGI 17.0)] sent=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD core_refused=0 cells=1
+    kept=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD wide=true face=Noto-2.042-debian12 marks_unmapped+=1 glyphs=[g2374@Noto-2.042-debian12 dx=0.00, g2486@Noto-2.042-debian12 dx=2.12]
+## stack=linux-HEAD-Noto-2.051 (14 px, cell_w=8)
+[woman ZWJ U+1FAFF (reserved, Extended_Pictographic)] sent=1F469 200D 1FAFF core_refused=0 cells=1
+    kept=1F469 200D 1FAFF wide=true face=Noto-2.051-nix marks_unmapped+=1 glyphs=[g597@Noto-2.051-nix dx=0.00]
+[woman ZWJ U+1FAF9 (Emoji 18.0, reserved in UCD 17.0)] sent=1F469 200D 1FAF9 core_refused=0 cells=1
+    kept=1F469 200D 1FAF9 wide=true face=Noto-2.051-nix marks_unmapped+=1 glyphs=[g597@Noto-2.051-nix dx=0.00]
+[woman ZWJ U+1FC00 (reserved, Extended_Pictographic)] sent=1F469 200D 1FC00 core_refused=0 cells=1
+    kept=1F469 200D 1FC00 wide=true face=Noto-2.051-nix marks_unmapped+=1 glyphs=[g597@Noto-2.051-nix dx=0.00]
+[U+1FAF9 alone (Emoji 18.0, reserved in UCD 17.0)] sent=1FAF9 core_refused=0 cells=1
+    kept=1FAF9 wide=false face=JBM marks_unmapped+=0 glyphs=[g0@JBM dx=0.00]
+[flag England (RGI tag sequence, control)] sent=1F3F4 E0067 E0062 E0065 E006E E0067 E007F core_refused=0 cells=1
+    kept=1F3F4 E0067 E0062 E0065 E006E E0067 E007F wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g1913@Noto-2.051-nix dx=0.00]
+[flag usca (valid, not RGI: UTS #51 C.1.1)] sent=1F3F4 E0075 E0073 E0063 E0061 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0063 E0061 E007F wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g1481@Noto-2.051-nix dx=0.00]
+[flag ushuh (invalid: UTS #51 C.1.2)] sent=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F core_refused=0 cells=1
+    kept=1F3F4 E0075 E0073 E0068 E0075 E0068 E007F wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g1481@Noto-2.051-nix dx=0.00]
+[a + VS1 (a variation sequence, not assigned: not misplaced)] sent=0061 FE00 core_refused=0 cells=1
+    kept=0061 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + VS2 + VS1 (VS1 misplaced, D57h example 3)] sent=0061 FE01 FE00 core_refused=0 cells=1
+    kept=0061 FE01 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + U+0301 + VS1 (VS1 misplaced: follows a mark)] sent=0061 0301 FE00 core_refused=0 cells=1
+    kept=0061 0301 FE00 wide=false face=JBM marks_unmapped+=0 glyphs=[g190@JBM dx=0.00]
+[a + VS16 + VS16 (the second misplaced)] sent=0061 FE0F FE0F core_refused=0 cells=1
+    kept=0061 FE0F FE0F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[VS1 first in a fresh Term (misplaced: follows nothing)] sent=FE00 core_refused=1 cells=0
+[a + CR + VS1 (misplaced, D57h example 1)] sent=0061 000D FE00 core_refused=1 cells=1
+    kept=0061 wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[a + TAG a + CANCEL TAG (misplaced tags)] sent=0061 E0061 E007F core_refused=0 cells=1
+    kept=0061 E0061 E007F wide=false face=JBM marks_unmapped+=0 glyphs=[g189@JBM dx=0.00]
+[RI pair C Q (flag: Sark, RGI 17.0)] sent=1F1E8 1F1F6 core_refused=0 cells=1
+    kept=1F1E8 1F1F6 wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g1588@Noto-2.051-nix dx=0.00]
+[RI pair A A (not a flag)] sent=1F1E6 1F1E6 core_refused=0 cells=1
+    kept=1F1E6 1F1E6 wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g205@Noto-2.051-nix dx=0.00, g205@Noto-2.051-nix dx=2.12]
+[men with bunny ears: light, medium-light (RGI 17.0)] sent=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC core_refused=0 cells=1
+    kept=1F468 1F3FB 200D 1F430 200D 1F468 1F3FC wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g2063@Noto-2.051-nix dx=0.00]
+[women wrestling: light, medium (RGI 17.0)] sent=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD core_refused=0 cells=1
+    kept=1F469 1F3FB 200D 1FAEF 200D 1F469 1F3FD wide=true face=Noto-2.051-nix marks_unmapped+=0 glyphs=[g2393@Noto-2.051-nix dx=0.00]

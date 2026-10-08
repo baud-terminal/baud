@@ -9061,3 +9061,3163 @@ bytes  = 61140
 status = "external"
 group  = "J"
 # Read for note J's text anti-aliasing (2026-09-30); hash-verified, not committed.
+
+
+# ── note AD: what a cell draws for a code point no face draws ──────────────
+
+[sources.unicode18-ch5]
+key    = "unicode18-ch5"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 5, Implementation Guidelines (5.3 Unknown and Missing Characters, 5.13, 5.20, 5.21.6)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-5/"
+file   = "unicode18-ch5.html"
+sha256 = "53777cf08843ebe775e61a1eb32d1d2007aa5c300691fbf99c4761377f841fa0"
+bytes  = 332557
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode18-ch3]
+key    = "unicode18-ch3"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 3, Conformance (C5, C7, D50, D52, D57a-D57h)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-3/"
+file   = "unicode18-ch3.html"
+sha256 = "f9e158a640c88cb0aebf60e5f724ea4f957eca539c620fb1e161cb6c8f8fb22e"
+bytes  = 428731
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode18-ch2]
+key    = "unicode18-ch2"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 2, General Structure (2.11.5, 2.14)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-2/"
+file   = "unicode18-ch2.html"
+sha256 = "d51d5ee0ee321e689a7a79f79f9ae01fef2934290a6fb92e55dec017743a5846"
+bytes  = 277343
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode18-ch22]
+key    = "unicode18-ch22"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 22, Symbols (22.10 Regional Indicator Symbols)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-22/"
+file   = "unicode18-ch22.html"
+sha256 = "2e79822bb6503c2571e808d90a8ac98f95dbdadb7467a5e842c101fb50302c93"
+bytes  = 660609
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode18-ch23]
+key    = "unicode18-ch23"
+title  = "The Unicode Standard, Version 18.0 -- Chapter 23, Special Areas and Format Characters"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/core-spec/chapter-23/"
+file   = "unicode18-ch23.html"
+sha256 = "6ac4cc43a45d8ccfbcbd39013149ff11328e1eb60c2c2e9d2cab454c43d8d782"
+bytes  = 204196
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode18-release]
+key    = "unicode18-release"
+title  = "Unicode 18.0.0 -- the release page (dated 2026-09-16, still carrying a preliminary-draft banner)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org/versions"
+url    = "https://www.unicode.org/versions/Unicode18.0.0/"
+file   = "unicode18-release.html"
+sha256 = "b24d7933fa1dc5a25b274ed15ea2e324f29b144d884f0ba2c1b3dd47b0fa13bf"
+bytes  = 62838
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Fetched as https://www.unicode.org/versions/latest/, which redirected here; the
+# versioned url returned the same bytes on 2026-10-08.
+
+[sources.unicode17-ch5]
+key    = "unicode17-ch5"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 5, Implementation Guidelines"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-5/"
+file   = "unicode17-ch5.html"
+sha256 = "460954315d4bf090458386f0f7b17ab412fa2de1f27515b41779d719dbc60632"
+bytes  = 319149
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode17-ch2]
+key    = "unicode17-ch2"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 2, General Structure"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-2/"
+file   = "unicode17-ch2.html"
+sha256 = "9b07c2f3f14abc81570d9c27ee7ec79e9a8ab743ccc5e44aabc9817a604ada95"
+bytes  = 269337
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode17-ch23]
+key    = "unicode17-ch23"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 23, Special Areas and Format Characters (23.4 Variation Selectors)"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-23/"
+file   = "unicode17-ch23.html"
+sha256 = "bfeba0d4980b4b540d26ea96157f98f142ac93ab481c2ed2285aa002eb9acd3f"
+bytes  = 175850
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.unicode16-ch5]
+key    = "unicode16-ch5"
+title  = "The Unicode Standard, Version 16.0 -- Chapter 5, Implementation Guidelines"
+author = "The Unicode Consortium"
+year   = 2024
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-5/"
+file   = "unicode16-ch5.html"
+sha256 = "854c3aa3fd8a2d11537d78c1e5e4633a64b8b1195de1ebdee929edd189433e16"
+bytes  = 302756
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.uts51-r31]
+key    = "uts51-r31"
+title  = "UTS #51: Unicode Emoji, Version 18.0, revision 31 -- display fallback for modifiers, ZWJ sequences, flags and tags"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "Unicode Technical Standard"
+url    = "https://www.unicode.org/reports/tr51/tr51-31.html"
+file   = "uts51-r31.html"
+sha256 = "a12a8c986f50b97c2d82cbdabfe18928ac16375e74b6eb61b54654e132966658"
+bytes  = 207223
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Revision 29 is `uts51-emoji`. Fetched from the unversioned url; tr51-31.html returned
+# the same bytes on 2026-10-08.
+
+[sources.uts51-img-unsupported]
+key    = "uts51-img-unsupported"
+title  = "UTS #51 illustration: the missing-glyph indicator in the 'Unsupported' row of the modifier table (2.4.1)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "Unicode Technical Standard"
+url    = "https://www.unicode.org/reports/tr51/images/other/unsupported.png"
+file   = "uts51-img-unsupported.png"
+sha256 = "995b948ae282ec772f39dbf1a844279e434f56036b68c2cd44758a825be903e9"
+bytes  = 245
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.uts51-img-missing-flag]
+key    = "uts51-img-missing-flag"
+title  = "UTS #51 illustration: the missing flag glyph (Annex B.1)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "Unicode Technical Standard"
+url    = "https://www.unicode.org/reports/tr51/images/other/black-flag-unknown.png"
+file   = "uts51-img-missing-flag.png"
+sha256 = "f3bf59498d85b34a67483f6c35164a5c8d1a86e16bcc12d64f2950db4ef48fe4"
+bytes  = 1765
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.uts51-img-invalid-tag]
+key    = "uts51-img-invalid-tag"
+title  = "UTS #51 illustration: the fallback depiction of an invalid sequence (1.5 C3)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "Unicode Technical Standard"
+url    = "https://www.unicode.org/reports/tr51/images/other/unknownTag2.png"
+file   = "uts51-img-invalid-tag.png"
+sha256 = "b6e14ba4579552807371ad95001172f028f654e9e821ac97c90fb515c36d3ba7"
+bytes  = 1967
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.ucd18-emoji-data]
+key    = "ucd18-emoji-data"
+title  = "emoji-data.txt, Unicode Character Database 18.0.0 -- Extended_Pictographic over reserved code points"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/18.0.0/ucd/emoji/emoji-data.txt"
+file   = "ucd18-emoji-data.txt"
+sha256 = "80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1"
+bytes  = 108719
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.emoji17-sequences]
+key    = "emoji17-sequences"
+title  = "emoji-sequences.txt, Unicode Emoji 17.0 -- the RGI basic, keycap, flag, tag and modifier sequences"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "UTS #51 data"
+url    = "https://www.unicode.org/Public/17.0.0/emoji/emoji-sequences.txt"
+file   = "emoji17-sequences.txt"
+sha256 = "12cc8267dc33cbd11ed32bcf6fc5dc2ad9c7a77bae1bdfba2f41b1b9b3ead8dd"
+bytes  = 194868
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.emoji17-zwj-sequences]
+key    = "emoji17-zwj-sequences"
+title  = "emoji-zwj-sequences.txt, Unicode Emoji 17.0 -- the RGI ZWJ sequences"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "UTS #51 data"
+url    = "https://www.unicode.org/Public/17.0.0/emoji/emoji-zwj-sequences.txt"
+file   = "emoji17-zwj-sequences.txt"
+sha256 = "5b25441daed2322b068c5e70cda522946a4f0274df864445a1965a92e5fc5cad"
+bytes  = 277215
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.emoji17-test]
+key    = "emoji17-test"
+title  = "emoji-test.txt, Unicode Emoji 17.0 -- every emoji with its qualification status"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "UTS #51 data"
+url    = "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt"
+file   = "emoji17-test.txt"
+sha256 = "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda"
+bytes  = 669326
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.l2-24-264]
+key    = "l2-24-264"
+title  = "L2/24-264: Text Terminal Working Group report for UTC #181"
+author = "Fraser Gordon (chair), for the Text Terminal Working Group"
+year   = 2024
+venue  = "Unicode Technical Committee document register"
+url    = "https://www.unicode.org/L2/L2024/24264-ttwg-report-utc181.pdf"
+file   = "l2-24264-ttwg-report-utc181.pdf"
+sha256 = "b0fafec6a3b58d7a1c5ec863024ccf6d38281658268d174c3096d761ad1dd6f1"
+bytes  = 67540
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.l2-25-179]
+key    = "l2-25-179"
+title  = "L2/25-179: Text Terminal Working Group report for UTC #184"
+author = "Fraser Gordon (chair), for the Text Terminal Working Group"
+year   = 2025
+venue  = "Unicode Technical Committee document register"
+url    = "https://www.unicode.org/L2/L2025/25179-ttwg.pdf"
+file   = "l2-25179-ttwg.pdf"
+sha256 = "57b179fa46a02487904ef9b1cfbd5e2b2b0a8f503e966cf0ca7dd290d8182a10"
+bytes  = 86834
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.l2-25-263]
+key    = "l2-25-263"
+title  = "L2/25-263: Text Terminal Working Group report for UTC #185"
+author = "Fraser Gordon (chair), for the Text Terminal Working Group"
+year   = 2025
+venue  = "Unicode Technical Committee document register"
+url    = "https://www.unicode.org/L2/L2025/25263-ttwg-report-utc185.pdf"
+file   = "l2-25263-ttwg-report-utc185.pdf"
+sha256 = "27fc46fc43e598e11ba131940942132504846d3d3235b84a3d43a3f56bf8de29"
+bytes  = 66227
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.last-resort-readme]
+key    = "last-resort-readme"
+title  = "Last Resort Font README -- the two builds, the per-block glyphs and the frame"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode-org/last-resort-font at 3f05565 (OFL-1.1)"
+url    = "https://raw.githubusercontent.com/unicode-org/last-resort-font/3f055651c34e4d3495d176f88eb22826b47d565c/README.md"
+file   = "last-resort-README-3f05565.md"
+sha256 = "370c086fd464bf618d3168cd800e014fc3d966e0abf2f060646cc47682d9a0f2"
+bytes  = 6700
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.last-resort-license]
+key    = "last-resort-license"
+title  = "Last Resort Font licence (SIL Open Font License 1.1)"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode-org/last-resort-font at 3f05565"
+url    = "https://raw.githubusercontent.com/unicode-org/last-resort-font/3f055651c34e4d3495d176f88eb22826b47d565c/LICENSE"
+file   = "last-resort-LICENSE-3f05565.txt"
+sha256 = "fc8fc512b27846bdb0d6645bed8069ac87ea599548b58a8d04bc3b0ea705a9c4"
+bytes  = 4335
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+
+[sources.last-resort-ttf-18]
+key    = "last-resort-ttf-18"
+title  = "LastResort-Regular.ttf, release 18.000 -- 5,776 glyphs, cmap format 12"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode-org/last-resort-font release 18.000 (OFL-1.1)"
+url    = "https://github.com/unicode-org/last-resort-font/releases/download/18.000/LastResort-Regular.ttf"
+file   = ""
+sha256 = "ca7df8948cec84240f19508a17a74de037c98ba3a54e1aaa50ea6edbbdc37f64"
+bytes  = 9592228
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed (a font: licence or size).
+
+[sources.last-resort-he-ttf-18]
+key    = "last-resort-he-ttf-18"
+title  = "LastResortHE-Regular.ttf, release 18.000 -- 387 glyphs, cmap format 13"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode-org/last-resort-font release 18.000 (OFL-1.1)"
+url    = "https://github.com/unicode-org/last-resort-font/releases/download/18.000/LastResortHE-Regular.ttf"
+file   = ""
+sha256 = "cb7c2262cb86a33e7bdfabd0a51746e738b0dd10924126c4530c414c5fc7e4b6"
+bytes  = 587864
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed (a font: licence or size).
+
+[sources.macos-lastresort-otf]
+key    = "macos-lastresort-otf"
+title  = "macOS 27.0 /System/Library/Fonts/LastResort.otf -- a 7-glyph stub, one template glyph for every code point"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (26A5425a)"
+url    = "file:///System/Library/Fonts/LastResort.otf"
+file   = ""
+sha256 = "c6fd31c2d68597249258d931c88b28060b545599d4817559245db33ebea82bcb"
+bytes  = 2416
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash recorded only: an Apple system font.
+
+[sources.macos-apple-color-emoji-22]
+key    = "macos-apple-color-emoji-22"
+title  = "Apple Color Emoji 22.0d3e2 (sbix), macOS 27.0"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (26A5425a)"
+url    = "file:///System/Library/Fonts/Apple%20Color%20Emoji.ttc"
+file   = ""
+sha256 = "12bc8221a908c5bcf05f0fce940d3c3f6e9d09d8d806ffe31a969b4ac9be8f9e"
+bytes  = 192120460
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash recorded only: an Apple system font.
+
+[sources.macos-sf-mono-regular]
+key    = "macos-sf-mono-regular"
+title  = "SF Mono Regular in Terminal.app's bundle -- its glyph 0 has no outline"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (26A5425a), Terminal.app Resources/Fonts"
+url    = "file:///System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts/SF-Mono-Regular.otf"
+file   = ""
+sha256 = "7c1d0d943e0167970d042217ed04e73faa435b6330bfc4644dd1a231a87907c7"
+bytes  = 110560
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash recorded only: an Apple system font.
+
+[sources.noto-color-emoji-2-051-nix]
+key    = "noto-color-emoji-2-051-nix"
+title  = "NotoColorEmoji.ttf 2.051 (noto-emoji 20250818) -- CBDT, no glyf table"
+author = "Google"
+year   = 2025
+venue  = "nixpkgs noto-fonts-color-emoji-2.051 (OFL-1.1)"
+url    = "file:///nix/store/gi6y6r05365ksx0zvg8qhn94g2mzw6g8-noto-fonts-color-emoji-2.051/share/fonts/noto/NotoColorEmoji.ttf"
+file   = ""
+sha256 = "4dcb1382d9362c88d152d94db4315756e86cbfbd577e09cc883c51d10f9be8e0"
+bytes  = 10673276
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed (a font: licence or size).
+
+[sources.noto-color-emoji-deb12]
+key    = "noto-color-emoji-deb12"
+title  = "Debian 12 fonts-noto-color-emoji 2.042-0+deb12u1 (Noto Color Emoji 2.042)"
+author = "Google; packaged by Debian"
+year   = 2023
+venue  = "deb.debian.org (OFL-1.1)"
+url    = "http://deb.debian.org/debian/pool/main/f/fonts-noto-color-emoji/fonts-noto-color-emoji_2.042-0+deb12u1_all.deb"
+file   = ""
+sha256 = "a5ab0f69c7938423862320d9aca5dd187b3fd879d6a9a57dd52e17c3fa8d2751"
+bytes  = 9893872
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash of the package, checked against Debian's Packages.xz. The font inside hashes
+# e5899ed38b8ed83e08bd3ac5de09791e9d19d288333a796de1d35ad17396f1ec.
+
+[sources.noto-color-emoji-ubuntu2404]
+key    = "noto-color-emoji-ubuntu2404"
+title  = "Ubuntu 24.04 release fonts-noto-color-emoji 2.042-1 (Noto Color Emoji 2.042)"
+author = "Google; packaged by Ubuntu"
+year   = 2024
+venue  = "archive.ubuntu.com (OFL-1.1)"
+url    = "http://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-color-emoji/fonts-noto-color-emoji_2.042-1_all.deb"
+file   = ""
+sha256 = "d99a5f5e3a416946b5b584a017cf56c5e27944b945cee015f78b85ba0b559b07"
+bytes  = 9670614
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash of the package, checked against Ubuntu's Packages.xz. The font inside hashes
+# 86924522bcabd617d75a375a5db8b83590b851a38c62b2d9f9ded3645349cd7c.
+
+[sources.noto-color-emoji-ubuntu2404-updates]
+key    = "noto-color-emoji-ubuntu2404-updates"
+title  = "Ubuntu 24.04 noble-updates fonts-noto-color-emoji 2.047 (Noto Color Emoji 2.047)"
+author = "Google; packaged by Ubuntu"
+year   = 2024
+venue  = "archive.ubuntu.com (OFL-1.1)"
+url    = "http://archive.ubuntu.com/ubuntu/pool/main/f/fonts-noto-color-emoji/fonts-noto-color-emoji_2.047-0ubuntu0.24.04.1_all.deb"
+file   = ""
+sha256 = "b102b62ce6a7313315223cff5e052bdf8fc0ad162c9e961ce0dc2202bc139ce2"
+bytes  = 9763994
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash of the package, checked against Ubuntu's Packages.xz. The font inside hashes
+# 93cdc4ee9aa40e2afceecc63da0ca05ec7aab4bec991ece51a6b52389f48a477.
+
+[sources.noto-color-emoji-fedora40]
+key    = "noto-color-emoji-fedora40"
+title  = "Fedora 40 google-noto-color-emoji-fonts 20231130-1 (Noto Color Emoji 2.042)"
+author = "Google; packaged by Fedora"
+year   = 2023
+venue  = "archives.fedoraproject.org (OFL-1.1)"
+url    = "https://archives.fedoraproject.org/pub/archive/fedora/linux/releases/40/Everything/x86_64/os/Packages/g/google-noto-color-emoji-fonts-20231130-1.fc40.noarch.rpm"
+file   = ""
+sha256 = "8868851b28c4932cb15c3b43adc04d6ab709321709d24f1a2cfdd8c5e373e1ef"
+bytes  = 9556602
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Hash of the package; not checked against Fedora's repodata. The font inside hashes
+# 02b733658c59fc50acb85e7c7ca65cc3da88ff295913b1e342e16ebf4b170281.
+
+[sources.mode2027]
+key    = "mode2027"
+title  = "Unicode in Terminals -- the mode 2027 draft, revision 1 (terminal-unicode-core.tex)"
+author = "Christian Parpart and contributors"
+year   = 2021
+venue  = "contour-terminal/terminal-unicode-core at 64f5385"
+url    = "https://raw.githubusercontent.com/contour-terminal/terminal-unicode-core/64f53851ceab9a3cf08db4939bcaef75a0899573/spec/terminal-unicode-core.tex"
+file   = ""
+sha256 = "f23237de5dd88ec8fee0c8059a6c979ca2eecc3e4c8fdf8ce4c4d86b7a2e47af"
+bytes  = 7232
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Note G read the same bytes and listed them in its own table; this entry adds them to
+# the manifest.
+
+[sources.mode2027-readme]
+key    = "mode2027-readme"
+title  = "terminal-unicode-core README -- the draft's ALPHA status"
+author = "Christian Parpart and contributors"
+year   = 2021
+venue  = "contour-terminal/terminal-unicode-core at 64f5385"
+url    = "https://raw.githubusercontent.com/contour-terminal/terminal-unicode-core/64f53851ceab9a3cf08db4939bcaef75a0899573/README.md"
+file   = ""
+sha256 = "496e2d7796ddb4ab1936f68e0e1cdb661f6d3aaa0017d1061a97799ead1ef117"
+bytes  = 2312
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.kitty-text-sizing]
+key    = "kitty-text-sizing"
+title  = "kitty: the text sizing protocol (OSC 66), v0.48.2"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at v0.48.2 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.48.2/docs/text-sizing-protocol.rst"
+file   = ""
+sha256 = "98300c9d1cab5269ded5b378eb0043bbe40f7ea9e0472e1ddc8b8c8e5b2fda27"
+bytes  = 25872
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.xterm-manpage-411]
+key    = "xterm-manpage-411"
+title  = "xterm(1) manual page, patch #411 -- showMissingGlyphs"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "invisible-island.net"
+url    = "https://invisible-island.net/xterm/manpage/xterm.html"
+file   = ""
+sha256 = "a58b7c4cebabbab173f37d8df60a50e90e985c0a6dc4297af2e14dfeacbfc046"
+bytes  = 556074
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.ghostty-discovery-8f0dd37]
+key    = "ghostty-discovery-8f0dd37"
+title  = "ghostty font/discovery.zig -- macOS LastResort rejected in discovery"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 8f0dd37 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/8f0dd3709050b1026f6324368805033197d8b4a5/src/font/discovery.zig"
+file   = ""
+sha256 = "5807232b731ed0eb9e2a43ab11974d08237eb2bc3e8f66b716aae1a7078dd8f0"
+bytes  = 52001
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.ghostty-run-v131]
+key    = "ghostty-run-v131"
+title  = "ghostty font/shaper/run.zig at v1.3.1 -- the observed release's U+FFFD fallback"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty at 332b2ae, v1.3.1 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/font/shaper/run.zig"
+file   = ""
+sha256 = "e00c774dd4f41d7b1d056946f148b52ba193a633a604409efbeb7c69535bf6f2"
+bytes  = 16456
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# At HEAD 8f0dd37 the file is byte-identical to `ghostty-font-shaper-run` (9bbb9b2).
+
+[sources.kitty-fonts-fa9f8da]
+key    = "kitty-fonts-fa9f8da"
+title  = "kitty kitty/fonts.c -- MISSING_FONT cells draw the MISSING_GLYPH sprite"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at fa9f8da (GPL-3.0); identical at v0.49.2"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/fonts.c"
+file   = ""
+sha256 = "d7e6741fa2b2a2fc218e2af2d25bc050d872df8a01145003d2a4294ed0cb7dc8"
+bytes  = 123825
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.kitty-decorations-fa9f8da]
+key    = "kitty-decorations-fa9f8da"
+title  = "kitty kitty/decorations.c -- add_missing_glyph, a hollow box"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty at fa9f8da (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/fa9f8dac181e07b033898480dbf75a331546715d/kitty/decorations.c"
+file   = ""
+sha256 = "acc40e55854d8240179cada95a912ecd9ab5496c1067b7078b04c60e84b1caba"
+bytes  = 110848
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.wezterm-font-lib-3725482]
+key    = "wezterm-font-lib-3725482"
+title  = "wezterm-font/src/lib.rs -- the missing-glyph warning toast"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at 3725482 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-font/src/lib.rs"
+file   = ""
+sha256 = "d9839e3cc5bfe9490c4d3f16a4d23afabf9625d62c71499ab922558d6fd52432"
+bytes  = 38912
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.wezterm-locator-coretext-3725482]
+key    = "wezterm-locator-coretext-3725482"
+title  = "wezterm-font/src/locator/core_text.rs -- LastResort excluded from macOS fallback"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at 3725482 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-font/src/locator/core_text.rs"
+file   = ""
+sha256 = "73854cd4b19fbbf4abfd6c621a2ca3ac94ed008e4e72a94ddc082812f818ebfd"
+bytes  = 11476
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.wezterm-config-3725482]
+key    = "wezterm-config-3725482"
+title  = "wezterm config/src/config.rs -- the missing-glyph warning is on by default"
+author = "Wez Furlong and contributors"
+year   = 2026
+venue  = "wezterm/wezterm at 3725482 (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/config/src/config.rs"
+file   = ""
+sha256 = "98ec105d6fd291cd9a1e60e10b84c345d9da45d413325e61ae4b71e60f15447b"
+bytes  = 71833
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.contour-openshaper-fbcce4b]
+key    = "contour-openshaper-fbcce4b"
+title  = "contour src/text_shaper/OpenShaper.cpp -- per-glyph U+FFFD substitution"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour at fbcce4b (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/fbcce4b2770dd4987585c9b9dbbd7014df9347d7/src/text_shaper/OpenShaper.cpp"
+file   = ""
+sha256 = "806efcf43d86044a6910acfae281a81804b5a986579d6103ff0500aba7fbd6c5"
+bytes  = 74855
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.contour-textrenderer-fbcce4b]
+key    = "contour-textrenderer-fbcce4b"
+title  = "contour src/vtrasterizer/TextRenderer.cpp -- the pen steps by rounded cells"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour at fbcce4b (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/fbcce4b2770dd4987585c9b9dbbd7014df9347d7/src/vtrasterizer/TextRenderer.cpp"
+file   = ""
+sha256 = "f31160f408552d745820104cca8012d770d473965869d8a70861efd224027c55"
+bytes  = 63301
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.rio-macos-59203cc]
+key    = "rio-macos-59203cc"
+title  = "rio sugarloaf/src/font/macos.rs -- discover_fallback, no LastResort filter"
+author = "Raphael Amorim and contributors"
+year   = 2026
+venue  = "raphamorim/rio at 59203cc (MIT)"
+url    = "https://raw.githubusercontent.com/raphamorim/rio/59203ccd5fa1e6b760a738c1ad653bb29f2f3465/sugarloaf/src/font/macos.rs"
+file   = ""
+sha256 = "66e2e54f0bb251d0a2f9226f341cd6e7c6174fcb25df28fb1269260ee3defd08"
+bytes  = 70744
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.rio-grid-lib-59203cc]
+key    = "rio-grid-lib-59203cc"
+title  = "rio rio-grid/src/lib.rs -- a run's face from its base character"
+author = "Raphael Amorim and contributors"
+year   = 2026
+venue  = "raphamorim/rio at 59203cc (MIT)"
+url    = "https://raw.githubusercontent.com/raphamorim/rio/59203ccd5fa1e6b760a738c1ad653bb29f2f3465/rio-grid/src/lib.rs"
+file   = ""
+sha256 = "a2b93b82e36c91581625bab248b44f361bf8cc38c50a3267df84528ea347d493"
+bytes  = 130727
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.iterm2-character-source-20c5b05]
+key    = "iterm2-character-source-20c5b05"
+title  = "iTerm2 iTermRegularCharacterSource.m -- a CTLine over each cell's string"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 20c5b05 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/20c5b0502bfcf879e9284e4e2764bd4aa456e5fb/sources/MetalRenderer/Glue/iTermRegularCharacterSource.m"
+file   = ""
+sha256 = "f932f4da0c7ad3bce4ce7c82eef8932112cd5582add2c1dc4d22284205efdeda"
+bytes  = 20394
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.iterm2-fonttable-20c5b05]
+key    = "iterm2-fonttable-20c5b05"
+title  = "iTerm2 sources/Fonts/FontTable.swift -- the font from a cell's first character"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "gnachman/iTerm2 at 20c5b05 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/20c5b0502bfcf879e9284e4e2764bd4aa456e5fb/sources/Fonts/FontTable.swift"
+file   = ""
+sha256 = "98a4f94b0c8ca3475e6f9d7a5eae8f2c2a08de606eabccaf0a1d26efba5b8f3e"
+bytes  = 20762
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.vte-fonts-pangocairo-56bad78]
+key    = "vte-fonts-pangocairo-56bad78"
+title  = "VTE src/fonts-pangocairo.hh -- the hexbox path"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/fonts-pangocairo.hh"
+file   = ""
+sha256 = "d4311a607bc645ebd853649b2e74a43f748af534572171ac4093366a32e148b3"
+bytes  = 11825
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/fonts-pangocairo.hh
+
+[sources.vte-drawing-context-56bad78]
+key    = "vte-drawing-context-56bad78"
+title  = "VTE src/drawing-context.cc -- a glyph wider than its cell overflows right"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/drawing-context.cc"
+file   = ""
+sha256 = "07fec0337da8bbf0b1bb5c53bd24ae28f2a65f0ca38b8fdaa59d96c32fe8da33"
+bytes  = 11833
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/drawing-context.cc
+
+[sources.pango-shape-c]
+key    = "pango-shape-c"
+title  = "Pango pango/shape.c -- a code point the font lacks becomes PANGO_GET_UNKNOWN_GLYPH"
+author = "The Pango authors"
+year   = 2026
+venue  = "GNOME/pango at 8e74c27 (LGPL-2.1); identical at 1.57.1"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/8e74c27c113c98664b77272d16b14bbce542c184/pango/shape.c"
+file   = ""
+sha256 = "fd299375c7cbffb826013c51e3ccc1a87fb12dd62814b2ba2aa59881fc8c51f8"
+bytes  = 31200
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/pango/8e74c27c113c98664b77272d16b14bbce542c184/pango/shape.c
+
+[sources.pango-cairo-render-c]
+key    = "pango-cairo-render-c"
+title  = "Pango pango/pangocairo-render.c -- the hex box drawn"
+author = "The Pango authors"
+year   = 2026
+venue  = "GNOME/pango at 8e74c27 (LGPL-2.1); identical at d360f14 (1.58.2)"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/8e74c27c113c98664b77272d16b14bbce542c184/pango/pangocairo-render.c"
+file   = ""
+sha256 = "00e309e001a82f032562b69679de82682ca79294da97cd439f7c4aa43eb5721a"
+bytes  = 43874
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/pango/8e74c27c113c98664b77272d16b14bbce542c184/pango/pangocairo-render.c
+
+[sources.pango-cairo-font-c]
+key    = "pango-cairo-font-c"
+title  = "Pango pango/pangocairo-font.c -- the hex box's mini font: 'monospace' at size / 2.2"
+author = "The Pango authors"
+year   = 2026
+venue  = "GNOME/pango at d360f14 (1.58.2, LGPL-2.1); identical at 1.57.1"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/d360f14004e4a4824f2352f6e2722016f9a51dd6/pango/pangocairo-font.c"
+file   = ""
+sha256 = "693c840224ccfd4949c5dce9e076e60d277560416e2d7e9b83850785fe8cffe0"
+bytes  = 44107
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/pango/d360f14004e4a4824f2352f6e2722016f9a51dd6/pango/pangocairo-font.c
+
+[sources.pango-itemize-1-57-1]
+key    = "pango-itemize-1-57-1"
+title  = "Pango 1.57.1 pango/itemize.c -- a font per character, no cluster rule"
+author = "The Pango authors"
+year   = 2025
+venue  = "GNOME/pango at 1.57.1 (LGPL-2.1)"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/1.57.1/pango/itemize.c"
+file   = ""
+sha256 = "6785e8899b13acb1a11d19906ce08239a3273f813fba0ef55f6562eb5957ee72"
+bytes  = 53351
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/pango/1.57.1/pango/itemize.c
+
+[sources.pango-font-h-1-57-1]
+key    = "pango-font-h-1-57-1"
+title  = "Pango 1.57.1 pango/pango-font.h -- PANGO_GET_UNKNOWN_GLYPH and the hex box"
+author = "The Pango authors"
+year   = 2025
+venue  = "GNOME/pango at 1.57.1 (LGPL-2.1)"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/1.57.1/pango/pango-font.h"
+file   = ""
+sha256 = "f432c8f938df56b062a742fd3b6ae3e4fd9130ce1e85af71feb87975eb676c3b"
+bytes  = 29365
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/pango/1.57.1/pango/pango-font.h
+
+[sources.konsole-terminalpainter-a88fae0]
+key    = "konsole-terminalpainter-a88fae0"
+title  = "Konsole src/terminalDisplay/TerminalPainter.cpp -- QPainter::drawText per run"
+author = "The Konsole authors"
+year   = 2026
+venue  = "invent.kde.org/utilities/konsole at a88fae0 (GPL-2.0)"
+url    = "https://invent.kde.org/utilities/konsole/-/raw/a88fae02c441232207a8e31f1f2374e5e9758e14/src/terminalDisplay/TerminalPainter.cpp"
+file   = ""
+sha256 = "c4d5c8497cb65eefa923c7519becab5073670b17c65caa086c2b22ad403eccc6"
+bytes  = 57371
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/KDE/konsole/a88fae02c441232207a8e31f1f2374e5e9758e14/src/terminalDisplay/TerminalPainter.cpp
+
+[sources.wt-atlasengine-6676c6f]
+key    = "wt-atlasengine-6676c6f"
+title  = "Windows Terminal src/renderer/atlas/AtlasEngine.cpp -- U+FFFD per column step of an unmapped range"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal at 6676c6f (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/renderer/atlas/AtlasEngine.cpp"
+file   = ""
+sha256 = "38e4648c90fb4e0f4d90bd5d0ac9184ce40a302b33f7a0629b0d256d6a284b3a"
+bytes  = 52674
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.fcft-1ff7e79]
+key    = "fcft-1ff7e79"
+title  = "fcft fcft.c -- with no covering font, the primary face anyway"
+author = "Daniel Eklof"
+year   = 2026
+venue  = "dnkl/fcft at 1ff7e79 (MIT)"
+url    = "https://codeberg.org/dnkl/fcft/raw/commit/1ff7e79dabb22514fc27dcf1b61124c1e7bb7c62/fcft.c"
+file   = ""
+sha256 = "48af0202afe16cfc384355bf2d22ff7727ca6fe519cd17b40e71751e41704793"
+bytes  = 96546
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.ghostty-commit-1aa932f]
+key    = "ghostty-commit-1aa932f"
+title  = "ghostty commit 1aa932f -- CoreText final fallback, ignoring the last-resort font (2024-10-26)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2024
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/ghostty-org/ghostty/commits/1aa932f810a11617e9c9751c72b87aff8e55e281"
+file   = ""
+sha256 = "1632c47c5c01c593755f7440f3bb8dc6cbecca2fb718618b896241e47e6d12df"
+bytes  = 10412
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.ghostty-issue-2499]
+key    = "ghostty-issue-2499"
+title  = "ghostty #2499 -- U+11AD5 drew as a question-mark box"
+author = "ghostty users"
+year   = 2024
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/ghostty-org/ghostty/issues/2499"
+file   = ""
+sha256 = "5082d6fa924e1fbed0ed54c99921f12d484d4b01051bab07a950a80eec6e3245"
+bytes  = 8517
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.kitty-commit-1fcd6e1]
+key    = "kitty-commit-1fcd6e1"
+title  = "kitty commit 1fcd6e1 -- is_last_resort_font, for private-use symbols (2019, #1650)"
+author = "Kovid Goyal"
+year   = 2019
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/commits/1fcd6e18112ab3afcbe396b222d4eef635dbfac0"
+file   = ""
+sha256 = "181dce464973af4a1921a4589c4bf095899163f3de2b80299c831145337740b1"
+bytes  = 14243
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.wezterm-commit-e23ab47]
+key    = "wezterm-commit-e23ab47"
+title  = "wezterm commit e23ab47 -- macos: ignore LastResort font in fallback suggestions (2024-01-28)"
+author = "Wez Furlong"
+year   = 2024
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/wezterm/wezterm/commits/e23ab4723995e6feb998194849a5bbe59cb2f65c"
+file   = ""
+sha256 = "657db0b4c42399e8312913961b95a8faa32fe5be8d020e49dbb391d85c421bfe"
+bytes  = 5973
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.wezterm-issue-4877]
+key    = "wezterm-issue-4877"
+title  = "wezterm #4877, comments -- LastResort chosen and '?' shown"
+author = "wezterm users"
+year   = 2024
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/wezterm/wezterm/issues/4877/comments"
+file   = ""
+sha256 = "cb995c9d941c2293a143281273e15cca95a2f4241cb0ff35d146c68dfc0e3264"
+bytes  = 50318
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.rio-issue-1519]
+key    = "rio-issue-1519"
+title  = "rio #1519 -- diacritical marks do not render (open)"
+author = "rio users"
+year   = 2026
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/raphamorim/rio/issues/1519"
+file   = ""
+sha256 = "2272429544b8302f2c6af8149a8a3ef3e7df5e38b5aa182924830ebf7904935a"
+bytes  = 2794
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.harfbuzz-13-2-1-buffer]
+key    = "harfbuzz-13-2-1-buffer"
+title  = "HarfBuzz 13.2.1 src/hb-buffer.cc -- the not-found glyph"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 6f4c5ce, 13.2.1 (MIT)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/6f4c5cec306d31e6822303f5ba248a14293d588e/src/hb-buffer.cc"
+file   = ""
+sha256 = "e4e140cccc531fb7083ef9ef74bba9e8ec690f5f6cdd5dc8ba4d6b038096ee02"
+bytes  = 61109
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.harfbuzz-13-2-1-ot-shape]
+key    = "harfbuzz-13-2-1-ot-shape"
+title  = "HarfBuzz 13.2.1 src/hb-ot-shape.cc -- hiding default ignorables"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 6f4c5ce, 13.2.1 (MIT)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/6f4c5cec306d31e6822303f5ba248a14293d588e/src/hb-ot-shape.cc"
+file   = ""
+sha256 = "92575c190dbec89fed92b9e1dcf8f442532406221ae2be957dcdd5142426be13"
+bytes  = 39719
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.chromium-harfbuzz-shaper]
+key    = "chromium-harfbuzz-shaper"
+title  = "Chromium blink harfbuzz_shaper.cc -- a cluster holding .notdef goes to the next font"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at 7034a8a (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/7034a8a6c9d9d317ebc6bf32b875ce8cc5007445/third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.cc"
+file   = ""
+sha256 = "af3755f17d6516c3760eab6a61277465d3e6f83c02b40607ecb04b8ba82984e9"
+bytes  = 49290
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.chromium-font-fallback-iterator]
+key    = "chromium-font-fallback-iterator"
+title  = "Chromium blink font_fallback_iterator.cc -- the first candidate kept for .notdef"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at 7034a8a (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/7034a8a6c9d9d317ebc6bf32b875ce8cc5007445/third_party/blink/renderer/platform/fonts/font_fallback_iterator.cc"
+file   = ""
+sha256 = "d1f6b46535c880a455c3598ad825970f888e987e89b9794577c437231cac12aa"
+bytes  = 11089
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.chromium-font-cache-mac]
+key    = "chromium-font-cache-mac"
+title  = "Chromium blink mac/font_cache_mac.mm -- LastResort rejected"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at 7034a8a (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/7034a8a6c9d9d317ebc6bf32b875ce8cc5007445/third_party/blink/renderer/platform/fonts/mac/font_cache_mac.mm"
+file   = ""
+sha256 = "e127cc2e49dfc879d41651bc643bdba54f927ae3ccd965099f73f5fcfe680b8c"
+bytes  = 20089
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.webkit-complextext-coretext]
+key    = "webkit-complextext-coretext"
+title  = "WebKit ComplexTextControllerCoreText.mm -- a LastResort run redrawn with the primary font"
+author = "The WebKit authors"
+year   = 2026
+venue  = "WebKit/WebKit at 59f9ffb (BSD/LGPL)"
+url    = "https://raw.githubusercontent.com/WebKit/WebKit/59f9ffb4cd6d831db26878a6e097d25967fd532d/Source/WebCore/platform/graphics/coretext/ComplexTextControllerCoreText.mm"
+file   = ""
+sha256 = "dd47d5999486153dc0cafc123d7218c4ca00a7e7eddc0ec73a343a3b3d1bf550"
+bytes  = 14460
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.webkit-fontcascade-coretext]
+key    = "webkit-fontcascade-coretext"
+title  = "WebKit FontCascadeCoreText.cpp -- the font for a combining character sequence"
+author = "The WebKit authors"
+year   = 2026
+venue  = "WebKit/WebKit at 59f9ffb (BSD/LGPL)"
+url    = "https://raw.githubusercontent.com/WebKit/WebKit/59f9ffb4cd6d831db26878a6e097d25967fd532d/Source/WebCore/platform/graphics/coretext/FontCascadeCoreText.cpp"
+file   = ""
+sha256 = "170b5f188a7edbad6ccb9086e5668cca3e4653e9ee74fd119baf4d4aff6d9799"
+bytes  = 27907
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.webkit-fontcascadefonts]
+key    = "webkit-fontcascadefonts"
+title  = "WebKit FontCascadeFonts.cpp -- private use to the primary font's .notdef"
+author = "The WebKit authors"
+year   = 2026
+venue  = "WebKit/WebKit at 59f9ffb (BSD/LGPL)"
+url    = "https://raw.githubusercontent.com/WebKit/WebKit/59f9ffb4cd6d831db26878a6e097d25967fd532d/Source/WebCore/platform/graphics/FontCascadeFonts.cpp"
+file   = ""
+sha256 = "8d085714b786c3c80bd35c582062d340e11eaa14b76e7e9baf6c29da77b6f140"
+bytes  = 29460
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.gecko-gfxtextrun]
+key    = "gecko-gfxtextrun"
+title  = "Firefox gfx/thebes/gfxTextRun.cpp -- the cluster extender and SetMissingGlyph"
+author = "Mozilla"
+year   = 2026
+venue  = "mozilla-firefox/firefox at 59c8a94 (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/mozilla-firefox/firefox/59c8a945f229e17d78d091d82f1624494e2c5006/gfx/thebes/gfxTextRun.cpp"
+file   = ""
+sha256 = "0334e2395d08a4726022733c26154636222fbb4d95c23feb1c26739a52b1c5ca"
+bytes  = 160003
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.gecko-gfxfont]
+key    = "gecko-gfxfont"
+title  = "Firefox gfx/thebes/gfxFont.cpp -- a missing glyph's advance"
+author = "Mozilla"
+year   = 2026
+venue  = "mozilla-firefox/firefox at 59c8a94 (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/mozilla-firefox/firefox/59c8a945f229e17d78d091d82f1624494e2c5006/gfx/thebes/gfxFont.cpp"
+file   = ""
+sha256 = "1a469c462fa1fb37a82831ede96fb8c948b236e7497efc270ca7dae95644d740"
+bytes  = 192078
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.gecko-missing-glyphs]
+key    = "gecko-missing-glyphs"
+title  = "Firefox gfx/thebes/gfxFontMissingGlyphs.cpp -- the hexbox and its 3x5 mini-font"
+author = "Mozilla"
+year   = 2026
+venue  = "mozilla-firefox/firefox at 59c8a94 (MPL-2.0)"
+url    = "https://raw.githubusercontent.com/mozilla-firefox/firefox/59c8a945f229e17d78d091d82f1624494e2c5006/gfx/thebes/gfxFontMissingGlyphs.cpp"
+file   = ""
+sha256 = "27a80850b7f2e73849bc856815d64b72d271c458b25dbd6c39ac64fdba0fb15a"
+bytes  = 20983
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.dwrite-mapcharacters]
+key    = "dwrite-mapcharacters"
+title  = "IDWriteFontFallback::MapCharacters -- 'rendered with a missing glyph'"
+author = "Microsoft"
+year   = 2026
+venue  = "MicrosoftDocs/sdk-api, docs branch (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/dwrite_2/nf-dwrite_2-idwritefontfallback-mapcharacters.md"
+file   = ""
+sha256 = "f97886f9a3a2140908bcfcbd1c850d6eb608f1baba642b2b84fb6bd7f835b0e5"
+bytes  = 4117
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# An unpinned branch: a re-fetch may differ. Read on 2026-10-08.
+
+[sources.dwrite-getglyphindices]
+key    = "dwrite-getglyphindices"
+title  = "IDWriteFontFace::GetGlyphIndices -- 0 for a character the font lacks"
+author = "Microsoft"
+year   = 2026
+venue  = "MicrosoftDocs/sdk-api, docs branch (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/docs/sdk-api-src/content/dwrite/nf-dwrite-idwritefontface-getglyphindices.md"
+file   = ""
+sha256 = "0663517a8be93297637d071898cbcaa82496e6c96e6fe70255a787fa83f0929f"
+bytes  = 3643
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# An unpinned branch: a re-fetch may differ. Read on 2026-10-08.
+
+[sources.oshb-wlc-genesis]
+key    = "oshb-wlc-genesis"
+title  = "Open Scriptures Hebrew Bible, WLC 4.20 Genesis (Gen.xml) -- pointed and cantillated"
+author = "Open Scriptures (CC-BY-4.0)"
+year   = 2024
+venue  = "openscriptures/morphhb at 3d15126"
+url    = "https://raw.githubusercontent.com/openscriptures/morphhb/3d15126fb1ef74867fc1434be1942e837932691f/wlc/Gen.xml"
+file   = ""
+sha256 = "0526e5c9a5fb4d907847645f954ed3d1268fa69decbd872056cedd2668d86449"
+bytes  = 1859928
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# The measured text is the first 757 lines of this file, sha256
+# b2ae147b7ac55d7ddcdfb2206bd6a4a081ba715ac571a647e07486fc35b30319 (Genesis 1).
+
+[sources.bialik-hachnisini]
+key    = "bialik-hachnisini"
+title  = "Bialik, Hachnisini tachat knafech (pointed), he.wikisource revid 479330"
+author = "Hayim Nahman Bialik; Wikisource (CC-BY-SA)"
+year   = 1905
+venue  = "he.wikisource.org, action=raw"
+url    = "https://he.wikisource.org/w/index.php?title=%D7%94%D7%9B%D7%A0%D7%99%D7%A1%D7%99%D7%A0%D7%99_%D7%AA%D7%97%D7%AA_%D7%9B%D7%A0%D7%A4%D7%9A&action=raw&oldid=479330"
+file   = ""
+sha256 = "6239cb9cd477b9730833c41d88475a8b38429a63c4c36db08b61294b009768f2"
+bytes  = 1468
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Pinned by oldid: re-fetched with &oldid=479330 on 2026-10-08, and the hash matched.
+
+[sources.ar-muallaqa]
+key    = "ar-muallaqa"
+title  = "Mu'allaqa of Imru' al-Qais (with harakat), ar.wikisource revid 532024"
+author = "Wikisource (CC-BY-SA)"
+year   = 2026
+venue  = "ar.wikisource.org, action=raw"
+url    = "https://ar.wikisource.org/w/index.php?title=%D9%85%D8%B9%D9%84%D9%82%D8%A9_%D8%A7%D9%85%D8%B1%D8%A6_%D8%A7%D9%84%D9%82%D9%8A%D8%B3&action=raw&oldid=532024"
+file   = ""
+sha256 = "45ff823926077c822ddcdd2fa81ed734241a97f258efb8837164a947ba0a05f9"
+bytes  = 12685
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Pinned by oldid: re-fetched with &oldid=532024 on 2026-10-08, and the hash matched.
+
+[sources.hi-bharat]
+key    = "hi-bharat"
+title  = "Hindi Wikipedia, Bharat (wikitext), revid 6625247"
+author = "Wikipedia contributors (CC-BY-SA)"
+year   = 2026
+venue  = "hi.wikipedia.org, action=raw"
+url    = "https://hi.wikipedia.org/w/index.php?title=%E0%A4%AD%E0%A4%BE%E0%A4%B0%E0%A4%A4&action=raw&oldid=6625247"
+file   = ""
+sha256 = "9dc96e9e5d429666adf6e499377c3e81c7bbf1ea888823ee6f05e84c2d6cba8e"
+bytes  = 222084
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Pinned by oldid: re-fetched with &oldid=6625247 on 2026-10-08, and the hash matched.
+
+[sources.perseus-iliad]
+key    = "perseus-iliad"
+title  = "Perseus canonical-greekLit, Homer's Iliad (Greek), tlg0012.tlg001.perseus-grc2.xml"
+author = "Perseus Digital Library (CC-BY-SA)"
+year   = 2024
+venue  = "PerseusDL/canonical-greekLit at 01b725d"
+url    = "https://raw.githubusercontent.com/PerseusDL/canonical-greekLit/01b725d835e6e733062ffd79e0efdbae1ba06e5c/data/tlg0012/tlg001/tlg0012.tlg001.perseus-grc2.xml"
+file   = ""
+sha256 = "ae8b617018c6e5af14cbab9ce6082438c0f103eafd0a4c67bdae4588cca5eaa4"
+bytes  = 2043055
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# The measured text is the first 854 lines (book 1), sha256
+# 0ab999a2fee72dc0d08da6748071c95de927b233d67604c7c40eaf7586df05ee.
+
+[sources.sefaria-genesis-1]
+key    = "sefaria-genesis-1"
+title  = "Sefaria API v3, Genesis 1, 'Miqra according to the Masorah' (an API snapshot)"
+author = "Sefaria (CC-BY-SA)"
+year   = 2026
+venue  = "sefaria.org API"
+url    = "https://www.sefaria.org/api/v3/texts/Genesis.1?version=hebrew"
+file   = ""
+sha256 = "a21196f94cdc294f3c845926e0e95103b98230264c42a64f9600de0af2aeffcb"
+bytes  = 56467
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# An API response: not byte-stable across fetches.
+
+[sources.unicode-emoji-frequency]
+key    = "unicode-emoji-frequency"
+title  = "Unicode emoji frequency -- a ranking of Unicode 12.0 emoji, skin tones tabulated together"
+author = "The Unicode Consortium"
+year   = 2021
+venue  = "home.unicode.org"
+url    = "https://home.unicode.org/emoji/emoji-frequency/"
+file   = ""
+sha256 = "fc5297ab789d443158d56e2357ca735cb683476bfdb3ef7f9ca0f81b6692a564"
+bytes  = 1205973
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.ad-obs-cases]
+key    = "ad-obs-cases"
+title  = "The test file printed in each terminal: every case as |cluster|x| under a |q|x| reference"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "hand-written test input"
+file   = "ad-observed/terminals-cases.txt"
+sha256 = "fdeb18823f0d8c813ee8378345a444ca93903939b9ceccfb10e833c2c1d7d339"
+bytes  = 265
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-cases-e1first]
+key    = "ad-obs-cases-e1first"
+title  = "The test file for kitty's run B: the missing-component ZWJ sequence before any other emoji"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "hand-written test input"
+file   = "ad-observed/terminals-cases-e1first.txt"
+sha256 = "134f79a9bd04b4a0a30d58608b96859a12791a3dfe114736b03898d779cdd0cc"
+bytes  = 114
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-terminals-sheet]
+key    = "ad-obs-terminals-sheet"
+title  = "Contact sheet: Terminal.app 2.15, iTerm2 3.7.3, WezTerm, Ghostty 1.3.1 and kitty 0.49.2 on the test file"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "screencapture -l of each window, cropped and tiled"
+file   = "ad-observed/terminals-sheet.png"
+sha256 = "d4122cc19d16e25b9048b00643917dd49e9053d56e37b143363accccf87ae267"
+bytes  = 153815
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-kitty-a]
+key    = "ad-obs-kitty-a"
+title  = "kitty 0.49.2 run A (--config=NONE, Menlo): an emoji loaded before the missing-component sequence"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "screencapture -l"
+file   = "ad-observed/kitty-run-a.png"
+sha256 = "f9bff01bbbeba04ea20cc4261987a046de971fdbfb7b889dd08a53d9e8b057f1"
+bytes  = 60611
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-kitty-a-log]
+key    = "ad-obs-kitty-a-log"
+title  = "kitty 0.49.2 run A, --debug-font-fallback log"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "kitty --debug-font-fallback"
+file   = "ad-observed/kitty-run-a.log"
+sha256 = "678b6aa65b44083819514215d458621bca97d0bc41fd0bc8e936a64c605e163c"
+bytes  = 1692
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-kitty-b]
+key    = "ad-obs-kitty-b"
+title  = "kitty 0.49.2 run B: the missing-component sequence as the process's first emoji"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "screencapture -l"
+file   = "ad-observed/kitty-run-b.png"
+sha256 = "28b74a82a11294458297b65d77ed2e344c075bfa43c3bfe7ce89c394681d0824"
+bytes  = 35747
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-kitty-b-log]
+key    = "ad-obs-kitty-b-log"
+title  = "kitty 0.49.2 run B, --debug-font-fallback log"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "kitty --debug-font-fallback"
+file   = "ad-observed/kitty-run-b.log"
+sha256 = "a34fc0bf4e2540822a99fccbd8aec95c2fad7b65e0c25af006db712ae0a0df4f"
+bytes  = 1583
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-wezterm-lsfonts]
+key    = "ad-obs-wezterm-lsfonts"
+title  = "wezterm ls-fonts --text on the nine test strings: glyph ids, faces and advances"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "wezterm ls-fonts"
+file   = "ad-observed/wezterm-ls-fonts.txt"
+sha256 = "0ad5a7fc194849371b9c018e0adc9c60b08f07188b002a076ce4d289eb292b5c"
+bytes  = 6515
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-ctline-fira]
+key    = "ad-obs-ctline-fira"
+title  = "CoreText CTLine runs for the test clusters with FiraCodeNF-Reg as the line font"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a C probe over CTLineCreateWithAttributedString"
+file   = "ad-observed/coretext-ctline-fira.txt"
+sha256 = "47d29549acae889810e812891e75d908600a0b8b71e879c2d836f2a8384b4e7e"
+bytes  = 1401
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-mn-coverage]
+key    = "ad-obs-mn-coverage"
+title  = "CTFontCreateForString(Menlo, cp) for each of the 2,059 gc=Mn code points in UCD 17.0"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a C probe over CTFontCreateForString"
+file   = "ad-observed/coretext-mn-coverage.txt"
+sha256 = "ab5d6210e15da2f56b96c46b185cdcbdeaf52859540993d3fd3296b020c78c3d"
+bytes  = 52902
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-coretext-runs]
+key    = "ad-obs-coretext-runs"
+title  = "CoreText runs, fonts, glyphs and positions for the three cases under four cascades"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Swift probe over CTLineCreateWithAttributedString at 40 pt"
+file   = "ad-observed/coretext-runs.txt"
+sha256 = "803cfc27434f2cedfc7a9e12a43b07d50e47e1491ba37bd218817030a87cc2e9"
+bytes  = 31789
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-coretext-sheet]
+key    = "ad-obs-coretext-sheet"
+title  = "CoreText render of the three cases under four cascades"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Swift probe, CTLineDraw at 40 pt"
+file   = "ad-observed/coretext-sheet.png"
+sha256 = "7551f885f6a66617b04e10ff2ddb208e278ef21ce7e73727ef3f39ff6fa5d399"
+bytes  = 153144
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-coretext-createforstring]
+key    = "ad-obs-coretext-createforstring"
+title  = "CTFontCreateForString on whole clusters no font covers"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Swift probe"
+file   = "ad-observed/coretext-createforstring.txt"
+sha256 = "5d295671fc9e08d64d646802b63951b502c29dee490ade29f231a4b37d3fa556"
+bytes  = 1162
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-chromium]
+key    = "ad-obs-chromium"
+title  = "Chromium (headless Brave 1.95.102, HeadlessChrome/153) on the cases under JBM, JBM + Noto subset, Apple subset"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "headless screenshot"
+file   = "ad-observed/chromium-zoom.png"
+sha256 = "fc6e2eb1bc6001ee637e920333229a19cf498014485e79263e33e6fb6e1c1b7e"
+bytes  = 37220
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-webkit]
+key    = "ad-obs-webkit"
+title  = "WebKit (WKWebView, macOS 27.0) on the same cases"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "WKWebView takeSnapshot"
+file   = "ad-observed/webkit-zoom.png"
+sha256 = "6856acacb42cb7e00c1659e422e1eee7c62d1418396d1fcad5b30593e14a7399"
+bytes  = 211834
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-pango-marks]
+key    = "ad-obs-pango-marks"
+title  = "Pango 1.57.1 on the mark cases with a font set of JetBrains Mono alone"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "pango-view, fontconfig limited to scratch fonts"
+file   = "ad-observed/pango-marks.png"
+sha256 = "771ee668cf62bfdbdd40b434e39f07de0e05ec10e16f75067ea159f4c9c377f8"
+bytes  = 23747
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-pango-emoji]
+key    = "ad-obs-pango-emoji"
+title  = "Pango 1.57.1 on the emoji cases with JetBrains Mono and an Apple Color Emoji subset"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "pango-view, fontconfig limited to scratch fonts"
+file   = "ad-observed/pango-jbm-apple.png"
+sha256 = "4cebc407781a2fa9355e3f9c07bfbcb2a80c051fbb896e71daa7d4a0f01d1c3c"
+bytes  = 23292
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-notdef-survey]
+key    = "ad-obs-notdef-survey"
+title  = "Glyph 0 of every face in baud's default chains (Noto Color Emoji has none) and of the 805 installed faces (56 empty)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "fontTools over the chain faces by path, and over /System/Library/Fonts, /Library/Fonts and ~/Library/Fonts"
+file   = "ad-observed/notdef-survey.txt"
+sha256 = "69d7e3f0abf105b3d7249e6b7088ca1db930e1950b1132fd08f4d389735b2775"
+bytes  = 6845
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+# Regenerated 2026-10-08 by the note's fixer: the first capture stopped mid-row at 8,174 bytes and
+# named no DejaVu or Noto face. This one writes to its file directly and names every chain face.
+
+[sources.ad-obs-freq-emoji]
+key    = "ad-obs-freq-emoji"
+title  = "Every RGI 17.0 sequence through baud at e0a611d on each face and default stack: outcome counts"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-core Term and baud-render Renderer at e0a611d"
+file   = "ad-observed/frequency-emoji.txt"
+sha256 = "4181f0bed2735498c482236d4fc1a5fca0365ca6df9a4db90fdb6f072f7321b9"
+bytes  = 13776
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-freq-marks]
+key    = "ad-obs-freq-marks"
+title  = "Combining-mark inventory and base x mark cross product through baud-font, per face and stack"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-font and baud-render at e0a611d"
+file   = "ad-observed/frequency-marks.txt"
+sha256 = "4e926ba639d96367c6577823d810d7f279336eccbb21c5eaa9c91c3e799cdd00"
+bytes  = 12766
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-freq-replay]
+key    = "ad-obs-freq-replay"
+title  = "Real texts through one Term and the renderer: core refusals and the drop rule, per stack"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-core and baud-render at e0a611d"
+file   = "ad-observed/frequency-replay.txt"
+sha256 = "5dfb081a50ed1263eb483a64af97e1716bdc61e9b18a355e3dce42bfb39ee197"
+bytes  = 38769
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-freq-storetest]
+key    = "ad-obs-freq-storetest"
+title  = "The cluster store across ED2, ?1049, DECSTR and RIS"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-core at e0a611d"
+file   = "ad-observed/frequency-storetest.txt"
+sha256 = "ece87fc08a957463096a949e4bb92f3b805b434cd2f9260ed35270b7ca408020"
+bytes  = 710
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.unicode-enumerated-versions]
+key    = "unicode-enumerated-versions"
+title  = "Enumerated Versions of the Unicode Standard -- lists Unicode 18.0.0 for 2026 as the latest"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org/versions"
+url    = "https://www.unicode.org/versions/enumeratedversions.html"
+file   = "unicode-enumerated-versions.html"
+sha256 = "0a0cc0e299d296a3d887ee9d786ca5069272d6d9b52138ced600d979390f23eb"
+bytes  = 17855
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Fetched the same day as https://www.unicode.org/versions/latest/, which answered 302 to
+# /versions/Unicode18.0.0/ (the page unicode18-release holds, byte-identical).
+
+[sources.unicode17-ch3]
+key    = "unicode17-ch3"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 3, Conformance (no D57a-D57h: those are new in 18.0)"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/"
+file   = "unicode17-ch3.html"
+sha256 = "69fef5215c021368a1880d91bc59d7935d13a5455f1373eda17b8818d41b7b41"
+bytes  = 404354
+status = "retrieved"
+group  = "J"
+# Read for note AD (2026-10-08); committed here and re-hashed by scripts/check-sources.sh.
+# Positive control for the absence: D57 and D58 each match once in the extracted text; D57a-D57h
+# and "Misplaced variation" match nowhere.
+
+[sources.alacritty-renderer-text-mod-29dc553]
+key    = "alacritty-renderer-text-mod-29dc553"
+title  = "alacritty: renderer/text/mod.rs -- zero-width characters fetched with show_missing = false"
+author = "Alacritty contributors (Apache-2.0/MIT)"
+year   = 2026
+venue  = "github.com/alacritty/alacritty @ 29dc553"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/29dc55375da817d53540f4caefbe708703c57b07/alacritty/src/renderer/text/mod.rs"
+file   = ""
+sha256 = "6e89addc5ce2fe85b75604129f11bc15d34a6d44edc4b4dac93ca94d5c99b3a3"
+bytes  = 6310
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+
+[sources.xterm-411-util-c]
+key    = "xterm-411-util-c"
+title  = "xterm 411 util.c -- the missing-glyph box and its width for a combining character"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-411 (MIT-style licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/xterm-411/util.c"
+file   = ""
+sha256 = "3c3bc4ccc9c11e0946ad84b256fd180db7410256cac568a5a8635cdc902da2b1"
+bytes  = 166853
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# The same bytes at xterm-snapshots bccd466 (patch 412), which the terminal supplement
+# read (checked 2026-10-08): https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/util.c
+
+[sources.kitty-commit-55f457c]
+key    = "kitty-commit-55f457c"
+title  = "kitty commit 55f457c -- the LastResort check, added for a fallback-cache bug (2018, #799)"
+author = "Kovid Goyal"
+year   = 2018
+venue  = "GitHub REST API"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/commits/55f457caf48c6e1a60cc928cfc4e34c71cea0836"
+file   = ""
+sha256 = "2643b6e554b998d674824d4f44af9c4789370a15588376ba28b636e0fdfdfef2"
+bytes  = 10787
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+# Found with git log -S LastResort --reverse -- kitty/core_text.m on a blobless clone; the
+# first commit that adds the string.
+
+[sources.ad-obs-freq-saturate]
+key    = "ad-obs-freq-saturate"
+title  = "Every RGI 17.0 sequence written into one Term: how many come out differently from a fresh Term"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-core at e0a611d (bin saturate)"
+file   = "ad-observed/frequency-saturate.txt"
+sha256 = "817bc5b0ab657203f6e40cc3583d969add6084f5c469bf502e1440e392bdc34a"
+bytes  = 3380
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-reserved-tags-vs]
+key    = "ad-obs-reserved-tags-vs"
+title  = "Reserved code points after a ZWJ, tag sequences, misplaced selectors and spill cases through the core and the renderer"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-core and baud-render at e0a611d (the fixer probe)"
+file   = "ad-observed/reserved-tags-selectors.txt"
+sha256 = "97c1a1b4a3a43c33475a2e4139315b49ee09b59d37b5c4da23571c79228ebec6"
+bytes  = 11716
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-coretext-cbdt-load]
+key    = "ad-obs-coretext-cbdt-load"
+title  = "CoreText on CBDT-only fonts: CTFontManagerCreateFontDescriptorsFromURL returns nil"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Swift probe compiled with /usr/bin/swiftc (Apple Swift 6.4)"
+file   = "ad-observed/coretext-cbdt-load.txt"
+sha256 = "13367691ae3535e231c330e198b445862abe1c99a3695d9bd8a501c64288f21b"
+bytes  = 715
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-noto-tag-flags]
+key    = "ad-obs-noto-tag-flags"
+title  = "Noto Color Emoji glyphs baud draws for tag sequences: black flag, California, the missing-flag glyph, England"
+author = "baud research (note AD); the images are Noto Color Emoji bitmaps (OFL 1.1)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "fontTools CBDT extraction of the glyph ids ad-obs-reserved-tags-vs reports: 2.042 g481 g1951 g1467 g1911, then 2.051 g481 g1481 g1913, left to right"
+file   = "ad-observed/noto-tag-flags.png"
+sha256 = "4b4cd7314df787cf244901e0598e7113d4489be39351aafb9a947eb9a8767861"
+bytes  = 36008
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-tux-shape]
+key    = "ad-obs-tux-shape"
+title  = "Man in tuxedo with a skin tone: the intact RGI sequence and the core-kept one shape to the same glyph"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a scratch crate over baud-font at e0a611d on Apple Color Emoji 22.0d3e2"
+file   = "ad-observed/tux-shape.txt"
+sha256 = "3aab2e7c289334a63430ebc532e90445e44de5fe72373188036e5e0b2da84568"
+bytes  = 387
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.vte-cc-56bad78]
+key    = "vte-cc-56bad78"
+title  = "VTE src/vte.cc -- only a width-0 code point joins the previous cell; at column 0 it is not inserted"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/vte.cc"
+file   = ""
+sha256 = "429b3f0dea68c78e4c860be39a64a8b47fc48ee913d6f60e87a34561e7fb95fa"
+bytes  = 438331
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/vte.cc
+
+[sources.vte-fonts-pangocairo-cc-56bad78]
+key    = "vte-fonts-pangocairo-cc-56bad78"
+title  = "VTE src/fonts-pangocairo.cc -- GTK3 draws every Pango run; GTK4 keeps line->runs->data only"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/fonts-pangocairo.cc"
+file   = ""
+sha256 = "503bbbf05071863f3d8c552f29c36b3d8c63f1dab58e5b68d1e50cd5b174be42"
+bytes  = 22739
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/fonts-pangocairo.cc
+
+[sources.vte-drawing-gsk-56bad78]
+key    = "vte-drawing-gsk-56bad78"
+title  = "VTE src/drawing-gsk.hh -- the GTK4 drawing context performs no clipping"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/drawing-gsk.hh"
+file   = ""
+sha256 = "d732f072f1f7954f5c54a93c2b95c8a87a0bae536c0c5b989840aa8e15b8004a"
+bytes  = 5970
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/drawing-gsk.hh
+
+[sources.vte-modes-56bad78]
+key    = "vte-modes-56bad78"
+title  = "VTE src/modes.py -- mode 2027 is listed as mode_WHAT, default off, not settable"
+author = "The VTE authors"
+year   = 2026
+venue  = "GNOME/vte at 56bad78 (LGPL-3.0)"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/modes.py"
+file   = ""
+sha256 = "fc84bc48e3ff4dbe07f8a71c76864e2fe7bc6894d625ebf34076b51d1771060c"
+bytes  = 39089
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/GNOME/vte/56bad78b8ed59716f14ccc0ef678f32df4f9dc7b/src/modes.py
+
+[sources.konsole-screen-a88fae0]
+key    = "konsole-screen-a88fae0"
+title  = "Konsole src/Screen.cpp -- what joins a cell, the column-0 drop and the 10-code-point cap"
+author = "The Konsole authors"
+year   = 2026
+venue  = "invent.kde.org/utilities/konsole at a88fae0 (GPL-2.0)"
+url    = "https://invent.kde.org/utilities/konsole/-/raw/a88fae02c441232207a8e31f1f2374e5e9758e14/src/Screen.cpp"
+file   = ""
+sha256 = "b45feff87fc86dbb802ecbb25d0e4894b19351603b7346b00a7aac25f3dbca8f"
+bytes  = 87823
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+# mirror (same sha256, checked 2026-10-08): https://raw.githubusercontent.com/KDE/konsole/a88fae02c441232207a8e31f1f2374e5e9758e14/src/Screen.cpp
+
+[sources.qtbase-qfontengine-2b9b95d]
+key    = "qtbase-qfontengine-2b9b95d"
+title  = "Qt qtbase src/gui/text/qfontengine.cpp -- font merging per character; the Box engine is skipped"
+author = "The Qt Company and contributors"
+year   = 2026
+venue  = "qt/qtbase at 2b9b95d (6.13.0 dev)"
+url    = "https://raw.githubusercontent.com/qt/qtbase/2b9b95d844b501c004c8ec6c01c20304dfd87024/src/gui/text/qfontengine.cpp"
+file   = ""
+sha256 = "adfc569d5152e82d1b0716fc0d904c238dbd8dc188deec7ec4dc9c0760643397"
+bytes  = 88583
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.qtbase-qharfbuzzng-2b9b95d]
+key    = "qtbase-qharfbuzzng-2b9b95d"
+title  = "Qt qtbase src/gui/text/qharfbuzzng.cpp -- an unmapped code point stays glyph 0"
+author = "The Qt Company and contributors"
+year   = 2026
+venue  = "qt/qtbase at 2b9b95d (6.13.0 dev)"
+url    = "https://raw.githubusercontent.com/qt/qtbase/2b9b95d844b501c004c8ec6c01c20304dfd87024/src/gui/text/qharfbuzzng.cpp"
+file   = ""
+sha256 = "3c8cd1d417d810734d4ee9e8b754cc46d0742b66e4f39148487985337cbb1d10"
+bytes  = 21299
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.qtbase-qtextengine-2b9b95d]
+key    = "qtbase-qtextengine-2b9b95d"
+title  = "Qt qtbase src/gui/text/qtextengine.cpp -- where dontPrint is set"
+author = "The Qt Company and contributors"
+year   = 2026
+venue  = "qt/qtbase at 2b9b95d (6.13.0 dev)"
+url    = "https://raw.githubusercontent.com/qt/qtbase/2b9b95d844b501c004c8ec6c01c20304dfd87024/src/gui/text/qtextengine.cpp"
+file   = ""
+sha256 = "13ef4e24b4a3f171cbe5a378232b5ea5c654c1017100b22f1a484b5278b9ea9c"
+bytes  = 155462
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.xterm-fontutils-c-bccd466]
+key    = "xterm-fontutils-c-bccd466"
+title  = "xterm fontutils.c at patch 412 -- the showMissingGlyphs rectangle"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots at bccd466 (MIT-style licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/fontutils.c"
+file   = ""
+sha256 = "5d0eef284c20dbbc5aa31ad1ed334cee6593861f71e88cd32d0ff14fdec82371"
+bytes  = 165828
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.xterm-charproc-c-bccd466]
+key    = "xterm-charproc-c-bccd466"
+title  = "xterm charproc.c at patch 412 -- resource defaults: assumeAllChars, showMissingGlyphs, precompose, combiningChars"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots at bccd466 (MIT-style licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/charproc.c"
+file   = ""
+sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
+bytes  = 413144
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.urxvt-rxvtfont-5865a43]
+key    = "urxvt-rxvtfont-5865a43"
+title  = "rxvt-unicode src/rxvtfont.C -- the support font's composite draw and its default rectangle"
+author = "Marc Lehmann and contributors"
+year   = 2024
+venue  = "exg/rxvt-unicode mirror at 5865a43, VERSION 9.31 (GPL)"
+url    = "https://raw.githubusercontent.com/exg/rxvt-unicode/5865a435983be27c8f4a601e7a9920d3a92f102a/src/rxvtfont.C"
+file   = ""
+sha256 = "079a2ec34d54abaa0da4783a4113ed841985a89a836f7fe29108d43a1886b08f"
+bytes  = 51615
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.st-st-c-04ce0d6]
+key    = "st-st-c-04ce0d6"
+title  = "st st.c -- tputc writes a width-0 rune at the cursor and does not advance"
+author = "suckless.org"
+year   = 2026
+venue  = "git.suckless.org/st at 04ce0d6 (MIT/X)"
+url    = "https://git.suckless.org/st"
+file   = ""
+sha256 = "4bfb980731afa95b28d8c69fea7289643a45cb71f6357a5edba0f1be118855c7"
+bytes  = 58838
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once. stagit serves no
+# raw file per commit, so: git clone the url, then git show 04ce0d643ed17793803e8516f4c9a5b13b93c400:st.c;
+# hash-verified that way, not committed.
+
+[sources.st-x-c-04ce0d6]
+key    = "st-x-c-04ce0d6"
+title  = "st x.c -- per-rune font lookup and the fontconfig fallback"
+author = "suckless.org"
+year   = 2026
+venue  = "git.suckless.org/st at 04ce0d6 (MIT/X)"
+url    = "https://git.suckless.org/st"
+file   = ""
+sha256 = "a49a6a1c01ed76b14699283c8d8e335dbe86ccc172c22a4ae763938a0c6637c9"
+bytes  = 48343
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once. stagit serves no
+# raw file per commit, so: git clone the url, then git show 04ce0d643ed17793803e8516f4c9a5b13b93c400:x.c;
+# hash-verified that way, not committed.
+
+[sources.mlterm-vt-char-h-405185a]
+key    = "mlterm-vt-char-h-405185a"
+title  = "mlterm vtemu/vt_char.h -- MAX_COMB_SIZE 7"
+author = "Araki Ken and contributors"
+year   = 2026
+venue  = "arakiken/mlterm at 405185a, 3.9.5 (BSD-style)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/405185a30343835322af7f28a9f14eccb648cfb1/vtemu/vt_char.h"
+file   = ""
+sha256 = "c66688115ddc3346b68bf5dc21ac92750d79943d83dead87839e2f4ce6f649ee"
+bytes  = 7635
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mlterm-ui-font-ft-405185a]
+key    = "mlterm-ui-font-ft-405185a"
+title  = "mlterm uitoolkit/libtype/ui_font_ft.c -- a code point no family has joins the primary font's charset"
+author = "Araki Ken and contributors"
+year   = 2026
+venue  = "arakiken/mlterm at 405185a, 3.9.5 (BSD-style)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/405185a30343835322af7f28a9f14eccb648cfb1/uitoolkit/libtype/ui_font_ft.c"
+file   = ""
+sha256 = "4efe4dfc92597538be77921aea78526bb88f8288ef06430927eef000ef6dea2e"
+bytes  = 43288
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mintty-wintext-0aea388]
+key    = "mintty-wintext-0aea388"
+title  = "mintty src/wintext.c -- marks drawn apart from the base with GDI; win_check_glyphs"
+author = "Thomas Wolff and contributors"
+year   = 2026
+venue  = "mintty/mintty at 0aea388, 3.8.3 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/wintext.c"
+file   = ""
+sha256 = "2ff5334346c86aa4d0f96115e6a5765dc7750e30e22595642b9d18ccb06dc8f9"
+bytes  = 178423
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mintty-termout-0aea388]
+key    = "mintty-termout-0aea388"
+title  = "mintty src/termout.c -- OSC 7771 font-support query; DECSET 2027 emoji width"
+author = "Thomas Wolff and contributors"
+year   = 2026
+venue  = "mintty/mintty at 0aea388, 3.8.3 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/termout.c"
+file   = ""
+sha256 = "e9e9bb420a289eec66880de0f5a6815c14e553ae98387a8c405162710efecb80"
+bytes  = 209190
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.mintty-config-0aea388]
+key    = "mintty-config-0aea388"
+title  = "mintty src/config.c -- defaults: emoji_width false"
+author = "Thomas Wolff and contributors"
+year   = 2026
+venue  = "mintty/mintty at 0aea388, 3.8.3 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/mintty/mintty/0aea38866fa838756192ecdc53272c3dd251c7a6/src/config.c"
+file   = ""
+sha256 = "d90127723be77f1c42336bdd65920386b006dea5a59e2aa89ac86fc5c13e247c"
+bytes  = 156009
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.xtermjs-unicodev11-c58ea36]
+key    = "xtermjs-unicodev11-c58ea36"
+title  = "xterm.js addon-unicode11 UnicodeV11.ts -- widths: ZWJ and VS16 0, skin tones 2, regional indicators 1"
+author = "The xterm.js authors"
+year   = 2026
+venue  = "xtermjs/xterm.js at c58ea36 (MIT)"
+url    = "https://raw.githubusercontent.com/xtermjs/xterm.js/c58ea3637f3968e0e6e79cd92cf9aace7ef89ee2/addons/addon-unicode11/src/UnicodeV11.ts"
+file   = ""
+sha256 = "874af483a9757295d94619c7654f81580aa85f1b18d22f00a40130feac1f99db"
+bytes  = 10840
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.xtermjs-textureatlas-c58ea36]
+key    = "xtermjs-textureatlas-c58ea36"
+title  = "xterm.js addon-webgl TextureAtlas.ts -- one fillText of the cell's string in the configured family"
+author = "The xterm.js authors"
+year   = 2026
+venue  = "xtermjs/xterm.js at c58ea36 (MIT)"
+url    = "https://raw.githubusercontent.com/xtermjs/xterm.js/c58ea3637f3968e0e6e79cd92cf9aace7ef89ee2/addons/addon-webgl/src/TextureAtlas.ts"
+file   = ""
+sha256 = "5356c7bacd56b29caaddc2ec05364a3e08587686a529b74e4daf8c969ba3752f"
+bytes  = 49274
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.chromium150-harfbuzz-shaper]
+key    = "chromium150-harfbuzz-shaper"
+title  = "Chromium 150 blink harfbuzz_shaper.cc -- kNotDef by full cluster; one fallback hint code point"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at f916f1b, tag 150.0.7871.250 (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/f916f1b7136907af19d96b95b891533d091d932a/third_party/blink/renderer/platform/fonts/shaping/harfbuzz_shaper.cc"
+file   = ""
+sha256 = "ed0bff580bdeca7c7ed0b945abc8dadd5ad445c575deaf293c0619e40d4d3f3a"
+bytes  = 47812
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.chromium150-font-cache-mac]
+key    = "chromium150-font-cache-mac"
+title  = "Chromium 150 blink font_cache_mac.mm -- IsLastResortFont and its rejection"
+author = "The Chromium Authors"
+year   = 2026
+venue  = "chromium/chromium at f916f1b, tag 150.0.7871.250 (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/chromium/chromium/f916f1b7136907af19d96b95b891533d091d932a/third_party/blink/renderer/platform/fonts/mac/font_cache_mac.mm"
+file   = ""
+sha256 = "931f894ca6f2e4e08ea074c11dd1a99e92eac8a93446f6af2982f8bd7190d945"
+bytes  = 18894
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.vscode-terminalconfiguration-3a7c8e0]
+key    = "vscode-terminalconfiguration-3a7c8e0"
+title  = "VS Code terminalConfiguration.ts -- unicodeVersion 6 or 11, default 11"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode at 3a7c8e0 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/3a7c8e0181efe20e985490ab60dc5f434b48e5eb/src/vs/workbench/contrib/terminal/common/terminalConfiguration.ts"
+file   = ""
+sha256 = "1757c19c3c92458a01c192d76d7fabf7798e237b1b569c70f71fb7b76882663e"
+bytes  = 47029
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.hyper-config-default-30ec0a2]
+key    = "hyper-config-default-30ec0a2"
+title  = "Hyper app/config/config-default.json -- font family list; WebGL off"
+author = "Vercel and contributors"
+year   = 2026
+venue  = "vercel/hyper at 30ec0a2, 4.0.0-canary.5 (MIT)"
+url    = "https://raw.githubusercontent.com/vercel/hyper/30ec0a2a91de17eeb32dd71998fe8a8ec59f98eb/app/config/config-default.json"
+file   = ""
+sha256 = "0b132d9f2cf76833183dcfa9af89baa3681d896a0ef76f74f84f9d2f86ffee74"
+bytes  = 1949
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.hyper-package-30ec0a2]
+key    = "hyper-package-30ec0a2"
+title  = "Hyper package.json -- xterm 5.3.0 and the unicode11 addon"
+author = "Vercel and contributors"
+year   = 2026
+venue  = "vercel/hyper at 30ec0a2, 4.0.0-canary.5 (MIT)"
+url    = "https://raw.githubusercontent.com/vercel/hyper/30ec0a2a91de17eeb32dd71998fe8a8ec59f98eb/package.json"
+file   = ""
+sha256 = "d160bf589d16155f8c8111964b6a6f59cf60a0875b3931ed3321d3388bbf2efa"
+bytes  = 5646
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tabby-xtermfrontend-467ce8e]
+key    = "tabby-xtermfrontend-467ce8e"
+title  = "Tabby xtermFrontend.ts -- the unicode11 addon, active version 11"
+author = "Eugene Pankov and contributors"
+year   = 2026
+venue  = "Eugeny/tabby at 467ce8e, 1.0.231-nightly.0 (MIT)"
+url    = "https://raw.githubusercontent.com/Eugeny/tabby/467ce8ebfa467fb88cf6d154c9a5891e3d3647f0/tabby-terminal/src/frontends/xtermFrontend.ts"
+file   = ""
+sha256 = "c4447c52b13e69eb35d4e8b5d98e460f6905b7666b670781854aab8f50ca685b"
+bytes  = 34934
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tabby-utils-467ce8e]
+key    = "tabby-utils-467ce8e"
+title  = "Tabby tabby-core/src/utils.ts -- the CSS family list ends monospace-fallback, monospace"
+author = "Eugene Pankov and contributors"
+year   = 2026
+venue  = "Eugeny/tabby at 467ce8e, 1.0.231-nightly.0 (MIT)"
+url    = "https://raw.githubusercontent.com/Eugeny/tabby/467ce8ebfa467fb88cf6d154c9a5891e3d3647f0/tabby-core/src/utils.ts"
+file   = ""
+sha256 = "bac9a687c07afc064910af1690cedb4d8b7e455f61060db1921e08d32e7d1b1d"
+bytes  = 2517
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tabby-xterm-css-467ce8e]
+key    = "tabby-xterm-css-467ce8e"
+title  = "Tabby xterm.css -- monospace-fallback is a bundled Source Code Pro"
+author = "Eugene Pankov and contributors"
+year   = 2026
+venue  = "Eugeny/tabby at 467ce8e, 1.0.231-nightly.0 (MIT)"
+url    = "https://raw.githubusercontent.com/Eugeny/tabby/467ce8ebfa467fb88cf6d154c9a5891e3d3647f0/tabby-terminal/src/frontends/xterm.css"
+file   = ""
+sha256 = "152a38949f2b1e66c3f44c8e6ec9e3106f8f901b8c26a4fb49a6ca5fab5b58f6"
+bytes  = 312
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.warp-cell-glyph-cache-325d4d4]
+key    = "warp-cell-glyph-cache-325d4d4"
+title  = "Warp cell_glyph_cache.rs -- a string cell is accepted only as one glyph, else the first character's"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp at 325d4d4 (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/325d4d4701b41feb272487e89a6cf02bfba9f194/app/src/terminal/grid_renderer/cell_glyph_cache.rs"
+file   = ""
+sha256 = "5fd5c9043762161ed143968593a3033aafbf2659923c7120e9722a926288524b"
+bytes  = 3879
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.warp-grid-renderer-325d4d4]
+key    = "warp-grid-renderer-325d4d4"
+title  = "Warp grid_renderer.rs -- one glyph per cell, or none"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp at 325d4d4 (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/325d4d4701b41feb272487e89a6cf02bfba9f194/app/src/terminal/grid_renderer.rs"
+file   = ""
+sha256 = "fadeb77ee11ce46752891b065d15e2c363fbc37d26e87d1066cefac8976a3a35"
+bytes  = 106746
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.warp-fonts-325d4d4]
+key    = "warp-fonts-325d4d4"
+title  = "Warp crates/warpui_core/src/fonts.rs -- the per-character fallback chain"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp at 325d4d4 (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/325d4d4701b41feb272487e89a6cf02bfba9f194/crates/warpui_core/src/fonts.rs"
+file   = ""
+sha256 = "3c3280613e2c0a3caa710b681fd7423fb58525d73466d1a88dd338150d4b98fa"
+bytes  = 19857
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.fontkit-core-text-a04b225]
+key    = "fontkit-core-text-a04b225"
+title  = "font-kit (Warp's fork) src/loaders/core_text.rs -- glyph_for_char returns None for glyph 0"
+author = "The font-kit authors"
+year   = 2026
+venue  = "warpdotdev/font-kit at a04b225 (MIT or Apache-2.0)"
+url    = "https://raw.githubusercontent.com/warpdotdev/font-kit/a04b225ecb639bb850f21d05212cfdc7465000f3/src/loaders/core_text.rs"
+file   = ""
+sha256 = "a1d7dee51bb946d2438963c91474fa58ee39a6ff785495070ac8c19da9805615"
+bytes  = 39367
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tmux-screen-write-e476c12]
+key    = "tmux-screen-write-e476c12"
+title  = "tmux screen-write.c -- screen_write_combine: column-0 discard, 32-byte cap, Hangul filler"
+author = "Nicholas Marriott and contributors"
+year   = 2026
+venue  = "tmux/tmux at e476c12, tag 3.7c (ISC-style)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/e476c1230b958df0cb12977517d24b3dc931375b/screen-write.c"
+file   = ""
+sha256 = "b9b4eb39e726c143177601a0a58d5582aa590420ecf7d61573750b29df347317"
+bytes  = 73076
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tmux-utf8-combined-e476c12]
+key    = "tmux-utf8-combined-e476c12"
+title  = "tmux utf8-combined.c -- utf8_should_combine: any regional-indicator pair, a listed skin-tone base"
+author = "Nicholas Marriott and contributors"
+year   = 2026
+venue  = "tmux/tmux at e476c12, tag 3.7c (ISC-style)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/e476c1230b958df0cb12977517d24b3dc931375b/utf8-combined.c"
+file   = ""
+sha256 = "eb4f778b9bba024e543183894f67f914be8a8b616a0049dd71bb3d5cc006b119"
+bytes  = 7999
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.tmux-h-e476c12]
+key    = "tmux-h-e476c12"
+title  = "tmux tmux.h -- UTF8_SIZE 32"
+author = "Nicholas Marriott and contributors"
+year   = 2026
+venue  = "tmux/tmux at e476c12, tag 3.7c (ISC-style)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/e476c1230b958df0cb12977517d24b3dc931375b/tmux.h"
+file   = ""
+sha256 = "96e16054dce383f91f00f3bc86e45c3e367f9eb57081eb029fdd95fa8e3da374"
+bytes  = 121884
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.zellij-grid-55a2121]
+key    = "zellij-grid-55a2121"
+title  = "zellij grid.rs -- add_character drops every width-0 code point (issue 1538)"
+author = "The zellij authors"
+year   = 2026
+venue  = "zellij-org/zellij at 55a2121, tag v0.44.3 (MIT)"
+url    = "https://raw.githubusercontent.com/zellij-org/zellij/55a2121b73dce4be624cda425a960e893000777c/zellij-server/src/panes/grid.rs"
+file   = ""
+sha256 = "e69a27dd2accf68893873eb0d485b33c5c0b99fd094540b496d6f991a97e9568"
+bytes  = 207389
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.zellij-terminal-character-55a2121]
+key    = "zellij-terminal-character-55a2121"
+title  = "zellij terminal_character.rs -- one char per cell"
+author = "The zellij authors"
+year   = 2026
+venue  = "zellij-org/zellij at 55a2121, tag v0.44.3 (MIT)"
+url    = "https://raw.githubusercontent.com/zellij-org/zellij/55a2121b73dce4be624cda425a960e893000777c/zellij-server/src/panes/terminal_character.rs"
+file   = ""
+sha256 = "0e1e418d58c9e3b16403d8728965c2732502f289f7c69edd8250dfe994eb1209"
+bytes  = 38680
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.ad-obs-supp-tapp-crop]
+key    = "ad-obs-supp-tapp-crop"
+title  = "Terminal.app 2.15 (FiraCodeNF 12 pt) on the supplement's cases, title bar cropped"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "screencapture -l of the probe window (Retina, cropped), from the supplement's survey"
+file   = "ad-observed/supp-terminalapp-crop.png"
+sha256 = "a82548dc08b32ff6018f7013fb947ff31177bd2e71a3f532b5abf69540122ba1"
+bytes  = 346273
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-tapp-zoom]
+key    = "ad-obs-supp-tapp-zoom"
+title  = "Terminal.app 2.15: zoom of rows 0a-2h -- the box in the next cell, a below-mark in the next row"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "crop and scale of the same capture"
+file   = "ad-observed/supp-terminalapp-zoom.png"
+sha256 = "cd2b1a1af5ef6294ee53bf29b70524cb41ec056f66f4ac9a626370734ab96ab4"
+bytes  = 453838
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-tapp-cpr]
+key    = "ad-obs-supp-tapp-cpr"
+title  = "Terminal.app 2.15: cursor columns before and after each case, read with CPR"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "CSI 6n before and after printing each case in a fresh window"
+file   = "ad-observed/supp-terminalapp-cpr.json"
+sha256 = "9eea8fa8f7963df07b1647021e308c699a03a3caae57dbe9dac8f75dc14ee24f"
+bytes  = 2978
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-coretext-jbm]
+key    = "ad-obs-supp-coretext-jbm"
+title  = "CoreText runs with JetBrains Mono as the base: fonts, glyphs, positions, advances"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source in supp-coretext-probe.swift, JetBrains Mono registered for the process only"
+file   = "ad-observed/supp-coretext-jbm-runs.txt"
+sha256 = "633dddadb096aba7ca289b20558a988037a21c6fee6d9f088d51f7a0eb5b3609"
+bytes  = 1600
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-coretext-fira]
+key    = "ad-obs-supp-coretext-fira"
+title  = "CoreText runs with FiraCodeNF-Reg as the base (Terminal.app's profile font)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source in supp-coretext-probe.swift"
+file   = "ad-observed/supp-coretext-fira-runs.txt"
+sha256 = "de5196332c8dd74c1349d7009487403290201c7baaff7f81b24368249c1feee4"
+bytes  = 5231
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-coretext-render]
+key    = "ad-obs-supp-coretext-render"
+title  = "CoreText render: CTLineDraw (left) against glyphs placed by run advances (right)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "render source in supp-coretext-render.swift"
+file   = "ad-observed/supp-coretext-render.png"
+sha256 = "a9023b03a22d5a8aeb608b003a3439ca031902dd5441ba723d05efe2a55f0e28"
+bytes  = 144037
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-coretext-render-swift]
+key    = "ad-obs-supp-coretext-render-swift"
+title  = "Source of the CoreText render: the left column is CTLineDraw, the right accumulates advances"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the supplement's swift/render.swift, copied unchanged"
+file   = "ad-observed/supp-coretext-render.swift"
+sha256 = "7ea6dbebea9b1ec9f8d5169ea73ca8b893f923b6560250f07d88fd921fb53824"
+bytes  = 3190
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-coretext-probe-swift]
+key    = "ad-obs-supp-coretext-probe-swift"
+title  = "Source of the CoreText run probe"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the supplement's swift/probe2.swift, copied unchanged"
+file   = "ad-observed/supp-coretext-probe.swift"
+sha256 = "87ef373e296ad23d625652d88bec548885431e87a6ffb5bda405007c3251ca7c"
+bytes  = 2734
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-mux-cases]
+key    = "ad-obs-supp-mux-cases"
+title  = "The multiplexer cases: one line per case, code points in hex"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the supplement's cases_mux.txt, copied unchanged"
+file   = "ad-observed/supp-mux-cases.txt"
+sha256 = "1a11f456be02ce6e831a56e7874245fd1ea268041566a8b4e87ca098f21b43ba"
+bytes  = 571
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-mux-harness]
+key    = "ad-obs-supp-mux-harness"
+title  = "The pty harness that recorded every byte a multiplexer wrote"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the supplement's mux/harness.py, copied unchanged"
+file   = "ad-observed/supp-mux-harness.py"
+sha256 = "31bcd755ea921878932b8c4eb1649f48a3beb0af68652d3e928418d6604c9875"
+bytes  = 1324
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-mux-cprprobe]
+key    = "ad-obs-supp-mux-cprprobe"
+title  = "The probe that read each case's width with CPR inside a multiplexer pane"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the supplement's mux/cprprobe.py, copied unchanged"
+file   = "ad-observed/supp-mux-cprprobe.py"
+sha256 = "4f3630d0b8cc803f08dbf0c81f15976d396afbecd9b5e115915967bf0ca165bc"
+bytes  = 985
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-tmux-out]
+key    = "ad-obs-supp-tmux-out"
+title  = "tmux 3.7c (utf8proc 2.11.3): the raw bytes it sent the outer pty for the cases"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "supp-mux-harness.py under a Python pty at 100x50, TERM=xterm-256color, -f /dev/null"
+file   = "ad-observed/supp-tmux-out.bin"
+sha256 = "9d5e96ded7aef5df2e898f28b08dcf650b3b6e7a30fe9b2e5aab1d54e36ef446"
+bytes  = 2980
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-tmux-cpr]
+key    = "ad-obs-supp-tmux-cpr"
+title  = "tmux 3.7c: each case's width as tmux's own cursor reports it"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "supp-mux-cprprobe.py inside a tmux pane"
+file   = "ad-observed/supp-tmux-cpr.json"
+sha256 = "3cf29adc827fbc4bd99390a7dea48418e43e6c99b96ff9ccb5d86c8bf544ad41"
+bytes  = 2512
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-zellij-out]
+key    = "ad-obs-supp-zellij-out"
+title  = "zellij 0.44.3: the raw bytes it sent the outer pty for the cases"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "supp-mux-harness.py under a Python pty at 100x50, plugin-free layout"
+file   = "ad-observed/supp-zellij-out.bin"
+sha256 = "879a57041ccffd8d7ac8e313c94aaf4d35dd9097fc04ddfd059299650557f21b"
+bytes  = 8956
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.ad-obs-supp-zellij-cpr]
+key    = "ad-obs-supp-zellij-cpr"
+title  = "zellij 0.44.3: each case's width as zellij's own cursor reports it"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "supp-mux-cprprobe.py inside a zellij pane"
+file   = "ad-observed/supp-zellij-cpr.json"
+sha256 = "9ec4121eb48857beb520c303521a4e9938a7690a5c26209e0a52e2ffea78021a"
+bytes  = 2517
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD's terminal supplement, made 2026-10-08 on macOS 27.0
+# (26A5425a); not fetched -- the url says how it was made. Committed because the
+# scratch directory it came from does not survive a reboot, and a claim rests on it.
+
+[sources.konsole-terminalfonts-a88fae0]
+key    = "konsole-terminalfonts-a88fae0"
+title  = "Konsole src/terminalDisplay/TerminalFonts.cpp -- the emoji font defaults to Noto Color Emoji"
+author = "The Konsole authors"
+year   = 2026
+venue  = "invent.kde.org/utilities/konsole at a88fae0 (GPL-2.0)"
+url    = "https://invent.kde.org/utilities/konsole/-/raw/a88fae02c441232207a8e31f1f2374e5e9758e14/src/terminalDisplay/TerminalFonts.cpp"
+file   = ""
+sha256 = "c66375778fd79b97f9f0a512efe6eb99bc3d93cb97db6a5a349d7ff2cea07be9"
+bytes  = 8575
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
+# against a fetch of the url, not committed -- a source file at a pinned commit.
+
+[sources.warp-cell-325d4d4]
+key    = "warp-cell-325d4d4"
+title  = "Warp crates/warp_terminal/src/model/grid/cell.rs -- MAX_GRAPHEME_BYTES 256; later zero-width characters dropped silently"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp at 325d4d4 (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/325d4d4701b41feb272487e89a6cf02bfba9f194/crates/warp_terminal/src/model/grid/cell.rs"
+file   = ""
+sha256 = "75f7dcc10a4f8b1875c8d976761edac7023ed5f45f37977eb1d93f946fa6838e"
+bytes  = 17076
+status = "external"
+group  = "J"
+# Read for note AD's terminal supplement (2026-10-08); hash-verified against a fetch
+# of the url, not committed -- a source file at a pinned commit.
+
+[sources.ad-obs-freq-emoji-rows]
+key    = "ad-obs-freq-emoji-rows"
+title  = "Extract of the emoji results behind each section 5 figure: intact spills and drops on Noto, the 106 core-altered sequences, not-fully-qualified spills, Apple substitutions, base unmapped"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "rows of the scratch results-emoji.tsv (146,780 rows, not committed) selected by extract.py"
+file   = "ad-observed/frequency-emoji-rows.tsv"
+sha256 = "bcc18edbeddd4c77fbbe190011b979d7d6cb112cee5ef7a1ebb032ec48cf8e01"
+bytes  = 189741
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-freq-marks-missing]
+key    = "ad-obs-freq-marks-missing"
+title  = "The combining marks each face and default stack does not map, per script group"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "results-marks.tsv.missing.json from the frequency lens, one line per face or stack and group"
+file   = "ad-observed/frequency-marks-missing.txt"
+sha256 = "e6cb6b4f4bfbef63efa1187c49af3577e68d5eabf730102346a77b3cebf7d8a0"
+bytes  = 19482
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-jev-design]
+key    = "ad-obs-jev-design"
+title  = "Jev request body: the first design request (A_DROP)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/hebrew-improve/missing-mark/jev-design.json (untracked), copied unchanged"
+file   = "ad-observed/jev-design.json"
+sha256 = "0cb454d9531f1e9e95b33170605acd73bd67e484aa07d1127044c26501fa81a0"
+bytes  = 5550
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-jev-design-r2]
+key    = "ad-obs-jev-design-r2"
+title  = "Jev request body: the second design request, which decided A_DROP at 0.99"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/hebrew-improve/missing-mark/jev-design-r2.json (untracked), copied unchanged"
+file   = "ad-observed/jev-design-r2.json"
+sha256 = "f30721256cc4a8b40f8966ea05b5d5d355fe7014b7dea903b34529521c4742fc"
+bytes  = 6837
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-jev-starters]
+key    = "ad-obs-jev-starters"
+title  = "Jev request body: the first starters request (0.55 against 0.45)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/hebrew-improve/missing-mark/jev-starters.json (untracked), copied unchanged"
+file   = "ad-observed/jev-starters.json"
+sha256 = "885db70d34e496513e0c24cae1666e6a267dfd439d5b678fb9cd023bd8adf6e9"
+bytes  = 5619
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-jev-starters-r2]
+key    = "ad-obs-jev-starters-r2"
+title  = "Jev request body: the second starters request (0.47, 0.29 and 0.24)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/hebrew-improve/missing-mark/jev-starters-r2.json (untracked), copied unchanged"
+file   = "ad-observed/jev-starters-r2.json"
+sha256 = "9be133a4890120fdf3db1bc37ad2c29c603df29342f82fa550ac7bcfaca62fa9"
+bytes  = 7296
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-counts]
+key    = "ad-obs-review-v13-counts"
+title  = "review-v13 starters: the renderer counters each arm reported (marks_unmapped, clusters_boxed)"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/inputs/counts.txt (untracked), copied unchanged"
+file   = "ad-observed/review-v13-counts.txt"
+sha256 = "c466a17754479314deb234d4b85fd9e42a52b21b105ea28b93c6018920b2d64a"
+bytes  = 8356
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-a-28]
+key    = "ad-obs-review-v13-sheet-a-28"
+title  = "review-v13 starters sheet a at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-a-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-a-28.png"
+sha256 = "83b68882b910e34bef0614695d0408f5234f3be16ea5311f328978cf1527fb49"
+bytes  = 10820
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-a-56]
+key    = "ad-obs-review-v13-sheet-a-56"
+title  = "review-v13 starters sheet a at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-a-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-a-56.png"
+sha256 = "133432b5925c51ce48fd4c103daf3ec97fc245fae1d8057a73f8455449b225c9"
+bytes  = 26384
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-b-28]
+key    = "ad-obs-review-v13-sheet-b-28"
+title  = "review-v13 starters sheet b at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-b-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-b-28.png"
+sha256 = "c8ca183770db151aec58674ed1d57ac6c3c16095734905e471fce5241d6f8b68"
+bytes  = 9893
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-b-56]
+key    = "ad-obs-review-v13-sheet-b-56"
+title  = "review-v13 starters sheet b at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-b-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-b-56.png"
+sha256 = "32f0812caa471f8d93c155a510cacb3d9177e19f99bb1bd71c751c74d5febae7"
+bytes  = 22298
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-c-28]
+key    = "ad-obs-review-v13-sheet-c-28"
+title  = "review-v13 starters sheet c at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-c-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-c-28.png"
+sha256 = "346dd458fd72fefecadcaf6a3ac337d974be1294241acf889a613da7508e7f8f"
+bytes  = 6859
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-c-56]
+key    = "ad-obs-review-v13-sheet-c-56"
+title  = "review-v13 starters sheet c at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-c-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-c-56.png"
+sha256 = "5b9a2f8897642f83e0e6ec640ba75b8d1b59c05daab44ebf423e980cc0c2db09"
+bytes  = 12255
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-d-28]
+key    = "ad-obs-review-v13-sheet-d-28"
+title  = "review-v13 starters sheet d at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-d-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-d-28.png"
+sha256 = "e6f787f78c5910ea1e0772cdd74a367c8e1e9babe5c7e39dd821615f3914f4fc"
+bytes  = 6643
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-d-56]
+key    = "ad-obs-review-v13-sheet-d-56"
+title  = "review-v13 starters sheet d at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-d-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-d-56.png"
+sha256 = "795f4e5590a6936adff788c508bcd0d8a0c859945f4d6b5f43aab8abb49f072a"
+bytes  = 12034
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-e-28]
+key    = "ad-obs-review-v13-sheet-e-28"
+title  = "review-v13 starters sheet e at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-e-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-e-28.png"
+sha256 = "ab462f642d6285c8f2907a0371530fd6b2e5405ab545c2f23931a73005eeeae4"
+bytes  = 21061
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-e-56]
+key    = "ad-obs-review-v13-sheet-e-56"
+title  = "review-v13 starters sheet e at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-e-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-e-56.png"
+sha256 = "53e3f3782ba274ed8ab92110f71b42439fa831fd0fdc920f14dd7db52163fb1b"
+bytes  = 57285
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-a-28]
+key    = "ad-obs-review-v13-sheet-noto-a-28"
+title  = "review-v13 starters sheet noto-a at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-a-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-a-28.png"
+sha256 = "dfb26d31a6ebc60d65c6764f397c9934b7b738a56f270474fd08ea826ccd1ac0"
+bytes  = 9092
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-a-56]
+key    = "ad-obs-review-v13-sheet-noto-a-56"
+title  = "review-v13 starters sheet noto-a at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-a-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-a-56.png"
+sha256 = "520ef8164ee88e13c74c1035f1486b6e101f4bf14b6ff806d3b321d7063e4531"
+bytes  = 16617
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-b-28]
+key    = "ad-obs-review-v13-sheet-noto-b-28"
+title  = "review-v13 starters sheet noto-b at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-b-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-b-28.png"
+sha256 = "5f1e03eb9fde940c27d8dcbc9a9864af34fc3ad3b5e05e94ac6724d7dc9ec35f"
+bytes  = 9164
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-b-56]
+key    = "ad-obs-review-v13-sheet-noto-b-56"
+title  = "review-v13 starters sheet noto-b at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-b-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-b-56.png"
+sha256 = "a962ba14236d58a7447f96063c9451297183c82dadf19b8cbd8b991cddaf35b4"
+bytes  = 17653
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-c-28]
+key    = "ad-obs-review-v13-sheet-noto-c-28"
+title  = "review-v13 starters sheet noto-c at 28 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-c-28.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-c-28.png"
+sha256 = "1f6203d405de6c17f961ed06e61427531c4f21b799730ce177332cd49484ec5c"
+bytes  = 7020
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ad-obs-review-v13-sheet-noto-c-56]
+key    = "ad-obs-review-v13-sheet-noto-c-56"
+title  = "review-v13 starters sheet noto-c at 56 px: HEAD, AS_BUILT and BOX rendered by baud"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = ".claude/research/review-v13/starters/sheet-noto-c-56.png (untracked), copied unchanged"
+file   = "ad-observed/review-v13-sheet-noto-c-56.png"
+sha256 = "510c1b5f06e6584ea39bd31586677050f562b8a2da13c5514487bf61f1a6c84f"
+bytes  = 12358
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+
+[sources.ms-opentype-recom]
+key    = "ms-opentype-recom"
+title  = "Recommendations for OpenType Fonts -- Glyph 0: the .notdef glyph"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/recom"
+file   = ""
+sha256 = "101924e1b86bdfa7dd827f46e1f18e924c424b1f3239fb3b6a108161f78b6e3c"
+bytes  = 90010
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+
+[sources.ms-opentype-cmap-20261008]
+key    = "ms-opentype-cmap-20261008"
+title  = "cmap -- Character to Glyph Index Mapping Table (the bytes served on 2026-10-08)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cmap"
+file   = ""
+sha256 = "7fcb97687dc7455ae9310722fbfd3981ae1731cbbf8c6c12656fee5cb68710ff"
+bytes  = 97689
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# The page ms-opentype-cmap pins served different bytes on 2026-10-08; this key pins those.
+
+[sources.w3c-css-fonts-3]
+key    = "w3c-css-fonts-3"
+title  = "CSS Fonts Module Level 3, W3C Recommendation 20 September 2018"
+author = "W3C CSS Working Group"
+year   = 2018
+venue  = "w3.org/TR"
+url    = "https://www.w3.org/TR/2018/REC-css-fonts-3-20180920/"
+file   = ""
+sha256 = "e3982d57e3992dfa7c0e56c1ff39977bd71d807731247decc794c61d2eacd63b"
+bytes  = 240662
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# The undated https://www.w3.org/TR/css-fonts-3/ served the same bytes on 2026-10-08.
+
+[sources.noto-color-emoji-deb13]
+key    = "noto-color-emoji-deb13"
+title  = "Debian 13 fonts-noto-color-emoji 2.051-0+deb13u1 (NotoColorEmoji.ttf sha256 dac5c276, 11,260,748 bytes, 4,124 glyphs)"
+author = "Google; packaged by Debian"
+year   = 2025
+venue  = "deb.debian.org (OFL-1.1)"
+url    = "http://deb.debian.org/debian/pool/main/f/fonts-noto-color-emoji/fonts-noto-color-emoji_2.051-0+deb13u1_all.deb"
+file   = ""
+sha256 = "03141cd51c0e9ff8ad858fcf2d8234f8a00ae4d7a0872df43a71519359c54e8c"
+bytes  = 10110428
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# The font inside is dac5c27651082d6c53dab5081f50d2022ddf6877d730fa919cf6a4fc2af22de0; its name 5 string
+# matches nixpkgs 2.051 (noto-emoji:20250818:e92753b) but the file and glyph count differ.
+
+[sources.vt220-rm-ch4]
+key    = "vt220-rm-ch4"
+title  = "VT220 Programmer Reference Manual, chapter 4: Received Character Processing"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1984
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt220-rm/chapter4.html"
+file   = ""
+sha256 = "dfa8e317c125cc489fd3a1562757dfd71449a6ca4a6df53054783a321b627599"
+bytes  = 118425
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+
+[sources.vt510-rm-ch4]
+key    = "vt510-rm-ch4"
+title  = "VT510 Video Terminal Programmer Information, chapter 4"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt510-rm/chapter4.html"
+file   = ""
+sha256 = "90697715013394a6aafc5ee7363992cf0f5500ad04b991890e3d85446b881286"
+bytes  = 149134
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+
+[sources.unicode-l2-2026-index]
+key    = "unicode-l2-2026-index"
+title  = "Unicode Technical Committee document directory L2/2026 (the index on 2026-10-08)"
+author = "Unicode, Inc."
+year   = 2026
+venue  = "unicode.org"
+url    = "https://www.unicode.org/L2/L2026/"
+file   = ""
+sha256 = "328517330917416c9b805e720d55edb3277930b0bcd3f42281051a829037fd2f"
+bytes  = 57884
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# A directory listing: a re-fetch will differ as documents are added.
+
+[sources.fedora-releases-eol]
+key    = "fedora-releases-eol"
+title  = "Fedora Linux end-of-life releases"
+author = "Fedora Project"
+year   = 2026
+venue  = "docs.fedoraproject.org"
+url    = "https://docs.fedoraproject.org/en-US/releases/eol/"
+file   = ""
+sha256 = "18e7474b5100016fb114c8a124f930cfe8f78168c1bffe3f515316b5791ada18"
+bytes  = 45063
+status = "external"
+group  = "J"
+# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
+# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# A living page: a re-fetch will differ as releases reach end of life.
+
+[sources.ad-obs-freq-shot-core-altered-macos]
+key    = "ad-obs-freq-shot-core-altered-macos"
+title  = "Core-altered RGI sequences drawn by baud on the macOS stack at 28 px: altered kisses, man kneeling, man in tuxedo"
+author = "baud research (note AD)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the frequency lens's shot binary (Term + Renderer, CPU path) at e0a611d; its arguments were not recorded"
+file   = "ad-observed/frequency-shot-core-altered-macos.png"
+sha256 = "2d0e78edf80046e31da393931592e8175fc48b53a5e8f492389b23e9854e5e8a"
+bytes  = 7832
+status = "retrieved"
+group  = "J"
+# Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.

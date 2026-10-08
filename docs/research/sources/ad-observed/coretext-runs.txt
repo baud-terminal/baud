@@ -1,0 +1,522 @@
+## JBM, system cascade
+  [d q+0316+0301] width=120.08 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=Menlo-Regular chars=[U+0071 U+0316 U+0301]
+      g84(q)@x=48.0,y=0.0 adv=0.0 si=2  g667(uni0316)@x=48.0,y=-8.7 adv=-1.9 si=3  g646(acutecomb)@x=46.1,y=2.1 adv=26.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=72.1,y=0.0 adv=24.0 si=5  g221(d)@x=96.1,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.0 si=2
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=68.0 si=3
+    run font=JetBrainsMono-Regular chars=[U+0301 U+0063 U+0064]
+      g1643(acutecomb)@x=92.0,y=0.0 adv=24.0 si=4  g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071 U+0301]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.4 si=2  g1643(acutecomb)@x=72.4,y=0.0 adv=-0.4 si=3
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=72.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+## JBM, cascade []
+  [d q+0316+0301] width=120.08 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=Menlo-Regular chars=[U+0071 U+0316 U+0301]
+      g84(q)@x=48.0,y=0.0 adv=0.0 si=2  g667(uni0316)@x=48.0,y=-8.7 adv=-1.9 si=3  g646(acutecomb)@x=46.1,y=2.1 adv=26.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=72.1,y=0.0 adv=24.0 si=5  g221(d)@x=96.1,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.0 si=2
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=68.0 si=3
+    run font=JetBrainsMono-Regular chars=[U+0301 U+0063 U+0064]
+      g1643(acutecomb)@x=92.0,y=0.0 adv=24.0 si=4  g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071 U+0301]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.4 si=2  g1643(acutecomb)@x=72.4,y=0.0 adv=-0.4 si=3
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=72.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+## JBM, cascade [LastResort]
+  [d q+0316+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0316 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+1AB0 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0301 U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+## JBM, cascade [apple-missing]
+  [d q+0316+0301] width=120.08 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=Menlo-Regular chars=[U+0071 U+0316 U+0301]
+      g84(q)@x=48.0,y=0.0 adv=0.0 si=2  g667(uni0316)@x=48.0,y=-8.7 adv=-1.9 si=3  g646(acutecomb)@x=46.1,y=2.1 adv=26.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=72.1,y=0.0 adv=24.0 si=5  g221(d)@x=96.1,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.0 si=2
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=68.0 si=3
+    run font=JetBrainsMono-Regular chars=[U+0301 U+0063 U+0064]
+      g1643(acutecomb)@x=92.0,y=0.0 adv=24.0 si=4  g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=164.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062 U+0071 U+0301]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1  g319(q)@x=48.0,y=0.0 adv=24.4 si=2  g1643(acutecomb)@x=72.4,y=0.0 adv=-0.4 si=3
+    run font=LastResort chars=[U+1AB0]
+      g4(lastresorttemplate)@x=72.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=116.0,y=0.0 adv=24.0 si=5  g221(d)@x=140.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+## JBM, cascade [apple-missing, LastResort]
+  [d q+0316+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0316 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+1AB0 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0301 U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+## JBM, cascade [woman+zwj, LastResort]
+  [d q+0316+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0316 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d2 q+1AB0+0301] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+1AB0 U+0301]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [d3 q+0301+1AB0] width=228.01 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0071 U+0301 U+1AB0]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2  g4(lastresorttemplate)@x=92.0,y=0.0 adv=44.0 si=3  g4(lastresorttemplate)@x=136.0,y=0.0 adv=44.0 si=4
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=180.0,y=0.0 adv=24.0 si=5  g221(d)@x=204.0,y=0.0 adv=24.0 si=6
+  [ctl woman] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [ctl hand] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B]
+      g1124(u1F44B.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=4  g221(d)@x=112.0,y=0.0 adv=24.0 si=5
+  [a woman+zwj+laptop] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D U+1F4BB]
+      g1438(u1F469_u1F4BB.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=7  g221(d)@x=112.0,y=0.0 adv=24.0 si=8
+  [a2 woman+zwj+1FC00] width=180.00 runs=4
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F469 U+200D]
+      g1366(u1F469.0)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=LastResort chars=[U+1FC00]
+      g4(lastresorttemplate)@x=88.0,y=0.0 adv=44.0 si=5
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=132.0,y=0.0 adv=24.0 si=7  g221(d)@x=156.0,y=0.0 adv=24.0 si=8
+  [b hand+tone] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F44B U+1F3FD]
+      g1127(u1F44B.3)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [c flag US] width=136.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=AppleColorEmoji chars=[U+1F1FA U+1F1F8]
+      g608(u1F1FA_u1F1F8)@x=48.0,y=0.0 adv=40.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=88.0,y=0.0 adv=24.0 si=6  g221(d)@x=112.0,y=0.0 adv=24.0 si=7
+  [x garay 10D40] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+10D40]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=4  g221(d)@x=116.0,y=0.0 adv=24.0 si=5
+  [x unassigned 0378] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+0378]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4
+  [x pua E000] width=140.00 runs=3
+    run font=JetBrainsMono-Regular chars=[U+0061 U+0062]
+      g189(a)@x=0.0,y=0.0 adv=24.0 si=0  g214(b)@x=24.0,y=0.0 adv=24.0 si=1
+    run font=LastResort chars=[U+E000]
+      g4(lastresorttemplate)@x=48.0,y=0.0 adv=44.0 si=2
+    run font=JetBrainsMono-Regular chars=[U+0063 U+0064]
+      g215(c)@x=92.0,y=0.0 adv=24.0 si=3  g221(d)@x=116.0,y=0.0 adv=24.0 si=4

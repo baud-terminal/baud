@@ -1,0 +1,19 @@
+[0.162] Cell height calculation:
+[0.162] 	line height from line origins: 25.000000
+[0.162] 	line bounds: origin-y: -5.188477 height: 25.609375
+[0.162] 	line bounds-no-leading: origin-y: -5.188477 height: 25.609375
+[0.162] 	bounds metrics: ascent: 20.420898
+[0.162] 	line metrics: ascent: 20.420898 descent: 5.188477 leading: 0.000000
+[0.162] 	font metrics: ascent: 20.420898 descent: 5.188477 leading: 0.000000 underline_position: -1.396484
+[0.162] 	cell_height: 25 baseline: 20 underline_position: 22 strikethrough_position: 13
+[0.257] Text fonts:
+[0.257]   Normal: Menlo-Regular: /System/Library/Fonts/Menlo.ttc
+Features: ()
+[0.257]   Bold: Menlo-Bold: /System/Library/Fonts/Menlo.ttc
+Features: ()
+[0.257]   Italic: Menlo-Italic: /System/Library/Fonts/Menlo.ttc
+Features: ()
+[0.257]   Bold-Italic: Menlo-BoldItalic: /System/Library/Fonts/Menlo.ttc
+Features: ()
+[0.296] The font chosen by the OS for the text: U+1f469 U+200d U+1faff is Face(family=Apple Color Emoji, full_name=Apple Color Emoji, postscript_name=AppleColorEmoji, path=/System/Library/Fonts/Apple Color Emoji.ttc, units_per_em=800, ascent=23.0, descent=7.2, leading=0.0, scaled_point_sz=22.0, underline_position=-2.9 underline_thickness=1.4) but it does not actually contain glyphs for that text
+[0.342] U+1f469 U+200d U+1f4bb emoji_presentation Face(family=Apple Color Emoji, full_name=Apple Color Emoji, postscript_name=AppleColorEmoji, path=/System/Library/Fonts/Apple Color Emoji.ttc, units_per_em=800, ascent=23.0, descent=7.2, leading=0.0, scaled_point_sz=22.0, underline_position=-2.9 underline_thickness=1.4)

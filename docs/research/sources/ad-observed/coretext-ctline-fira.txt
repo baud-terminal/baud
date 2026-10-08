@@ -1,0 +1,30 @@
+== FiraCodeNF-Reg 71 1AB0
+line width 41.17
+run 0 font=FiraCodeNF-Reg glyph=85(q) str_idx=0 x=0.00 adv=14.77
+run 1 font=LastResort glyph=4(lastresorttemplate) str_idx=1 x=0.00 adv=41.17
+== FiraCodeNF-Reg 71 1AB0 301
+line width 41.17
+run 0 font=FiraCodeNF-Reg glyph=85(q) str_idx=0 x=0.00 adv=14.77
+run 1 font=LastResort glyph=4(lastresorttemplate) str_idx=1 x=0.00 adv=41.17
+run 2 font=FiraCodeNF-Reg glyph=345(acutecomb) str_idx=2 x=26.40 adv=14.77
+== FiraCodeNF-Reg 4E2D 1AB0
+line width 50.40
+run 0 font=PingFangSC-Regular glyph=183(gid183) str_idx=0 x=0.00 adv=24.00
+run 1 font=LastResort glyph=4(lastresorttemplate) str_idx=1 x=0.00 adv=50.40
+== FiraCodeNF-Reg 1F469 200D 1FAFF
+line width 51.40
+run 0 font=AppleColorEmoji glyph=1366(u1F469.0) str_idx=0 x=0.00 adv=25.00
+run 1 font=LastResort glyph=4(lastresorttemplate) str_idx=3 x=25.00 adv=26.40
+== FiraCodeNF-Reg 1FAFF 1F3FB
+line width 51.40
+run 0 font=LastResort glyph=4(lastresorttemplate) str_idx=0 x=0.00 adv=26.40
+run 1 font=AppleColorEmoji glyph=1003(u1F3FB) str_idx=2 x=26.40 adv=25.00
+== FiraCodeNF-Reg 378
+line width 26.40
+run 0 font=LastResort glyph=4(lastresorttemplate) str_idx=0 x=0.00 adv=26.40
+== FiraCodeNF-Reg 10940
+line width 26.40
+run 0 font=LastResort glyph=4(lastresorttemplate) str_idx=0 x=0.00 adv=26.40
+== FiraCodeNF-Reg 323B0
+line width 26.40
+run 0 font=LastResort glyph=4(lastresorttemplate) str_idx=0 x=0.00 adv=26.40
