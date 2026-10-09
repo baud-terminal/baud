@@ -345,6 +345,14 @@ fn every_test_named_in_the_docs_exists() {
             "a historical name. The test still exists as              `blanking_stops_at_the_used_extent`; it was renamed when the              decision it pinned -- that a full-width blank is cheaper than              avoiding one -- was reversed by measurement. The old name is kept              in the dead-code header comments because that is the incident              they describe",
         ),
         (
+            "a_promoted_run_keeps_the_set_it_was_written_under",
+            "a historical name. The test still exists as \
+             `a_cell_written_under_ungated_german_keeps_its_glyph_when_g0_is_designated_again`; \
+             it was renamed because the run and the promotion its name described \
+             were `baud-core2`'s. Note AF read the code before the rename and cites \
+             the old name, and its §5(b) names the test by it",
+        ),
+        (
             "_vte_row_data_get",
             "VTE's C accessor, quoted in note F where it returns NULL past the              row's stored length",
         ),

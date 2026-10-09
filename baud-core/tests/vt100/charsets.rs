@@ -530,9 +530,16 @@ fn the_line_drawing_table_covers_the_whole_set() {
 ///
 /// Out with the reason "no machine-readable source for the per-language
 /// substitutions". `[[source: xterm-charsets]]` has them, as `MAP`/`UNI`
-/// macros carrying the Unicode codepoint — 14 sets, 162 substitutions — and
-/// they are cited as xterm's judgement rather than as DEC's, the same way the
-/// line-drawing table is cited as foot's.
+/// macros -- 14 sets, 164 substitutions. 163 come from those macros and are
+/// cited as xterm's judgement rather than as DEC's, the same way the
+/// line-drawing table is cited as foot's; the other, Turkish 2/1, U+0131, is
+/// typed from `[[source: dec-pplv2-pm]]` Figure A-26, which xterm's table
+/// lacks.
+///
+/// **It pins note AF's Q-DECNRCM (a).** It designates UK, German and French
+/// with no `CSI ? 42 h`, so it holds only while the national sets act outside
+/// national mode, which departs from every DEC text read (note AF §2.10).
+/// Under (b) its German and French cases fail, and its UK case turns on (b.4).
 #[test]
 fn the_national_sets_substitute() {
     // The canonical one: `#` is `£` in the United Kingdom set.
@@ -569,14 +576,28 @@ fn an_unreplaced_byte_is_ascii_under_a_national_set() {
     );
 }
 
-/// **The set travels with the run, not with the terminal.**
+/// **A cell written under ungated German keeps its glyph when G0 is
+/// designated again.**
 ///
-/// `OpMode::Runs` stores bytes and materialises them later, so a line written
-/// under German and promoted after the designation changed would be translated
-/// with whatever set was current. `Run::charset` is why it is not — the same
-/// reason the run carries the protection bit.
+/// The `[` written under `ESC ( K` is U+00C4 in the cell, and it is still
+/// U+00C4 after `ESC ( B` and twelve more writes on the same row under ASCII:
+/// the cell holds the codepoint the set translated the byte to when it was
+/// written, so a later designation has nothing to translate again.
+///
+/// This was `a_promoted_run_keeps_the_set_it_was_written_under`, documented as
+/// proving that `Run::charset` carried the set through `OpMode::Runs`'
+/// promotion. Both were `baud-core2`'s. Nothing in this core builds a run or
+/// reads that field, so the name and the doc described a mechanism the test
+/// never reached (note AF §3.8).
+///
+/// **It pins note AF's Q-DECNRCM (a).** It designates German with no
+/// `CSI ? 42 h`, and under (b), which gates the national sets on national
+/// mode, German would not act and the test would fail. Sending `?42` first
+/// would not make it independent of the answer: `?42` is not recognised
+/// today, and under (b) the one-set-per-keyboard question, (b.3), can still
+/// change what `ESC ( K` does.
 #[test]
-fn a_promoted_run_keeps_the_set_it_was_written_under() {
+fn a_cell_written_under_ungated_german_keeps_its_glyph_when_g0_is_designated_again() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
@@ -584,13 +605,15 @@ fn a_promoted_run_keeps_the_set_it_was_written_under() {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index((b).len()));
     };
-    // Write under German, switch back to ASCII, then force materialisation.
+    // Write `[` under German at 1;1, designate ASCII into G0, then write a `z`
+    // at each of columns 2-13 of the same row under ASCII.
     //
-    // `MAXRUN` is 8, so a ninth run on the line promotes it -- and each run
-    // needs to be a real write, not just a cursor move. Writing nothing was the
-    // first version of this test, and in `OpMode::Runs` `row()` reports
-    // *representation*, so an unpromoted line reads blank and the assertion
-    // failed for the wrong reason. CLAUDE.md warns about exactly this.
+    // The twelve are real writes, not cursor moves, so the row is written
+    // again after the set changed: a set applied when the row is read, or to
+    // the row as a whole, rather than to each cell as it is written, would
+    // turn column 1 back into `[`. Twelve is `baud-core2`'s number, where a
+    // ninth run on a line promoted it; any write to the row would do here, and
+    // the count is kept so the test sends the bytes it always has.
     feed(&mut t, b"\x1b(K[");
     feed(&mut t, b"\x1b(B");
     for col in 2..14u16 {

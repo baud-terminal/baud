@@ -1,5 +1,8 @@
-//! National Replacement Character Sets, generated from the source pinned in
-//! `docs/research/sources/MANIFEST.toml`.
+//! National Replacement Character Sets, generated from the sources pinned in
+//! `docs/research/sources/MANIFEST.toml`: `[[source: xterm-charsets]]`'s
+//! macros, their keysyms resolved through `[[source: xorg-keysymdef]]`, and
+//! the positions those macros lack that a DEC text draws, each cited on its
+//! table.
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-nrcs-tables.py`;
 //! `nrcs_tables_match_the_pinned_source` fails if this file and the pinned
@@ -50,7 +53,7 @@ static FRENCH: [(u8, u32); 9] = [
     (0x7e, 0x00a8),
 ];
 
-/// `[[source: xterm-charsets]]`'s `map_NRCS_FrenchCanadian`.
+/// `[[source: xterm-charsets]]`'s `map_NRCS_French_Canadian`.
 static FRENCHCANADIAN: [(u8, u32); 10] = [
     (0x40, 0x00e0),
     (0x5b, 0x00e2),
@@ -90,7 +93,7 @@ static ITALIAN: [(u8, u32); 10] = [
     (0x7e, 0x00ec),
 ];
 
-/// `[[source: xterm-charsets]]`'s `map_NRCS_NorwegianDanish`.
+/// `[[source: xterm-charsets]]`'s `map_NRCS_Norwegian_Danish`.
 static NORWEGIANDANISH: [(u8, u32); 10] = [
     (0x40, 0x00c4),
     (0x5b, 0x00c6),
@@ -127,7 +130,8 @@ static SPANISH: [(u8, u32); 8] = [
 ];
 
 /// `[[source: xterm-charsets]]`'s `map_NRCS_Swedish`.
-static SWEDISH: [(u8, u32); 9] = [
+static SWEDISH: [(u8, u32); 10] = [
+    (0x40, 0x00c9),
     (0x5b, 0x00c4),
     (0x5c, 0x00d6),
     (0x5d, 0x00c5),
@@ -156,6 +160,11 @@ static SWISS: [(u8, u32); 12] = [
 ];
 
 /// `[[source: xterm-charsets]]`'s `map_NRCS_Greek`.
+///
+/// Not emitted, each until its question is answered:
+///
+/// * `0x79`, `XXX(..., UNDEF)` in the macro: awaits Q-UNDEF (note AF).
+/// * `0x7a`, `XXX(..., UNDEF)` in the macro: awaits Q-UNDEF (note AF).
 static GREEK: [(u8, u32); 24] = [
     (0x61, 0x0391),
     (0x62, 0x0392),
@@ -214,8 +223,13 @@ static HEBREW: [(u8, u32); 27] = [
     (0x7a, 0x05ea),
 ];
 
-/// `[[source: xterm-charsets]]`'s `map_NRCS_Turkish`.
-static TURKISH: [(u8, u32); 11] = [
+/// `[[source: xterm-charsets]]`'s `map_NRCS_Turkish`, and what it lacks,
+/// typed from the DEC text that draws it:
+///
+/// * `0x21`, U+0131: `[[source: dec-pplv2-pm]]` Figure A-26, which draws a
+///   dotless small i at 2/1 (note AF §2.4).
+static TURKISH: [(u8, u32); 12] = [
+    (0x21, 0x0131),
     (0x26, 0x011f),
     (0x40, 0x0130),
     (0x5b, 0x015e),
@@ -233,7 +247,7 @@ static TURKISH: [(u8, u32); 11] = [
 /// in `charsets.c` rather than as a macro.
 static UK: [(u8, u32); 1] = [(0x23, 0x00a3)];
 
-/// The replacement table for a set, or `None` where there is none.
+/// The replacement table for a set: the positions it replaces, by byte.
 pub fn nrcs_table(set: Nrcs) -> &'static [(u8, u32)] {
     match set {
         Nrcs::Dutch => &DUTCH,

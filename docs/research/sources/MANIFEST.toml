@@ -941,9 +941,14 @@ status = "retrieved"
 group  = "C"
 
 # The per-language substitutions, for which none of the DEC texts read gives a
-# Unicode codepoint. **Cited as xterm's, not as DEC's** -- the macros carry
-# the Unicode codepoint alongside each replaced position, and 14 sets of them
-# is 162 substitutions nobody should transcribe by hand.
+# Unicode codepoint. **Cited as xterm's, not as DEC's** -- the macros give each
+# replaced position a codepoint, a `UNI` line directly and a `MAP` line through
+# its keysym (resolved in `xorg-keysymdef`), and the 14 sets baud generates
+# from them are 164 substitutions nobody should transcribe by hand: 163 from
+# these macros, and Turkish 2/1, U+0131, which they lack and EK-PPLV2-PM Figure
+# A-26 draws (`dec-pplv2-pm`). Greek's two `UNDEF` lines are not emitted until
+# note AF's Q-UNDEF is answered. This said 162, without the Swedish 4/0 the
+# generator dropped (note AF §2.3).
 [sources.xterm-charsets]
 key    = "xterm-charsets"
 title  = "xterm patch #411, charsets.h -- the NRCS mapping macros"

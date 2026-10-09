@@ -74,11 +74,14 @@ pub enum Charset {
 /// one it is decides which characters change, and an embedder that asked could
 /// not previously tell Finnish from a byte baud did not recognise.
 ///
-/// Named and translated: each set's replacements come from
+/// Named and translated. 163 of the fourteen sets' 164 replacements come from
 /// `[[source: xterm-charsets]]`, cited as xterm's judgement rather than as
-/// DEC's, and `every_national_replacement_renders_as_its_table_says` drives
-/// every one through `Term`. This said "recorded and not translated" and "the
-/// cell keeps the byte" after the tables landed.
+/// DEC's; the other is Turkish 2/1, U+0131, which xterm's table lacks and
+/// `[[source: dec-pplv2-pm]]` Figure A-26 draws, typed into the generator with
+/// its citation. `each_vt220_national_table_is_decs` holds the ten VT220 sets
+/// to DEC's own tables, and `every_national_replacement_renders_as_its_table_says`
+/// drives every one through `Term`. This said "recorded and not translated"
+/// and "the cell keeps the byte" after the tables landed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Nrcs {
     /// `C` or `5`
@@ -112,7 +115,12 @@ pub enum Nrcs {
 }
 
 impl Nrcs {
-    /// Dense index, for storing a [`Charset`] in one byte.
+    /// A dense index, 0-13.
+    ///
+    /// It was for storing a [`Charset`] in one byte, through `Charset::to_u8`,
+    /// in a `Run` field nothing reads. `Charset::to_u8` is gone, and the one
+    /// caller left is `every_national_replacement_renders_as_its_table_says`,
+    /// which counts the distinct sets its designator discovery reaches.
     pub fn to_u8(self) -> u8 {
         match self {
             Nrcs::Finnish => 0,
@@ -130,26 +138,6 @@ impl Nrcs {
             Nrcs::Turkish => 12,
             Nrcs::Hebrew => 13,
         }
-    }
-
-    pub fn from_u8(v: u8) -> Option<Nrcs> {
-        Some(match v {
-            0 => Nrcs::Finnish,
-            1 => Nrcs::Swedish,
-            2 => Nrcs::German,
-            3 => Nrcs::FrenchCanadian,
-            4 => Nrcs::French,
-            5 => Nrcs::Italian,
-            6 => Nrcs::Spanish,
-            7 => Nrcs::Dutch,
-            8 => Nrcs::Swiss,
-            9 => Nrcs::NorwegianDanish,
-            10 => Nrcs::Portuguese,
-            11 => Nrcs::Greek,
-            12 => Nrcs::Turkish,
-            13 => Nrcs::Hebrew,
-            _ => return None,
-        })
     }
 }
 
@@ -181,12 +169,22 @@ pub enum DecSet {
     SupplementalGraphics,
     /// `& 4` — DEC Cyrillic, VT500.
     Cyrillic,
-    /// `% 3` — SCS NRCS, VT500, and `& 5` — DEC Russian, VT500.
+    /// `% 3` — SCS NRCS, and `& 5` — Russian NRCS, VT500: the names the
+    /// pinned DEC texts give (`[[source: vt510-scs]]`; `[[source: vt520-rm]]`
+    /// Table 5-14). "DEC Russian", which this said, is `[[source: ctlseqs]]`'s
+    /// name (line 368).
     ///
     /// `[[source: ctlseqs]]`: "The VT520 reference manual lists a few more, but
-    /// **no documentation has been found for the mappings**." Recognised as
-    /// designations, which is all baud does with any set, so the missing
-    /// mapping costs nothing here.
+    /// **no documentation has been found for the mappings**." xterm 411
+    /// translates both all the same, by its own choices -- ISO-IR-141 for SCS,
+    /// and for Russian the KOI-7 dialect Kermit used
+    /// (`[[source: xterm-charsets]]`'s `map_NRCS_Serbo_Croatian` and
+    /// `map_NRCS_Russian`) -- and designates them only at level 5
+    /// (`[[source: xterm-reset]]` `charproc.c:1861-1862`). No DEC chart for
+    /// either has been read, so both are designated and draw ASCII; what they
+    /// should draw is note AF's Q-SCS-Russian. This also said
+    /// they were "recognised as designations, which is all baud does with any
+    /// set", stale since the national tables landed.
     Undocumented,
 }
 
@@ -195,45 +193,17 @@ impl Charset {
     ///
     /// Only the line-drawing set has a flag of its own -- `CellFlags` has no
     /// spare bits, the link index having taken them -- so this answers
-    /// `DecGraphics` or `Ascii`. The national sets reach the cell through
-    /// `Run::charset` instead, which is where a run records what it was
-    /// written under.
+    /// `DecGraphics` or `Ascii`. A national set cannot be recovered from a
+    /// cell at all: the cell holds the codepoint the set translated the byte
+    /// to when it was written (`PackedCell::with_charset`), and nothing
+    /// records the set. This said the national sets "reach the cell through
+    /// `Run::charset`"; nothing in this core builds a `Run`, and nothing reads
+    /// that field.
     pub fn from_flags(f: CellFlags) -> Charset {
         if f.is_graphics() {
             Charset::DecGraphics
         } else {
             Charset::Ascii
-        }
-    }
-
-    /// The set as one byte, for storing in a [`Run`].
-    ///
-    /// A run has to carry it: `promote` replays stored bytes into cells long
-    /// after the designation that produced them, so a line written under
-    /// German and materialised later would otherwise be translated with
-    /// whatever set happened to be current. That is the same shape as the
-    /// protection bit, which the run carries for the same reason.
-    pub fn to_u8(self) -> u8 {
-        match self {
-            Charset::Ascii => 0,
-            Charset::Uk => 1,
-            Charset::DecGraphics => 2,
-            Charset::Other => 3,
-            Charset::Dec(_) => 4,
-            Charset::National(n) => 16 + n.to_u8(),
-        }
-    }
-
-    /// The inverse. `Ascii` for anything unrecognised, which is the safe
-    /// direction: an unknown byte means "do not translate".
-    pub fn from_u8(v: u8) -> Charset {
-        match v {
-            1 => Charset::Uk,
-            2 => Charset::DecGraphics,
-            3 => Charset::Other,
-            4 => Charset::Dec(DecSet::Supplemental),
-            16.. => Nrcs::from_u8(v - 16).map_or(Charset::Ascii, Charset::National),
-            _ => Charset::Ascii,
         }
     }
 

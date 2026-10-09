@@ -201,7 +201,13 @@ pub enum DeviceAttribute {
     /// `CSI ? 6 c`. What baud actually is: DECSTBM (VT100) and IL/DL (VT102).
     /// It has selective erase, which is VT220, and still answers VT102 --
     /// one VT220 feature does not buy the level, and it has neither UDKs nor
-    /// NRCS nor 132-column mode.
+    /// 132-column mode.
+    ///
+    /// This also said baud had no NRCS. It translates fourteen national
+    /// replacement sets and UK, whatever level this answer claims, and without
+    /// DECNRCM, which it does not recognise. Which level this answer amounts
+    /// to is the level reading behind note AE's Q9, and whether the sets act
+    /// outside national mode is note AF's Q-DECNRCM; both are open.
     Vt102,
 }
 

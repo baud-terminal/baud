@@ -1,9 +1,11 @@
 # AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate
 
-**Status: research, unbuilt; researched 2026-10-08, corrected against its
-first check and again against its second (round 2) on 2026-10-09.** Nothing
-in this note is built. Section 5(a) lists what can be built before any
-answer. Every question in section 4 is open.
+**Status: research; section 5(a)'s items 1-4 and 6 built on 2026-10-09
+(docs/record.md, "Swedish É and Turkish ı, and the national tables checked
+against DEC's own"); researched 2026-10-08, corrected against its first check
+and again against its second (round 2) on 2026-10-09.** Every question in
+section 4 is open; the error character's codepoint now carries a Jev
+recommendation of U+2426 at 1.00, repeated (Q-UNDEF).
 
 - **Owner's call, whatever Jev says:** Q-UNDEF, Q-Greek, Q-ND-backtick,
   Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, and Q-Technical's layout half. In

@@ -454,7 +454,9 @@ impl PackedCell {
     /// does now -- the G0-G3 slots and the locking shifts landed, so
     /// `ESC ( % 6` puts this search on the per-character path for as long as the
     /// set is designated. `every_national_replacement_renders_as_its_table_says`
-    /// drives all 163 replacements through `Term` and proves it.
+    /// drives the fourteen `Nrcs` sets' 164 replacements through `Term` and
+    /// proves it. This said "all 163", counting UK's, which is a `Charset` of
+    /// its own and which that test never drives.
     ///
     /// What replaces it: the tables are **8 to 10 pairs** over a `const` array,
     /// and this project has measured a table against a short predictable chain

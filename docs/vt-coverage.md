@@ -187,29 +187,69 @@ direct address takes one as a coordinate, as xterm's does.
 | C0 in `csi_intermediate` | done — this arm had no C0 branch, so `CSI ! <NUL> p` lost its DECSTR |
 | `7F` DEL in `csi_entry` / `csi_param` | done — ignored, and does not consume the marker position |
 | `7F` DEL in ground, ANSI and VT52 | done — ignored: no cell and no cursor move, as `[[source: dec-std-070]]` 070-3 §3.4.2 says for a 94-character set in GL ("shall be ignored"), with `[[source: vt510-ch7]]` § 7.2.5 and `[[source: williams]]`'s ground. Until 2026-10-08 it drew U+FFFD, a decoding error for a byte that is well-formed in UTF-8 (`del_in_ground_is_ignored`, at every read size). A 96-character set in GL makes it a character of the set, which waits on note AE |
-| SUB additionally displaying the DEC error character `␦` | **out** — williams says VT220-VT500 hardware does; xterm does not, and baud follows xterm as it does for DECAWM. Detail below |
+| SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character, and which codepoint that is, is open with the owner: note AF's Q-UNDEF, with note AE's error-character codepoint (its Q8). Detail below |
 
-**The sources disagree, and baud follows xterm — the same call, for the same
-reason, as DECAWM's default.**
+**The basis this row gave was wrong, and what SUB displays is open.**
 
 `[[source: williams]]` records that "SUB will also display the error character, a
-reversed question mark", describing VT220 through VT500 hardware.
-`[[source: ctlseqs]]` documents `SUB` nowhere as producing a glyph, and xterm
-does not write one. baud cancels and writes nothing.
+reversed question mark", describing VT220 through VT500 hardware, and
+`[[source: dec-pplv2-pm]]` p. 6-4 says it of DEC's printers: "SUB in printable
+text causes the error character (a reverse question mark) to be printed."
+`[[source: ctlseqs]]` documents `SUB` nowhere as producing a glyph. baud cancels
+and writes nothing.
 
-The reason given here used to be that this was "a rendering decision made where
-no renderer exists". That was wrong and worth correcting rather than quietly
-restating: baud stores codepoints, not pixels, so writing `U+2426` would be
-storing a *character*, which it does all day. Nothing about the missing renderer
-prevents it. The actual reason is the source conflict, and this file already has
-a precedent for how to resolve one — DECAWM's default is "No autowrap" in the
-VT510 manual and on in xterm, and baud follows xterm because that is what
-applications are written against. Same here.
+This row said xterm "does not write one", and that baud follows xterm here for
+the reason it does on DECAWM's default. xterm 411 does write one, under
+conditions, read from its source and not run (note AF §5(a)6, D5). A ground SUB
+reaches CASE_SUB through the ground table (`[[source: xterm-vtprstbl-c]]`
+`VTPrsTbl.c:188`; `[[source: xterm-reset]]` `charproc.c:3646-3678`), and what
+`dotext` goes on to write, after the translation, is:
 
-The cost of being wrong is asymmetric, which settles it. Writing a glyph an
-application did not send is indistinguishable, afterwards, from text it did; not
-writing one loses nothing an application can observe, because the cancellation
-itself is the visible behaviour and is implemented.
+- **nothing at decTerminalID 52, in any build**: CASE_SUB writes only when
+  `terminal_id >= 100` (`:3665`);
+- **code 2 at the other IDs, in a build without `OPT_WIDE_CHARS`** (`:3670`),
+  below 32, so `xtermCharSetOut` passes it unchanged
+  (`[[source: xterm-charsets-c]]` `charsets.c:395-396`);
+- in a build with `OPT_WIDE_CHARS`, where CASE_SUB picks 0x2426 when
+  `terminal_id > 200` and 0x2592 otherwise (`:3667-3668`):
+  - **U+2426 at decTerminalID 420, in a UTF-8 locale, with ASCII in GL and
+    GR.** 420 is xterm's default (`[[source: xterm-ptyx-h]]` `ptyx.h:398-400`;
+    `charproc.c:516`), a UTF-8 locale selects UTF-8 mode at xterm's defaults,
+    and `resetCharsets` then puts ASCII in both, so no translation runs. With
+    another set in GL or GR the translation runs and still leaves it: in UTF-8
+    mode `xtermCharSetOut` skips any character above 255
+    (`charsets.c:384-393`);
+  - **`&` outside UTF-8 mode, with ASCII in GL.** At ID 420 `resetCharsets`
+    puts ISO Latin-1 Supplemental in GR, so the character goes through
+    `xtermCharSetOut`, which takes its low eight bits, 0x26
+    (`charsets.c:366-370`), and leaves that byte with ASCII in GL;
+  - **U+2592 at the VT100-level IDs** xterm keeps (100, 101, 102, 131 and
+    132; `charproc.c:11020-11033`).
+
+The pinned files do not say whether a given build has `OPT_WIDE_CHARS`:
+`xterm.h` includes `xtermcfg.h`, which is not pinned, when `HAVE_CONFIG_H` is
+defined, and then defines it as 0 if nothing has set it
+(`[[source: xterm-xterm-h]]` `xterm.h:43-45`, `:298-300`). The write path past
+`dotext`, and xterm's drawing, were not read.
+
+So "baud follows xterm" was wrong as written: under those conditions xterm
+writes a glyph, and following xterm, the DECAWM precedent, would not give
+"writes nothing". The status stays **out** because changing it is the decision, and the
+decision is the owner's: whether SUB displays the error character, and which
+codepoint that is, is note AF's Q-UNDEF, decided with note AE's
+error-character codepoint (its Q8) and the codepoint of every DEC set's
+reserved positions.
+
+The reason given before that one was that this was "a rendering decision made
+where no renderer exists". That was wrong too, and its correction stands: baud
+stores codepoints, not pixels, so writing a glyph for SUB would be storing a
+*character*, which it does all day. Nothing about the renderer prevents it.
+
+The asymmetry this section called settling -- a glyph an application did not
+send is indistinguishable afterwards from text it did, while writing none loses
+nothing it can observe, because the cancellation itself is the visible
+behaviour and is implemented -- is an argument for that decision, not a basis
+the row can rest on.
 
 ### Encoding: UTF-8, or ISO 8859-1, and 8-bit C1 controls only under the second
 
@@ -248,7 +288,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence | **out** — same reason; they are UTF-8 lead and continuation bytes |
 | ISO 8859-1 input, switched by `ESC % @` / `ESC % G` | done — `InputEncoding`; one byte, one character, no decoder state |
 | encoding detection | done — `InputEncoding::detect` **reports**; it never switches the terminal, and returns `None` when the sample cannot decide |
-| Translating the national replacement sets | done — 14 sets, 162 substitutions, from `[[source: xterm-charsets]]`; the run records which set it was written under so promotion cannot change it |
+| Translating the national replacement sets | done — 14 sets, 164 substitutions: 163 from `[[source: xterm-charsets]]`, cited as xterm's, and Turkish 2/1, U+0131, typed from `[[source: dec-pplv2-pm]]` Figure A-26, which xterm's table lacks. Greek 7/9 and 7/10 wait on note AF's Q-UNDEF. The ten VT220 sets are held to DEC's own tables (`each_vt220_national_table_is_decs`). A cell keeps the codepoint its set translated the byte to when it was written, so designating another set changes nothing already on the screen; this said "the run records which set it was written under so promotion cannot change it", a mechanism that was `baud-core2`'s. The sets act whether or not national mode is set, a departure recorded under Out of scope |
 
 `S7C1T`/`S8C1T` are about what the terminal **sends**, and both are implemented:
 "this tells the terminal to send C1 control characters as 8-bit sequences, e.g.,
@@ -757,7 +797,7 @@ Recorded so that "not implemented" is a decision rather than an omission.
 | the rest of `CSI Ps t` | XTWINOPS window operations and the title stack | Recognised as XTWINOPS and refused, counted in `unsupported_param` the way a `DSR` baud cannot answer is. Each moves, resizes, iconifies, raises or reports the *window* or the screen, which this core is handed nothing about, or pushes a title onto a stack it does not keep; xterm itself gates them behind `allowWindowOps`. `CSI 22 ; 2 t` / `CSI 23 ; 2 t`, the title save and restore vim sends, is the one with a real consumer and the one to take first. The three reports that *are* answered -- 14, 16, 18 -- are in Tier 3. |
 | `CSI ? Pi ; Pa ; Pv S` | XTSMGRAPHICS, Sixel colour registers and geometry | Counted and unanswered. A reply is the claim that the attribute can be read, and the right numbers are the decoder's register count and the image budget's geometry, which is a change of its own. **It does not scroll**: `CSI Ps S` is SU on the same final byte, and a note carried from the Sixel work said the private form scrolled; `xtsmgraphics_does_not_scroll_and_is_counted` says it never did. |
 | ReGIS, Tektronix | vector graphics | Historical; no modern application emits them. |
-| National replacement charsets | DECNRCM | Superseded by UTF-8. Recorded because `[[source: ctlseqs]]` documents them and a reader will ask. |
+| National replacement character set mode | DECNRCM, `CSI ? 42 h` and `l` | Not recognised (`PrivateMode::Other`), and the national sets above are translated in every mode. That departs from DEC's gate: "These sets are available when you select national mode" (`[[source: dec-special-graphics]]` §2.4.3), with `[[source: vt220-rm-ch4]]` §4.6.19 and Table 4-4's note, `[[source: vt420-rm]]` p. 27 and `[[source: dec-std-070]]` §5.8.1 note 4; xterm gates the same way (`[[source: xterm-reset]]` `charproc.c:1929`). Whether baud gates, and how, is note AF's Q-DECNRCM, the owner's and open. This row said the sets were "Superseded by UTF-8" while the rows above translated fourteen of them. |
 
 ---
 

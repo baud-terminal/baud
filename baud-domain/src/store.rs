@@ -86,12 +86,17 @@ pub struct Run {
     /// Held as `u8` because not every bit pattern is a valid variant — recover
     /// it with [`Run::encoding`], which is checked.
     pub encoding: u8,
-    /// [`Charset`] as a byte, from the padding this struct already carried.
+    /// **Dead: nothing writes or reads it.** Carved from the padding this
+    /// struct already carried, for [`Charset`] as a byte.
     ///
-    /// A run has to record what it was written under: `promote` replays it
-    /// into cells long after the designation, so a line written under German
-    /// and materialised later would otherwise be translated with whatever set
-    /// is current. Same reason the protection bit rides along.
+    /// It was for `promote`, which replayed a run into cells long after the
+    /// designation, so a line written under German and materialised later
+    /// would have been translated with whatever set was current. `promote`
+    /// was `baud-core2`'s, deleted; nothing in this core builds a `Run`, a
+    /// cell holds the codepoint its set translated the byte to when it was
+    /// written, and `Charset::to_u8`, which encoded the byte, is gone. The
+    /// field stays because removing it changes the layout of a struct that
+    /// crosses the mmap boundary, which is a change of its own.
     pub charset: u8,
     /// [`CellFlags`] as a byte, for the same reason `encoding` is one: the
     /// struct crosses the mmap boundary and zerocopy will not take a type whose
