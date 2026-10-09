@@ -661,8 +661,25 @@ pub(crate) fn act(
             csi_final(p, csi, FinalByte::of_final(b), node, from);
             ReadLen::ONE
         }
+        // **A Latin-1 C1 byte is its 7-bit final, and starts a sequence of its
+        // own.** The graph routes `84` as `escape(04/04)`, but this arm read
+        // the byte back from the arena, so `esc_final` saw `0x84` and counted
+        // IND, NEL, HTS, RI, SS2 and SS3 as unsupported. `c1_as_escape` maps
+        // it, as `[[source: ctlseqs]]` pairs the two forms, and is `None` for
+        // every byte an `ESC` row leads here and under UTF-8. And a C1 byte is
+        // reached from Ground without `EscStart`, where `csi` is cleared, so
+        // it inherited the last escape's intermediate: `ESC ( 0 q 84` was read
+        // as `ESC ( D` and replaced G0
+        // (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`).
         Act::EscFinal => {
-            let b = StreamByte::from_stream(p.arena[from.index()]);
+            let raw = StreamByte::from_stream(p.arena[from.index()]);
+            let b = match enc.c1_as_escape(raw) {
+                Some(b) => {
+                    csi.reset();
+                    b
+                }
+                None => raw,
+            };
             esc_final(p, csi, b, enc);
             ReadLen::ONE
         }

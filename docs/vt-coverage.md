@@ -210,12 +210,12 @@ application did not send is indistinguishable, afterwards, from text it did; not
 writing one loses nothing an application can observe, because the cancellation
 itself is the visible behaviour and is implemented.
 
-### Encoding: UTF-8 only, and 8-bit C1 controls are therefore out
+### Encoding: UTF-8, or ISO 8859-1, and 8-bit C1 controls only under the second
 
 `[[source: williams]]`'s parser has 8-bit C1 controls throughout — `9B` enters
-`csi_entry`, `9D` `osc_string`, `90` `dcs_entry`, `9C` is ST. baud has none of
-them, and a reader comparing against the state diagram will notice. The absence
-is forced rather than chosen:
+`csi_entry`, `9D` `osc_string`, `90` `dcs_entry`, `9C` is ST. baud has them
+only under `ESC % @` (ISO 8859-1), and a reader comparing against the state
+diagram will notice. In UTF-8 the absence is forced rather than chosen:
 
 > a C1 control can be mistaken for badly-formed UTF-8 when the terminal runs in
 > UTF-8 mode because C1 controls are valid continuation bytes of a UTF-8 encoded
@@ -232,6 +232,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` — **in UTF-8** | **out** — they are continuation bytes there; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm |
 | the same introducers under `ESC % @` (ISO 8859-1) | done — no multi-byte sequence exists for them to be part of, so `9B` is unambiguously CSI |
+| 8-bit `84` IND, `85` NEL, `88` HTS, `8D` RI under `ESC % @` | done — each acts as its 7-bit form, `[[source: ctlseqs]]` pairing the two, at every read split (`eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms`), and none inherits the last escape's intermediate (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`). Until 2026-10-08 all four were counted as unsupported, and `84` after `ESC ( 0` replaced G0. `8E` and `8F` map to `ESC N` and `ESC O`, counted as those are until note AE's single shifts are built |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
 | combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
@@ -420,10 +421,12 @@ A sequence truncated by the end of the sample is not evidence either: the next
 read may complete it, and treating it as ill-formed would make the answer depend
 on where the read boundary fell.
 
-`80..9F` stay ignored in Latin-1 rather than printed: ISO 8859-1 reserves them
-for C1 controls, which baud does not act on, so printing them would invent
-characters the application did not send. That is xterm's `CASE_IGNORE`, and
-what ghostty does citing xterm.
+`80..9F` are never printed in Latin-1: ISO 8859-1 reserves them for C1
+controls, and printing them would invent characters the application did not
+send. Each is read as its 7-bit `ESC` form, so the introducers and IND, NEL,
+HTS and RI act, and the rest are counted as their 7-bit forms are. This said
+they "stay ignored" because baud did not act on them, citing xterm's
+`CASE_IGNORE`; they were in fact counted, IND, NEL, HTS and RI included.
 
 **The rest of the legacy charsets remain out.** The one charset mechanism
 baud implements, `SCS`, is a different thing from an input encoding: a

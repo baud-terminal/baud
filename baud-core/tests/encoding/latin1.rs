@@ -269,3 +269,81 @@ fn eight_bit_string_terminators_are_honoured() {
         "the DCS payload is consumed, only the X prints"
     );
 }
+
+/// The screen, the cursor and the unsupported count after feeding `bytes` in
+/// reads of `size`, so an 8-bit control can be held against its 7-bit twin at
+/// every split.
+fn after_reads(bytes: &[u8], size: usize) -> (Vec<PackedCell>, (Row, Col), usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for chunk in bytes.chunks(size) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+    (support::screen(&t), t.cursor(), t.unsupported)
+}
+
+/// Holds `eight` against `seven` at every read size from one byte to the
+/// whole program.
+fn same_as_seven_bit(what: &str, eight: &[u8], seven: &[u8]) {
+    let want = after_reads(seven, seven.len());
+    assert_eq!(
+        want.2, 0,
+        "{what}: the 7-bit form is itself counted, so it is no control"
+    );
+    for size in 1..=eight.len() {
+        let got = after_reads(eight, size);
+        assert_eq!(
+            got.2, want.2,
+            "{what}: counted as unsupported at read size {size}"
+        );
+        assert_eq!(got.1, want.1, "{what}: cursor differs at read size {size}");
+        assert!(
+            got.0 == want.0,
+            "{what}: screen differs at read size {size}"
+        );
+    }
+}
+
+/// **IND, NEL, HTS and RI work as 8-bit controls under Latin-1.**
+///
+/// `[[source: ctlseqs]]` lines 157-171 pair each with its 7-bit form --
+/// `84` with `ESC D`, `85` with `ESC E`, `88` with `ESC H`, `8D` with
+/// `ESC M` -- and calls the pairs equivalent. The graph routes a Latin-1 C1
+/// byte as `escape(b - 0x40)`, but `Act::EscFinal` re-read the raw byte from
+/// the arena, so `Esc::parse` saw `0x84` and counted it: only the string and
+/// CSI introducers, which never reach `esc_final`, worked.
+#[test]
+fn eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms() {
+    for (c1, fin, name) in [
+        (0x84u8, b'D', "IND"),
+        (0x85, b'E', "NEL"),
+        (0x8d, b'M', "RI"),
+    ] {
+        let eight = [b"\x1b%@\x1b[5;5H".as_slice(), &[c1], b"X"].concat();
+        let seven = [b"\x1b%@\x1b[5;5H".as_slice(), &[0x1b, fin], b"X"].concat();
+        same_as_seven_bit(name, &eight, &seven);
+    }
+    // HTS shows only through a tab: set a stop at column 4, home, tab.
+    let eight = b"\x1b%@\x1b[1;5H\x88\x1b[1;1H\tX";
+    let seven = b"\x1b%@\x1b[1;5H\x1bH\x1b[1;1H\tX";
+    same_as_seven_bit("HTS", eight, seven);
+}
+
+/// **A C1 byte does not inherit the last escape's intermediate.**
+///
+/// A C1 control taken from Ground never passes `EscStart`, which is where the
+/// intermediate is cleared, so `IND` after `ESC ( 0` reached the designation
+/// arm as though it were `ESC ( <84>` and replaced G0 with an unknown set:
+/// the line drawing after it came out as `q`. Right after `ESC % @` the
+/// leftover `%` sent it to the encoding arm instead, which only counts.
+#[test]
+fn a_c1_control_does_not_inherit_the_last_escapes_intermediate() {
+    same_as_seven_bit(
+        "IND after a designation",
+        b"\x1b%@\x1b(0q\x84q",
+        b"\x1b%@\x1b(0q\x1bDq",
+    );
+    same_as_seven_bit("IND right after ESC % @", b"\x1b%@\x84X", b"\x1b%@\x1bDX");
+}
