@@ -1,0 +1,5 @@
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-EXTSN-WARNING heap-<pid>
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-EXTSN-ERR heap-<pid>
+2026-10-09 11:21:37.397 I  syslogprobe[<pid>:5edc62] SYSLOGPROBE-EXTSN-INFO heap-<pid>
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-LEGACY-WARNING heap-<pid>

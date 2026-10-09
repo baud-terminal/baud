@@ -1,0 +1,40 @@
+# Fri Oct  9 11:59:22 MDT 2026
+# /usr/bin/log show --info --debug --start '2026-10-09 11:00:00' --end '2026-10-09 11:40:00' --predicate 'subsystem BEGINSWITH "dev.baud.probe" AND subsystem != "dev.baud.probe3"' --style compact (lines cut to 140 chars)
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:06:15.949 Df fdprobe[<pid>:5d72e5] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:06:15.949 E  fdprobe[<pid>:5d72e5] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:06:15.949 Df fdprobe[<pid>:5d72e5] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:06:16.120 Df fdprobe[<pid>:5d7343] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:06:16.120 E  fdprobe[<pid>:5d7343] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:06:16.120 Df fdprobe[<pid>:5d7343] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:07:09.598 Df privprobe[<pid>:5d7a47] [dev.baud.probe2:priv] P2-DEFAULT-HEAP-PRIVATE <private>
+2026-10-09 11:07:09.598 Df privprobe[<pid>:5d7a47] [dev.baud.probe2:priv] P2-DEFAULT-HEAP-PUBLIC heap-str-<pid>
+2026-10-09 11:07:09.598 Df privprobe[<pid>:5d7a47] [dev.baud.probe2:priv] P2-DEFAULT-CONST const-str
+2026-10-09 11:07:09.598 Df privprobe[<pid>:5d7a47] [dev.baud.probe2:priv] P2-DEFAULT-INT 42
+2026-10-09 11:07:09.598 Df privprobe[<pid>:5d7a47] [dev.baud.probe2:priv] P2-DEFAULT-LONG xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+2026-10-09 11:09:38.200 Df fdprobe[<pid>:5d86b0] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.200 E  fdprobe[<pid>:5d86b0] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:09:38.200 Df fdprobe[<pid>:5d86b0] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:09:38.261 Df fdprobe[<pid>:5d86e3] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.261 E  fdprobe[<pid>:5d86e3] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:09:38.261 Df fdprobe[<pid>:5d86e3] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:09:38.316 Df fdprobe[<pid>:5d8714] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.316 E  fdprobe[<pid>:5d8714] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:09:38.316 Df fdprobe[<pid>:5d8714] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:09:38.372 Df fdprobe[<pid>:5d8721] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.372 E  fdprobe[<pid>:5d8721] [dev.baud.probe:probe] BAUDPROBE-OSLOG-ERROR public-str <pid>
+2026-10-09 11:09:38.372 Df fdprobe[<pid>:5d8721] [dev.baud.probe:probe] BAUDPROBE-OSLOG-PRIVATE private-str
+2026-10-09 11:26:01.690 E  capprobe[<pid>:5eff36] [dev.baud.probe4:cap] P4-ERROR-600 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+2026-10-09 11:26:01.690 Df capprobe[<pid>:5eff36] [dev.baud.probe4:cap] P4-DEFAULT-600 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+2026-10-09 11:26:01.690 F  capprobe[<pid>:5eff36] [dev.baud.probe4:cap] P4-FAULT-600 yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+2026-10-09 11:35:32.773 Df shimmain[<pid>:6007a1] [dev.baud.probe5:shim] SHIMPROBE heap-<pid>
+2026-10-09 11:35:32.773 E  shimmain[<pid>:6007a1] [dev.baud.probe5:shim] SHIMPROBE heap-<pid>
+# type counts:
+     19 Df
+      8 E
+      1 F
+# syslogprobe with --info --debug:
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-EXTSN-WARNING heap-<pid>
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-EXTSN-ERR heap-<pid>
+2026-10-09 11:21:37.397 Df syslogprobe[<pid>:5edc62] SYSLOGPROBE-LEGACY-WARNING heap-<pid>

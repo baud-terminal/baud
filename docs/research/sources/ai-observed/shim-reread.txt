@@ -1,0 +1,4 @@
+# 2026-10-09 12:59:15 MDT -- read-only re-read of shimmain's lines (run 11:35:32)
+$ /usr/bin/log show --start '2026-10-09 11:30:00' --end '2026-10-09 11:40:00' --style json --predicate 'subsystem == "dev.baud.probe5"' | python3 (messageType, subsystem:category, eventMessage)
+2026-10-09 11:35:32.773145-0600 Default dev.baud.probe5:shim SHIMPROBE heap-<pid>
+2026-10-09 11:35:32.773150-0600 Error dev.baud.probe5:shim SHIMPROBE heap-<pid>

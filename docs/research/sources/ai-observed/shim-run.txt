@@ -1,0 +1,7 @@
+sizeof(os_log_type_t)=1 ERROR=16 FAULT=17
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:35:32.773 Df shimmain[<pid>:6007a1] [dev.baud.probe5:shim] SHIMPROBE heap-<pid>
+2026-10-09 11:35:32.773 E  shimmain[<pid>:6007a1] [dev.baud.probe5:shim] SHIMPROBE heap-<pid>
+cc: /nix/store/vl936sd1vj8s008akm3gibkgyqk30qhz-clang-wrapper-21.1.8/bin/cc
+clang version 21.1.8
+SDKROOT=/nix/store/49rnbvkp4nywgr2pqcmii0dr4sbj9zs7-apple-sdk-14.4/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk

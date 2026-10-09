@@ -1,0 +1,5 @@
+# 2026-10-09 12:59:14 MDT -- read-only re-read of syslogprobe's lines (run 11:21:37)
+$ /usr/bin/log show --info --debug --start '2026-10-09 11:15:00' --end '2026-10-09 11:30:00' --style json --predicate 'eventMessage BEGINSWITH "SYSLOGPROBE-"' | python3 (messageType, subsystem, eventMessage)
+2026-10-09 11:21:37.397543-0600 Default '' SYSLOGPROBE-EXTSN-WARNING heap-<pid>
+2026-10-09 11:21:37.397548-0600 Default '' SYSLOGPROBE-EXTSN-ERR heap-<pid>
+2026-10-09 11:21:37.397550-0600 Default '' SYSLOGPROBE-LEGACY-WARNING heap-<pid>

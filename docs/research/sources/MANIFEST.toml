@@ -32,6 +32,7 @@
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
 #   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
+#   AI  where a launched terminal's log lines go: unified logging, files, the journal
 
 [sources.simdjson]
 key    = "simdjson"
@@ -13139,3 +13140,1191 @@ status = "external"
 group  = "J"
 # Read: "2E2E ⸮ REVERSED QUESTION MARK / = punctus percontativus / → 003F ? question
 # mark" (text layer), and its reference glyph (page 2 rendered at 300 dpi).
+
+# Group AI, note AI (2026-10-09): where a Dock-launched baud's log lines go. Apple's unified-logging
+# pages and os/log.h, launchd and launchctl, the journal's native protocol, XDG, rust std, and other
+# terminals' logging code (external). The ai-obs-* entries are the note's probes and raw outputs,
+# redacted (user name, scratch path, pids; PATH elided at capture).
+
+[sources.macos-man-launchd-plist]
+key    = "macos-man-launchd-plist"
+title  = "launchd.plist(5) -- EXPECTATIONS: launchd 'will always implicitly perform' 'Redirect stdio(3) to /dev/null'; StandardOutPath/StandardErrorPath"
+author = "Apple Inc."
+year   = 2019
+venue  = "macOS 27.0 (build 26A5425a), system man page, dated 30 July, 2019"
+url    = "file:///usr/share/man/man5/launchd.plist.5"
+file   = ""
+sha256 = "1c5f5041c1d3492988bfa6f9dc6d969dfd072d20af2703c28d9a8f6ed6aaadcb"
+bytes  = 33172
+status = "external"
+group  = "AI"
+
+[sources.macos-man-open]
+key    = "macos-man-open"
+title  = "open(1) -- 'Opened applications inherit environment variables just as if you had launched the application directly'; --stdin/--stdout/--stderr PATH"
+author = "Apple Inc."
+year   = 2017
+venue  = "macOS 27.0 (build 26A5425a), system man page, dated April 14, 2017"
+url    = "file:///usr/share/man/man1/open.1"
+file   = ""
+sha256 = "f101b198baed0b661adeb0d4df860a7143fe0c18275ba7f41b6f06932dc77bf2"
+bytes  = 5457
+status = "external"
+group  = "AI"
+
+[sources.macos-man-launchctl]
+key    = "macos-man-launchctl"
+title  = "launchctl(1) -- LEGACY SUBCOMMANDS: 'Legacy subcommands select the target domain based on whether they are executed as root or not'; setenv: 'Specify an environment variable to be set on all future processes launched by launchd in the caller's context'"
+author = "Apple Inc."
+year   = 2014
+venue  = "macOS 27.0 (build 26A5425a), system man page, dated 1 October, 2014"
+url    = "file:///usr/share/man/man1/launchctl.1"
+file   = ""
+sha256 = "cf8752dd8eb8c3370c7d03b333430aa68a665c907c475ea407cb1b6542083ae2"
+bytes  = 25952
+status = "external"
+group  = "AI"
+
+[sources.apple-infoplist-lsenvironment]
+key    = "apple-infoplist-lsenvironment"
+title  = "Information Property List Key Reference (archive, Updated: 2018-06-04), Launch Services Keys -- LSEnvironment: 'set only for apps launched through Launch Services'"
+author = "Apple Inc."
+year   = 2018
+venue  = "developer.apple.com documentation archive"
+url    = "https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/LaunchServicesKeys.html"
+file   = "apple-infoplist-lsenvironment.html"
+sha256 = "74e3981f00bb76934b634d106303e55a54bfc97a54c3abe9d1aba1c01f1b158b"
+bytes  = 45860
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-logging]
+key    = "apple-logging"
+title  = "Logging -- 'This system centralizes the storage of log data in memory and on disk, rather than writing that data to a text-based log file'; 'supersedes the Apple System Logger (ASL) and Syslog APIs'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/logging.json"
+file   = "apple-logging.json"
+sha256 = "27897733bc9009b7a06bd44e6e7802e05f74999cb48234032a7d184c355653a7"
+bytes  = 19355
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-generating-log-messages]
+key    = "apple-generating-log-messages"
+title  = "Generating Log Messages from Your Code -- the level table ('Persisted to disk': Debug No; Info 'Only when collected with the log tool'; Notice, Error, Fault 'Yes, up to a storage limit'); subsystem in reverse-DNS; redaction of dynamic strings; %{public}s"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/generating-log-messages-from-your-code.json"
+file   = "apple-generating-log-messages.json"
+sha256 = "863fc383a7ded978aa6dc562ab10df007e70ee260f37be51dc99c16e0bfec4b8"
+bytes  = 40000
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-customizing-logging]
+key    = "apple-customizing-logging"
+title  = "Customizing Logging Behavior While Debugging -- 'while debugging in macOS, you can enable different logging levels for a subsystem using the log command-line tool’s config argument while logged in as root'; /Library/Preferences/Logging/Subsystems/<id>.plist"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/customizing-logging-behavior-while-debugging.json"
+file   = "apple-customizing-logging.json"
+sha256 = "49f9d9ac083af502378673533b98784397692e9f8a6ec3167dc573c6b9fd2344"
+bytes  = 10195
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-viewing-log-messages]
+key    = "apple-viewing-log-messages"
+title  = "Viewing Log Messages -- binary compressed store; Console, the log tool, Xcode, OSLog"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/viewing-log-messages.json"
+file   = "apple-viewing-log-messages.json"
+sha256 = "16d590438fe5817838252974b24c9b5b20fba963afa8b9d1430916b307978a23"
+bytes  = 5924
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-os-log-create]
+key    = "apple-os-log-create"
+title  = "os_log_create -- subsystem 'in reverse DNS notation'; 'You only need to call this function once'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/os_log_create.json"
+file   = "apple-os-log-create.json"
+sha256 = "5e937a4239874a99150530a58b2f8f425b8d53758eeb803d974ef33bc89ab7a4"
+bytes  = 7963
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-os-log-with-type]
+key    = "apple-os-log-with-type"
+title  = "os_log_with_type -- a #define; 'the logging system may truncate lengthy log messages when it stores them'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/os_log_with_type.json"
+file   = "apple-os-log-with-type.json"
+sha256 = "c5ad3325469ec0a3ca2165a6427ae74e8131ef4a936c9a8a37b6f10cda0a6d32"
+bytes  = 14158
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-os-log]
+key    = "apple-os-log"
+title  = "os_log -- a #define, 'equivalent to calling the os_log_with_type function and specifying a log type of OS_LOG_TYPE_DEFAULT'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/os_log.json"
+file   = "apple-os-log.json"
+sha256 = "06fe1308884e3013877e58c534a79d93a91ce9baaba8efd06be19362982c692b"
+bytes  = 12110
+status = "retrieved"
+group  = "AI"
+
+[sources.apple-oslogprivacy]
+key    = "apple-oslogprivacy"
+title  = "OSLogPrivacy -- 'use the privacy options to hide potentially sensitive information'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (DocC JSON)"
+url    = "https://developer.apple.com/tutorials/data/documentation/os/oslogprivacy.json"
+file   = "apple-oslogprivacy.json"
+sha256 = "c8036718fd8cc2cd95ae64115ba364696f9a4e70f0988067b57382f7f6613d57"
+bytes  = 12368
+status = "retrieved"
+group  = "AI"
+
+[sources.macos-sdk-man-os-log]
+key    = "macos-sdk-man-os-log"
+title  = "os_log(3) -- dynamic strings private by default, public/private/sensitive; os_log_info 'appended to a global memory buffer, and the most recent ones are written out at collection time'"
+author = "Apple Inc."
+year   = 2016
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a), man page dated June 2, 2016"
+url    = "$SDKROOT/usr/share/man/man3/os_log.3"
+file   = ""
+sha256 = "7088533ee7f4dbb036bb7225e67efd4da9459b76762d963d74b12366131a24c5"
+bytes  = 6449
+status = "external"
+group  = "AI"
+
+[sources.macos-man-log]
+key    = "macos-man-log"
+title  = "log(1) -- show/stream/emit/config; 'The output contains only default level messages unless --info and/or --debug are specified'"
+author = "Apple Inc."
+year   = 2016
+venue  = "macOS 27.0 (build 26A5425a), system man page, dated May 10, 2016"
+url    = "file:///usr/share/man/man1/log.1"
+file   = ""
+sha256 = "7f97df791464983bb077819c1aa2e9522e2fa5324da46ce8fb0fe4ae46ae2c92"
+bytes  = 33109
+status = "external"
+group  = "AI"
+
+[sources.apple-console-log-messages]
+key    = "apple-console-log-messages"
+title  = "Console User Guide (macOS 27): View log messages in Console on Mac -- 'If you're not logged in as an administrator, you need to enter an administrator name and password to view log messages'; 'Click Start'"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com"
+url    = "https://support.apple.com/guide/console/log-messages-cnsl1012/mac"
+file   = ""
+sha256 = "0187906b5eb15fe25c57f6397018ed61713460b5b1698a622a58a148abf9a800"
+bytes  = 561162
+status = "external"
+group  = "AI"
+
+[sources.apple-console-reports]
+key    = "apple-console-reports"
+title  = "Console User Guide (macOS 27): View reports in Console on Mac -- 'Log Reports: ... Log report names have an extension such as .log, ._log, or .its'"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com"
+url    = "https://support.apple.com/guide/console/reports-cnsl664be99a/mac"
+file   = ""
+sha256 = "0b168d0a9297e32888514a4a107e46dae91846c6f4748b938cd8aca0fb7cb21c"
+bytes  = 560727
+status = "external"
+group  = "AI"
+
+[sources.apple-console-locate-log-file]
+key    = "apple-console-locate-log-file"
+title  = "Console User Guide (macOS 27): Locate a log file using Console on Mac -- Log Reports, File > Reveal in Finder"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com"
+url    = "https://support.apple.com/guide/console/locate-a-log-file-cnsl9361/mac"
+file   = ""
+sha256 = "1043efde58b13746a677635c5c87f62c7f0cfe98c49d92c55fa4dfa1a4402dde"
+bytes  = 557774
+status = "external"
+group  = "AI"
+
+[sources.apple-fspg-library-dirs]
+key    = "apple-fspg-library-dirs"
+title  = "File System Programming Guide (archive, Updated: 2018-04-09), macOS Library Directory Details, Table A-1 -- 'Logs: Contains log files for the console and specific system services. Users can also view these logs using the Console app.'"
+author = "Apple Inc."
+year   = 2018
+venue  = "developer.apple.com documentation archive"
+url    = "https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/MacOSXDirectories/MacOSXDirectories.html"
+file   = "apple-fspg-library-dirs.html"
+sha256 = "2d3e6a8b2b314f593c0172390e3867a2214161fb35cbde98698d9f9db52756e8"
+bytes  = 20057
+status = "retrieved"
+group  = "AI"
+
+[sources.macos-sdk-nspathutilities-h]
+key    = "macos-sdk-nspathutilities-h"
+title  = "NSPathUtilities.h -- NSSearchPathDirectory has no Logs member (searched: no 'log' outside NSUserName's comment)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Foundation.framework/Headers/NSPathUtilities.h"
+file   = ""
+sha256 = "d16910e959b0b3aba7b423a4d81cd4f91787e07fc90a47866ef0ad6e24555d0d"
+bytes  = 18154
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-os-log-h]
+key    = "macos-sdk-os-log-h"
+title  = "os/log.h -- os_log_create (142-146), os_log_type_t (104-110), os_log_with_type macro (202-209), os_log_type_enabled (443-447), _os_log_impl 'Internal function that takes compiler generated encoding' (449-459), dynamic-content caps (227-230, 259-262)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/os/log.h"
+file   = ""
+sha256 = "3e137d10ddc9a80cee66d6030e481af9c4c82da1f607b070bc08d15d031bfc9a"
+bytes  = 19429
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-os-trace-base-h]
+key    = "macos-sdk-os-trace-base-h"
+title  = "os/trace_base.h -- OS_LOG_STRING_SECTION '__TEXT,__oslogstring,cstring_literals' (115-117), OS_LOG_CALL_WITH_FORMAT over __builtin_os_log_format (128-135), extern __dso_handle (163)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/os/trace_base.h"
+file   = ""
+sha256 = "5e4215f4dc0debbd09c27fcd677a9449efd9f7f3e7429247818f8d4c78848efe"
+bytes  = 5658
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-os-apinotes]
+key    = "macos-sdk-os-apinotes"
+title  = "os.apinotes -- _os_log_impl 'SwiftPrivate: true'; _os_log_error_impl/_os_log_fault_impl 'Availability: nonswift'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/os.apinotes"
+file   = ""
+sha256 = "297defcedbf6f0077f29b0552871ce6d7c879b9323b20a64c861f49b48242f9f"
+bytes  = 1658
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-libsystem-trace-tbd]
+key    = "macos-sdk-libsystem-trace-tbd"
+title  = "libsystem_trace.tbd -- exports _os_log_create, _os_log_type_enabled, __os_log_impl, __os_log_default, _os_log_with_args_4syslog; re-exported by libSystem.B"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/lib/system/libsystem_trace.tbd"
+file   = ""
+sha256 = "17b81d23db3a48c3b562a9596d11129b49e25cc711e802091eb1f5f72f3582ce"
+bytes  = 8034
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-sys-syslog-h]
+key    = "macos-sdk-sys-syslog-h"
+title  = "sys/syslog.h -- syslog() aliased to syslog$DARWIN_EXTSN from macOS 10.13 (line 227)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/syslog.h"
+file   = ""
+sha256 = "326879b96b9c5cb9230cb9204f24f4bb7169c302732282c7f9bd1203f1180346"
+bytes  = 9812
+status = "external"
+group  = "AI"
+
+[sources.macos-sdk-man-syslog]
+key    = "macos-sdk-man-syslog"
+title  = "syslog(3) -- dated June 4, 1993; no word of the unified log"
+author = "Apple Inc."
+year   = 1993
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man3/syslog.3"
+file   = ""
+sha256 = "a153178fdaf81d627193b3ba3b80a835bbb8edf2f6314bb5250376c2a5f8476b"
+bytes  = 8284
+status = "external"
+group  = "AI"
+
+[sources.systemd-journal-native-protocol]
+key    = "systemd-journal-native-protocol"
+title  = "systemd v262, docs/JOURNAL_NATIVE_PROTOCOL.md -- /run/systemd/journal/socket AF_UNIX/SOCK_DGRAM; MESSAGE=, PRIORITY=; $JOURNAL_STREAM; 'bump up SO_SNDBUF ... to delay blocking I/O'"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd.io (source in the systemd repository)"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/docs/JOURNAL_NATIVE_PROTOCOL.md"
+file   = ""
+sha256 = "60ebb122b8500e98dcd6966eb9a20d3f3062b6058fb84bb9b33fe8d8ac04412b"
+bytes  = 10041
+status = "external"
+group  = "AI"
+
+[sources.systemd-sd-journal-print]
+key    = "systemd-sd-journal-print"
+title  = "systemd v262, man/sd_journal_print.xml -- 'submit simple, plain text log entries to the system journal'; truncated to LINE_MAX - 8; do nothing when journald is absent"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/man/sd_journal_print.xml"
+file   = ""
+sha256 = "8a501f063eccbac1899078e1b344b57b286d2a95c63338329ef20770af137082"
+bytes  = 16185
+status = "external"
+group  = "AI"
+
+[sources.systemd-sd-journal-stream-fd]
+key    = "systemd-sd-journal-stream-fd"
+title  = "systemd v262, man/sd_journal_stream_fd.xml -- second argument 'the default priority level for all messages'; third 'if true kernel-style log level prefixes ... are interpreted'; 'O_NONBLOCK is turned off initially'"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/man/sd_journal_stream_fd.xml"
+file   = ""
+sha256 = "17e366738481159614bc3bd30d54794098009ca7f04b6b9815adf152261f4f59"
+bytes  = 6504
+status = "external"
+group  = "AI"
+
+[sources.systemd-journald-service]
+key    = "systemd-journald-service"
+title  = "systemd v262, man/systemd-journald.service.xml -- the sources (syslog(3), native, service stdout/stderr); Access Control: each user reads their own journal files"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/man/systemd-journald.service.xml"
+file   = ""
+sha256 = "cd36e8566f7984cb56292287f0876d84f55a6ad81aa187be58863c2301b9e241"
+bytes  = 24516
+status = "external"
+group  = "AI"
+
+[sources.systemd-exec]
+key    = "systemd-exec"
+title  = "systemd v262, man/systemd.exec.xml -- StandardOutput= defaults to DefaultStandardOutput= (journal), StandardError= to inherit; $JOURNAL_STREAM"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/man/systemd.exec.xml"
+file   = ""
+sha256 = "44b89bffce737aff803966c207329e9fe2d28ad07709a4bb8e0edf6a4ec0d844"
+bytes  = 343315
+status = "external"
+group  = "AI"
+
+[sources.systemd-desktop-environments]
+key    = "systemd-desktop-environments"
+title  = "systemd v262, docs/DESKTOP_ENVIRONMENTS.md -- app-<launcher>-<ApplicationID> units in app.slice; '.service units instead of .scope units ... is encouraged' ('a work-in-progress')"
+author = "The systemd authors"
+year   = 2026
+venue  = "systemd.io (source in the systemd repository)"
+url    = "https://raw.githubusercontent.com/systemd/systemd/8cc40e0c5e9234bf45084751ac53b1fbfe70b492/docs/DESKTOP_ENVIRONMENTS.md"
+file   = ""
+sha256 = "6c5117d959a566b212d1cb79e1ff8c4f736ddbef61d6ff199148ed2688f6f969"
+bytes  = 5863
+status = "external"
+group  = "AI"
+
+[sources.xdg-basedir-0-8]
+key    = "xdg-basedir-0-8"
+title  = "XDG Base Directory Specification 0.8 -- $XDG_STATE_HOME, default $HOME/.local/state, 'actions history (logs, history, recently used files, ...)'; create missing directories 0700"
+author = "Waldo Bastian, Allison Karlitskaya, Lennart Poettering, Johannes Löthberg"
+year   = 2021
+venue  = "specifications.freedesktop.org"
+url    = "https://specifications.freedesktop.org/basedir-spec/0.8/"
+file   = ""
+sha256 = "87baabbcfb63f544bde60c461f327497704e6de61cb16337635cde80ed19fd73"
+bytes  = 19688
+status = "external"
+group  = "AI"
+
+[sources.gnome-shell-app-launch]
+key    = "gnome-shell-app-launch"
+title  = "gnome-shell 51.0, src/shell-app.c -- shell_app_launch: sd_journal_stream_fd(app id, LOG_INFO, FALSE) as the launched app's stdout and stderr"
+author = "The GNOME Shell authors"
+year   = 2026
+venue  = "GNOME (GPL-2.0-or-later)"
+url    = "https://gitlab.gnome.org/GNOME/gnome-shell/-/raw/2177bdf9624b2d285de7c1d34274073d3769d6b8/src/shell-app.c"
+file   = ""
+sha256 = "1e2c170fd43fd20f2ba841b800b3a8d283412a0d5661dac91a29f6593a8f55cf"
+bytes  = 55040
+status = "external"
+group  = "AI"
+
+[sources.ghostty-zig-macos-c]
+key    = "ghostty-zig-macos-c"
+title  = "ghostty v1.3.1, pkg/macos/os/zig_macos.c -- 'A wrapper so we can use the os_log_with_type macro': os_log_with_type(log, type, \"%{public}s\", message)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/pkg/macos/os/zig_macos.c"
+file   = ""
+sha256 = "b0c70f38190ac54ca1fc2c1523cb8536859ad6c5d6fa70adf73e2e3cc238da6c"
+bytes  = 256
+status = "external"
+group  = "AI"
+
+[sources.ghostty-os-log-zig]
+key    = "ghostty-os-log-zig"
+title  = "ghostty v1.3.1, pkg/macos/os/log.zig -- Log.create/os_log_create, LogType = the five os_log_type_t values, extern zig_os_log_with_type"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/pkg/macos/os/log.zig"
+file   = ""
+sha256 = "e60ba4924a121ba6e5091a0f79397cdec4288f84d7c1fc457c0566d39e99d56f"
+bytes  = 1618
+status = "external"
+group  = "AI"
+
+[sources.ghostty-main-logfn]
+key    = "ghostty-main-logfn"
+title  = "ghostty v1.3.1, src/main_ghostty.zig -- logFn: unified logging with subsystem bundle_id and category the scope; warn -> .err, err -> .fault; stderr as a second sink"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/main_ghostty.zig"
+file   = ""
+sha256 = "b763b0f64eba61e88f2455493de45db43d21d44ad4aeede3b69f997606f12cbc"
+bytes  = 7783
+status = "external"
+group  = "AI"
+
+[sources.ghostty-global-logging]
+key    = "ghostty-global-logging"
+title  = "ghostty v1.3.1, src/global.zig -- Logging{stderr: app_runtime != .none, macos: isDarwin()}; GHOSTTY_LOG overrides"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/global.zig"
+file   = ""
+sha256 = "444e1f7972399e30e06fe2515a7e0009d32aceb696435cb3a863f501271c325b"
+bytes  = 9155
+status = "external"
+group  = "AI"
+
+[sources.ghostty-appdelegate-logger]
+key    = "ghostty-appdelegate-logger"
+title  = "ghostty v1.3.1, macos/Sources/App/macOS/AppDelegate.swift -- Logger(subsystem: Bundle.main.bundleIdentifier!, category: ...)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/macos/Sources/App/macOS/AppDelegate.swift"
+file   = ""
+sha256 = "2ca56276a8525c593c3db2c939c27a5ac6f3273277105bd22e7f5ec485040a91"
+bytes  = 59504
+status = "external"
+group  = "AI"
+
+[sources.kitty-logging-c]
+key    = "kitty-logging-c"
+title  = "kitty v0.49.2, kitty/logging.c -- log_error: C0 controls to Control Pictures; os_log_error(OS_LOG_DEFAULT, \"%{public}s\", ...) when use_os_log, else stderr"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/logging.c"
+file   = ""
+sha256 = "5eef27a5f3a186380d4b11cb7276160370647cc3900e167ccc034284cec712b0"
+bytes  = 2537
+status = "external"
+group  = "AI"
+
+[sources.kitty-main-os-log]
+key    = "kitty-main-os-log"
+title  = "kitty v0.49.2, kitty/main.py -- set_use_os_log(True) when is_macos and launched_by_launch_services"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/main.py"
+file   = ""
+sha256 = "25cae8f182aef340a81b97e6b170ab300b4f780ae0c62d1e5f870bd190320e5a"
+bytes  = 26690
+status = "external"
+group  = "AI"
+
+[sources.kitty-launcher-lbls]
+key    = "kitty-launcher-lbls"
+title  = "kitty v0.49.2, kitty/launcher/main.c -- launched_by_launch_services from getenv(\"KITTY_LAUNCHED_BY_LAUNCH_SERVICES\"), then unsetenv"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/launcher/main.c"
+file   = ""
+sha256 = "fad449b0c3e148c4553797c56590440f3e7a1de02a64c36a28a27efa57675190"
+bytes  = 23575
+status = "external"
+group  = "AI"
+
+[sources.kitty-setup-lsenvironment]
+key    = "kitty-setup-lsenvironment"
+title  = "kitty v0.49.2, setup.py -- Info.plist LSEnvironment={'KITTY_LAUNCHED_BY_LAUNCH_SERVICES': '1'}"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/setup.py"
+file   = ""
+sha256 = "7055f876eca088103a6a912ed31ffa16ab27fe6cb9be4be68532519576fb3a77"
+bytes  = 99955
+status = "external"
+group  = "AI"
+
+[sources.alacritty-logging-rs]
+key    = "alacritty-logging-rs"
+title  = "alacritty v0.17.0, alacritty/src/logging.rs -- OnDemandLogFile at temp_dir()/Alacritty-<pid>.log, created on the first record; stdout; Error/Warn to the message bar with 'See log at'"
+author = "The Alacritty Project"
+year   = 2026
+venue  = "alacritty (Apache-2.0 OR MIT)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/94e7c8874e526b1e67b349d9ba30ddf81669119e/alacritty/src/logging.rs"
+file   = ""
+sha256 = "d2bb06b9b38dc0b1ac3a7c75fbc40a0e1e01345e42e8f24f81c0ed5f4a5bb834"
+bytes  = 8100
+status = "external"
+group  = "AI"
+
+[sources.alacritty-cli-loglevel]
+key    = "alacritty-cli-loglevel"
+title  = "alacritty v0.17.0, alacritty/src/cli.rs -- log_level(): default LevelFilter::Warn"
+author = "The Alacritty Project"
+year   = 2026
+venue  = "alacritty (Apache-2.0 OR MIT)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/94e7c8874e526b1e67b349d9ba30ddf81669119e/alacritty/src/cli.rs"
+file   = ""
+sha256 = "5ced5dc2d049bd81a94c4891ff421770a12973122866b2a65c02e9265f0069c4"
+bytes  = 17470
+status = "external"
+group  = "AI"
+
+[sources.wezterm-ringlog]
+key    = "wezterm-ringlog"
+title  = "wezterm 20240203-110809-5046fc22, env-bootstrap/src/ringlog.rs -- in-memory ring, stderr, and RUNTIME_DIR/<exe>-log-<pid>.txt; logs older than a week pruned at gui start; default Info"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/5046fc225992db6ba2ef8812743fadfdfe4b184a/env-bootstrap/src/ringlog.rs"
+file   = ""
+sha256 = "e2167c8516b28a48dfabe1055d7e8eca79cf77bc1e583ea10a9420896198112a"
+bytes  = 9218
+status = "external"
+group  = "AI"
+
+[sources.wezterm-runtime-dir]
+key    = "wezterm-runtime-dir"
+title  = "wezterm 20240203-110809-5046fc22, config/src/config.rs -- compute_runtime_dir: dirs_next::runtime_dir()/wezterm, else HOME/.local/share/wezterm"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/5046fc225992db6ba2ef8812743fadfdfe4b184a/config/src/config.rs"
+file   = ""
+sha256 = "c0e52a0648bba197acdc053b4efdbef5426c072fec1ae633070f91095a2c0134"
+bytes  = 67679
+status = "external"
+group  = "AI"
+
+[sources.wezterm-config-lib]
+key    = "wezterm-config-lib"
+title  = "wezterm 20240203-110809-5046fc22, config/src/lib.rs -- RUNTIME_DIR = compute_runtime_dir()"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/5046fc225992db6ba2ef8812743fadfdfe4b184a/config/src/lib.rs"
+file   = ""
+sha256 = "bddf0adbb812cf00fb023bd54b05ca1decdf0b4d40a60bf756843d145cf16b9e"
+bytes  = 25592
+status = "external"
+group  = "AI"
+
+[sources.dirs-next-runtime-dir]
+key    = "dirs-next-runtime-dir"
+title  = "dirs-next 2.0.0 (the version in wezterm's Cargo.lock) -- src/mac.rs: runtime_dir() -> None on macOS; src/lib.rs's table 'macOS | - | -'; src/lin.rs:9 XDG_RUNTIME_DIR through dirs_sys_next::is_absolute_path"
+author = "The dirs-next authors"
+year   = 2021
+venue  = "crates.io (MIT OR Apache-2.0)"
+url    = "https://static.crates.io/crates/dirs-next/dirs-next-2.0.0.crate"
+file   = ""
+sha256 = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
+bytes  = 11689
+status = "external"
+group  = "AI"
+
+[sources.foot-log-c]
+key    = "foot-log-c"
+title  = "foot 1.28.0, log.c -- stderr always; syslog(3) when log_init's do_syslog"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/log.c"
+file   = ""
+sha256 = "bb92cabcaa274adb877bbcb38ada4ed257a659c58fa8089d46738893439684da"
+bytes  = 5901
+status = "external"
+group  = "AI"
+
+[sources.foot-main-log-init]
+key    = "foot-main-log-init"
+title  = "foot 1.28.0, main.c -- log_init(..., as_server && log_syslog, ...); default level warning; --log-no-syslog"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/main.c"
+file   = ""
+sha256 = "d50034046894cde411f7c7d4fcbd8d9c65277e2cee97ea945e163b5a673217c2"
+bytes  = 23528
+status = "external"
+group  = "AI"
+
+[sources.iterm2-debuglogging-h]
+key    = "iterm2-debuglogging-h"
+title  = "iTerm2 master 964a75d, sources/Logging/DebugLogging.h -- ELog = DLog + LogForNextCrash + NSLog; XLog = DLog + NSLog"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Logging/DebugLogging.h"
+file   = ""
+sha256 = "9aba1673d9ebe1acd5d665c43210185e82d975ad27f687294ad1a0359a3f237d"
+bytes  = 9650
+status = "external"
+group  = "AI"
+
+[sources.iterm2-debuglogging-m]
+key    = "iterm2-debuglogging-m"
+title  = "iTerm2 master 964a75d, sources/Logging/DebugLogging.m -- /tmp/debuglog.txt on toggle; os_log_with_type(OS_LOG_DEFAULT, OS_LOG_TYPE_DEBUG, \"iTerm2DebugLog: %{public}s\") when logToSyslog"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Logging/DebugLogging.m"
+file   = ""
+sha256 = "ae1b89bb4501adb73e2ca238496116a68ebeff8aaa2b22f0bf2d6e57b5aadc69"
+bytes  = 25567
+status = "external"
+group  = "AI"
+
+[sources.rust-std-panicking]
+key    = "rust-std-panicking"
+title  = "Rust std at bcded33, library/std/src/panicking.rs -- 'The default hook, which is registered at startup, prints a message to standard error'"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/rust"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/panicking.rs"
+file   = "rust-std-panicking.rs"
+sha256 = "8aa4e1a2a94dec487185e927606fc449602aeb8bd49e4d26f9789c184376cbb1"
+bytes  = 32071
+status = "retrieved"
+group  = "AI"
+
+[sources.rust-reference-link-section]
+key    = "rust-reference-link-section"
+title  = "The Rust Reference (master 9fa1d6f), src/abi.md -- 'The link_section attribute specifies the section of the object file that a function or static's content will be placed into'; the attribute is unsafe"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/reference"
+url    = "https://raw.githubusercontent.com/rust-lang/reference/9fa1d6fba4ca87ca2d4e1b2c3807488bd8b4a85c/src/abi.md"
+file   = "rust-reference-abi.md"
+sha256 = "693d3b5a1cd12290ce43d3125a9e18194f2319100557d0eefb83e46533e5712e"
+bytes  = 6618
+status = "retrieved"
+group  = "AI"
+
+[sources.rust-std-eprintln]
+key    = "rust-std-eprintln"
+title  = "Rust std at bcded33 (rustc 1.96.0-nightly 2026-04-06, this repo's toolchain), library/std/src/macros.rs -- eprintln!: 'Panics if writing to io::stderr fails'"
+author = "The Rust Project Developers"
+year   = 2026
+venue  = "rust-lang/rust"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/std/src/macros.rs"
+file   = "rust-std-macros.rs"
+sha256 = "dad19df5733a4d91991a904b3898fb94ed3d322ff70162610e363f5e1baa55a7"
+bytes  = 15310
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-fdprobe-c]
+key    = "ai-obs-fdprobe-c"
+title  = "fdprobe.c: reports where fd 0-2 point, writes a stderr marker, logs five os_log lines, prints os_log_type_enabled for info and debug"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/fdprobe.c"
+sha256 = "14e5df9556e7517cdf7e77d92f4f1c298dc50370d7512298ff06127c8949c36b"
+bytes  = 2447
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-fdprobe-info-plist]
+key    = "ai-obs-fdprobe-info-plist"
+title  = "FdProbe.app's Info.plist (bundle id dev.baud.fdprobe, executable fdprobe)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/FdProbe-Info.plist"
+sha256 = "920a53ac8b26815023b5b9deda12a1cc024db3c4c68fae5fca2b3d4d739967cc"
+bytes  = 581
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-fdprobe-run]
+key    = "ai-obs-fdprobe-run"
+title  = "fdprobe's report for four arms: direct with stderr to a file, open --stderr, open, env -i open (fd 0-2, ppid, XPC_SERVICE_NAME, info/debug enabled)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "fdprobe run at 11:09:38 directly and through open(1); its own output file"
+file   = "ai-observed/fdprobe-run.txt"
+sha256 = "508432094638e9569c8a0fac7b3a9a5cd71c589e7a895c9c1464619f7f758f01"
+bytes  = 2206
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-fdprobe-stderr-direct]
+key    = "ai-obs-fdprobe-stderr-direct"
+title  = "The positive control's stderr file: fdprobe run as ./fdprobe 2>err.txt"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "stderr of fdprobe, 11:09:38"
+file   = "ai-observed/fdprobe-stderr-direct.txt"
+sha256 = "0d827a508d4d0091e81e22ae137503ee021f7c3ed2a8c849e146383a92bd2271"
+bytes  = 30
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-fdprobe-stderr-open]
+key    = "ai-obs-fdprobe-stderr-open"
+title  = "The positive control's stderr file: open -W --stderr err2.txt FdProbe.app"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "stderr of the launched fdprobe, 11:09:38"
+file   = "ai-observed/fdprobe-stderr-open.txt"
+sha256 = "0d827a508d4d0091e81e22ae137503ee021f7c3ed2a8c849e146383a92bd2271"
+bytes  = 30
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-stderr-marker-requery]
+key    = "ai-obs-stderr-marker-requery"
+title  = "The stderr markers are in no unified-log query; the probes' os_log default lines and the NSLog line are the control; the first session's marker queries as log(1) recorded them"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:57"
+file   = "ai-observed/stderr-marker-requery.txt"
+sha256 = "6ad3f2b0d97358ea4d03f143ca48fd31cfd203fc3ba27aa55539f4f917b9c794"
+bytes  = 2019
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-log-invocations]
+key    = "ai-obs-log-invocations"
+title  = "The unified log's record of this session's log(1) invocations 11:00-11:40, with their arguments"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:59"
+file   = "ai-observed/log-invocations.txt"
+sha256 = "e75973873d0d2663e76490ea8eb0260f73e93fa43420faa9a6be2cb34c9d0f2e"
+bytes  = 4455
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-log-show-probes]
+key    = "ai-obs-log-show-probes"
+title  = "The first probes' Default, Error and privacy lines (dev.baud.probe, probe2), listed at 11:20:30"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show at 11:20:30; its query is in log-invocations.txt"
+file   = "ai-observed/log-show-probes.txt"
+sha256 = "d7d51b8af1b1fe6083669df6aa5f833d1bf170c29661f0da815d799f70fc0280"
+bytes  = 3564
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-review-info-debug-absent]
+key    = "ai-obs-review-info-debug-absent"
+title  = "With --info --debug over 11:00-11:40: every Default, Error and Fault line of the probes, no Info or Debug line (saved by the note's reviewer)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 11:59, by the reviewer of the first draft"
+file   = "ai-observed/review-info-debug-absent.txt"
+sha256 = "1b6ce70146acb661c9d5a936e9a91adc3b602044aa0bbf3e41b85708e4795575"
+bytes  = 3845
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-review-costprobe-lines]
+key    = "ai-obs-review-costprobe-lines"
+title  = "The cost probe's 6000 persisted lines, 11:20:16.605-.632, counted per process and type (saved by the note's reviewer)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 11:59, by the reviewer of the first draft"
+file   = "ai-observed/review-costprobe-lines.txt"
+sha256 = "ec1d5bf7387e762a1e36f822c1a8d2c41ee0b0820ad59823d170589656c6bf61"
+bytes  = 549
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-lifeprobe-c]
+key    = "ai-obs-lifeprobe-c"
+title  = "lifeprobe.c: one Default, one Info and one Debug line"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/lifeprobe.c"
+sha256 = "07b1855e20fde8bb7c74321f402e44bbd622f01e914f9cf9b627e445bda8a146"
+bytes  = 543
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-lifeprobe]
+key    = "ai-obs-lifeprobe"
+title  = "lifeprobe's lines and capprobe2's, read at 12:05, 12:15, 12:25, 12:35, and their byte counts at 12:36"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "lifeprobe run at 12:05:34; log show readings with their queries"
+file   = "ai-observed/lifeprobe.txt"
+sha256 = "7c77c60bfeb2da984a131c4bcb467ac3a51c2d7bdf8d2008fbb86a1c06e4fd11"
+bytes  = 4035
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-privprobe-c]
+key    = "ai-obs-privprobe-c"
+title  = "privprobe.c: %s and %{public}s of a heap string, %s of a literal, %d, a 1999-byte line, info and debug lines"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/privprobe.c"
+sha256 = "eb7f57ee54151ffbd20e08807546c9b261219b2ef15d7effee087b57e699be32"
+bytes  = 970
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-longline-reread]
+key    = "ai-obs-longline-reread"
+title  = "privprobe's 1999-byte default line as stored: 1040 bytes, 1015 kept and <…>"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:09"
+file   = "ai-observed/longline-reread.txt"
+sha256 = "81713f660272df7beb010d781625154d135945c2747c170ef8994fb20454d043"
+bytes  = 387
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-capprobe-c]
+key    = "ai-obs-capprobe-c"
+title  = "capprobe.c: 600 bytes of %{public}s through os_log_with_type at Error, Default and Fault"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/capprobe.c"
+sha256 = "06eb4378cc16e0d90f89583c6506fafa469b73fa499c6de1d89855c915817338"
+bytes  = 435
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-capprobe-reread]
+key    = "ai-obs-capprobe-reread"
+title  = "capprobe's three lines re-read: 617, 619 and 617 bytes"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:04"
+file   = "ai-observed/capprobe-reread.txt"
+sha256 = "ebd3d899a8ae9983c949c54f1bf74b5c932da561e1b5b889c82002e46ca73144"
+bytes  = 436
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-capprobe2-c]
+key    = "ai-obs-capprobe2-c"
+title  = "capprobe2.c: 600 bytes through the macros os_log_error, os_log_fault and os_log_info, and an os_log control"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/capprobe2.c"
+sha256 = "0e41167abbfe22cc167a5af1b33607043a2a1002d1b3d46bb8ffec8f7c1eb4be"
+bytes  = 568
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-capprobe2]
+key    = "ai-obs-capprobe2"
+title  = "capprobe2's lines read at once: 622, 622 and 621 bytes"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "capprobe2 run at 12:05:02 and log show"
+file   = "ai-observed/capprobe2.txt"
+sha256 = "b5a51697d41dff2b2e409feb200efdbeaed92ea127e3d9fe0dd43133a82b5902"
+bytes  = 522
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-nslogprobe-m]
+key    = "ai-obs-nslogprobe-m"
+title  = "nslogprobe.m: NSLog of a heap string through %@"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/nslogprobe.m"
+sha256 = "f663db57438bc668688d0bab765f3dda91d071320f8aea02a771ec8a3f08b87b"
+bytes  = 237
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-nslogprobe-stderr]
+key    = "ai-obs-nslogprobe-stderr"
+title  = "NSLog's stderr line, the heap string in full"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "stderr of nslogprobe, 11:17:29"
+file   = "ai-observed/nslogprobe-stderr.txt"
+sha256 = "db912d7e7f46fe81f1356e987a4c876085a5ead621cb8fe2df059073ae373ea4"
+bytes  = 79
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe-c]
+key    = "ai-obs-syslogprobe-c"
+title  = "syslogprobe.c: syslog at WARNING, ERR and INFO, and the legacy _syslog at WARNING"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/syslogprobe.c"
+sha256 = "9cfde0b1aaf60c1e15b9db7551adf22f5bb3ca1a43ca6e56f7fe90905c76c288"
+bytes  = 530
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe1]
+key    = "ai-obs-syslogprobe1"
+title  = "syslogprobe's four lines as listed at 11:21:37 (Default, Default, Info, Default)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show at 11:21:37; its query is in log-invocations.txt"
+file   = "ai-observed/syslogprobe1.txt"
+sha256 = "c6a3771abd504878fbd945b45380ab1ce55758d65765067dedd15e415c406986"
+bytes  = 398
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe1-reread]
+key    = "ai-obs-syslogprobe1-reread"
+title  = "syslogprobe's lines re-read as JSON: no subsystem; the Info line no longer listed"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:59"
+file   = "ai-observed/syslogprobe1-reread.txt"
+sha256 = "3c2ffa6871e4aec3e5e665c9344f725ced08c8c38573441f4f1dc6954c2b84df"
+bytes  = 530
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe2-c]
+key    = "ai-obs-syslogprobe2-c"
+title  = "syslogprobe2.c: syslog at CRIT, ALERT, ERR, NOTICE and DEBUG, the legacy _syslog at ERR and INFO, %{private}s and %{public}s in the format, a control"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/syslogprobe2.c"
+sha256 = "9fa269533b1d4841464e39079110e2a470e5aa676df8229cb2c2e7878685e015"
+bytes  = 862
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe2]
+key    = "ai-obs-syslogprobe2"
+title  = "syslogprobe2's lines, types and subsystems, and both syslog probes' stderr sizes (0 bytes)"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "syslogprobe2 run at 12:05:14 and log show"
+file   = "ai-observed/syslogprobe2.txt"
+sha256 = "76afd02df4912e6a0a695caeb1fcb7ae74b3b51fce6f1e0949aa44f72ac8534c"
+bytes  = 1888
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-syslogprobe2-syntax]
+key    = "ai-obs-syslogprobe2-syntax"
+title  = "clang -fsyntax-only on syslogprobe2.c: the annotation is 'outside of os_log()/os_trace()'"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "Xcode clang, 12:57"
+file   = "ai-observed/syslogprobe2-syntax.txt"
+sha256 = "cd981da133476965d309f1d0336a768846445b49519ae2c5edfcfe7dcee29618"
+bytes  = 739
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-costprobe-c]
+key    = "ai-obs-costprobe-c"
+title  = "costprobe.c: 1000 calls each of os_log Default, Error, disabled Debug, write(2) to a file and to /dev/null, timed with mach_absolute_time"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/costprobe.c"
+sha256 = "141ea6091eef4b7c268d8a66bd0eb697fea0278046fbad93f4db27516adc798e"
+bytes  = 2274
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-costprobe-rerun]
+key    = "ai-obs-costprobe-rerun"
+title  = "costprobe, three runs: min, median, p99 and max per row; the line's length; the timebase"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "costprobe run at 12:04:04"
+file   = "ai-observed/costprobe-rerun.txt"
+sha256 = "13b12373c934cb3eda9c5560a0bafdd18b770e7514222f347fafcd1d575fead7"
+bytes  = 2597
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-shim-c]
+key    = "ai-obs-shim-c"
+title  = "shim.c: os_log_with_type(log, type, \"%{public}s\", message), four lines"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/shim.c"
+sha256 = "56233fa6a6dee2ad6e28c99c764931143ec1a5c8a7d560be29f87fd4f585784f"
+bytes  = 152
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-shimmain-c]
+key    = "ai-obs-shimmain-c"
+title  = "shimmain.c: links the shim, logs a heap string at Default and Error, prints os_log_type_t's size and values"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, written for the note"
+file   = "ai-observed/shimmain.c"
+sha256 = "1a59c0f426257b7e31f647a352319c53d553800f7f8b2559ca5a17c7b13f24d2"
+bytes  = 529
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-admin-and-shim]
+key    = "ai-obs-admin-and-shim"
+title  = "The user is in admin and log show runs without sudo; the shim compiled with the devenv shell's cc, its __oslogstring section and undefined symbols"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "id, log show, cc, otool and nm, 12:04:31"
+file   = "ai-observed/admin-and-shim.txt"
+sha256 = "4b2e86733c71710ac11ed72869499dc25328fd7a5555b102d2367508f048bd54"
+bytes  = 960
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-shim-run]
+key    = "ai-obs-shim-run"
+title  = "shimmain's printf (sizeof(os_log_type_t)=1, ERROR=16, FAULT=17) and its log lines at 11:35"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "shimmain built with the devenv shell's cc and run, 11:35:32"
+file   = "ai-observed/shim-run.txt"
+sha256 = "8d3d05f8e63ede07d5f38307fcf40427e22b27dae4a4d678c23d4f2686c13efa"
+bytes  = 490
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-shim-reread]
+key    = "ai-obs-shim-reread"
+title  = "shimmain's two lines re-read as JSON: Default and Error under dev.baud.probe5:shim, the heap string in full"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "log show, read-only, 12:59"
+file   = "ai-observed/shim-reread.txt"
+sha256 = "4a8246fac4a319ef73d4c270da91d8af3958ec48a478b22f2472b90a42e83137"
+bytes  = 438
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-stat-volume]
+key    = "ai-obs-stat-volume"
+title  = "The scratch directory and ~/Library/Logs share one file-system ID"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "GNU stat -f, 12:09"
+file   = "ai-observed/stat-volume.txt"
+sha256 = "94457a0d1de0aebdca667c70f1b63f88de6387448b185153963d4202d5495407"
+bytes  = 595
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-set-hook-sweep]
+key    = "ai-obs-set-hook-sweep"
+title  = "set_hook/take_hook in baud-app's macOS dependency tree and workspace, with std's own set_hook as the control"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "cargo tree and grep over the cargo registry, 12:57"
+file   = "ai-observed/set-hook-sweep.txt"
+sha256 = "e565e01a18c34b900b1f75409ccf50de0fd533b146978a14f76492b18503a583"
+bytes  = 2125
+status = "retrieved"
+group  = "AI"
+
+[sources.ai-obs-index]
+key    = "ai-obs-index"
+title  = "Index of note AI's local evidence: what each file holds, which figures are measured and which transcribed"
+author = "baud research (note AI)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the note"
+file   = "ai-observed/observations.txt"
+sha256 = "bd8e088fcec20076cf07fd35011d4f86a1dbc1071c5350825eae1048afc3d3dc"
+bytes  = 11755
+status = "retrieved"
+group  = "AI"

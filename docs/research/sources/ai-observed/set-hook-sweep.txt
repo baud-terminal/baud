@@ -1,0 +1,25 @@
+# 2026-10-09 12:57:38 MDT -- set_hook / take_hook in baud-app's macOS normal dependency tree
+# crates: cargo tree -p baud-app --target aarch64-apple-darwin -e normal --prefix none --offline (33 lines, 25 registry crates); registry: /Users/<user>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/
+# workspace crates:
+baud-font/tests/bitmap.rs:616:        let loud = std::panic::take_hook();
+baud-font/tests/bitmap.rs:617:        std::panic::set_hook(Box::new(move |info| {
+baud-render/tests/face_table.rs:81:        let before = std::panic::take_hook();
+baud-render/tests/face_table.rs:82:        std::panic::set_hook(Box::new(move |info| {
+# registry crates:
+objc2-0.6.4/tests/track_caller.rs:27:        panic::set_hook(Box::new(|info| {
+objc2-0.6.4/tests/track_caller.rs:73:        let _ = panic::take_hook();
+proc-macro2-1.0.107/src/detection.rs:39://     thread 1 calls take_hook, gets the user's original hook
+proc-macro2-1.0.107/src/detection.rs:40://     thread 1 calls set_hook with the null hook
+proc-macro2-1.0.107/src/detection.rs:41://     thread 2 calls take_hook, thinks null hook is the original hook
+proc-macro2-1.0.107/src/detection.rs:42://     thread 2 calls set_hook with the null hook
+proc-macro2-1.0.107/src/detection.rs:43://     thread 1 calls set_hook with the actual original hook
+proc-macro2-1.0.107/src/detection.rs:44://     thread 2 calls set_hook with what it thinks is the original hook
+proc-macro2-1.0.107/src/detection.rs:64:    let original_hook = panic::take_hook();
+proc-macro2-1.0.107/src/detection.rs:65:    panic::set_hook(null_hook);
+proc-macro2-1.0.107/src/detection.rs:70:    let hopefully_null_hook = panic::take_hook();
+proc-macro2-1.0.107/src/detection.rs:71:    panic::set_hook(original_hook);
+zerocopy-0.8.56/src/layout.rs:1401:                        let previous_hook = std::panic::take_hook();
+zerocopy-0.8.56/src/layout.rs:1404:                        std::panic::set_hook(Box::new(|_| {}));
+zerocopy-0.8.56/src/layout.rs:1412:                        std::panic::set_hook(previous_hook);
+# positive control: grep finds std's own definition in the toolchain's rust-src
+1

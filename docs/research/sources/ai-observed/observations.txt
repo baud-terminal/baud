@@ -1,0 +1,223 @@
+Index of the local evidence for note AI (ai-observed/, keys ai-obs-*), 2026-10-09.
+Made on macOS 27.0 (build 26A5425a) with Xcode 27.0 (27A266a), on AC power. The probes
+are C, compiled with Xcode's clang against Xcode's MacOSX.sdk unless a section says
+otherwise. Each file here is a probe's source or a raw output saved with the command
+that produced it. Personal details are redacted in every file: the user name
+(/Users/<user>), the scratch directory (<scratch>), and process ids (<pid>, except
+ppid=1, which is evidence). Redaction is the only change.
+
+RULE: the note tags a figure M only where a file here holds it. Figures read off the
+session's tool output and never saved raw are marked TRANSCRIBED here, and the note
+does not tag them M.
+
+Origins: review-*.txt were saved by the read-only reviewer of the note's first draft,
+and are copied unchanged apart from redaction. Every other file was saved by the
+note's author. log-invocations.txt is the unified log's own record of this session's
+log(1) queries (11:00-11:40). It supplies the command line for outputs that were
+saved without one: log-show-probes.txt (11:20:30) and syslogprobe1.txt (11:21:37).
+
+1. Where fd 0/1/2 point for a LaunchServices launch
+---------------------------------------------------
+Files: fdprobe.c, FdProbe-Info.plist, fdprobe-run.txt, fdprobe-stderr-direct.txt,
+fdprobe-stderr-open.txt, stderr-marker-requery.txt.
+FdProbe.app is a bundle with fdprobe as its executable, ad-hoc signed. It was
+unregistered from LaunchServices afterwards with lsregister -u. fdprobe fstat()s
+fd 0-2, asks F_GETPATH, compares the result with stat("/dev/null"), writes a marker
+to stderr, logs five os_log lines, and prints os_log_type_enabled for info and debug.
+
+  arm                                              fd 2 is                     parent
+  ./fdprobe 2>err.txt            (positive control)  err.txt (marker landed)     the shell
+  open -W --stderr err2.txt FdProbe.app (control)    err2.txt (marker landed)    ppid=1
+  open -W FdProbe.app                                /dev/null (fd 0, 1 too)     ppid=1
+  env -i HOME=$HOME open -W FdProbe.app              /dev/null (fd 0, 1 too)     ppid=1
+
+- Three arms ran under ppid 1, the --stderr control among them. Each had
+  XPC_SERVICE_NAME=application.dev.baud.fdprobe.<n>.<n>.
+- That launchd connected fd 0-2 to /dev/null is inferred from ppid 1 and from
+  launchd.plist(5).
+- `open` passed the shell's environment through. The `env -i` arm had TERM and
+  LANG unset.
+- The Dock and Finder were NOT probed.
+- Every arm printed info_enabled=1 debug_enabled=0: Debug is disabled here.
+- stderr-marker-requery.txt (12:57, read-only): the stderr markers appear in no
+  unified-log query. The same probes' os_log default lines and the NSLog line are
+  listed as the positive control. The file also shows the first session's own
+  marker queries, as log(1) recorded them.
+
+2. os_log privacy and truncation
+--------------------------------
+Files: privprobe.c, log-show-probes.txt (11:20:30; its query is in
+log-invocations.txt), review-info-debug-absent.txt (11:59, with its query),
+longline-reread.txt.
+  P2-DEFAULT-HEAP-PRIVATE %s of a malloc'd string       -> "<private>"
+  P2-DEFAULT-HEAP-PUBLIC  %{public}s of the same string  -> shown
+  P2-DEFAULT-CONST        %s of a string literal         -> shown (why: UNVERIFIED)
+  P2-DEFAULT-INT          %d                             -> shown
+  P2-DEFAULT-LONG  "%{public}s END" with 1999 'x'        -> re-read 12:09: 1040 UTF-8
+                   bytes, "P2-DEFAULT-LONG " + 1015 'x' + "<…>" + " END"
+
+3. Info and debug lines: what is listed later
+---------------------------------------------
+Files: review-info-debug-absent.txt, lifeprobe.c, lifeprobe.txt,
+review-costprobe-lines.txt.
+
+TRANSCRIBED, not evidence:
+- At 11:07 and 11:09, `log show --info --debug` listed the first probes' info lines.
+- At 11:20:39 a query found none of them.
+- That query and its output were not saved. It came 22 s after this session's cost
+  probe had logged 6000 persisted lines: 3 runs x (1000 Default + 1000 Error),
+  11:20:16.605-.632 (review-costprobe-lines.txt).
+
+review-info-debug-absent.txt (11:59, `--info --debug` over 11:00-11:40) lists every
+Default, Error and Fault line of those probes, which is the positive control. It
+lists no Info or Debug line.
+
+lifeprobe.txt is the controlled run.
+- At 12:05:34 lifeprobe logged one Default (control), one Info and one Debug line.
+  capprobe2's lines from 12:05:02 (section 7) ride along.
+- Nothing of this session logged in bulk between the readings. The cost re-run was
+  at 12:04:04, before them.
+
+  12:05:34  Default control and Info listed; Debug not listed
+  12:15:43  Info gone (and capprobe2's Info line); both Default controls and
+  12:25:44  capprobe2's Error and Fault listed -- the same at all three
+  12:35:45
+  12:36:28  JSON re-read: capprobe2's Error and Fault lines 622 bytes each, 600 'z' kept
+
+- The first reading without the Info line came 10 min 09 s after it was logged
+  (12:05:34 to 12:15:43). For capprobe2's Info line that was 10 min 41 s.
+- The Debug line was never emitted: debug is disabled here (fdprobe's
+  debug_enabled=0 in section 1; os_log_type_enabled's gate costs under a tick in
+  section 6).
+- This is one machine under its own background load. It fixes no lifetime.
+
+4. NSLog
+--------
+Files: nslogprobe.m, nslogprobe-stderr.txt, stderr-marker-requery.txt.
+NSLog(@"NSLOGPROBE-MARKER %@", heapString), run directly with stderr to a file:
+  stderr (nslogprobe-stderr.txt): "... NSLOGPROBE-MARKER heap-<pid>"
+  unified log (stderr-marker-requery.txt): Default type, "NSLOGPROBE-MARKER <private>"
+
+5. syslog(3)
+------------
+Files: syslogprobe.c, syslogprobe1.txt (11:21:37; query in log-invocations.txt),
+syslogprobe1-reread.txt (12:59), syslogprobe2.c, syslogprobe2.txt (12:05:14, with
+stderr sizes), syslogprobe2-syntax.txt (clang -fsyntax-only, 12:57).
+
+Through the SDK's `syslog`, which binds _syslog$DARWIN_EXTSN:
+- LOG_CRIT, LOG_ALERT, LOG_ERR, LOG_WARNING and LOG_NOTICE land as Default ("Df").
+- LOG_INFO lands as Info ("I"), in syslogprobe1.txt.
+- LOG_DEBUG is not listed, even with --debug.
+
+Through the legacy `_syslog` symbol: LOG_WARNING and LOG_ERR land as Default, and
+LOG_INFO as Info.
+
+- A heap string through plain %s is shown in full.
+- "%{private}s" and "%{public}s" in syslog's format come out as "<decode: missing
+  data>", so the value is lost. Clang warns that the annotation is "outside of
+  os_log()/os_trace()" (syslogprobe2-syntax.txt).
+- No line has a subsystem or a category.
+- stderr was 0 bytes for both probes.
+- LOG_EMERG was not sent. syslog(3) itself says: "A panic condition. This is
+  normally broadcast to all users."
+
+6. Per-call cost
+----------------
+Files: costprobe.c, costprobe-rerun.txt.
+- The logged line is 142 bytes, 143 with the newline the write rows add.
+- mach_timebase_info is 125/3, so one tick is 41.67 ns. "0 ns" means under one
+  tick, and "42 ns" is one tick.
+
+costprobe-rerun.txt (12:04:04), three runs of 1000 back-to-back calls per row:
+                                   min      median    p99        max
+  os_log DEFAULT %{public}s  r1    83 ns    125 ns    35250 ns   114708 ns
+                             r2    83 ns    125 ns    30042 ns    77833 ns
+                             r3    83 ns    125 ns    36083 ns    68333 ns
+  os_log ERROR %{public}s    r1    83 ns    125 ns    34292 ns    63500 ns
+                             r2    42 ns    125 ns     4250 ns    62250 ns
+                             r3    83 ns    125 ns     3417 ns    46708 ns
+  os_log DEBUG (disabled)    r1     0 ns      0 ns       42 ns      125 ns
+                             r2     0 ns      0 ns       42 ns       83 ns
+                             r3     0 ns      0 ns       42 ns       42 ns
+  write(2) O_APPEND file     r1  1292 ns   1375 ns     3750 ns    19917 ns
+                             r2  1208 ns   1333 ns     3542 ns     6917 ns
+                             r3  1167 ns   1250 ns     3542 ns    13458 ns
+  write(2) /dev/null         r1   625 ns    667 ns      833 ns     7292 ns
+                             r2   625 ns    667 ns      833 ns     4000 ns
+                             r3   583 ns    625 ns      833 ns     1333 ns
+
+The file was written in the scratch directory, on the file system ~/Library/Logs
+is on (section 9).
+
+TRANSCRIBED, not evidence: the first session's run (11:20:16) printed os_log
+maxima up to 1096000 ns and file-write maxima up to 318625 ns.
+
+What was measured: os_log_with_type called from C, which is the shim's route,
+plus write(2). syslog(3), a buffer built by hand and journald's sendmsg were not
+measured.
+
+7. The persisted length of a long line
+--------------------------------------
+Files: capprobe.c, capprobe-reread.txt (12:04:42), capprobe2.c, capprobe2.txt
+(12:05:02), lifeprobe.txt (12:36:28).
+
+capprobe.c (11:26:01) logs 600 bytes of %{public}s through os_log_with_type at
+ERROR, DEFAULT and FAULT. That route goes through _os_log_impl, not the macros
+os_log_error and os_log_fault.
+- Re-read at 12:04: 617, 619 and 617 bytes, all 600 'y' kept.
+
+capprobe2.c (12:05:02) logs the same through the documented macros os_log_error,
+os_log_fault and os_log_info.
+- Read immediately: 622, 622 and 621 bytes, all 600 'z' kept.
+- At 12:36:28 the Error and Fault lines were still 622 bytes each. The Info line
+  was gone.
+
+log.h caps "written to the persistence store" content at 256 bytes for these
+types. It also says "Live streams will continue to show the full content".
+- For Error and Fault, the probe reads the persistence store: 600 bytes held
+  half an hour on.
+- For Info, the only reading that listed the line was taken at once, so it may
+  not have come from the store, and the line was gone by 12:15. Debug was never
+  emitted. So the probe cannot reach the cap for Info or Debug.
+
+8. The shim under the repo shell's own compiler
+-----------------------------------------------
+Files: shim.c (4 lines), shimmain.c, admin-and-shim.txt (12:04:31: cc, SDKROOT,
+compile, otool, nm), shim-run.txt (11:35: the linked run's printf), shim-reread.txt
+(12:59: its two log lines, with the query).
+
+- `cc` in the devenv shell is nix's clang-wrapper 21.1.8, with SDKROOT set to
+  nix's apple-sdk-14.4.
+- The shim compiles clean. The object carries "%{public}s" in
+  (__TEXT,__oslogstring), and needs ___dso_handle, __os_log_impl and
+  _os_log_type_enabled.
+- Linked and run, it logged a heap string at Default and at Error in full.
+- The same build printed sizeof(os_log_type_t)=1, ERROR=16 and FAULT=17.
+
+9. The scratch directory and ~/Library/Logs are one file system
+---------------------------------------------------------------
+File: stat-volume.txt. GNU `stat -f` gives both "ID: 10000130000001a ... Type: apfs".
+
+10. `log show` without sudo
+---------------------------
+File: admin-and-shim.txt.
+- The user is in `admin`.
+- A `log show` without sudo exited 0.
+- A user outside admin was not tried.
+
+11. Panic hooks in baud-app's macOS dependency tree
+---------------------------------------------------
+File: set-hook-sweep.txt (12:57). It greps the 25 registry crates of
+`cargo tree -p baud-app --target aarch64-apple-darwin -e normal`, plus the
+workspace crates, with grep finding std's own `pub fn set_hook` as the positive
+control.
+
+Hits:
+- baud-font/tests and baud-render/tests: test code.
+- objc2 tests/track_caller.rs: test code.
+- zerocopy src/layout.rs:1401-1412: inside `#[cfg(test)] mod tests` (layout.rs:1103).
+- proc-macro2 src/detection.rs:55-72: a function that swaps in a null hook and
+  restores the original. It runs inside the compiler, because proc-macro2 is a
+  dependency of the proc-macro crate zerocopy-derive (via quote and syn).
+
+No crate installs a hook in the shipping binary.

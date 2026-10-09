@@ -1,0 +1,16 @@
+# 2026-10-09 12:57:17 MDT -- read-only re-query of the stderr markers, with the os_log default lines of the same probes as the positive control
+$ /usr/bin/log show --info --debug --start '2026-10-09 11:00:00' --end '2026-10-09 11:30:00' --style compact --predicate 'eventMessage CONTAINS "BAUDPROBE-STDERR-MARKER" OR eventMessage CONTAINS "BAUDPROBE-OSLOG-DEFAULT" OR eventMessage CONTAINS "NSLOGPROBE-MARKER"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:06:15.949 Df fdprobe[<pid>:5d72e5] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:06:16.120 Df fdprobe[<pid>:5d7343] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.200 Df fdprobe[<pid>:5d86b0] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.261 Df fdprobe[<pid>:5d86e3] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.316 Df fdprobe[<pid>:5d8714] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:09:38.372 Df fdprobe[<pid>:5d8721] [dev.baud.probe:probe] BAUDPROBE-OSLOG-DEFAULT public-str <pid>
+2026-10-09 11:17:29.547 Df nslogprobe[<pid>:5df2e2] NSLOGPROBE-MARKER <private>
+
+# the first session's own marker queries, as log(1) recorded its arguments:
+$ /usr/bin/log show --start '2026-10-09 11:00:00' --end '2026-10-09 11:30:00' --style compact --predicate 'process == "log" AND eventMessage CONTAINS "BAUDPROBE-STDERR"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 11:09:47.277 Df log[<pid>:5d8838] [com.apple.log:] log run noninteractively, parent: <pid> (zsh), args: '/usr/bin/log' 'show' '--last' '10m' '--info' '--debug' '--style' 'compact' '--predicate' 'eventMessage CONTAINS "BAUDPROBE-STDERR"'
+2026-10-09 11:20:31.660 Df log[<pid>:5e6a05] [com.apple.log:] log run noninteractively, parent: <pid> (zsh), args: '/usr/bin/log' 'show' '--last' '30m' '--style' 'compact' '--predicate' 'eventMessage CONTAINS "BAUDPROBE-STDERR" OR eventMessage CONTAINS "NSLOGPROBE"'

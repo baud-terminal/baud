@@ -1,0 +1,3 @@
+# 2026-10-09 12:09:00 MDT -- re-read of privprobe's long default line (logged 11:07:09.598)
+$ /usr/bin/log show --start '2026-10-09 11:00:00' --end '2026-10-09 11:10:00' --style json --predicate 'subsystem == "dev.baud.probe2" AND eventMessage BEGINSWITH "P2-DEFAULT-LONG"' | python3 (bytes, x count, tail)
+2026-10-09 11:07:09.598125-0600 Default utf8 bytes 1040 x 1015 'xxxxx<…> END'

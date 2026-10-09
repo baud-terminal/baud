@@ -1,0 +1,42 @@
+# lifeprobe (probe/lifeprobe.c): Default control, Info, Debug under dev.baud.probe6; capprobe2's lines (dev.baud.probe7, 12:05:02) ride along. No probe of this session logs in bulk between the readings (the cost re-run was at 12:04:04, before this).
+pid <pid>
+# 2026-10-09 12:05:34 MDT -- reading: immediately after
+$ /usr/bin/log show --info --debug --start '2026-10-09 12:00:00' --style compact --predicate 'subsystem == "dev.baud.probe6" OR subsystem == "dev.baud.probe7"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 12:05:02.875 E  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGERROR-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 F  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGFAULT-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 I  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGINFO-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 Df capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOG-CONTROL short
+2026-10-09 12:05:34.822 Df lifeprobe[<pid>:662e94] [dev.baud.probe6:life] P6-DEFAULT-CONTROL <pid>
+2026-10-09 12:05:34.822 I  lifeprobe[<pid>:662e94] [dev.baud.probe6:life] P6-INFO <pid>
+
+# 2026-10-09 12:15:43 MDT -- reading: about 10 minutes after
+$ /usr/bin/log show --info --debug --start '2026-10-09 12:00:00' --style compact --predicate 'subsystem == "dev.baud.probe6" OR subsystem == "dev.baud.probe7"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 12:05:02.875 E  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGERROR-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 F  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGFAULT-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 Df capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOG-CONTROL short
+2026-10-09 12:05:34.822 Df lifeprobe[<pid>:662e94] [dev.baud.probe6:life] P6-DEFAULT-CONTROL <pid>
+
+# 2026-10-09 12:25:44 MDT -- reading: about 20 minutes after
+$ /usr/bin/log show --info --debug --start '2026-10-09 12:00:00' --style compact --predicate 'subsystem == "dev.baud.probe6" OR subsystem == "dev.baud.probe7"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 12:05:02.875 E  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGERROR-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 F  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGFAULT-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 Df capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOG-CONTROL short
+2026-10-09 12:05:34.822 Df lifeprobe[<pid>:662e94] [dev.baud.probe6:life] P6-DEFAULT-CONTROL <pid>
+
+# 2026-10-09 12:35:45 MDT -- reading: about 30 minutes after
+$ /usr/bin/log show --info --debug --start '2026-10-09 12:00:00' --style compact --predicate 'subsystem == "dev.baud.probe6" OR subsystem == "dev.baud.probe7"'
+Timestamp               Ty Process[PID:TID]
+2026-10-09 12:05:02.875 E  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGERROR-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 F  capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOGFAULT-600 zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+2026-10-09 12:05:02.875 Df capprobe2[<pid>:662a54] [dev.baud.probe7:cap2] P7-OSLOG-CONTROL short
+2026-10-09 12:05:34.822 Df lifeprobe[<pid>:662e94] [dev.baud.probe6:life] P6-DEFAULT-CONTROL <pid>
+
+# 2026-10-09 12:36:28 MDT -- bytes of capprobe2's lines (logged 12:05:02) after the 30-minute reading
+$ /usr/bin/log show --info --debug --start '2026-10-09 12:00:00' --predicate 'subsystem == "dev.baud.probe7" OR subsystem == "dev.baud.probe6"' --style json | python3 (timestamp, type, bytes, z count, tail)
+2026-10-09 12:05:02.875573-0600 Error bytes 622 z 600 'zzzzzz END'
+2026-10-09 12:05:02.875581-0600 Fault bytes 622 z 600 'zzzzzz END'
+2026-10-09 12:05:02.875589-0600 Default bytes 22 z 0 'TROL short'
+2026-10-09 12:05:34.822273-0600 Default bytes 24 z 0 'TROL <pid>'

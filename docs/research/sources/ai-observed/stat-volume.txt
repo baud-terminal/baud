@@ -1,0 +1,12 @@
+# 2026-10-09 12:09:00 MDT
+$ stat -f <scratch-root> ~/Library/Logs   (GNU coreutils stat, from the devenv PATH)
+  File: "<scratch-root>"
+    ID: 10000130000001a Namelen: ?       Type: apfs
+Block size: 4096       Fundamental block size: 4096
+Blocks: Total: 487101010  Free: 134576489  Available: 134576489
+Inodes: Total: 5388358870 Free: 5383059560
+  File: "/Users/<user>/Library/Logs"
+    ID: 10000130000001a Namelen: ?       Type: apfs
+Block size: 4096       Fundamental block size: 4096
+Blocks: Total: 487101010  Free: 134576489  Available: 134576489
+Inodes: Total: 5388358870 Free: 5383059560

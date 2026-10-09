@@ -1,0 +1,10 @@
+# 2026-10-09 12:57:17 MDT
+$ env -u SDKROOT DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer .../XcodeDefault.xctoolchain/usr/bin/clang -isysroot .../MacOSX.sdk -fsyntax-only syslogprobe2.c
+syslogprobe2.c:15:50: warning: using 'private' format specifier annotation outside of os_log()/os_trace() [-Wformat]
+   15 |     syslog(LOG_WARNING, "SYSLOG2-PRIVATE-ANNOT %{private}s", heap);
+      |                                                ~~^~~~~~~~~
+syslogprobe2.c:16:49: warning: using 'public' format specifier annotation outside of os_log()/os_trace() [-Wformat]
+   16 |     syslog(LOG_WARNING, "SYSLOG2-PUBLIC-ANNOT %{public}s", heap);
+      |                                               ~~^~~~~~~~
+2 warnings generated.
+rc=0

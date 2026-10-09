@@ -414,6 +414,43 @@ fn every_test_named_in_the_docs_exists() {
             "_sfte_render_trail",
             "sfte's C function that draws its cursor trail, cited where the sweep trail is its rule",
         ),
+        (
+            "__builtin_os_log_format",
+            "clang's builtin that encodes an os_log buffer, cited in note AI as what Rust has no counterpart for",
+        ),
+        (
+            "__dso_handle",
+            "the linker's image-handle symbol os_log's macros pass, cited in note AI's list of what a non-C caller must declare",
+        ),
+        (
+            "__os_log_default",
+            "the default os_log object's symbol (OS_LOG_DEFAULT), cited in note AI",
+        ),
+        (
+            "__os_log_impl",
+            "the Mach-O spelling of `_os_log_impl` in an object's undefined symbols, cited in note AI's shim listing",
+        ),
+        (
+            "_os_log_create",
+            "the Mach-O spelling of `os_log_create`, cited in note AI's symbol listing",
+        ),
+        (
+            "_os_log_impl",
+            "os/log.h's \"Internal function that takes compiler generated encoding\", cited in note AI",
+        ),
+        (
+            "_os_log_type_enabled",
+            "the Mach-O spelling of `os_log_type_enabled`, cited in note AI's shim listing",
+        ),
+        (
+            "os_log_type_enabled",
+            "os/log.h's level check, cited in note AI",
+        ),
+        ("os_log_type_t", "os/log.h's level type, cited in note AI"),
+        (
+            "os_log_with_type",
+            "os/log.h's logging macro, cited in note AI as the call the shim makes",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
