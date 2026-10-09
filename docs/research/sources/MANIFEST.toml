@@ -12356,18 +12356,21 @@ group  = "J"
 
 [sources.vt220-rm-ch4]
 key    = "vt220-rm-ch4"
-title  = "VT220 Programmer Reference Manual, chapter 4: Received Character Processing"
+title  = "VT220 Programmer Reference Manual, chapter 4: Received Codes"
 author = "Digital Equipment Corporation, transcribed by vt100.net"
 year   = 1984
 venue  = "vt100.net"
 url    = "https://vt100.net/docs/vt220-rm/chapter4.html"
-file   = ""
+file   = "vt220-rm-chapter4.html"
 sha256 = "dfa8e317c125cc489fd3a1562757dfd71449a6ca4a6df53054783a321b627599"
 bytes  = 118425
-status = "external"
+status = "retrieved"
 group  = "J"
-# Read for note AD (2026-10-08), fixing a reviewer finding; hash-verified against a
-# fetch of the url, not committed -- a vendor page or a large file. Re-fetch and compare.
+# Read for note AD (2026-10-08), fixing a reviewer finding, and hash-verified then
+# against a fetch of the url. Committed 2026-10-08 for note AE, which cites its 4.3
+# DECSCL and 4.4 SCS, with 4.4.3 locking and 4.4.4 single shifts: a re-fetch that day
+# matched the recorded sha256 byte for byte. The title read "Received Character Processing" until then,
+# which is the VT102 User Guide's chapter 5 heading; the page's h1 is "4 Received Codes".
 
 [sources.vt510-rm-ch4]
 key    = "vt510-rm-ch4"
@@ -12431,3 +12434,269 @@ group  = "J"
 # Local evidence for note AD, made 2026-10-08 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
+
+# Group C -- note AE, code extension: designation and invocation of the graphic
+# sets (SCS, LS, SS), the user-preferred supplemental set, conformance levels, the
+# C1 transmission mode, and what DECSC/DECRC and RIS keep of them. The VT510 pages
+# and xterm's files were read in .claude/research/code-ext/, re-fetched on 2026-10-08
+# and committed when each re-fetch matched the copy read byte for byte.
+
+[sources.vt510-decrc]
+key    = "vt510-decrc"
+title  = "DECRC—Restore Cursor (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRC.html"
+file   = "vt510-DECRC.html"
+sha256 = "1b09546c594abf1eeb0bea18221579080fc5b81ae257f6f6f8ed2f995e400a80"
+bytes  = 19639
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: what DECRC restores of the saved character-set state,
+# and what it does "If nothing was saved by DECSC".
+
+[sources.vt510-ris]
+key    = "vt510-ris"
+title  = "RIS—Reset to Initial State (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/RIS.html"
+file   = "vt510-RIS.html"
+sha256 = "69667122d050a6c30479ad3168f9fc5dff6dd8567e2a112d560193d13c3a6f7e"
+bytes  = 20406
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the character sets a hard reset selects ("ASCII in
+# GL, and DEC Supplemental Graphic in GR").
+
+[sources.vt510-ss]
+key    = "vt510-ss"
+title  = "SS—Single Shifts (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/SS.html"
+file   = "vt510-SS.html"
+sha256 = "69e4af48524e49a3c2e9f64bed0f7202700817db9d5d024e9c53ab462f34ae77"
+bytes  = 20594
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: SS2 and SS3, 8-bit and 7-bit, and that each maps G2
+# or G3 into GL for the next character only.
+
+[sources.vt510-ls]
+key    = "vt510-ls"
+title  = "LS—Locking Shift (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/LS.html"
+file   = "vt510-LS.html"
+sha256 = "2f430405ac3c8f7ce94574c7ee0c971b7efc17e4b15fce4b893d5536381adda2"
+bytes  = 21620
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: LS0, LS1, LS1R, LS2, LS2R, LS3, LS3R -- which set each
+# invokes into GL or GR.
+
+[sources.vt510-scs]
+key    = "vt510-scs"
+title  = "SCS—Select Character Set (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/SCS.html"
+file   = "vt510-SCS.html"
+sha256 = "8230cc1dd962e5894735613e19e27f5f4f61b9e41a39ce273d6d828f5ae5de01"
+bytes  = 21404
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the intermediates that designate G0-G3, 94- and
+# 96-character, and the finals that name each set, `<` the user-preferred supplemental.
+
+[sources.vt510-deccir]
+key    = "vt510-deccir"
+title  = "DECCIR—Cursor Information Report (Terminal to Host) (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECCIR.html"
+file   = "vt510-DECCIR.html"
+sha256 = "8ab5e6b98cbe5992b0b4a0aba1e28e37091053ed8ed0816ed831ce704741bd99"
+bytes  = 29767
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the report's Pgl, Pgr, Scss and Sdesig fields and its
+# single-shift flags -- the character-set state DEC reports with the cursor.
+
+[sources.vt510-decaupss]
+key    = "vt510-decaupss"
+title  = "DECAUPSS—Assigning User-Preferred Supplemental Sets (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECAUPSS.html"
+file   = "vt510-DECAUPSS.html"
+sha256 = "ebbf9c9e3c42630bceabee48900e7a54cdd3d11a4ee23294e216a8c251e9dca1"
+bytes  = 20929
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: assigning the user-preferred supplemental set, the
+# "standby set" an SCS with final `<` designates.
+
+[sources.vt510-decrqupss]
+key    = "vt510-decrqupss"
+title  = "DECRQUPSS—User-Preferred Supplemental Set (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRQUPSS.html"
+file   = "vt510-DECRQUPSS.html"
+sha256 = "623e10d9d45cdcef8ad4e7f7f3c55db6b55ace0f6f0a8acfbed9dda53c60f4a8"
+bytes  = 20012
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the host's request for the user-preferred
+# supplemental set and the terminal's responses.
+
+[sources.vt510-decscl]
+key    = "vt510-decscl"
+title  = "DECSCL—Select Conformance Level (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSCL.html"
+file   = "vt510-DECSCL.html"
+sha256 = "73666ec72d634a98c71fc65ac433a5501a5c3121bb56663d6b125dbdbeaf2ed0"
+bytes  = 21494
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the conformance levels with 7- or 8-bit controls, and
+# its note "When you change the conformance level, the terminal performs a hard reset (RIS)."
+
+[sources.vt510-s7c1t]
+key    = "vt510-s7c1t"
+title  = "S7C1T—Send C1 Control Character to the Host (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/S7C1T.html"
+file   = "vt510-S7C1T.html"
+sha256 = "5c93e14ebd3ea5c567b834e142b503996db769f1008398750174ee66f9b2f9ce"
+bytes  = 19837
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: C1 sent to the host as 7-bit escape sequences. Its
+# vt100.net title is word for word S8C1T's; the url and key tell them apart.
+
+[sources.vt510-s8c1t]
+key    = "vt510-s8c1t"
+title  = "S8C1T—Send C1 Control Character to the Host (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/S8C1T.html"
+file   = "vt510-S8C1T.html"
+sha256 = "4d4662b10ac1cd60a05f3b3ef8df48fb3b8bbf6b585cb9f20038234920cfd915"
+bytes  = 19617
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: C1 sent to the host as 8-bit codes. Its vt100.net
+# title is word for word S7C1T's; the url and key tell them apart.
+
+[sources.vt510-ch7]
+key    = "vt510-ch7"
+title  = "VT510 Video Terminal Programmer Information, chapter 7: Character Sets"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/chapter7.html"
+file   = "vt510-chapter7.html"
+sha256 = "7c6b113defce992d614fb758cb456a0c5dbff891e3318b1fd6f0f5e001cf096c"
+bytes  = 28959
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AE: the sets the VT510 supports (7.2) and how VT mode
+# selects and maps them (7.3).
+
+[sources.xterm-cursor-c]
+key    = "xterm-cursor-c"
+title  = "xterm 411, cursor.c -- CursorSave2 and CursorRestoreFlags: what DECSC saves and DECRC restores of G0-G3, GL and GR"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/cursor.c"
+file   = "xterm-cursor.c"
+sha256 = "3caf38bdfb855243a79ceabd0203be078e1eedacde37d29b646b20702eddfbb8"
+bytes  = 15889
+status = "retrieved"
+group  = "C"
+# Read for note AE; the research that read it recorded only "the same pinned commits".
+# Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
+# fixes the commit.
+
+[sources.xterm-ptydata-c]
+key    = "xterm-ptydata-c"
+title  = "xterm 411, ptydata.c -- decodeUtf8 taking a byte undecoded when vt100_graphics is set and GR is not ASCII; switchPtyData for ESC % G and ESC % @"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptydata.c"
+file   = "xterm-ptydata.c"
+sha256 = "3c2335989c14c950515029bae03ae415d73c2fdc56ab413149718f0e797933db"
+bytes  = 23939
+status = "retrieved"
+group  = "C"
+# Read for note AE; the research that read it recorded only "the same pinned commits".
+# Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
+# fixes the commit.
+
+[sources.xterm-ptyx-h]
+key    = "xterm-ptyx-h"
+title  = "xterm 411, ptyx.h -- gsets, curgl, curgr and curss; DFT_DECID; EXP_C2_CONTROLS"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h"
+file   = "xterm-ptyx.h"
+sha256 = "f8603a234b445d37698cd71db47679414ecbc9fb44a70eb46fa48827e7ccdb28"
+bytes  = 120129
+status = "retrieved"
+group  = "C"
+# Read for note AE; the research that read it recorded only "the same pinned commits".
+# Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
+# fixes the commit.
+
+[sources.xterm-vtprstbl-c]
+key    = "xterm-vtprstbl-c"
+title  = "xterm 411, VTPrsTbl.c -- the parse tables: SO/SI, SS2/SS3, LS2/LS3 and LS1R-LS3R, SCS, DECSC/DECRC/RIS"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/VTPrsTbl.c"
+file   = "xterm-VTPrsTbl.c"
+sha256 = "36169b1c9ef40cd35a46ffc2549d1a002d488847d72b35aa2d810c71f692940d"
+bytes  = 221587
+status = "retrieved"
+group  = "C"
+# Read for note AE; the research that read it recorded only "the same pinned commits".
+# Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
+# fixes the commit.
+
+[sources.xterm-xterm-h]
+key    = "xterm-xterm-h"
+title  = "xterm 411, xterm.h -- the prototypes the charset paths name: saveCharsets, restoreCharsets, xtermCharSetOut"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.h"
+file   = "xterm-xterm.h"
+sha256 = "8d2f5b04c2c1509bbfb953304c10ac7330804c63cefdc37e0dfc787d66871e00"
+bytes  = 80687
+status = "retrieved"
+group  = "C"
+# Read for note AE; the research that read it recorded only "the same pinned commits".
+# Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
+# fixes the commit.
