@@ -1,0 +1,19 @@
+# pcb64_probe, two launches, 2026-10-09 12:51 MDT; source pcb64_probe.c sha256 f3e03830387557d83b6945c70b2bfb617e33766bec5dd5458f8701861b0e03ac; Xcode clang -O2 against MacOSX27.0.sdk (SDK headers, no copied layout); sandboxed shell; argument: a live idle ssh client's pid (redacted)
+=== launch 1
+sizeof(struct xtcpcb64) 472, sizeof(struct xinpgen) 24
+client socket ports 52314->52313, accepted 52313->52314 (PROC_PIDFDSOCKETINFO, ntohs); getsockname says client port 52314, listener 52313
+before: size query 27896 B, fetch 1464 B, xig_count 53, records walked 3; client found, accepted found
+after 1048576 B client->server: sender d(snd_una-iss) 1048576, d(snd_max-iss) 1048576; receiver d(rcv_nxt-irs) 1048576
+sender t_rxtshift 0, snd_nxt >= snd_max; t_state 4; so_uid 501 so_pgid 0 (no pid field in xsocket64)
+pcblist64 size query + fetch (dump 1464 B): min 4470 median 4502 ns/call (200 calls x 7 rounds)
+other process: a TCP socket (ports withheld here); dump size query 27896 B, fetch 1464 B, xig_count 53, records 3; its record absent
+other process: a TCP socket (ports withheld here); dump size query 27896 B, fetch 1464 B, xig_count 53, records 3; its record absent
+=== launch 2
+sizeof(struct xtcpcb64) 472, sizeof(struct xinpgen) 24
+client socket ports 52316->52315, accepted 52315->52316 (PROC_PIDFDSOCKETINFO, ntohs); getsockname says client port 52316, listener 52315
+before: size query 29784 B, fetch 1464 B, xig_count 56, records walked 3; client found, accepted found
+after 1048576 B client->server: sender d(snd_una-iss) 1048576, d(snd_max-iss) 1048576; receiver d(rcv_nxt-irs) 1048576
+sender t_rxtshift 0, snd_nxt >= snd_max; t_state 4; so_uid 501 so_pgid 0 (no pid field in xsocket64)
+pcblist64 size query + fetch (dump 1464 B): min 4264 median 4427 ns/call (200 calls x 7 rounds)
+other process: a TCP socket (ports withheld here); dump size query 29784 B, fetch 1464 B, xig_count 56, records 3; its record absent
+other process: a TCP socket (ports withheld here); dump size query 29784 B, fetch 1464 B, xig_count 56, records 3; its record absent

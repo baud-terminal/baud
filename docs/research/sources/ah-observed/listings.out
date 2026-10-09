@@ -1,0 +1,30 @@
+# listings.out, 2026-10-09 12:56 MDT, sandboxed shell, macOS 27.0 26A5425a
+
+$ uname -v
+Darwin Kernel Version 27.0.0: Tue Aug 11 22:05:44 PDT 2026; root:xnu-13432.1.9~3/RELEASE_ARM64_T6050
+
+$ otool -L /usr/bin/nettop
+/usr/bin/nettop:
+	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0, current version 5027.0.69)
+	/usr/lib/libncurses.5.4.dylib (compatibility version 5.4.0, current version 5.4.0)
+	/System/Library/PrivateFrameworks/NetworkStatistics.framework/Versions/A/NetworkStatistics (compatibility version 1.0.0, current version 1.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.0.0)
+
+$ find <MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework/NetworkStatistics.tbd
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework/Versions
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework/Versions/A
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework/Versions/Current
+<MacOSX27.0.sdk>/System/Library/PrivateFrameworks/NetworkStatistics.framework/Versions/A/NetworkStatistics.tbd
+
+$ find <MacOSX27.0.sdk>/usr/include -name 'ntstat*' (no output = absent)
+
+$ grep -c xsocket_n <MacOSX27.0.sdk>/usr/include/sys/socketvar.h
+0
+
+$ /usr/sbin/netstat -an -p tcp; echo exit $?
+exit 0
+
+$ /usr/sbin/netstat -an -p tcp | wc -l
+0

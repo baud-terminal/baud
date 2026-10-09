@@ -1,0 +1,10 @@
+# titlebar_probe_sdk14 (Objective-C), 2026-10-09 12:04 MDT; source titlebar_probe_sdk14.m sha256 ae230204a3bf1ef2d68d6f7ffc085d1957b5f968faab5aa6470af566ee6bf22d
+# built: nix clang 21.1.8 -O2 -fobjc-arc -mmacosx-version-min=14.0 -framework AppKit (nix apple-sdk 14.4); LC_BUILD_VERSION:  sdk 14.4; minos 14.0;
+# baud's own target/release/baud (04:59 build) reads:  sdk 14.4; minos 14.0;
+trailing: accessory view frame in window (704.0, 472.0, 96.0, 28.0)
+right: accessory view frame in window (704.0, 472.0, 96.0, 28.0)
+window frame (800.0, 500.0); contentLayoutRect (0.0, 0.0, 800.0, 472.0); strip 28.0
+0: (9.0, 478.0, 14.0, 16.0)
+1: (29.0, 478.0, 14.0, 16.0)
+2: (49.0, 478.0, 14.0, 16.0)
+macOS Version 27.0 (Build 26A5425a)

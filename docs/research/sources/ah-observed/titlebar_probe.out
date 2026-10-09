@@ -1,0 +1,10 @@
+# titlebar_probe (Swift), re-run 2026-10-09 12:04 MDT; source titlebar_probe.swift sha256 8fdf525fce452b792f071ba9b3194ee6d91974730fcd178bbd3ed796fd7b8c3c
+# built: /usr/bin/swiftc -O -sdk .../MacOSX27.0.sdk; the binary's LC_BUILD_VERSION nonetheless reads:  sdk 14.4; minos 27.0;
+# a window with glassnote's titled style mask and flags, no toolbar; points
+trailing: accessory view frame in window (704.0, 472.0, 96.0, 28.0)
+right: accessory view frame in window (704.0, 472.0, 96.0, 28.0)
+window frame (800.0, 500.0); contentLayoutRect (0.0, 0.0, 800.0, 472.0); titlebar strip height 28.0
+0: (9.0, 478.0, 14.0, 16.0)
+1: (29.0, 478.0, 14.0, 16.0)
+2: (49.0, 478.0, 14.0, 16.0)
+macOS Version 27.0 (Build 26A5425a)

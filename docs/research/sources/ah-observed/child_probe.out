@@ -1,0 +1,9 @@
+# child_probe, two launches, 2026-10-09 12:52 MDT; source child_probe.c sha256 85873d713817aac0a582581d22e829ad4d40142ed4ad84813e419bb59841b63b; Xcode clang -O2, MacOSX27.0.sdk; sandboxed; ticks are Mach ticks (125/3 ns here). The child is read while alive and runs on briefly (a write, a read, _exit) before the parent reaps it.
+=== launch 1
+child alive: child user 7169891 ticks, system 99617 ticks, pageins 1024, diskio read 16777216
+  parent while child alive: child_user +0, child_system +0, child_pageins +0
+  parent after waitpid:     child_user +7169897, child_system +99675, child_pageins +1024, own diskio read +0
+=== launch 2
+child alive: child user 7161278 ticks, system 105453 ticks, pageins 1024, diskio read 16777216
+  parent while child alive: child_user +0, child_system +0, child_pageins +0
+  parent after waitpid:     child_user +7161281, child_system +105485, child_pageins +1024, own diskio read +0

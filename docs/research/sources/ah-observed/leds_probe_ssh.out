@@ -1,0 +1,11 @@
+# leds_probe --pid <ssh-pid> (a live, idle ssh client in another terminal), sandboxed run, 2026-10-09 12:52 MDT, leds_probe.c c9ab46acf5d5
+mach_timebase_info: numer 125 denom 3
+pcblist_n size query 40088 B, fetch 48 B
+    sockets in dump: 0 (header xig_count 57), with so_last_pid == <ssh-pid>: 0
+    sockets in dump: 0 (header xig_count 57), with so_last_pid == <ssh-pid>: 0
+pid <ssh-pid> sockets: rx 0 -> 0 (+0), tx 0 -> 0 (+0) over 1 s
+PROC_PIDLISTFDS = 72 bytes (9 fds)
+  fd 4: family 2 kind 2 tcp state 4 rcv sbi_cc 0 snd sbi_cc 0 (bytes queued now)
+  proc_pidfdinfo(PROC_PIDFDSOCKETINFO)         min       818  median       857 ns/call
+  proc_pidinfo(PROC_PIDLISTFDS)                min       212  median       218 ns/call
+pid <ssh-pid> rusage: user +6292 ticks, sys +16332 ticks, diskio r +0 w +0, footprint 4833664

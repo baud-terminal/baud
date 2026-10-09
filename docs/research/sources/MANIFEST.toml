@@ -32,7 +32,9 @@
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
 #   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
+#   AH  title-bar activity lights: the tty LED trigger, modem panels, per-process counters
 #   AI  where a launched terminal's log lines go: unified logging, files, the journal
+#   AJ  a launch splash: launch guidance, flashing, splash prior art
 
 [sources.simdjson]
 key    = "simdjson"
@@ -14328,3 +14330,1000 @@ sha256 = "bd8e088fcec20076cf07fd35011d4f86a1dbc1071c5350825eae1048afc3d3dc"
 bytes  = 11755
 status = "retrieved"
 group  = "AI"
+
+# Entries note AH cites that notes AK (the window title) and AJ (a launch splash) also rest on;
+# defined here because note AH is committed first. Linux kernel, man-pages, POSIX and the SDK
+# headers are external (third-party code and copyleft documents); WCAG2ICT is a W3C Group Note.
+
+[sources.linux-tty-jobctrl]
+key    = "linux-tty-jobctrl"
+title  = "Linux cf72cbb, drivers/tty/tty_jobctrl.c -- tiocgpgrp: the master side skips the controlling-terminal check"
+author = "Linus Torvalds and the Linux contributors"
+year   = 2026
+venue  = "Linux kernel"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_jobctrl.c"
+file   = ""
+sha256 = "72ed41201aa4c751567fbc63c6d805fe6b79e4e4dfabeb8ed901945621822dfd"
+bytes  = 14809
+status = "external"
+group  = "E"
+
+[sources.macos-sdk-libproc-h]
+key    = "macos-sdk-libproc-h"
+title  = "libproc.h -- proc_pidinfo, proc_name, proc_pidpath; 'private interfaces ... subject to change in future releases'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/libproc.h"
+file   = ""
+sha256 = "246d87709fc6b9157ce5cf3c475656ac48e0e1ae8bbdc46cf45acd34294448cd"
+bytes  = 7575
+status = "external"
+group  = "E"
+
+[sources.macos-sdk-nswindow-h]
+key    = "macos-sdk-nswindow-h"
+title  = "NSWindow.h -- subtitle 'Secondary text that may be displayed adjacent to or below the primary title'; representedURL and the document icon; NSWindowTitleHidden"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSWindow.h"
+file   = ""
+sha256 = "32d8533578a7dfc8edf193775bc3471556ad8da94322bc42ce5942eed9c47549"
+bytes  = 81525
+status = "external"
+group  = "J"
+
+[sources.macos-sdk-sys-proc-info-h]
+key    = "macos-sdk-sys-proc-info-h"
+title  = "sys/proc_info.h -- MAXCOMLEN names, struct proc_vnodepathinfo, PROC_PIDVNODEPATHINFO 9"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/proc_info.h"
+file   = ""
+sha256 = "e427fa96b348537b21552b9de71e01039410bcad2cedee5584c5e5fddafd70fc"
+bytes  = 31262
+status = "external"
+group  = "E"
+
+[sources.linux-man-proc-pid-comm]
+key    = "linux-man-proc-pid-comm"
+title  = "proc_pid_comm(5) -- TASK_COMM_LEN (16), silently truncated"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_comm.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "31aee9e50c23579e7983e26edee83bee9ab7a8ba4c7be46027db2cac5ee23c08"
+bytes  = 1347
+status = "external"
+group  = "E"
+
+[sources.linux-man-tcgetpgrp]
+key    = "linux-man-tcgetpgrp"
+title  = "tcgetpgrp(3), Linux man-pages at adb436b"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man3/tcgetpgrp.3?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "4eeb1cdfd178d05d7886ceb1410d1594d4fd0444d2d29d3f5b3f217350d40033"
+bytes  = 2873
+status = "external"
+group  = "E"
+
+[sources.linux-man-tiocspgrp]
+key    = "linux-man-tiocspgrp"
+title  = "TIOCSPGRP(2const) -- TIOCGPGRP 'equivalent to *argp = tcgetpgrp(fd)'; ENOTTY 'not a master pseudoterminal and not our controlling terminal'"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man2const/TIOCSPGRP.2const?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "79628e5f63f3800dc8fb1dd0499aa047bcd491c6caae0baadbb0b74ef65bc69d"
+bytes  = 1616
+status = "external"
+group  = "E"
+
+[sources.posix-tcgetpgrp]
+key    = "posix-tcgetpgrp"
+title  = "tcgetpgrp -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetpgrp.html"
+file   = ""
+sha256 = "d147e5b554f0b9d95d7aa90035e66ae31bbd40c20416be219ae6b4346b0c25fe"
+bytes  = 6576
+status = "external"
+group  = "E"
+
+[sources.wcag2ict-22]
+key    = "wcag2ict-22"
+title  = "Guidance on Applying WCAG 2 to Non-Web Information and Communications Technologies (WCAG2ICT), W3C Group Note 11 December 2025 -- informative guidance (it sets no requirements), Level A and AA only; 2.2.2 and 2.3.1 'apply directly as written'"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2025
+venue  = "W3C Group Note"
+url    = "https://www.w3.org/TR/2025/NOTE-wcag2ict-22-20251211/"
+file   = "wcag2ict-22-20251211.html"
+sha256 = "265077c096b19d21d9f6b29ce60604d1cf88f8cf4a8663312ee46490a2c9b2e7"
+bytes  = 536627
+status = "retrieved"
+group  = "AJ"
+
+# Group AH, note AH (2026-10-09): title-bar activity lights. The Linux tty LED trigger and its kin,
+# modem front panels (Hayes, US Robotics), per-process counters on macOS and Linux, the macOS title
+# bar's accessory views, tmux and iTerm2 (all external). The ah-obs-* entries are the note's probes
+# and saved outputs, redacted (pids by role, the power source's id).
+
+[sources.linux-ledtrig-tty]
+key    = "linux-ledtrig-tty"
+title  = "Linux cf72cbb, drivers/leds/trigger/ledtrig-tty.c -- the tty LED trigger: a delayed work rescheduled every LEDTRIG_TTY_INTERVAL*2 = 100 ms reading tty_get_icount and tty_get_tiocm, a 50/50 ms one-shot blink"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/ledtrig-tty.c"
+file   = ""
+sha256 = "eedf57ba102ca3a57b42ff9ee0a8396b7f4ac2d54dc76f376ca95f73206b487d"
+bytes  = 8163
+status = "external"
+group  = "E"
+
+[sources.linux-abi-led-trigger-tty]
+key    = "linux-abi-led-trigger-tty"
+title  = "Linux cf72cbb, Documentation/ABI/testing/sysfs-class-led-trigger-tty -- ttyname (5.10), rx/tx/cts/dsr/dcd/rng (6.8)"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (None)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/Documentation/ABI/testing/sysfs-class-led-trigger-tty"
+file   = ""
+sha256 = "9efbdbc22038b5c5242308c1b25d8ca706d6d5bef00daa296091671a80e07899"
+bytes  = 1989
+status = "external"
+group  = "E"
+
+[sources.linux-led-core]
+key    = "linux-led-core"
+title  = "Linux cf72cbb, drivers/leds/led-core.c -- led_blink_set_oneshot, led_set_software_blink (armed at jiffies + 1) and the blink timer"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0-only)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/led-core.c"
+file   = ""
+sha256 = "97dffa18ffcc714ad0892d4e049ea5dd4a2f3df3c6203ee227f1177237db6946"
+bytes  = 17836
+status = "external"
+group  = "E"
+
+[sources.linux-leds-trigger-kconfig]
+key    = "linux-leds-trigger-kconfig"
+title  = "Linux cf72cbb, drivers/leds/trigger/Kconfig -- LEDS_TRIGGER_TTY help text; LEDS_TRIGGER_DISK depends on ATA"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0-only)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/Kconfig"
+file   = ""
+sha256 = "307ec043b1bfaef6ce6ee01e123b9ce7706242b24220d8a5431ed4a87562610c"
+bytes  = 5019
+status = "external"
+group  = "E"
+
+[sources.linux-tty-io]
+key    = "linux-tty-io"
+title  = "Linux cf72cbb, drivers/tty/tty_io.c -- tty_get_icount and tty_get_tiocm return -ENOTTY when the driver has no op"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_io.c"
+file   = ""
+sha256 = "af7a02dd86546b01ea7db0fb3aebabfbd271df3456e8c958e2aea5a05592bd96"
+bytes  = 91257
+status = "external"
+group  = "E"
+
+[sources.linux-serial-core]
+key    = "linux-serial-core"
+title  = "Linux cf72cbb, drivers/tty/serial/serial_core.c -- uart_ops carries tiocmget and get_icount (the positive control)"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0+)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/serial/serial_core.c"
+file   = ""
+sha256 = "0c7f4222aadb4d006ec64925e7780b31d75c8497183f7adf528b96dd80e5f076"
+bytes  = 94787
+status = "external"
+group  = "E"
+
+[sources.linux-uapi-serial-h]
+key    = "linux-uapi-serial-h"
+title  = "Linux cf72cbb, include/uapi/linux/serial.h -- struct serial_icounter_struct"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-1.0+ WITH Linux-syscall-note)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/include/uapi/linux/serial.h"
+file   = ""
+sha256 = "3ea06980d4c7fc3821396627823d0ab3563007c94becc503955f4965a293f9ee"
+bytes  = 5284
+status = "external"
+group  = "E"
+
+[sources.linux-ledtrig-netdev]
+key    = "linux-ledtrig-netdev"
+title  = "Linux cf72cbb, drivers/leds/trigger/ledtrig-netdev.c -- the network-device LED trigger: interface packet counters, 50 ms default interval, led_stop_software_blink before each blink"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/ledtrig-netdev.c"
+file   = ""
+sha256 = "49334083b02e48df10d46cfc9517a512c6df224fd2c31f4b25585ae20c0080a6"
+bytes  = 23771
+status = "external"
+group  = "AH"
+
+[sources.linux-ledtrig-disk]
+key    = "linux-ledtrig-disk"
+title  = "Linux cf72cbb, drivers/leds/trigger/ledtrig-disk.c -- disk-activity / disk-read / disk-write, a 30 ms one-shot per call"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0-only)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/ledtrig-disk.c"
+file   = ""
+sha256 = "5488929414db7ce09c6de8776dc4cd656d0c6b93a92318d93d7859112bf8223f"
+bytes  = 1006
+status = "external"
+group  = "AH"
+
+[sources.linux-ledtrig-activity]
+key    = "linux-ledtrig-activity"
+title  = "Linux cf72cbb, drivers/leds/trigger/ledtrig-activity.c -- CPU load as blink rate and duty, never a steady state; timer capped at 100 ms"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0-only)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/leds/trigger/ledtrig-activity.c"
+file   = ""
+sha256 = "228940ef62462b73f091f250e63466b168cc4e4664c38171a72b323a93e0b36d"
+bytes  = 7831
+status = "external"
+group  = "AH"
+
+[sources.linux-uapi-tcp-h]
+key    = "linux-uapi-tcp-h"
+title  = "Linux cf72cbb, include/uapi/linux/tcp.h -- struct tcp_info: tcpi_total_retrans, tcpi_bytes_acked, tcpi_bytes_received"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0+ WITH Linux-syscall-note)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/include/uapi/linux/tcp.h"
+file   = ""
+sha256 = "6d981a5001fb09d406e1eb5046c1809743b9618e66d4d6f3360837986dc4c211"
+bytes  = 18353
+status = "external"
+group  = "AH"
+
+[sources.linux-uapi-inet-diag-h]
+key    = "linux-uapi-inet-diag-h"
+title  = "Linux cf72cbb, include/uapi/linux/inet_diag.h -- inet_diag_req_v2, idiag_inode, INET_DIAG_INFO"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0 WITH Linux-syscall-note)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/include/uapi/linux/inet_diag.h"
+file   = ""
+sha256 = "520cce01f470a7ef03cbef2df6bede2dac4d21a3f8c8a64f499a15d210ba2124"
+bytes  = 5165
+status = "external"
+group  = "AH"
+
+[sources.xnu-socketvar-h]
+key    = "xnu-socketvar-h"
+title  = "XNU xnu-12377.121.6, bsd/sys/socketvar.h -- data_stats, xsocket_n (so_last_pid), xsockstat_n: all under #ifdef PRIVATE and #pragma pack(4)"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/socketvar.h"
+file   = ""
+sha256 = "6082a29193debba902067a7b94ea31a7fa7bede97a325d1778b88ba533077536"
+bytes  = 51924
+status = "external"
+group  = "AH"
+
+[sources.xnu-uipc-socket2-c]
+key    = "xnu-uipc-socket2-c"
+title  = "XNU xnu-12377.121.6, bsd/kern/uipc_socket2.c -- so_update_tx_data_stats, sb_update_data_stats"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/kern/uipc_socket2.c"
+file   = ""
+sha256 = "11ef30ecc310dde46f6e005327c0f3f20800bcb6485ddc3e50c313731f664389"
+bytes  = 79543
+status = "external"
+group  = "AH"
+
+[sources.xnu-in-pcblist-c]
+key    = "xnu-in-pcblist-c"
+title  = "XNU xnu-12377.121.6, bsd/netinet/in_pcblist.c -- get_pcblist_n: the size estimate from ipi_count and the record layout of net.inet.tcp.pcblist_n"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/netinet/in_pcblist.c"
+file   = ""
+sha256 = "aadf4bc6f7b962756ab8f0b5e83d3b74cbef891f07612e225460d1c402a8876f"
+bytes  = 27878
+status = "external"
+group  = "AH"
+
+[sources.xnu-tcp-subr-c]
+key    = "xnu-tcp-subr-c"
+title  = "XNU xnu-12377.121.6, bsd/netinet/tcp_subr.c -- SYSCTL_PROC net.inet.tcp.pcblist_n"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/netinet/tcp_subr.c"
+file   = ""
+sha256 = "b1805c47e2416fd4fd32d3bb4ba2f87585488a43ad47575ccb1b9783a1cb7a1a"
+bytes  = 160377
+status = "external"
+group  = "AH"
+
+[sources.xnu-libproc-c]
+key    = "xnu-libproc-c"
+title  = "XNU xnu-12377.121.6, libsyscall/wrappers/libproc/libproc.c -- proc_listpgrppids returns a count of pids; proc_pid_rusage"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions (APSL-2.0)"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/libsyscall/wrappers/libproc/libproc.c"
+file   = ""
+sha256 = "5c8a771427e04c5e1d55c4cdf5a077f3b52c5be4a091683b970084bfdda76df2"
+bytes  = 28996
+status = "external"
+group  = "AH"
+
+[sources.linux-man-proc-pid-io]
+key    = "linux-man-proc-pid-io"
+title  = "proc_pid_io(5), Linux man-pages git adb436b -- read_bytes/write_bytes \"really fetched from\"/\"sent to\" the storage layer; waited-for children; PTRACE_MODE_READ_FSCREDS"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-3.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_io.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "5011d70bb8c7abfd87b4485d5835ec0e669b35c6454240f5f0c27b69a7200398"
+bytes  = 2618
+status = "external"
+group  = "AH"
+
+[sources.linux-man-proc-pid-stat]
+key    = "linux-man-proc-pid-stat"
+title  = "proc_pid_stat(5), Linux man-pages git adb436b -- tpgid, majflt, cmajflt, utime, stime; the [PT] marker (21-28) and fields (256-385)"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-3.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_stat.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "cba82e47c8c7917ec4f7c24d9c8779c53ecf478fdefe5c7835690989bb060bcd"
+bytes  = 11350
+status = "external"
+group  = "AH"
+
+[sources.linux-man-proc-pid-status]
+key    = "linux-man-proc-pid-status"
+title  = "proc_pid_status(5), Linux man-pages git adb436b -- VmRSS \"inaccurate\""
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-3.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_status.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "b34589df733a25eab62388e39764477a0a525a0932fe70df3c94bb1e7e2c9f1a"
+bytes  = 8456
+status = "external"
+group  = "AH"
+
+[sources.linux-man-proc-pid-net]
+key    = "linux-man-proc-pid-net"
+title  = "proc_pid_net(5), Linux man-pages git adb436b -- the network namespace of the process, not the process"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-3.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_net.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "4e88b2cabcca74c7ac2f9b4aa68947b9586aeb898633d6a3d6dfd647307a2c1a"
+bytes  = 8742
+status = "external"
+group  = "AH"
+
+[sources.linux-man-proc-pid-fd]
+key    = "linux-man-proc-pid-fd"
+title  = "proc_pid_fd(5), Linux man-pages git adb436b -- socket:[inode]"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-3.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_fd.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "81e9f7238c80b5555b2e41a7d35c1427dc8da800a19d94aa8fe868c2f2f3ab13"
+bytes  = 4199
+status = "external"
+group  = "AH"
+
+[sources.linux-man-sock-diag]
+key    = "linux-man-sock-diag"
+title  = "sock_diag(7), Linux man-pages git adb436b -- NETLINK_SOCK_DIAG; INET_DIAG_INFO carries struct tcp_info for TCP; idiag_inode"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "man-pages git, commit adb436b (GPL-2.0-or-later); the commit tag man-pages-6.19 resolved to on 2026-10-09, while the file's own header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man7/sock_diag.7?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "9edf5f18203600a453a75967d961acca247ef9f1916d6094a893e7cbf0efe66b"
+bytes  = 19088
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-resource-h]
+key    = "macos-sdk-resource-h"
+title  = "sys/resource.h -- rusage_info_v0..v6: ri_user_time, ri_pageins, ri_phys_footprint, ri_child_*, ri_diskio_bytesread/written (no units stated)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/resource.h"
+file   = ""
+sha256 = "1067178025c5fd88c9a1b8206a07c2695ef94dd471fe2783f06c512995382961"
+bytes  = 20410
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-netinet-tcp-h]
+key    = "macos-sdk-netinet-tcp-h"
+title  = "netinet/tcp.h -- TCP_CONNECTION_INFO, struct tcp_connection_info tcpi_txbytes/tcpi_rxbytes (a getsockopt on a socket the caller holds)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/netinet/tcp.h"
+file   = ""
+sha256 = "9bd00e10a08b7315cf2b94de98e79c770c2ca81a84b3d80ed0bf169d542b7007"
+bytes  = 13819
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-netinet-tcp-var-h]
+key    = "macos-sdk-netinet-tcp-var-h"
+title  = "netinet/tcp_var.h -- struct xtcpcb64 (493-572): iss, snd_una, snd_max, snd_nxt, irs, rcv_nxt, t_rxtshift; the record net.inet.tcp.pcblist64 serves"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/netinet/tcp_var.h"
+file   = ""
+sha256 = "b261fd078c73f694f70c016b6a4afa2bc53af5d5e90eec2caca6ad8b0b4608a3"
+bytes  = 32993
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-netinet-in-pcb-h]
+key    = "macos-sdk-netinet-in-pcb-h"
+title  = "netinet/in_pcb.h -- struct xinpcb64 (215-250, inp_fport, inp_lport) and struct xinpgen (254-259)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/netinet/in_pcb.h"
+file   = ""
+sha256 = "973e41006342accfeb0dae2326e99fa0c09d19c2e77924bf7a18a1caf033db2b"
+bytes  = 10340
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-sys-socketvar-h]
+key    = "macos-sdk-sys-socketvar-h"
+title  = "sys/socketvar.h -- struct xsocket64 (132-152): so_pgid and so_uid, no pid; no xsocket_n"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/socketvar.h"
+file   = ""
+sha256 = "6425aefb2b30ebad534163bdf6ad765ff2fd6a857885ef2e32a0c23676aa74be"
+bytes  = 7245
+status = "external"
+group  = "AH"
+
+[sources.macos-sdk-nstitlebaraccessoryviewcontroller-h]
+key    = "macos-sdk-nstitlebaraccessoryviewcontroller-h"
+title  = "NSTitlebarAccessoryViewController.h -- layoutAttribute Right/Trailing, the macOS 27 linked-on rule (line 31), width yours and height filled"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSTitlebarAccessoryViewController.h"
+file   = ""
+sha256 = "d2e609eeac15a81e3c77568dc8795c0b11190beb565a1c0a23ecdc3a1e99a152"
+bytes  = 5309
+status = "external"
+group  = "J"
+
+[sources.tmux-osdep-darwin-c-9c22ff6]
+key    = "tmux-osdep-darwin-c-9c22ff6"
+title  = "tmux 9c22ff6, osdep-darwin.c -- osdep_get_name: tcgetpgrp on the pane fd, then PROC_PIDT_SHORTBSDINFO pbsi_comm"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/osdep-darwin.c"
+file   = ""
+sha256 = "a7975a85aa9a48fa532c91c292a9db2a2b90f46dc21df8202eea78dc555241dc"
+bytes  = 2766
+status = "external"
+group  = "E"
+
+[sources.tmux-osdep-linux-c-9c22ff6]
+key    = "tmux-osdep-linux-c-9c22ff6"
+title  = "tmux 9c22ff6, osdep-linux.c -- osdep_get_name: tcgetpgrp, then /proc/<pgrp>/cmdline"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/osdep-linux.c"
+file   = ""
+sha256 = "b634b56cadad1e1d96ff005d63e5112cb4b62b1f433c7858b2a5d62f1e47263e"
+bytes  = 2265
+status = "external"
+group  = "E"
+
+[sources.tmux-names-c-9c22ff6]
+key    = "tmux-names-c-9c22ff6"
+title  = "tmux 9c22ff6, names.c -- check_window_name: re-read only when PANE_CHANGED is set, at most once per NAME_INTERVAL"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/names.c"
+file   = ""
+sha256 = "f04bdf31bf4e09c8ca00222408890171af83c12a4151063fa5c53da3d0431454"
+bytes  = 4319
+status = "external"
+group  = "E"
+
+[sources.tmux-tmux-h-9c22ff6]
+key    = "tmux-tmux-h-9c22ff6"
+title  = "tmux 9c22ff6, tmux.h -- NAME_INTERVAL 500000 (line 120), PANE_CHANGED 0x80 (1342)"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/tmux.h"
+file   = ""
+sha256 = "5d80b4395c816401a90944518c97b5a96ca3dc71c1b01b7a2e4310f55809101c"
+bytes  = 137665
+status = "external"
+group  = "E"
+
+[sources.tmux-input-c-9c22ff6]
+key    = "tmux-input-c-9c22ff6"
+title  = "tmux 9c22ff6, input.c -- input_parse_buffer sets PANE_CHANGED on every non-empty parse (1056)"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/input.c"
+file   = ""
+sha256 = "3c0ac7696400072e41cdd1b32ab4c39884bf159cd060cc283ecfbf1ece1c727d"
+bytes  = 89328
+status = "external"
+group  = "E"
+
+[sources.tmux-window-c-9c22ff6]
+key    = "tmux-window-c-9c22ff6"
+title  = "tmux 9c22ff6, window.c -- PANE_CHANGED set on a change of active pane (777, 1232) and of mode (1839, 1882)"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/window.c"
+file   = ""
+sha256 = "1a92ec54c6e4250b8c835d8ee1d82a03200ec6f372fa1ec60bab66a1031ff840"
+bytes  = 70205
+status = "external"
+group  = "E"
+
+[sources.tmux-cmd-break-pane-c-9c22ff6]
+key    = "tmux-cmd-break-pane-c-9c22ff6"
+title  = "tmux 9c22ff6, cmd-break-pane.c -- break-pane sets PANE_CHANGED (182)"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/cmd-break-pane.c"
+file   = ""
+sha256 = "c0b91c8b35b83f05bf2d642b95a828eb25d079b866fb36fa0fdfbcc31ad532c9"
+bytes  = 6287
+status = "external"
+group  = "E"
+
+[sources.tmux-options-c-9c22ff6]
+key    = "tmux-options-c-9c22ff6"
+title  = "tmux 9c22ff6, options.c -- turning automatic-rename on sets PANE_CHANGED on every window active pane (1379-1386)"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/9c22ff6e3d5e9cef4134c5de9b354fb01f69321e/options.c"
+file   = ""
+sha256 = "650d12b9fc247dcfd88cd7319e3d373434f3a98e362e072602f7e11dd1c75d79"
+bytes  = 34224
+status = "external"
+group  = "E"
+
+[sources.iterm2-itermnetworkutilization-964a75d]
+key    = "iterm2-itermnetworkutilization-964a75d"
+title  = "iTerm2 964a75d, sources/StatusBar/Components/iTermNetworkUtilization.m -- the whole machine: NET_RT_IFLIST2 ifi_ibytes/ifi_obytes summed over interfaces, an NSTimer at a 1 s cadence"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/StatusBar/Components/iTermNetworkUtilization.m"
+file   = ""
+sha256 = "ce3e5f8b172f659d6033c5bde606a8dbcf471cbee52cebc121202146f8ffc4e6"
+bytes  = 6017
+status = "external"
+group  = "AH"
+
+[sources.iterm2-itermcpuutilization-964a75d]
+key    = "iterm2-itermcpuutilization-964a75d"
+title  = "iTerm2 964a75d, sources/StatusBar/Components/iTermCPUUtilization.m -- the whole machine: HOST_CPU_LOAD_INFO, an NSTimer every 1 s"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/StatusBar/Components/iTermCPUUtilization.m"
+file   = ""
+sha256 = "7ba59d26c3c1582dedc28949020d8e120a68d39080de0cf49bacf2c24fbacb3d"
+bytes  = 6223
+status = "external"
+group  = "AH"
+
+[sources.iterm2-itermmemoryutilization-964a75d]
+key    = "iterm2-itermmemoryutilization-964a75d"
+title  = "iTerm2 964a75d, sources/StatusBar/Components/iTermMemoryUtilization.m -- the whole machine: HOST_VM_INFO64, an NSTimer at a 1 s cadence"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/StatusBar/Components/iTermMemoryUtilization.m"
+file   = ""
+sha256 = "1d0616bc5a08968b2d05fed485c7be8676857ed4a64b8336f9c76e42f61548c7"
+bytes  = 4207
+status = "external"
+group  = "AH"
+
+[sources.hayes-smartmodem-owners-1981]
+key    = "hayes-smartmodem-owners-1981"
+title  = "Hayes Stack Smartmodem Owner's Manual (Smartmodem 300), 3rd ed. -- \"LED INDICATOR LIGHTS\", printed 2-7 and 2-8: AA CD OH RD SD TR MR"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1981
+venue  = "scan by Dennis Boone, sysovl.info"
+url    = "https://sysovl.info/pages/blobs/hayes/sm300.pdf"
+file   = ""
+sha256 = "24f2564ad0241839507153c84224e90fe0dc8c6e4b198a90e5fa84f133cb567d"
+bytes  = 4685286
+status = "external"
+group  = "AH"
+
+[sources.hayes-smartmodem-300-1986]
+key    = "hayes-smartmodem-300-1986"
+title  = "Hayes Smartmodem 300 User's Guide -- \"Front Panel Lights\", printed 2-4 and 2-5"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1986
+venue  = "archive.org scan"
+url    = "https://archive.org/download/hayes-smartmodem-300-users-guide/Hayes%20Smartmodem%20300%20Users%20Guide.pdf"
+file   = ""
+sha256 = "b18402654f724f2a5bb0645a6ad293a0da6996d8c111887719d1a7a1117d9fd6"
+bytes  = 18186438
+status = "external"
+group  = "AH"
+
+[sources.hayes-smartmodem-1200-schematic-1984]
+key    = "hayes-smartmodem-1200-schematic-1984"
+title  = "Hayes PROJ.15 schematic, drawing 07-00026-07 (Smartmodem 1200 v2) -- LED bank CR2-CR9: OH AA RD CD HS TR SD MR"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1984
+venue  = "bitsavers, via archive.org"
+url    = "https://archive.org/download/bitsavers_hayesSmart1200V2Schematic1984_1926083/Smartmodem_1200_V2_Schematic_1984.pdf"
+file   = ""
+sha256 = "db44ecda1672151187a11d1d3578c20a1951015c8a439136f80cde7d9e029aca"
+bytes  = 1926083
+status = "external"
+group  = "AH"
+
+[sources.hayes-smartmodem-1200-firmware-1982]
+key    = "hayes-smartmodem-1200-firmware-1982"
+title  = "Smartmodem 1200 firmware v1, modem123.asm, by Dale Heatherington -- AA$LED and HS$LED; HS set from OBAUD in command state and on connect"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1982
+venue  = "wa4dsy.com (Dale Heatherington)"
+url    = "https://www.wa4dsy.com/heatherington/hayes/Smartmodem1200-v1-1982.zip"
+file   = ""
+sha256 = "c4e8b53d5816b627a8bf3a599757bfb31c094ec97cfc5fd0f75c479f9768b565"
+bytes  = 24916
+status = "external"
+group  = "AH"
+
+[sources.hayes-44-012-1991]
+key    = "hayes-44-012-1991"
+title  = "Hayes 44-012 Technical Reference for Hayes Modem Users -- B.2.1, the MR and HS lights at power-up"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1991
+venue  = "bitsavers, via archive.org"
+url    = "https://archive.org/download/bitsavers_hayesHayesenceForHayesModemUsersJul1991_16457246/Hayes_44-012_Technical_Reference_For_Hayes_Modem_Users_Jul1991.pdf"
+file   = ""
+sha256 = "19a0e11d111fb82c9a34b1fcf20d0d3010a5dd3426876fae9c602fcc76e05088"
+bytes  = 16457246
+status = "external"
+group  = "AH"
+
+[sources.hayes-vseries-2400-1987]
+key    = "hayes-vseries-2400-1987"
+title  = "Hayes V-series Smartmodem 2400 User's Guide -- \"Eight LED indicators on front panel\" (A-20), no list"
+author = "Hayes Microcomputer Products, Inc."
+year   = 1987
+venue  = "archive.org scan"
+url    = "https://archive.org/download/hayes-smartmodem-2400-v-series/Hayes%20Smartmodem%202400%20V-Series.pdf"
+file   = ""
+sha256 = "5fd5eb6c371b78740d4867c74f162b61d433592718a2bb75421ecca249d9a3c3"
+bytes  = 24117319
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-2400-1986]
+key    = "usr-courier-2400-1986"
+title  = "U.S. Robotics Courier 2400 User's Manual 1.015.171 -- Appendix B-2, front end indicators (nine, with AL)"
+author = "U.S. Robotics, Inc."
+year   = 1986
+venue  = "archive.org scan"
+url    = "https://archive.org/download/usr-courier-2400-users-manual/0_US%20Robotics%20Courier%202400%20Users%20Manual.pdf"
+file   = ""
+sha256 = "a87ca38f59c79155c9e4d5db8a3d1f29f793bb5a47e53d271cb86c7d384ae252"
+bytes  = 25069845
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-hst-9600-1988]
+key    = "usr-courier-hst-9600-1988"
+title  = "U.S. Robotics Courier HST User's Manual 1.015.186 -- front end indicators (twelve: RS, CS, ARQ, AL)"
+author = "U.S. Robotics, Inc."
+year   = 1988
+venue  = "archive.org scan"
+url    = "https://archive.org/download/usr-courier-9600-hst-users-manual/USR%20Courier%209600%20HST%20Users%20Manual.pdf"
+file   = ""
+sha256 = "6deeb81e51789aa8e6d470423e1207e148e56f7501259cc1edc9c811e75e3ecf"
+bytes  = 34244119
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-hs-1988]
+key    = "usr-courier-hs-1988"
+title  = "U.S. Robotics Courier High Speed Modems User's Manual 1.015.282 -- front panel indicators (twelve, SYN replaces AL)"
+author = "U.S. Robotics, Inc."
+year   = 1988
+venue  = "archive.org scan"
+url    = "https://archive.org/download/usr-courier-hst-1988/US%20Robotics%20Courier%20HST-1.015.282-1988.pdf"
+file   = ""
+sha256 = "72c952856ec0940d5a3ef46f9b9553aa14772ae363a27a4cd43205624075370a"
+bytes  = 38999697
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-hs-1990]
+key    = "usr-courier-hs-1990"
+title  = "U.S. Robotics Courier High Speed Modems User's Manual 1.015.422 (HST DS, V.32bis, ASL) -- the twelve status lights"
+author = "U.S. Robotics, Inc."
+year   = 1990
+venue  = "archive.org scan"
+url    = "https://archive.org/download/us-robotics-courier-hst-ds-asl-users-manual/US%20Robotics%20Courier%20HST-DS-ASL%20Users%20Manual.pdf"
+file   = ""
+sha256 = "18809e266c779210f027ed4168b073065548cef1b2f8b712fc0fb4e4eb05dd01"
+bytes  = 47487696
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-v34-1994]
+key    = "usr-courier-v34-1994"
+title  = "U.S. Robotics Courier V.34 manual (plain text, CP437) -- Appendix B, the twelve LEDs, ARQ/FAX"
+author = "U.S. Robotics, Inc."
+year   = 1994
+venue  = "textfiles.com; transcriber unknown, not a scan"
+url    = "http://www.textfiles.com/computers/courierv34man.txt"
+file   = ""
+sha256 = "ece44affcb2945b454eaa1fc9eb9d3d68fb7397a2d369521825c20002f62b0f0"
+bytes  = 346655
+status = "external"
+group  = "AH"
+
+[sources.usr-courier-veverything-1997]
+key    = "usr-courier-veverything-1997"
+title  = "U.S. Robotics Courier V.Everything Getting Started Guide (1868) -- Chapter 8, Viewing LEDs: on, off, flashing, blinking"
+author = "U.S. Robotics, Inc."
+year   = 1997
+venue  = "archive.org scan"
+url    = "https://archive.org/download/usr-courier-1868/V.Everything%20Getting%20Started%201997.pdf"
+file   = ""
+sha256 = "58b113a058cb2cd09079a5ac780bd6bf3e4cba3940b9214eaee0e85f77f6c1c1"
+bytes  = 20953273
+status = "external"
+group  = "AH"
+
+[sources.usr-sportster-1993]
+key    = "usr-sportster-1993"
+title  = "U.S. Robotics Sportster High Speed Modems User's Guide -- Table B.1, seven LED indicators"
+author = "U.S. Robotics, Inc."
+year   = 1993
+venue  = "archive.org scan"
+url    = "https://archive.org/download/us-robotics-sportster-users-guide-1993/US%20Robotics%20Sportster%20Users%20Guide%201993.pdf"
+file   = ""
+sha256 = "e20c08f8243053b8ea102001fa3195a2d5f5ef9914550094e41a11506f2ee6b8"
+bytes  = 30194054
+status = "external"
+group  = "AH"
+
+[sources.usr-sportster-56k-1997]
+key    = "usr-sportster-56k-1997"
+title  = "U.S. Robotics Sportster 56k Faxmodem User's Guide and Reference -- front panel lights (external), seven rows"
+author = "U.S. Robotics, Inc."
+year   = 1997
+venue  = "archive.org text-PDF derivative of a 249,888,118-byte scan (sha256 21825af5...abd, not kept)"
+url    = "https://archive.org/download/us-robotics-sportster-56k-faxmodem-users-guide-reference/US%20Robotics%20Sportster%2056k%20Faxmodem%20User%27s%20Guide%20%26%20Reference_text.pdf"
+file   = ""
+sha256 = "fd777d3942107fc4bb8c1f810d5f6731d013cb6543c4182087cebec7eb386029"
+bytes  = 5478476
+status = "external"
+group  = "AH"
+
+[sources.usr-sportster-mac-56k-1997]
+key    = "usr-sportster-mac-56k-1997"
+title  = "U.S. Robotics Sportster External 56k X2 Faxmodem for Macintosh 1.024.1029-00 -- front panel lights, the same seven rows"
+author = "U.S. Robotics, Inc."
+year   = 1997
+venue  = "archive.org scan"
+url    = "https://archive.org/download/usrobotics-external-56k-faxmodem-for-macintosh/USRobotics%20External%2056k%20Faxmodem%20for%20Macintosh.pdf"
+file   = ""
+sha256 = "aa6efd90cd9f3156c19242970c34e9f735e9439f1df0070e83e2b55f18451bae"
+bytes  = 4500245
+status = "external"
+group  = "AH"
+
+[sources.ah-obs-leds-probe-c]
+key    = "ah-obs-leds-probe-c"
+title  = "Source of leds_probe: foreground from the master, per-call costs, rusage units, diskio, footprint, pcblist_n, a child's I/O, a root process, page-ins"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk -lutil"
+file   = "ah-observed/leds_probe.c"
+sha256 = "c9ab46acf5d56fa88f7c1fa72568e985cc3d1060d37794fd9a03548a187f6d8e"
+bytes  = 20372
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-leds-probe-out]
+key    = "ah-obs-leds-probe-out"
+title  = "leds_probe output, two launches (process ids replaced by role names, the power source's id= field removed)"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of leds_probe <scratch-dir>, sandboxed shell, 2026-10-09"
+file   = "ah-observed/leds_probe.out"
+sha256 = "84660abf8724e1896253688c890b74e15d645158f2e7205599362be3898503e7"
+bytes  = 6078
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-leds-probe-ssh-out]
+key    = "ah-obs-leds-probe-ssh-out"
+title  = "leds_probe --pid against a live idle ssh client: pcblist_n visibility, PROC_PIDLISTFDS, PROC_PIDFDSOCKETINFO (pid redacted at capture)"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of leds_probe --pid <ssh-pid>, sandboxed shell, 2026-10-09"
+file   = "ah-observed/leds_probe_ssh.out"
+sha256 = "446df1ad2373a3a88d8e7a0d2eeb7d3d758df49ab58991f21e3353966d8520c8"
+bytes  = 823
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-child-probe-c]
+key    = "ah-obs-child-probe-c"
+title  = "Source of child_probe: whether ri_child_* fold a child in before or after waitpid"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk"
+file   = "ah-observed/child_probe.c"
+sha256 = "85873d713817aac0a582581d22e829ad4d40142ed4ad84813e419bb59841b63b"
+bytes  = 3101
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-child-probe-out]
+key    = "ah-obs-child-probe-out"
+title  = "child_probe output, two launches"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of child_probe <scratch-dir>, sandboxed shell, 2026-10-09"
+file   = "ah-observed/child_probe.out"
+sha256 = "274d7e2c488d4cb324c7bb5b3030882c6f58232562445cf838ac48c4f61dbf9c"
+bytes  = 920
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-pcb64-probe-c]
+key    = "ah-obs-pcb64-probe-c"
+title  = "Source of pcb64_probe: net.inet.tcp.pcblist64 through the SDK's own xtcpcb64, attribution by ports, cost, visibility"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a C probe, built with Xcode clang -O2 against MacOSX27.0.sdk"
+file   = "ah-observed/pcb64_probe.c"
+sha256 = "f3e03830387557d83b6945c70b2bfb617e33766bec5dd5458f8701861b0e03ac"
+bytes  = 6834
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-pcb64-probe-out]
+key    = "ah-obs-pcb64-probe-out"
+title  = "pcb64_probe output, two launches, with a live idle ssh client's pid as argument (redacted at capture; the ssh socket's ports are not printed)"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of pcb64_probe <ssh-pid>, sandboxed shell, 2026-10-09"
+file   = "ah-observed/pcb64_probe.out"
+sha256 = "41c065ad5a5adedc7bffec09d6a31b5d392bd435a9357a708f078bdbc6f3d8ec"
+bytes  = 2066
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-titlebar-probe-swift]
+key    = "ah-obs-titlebar-probe-swift"
+title  = "Source of titlebar_probe: where a trailing NSTitlebarAccessoryViewController lands in a window with glassnote's titled chrome"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Swift probe, built with /usr/bin/swiftc -O -sdk MacOSX27.0.sdk"
+file   = "ah-observed/titlebar_probe.swift"
+sha256 = "8fdf525fce452b792f071ba9b3194ee6d91974730fcd178bbd3ed796fd7b8c3c"
+bytes  = 1781
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-titlebar-probe-out]
+key    = "ah-obs-titlebar-probe-out"
+title  = "titlebar_probe output, with the binary's LC_BUILD_VERSION"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of titlebar_probe, sandboxed shell, 2026-10-09"
+file   = "ah-observed/titlebar_probe.out"
+sha256 = "6acad5988b81a38120232716dda97c7ea164750aa5953d460374f24de38642da"
+bytes  = 711
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-titlebar-probe-sdk14-m]
+key    = "ah-obs-titlebar-probe-sdk14-m"
+title  = "Source of titlebar_probe_sdk14: the same window, linked against SDK 14.4 as baud is"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "an Objective-C probe, built with nix clang 21.1.8 and apple-sdk 14.4, -mmacosx-version-min=14.0"
+file   = "ah-observed/titlebar_probe_sdk14.m"
+sha256 = "ae230204a3bf1ef2d68d6f7ffc085d1957b5f968faab5aa6470af566ee6bf22d"
+bytes  = 3139
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-titlebar-probe-sdk14-out]
+key    = "ah-obs-titlebar-probe-sdk14-out"
+title  = "titlebar_probe_sdk14 output, with its and baud's LC_BUILD_VERSION"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of titlebar_probe_sdk14, sandboxed shell, 2026-10-09"
+file   = "ah-observed/titlebar_probe_sdk14.out"
+sha256 = "21ebf305c93493ad9b89d971d753d40d36ecfb774d949d8759b95d76d3eaffde"
+bytes  = 726
+status = "retrieved"
+group  = "AH"
+
+[sources.ah-obs-listings-out]
+key    = "ah-obs-listings-out"
+title  = "Command listings: uname -v, otool -L /usr/bin/nettop, the SDK's NetworkStatistics stubs, no ntstat header, no xsocket_n, netstat -an -p tcp"
+author = "baud research (note AH)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "shell commands, sandboxed shell, 2026-10-09"
+file   = "ah-observed/listings.out"
+sha256 = "5fb4650ed46d3eff8a7432b287d55242662f03ae99d29192b5d8148b403e7744"
+bytes  = 1567
+status = "retrieved"
+group  = "AH"

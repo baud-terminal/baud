@@ -451,6 +451,42 @@ fn every_test_named_in_the_docs_exists() {
             "os_log_with_type",
             "os/log.h's logging macro, cited in note AI as the call the shim makes",
         ),
+        (
+            "get_tcp_inp_list",
+            "XNU's TCP pcb walk (tcp_subr.c), cited in note AH where the socket dump's filter is sought",
+        ),
+        (
+            "led_blink_set_oneshot",
+            "the Linux LED core's one-shot blink, cited in note AH for the tty trigger's timing",
+        ),
+        (
+            "led_stop_software_blink",
+            "the Linux LED core call the netdev trigger makes first and the tty trigger does not, cited in note AH",
+        ),
+        (
+            "master_pty_ops_bsd",
+            "one of Linux pty.c's four ops tables, cited in note AH as lacking get_icount and tiocmget",
+        ),
+        (
+            "ri_child_system_time",
+            "a field of macOS's rusage_info (sys/resource.h), cited in note AH for reaped children's CPU",
+        ),
+        (
+            "ri_child_user_time",
+            "a field of macOS's rusage_info (sys/resource.h), cited in note AH for reaped children's CPU",
+        ),
+        (
+            "sb_update_data_stats",
+            "XNU's socket-buffer byte accounting (uipc_socket2.c), cited in note AH",
+        ),
+        (
+            "slave_pty_ops_bsd",
+            "one of Linux pty.c's four ops tables, cited in note AH as lacking get_icount and tiocmget",
+        ),
+        (
+            "so_update_tx_data_stats",
+            "XNU's per-socket send accounting, cited in note AH",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
