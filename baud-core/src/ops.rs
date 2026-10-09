@@ -1192,12 +1192,22 @@ impl Paint<'_, '_> {
             ModeChange::Set => level,
             ModeChange::Reset => MouseTracking::Off,
         };
+        // A mode change forgets the last reported cell, so the first move
+        // after it reports wherever it is: the report that set the cell went
+        // out under the old level, perhaps to another program. xterm forgets
+        // only when the widget is made (`VTInitialize`, `[[source:
+        // xterm-reset]]`'s file), which is practice the text's "moved to a
+        // different character cell" does not ask for.
+        self.cold.mouse_at = None;
     }
 
     /// The encoding after `change` of the mode selecting `mode`; the rule is
     /// [`MouseEncoding::after`]'s, kept beside the type it describes.
     fn set_encoding(&mut self, mode: MouseEncoding, change: ModeChange) {
         self.cold.mouse_encoding = self.cold.mouse_encoding.after(mode, change);
+        // Forgotten for `set_tracking`'s reason: a report written in the
+        // old encoding is not one an application reading the new one has.
+        self.cold.mouse_at = None;
     }
 
     /// **`ModeChange`, not a `bool`.** The two states already have a name in
@@ -1522,6 +1532,12 @@ impl Paint<'_, '_> {
         self.reset_palette();
         self.cold.other_keys = OtherKeys::default();
         self.cold.other_keys_format = OtherKeysFormat::default();
+        // The last reported mouse cell, on both resets: `DECSTR` keeps the
+        // tracking level and the encoding, and the program recovering with
+        // `CSI ! p` is told where the pointer is at its next move rather than
+        // relying on a report it may have discarded. `RIS` reaches this
+        // through `hard_reset`, and turns tracking off besides.
+        self.cold.mouse_at = None;
         self.reset_side_margins();
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);

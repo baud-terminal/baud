@@ -2323,6 +2323,13 @@ sets it. What changes is only what a program is told if it asks.
   **X10 encoding** (one byte per coordinate, so nothing past column or row
   223). That there is no SGR form of the release report is inferred from that
   text. xterm's button.c is not pinned, so it is **UNVERIFIED**.
+  - *Corrected 2026-10-09:* button.c is pinned now,
+    [[source: xterm-button]], and the file was checked against the
+    manifest's SHA-256. It contradicts the inference. `EndExtend` writes the release
+    report as `CSI < x ; y t`, and the long form as `CSI < ... T`, under
+    `?1006` and `?1016`. The text contradicts it too: ctlseqs' SGR (1006)
+    paragraph says "The highlight tracking responses are also modified to an
+    SGR-like format, using the same SGR-style scheme and button-encodings."
 - **xterm** implements it: [[source: xterm-reset]],
   *srm_VT200_HIGHLIGHT_MOUSE*.
 - **foot** declines it and answers 4, permanently reset

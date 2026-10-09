@@ -1005,3 +1005,290 @@ fn the_new_states_are_observable() {
     feed(&mut term, b"\x1b[?1007h");
     assert_eq!(term.alternate_scroll(), AlternateScroll::On);
 }
+
+// ── motion only into a different cell ───────────────────────────────────────
+//
+// `[[source: ctlseqs]]`, "Button-event tracking": "Motion events are reported
+// only if the mouse pointer has moved to a different character cell." And
+// "Any-event mode is the same as button-event mode, except that all motion
+// events are reported, even if no mouse button is down." Until 2026-10-09
+// `mouse_report` kept no last position, and the app hands it every AppKit move
+// and drag, so a pointer moving inside one cell sent the child one identical
+// report per event.
+
+/// One step of a session on one terminal: bytes from the host, or a pointer
+/// event from the embedder.
+enum Step<'a> {
+    Bytes(&'a [u8]),
+    Mouse(MouseEvent),
+}
+
+/// A fresh terminal with `setup` fed, then each step in turn on that one
+/// terminal, the reply drained before each: what every `Mouse` step sent to
+/// the host, in order. `report` and `sent` build a terminal per event, and a
+/// last position is exactly what a terminal per event cannot carry.
+fn session(setup: &[u8], steps: &[Step]) -> Vec<Vec<u8>> {
+    let mut t = T {
+        s: Owned::new(&support::CORPUS),
+    };
+    let mut term = Term::new(t.s.storage(), &support::CORPUS);
+    feed(&mut term, setup);
+    let mut out = Vec::new();
+    for s in steps {
+        term.clear_reply();
+        match s {
+            Step::Bytes(b) => feed(&mut term, b),
+            Step::Mouse(e) => {
+                term.mouse_report(*e);
+                out.push(term.reply().to_vec());
+            }
+        }
+    }
+    out
+}
+
+/// A motion event at cell `(col, row)` with the pointer at pixel `(x, y)`:
+/// the app puts a pixel on every event, and two moves inside one cell differ
+/// only there.
+fn moved(button: MouseButton, col: usize, row: usize, x: u16, y: u16) -> MouseEvent {
+    at_px(
+        ev(button, MouseKind::Motion, col, row),
+        ImagePx::of(x),
+        ImagePx::of(y),
+    )
+}
+
+/// **Two moves inside one cell are one report, and the next cell is
+/// another.** The red case: both moves were sent until 2026-10-09. Cells are
+/// 8x16 pixels here, so (37, 81) and (38, 85) are both column 4, row 5.
+#[test]
+fn motion_inside_one_cell_is_reported_once() {
+    let none = MouseButton::None;
+    let out = session(
+        b"\x1b[?1003h\x1b[?1006h",
+        &[
+            Step::Mouse(moved(none, 4, 5, 37, 81)),
+            Step::Mouse(moved(none, 4, 5, 38, 85)),
+            Step::Mouse(moved(none, 5, 5, 40, 85)),
+            Step::Mouse(moved(none, 4, 5, 39, 85)),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<35;5;6M", "the first move reports");
+    assert!(
+        out[1].is_empty(),
+        "a move inside the cell just reported has not \"moved to a different \
+         character cell\": {:02x?}",
+        out[1]
+    );
+    assert_eq!(out[2], b"\x1b[<35;6;6M", "the next cell reports");
+    assert_eq!(out[3], b"\x1b[<35;5;6M", "and so does moving back");
+}
+
+/// **A drag is gated the same way**, under `?1002` as under `?1003`: "Motion
+/// events are reported only if the mouse pointer has moved to a different
+/// character cell" is button-event tracking's own sentence.
+#[test]
+fn a_drag_inside_one_cell_is_reported_once() {
+    let left = MouseButton::Left;
+    let out = session(
+        b"\x1b[?1002h\x1b[?1006h",
+        &[
+            Step::Mouse(moved(left, 4, 5, 37, 81)),
+            Step::Mouse(moved(left, 4, 5, 38, 85)),
+            Step::Mouse(moved(left, 5, 5, 40, 85)),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<32;5;6M");
+    assert!(out[1].is_empty(), "{:02x?}", out[1]);
+    assert_eq!(out[2], b"\x1b[<32;6;6M");
+}
+
+/// **The gate is the position, not the event code**: a modifier pressed
+/// during a move inside the cell is not a move to a different cell. xterm
+/// compares the row and column and nothing else (`EditorButton`,
+/// `[[source: xterm-button]]`).
+#[test]
+fn a_modifier_change_inside_the_cell_is_not_a_move() {
+    let none = MouseButton::None;
+    let mut ctrl = moved(none, 4, 5, 38, 85);
+    ctrl.mods = MouseMods::CONTROL;
+    let out = session(
+        b"\x1b[?1003h\x1b[?1006h",
+        &[Step::Mouse(moved(none, 4, 5, 37, 81)), Step::Mouse(ctrl)],
+    );
+    assert_eq!(out[0], b"\x1b[<35;5;6M");
+    assert!(out[1].is_empty(), "{:02x?}", out[1]);
+}
+
+/// **Presses and releases are never suppressed, and each is where the
+/// pointer was last reported.** After a press in cell A, a drag inside A
+/// has not "moved to a different character cell" -- so it is not sent --
+/// and the drag out of A is. xterm sets its last row and column on every
+/// event it reports, press and release as well as motion (`EditorButton`,
+/// `[[source: xterm-button]]`). A wheel notch is a press, and a burst of
+/// them in one cell is every notch.
+#[test]
+fn a_press_or_release_is_always_sent_and_moves_the_cell() {
+    let left = MouseButton::Left;
+    let none = MouseButton::None;
+    let out = session(
+        b"\x1b[?1003h\x1b[?1006h",
+        &[
+            Step::Mouse(moved(none, 4, 5, 37, 81)),
+            Step::Mouse(ev(left, MouseKind::Press, 4, 5)),
+            Step::Mouse(ev(left, MouseKind::Press, 4, 5)),
+            Step::Mouse(moved(left, 4, 5, 38, 85)),
+            Step::Mouse(moved(left, 5, 5, 40, 85)),
+            Step::Mouse(ev(left, MouseKind::Release, 5, 5)),
+            Step::Mouse(moved(none, 5, 5, 41, 85)),
+            Step::Mouse(ev(MouseButton::WheelUp, MouseKind::Press, 5, 5)),
+            Step::Mouse(ev(MouseButton::WheelUp, MouseKind::Press, 5, 5)),
+            Step::Mouse(moved(none, 6, 5, 48, 85)),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<35;5;6M");
+    assert_eq!(out[1], b"\x1b[<0;5;6M", "a press in the reported cell");
+    assert_eq!(out[2], b"\x1b[<0;5;6M", "and another");
+    assert!(
+        out[3].is_empty(),
+        "a drag inside the pressed cell: {:02x?}",
+        out[3]
+    );
+    assert_eq!(out[4], b"\x1b[<32;6;6M", "a drag out of it");
+    assert_eq!(out[5], b"\x1b[<0;6;6m", "a release in the dragged-to cell");
+    assert!(
+        out[6].is_empty(),
+        "a move inside the released cell: {:02x?}",
+        out[6]
+    );
+    assert_eq!(out[7], b"\x1b[<64;6;6M", "every wheel notch");
+    assert_eq!(out[8], b"\x1b[<64;6;6M");
+    assert_eq!(out[9], b"\x1b[<35;7;6M");
+}
+
+/// **Only a report that went out moves the cell.** Three refusals, and after
+/// each the cell the application was never told about still reports:
+///
+/// * motion the level does not cover -- a bare move under `?1002`;
+/// * a position the encoding cannot carry -- `?1016` with no pixel;
+/// * a report the reply buffer cannot hold.
+#[test]
+fn a_refused_motion_does_not_move_the_cell() {
+    let left = MouseButton::Left;
+    let none = MouseButton::None;
+    let out = session(
+        b"\x1b[?1002h\x1b[?1006h",
+        &[
+            Step::Mouse(moved(left, 4, 5, 37, 81)),
+            Step::Mouse(moved(none, 5, 5, 40, 85)),
+            Step::Mouse(moved(left, 5, 5, 41, 85)),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<32;5;6M");
+    assert!(out[1].is_empty(), "bare motion under ?1002 is not wanted");
+    assert_eq!(out[2], b"\x1b[<32;6;6M", "the refusal did not take cell 5");
+
+    let out = session(
+        b"\x1b[?1003h\x1b[?1016h",
+        &[
+            Step::Mouse(ev(none, MouseKind::Motion, 4, 5)),
+            Step::Mouse(moved(none, 4, 5, 37, 81)),
+        ],
+    );
+    assert!(out[0].is_empty(), "no pixel, no ?1016 report");
+    assert_eq!(
+        out[1], b"\x1b[<35;38;82M",
+        "the refusal did not take the cell"
+    );
+
+    let mut t = T {
+        s: Owned::new(&support::CORPUS),
+    };
+    let mut term = Term::new(t.s.storage(), &support::CORPUS);
+    feed(&mut term, b"\x1b[?1003h\x1b[?1006h");
+    term.clear_reply();
+    let wheel = ev(MouseButton::WheelUp, MouseKind::Press, 50, 15);
+    for i in 0..REPLY / 12 {
+        assert!(term.mouse_report(wheel), "notch {i} fits");
+    }
+    let motion = moved(none, 51, 15, 408, 245);
+    assert!(!term.mouse_report(motion), "the buffer is full");
+    term.clear_reply();
+    assert!(
+        term.mouse_report(motion),
+        "the dropped report did not take the cell"
+    );
+    assert_eq!(term.reply(), b"\x1b[<35;52;16M");
+}
+
+/// **A mode change or a reset forgets the cell**, so the next move reports
+/// wherever it is. A report sent before either may have been read by another
+/// program, or under another tracking level -- it is not something the
+/// application now listening was told. xterm clears its last position only
+/// when the widget is created (`VTInitialize`, `screen->mouse_row = -1`,
+/// [[source: xterm-reset]]'s file), so after a mode change it suppresses a
+/// first move into the last cell it reported under the old one: practice,
+/// which the text's "moved to a different character cell" does not ask for.
+///
+/// `RIS` turns tracking off, and the `DECSET` that turns it back on forgets
+/// the cell; `DECSTR` keeps tracking, so it is the reset whose forgetting a
+/// report can show.
+#[test]
+fn a_mode_change_or_a_reset_forgets_the_cell() {
+    let none = MouseButton::None;
+    let here = || Step::Mouse(moved(none, 4, 5, 37, 81));
+    let out = session(
+        b"\x1b[?1003h\x1b[?1006h",
+        &[
+            here(),
+            here(),
+            Step::Bytes(b"\x1b[?1003h"),
+            here(),
+            Step::Bytes(b"\x1b[?1006h"),
+            here(),
+            Step::Bytes(b"\x1b[!p"),
+            here(),
+            Step::Bytes(b"\x1b[?1002h\x1b[?1003h"),
+            here(),
+            Step::Bytes(b"\x1b[?1015h"),
+            here(),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<35;5;6M");
+    assert!(out[1].is_empty(), "the control: same cell, nothing changed");
+    assert_eq!(out[2], b"\x1b[<35;5;6M", "after a tracking DECSET");
+    assert_eq!(out[3], b"\x1b[<35;5;6M", "after an encoding DECSET");
+    assert_eq!(out[4], b"\x1b[<35;5;6M", "after DECSTR");
+    assert_eq!(out[5], b"\x1b[<35;5;6M", "after a change of level");
+    assert_eq!(out[6], b"\x1b[67;5;6M", "after a change of encoding");
+}
+
+/// **`?1016` reports the pixel and is gated by the cell**, as the text has
+/// it: "Motion events are reported only if the mouse pointer has moved to a
+/// different character cell" is button-event tracking's rule with no
+/// encoding named, and SGR-Pixels changes only the format -- "Use the same
+/// mouse response format as the 1006 control, but report position in pixels
+/// rather than character cells". **xterm reports a move per pixel here**:
+/// under `SET_PIXEL_POSITION_MOUSE` its row and column hold pixels, and its
+/// same-cell test compares those (`EditorButton`, `[[source:
+/// xterm-button]]`). That is practice beyond the text, recorded as baud's
+/// departure from xterm and left to the owner.
+#[test]
+fn sgr_pixels_motion_is_gated_by_the_cell_as_the_text_says() {
+    let none = MouseButton::None;
+    let out = session(
+        b"\x1b[?1003h\x1b[?1016h",
+        &[
+            Step::Mouse(moved(none, 4, 5, 37, 81)),
+            Step::Mouse(moved(none, 4, 5, 38, 85)),
+            Step::Mouse(moved(none, 5, 5, 40, 85)),
+        ],
+    );
+    assert_eq!(out[0], b"\x1b[<35;38;82M");
+    assert!(
+        out[1].is_empty(),
+        "another pixel of the same cell: {:02x?}",
+        out[1]
+    );
+    assert_eq!(out[2], b"\x1b[<35;41;86M", "the next cell, in its pixel");
+}

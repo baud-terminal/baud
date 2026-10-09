@@ -283,6 +283,21 @@ pub struct Cold {
     /// ([`MouseEncoding::after`]); X10 is the protocol's default rather than
     /// "off" -- there is no off.
     pub(crate) mouse_encoding: MouseEncoding,
+    /// **The cell of the last report the application was sent**, which
+    /// button-event and any-event tracking measure motion from:
+    /// `[[source: ctlseqs]]`, "Motion events are reported only if the mouse
+    /// pointer has moved to a different character cell." Set by every report
+    /// that went into the reply buffer -- a press and a release as well as a
+    /// move, because after a press in a cell a drag inside it has not moved
+    /// to a different one, and xterm's `EditorButton` sets its `mouse_row`
+    /// and `mouse_col` on every event it reports (`[[source: xterm-button]]`)
+    /// -- and by nothing that was refused, so a position the application was
+    /// never told about cannot suppress the move that tells it. `None` since
+    /// power-on, a tracking or encoding change, or a reset: a report sent
+    /// before any of those is not one the application now listening was
+    /// given. A cell and not a pixel under `?1016` too -- the text's gate,
+    /// where xterm's compares pixels (`Term::mouse_report`).
+    pub(crate) mouse_at: Option<(Col, Row)>,
     /// `?1007`, on at power-on and **kept by both resets**, as xterm keeps
     /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
     /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
@@ -478,10 +493,14 @@ pub struct Cold {
 // by the embedder, and none on the write path. `?12` as a bit of its own, and
 // the style and that bit saved with `?1049`'s cursor, took it to 416: written
 // by `?12`, `?1049` and the resets, and read by the embedder once a frame,
-// none of them on the write path.
+// none of them on the write path. The last reported mouse cell took it to
+// 440, none of its 24 bytes in padding: `Option<(Col, Row)>`, written by a
+// pointer event that reports, a mouse mode change and the resets, and read by
+// `Term::mouse_report` alone -- input-side, an embedder's call per pointer
+// event, which the per-byte loop never makes.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 416);
+const _: () = assert!(core::mem::size_of::<Cold>() == 440);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -517,6 +536,7 @@ impl Cold {
             placement: crate::placed::Placement::NONE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
+            mouse_at: None,
             alternate_scroll: AlternateScroll::On,
             defaults: [ColorWord::DEFAULT; 3],
             dynamic: [ColorWord::DEFAULT; 3],
@@ -2272,19 +2292,22 @@ impl<'b> Term<'b> {
     /// caller with many reports to queue drains [`Term::reply`] between them;
     /// the `false` is how one that did not finds out.
     ///
-    /// **Two gates, and both are refusals rather than omissions.** The
+    /// **Three gates, and each is a refusal rather than an omission.** The
     /// tracking level decides which *kinds* are reported: motion is dropped
     /// under `?1000`, and motion with no button held under anything below
     /// `?1003`, because sending it anyway floods an application that asked
     /// only for clicks; `?9` reports a press of button 1, 2 or 3 and nothing
     /// else; and no level reports a wheel release, which `[[source:
-    /// ctlseqs]]` says "are not reported". And the *position* has to be
-    /// encodable -- X10 caps each ordinate at 223 against a 2048-column
-    /// grid and `?1005` at 2015, so a report from column 400 under X10 has
-    /// no byte, and the one it would produce names a **different cell**
-    /// rather than a truncated one; `?1016` needs the pixel the embedder may
-    /// not have given. Those are refused and counted in
-    /// [`Term::mouse_unencodable`]; everything that fits is sent, which is
+    /// ctlseqs]]` says "are not reported". A move is reported only into a
+    /// cell other than the last report's -- "Motion events are reported only
+    /// if the mouse pointer has moved to a different character cell" -- so a
+    /// `false` also means "the application already has this cell". And the
+    /// *position* has to be encodable -- X10 caps each ordinate at 223
+    /// against a 2048-column grid and `?1005` at 2015, so a report from
+    /// column 400 under X10 has no byte, and the one it would produce names
+    /// a **different cell** rather than a truncated one; `?1016` needs the
+    /// pixel the embedder may not have given. Those are refused and counted
+    /// in [`Term::mouse_unencodable`]; everything that fits is sent, which is
     /// every position on a terminal anyone actually runs.
     ///
     /// **Input-side and cold**: an embedder calls this per pointer event;
@@ -2305,6 +2328,30 @@ impl<'b> Term<'b> {
             _ => true,
         };
         if !wanted {
+            return false;
+        }
+        // **Motion only into a different cell.** `[[source: ctlseqs]]`,
+        // button-event tracking: "Motion events are reported only if the
+        // mouse pointer has moved to a different character cell", and any-event
+        // is "the same ... except that all motion events are reported, even
+        // if no mouse button is down". The app hands this every AppKit move and
+        // drag, so a pointer moving inside one cell sent one identical report
+        // per event until 2026-10-09. The position alone is compared, not the
+        // button or the modifiers, as xterm's `EditorButton` compares its row
+        // and column (`[[source: xterm-button]]`): a modifier pressed inside a
+        // cell is not a move to another. A press or a release is never held
+        // back -- the text gates motion only.
+        //
+        // **Gated by the cell under `?1016` too**, where xterm gates by the
+        // pixel: its row and column hold pixels in `SET_PIXEL_POSITION_MOUSE`
+        // and its same-cell test compares those. The sentence above names no
+        // encoding, and SGR-Pixels changes only the format -- "Use the same
+        // mouse response format as the 1006 control, but report position in
+        // pixels rather than character cells" -- so the text's cell stands
+        // and xterm's per-pixel motion is a practice baud departs from, left
+        // to the owner.
+        let at = (e.col, e.row);
+        if e.kind == MouseKind::Motion && self.cold.mouse_at == Some(at) {
             return false;
         }
         // X10 compatibility sends the button and no modifiers: normal
@@ -2345,7 +2392,15 @@ impl<'b> Term<'b> {
                 }
             },
         };
-        self.queue(report)
+        // The cell moves only with a report that went out: a refusal above,
+        // or a buffer too full to take this one, told the application
+        // nothing, and recording the cell anyway would suppress the next move
+        // into it -- the one that would tell it.
+        let queued = self.queue(report);
+        if queued {
+            self.cold.mouse_at = Some(at);
+        }
+        queued
     }
 
     /// Queue a focus report, if the application asked for them with `?1004`.

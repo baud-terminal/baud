@@ -4241,7 +4241,10 @@ impl Responder for Driver {
     /// A press, release or motion, reported to the application when it
     /// asked for that kind: the core keeps the tracking level and the
     /// encoding, refuses what the level does not cover and what X10 cannot
-    /// encode, and this only turns the view's pixels into a cell.
+    /// encode, drops a move inside the cell it last reported, and this only
+    /// turns the view's pixels into a cell. Every AppKit move and drag comes
+    /// here, several to a cell, so the core's cell is what keeps them to one
+    /// report a cell.
     fn mouse(&mut self, event: &Mouse) {
         self.poll_focus();
         // Any press is input to the blink's stop -- one the scrollbar, a
