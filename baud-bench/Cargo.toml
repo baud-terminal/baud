@@ -150,6 +150,14 @@ harness = false
 name = "frame_gpu"
 harness = false
 
+# WCAG 2.3.1's flashes, counted on the frames the cursor-trail effects draw
+# through Metal (note AJ). macOS only; it prints on every other target. A
+# bench rather than a test because it draws tens of thousands of frames; the
+# counter it feeds is `baud_bench::flash`, whose tests run with the suite.
+[[bench]]
+name = "flash"
+harness = false
+
 [[bench]]
 name = "glyphs"
 harness = false

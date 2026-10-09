@@ -17315,6 +17315,19 @@ bytes  = 5616
 status = "retrieved"
 group  = "AJ"
 
+[sources.aj-obs-flash-census]
+key    = "aj-obs-flash-census"
+title  = "WCAG 2.3.1's flashes counted on the frames the cursor-trail effects draw through Metal: every effect in Effect::ALL and the trail off, six motions, 13/32/72 pt at 1x and 2x, 60 and 120 Hz, four cursor colours on four grounds -- 7,680 cases and 20 positive-control rows, one tab-separated line each, as drawn and apart from the cursor's own two cells"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "cargo build --release -p baud-bench --bench flash, then the binary run seven times at once on an Apple M5 Max under macOS 27.0 (26A5425a) on AC, 2026-10-09: `all 13x1 60,120 all all`, `all 13x2 60,120 all all`, `all 32x1 60,120 all all`, `all 32x2 60,120 all dark,light`, `all 32x2 60,120 all red,darkred`, `all 72x1 60,120 all dark,light` and `all 72x1 60,120 all red,darkred`, joined in that order with the repeated control rows (which agree) dropped; every column it shares with an earlier build's census, run without the apart columns, agrees"
+file   = "aj-observed/flash-census.tsv"
+sha256 = "22eed9fd0e4c444d4e7e33b718ec74f9f44b6976faf391cf94a80e4b7cbe5c6a"
+bytes  = 1104548
+status = "retrieved"
+group  = "AJ"
+
 [sources.aj-obs-probe-tool]
 key    = "aj-obs-probe-tool"
 title  = "The other-terminals sweep's probe: 26 terms and a positive control, one rg -c per term per repository"

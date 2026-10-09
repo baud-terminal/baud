@@ -8,6 +8,8 @@
 
 use baud_domain::CacheGeometry;
 
+pub mod flash;
+
 /// The cache hierarchy of this machine, or `UNKNOWN` where the probe cannot
 /// ask -- which still resolves to a safe pitch.
 pub fn host_geometry() -> CacheGeometry {
