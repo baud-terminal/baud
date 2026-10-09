@@ -683,6 +683,43 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     if in_sequence && b.is(StreamByte::ESC) {
         return edge(Act::EscStart, Node::Escape);
     }
+    // **The same block's C1 controls, from a control string, under ISO
+    // 8859-1.** `[[source: williams]]` (612-615): "All C1 controls cancel any
+    // escape sequence, control sequence or control string in progress and are
+    // executed. Control functions special to this parser, i.e. DCS, SOS, CSI,
+    // OSC, PM and APC, cause a transition to their appropriate states." So a
+    // C1 inside a string takes the edge it takes from ground -- `85` is NEL,
+    // `9B` opens a `CSI`, `9D` a fresh `OSC` -- and `9C` is the `ST` that ends
+    // it. The string node ended only on `9C` and stored the other thirty-one,
+    // so `85` landed in a window title and the NEL never ran; the DCS prefix
+    // nodes sent all thirty-two, `9C` included, into the body, so `90 9C X`
+    // swallowed the `X`.
+    //
+    // **Cancelled, as a bare `ESC` cancels**: williams uses the one verb for
+    // C1, `CAN`, `SUB` and `ESC`, and of a control sequence (534-537) gives
+    // the reason, that "the 7-bit (ESC Fe) and 8-bit representations of C1
+    // controls should act in the same way". `ESC E` inside an `OSC` cancels
+    // it, so `85` must. xterm's `sos_table` agrees, taking `84` to `CASE_IND`
+    // and every other C1 to its case or to `CASE_GROUND_STATE`
+    // (`[[source: xterm-vtprstbl-c]]` 7781-7820). Its `CASE_OSC` keeps the
+    // old string's bytes, where williams' `osc string` begins anew on entry;
+    // the text is followed. A cancelled string is not dispatched here, by any
+    // of the four; whether it should keep what it has done, as williams'
+    // `unhook` and `osc_end` suggest, is open (`docs/record.md`).
+    //
+    // Under UTF-8 `latin1_c1` answers `None` for every byte, so these nodes'
+    // rows there are what they were: `80-9F` are continuation bytes of the
+    // payload's characters (`a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays`).
+    // `Escape` and the `CSI` nodes do not yet take this rule.
+    let in_string = matches!(node, Node::Dcs | Node::DcsDollar | Node::Str);
+    if in_string {
+        if let Some(e) = latin1_c1(enc, b) {
+            return match b.raw_byte() {
+                0x9c => edge(Act::StrEnd, Node::Ground),
+                _ => e,
+            };
+        }
+    }
 
     // Mid-character: only a continuation can follow, and it moves one node
     // nearer the end.
@@ -805,7 +842,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(node, b),
-        Node::Str => return string(b, enc),
+        Node::Str => return string(b),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
@@ -861,11 +898,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // `Text`**, which names a *run* of printable ASCII -- the run scanner
         // would refuse the first byte of it and the loop would not advance.
         //
-        // **`80..9F` are the 8-bit C1 controls, and each is `ESC` plus the
-        // same byte less `0x40`.** `9B` is `CSI`, `9D` is `OSC`, `90` is
-        // `DCS`, `9C` is `ST`, `84` is `IND` -- so the row is not a special
-        // case at all, it is the `Escape` row read at a different offset, and
-        // delegating is what keeps one definition of what each final means.
+        // `80..9F` are the 8-bit C1 controls, the same edge a control string
+        // gives them above (`latin1_c1`).
         //
         // This answered `Act::Bad` -- one `U+FFFD` -- under a comment saying
         // it was "wrong here and knowingly so ... because the new core parses
@@ -874,13 +908,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // reach this table**: no recording is Latin-1 and no sequence switched
         // the encoding, so the wrong answer cost nothing and announced
         // nothing. A row that cannot be reached is a row nobody re-reads.
-        //
-        // They are controls *here and not under UTF-8*, which is not an
-        // inconsistency: in UTF-8 `9B` is a continuation byte and cannot begin
-        // anything, and in ISO 8859-1 there is no multi-byte sequence for it
-        // to be part of.
-        if b.raw_byte() >= 0x80 && b.raw_byte() <= 0x9f {
-            return escape(StreamByte::from_stream(b.raw_byte() - 0x40));
+        if let Some(e) = latin1_c1(enc, b) {
+            return e;
         }
         return match b.is_latin1_graphic() {
             true => edge(Act::Latin1, g),
@@ -898,6 +927,30 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         Some((3, _, _)) => edge(Act::Char4, g),
         // A stray continuation, or a lead UTF-8 does not allow.
         _ => edge(Act::Bad, g),
+    }
+}
+
+/// A C1 control under ISO 8859-1: the `Escape` row read at `b - 0x40`, and
+/// `None` for every other byte and for all of them under UTF-8.
+///
+/// **`80..9F` are the 8-bit C1 controls, and each is `ESC` plus the same byte
+/// less `0x40`.** `9B` is `CSI`, `9D` is `OSC`, `90` is `DCS`, `9C` is `ST`,
+/// `84` is `IND` -- so the row is not a special case at all, it is the
+/// `Escape` row read at a different offset, and delegating is what keeps one
+/// definition of what each final means. Ground and the control strings both
+/// ask here, so the two cannot disagree on which byte is which control.
+///
+/// They are controls *under ISO 8859-1 and not under UTF-8*, which is not an
+/// inconsistency: in UTF-8 `9B` is a continuation byte and cannot begin
+/// anything, and in ISO 8859-1 there is no multi-byte sequence for it to be
+/// part of.
+const fn latin1_c1(enc: InputEncoding, b: StreamByte) -> Option<Edge> {
+    match enc {
+        InputEncoding::Utf8 => None,
+        InputEncoding::Latin1 => match b.raw_byte() {
+            v @ 0x80..=0x9f => Some(escape(StreamByte::from_stream(v - 0x40))),
+            _ => None,
+        },
     }
 }
 
@@ -1031,17 +1084,11 @@ const fn vt52(node: Node, b: StreamByte) -> Edge {
 }
 
 /// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
-const fn string(b: StreamByte, enc: InputEncoding) -> Edge {
-    // **`9C` is `ST` and ends the string, under Latin-1 only.** The seven-bit
-    // form is `ESC \`, which the `StrEsc` node below takes; this is the same
-    // terminator arriving as one byte, and a string that ignored it would run
-    // to the end of the stream swallowing everything after it.
-    //
-    // Gated on the encoding rather than on the byte, because in UTF-8 `9C` is
-    // a continuation byte and belongs to whatever character opened it.
-    if matches!(enc, InputEncoding::Latin1) && b.raw_byte() == 0x9c {
-        return edge(Act::StrEnd, Node::Ground);
-    }
+///
+/// `9C`, the one-byte `ST`, and the other C1 controls are `one()`'s, under
+/// ISO 8859-1 only: in UTF-8 they are continuation bytes and belong to
+/// whatever character opened them, so they reach here and are payload.
+const fn string(b: StreamByte) -> Edge {
     match b.raw_byte() {
         // `BEL` ends an `OSC`. `[[source: ctlseqs]]` allows it beside `ST`
         // and applications overwhelmingly send it, so a core that took only
@@ -1290,6 +1337,26 @@ mod classes {
         // | DCS `Pa;Pb;Ph` routed to `csi` (Digit/Sep) | **34/968/24,645/584,842** | +0.6% at stride 4 |
         // | `ESC` abandons a sequence (the anywhere `1B` edge) | **34/964/24,373/572,642** | **-2.1%** |
         // | `DEL` ignored in ground, not drawn as U+FFFD (D4) | **34/963/24,272/568,022** | **-0.8%** |
+        // | a Latin-1 C1 cancels a control string and acts | **34/955/23,735/549,546** | **-3.3%** |
+        //
+        // **The C1 row shrinks it too, and it moved only the Latin-1 table**:
+        // a hash of all 5,120 UTF-8 edges is the same before and after. A C1
+        // inside `Str`, `Dcs` or `DcsDollar` now takes the edge it takes from
+        // ground (`9C` ends the string), where it was stored or consumed.
+        // Stride 1 stays at 34: every C1 byte was already told from the
+        // others by its ground row, and the string rows now repeat that row.
+        // At stride 2, eight pairs of classes merge and none splits, taken
+        // against a copy of the old edges: `90 c` with `98 c` for each of five
+        // C1 behaviours `c`, because the DCS prefix and a string body now
+        // treat a C1 alike; and `80 80` with `80 9C`, `9B 80` with `9B 9C`,
+        // `9C 80` with `9C 9C`, because a C1 no longer leaves the parser
+        // inside a string, where `9C` would end it and `80` be stored. At
+        // stride 3, 532 new classes each absorb old ones and six old classes
+        // split: `CAN`, `SUB`, `BEL` or `ESC`, then a DCS or string
+        // introducer, then a C1. The first byte narrows where the word can
+        // start, so the introducer reaches a string node only by paths where
+        // the old graph consumed every C1 alike; now each takes its own edge.
+        // Stride 4 compounds the same and was not decomposed.
         //
         // **The `DEL` row shrinks it again, and the same way.** `7F` in
         // ground took `Act::Bad` and draws nothing now: it takes
@@ -1384,9 +1451,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 963, "stride 2");
-        assert_eq!(three.len(), 24_272, "stride 3");
-        assert_eq!(four.len(), 568_022, "stride 4");
+        assert_eq!(two.len(), 955, "stride 2");
+        assert_eq!(three.len(), 23_735, "stride 3");
+        assert_eq!(four.len(), 549_546, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1586,6 +1653,52 @@ mod classes {
                     Edge::of(enc, node, StreamByte::ESC),
                     want,
                     "{node:?} {enc:?}: ESC"
+                );
+            }
+        }
+    }
+
+    /// **Under ISO 8859-1 a C1 byte leaves a control string as it leaves
+    /// ground; under UTF-8 it stays in the string, the continuation byte it
+    /// is.** Exhaustive over `80-9F` and the three string nodes, and checked
+    /// against the shipped table.
+    ///
+    /// `[[source: williams]]` (612-615): "All C1 controls cancel any escape
+    /// sequence, control sequence or control string in progress and are
+    /// executed." The string node ended only on `9C` and stored the other
+    /// thirty-one, and the DCS prefix nodes sent all thirty-two, `9C`
+    /// included, into the body. The behaviour tests are in
+    /// `tests/encoding/latin1.rs`; this is the gate for the edges they cannot
+    /// see, such as an `SOS` that a `98` replaces with another.
+    #[test]
+    fn a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays() {
+        // Positive control: the Ground row compared against is the C1 row,
+        // not a row of `Bad` that every node could agree with by accident.
+        let ground = |v: usize| Edge::of(InputEncoding::Latin1, Node::Ground, StreamByte::ALL[v]);
+        assert_eq!(ground(0x85), edge(Act::EscFinal, Node::Ground), "85 NEL");
+        assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
+        assert_eq!(ground(0x90), edge(Act::StrStart, Node::Dcs), "90 DCS");
+        assert_eq!(ground(0x9d), edge(Act::StrStart, Node::Str), "9D OSC");
+        for node in [Node::Dcs, Node::DcsDollar, Node::Str] {
+            for v in 0x80..=0x9fusize {
+                let b = StreamByte::ALL[v];
+                let want = match v {
+                    0x9c => edge(Act::StrEnd, Node::Ground),
+                    _ => ground(v),
+                };
+                assert_eq!(
+                    Edge::of(InputEncoding::Latin1, node, b),
+                    want,
+                    "{node:?} Latin1 byte {v:#04x}"
+                );
+                let kept = match node {
+                    Node::Str => edge(Act::StrPut, Node::Str),
+                    _ => edge(Act::Consume, Node::Str),
+                };
+                assert_eq!(
+                    Edge::of(InputEncoding::Utf8, node, b),
+                    kept,
+                    "{node:?} Utf8 byte {v:#04x}"
                 );
             }
         }

@@ -100,8 +100,11 @@ addition, not a substitution.
 ~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: DCS, SOS,
 PM and APC payloads are consumed by `StringIgnore` and never executed. Note the
 specified limit, which is not a hole: `[[source: williams]]` says a bare `ESC`
-*cancels* a control string, so the guarantee is precisely that a payload
-containing no ESC is inert.
+*cancels* a control string, and so does a C1 control (its anywhere rule, lines
+612-615), so the guarantee is precisely that a payload containing no ESC, and
+under ISO 8859-1 no byte in `80-9F`, is inert. The C1 half holds in the
+`dcs_*`, `osc_string` and `sos_pm_apc_string` states since 2026-10-09; see
+the anywhere block.
 
 baud adds a `Utf8` state, which `[[source: williams]]` does not have — that
 parser predates UTF-8 and is defined over bytes. Keeping it is deliberate; the
@@ -183,11 +186,34 @@ direct address takes one as a coordinate, as xterm's does.
 |---|---|
 | `18` CAN, `1A` SUB — cancel from any state, control strings included | done |
 | `1B` ESC — abandon and begin a new sequence | done — since 2026-09-27; this row read `done` before and was not, see above |
+| `80-9F` C1 under `ESC % @`, inside a control string — cancel it, then execute, or enter `dcs_entry`, `csi_entry`, `osc_string` or `sos_pm_apc_string`; `9C` ends it as ST | done — since 2026-10-09, from the `dcs_*`, `osc_string` and `sos_pm_apc_string` states; see below. Every C1 byte from every string node acts as its 7-bit `ESC Fe` form at every read split (`a_c1_in_any_control_string_acts_as_its_seven_bit_form_under_latin1`), an `OSC` title a C1 cancels is not set (`a_c1_inside_an_osc_acts_under_latin1_and_is_not_stored`), the table holds it exhaustively (`a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays`), and under UTF-8 the same bytes stay payload (`under_utf8_c1_bytes_in_a_string_stay_in_the_payload`) |
 | C0 in `csi_entry` — execute and **stay**, without consuming the marker position | done — `CSI <BS> ? J` is still DECSED |
 | C0 in `csi_intermediate` | done — this arm had no C0 branch, so `CSI ! <NUL> p` lost its DECSTR |
 | `7F` DEL in `csi_entry` / `csi_param` | done — ignored, and does not consume the marker position |
 | `7F` DEL in ground, ANSI and VT52 | done — ignored: no cell and no cursor move, as `[[source: dec-std-070]]` 070-3 §3.4.2 says for a 94-character set in GL ("shall be ignored"), with `[[source: vt510-ch7]]` § 7.2.5 and `[[source: williams]]`'s ground. Until 2026-10-08 it drew U+FFFD, a decoding error for a byte that is well-formed in UTF-8 (`del_in_ground_is_ignored`, at every read size). A 96-character set in GL makes it a character of the set, which waits on note AE |
 | SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character, and which codepoint that is, is open with the owner: note AF's Q-UNDEF, with note AE's error-character codepoint (its Q8). Detail below |
+
+**The C1 controls are the block's third rule, and baud takes it from the
+control strings only.** `[[source: williams]]` (lines 612-615): "All C1
+controls cancel any escape sequence, control sequence or control string in
+progress and are executed. Control functions special to this parser, i.e. DCS,
+SOS, CSI, OSC, PM and APC, cause a transition to their appropriate states." In
+UTF-8 these bytes are continuation bytes and the rule cannot apply (the
+Encoding section below). Under `ESC % @` the string node ended only on `9C`
+and stored the other thirty-one, so `85` landed in a window title and the NEL
+never ran, and the DCS prefix sent all thirty-two, `9C` included, into the
+body. `one()` now gives a C1 inside a string the edge it takes from ground,
+and `9C` ends the string. It cancels as `ESC` does: williams uses the one verb
+for all four and asks that "the 7-bit (ESC Fe) and 8-bit representations of
+C1 controls should act in the same way" (534-537). A cancelled string is not
+dispatched, by any of the four, and xterm's `sos_table` reaches `do_osc` only
+from `CASE_ST` (`[[source: xterm-vtprstbl-c]]` 7781-7820,
+`[[source: xterm-reset]]` 5288-5320); whether it should keep what it has done,
+as williams' `unhook` and its "does not undo these effects" suggest, is open
+with the owner (`docs/record.md`). The rule's other half is open: in `escape`
+a C1 is dropped and the escape ends without it, and in the `csi_*` states it
+is dropped and, from `csi_param`, the sequence carries on, where williams
+cancels the sequence and executes the C1.
 
 **The basis this row gave was wrong, and what SUB displays is open.**
 
@@ -272,7 +298,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
 | 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` — **in UTF-8** | **out** — they are continuation bytes there; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm |
-| the same introducers under `ESC % @` (ISO 8859-1) | done — no multi-byte sequence exists for them to be part of, so `9B` is unambiguously CSI |
+| the same introducers under `ESC % @` (ISO 8859-1) | done — no multi-byte sequence exists for them to be part of, so `9B` is unambiguously CSI. From inside a control string too, which each cancels (`a_c1_in_any_control_string_acts_as_its_seven_bit_form_under_latin1`, and the anywhere block above); until 2026-10-09 the string stored them and only `9C` ended it |
 | 8-bit `84` IND, `85` NEL, `88` HTS, `8D` RI under `ESC % @` | done — each acts as its 7-bit form, `[[source: ctlseqs]]` pairing the two, at every read split (`eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms`), and none inherits the last escape's intermediate (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`). Until 2026-10-08 all four were counted as unsupported, and `84` after `ESC ( 0` replaced G0. `8E` and `8F` map to `ESC N` and `ESC O`, counted as those are until note AE's single shifts are built |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
@@ -468,6 +494,9 @@ send. Each is read as its 7-bit `ESC` form, so the introducers and IND, NEL,
 HTS and RI act, and the rest are counted as their 7-bit forms are. This said
 they "stay ignored" because baud did not act on them, citing xterm's
 `CASE_IGNORE`; they were in fact counted, IND, NEL, HTS and RI included.
+Inside a control string each cancels the string and then acts the same way,
+as `ESC` does; until 2026-10-09 the string kept all but `9C` as payload. In
+`escape` and the `csi_*` states they do not yet (the anywhere block).
 
 **The rest of the legacy charsets remain out.** The one charset mechanism
 baud implements, `SCS`, is a different thing from an input encoding: a

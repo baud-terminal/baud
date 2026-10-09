@@ -347,3 +347,203 @@ fn a_c1_control_does_not_inherit_the_last_escapes_intermediate() {
     );
     same_as_seven_bit("IND right after ESC % @", b"\x1b%@\x84X", b"\x1b%@\x1bDX");
 }
+
+/// A terminal fed `bytes` in reads of `size`, handed to `f` while it lives.
+///
+/// Small, so the exhaustive walk below builds thousands of terminals cheaply,
+/// and wide enough that nothing here wraps.
+fn fed<R>(bytes: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for chunk in bytes.chunks(size) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+    f(&t)
+}
+
+/// Holds `eight` against `seven` at every read size from one byte to the
+/// whole program, on everything a control string or a control that cancels
+/// one can change: the screen and cursor, the two strings an `OSC` sets, the
+/// reply a DECRQSS queues, the image store a Sixel writes, and the counters a
+/// string or a control bumps. Unlike `same_as_seven_bit` it does not require
+/// the 7-bit form to be uncounted: `ESC X`, `ESC Y` and an `ST` that ends an
+/// unrecognised string are counted, and their 8-bit forms must be counted
+/// the same.
+fn same_outcome_as_seven_bit(what: &str, eight: &[u8], seven: &[u8]) {
+    fed(seven, seven.len(), |want| {
+        for size in 1..=eight.len() {
+            fed(eight, size, |got| {
+                let at = format!("{what}, read size {size}");
+                assert_eq!(got.title(), want.title(), "{at}: title");
+                assert_eq!(got.icon_name(), want.icon_name(), "{at}: icon name");
+                assert_eq!(got.reply(), want.reply(), "{at}: reply");
+                assert_eq!(
+                    got.images().generation(),
+                    want.images().generation(),
+                    "{at}: image store"
+                );
+                assert_eq!(got.bells, want.bells, "{at}: bells");
+                assert_eq!(
+                    got.strings_ignored, want.strings_ignored,
+                    "{at}: strings ignored"
+                );
+                assert_eq!(got.unsupported, want.unsupported, "{at}: unsupported");
+                assert_eq!(got.cursor(), want.cursor(), "{at}: cursor");
+                assert!(
+                    support::screen(got) == support::screen(want),
+                    "{at}: screen"
+                );
+            });
+        }
+    });
+}
+
+/// **A C1 control inside an `OSC` acts under ISO 8859-1, and is not stored.**
+///
+/// `[[source: williams]]` (lines 612-615): "All C1 controls cancel any escape
+/// sequence, control sequence or control string in progress and are executed.
+/// Control functions special to this parser, i.e. DCS, SOS, CSI, OSC, PM and
+/// APC, cause a transition to their appropriate states." Of an OSC itself
+/// (797): "C1 controls will cancel the sequence." The string node ended only
+/// on `9C` and took every other C1 as payload, so `85` landed in the window
+/// title and the `NEL` never ran.
+///
+/// A cancelled string is not dispatched here, as with `CAN`, `SUB` and a bare
+/// `ESC`, so the title stays unset. Whether a cancel should keep what the
+/// string had done is open with the owner (`docs/record.md`).
+#[test]
+fn a_c1_inside_an_osc_acts_under_latin1_and_is_not_stored() {
+    // NEL: `X`, then the string, then `cd` at the start of the next line.
+    fed(b"\x1b%@X\x9d0;ab\x85cd\x07", usize::MAX, |t| {
+        assert_eq!(t.title(), b"", "NEL: the cancelled title is not set");
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(2)),
+            "NEL ran"
+        );
+        assert_eq!(t.bells, 1, "NEL: the BEL after it rang, in ground");
+    });
+
+    // IND keeps the column: `cd` lands under the cell after `X`.
+    fed(b"\x1b%@X\x9d0;ab\x84cd\x07", usize::MAX, |t| {
+        assert_eq!(t.title(), b"", "IND: the cancelled title is not set");
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(3)),
+            "IND ran"
+        );
+    });
+
+    // CSI: `9B 3 1 m` sets the rendition and `cd` prints in it.
+    let (screen, cursor) = fed(b"\x1b%@X\x1b[31mcd\x07", usize::MAX, |t| {
+        (support::screen(t), t.cursor())
+    });
+    fed(b"\x1b%@X\x9d0;ab\x9b31mcd\x07", usize::MAX, |t| {
+        assert_eq!(t.title(), b"", "CSI: the cancelled title is not set");
+        assert!(
+            support::screen(t) == screen,
+            "CSI: `cd` printed red, as after ESC [ 31 m"
+        );
+        assert_eq!(t.cursor(), cursor, "CSI: cursor after `cd`");
+    });
+
+    // OSC: a second `9D` begins a fresh string, as `osc_start` on entry says;
+    // the first one's `0;ab` is gone, not prefixed to it.
+    fed(b"\x1b%@\x9d0;ab\x9d0;cd\x9c", usize::MAX, |t| {
+        assert_eq!(
+            t.title(),
+            b"cd",
+            "OSC: the second string alone sets the title"
+        );
+        assert_eq!(t.cursor().1, Col::ZERO, "OSC: nothing printed");
+    });
+}
+
+/// **Under UTF-8 the same bytes stay in the payload, as they always have.**
+///
+/// `80-9F` are continuation bytes there (`docs/vt-coverage.md`, "Encoding"),
+/// so a title carrying `€` (`E2 82 AC`), `…` (`E2 80 A6`) or `œ` (`C5 93`)
+/// has bytes in the C1 range that belong to its characters. Each of the 32
+/// is stored byte for byte, alone as well as inside a character.
+#[test]
+fn under_utf8_c1_bytes_in_a_string_stay_in_the_payload() {
+    let title = "\x1b]0;\u{20ac}\u{2026}\u{153}\x07".as_bytes();
+    fed(title, usize::MAX, |t| {
+        assert_eq!(
+            t.title(),
+            "\u{20ac}\u{2026}\u{153}".as_bytes(),
+            "a UTF-8 title keeps its continuation bytes"
+        );
+    });
+    for c in 0x80u8..=0x9f {
+        let bytes = [b"\x1b]0;a".as_slice(), &[c], b"b\x07"].concat();
+        for size in 1..=bytes.len() {
+            fed(&bytes, size, |t| {
+                assert_eq!(
+                    t.title(),
+                    [b'a', c, b'b'],
+                    "{c:#04x} is payload under UTF-8, read size {size}"
+                );
+                assert_eq!(t.cursor().1, Col::ZERO, "{c:#04x}: nothing printed");
+            });
+        }
+    }
+}
+
+/// **Every C1 byte, from every control string, acts as its 7-bit form.**
+///
+/// `[[source: williams]]` (lines 534-537), of a C1 inside a control sequence:
+/// "C1 controls will cancel the sequence and then be executed. ... the 7-bit
+/// (ESC Fe) and 8-bit representations of C1 controls should act in the same
+/// way. When the first character of the 7-bit representation, ESC, is
+/// received, it will cancel the control sequence, so the 8-bit representation
+/// should do so as well." The anywhere rule (612-615) says the same of a
+/// control string, so the 7-bit program is the oracle: `ESC E` inside an
+/// `OSC` cancels it and is `NEL`, so `85` there must be.
+///
+/// Exhaustive over `80-9F` and over every node a control string passes
+/// through: an `OSC` and its icon form, a DECRQSS body (which would queue a
+/// reply), a Sixel body (which would store an image), the DCS prefix bare,
+/// with parameters and after its `$` intermediate, an unrecognised DCS body,
+/// and `SOS`, `PM` and `APC`.
+///
+/// Three tails follow the C1, because each is read by whatever the C1 opened:
+/// `5mY BEL` drives a `CSI` to its final and an executed control to the text
+/// after it, `0;T BEL` makes an `OSC` the C1 began set a title, and
+/// `$qm ST` makes a DCS it began a DECRQSS that answers. On the unfixed tree
+/// 323 of the 352 pairs failed. The 29 that passed were `9C` in the eight
+/// string bodies, which already ended there, and `98`, `9E` and `9F` in the
+/// strings whose payload is ignored, where an ignored string replaced by
+/// another ignored string is invisible by construction; the table gate in
+/// `graph.rs` holds those edges.
+#[test]
+fn a_c1_in_any_control_string_acts_as_its_seven_bit_form_under_latin1() {
+    let strings: [(&str, &[u8]); 11] = [
+        ("OSC title", b"\x1b]0;ab"),
+        ("OSC icon", b"\x1b]1;ab"),
+        ("DECRQSS body", b"\x1bP$qm"),
+        ("Sixel body", b"\x1bPq#0;2;100;0;0#0~~"),
+        ("DCS prefix", b"\x1bP"),
+        ("DCS parameters", b"\x1bP1;2"),
+        ("DCS $ intermediate", b"\x1bP$"),
+        ("DCS unrecognised body", b"\x1bP+qab"),
+        ("SOS", b"\x1bXab"),
+        ("PM", b"\x1b^ab"),
+        ("APC", b"\x1b_ab"),
+    ];
+    let tails: [&[u8]; 3] = [b"5mY\x07Z", b"0;T\x07Z", b"$qm\x1b\\Z"];
+    for (name, open) in strings {
+        for c in 0x80u8..=0x9f {
+            for tail in tails {
+                let eight = [b"\x1b%@X".as_slice(), open, &[c], tail].concat();
+                let seven = [b"\x1b%@X".as_slice(), open, &[0x1b, c - 0x40], tail].concat();
+                same_outcome_as_seven_bit(&format!("{c:#04x} in {name}"), &eight, &seven);
+            }
+        }
+    }
+}

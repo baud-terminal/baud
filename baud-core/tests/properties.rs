@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator has 79
-//! operations and reaches the *protocol*; this one has nineteen atoms and
+//! operations and reaches the *protocol*; this one has twenty-three atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -218,6 +218,50 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **C1 controls inside control strings, under ISO 8859-1 and under
+    // UTF-8.** Each Latin-1 atom enters with `ESC % @` and leaves with
+    // `ESC % G`, the shape the VT52 op had in `baud-core2`'s generator, so the
+    // byte split can fall on either switch and inside the string. Under
+    // Latin-1 the C1 cancels its string and acts; under UTF-8 the same byte is
+    // payload, and `osc-c1-utf8` holds that path. The title is compared
+    // beside the cells for them: an `OSC` a C1 cancelled, or one it began,
+    // changes nothing else.
+    //
+    // **A bare `ESC % @` atom was tried and dropped.** It leaves every later
+    // atom read as Latin-1, where `zwj-family`'s bytes carry `8D`, an RI, and
+    // that reached a write-path defect of its own with no control string in
+    // it: `ESC [ 2 ; 1 H`, four wide characters, `ESC [ 1 ; 20 H b © ~`, then
+    // `the` in the next read, leaves column 0 of row 1 blank where the same
+    // bytes in one read keep the `©`. A non-ASCII character wrapping onto a
+    // wide character's left half, then ASCII; recorded, and the fix is the
+    // write path's.
+    Atom {
+        name: "latin1-osc-nel",
+        bytes: b"\x1b%@\x1b]0;t\x85u\x07\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    // `9B` CSI inside an `OSC`: an SGR that applies to the `u` after it.
+    Atom {
+        name: "latin1-osc-csi",
+        bytes: b"\x1b%@\x1b]0;t\x9b31mu\x07\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    // `9D` OSC inside a DECRQSS: a title instead of a reply.
+    Atom {
+        name: "latin1-dcs-osc",
+        bytes: b"\x1b%@\x1bP$q\x9d2;v\x07\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    // The first one's bytes under UTF-8, where `85` stays in the title.
+    Atom {
+        name: "osc-c1-utf8",
+        bytes: b"\x1b]0;t\x85u\x07",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -240,9 +284,10 @@ fn ws() -> WinSize {
 }
 
 /// Feed `bytes` in `chunk`-sized reads and return **every cell**, not a row
-/// and not a string projection -- and whether the cursor is shown, the one
-/// mode the alphabet sets, saves and restores.
-fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool) {
+/// and not a string projection -- whether the cursor is shown, the one mode
+/// the alphabet sets, saves and restores, and the title, the one string it
+/// sets.
+fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool, Vec<u8>) {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -253,7 +298,7 @@ fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool) {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    (support::screen(&t), t.cursor_visible())
+    (support::screen(&t), t.cursor_visible(), t.title().to_vec())
 }
 
 /// The same program, but each **atom** delivered in its own `feed`.
@@ -263,7 +308,7 @@ fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool) {
 /// a run of four and four runs of one must agree. That is the class chunk
 /// invariance is structurally blind to -- where both chunkings are wrong the
 /// same way, which is what the blitter's clipping bug was.
-fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool) {
+fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool, Vec<u8>) {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -272,7 +317,7 @@ fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool) {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
     }
-    (support::screen(&t), t.cursor_visible())
+    (support::screen(&t), t.cursor_visible(), t.title().to_vec())
 }
 
 /// **The control, and nothing below it is believable until it passes.**
@@ -316,6 +361,57 @@ fn the_alphabet_emits_what_it_claims() {
             i += n;
         }
     }
+}
+
+/// **The C1 atoms reach the arms they were added for**, the same control as
+/// above: an atom whose C1 never left the string would be payload in both
+/// chunkings and green in every property below.
+///
+/// `latin1-osc-nel`'s `85` cancels the title and is NEL, `latin1-osc-csi`'s
+/// `9B` cancels it and colours the `u`, and `latin1-dcs-osc`'s `9D` cancels
+/// the DECRQSS and sets a title; in `osc-c1-utf8` the `85` is payload and the
+/// title keeps it.
+#[test]
+fn the_c1_atoms_reach_the_string_arms() {
+    let atom = |name: &str| {
+        ALPHABET
+            .iter()
+            .position(|a| a.name == name)
+            .unwrap_or_else(|| panic!("no atom {name}"))
+    };
+    let (_, _, title) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
+
+    let fed = |name: &str, f: &dyn Fn(&Term<'_>)| {
+        let bytes = bytes_of(&[atom(name)]);
+        let w = ws();
+        let mut owned = Owned::new(&w);
+        let mut t = Term::new(owned.storage(), &w);
+        t.write_at(BytePos::ZERO, &bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        f(&t);
+    };
+    fed("latin1-osc-nel", &|t| {
+        assert_eq!(t.title(), b"", "NEL: the title was cancelled");
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(1)),
+            "NEL ran and `u` printed"
+        );
+    });
+    fed("latin1-osc-csi", &|t| {
+        assert_eq!(t.title(), b"", "CSI: the title was cancelled");
+        assert_eq!(t.cursor().1, Col::at_index(1), "CSI: `u` printed");
+        assert_ne!(
+            t.viewport().iter().next().map(|c| c.style),
+            Some(baud_domain::StyleId::DEFAULT),
+            "CSI: the SGR coloured the `u`"
+        );
+    });
+    fed("latin1-dcs-osc", &|t| {
+        assert_eq!(t.title(), b"v", "OSC: the DECRQSS gave way to a title");
+        assert!(t.reply().is_empty(), "OSC: the DECRQSS did not answer");
+    });
 }
 
 proptest! {
