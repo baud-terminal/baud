@@ -1,7 +1,8 @@
 # AE. Code extension: the four G slots, GL and GR, and the shifts
 
-**Status: research, unbuilt; researched 2026-10-08.** Nothing here is decided
-or built, and every question in section 4 is open.
+**Status: research, unbuilt; researched 2026-10-08.** Jev answered the same
+day (§10): Q4 and Q16 are decided at 0.96 and 0.98. Every other question in
+section 4 is open and with the owner, and nothing beyond D1/D2 is built.
 
 - **Owner's call, whatever Jev says:** Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12
   and Q17. In each, every option departs from some text (for Q1 under the
@@ -642,6 +643,7 @@ owner takes P-B instead, Q5 becomes (ii).
   - foot: non-ASCII does not consume the shift (terminal.c:4073-4081, 4145,
     4363). That DEPARTS from vt220-rm-ch4 §4.4.4.
 - **Recommend (a)** under either premise.
+- **Decided: (a).** Jev, 2026-10-08, confidence 0.96 (§10).
 
 **Q4.1. What G2 and G3 hold under UTF-8 (owner, with Q2).** Q4(a) has a visible
 consequence once G2/G3 hold anything but ASCII. baud's own key encoder sends
@@ -1115,9 +1117,15 @@ Options:
     graphics glyph then carries no flag, because GL does not hold DEC
     graphics, and a Latin-1 character written under GL's DEC graphics does.
   - (b) **The set the character was translated through.**
-- **Recommend (b).** A shifted or GR-written DEC graphics glyph carries the
+- ~~**Recommend (b).** A shifted or GR-written DEC graphics glyph carries the
   flag on that cell only, and an untranslated character never carries it.
-  The doc changes to match.
+  The doc changes to match.~~
+- **Decided: (a), today's behaviour**, Jev, 2026-10-08, confidence 0.98 (§10),
+  over this note's recommendation of (b), which is superseded. The flag keeps
+  its first sentence's meaning: the set invoked into GL when the cell was
+  written. A single-shifted or GR-written DEC graphics glyph carries no flag,
+  and the doc's second sentence ("so it keeps where the character came from")
+  is the one to change.
 
 ### Q17. Whether RIS restores the input encoding (owner)
 
@@ -1302,7 +1310,8 @@ Further properties:
   - It writes through a `glyph` that takes the cell's flags, so `last_cp`
     takes the translated glyph and REP repeats it
     (`rep_repeats_the_designated_glyph_not_the_raw_byte`, vt100/charsets.rs:638).
-    Under Q16(b) the flags are computed for that cell, and `p.flags` is untouched.
+    Under Q16(a), decided, the cell takes `p.flags` as every write does; GL
+    does not hold DEC graphics, so a shifted glyph carries no `GRAPHICS`.
 - **The loop-advance gate must see the zero.**
   - `consumed()` (graph.rs:1618-1622) hard-codes `Act::Resync | Act::Again =>
     ZERO` and treats every other act as consuming its width.
@@ -1454,9 +1463,10 @@ Level 2-4 reading of DA. Under Q9(b) with the VT102 reading, `ESC n` and
     non-ASCII character fails to consume the shift.
 11. (b) **REP after a shifted character.** Feed `ESC * 0 ESC N q CSI 2 b`.
     Assert `─ ─ ─`. Red: `q q q`.
-12. (b) **The flag stays on its cell (Q16(b)).** Feed `ESC * 0 ESC N q q`.
-    Assert `GRAPHICS` on cell 0 and not on cell 1. Red. Under Q16(a) neither
-    cell carries it, and the test asserts that instead.
+12. (b) **A shifted glyph takes GL's flags (Q16(a), decided).** Feed
+    `ESC * 0 ESC N q q`. Assert `─`, `q`, and `GRAPHICS` on neither cell: GL
+    holds ASCII throughout. **Guard** for the flag (no cell carries it today);
+    the glyph half is red with test 3.
 
 **C1 and GR operands: `tests/encoding/latin1.rs`**
 
@@ -1824,7 +1834,7 @@ The work splits by what each piece waits on.
 | Question | Who decides | Why |
 |---|---|---|
 | Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12, Q17 | **Owner, whatever Jev says** | No option is free of departure (Q1 under the 8bit-level1 reading of `ESC % @`; Q9 under the VT102 reading of DA; both readings the owner's), or the conforming one collides with a practice baud follows (Q8 against the SUB precedent) |
-| P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | |
+| P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | Q4 and Q16 decided (§10); P, Q5, Q7 and Q15 fell below the bar and are the owner's |
 | Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **Jev, then the owner** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
 
 **(a) Buildable now, with no decision.**
@@ -1841,8 +1851,8 @@ The work splits by what each piece waits on.
   the DEL act waits for (c).
 - **The §7 stage (a) doc corrections.** Also `dcs.rs:8` and charset.rs:164.
 
-**(b) After Jev settles P, Q4 and Q6 at 0.9 or better (and Q7 and Q16 for
-the parts they govern). LS2/LS3 also wait for the owner's Q9.**
+**(b) After the owner answers P and Q6 with its sub-points (Q4 and Q16 are
+decided; Q7 for the part it governs). LS2/LS3 also wait for the owner's Q9.**
 
 - What is built:
   - `EscInter` and `SingleShift`;
@@ -1856,7 +1866,8 @@ the parts they govern). LS2/LS3 also wait for the owner's Q9.**
   the `n o` half of 29 and 30, also wait for the owner's Q9.
 - This edits the graph and the stride tables, so the full `ingest2` A/B is
   required (rule #2), with `cells_written` equal on every arm.
-- **(b') After Jev settles Q13:** DECRC's `None` arm (tests 19-21), without GR.
+- **(b') After the owner answers Q13** (Jev did not lean, §10): DECRC's `None`
+  arm (tests 19-21), without GR.
   It is independent of the graph.
 - **`ESC SP N`, if Q18 is (a):** ASCII into G0 and G0 into GL, in `esc_final`'s
   intermediate branch, with no GR and no 96-set needed. It may land with (b)
@@ -1881,3 +1892,54 @@ Jev settles Q5 (LS1R-LS3R under UTF-8).**
 - **Only then do the DECSC and DECRC rows reach `done`.**
 - Q15 (DOCS restore) may land as its own commit at any point after Jev.
 - Q17 is built when the owner answers it.
+
+---
+
+## 10. Jev's answers, 2026-10-08
+
+One request carried every question in section 4, with the governing texts
+quoted, every option marked conforming or departing as this note marks it, and
+the owner's rules verbatim (model `jev-1.13.0`; the request is kept beside the
+research files, and the answers are in Jev's decision log). The bar is
+confidence 0.9.
+
+| Question | Jev's pick | Confidence | Routed |
+|---|---|---|---|
+| P | P-A, UTF-8 is not an ISO 2022 code | 0.68 | owner |
+| Q1 | (a) G2 | 0.72 | owner, whatever Jev says |
+| Q2 | (a) DEC Supplemental | 0.37 | owner, whatever Jev says |
+| Q3 | (a) now, in part | 0.30 | owner |
+| Q4 | (a) act | **0.96** | **decided** |
+| Q4.1 | (α) Q2's value in both encodings | 0.53 | owner, whatever Jev says |
+| Q5, GR bytes | (a) no GR | 0.62 | owner |
+| Q5, LS1R-LS3R | (ii) 9.3.2's 7-bit meaning | 0.69 | owner; conflicts with Jev's P (below) |
+| Q6 | (a) 070's cancel rule | 0.84 | owner |
+| Q6, how many SO/SI | a single | 0.12 | owner; Jev did not lean |
+| Q6, status after `SS2 SO x` | SO acts | 0.64 | owner |
+| Q7 | (a) strip bit 8 | 0.82 | owner |
+| Q8 | (d) 070: A0 the error character, FF ignored | 0.99 | owner, whatever Jev says |
+| Q8, the error character's codepoint | U+2426 | 0.26 | owner; Jev did not lean |
+| Q9 | (a) ungated | 0.62 | owner, whatever Jev says |
+| Q10 | the per-area reading | 0.54 | owner |
+| Q11 | slots | 0.74 | owner, whatever Jev says |
+| Q12 | (iii) both | 0.79 | owner, whatever Jev says |
+| Q13 | (i) 070's snapshot model | 0.18 | owner; Jev did not lean |
+| Q14 | `<` designates the UPSS | 0.62 | owner |
+| Q15 | (a) snapshot and restore | 0.76 | owner |
+| Q16 | (a) as today | **0.98** | **decided** |
+| Q17 | (b) keep Latin-1, which departs | 0.16 | owner, whatever Jev says; Jev did not lean |
+| Q18 | (a) act as 070-3 §3.8.1 says | 0.68 | owner |
+
+**Jev's answers conflict with each other on P and Q5.** It picked P-A at 0.68
+and Q5's LS1R-LS3R option (ii) at 0.69, and §4's table makes (ii) required only
+under P-B; under P-A no text decides, and (i) is the note's recommendation. Both
+picks cannot hold. They go to the owner flagged, as note AD's AD1 conflict did.
+
+**Where Jev did not lean.** A confidence under about 0.3 is close to a coin
+flip, and it is shown so rather than as a pick: Q6's how-many sub-point (0.12),
+Q13 (0.18), Q17 (0.16, and its pick is the departing option) and Q8's codepoint
+(0.26).
+
+**What the two decisions change.** Q4(a) is what §5 and tests 3-10 already
+assume. Q16(a) reverses this note's recommendation: §4's Q16, §5's flags
+sentence and test 12 are corrected above.
