@@ -169,7 +169,7 @@ group  = "C"
 # committed, so the key is citable for what the page does say.
 [sources.dec-special-graphics]
 key    = "dec-special-graphics"
-title  = "VT220 Programmer Reference Manual, EK-VT220-RM-002, chapter 2 -- Table 2-4, DEC Special Graphics Character Set"
+title  = "VT220 Programmer Reference Manual, EK-VT220-RM-002, chapter 2: Character Encoding -- the whole chapter, Tables 2-1 to 2-16: ASCII, the 8-bit code table, DEC Multinational (2-3), DEC Special Graphics (2-4), the eleven NRC sets (2-5 to 2-15) and the Display Controls Font (2-16)"
 author = "Digital Equipment Corporation, transcribed by vt100.net"
 year   = 1984
 venue  = "vt100.net"
@@ -179,6 +179,18 @@ sha256 = "5ab34ac9fa4ae517a420b4ee738d329e53a274ce34a9f6d13c1d2cb8657cf6a8"
 bytes  = 847119
 status = "retrieved"
 group  = "C"
+# Title widened 2026-10-08 for note AF, which cites this file for Table 2-3 and the
+# NRC sets as well as Table 2-4; the title named Table 2-4 alone, and the file is the
+# whole chapter, its h1 "2 Character Encoding". The request to widen it said Tables
+# 2-1 to 2-15; the file runs to 2-16, the Display Controls Font, and the file is
+# followed. url, file and hash are unchanged. Each NRC table is an inline SVG, glyphs in `<text class="chname">` and
+# each substituted cell shaded. **A transcription, and wrong where DEC's printed page
+# differs** (wf-nrcs, wf-check): Table 2-6, Dutch, has £ at 7/13 and ¼ at 7/14 under
+# artwork MA-0893-83F, where the Pocket Guide's p. 8, the same artwork, has ¼ and an
+# apostrophe-shaped accent ([[source: vt220-pocket-guide]]) [img], and STD 070 p. 6-109
+# has "one-qrtr (7/13)" [img]; and it gives 7/12 as a plain `f`, U+0066, where STD 070
+# p. 7-20 names it "florin (Dutch NRCs 7/12)" [img] and EK-PPLV2-PM Figure A-17 draws a
+# hooked ƒ ([[source: dec-pplv2-pm]]).
 
 # The DEC text that sizes the set. "If the Special Graphics set is selected,
 # the graphics for ASCII codes 137 through 176 [octal] will be replaced
@@ -6961,7 +6973,7 @@ group  = "C"
 # reference implementation `[[source: ctlseqs]]` describes, and one answer.
 [sources.xterm-reset]
 key    = "xterm-reset"
-title  = "xterm 411, charproc.c -- CASE_RIS and CASE_DECSTR, and ReallyReset's hard branch"
+title  = "xterm 411, charproc.c, the whole file -- among it CASE_RIS and CASE_DECSTR, ReallyReset's hard branch, and xtermDecodeSCS with its DECNRCM gate"
 author = "Thomas E. Dickey"
 year   = 2026
 venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
@@ -6971,6 +6983,11 @@ sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
 bytes  = 413144
 status = "retrieved"
 group  = "C"
+# Title widened 2026-10-08 for note AF; the key keeps its name, and url, file and hash
+# are unchanged. The file is all of charproc.c, and note AF cites `xtermDecodeSCS`
+# (line 1915), whose table lookup admits an NRC set only `(scs_table[n].need_nrc == 0
+# || (xw->flags & NATIONAL) != 0)` (1929): xterm designates an NRC set only in national
+# mode, DECNRCM. **Cited as xterm's**, practice beside DEC's text.
 
 # alacritty's full reset. `reset_state` (term/mod.rs 1835) swaps back from the
 # alternate screen, resets both grids (1841-1842) and drops the selection
@@ -7045,7 +7062,7 @@ group  = "C"
 # and the body separately because they are two files.
 [sources.foot-vt-ris]
 key    = "foot-vt-ris"
-title  = "foot 1.21.0, vt.c -- ESC c dispatches term_reset(term, true)"
+title  = "foot 1.21.0, vt.c, the whole file -- among it ESC c dispatching term_reset(term, true), and SCS designating G0-G3 for the finals 0 and B only"
 author = "Daniel Eklof"
 year   = 2025
 venue  = "foot terminal emulator"
@@ -7055,6 +7072,12 @@ sha256 = "175fb492205947ef0388471dbe4390ec05d71eb08e2e70aacd08b8c530c1ab66"
 bytes  = 42549
 status = "retrieved"
 group  = "C"
+# Title widened 2026-10-08 for note AF; the key keeps its name, and url, file and hash
+# are unchanged. The file is all of foot's vt.c, and note AF cites its designation of
+# the character sets, "// Designate character set" (lines 545-571): `ESC (`, `)`, `*`
+# and `+` act on two finals, `0` (551), DEC Special Graphics, and `B` (561), ASCII.
+# Any other final leaves the slot as it was, so foot has no NRC set and none of DEC's
+# other sets. **Cited as foot's**: one implementation's answer.
 
 [sources.foot-term-reset]
 key    = "foot-term-reset"
@@ -12700,3 +12723,352 @@ group  = "C"
 # Read for note AE; the research that read it recorded only "the same pinned commits".
 # Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
 # fixes the commit.
+
+# Group C -- note AF, the national replacement character sets and the DEC sets baud
+# does not translate (DEC Supplemental, DEC Technical, JIS-Roman, JIS-Katakana, the
+# Hebrew, Greek and Turkish Supplementals, DEC Cyrillic): DEC's own charts and the
+# manuals searched for them, the vt100.net pages read beside them, the ISO-IR
+# registrations of the two JIS sets, Unicode's JIS X 0201 table, and the X keysym
+# values xterm's NRC tables name. Read in .claude/research/nrcs/ (wf-nrcs,
+# wf-untranslated, and wf-check, which corrects the first two). Every url was re-fetched
+# on 2026-10-08 and matched, byte for byte, the sha256 recorded when it was read. Files
+# under 3 MB are committed, but for three DEC manuals (vt220-pocket-guide, dec-pplv2-pm,
+# vt420-rm), which are `external` with the four over 3 MB; see each entry for why.
+# Page numbers below are the
+# reports', printed or PDF as they give them. A quote tagged [img] was read off a page
+# image, [text] from the file's text; a reading carried from a report names the report.
+
+[sources.vt220-pocket-guide]
+key    = "vt220-pocket-guide"
+title  = "VT220 Programmer Pocket Guide, EK-VT220-HR-002 -- the NRC set tables, pp. 7-17, and the SCS finals, pp. 28-29"
+author = "Digital Equipment Corporation"
+year   = 1984
+venue  = "bitsavers.org (a scan with an OCR text layer)"
+url    = "https://www.bitsavers.org/pdf/dec/terminal/vt220/EK-VT220_HR-002_VT220_Programmer_Pocket_Guide_198407.pdf"
+file   = ""
+sha256 = "3f848566750fd7f830e56bf98945fbcb8935b7a173234b1aeeaa06f8f4910041"
+bytes  = 1761003
+status = "external"
+group  = "C"
+# Not committed: a DEC manual; the Pocket Guide's edition page reads 'reproduction ...
+# strictly prohibited', so DEC's PDFs are pinned by hash and fetched to read, not
+# redistributed. Re-fetch at the url and compare the sha256.
+# Fetched 2026-10-08 for note AF, with a browser's user agent: bitsavers answers 403 to
+# curl's default. Its edition page (PDF p. 3) [img]: "1st Edition, August 1983 / 2nd
+# Edition, July 1984", and "The reproduction of this material, in part or whole, is
+# strictly prohibited." DEC's printed page for the NRC sets, against
+# which the vt100.net transcription of the VT220 RM [[source: dec-special-graphics]] is
+# checked. The scan has an OCR layer; every reading below was taken from a 150-600 dpi
+# page render instead (wf-nrcs, wf-check) [img]: p. 8, Dutch, with ¼ at 7/13 and an
+# apostrophe-shaped accent at 7/14 under artwork number MA-0893-83F, the number the
+# transcription's Table 2-6 carries with £ and ¼ there; p. 16 (PDF p. 21), Swedish, É
+# at 4/0 under MA-0893-83L, as Table 2-14; pp. 28-29, the finals (French `R` only).
+
+[sources.dec-pplv2-pm]
+key    = "dec-pplv2-pm"
+title  = "Digital ANSI-Compliant Printing Protocol Level 2 Programming Reference Manual, EK-PPLV2-PM.B01 -- Appendix A, the character sets (Figures A-2 to A-31, Tables A-1 and A-2), and Tables 7-7 and 7-8"
+author = "Digital Equipment Corporation"
+year   = 1994
+venue  = "vt100.net, mirror of DEC's MDS CD (mirror/mds-199909)"
+url    = "https://vt100.net/mirror/mds-199909/cd3/printer/pplv2pmb.pdf"
+file   = ""
+sha256 = "0d47bb9b30100ab2b24bdf05cf565775970442736a42c7cbb9f98ca55a4cf13f"
+bytes  = 803693
+status = "external"
+group  = "C"
+# Not committed: a DEC manual; the Pocket Guide's edition page reads 'reproduction ...
+# strictly prohibited', so DEC's PDFs are pinned by hash and fetched to read, not
+# redistributed. Re-fetch at the url and compare the sha256.
+# Fetched 2026-10-08 for note AF. "First Printing, September 1991 / Revised, August
+# 1994" [text]. Born digital, its fonts not embedded: the one DEC manual found that
+# charts every set baud does not translate but DEC Cyrillic, for which no DEC chart was
+# found anywhere (the VT420 and VT382 manuals chart DEC Technical too, and the VT382
+# JIS-Roman and JIS-Katakana). Read for §A.2 p. A-2 (PDF 180), "The error character is
+# printed when one of these reserved characters is received by the device." [text],
+# and Figure A-2, DEC Supplemental, p. A-4 (PDF 182); §A.4 and Figure A-4, DEC
+# Technical, pp. A-6 and A-7 (PDF 185), with Table A-1 p. A-8 (PDF 186); Table A-2
+# p. A-11 (PDF 189), "National Replacement Character Set Pairing Fallbacks" [text];
+# Figures A-6 to A-19, the NRC sets (A-13 and A-16 Norwegian/Danish, A-15 DEC Swedish
+# at PDF 199, A-17 Dutch); Figure A-12, JIS-Roman, p. A-18 (PDF 196); §A.8-A.10 with
+# Figures A-21 "DEC 7-Bit Hebrew", A-22 "DEC Hebrew Supplemental", A-24 "DEC Greek
+# Supplemental", A-26 "DEC 7-Bit Turkish" and A-27 "DEC 8-Bit Turkish Supplemental"
+# [text] -- A-21 (PDF 207) and A-26 (PDF 214) chart the 7-bit sets baud translates
+# from xterm's table, and A-26's 2/1 is an `i` whose dot a white rectangle covers
+# (wf-check); §A.12 and Figure A-31, JIS-Katakana, p. A-43 (PDF 221); Tables 7-7
+# (p. 7-74) and 7-8, the designators. The reserved masks were read by script from the
+# figures' hatching, the glyphs from page renders [img], since the text layer loses
+# most of them (wf-untranslated, wf-check). Another copy (733,833 bytes, at
+# computer-refuge and vaxhaven) was never hashed and is not this file.
+
+[sources.vt420-rm]
+key    = "vt420-rm"
+title  = "VT420 Programmer Reference Manual, EK-VT420-RM.002 -- Table 2-1, National Replacement Character Sets, and Figures 2-7 and 2-10"
+author = "Digital Equipment Corporation"
+year   = 1992
+venue  = "vt100.net, mirror of DEC's MDS CD (mirror/mds-199909)"
+url    = "https://vt100.net/mirror/mds-199909/cd3/term/vt420rm2.pdf"
+file   = ""
+sha256 = "6edca845f10c8fc10be87f111d0ad95130d6aa15a09de578bbb8d5133511ecd2"
+bytes  = 1610553
+status = "external"
+group  = "C"
+# Not committed: a DEC manual; the Pocket Guide's edition page reads 'reproduction ...
+# strictly prohibited', so DEC's PDFs are pinned by hash and fetched to read, not
+# redistributed. Re-fetch at the url and compare the sha256.
+# Fetched 2026-10-08 for note AF. "First Edition, November 1989 / Second Edition,
+# February 1992" [text]. Born digital. Read for Table 2-1 on p. 28 (PDF p. 50), from a
+# render [img] and by script (wf-nrcs, wf-check); it gives Norwegian/Danish `@ ^ ` ~`
+# at 4/0, 5/14, 6/0 and 7/14 where the VT220 gives Ä Ü ä ü. Figure 2-7, p. 25; Figure
+# 2-10, DEC Technical, p. 30, read at 400 dpi [img], with "This 7-bit character set has
+# 94 graphic characters" [text] (wf-untranslated); Table 5-3, the finals (wf-check).
+
+[sources.vt510-rm-b]
+key    = "vt510-rm-b"
+title  = "VT510 Video Terminal Programmer Information, EK-VT510-RM.B01 -- DEC's PDF, of which the vt510-* keys are vt100.net's transcription"
+author = "Digital Equipment Corporation"
+year   = 1993
+venue  = "vt100.net, mirror of DEC's MDS CD (mirror/mds-199909)"
+url    = "https://vt100.net/mirror/mds-199909/cd3/term/vt510rmb.pdf"
+file   = ""
+sha256 = "440bbee110eb75027a06b5b375683fbc87cb739edac32899005ad46981c7d514"
+bytes  = 3378497
+status = "external"
+group  = "C"
+# `external`: 3,378,497 bytes, over the 3 MB note AF commits. Read and hashed
+# 2026-10-08. "First Edition, November 1993" [text]. Born digital; its text was
+# searched, not its figures (wf-untranslated, wf-check) [text]: the figure list (no
+# character-set charts), "DEC Cyrillic" in the designator table with no chart to
+# follow, and Greek only in keyboard figures.
+
+[sources.vt520-rm]
+key    = "vt520-rm"
+title  = "VT520/VT525 Video Terminal Programmer Information, EK-VT520-RM.A01"
+author = "Digital Equipment Corporation"
+year   = 1994
+venue  = "bitsavers.org"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt5xx/EK-VT520-RM_VT520_VT525_Programmer_Information_Jul94.pdf"
+file   = ""
+sha256 = "7f46fe770fc4ef9273bc4e1228862cb444967964c1dc2bb1d7c2f71f909017f2"
+bytes  = 4654400
+status = "external"
+group  = "C"
+# `external`: 4,654,400 bytes, over the 3 MB note AF commits. Read and hashed
+# 2026-10-08, fetched with a browser's user agent (bitsavers answers 403 to curl's
+# default). "July 1994" [text]. Born digital; searched for the figure and table lists
+# and the designator rows (wf-untranslated, wf-check) [text]: no character-set charts,
+# "DEC Cyrillic" in the designator table with no chart to follow, and Greek only in
+# keyboard figures.
+
+# No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
+# contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is
+# supplied from memory.
+[sources.vt382-rm]
+key    = "vt382-rm"
+title  = "VT382 Kanji Display Terminal Programmer Reference Manual, EK-VT382-RM-001 -- §2.4.4 DEC Technical, §2.4.5 JIS-Roman, §2.4.6 JIS-Katakana"
+author = "Digital Equipment Corporation"
+venue  = "vt100.net (a scan with no text layer)"
+url    = "https://vt100.net/dec/ek-vt382-rm-001.pdf"
+file   = ""
+sha256 = "5cab5255e776c7ffeb246924f740a18c587e037a197b46e206923348d802f9ae"
+bytes  = 7102384
+status = "external"
+group  = "C"
+# `external`: 7,102,384 bytes, over the 3 MB note AF commits. Read and hashed
+# 2026-10-08. Its contents page (PDF p. 3) puts §2.4.4 at p. 2-16, §2.4.5 at 2-17 and
+# §2.4.6 at 2-18 [img]. Read by wf-untranslated off the page images, and re-read off
+# them on 2026-10-08 when this entry was written [img]: §2.4.4 p. 2-16 (PDF 36), with
+# Figure 2-8, DEC Technical, "This 7-bit character set has 94 graphic characters";
+# §2.4.5 p. 2-17 (PDF 37), JIS-Roman, "This set differs from the ASCII Character Set
+# only in that the Yen sign(¥)replaces the backslash(\) in column 5, row 12 (5/12) and
+# the over line (¯) replaces the tilde (˜) in column 7, row 14 (7/14)", the two glyphs
+# in parentheses as the scan's resolution lets them be read; §2.4.6 p. 2-18 (PDF 38),
+# JIS-Katakana, "When the VT382 receives 14/0 through 15/14, the VT382 displays a
+# reverse question mark on the screen."
+
+[sources.vt3xx-hr]
+key    = "vt3xx-hr"
+title  = "VT330/VT340 Programmer Pocket Guide, EK-VT3XX-HR-002"
+author = "Digital Equipment Corporation"
+year   = 1988
+venue  = "vt100.net (a scan with no text layer)"
+url    = "https://vt100.net/dec/ek-vt3xx-hr-002.pdf"
+file   = ""
+sha256 = "2d414c6ee53ad1352fab995b0f76426e79fb18c2b9cab484d032393caf713415"
+bytes  = 4125960
+status = "external"
+group  = "C"
+# `external`: 4,125,960 bytes, over the 3 MB note AF commits, and its edition page
+# reads "The reproduction of this material, in part or whole, is strictly prohibited."
+# [img] Hashed 2026-10-08. **Not read for any claim**: the NRCS research listed it as
+# fetched and not read. Only its cover and edition page (PDF pp. 1 and 4) have been
+# read, for this entry [img]: "1st Edition, March 1987 / 2nd Edition, May 1988". Pinned
+# because
+# [[source: vt100net-technical]] names the -001 edition's DEC Technical diagram "small but
+# accurate". Read a page before citing it.
+
+[sources.vt320-uu-appe]
+key    = "vt320-uu-appe"
+title  = "Installing and Using the VT320 Video Terminal, EK-VT320-UU-001, Appendix E: VT320 Programming Summary"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt320-uu/appendixe.html"
+file   = "vt320-uu-appendixe.html"
+sha256 = "5a5e40b0fd79f97f3432cc4904400edac781449027e36c18faf737537f448e2b"
+bytes  = 399095
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AF. vt100.net's cover page says it reproduces "the first
+# edition of this book, published by Digital in June 1987" [text]. Read for its SCS
+# table and its DEC Supplemental chart, an inline SVG (wf-untranslated); wf-check did
+# not confirm that chart's agreement with VT220 Table 2-3. The page's <title> is
+# appendix C's, "...: Communication"; its h1 is "E VT320 Programming Summary" [text].
+
+[sources.vt420-uu-ch9]
+key    = "vt420-uu-ch9"
+title  = "Installing and Using the VT420 Video Terminal, EK-VT420-UU-002, chapter 9: VT420 Programming Summary"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1990
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt420-uu/chapter9.html"
+file   = "vt420-uu-chapter9.html"
+sha256 = "e4dbce344d4f051f0cd4255087d71e331d9297185b9f45ad69fe47f48664b1af"
+bytes  = 116305
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AF. vt100.net's cover page says it reproduces "the
+# second edition of this book, published by Digital in June 1990" [text]. Read for its
+# SCS table: DEC Technical is `>` 3/14 (wf-untranslated) [text].
+
+[sources.vt100net-technical]
+key    = "vt100net-technical"
+title  = "DEC Technical Character Set (TCS) -- vt100.net's chart, with a Unicode mapping for each position"
+author = "Paul Flo Williams"
+year   = 2002
+venue  = "vt100.net"
+url    = "https://vt100.net/charsets/technical.html"
+file   = "vt100net-charsets-technical.html"
+sha256 = "6c087a095da34cfe8550f2a82cb127a672f0850db3c6abea7702e8004dc3e5aa"
+bytes  = 32142
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AF and read whole. **Practice, not DEC**: Williams's
+# Unicode choices beside a PNG of the LN03's glyphs, "Copyright 2000-2002 Paul Flo
+# Williams." [text]; xterm's map_DEC_Technical says it is "derived from
+# http://www.vt100.net/charsets/technical.html" (xterm-charsets.h line 491) [text]. It
+# names its own DEC sources [text]: EK-VT420-UU-002's diagram, which "swaps 07/05 and
+# 07/06", EK-VT3XX-HR-001's, "small but accurate", and EK-0LN03-RM-002's, the largest.
+# At 2/11-2/14 it has the parenthesis hooks U+239B, U+239D, U+239E and U+23A0, where
+# xterm has the curly-bracket hooks (wf-check).
+
+[sources.unicode-jis0201]
+key    = "unicode-jis0201"
+title  = "JIS0201.TXT -- JIS X 0201 (1976) to Unicode 1.1 Table, an obsolete mapping"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/OBSOLETE/EASTASIA/JIS"
+url    = "https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0201.TXT"
+file   = "JIS0201.TXT"
+sha256 = "3f26a4c8c083cb6303dcdfcac2b73e8119c1cc1a7da1736fc7435f6efbd037de"
+bytes  = 7303
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AF and read whole. Not DEC, and filed under OBSOLETE/;
+# its header says "these data are *possible* mappings only" [text]. Mapping dated 2011 October
+# 14, header updated 2015 December 02. It maps 0x5C to U+00A5 YEN SIGN, 0x7E to U+203E
+# OVERLINE, and 0xA1-0xDF to U+FF61-U+FF9F, 63 characters: the glyph identities DEC
+# names JIS X 0201 as the source of.
+
+[sources.iso-ir-013]
+key    = "iso-ir-013"
+title  = "ISO-IR 013 -- The Japanese KATAKANA graphic set of characters (JIS C 6220-1969), ESC 2/8 4/9"
+author = "Japanese Industrial Standards Committee (sponsor); ISO International Register of Coded Character Sets"
+year   = 1975
+venue  = "itscj.ipsj.or.jp, the ISO-IR register"
+url    = "https://itscj.ipsj.or.jp/ir/013.pdf"
+file   = ""
+sha256 = "b2cc1da46271d83cfe16fe246117d69194c2bd2f72efb1c86f3ebcb7b2c4d638"
+bytes  = 78144
+status = "external"
+group  = "C"
+# Fetched 2026-10-08 for note AF. A scan. The NRCS research listed it as fetched and
+# not read; page 1, the registration form, was read off its image for this entry
+# [img]: registration date 1975/12/01, G0 "ESC 2/8 4/9" and G1 "ESC 2/9 4/9", origin
+# "Japanese industrial standard JIS C 6220 - 1969", used "together with "JIS Roman
+# charater set"" [sic] through SO and SI. Its chart page has not been read.
+# Not committed: the ISO-IR registration document's redistribution terms were not
+# read, so it is pinned by hash and fetched to read. Re-fetch at the url and compare.
+
+[sources.iso-ir-014]
+key    = "iso-ir-014"
+title  = "ISO-IR 014 -- The Japanese Roman graphic set of characters (JIS C 6220-1969), ESC 2/8 4/10"
+author = "Japanese Industrial Standards Committee (sponsor); ISO International Register of Coded Character Sets"
+year   = 1975
+venue  = "itscj.ipsj.or.jp, the ISO-IR register"
+url    = "https://itscj.ipsj.or.jp/ir/014.pdf"
+file   = ""
+sha256 = "eeefd6990c98dcb078582455406f6194855b9373116cdc02926936dc851db325"
+bytes  = 93176
+status = "external"
+group  = "C"
+# Fetched 2026-10-08 for note AF. A scan. The NRCS research listed it as fetched and
+# not read; page 1, the registration form, was read off its image for this entry
+# [img]: registration date 1975/12/01, G0 "ESC 2/8 4/10" and G1 "ESC 2/9 4/10", "a Japanese
+# version of ISO 646", origin "Japanese Industrial standard JIS C 6220 1969". 4/10 is
+# `J`, the final wf-untranslated gives for DEC's JIS-Roman. Its chart page has not been
+# read.
+# Not committed: the ISO-IR registration document's redistribution terms were not
+# read, so it is pinned by hash and fetched to read. Re-fetch at the url and compare.
+
+[sources.xorg-keysymdef]
+key    = "xorg-keysymdef"
+title  = "keysymdef.h -- the X keysym values, each with its Unicode codepoint (xorgproto 2026.1)"
+author = "The Open Group, Digital Equipment Corporation, and the X.Org contributors"
+year   = 2026
+venue  = "xorgproto, freedesktop.org GitLab, tag xorgproto-2026.1 @ 6d3907b6"
+url    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/include/X11/keysymdef.h"
+file   = "xorg-keysymdef.h"
+sha256 = "292e94a8493c78d32d32f9c56c2db803a214189313093e57aebd7506ebf0cc47"
+bytes  = 187223
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-08 for note AF. xterm's charsets.h [[source: xterm-charsets]] names its NRC
+# substitutions by keysym and defines none, so its Swedish `MAP(0x40, XK_Eacute)` --
+# the line scripts/gen-nrcs-tables.py drops for want of a `/* U+ */` comment --
+# resolves only here, line 769 [text]: `#define XK_Eacute 0x00c9 /* U+00C9 LATIN CAPITAL
+# LETTER E WITH ACUTE */`. master resolved that day to 6d3907b6, tag xorgproto-2026.1
+# (committed 2026-10-03), and master's raw url served these bytes too.
+
+# The Unicode 18.0 code charts for the error character's candidates (fetched
+# 2026-10-09). Not committed: the charts' Terms of Use forbid copies "for public
+# distribution". Pinned by hash; re-fetch at the url and compare the sha256.
+[sources.unicode18-chart-2400]
+key    = "unicode18-chart-2400"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Control Pictures (2400-243F)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/U2400.pdf"
+file   = ""
+sha256 = "ce5ffdd324af22c1805b2765c1e75a06c1f24bcd57878d8e24508a4d0d594a96"
+bytes  = 106336
+status = "external"
+group  = "J"
+# Read: the names list's "2426 ␦ SYMBOL FOR SUBSTITUTE FORM TWO / • from ISO 2047
+# / → 061F arabic question mark" (text layer), and the reference glyph at 2426,
+# a reversed question mark (page 2 rendered at 300 dpi).
+
+[sources.unicode18-chart-2e00]
+key    = "unicode18-chart-2e00"
+title  = "The Unicode Standard, Version 18.0 -- code chart and names list, Supplemental Punctuation (2E00-2E7F)"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org code charts"
+url    = "https://www.unicode.org/charts/PDF/U2E00.pdf"
+file   = ""
+sha256 = "0d5b1351bd32d02b083865d4078856a375a2ac247d994c55acc3650286a49831"
+bytes  = 310847
+status = "external"
+group  = "J"
+# Read: "2E2E ⸮ REVERSED QUESTION MARK / = punctus percontativus / → 003F ? question
+# mark" (text layer), and its reference glyph (page 2 rendered at 300 dpi).
