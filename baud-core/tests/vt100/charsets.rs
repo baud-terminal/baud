@@ -254,6 +254,30 @@ fn selective_erase_respects_protected_graphics() {
     assert_eq!(after, kept);
 }
 
+// ── save and restore ────────────────────────────────────────────────────────
+
+/// **DECSC saves the four slots and which one GL reads through, and DECRC
+/// brings both back.** `[[source: vt510-decsc]]` lists "Character sets (G0,
+/// G1, G2, or G3) currently in GL and GR". `Saved` has held `g` and `gl`
+/// since 6ecee7c, and no test held either: a restore that dropped one left
+/// the suite green. Here G1 holds DEC graphics and is invoked when the cursor
+/// is saved; SI and a redesignation of G1 to ASCII undo both, and DECRC must
+/// redo both. GR is not modelled yet (note AE).
+#[test]
+fn a_cursor_restore_brings_back_the_slots_and_the_shift() {
+    let (cells, set) = run(b"\x1b)0\x0e\x1b7\x0f\x1b)B\x1b8q");
+    assert_eq!(
+        set,
+        Charset::DecGraphics,
+        "GL reads G1 again, and G1 holds DEC graphics again"
+    );
+    assert_eq!(
+        cells[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x2500),
+        "q draws the horizontal line"
+    );
+}
+
 // ── resets and invariance ───────────────────────────────────────────────────
 
 /// RIS returns every slot to ASCII and GL to G0.
