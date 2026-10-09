@@ -1532,6 +1532,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
         DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node, at),
+        DomCsi::SaveModes => p.save_private_modes(csi),
+        DomCsi::RestoreModes => p.restore_private_modes(csi, node, at),
         DomCsi::Mode { change, mode } => p.apply_ansi_mode(change, mode),
         DomCsi::SelectProtection { protect } => {
             p.cold.protect = CellFlags::protection(protect.is_protected());

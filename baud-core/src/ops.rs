@@ -1016,6 +1016,71 @@ impl Paint<'_, '_> {
         csi.for_each_param(|p| self.set_private_mode(PrivateMode::from_wire(p), change, node, at));
     }
 
+    /// XTSAVE, `CSI ? Pm s` (`[[source: ctlseqs]]`): "Ps values are the same
+    /// as for DECSET ... Only those modes listed as parameters are saved."
+    ///
+    /// **Each listed mode DECSET acts on keeps the value `DECRQM` would
+    /// answer**, so what is saved is what an application asking would have
+    /// been told, and one listed twice keeps its last value -- one level, as
+    /// DECSC's is. A mode DECSET does not act on is counted, a parameter at a
+    /// time, as DECSET's wildcard counts it: unnamed, the read-only `?1020`,
+    /// the permanent `?2027` ([`PrivateMode::slot`]).
+    pub(crate) fn save_private_modes(&mut self, csi: &crate::write::Csi) {
+        csi.for_each_param(|p| {
+            let m = PrivateMode::from_wire(p);
+            let value = match self.private_state(m) {
+                ModeState::Set => Some(ModeChange::Set),
+                ModeState::Reset => Some(ModeChange::Reset),
+                _ => None,
+            };
+            match (m.slot(), value) {
+                (Some(slot), Some(v)) => self.cold.xtsave.save(slot, v),
+                _ => self.unsupported_param += 1,
+            }
+        });
+    }
+
+    /// XTRESTORE, `CSI ? Pm r`: "The value of Ps previously saved is
+    /// restored ... Only those modes listed as parameters are restored."
+    ///
+    /// **Through DECSET's own path**, so a restore has every effect setting
+    /// or resetting that mode has -- `?1049` saves and clears or restores the
+    /// cursor, `?6` homes, `?3` clears, `?2048` reports -- and `DECRQM`
+    /// answers from the state it left, never from the cache. **Only a mode
+    /// whose value differs from the one saved is set or reset**: a value
+    /// already in force is restored, and replaying it would undo what a
+    /// family's other members restored -- DECRST of any tracking level turns
+    /// tracking off, so restoring `?1000` reset under `?1002` would drop the
+    /// `?1002` restored before it -- and would clear an alternate screen that
+    /// is already up. **A mode never saved restores nothing**: there is no
+    /// value "previously saved". xterm restores each from its own bespoke
+    /// code and a zeroed array; where that differs is the owner's call
+    /// (`savemodes`, `restoremodes`, `[[source: xterm-reset]]`).
+    pub(crate) fn restore_private_modes(
+        &mut self,
+        csi: &crate::write::Csi,
+        node: &mut crate::graph::Node,
+        at: BytePos,
+    ) {
+        csi.for_each_param(|p| {
+            let m = PrivateMode::from_wire(p);
+            let Some(slot) = m.slot() else {
+                self.unsupported_param += 1;
+                return;
+            };
+            let Some(want) = self.cold.xtsave.saved(slot) else {
+                return;
+            };
+            let now = match self.private_state(m) {
+                ModeState::Set => ModeChange::Set,
+                _ => ModeChange::Reset,
+            };
+            if now != want {
+                self.set_private_mode(m, want, node, at);
+            }
+        });
+    }
+
     /// `?5`, counted where it happens.
     fn set_reverse_video(&mut self, change: ModeChange) {
         let during = self.update();
@@ -1467,6 +1532,14 @@ impl Paint<'_, '_> {
         // is not a flip anything could have shown.
         self.flip_reverse_video(ModeChange::Reset, during);
         self.cold.modes = Modes::default();
+        // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
+        // reset "to its initial state, i.e. the state it has after it is made
+        // operational" (`[[source: ecma48]]`), and nothing is saved then.
+        // `DECSTR` keeps it, as its list does not name it. xterm keeps it
+        // across both -- `ReallyReset` never touches `save_modes`
+        // (`[[source: xterm-reset]]`) -- which departs from the text: the
+        // owner's call.
+        self.cold.xtsave = SavedModes::NONE;
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
         self.cold.highlight = HighlightTracking::Off;
@@ -1683,7 +1756,14 @@ impl Paint<'_, '_> {
                 _ => ModeState::NotRecognized,
             };
         }
-        match PrivateMode::from_wire(Some(mode)) {
+        self.private_state(PrivateMode::from_wire(Some(mode)))
+    }
+
+    /// What `DECRQM` answers for one private mode: the one reading XTSAVE
+    /// saves and XTRESTORE compares, so a value saved is the value an
+    /// application asking would have been told.
+    pub(crate) fn private_state(&self, m: PrivateMode) -> ModeState {
+        match m {
             PrivateMode::Origin => bit_state(self.cold.modes, ModeBit::Origin),
             PrivateMode::AutoWrap => bit_state(self.cold.modes, ModeBit::AutoWrap),
             PrivateMode::CursorKeys => bit_state(self.cold.modes, ModeBit::CursorKeys),

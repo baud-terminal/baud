@@ -629,7 +629,9 @@ relative luminance 0.216 is below the text's 1.0.
 baud-core, baud-domain, baud-app or baud-render (control: `?2026` in
 `baud-domain/src/vt/mode.rs`); DECRQM ?2031 answers 0, not recognised, so
 neovim would never subscribe; `CSI ? 996 n` falls to `Csi::Unsupported`,
-counted and silent. **baud has no XTSAVE**, so nothing needs saving. The
+counted and silent. **baud has no XTSAVE**, so nothing needs saving
+(*2026-10-09:* XTSAVE and XTRESTORE are built, and `?2031` is saved and
+restored with every mode DECSET acts on). The
 precedent for an embedder-triggered, mode-gated report already exists:
 `Term::focus` queues a report only when `?1004` is set.
 
@@ -1470,6 +1472,7 @@ unsolicited report is sent for `?5`.
   cannot fire under its defaults; ghostty-GTK auto is an OS/palette hybrid.
 - **contour sends no 997 on a config reload**, against its own spec's clause.
 - **baud has no XTSAVE**; a recommendation to save 2031 in it is moot.
+  *2026-10-09:* XTSAVE is built and saves `?2031`, so it is no longer moot.
 - **The Modus ports' ANSI 15 (`#595959`) is from kitty-themes**, not any
   upstream release.
 - **The Modus Emacs mapping's backgrounds under 0x27 are 1.33-2.13**, not

@@ -422,6 +422,16 @@ fn every_spec_csi_form_is_handled_or_counted() {
             b"\x1b[?1l",
             "DECCKM reset, and cursor-keys mode starts reset",
         ),
+        (
+            b"\x1b[?1s",
+            "XTSAVE keeps DECCKM in its cache; nothing exposes the cache -- \
+             save_restore_modes.rs restores it",
+        ),
+        (
+            b"\x1b[?1r",
+            "XTRESTORE with nothing saved restores nothing by design -- \
+             only_what_was_saved_and_listed_is_restored",
+        ),
     ];
 
     let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));

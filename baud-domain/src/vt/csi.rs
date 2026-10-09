@@ -663,6 +663,14 @@ pub enum Csi {
         change: ModeChange,
         mode: PrivateMode,
     },
+    /// XTSAVE, `CSI ? Pm s` (`[[source: ctlseqs]]`): "Save DEC Private Mode
+    /// Values ... Ps values are the same as for DECSET." The `?` is what keeps
+    /// it from SCOSC, `CSI s`, and from DECSLRM, which needs DECLRMM *and* the
+    /// standard namespace; every parameter is a mode, read by the caller.
+    SaveModes,
+    /// XTRESTORE, `CSI ? Pm r`: "The value of Ps previously saved is
+    /// restored." The `?` keeps it from DECSTBM, `CSI Ps ; Ps r`.
+    RestoreModes,
     /// `CSI Ps ; Ps ; Ps ; Ps ; Ps T` — XTHIMOUSE.
     ///
     /// Recognised so it cannot be mistaken for SD, and not acted on:
@@ -696,7 +704,7 @@ impl Csi {
     /// resolved without the mode -- so the mode is a parameter rather than
     /// something the caller patches up afterwards.
     /// **`#[inline]` so the construct-and-match pair can collapse.** This
-    /// builds a 54-variant enum that `baud-core`'s `csi_final` destructures
+    /// builds a 56-variant enum that `baud-core`'s `csi_final` destructures
     /// immediately -- two dispatches on the same final byte where one would
     /// do. Across a call boundary LLVM cannot see that; inlined it can thread
     /// the construction straight into the caller's arms. The caller is
@@ -853,6 +861,10 @@ impl Csi {
                 },
                 // `[[source: kitty-keyboard]]` query, `CSI ? u`.
                 b'u' => Csi::KittyQuery,
+                // XTSAVE and XTRESTORE. Not SCOSC or DECSLRM, not DECSTBM:
+                // those are the standard namespace's `s` and `r`.
+                b's' => Csi::SaveModes,
+                b'r' => Csi::RestoreModes,
                 b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
@@ -1102,6 +1114,8 @@ impl Csi {
             // "Erase Saved Lines, xterm" in both forms: the saved lines are
             // xterm's, and no DEC level has them.
             EraseSavedLines | SelectiveEraseSavedLines => Level::Xterm,
+            // XTSAVE and XTRESTORE are xterm's by name.
+            SaveModes | RestoreModes => Level::Xterm,
             // XTMODKEYS and XTFMTKEYS are xterm's, and input-side: they change
             // what the keyboard sends rather than what the screen shows. The
             // kitty negotiation is the same shape -- input-side, and an

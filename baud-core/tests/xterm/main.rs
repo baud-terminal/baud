@@ -16,6 +16,7 @@ mod hyperlinks;
 mod keypad_version;
 mod mouse;
 mod osc;
+mod save_restore_modes;
 mod soft_reset_scope;
 
 /// **No gaps, and there never was one here.**

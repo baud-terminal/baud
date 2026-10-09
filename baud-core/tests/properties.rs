@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator has 79
-//! operations and reaches the *protocol*; this one has fifteen atoms and
+//! operations and reaches the *protocol*; this one has nineteen atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -182,6 +182,42 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **DECTCEM, and XTSAVE and XTRESTORE of it**: the only mode atoms in the
+    // alphabet, and what the drivers below compare beside the cells. A save
+    // or a restore whose sequence a read boundary splits, or a restore that
+    // fires where nothing was saved, leaves the cursor shown where it should
+    // be hidden or the reverse. A mode that moves the cursor or changes the
+    // wrap would put the cache on the screen itself, and both were tried
+    // first: `?7l` and `?6h` each broke the two chunk properties at once on
+    // defects of the write path's own, not of the cache -- an ASCII write
+    // over a wide character's right half at the last column under DECAWM
+    // reset, and a base and its mark over a wide character's left half from
+    // a new read, each of which leaves the other half on one path and blanks
+    // it on another. Recorded; each fix is a write-path change of its own.
+    Atom {
+        name: "cursor-hide",
+        bytes: b"\x1b[?25l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cursor-show",
+        bytes: b"\x1b[?25h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "xtsave-dectcem",
+        bytes: b"\x1b[?25s",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "xtrestore-dectcem",
+        bytes: b"\x1b[?25r",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -204,8 +240,9 @@ fn ws() -> WinSize {
 }
 
 /// Feed `bytes` in `chunk`-sized reads and return **every cell**, not a row
-/// and not a string projection.
-fn drive(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
+/// and not a string projection -- and whether the cursor is shown, the one
+/// mode the alphabet sets, saves and restores.
+fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool) {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -216,7 +253,7 @@ fn drive(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    support::screen(&t)
+    (support::screen(&t), t.cursor_visible())
 }
 
 /// The same program, but each **atom** delivered in its own `feed`.
@@ -226,7 +263,7 @@ fn drive(bytes: &[u8], chunk: usize) -> Vec<PackedCell> {
 /// a run of four and four runs of one must agree. That is the class chunk
 /// invariance is structurally blind to -- where both chunkings are wrong the
 /// same way, which is what the blitter's clipping bug was.
-fn drive_atomwise(prog: &[usize]) -> Vec<PackedCell> {
+fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool) {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -235,7 +272,7 @@ fn drive_atomwise(prog: &[usize]) -> Vec<PackedCell> {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
     }
-    support::screen(&t)
+    (support::screen(&t), t.cursor_visible())
 }
 
 /// **The control, and nothing below it is believable until it passes.**

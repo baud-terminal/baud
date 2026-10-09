@@ -588,7 +588,7 @@ All file:line citations are at e138e34 on `smooth-scroll` [source] unless tagged
 | pending wrap | baud-core/src/term.rs:2084-2110 | `Term::cursor()` clamps away the one-past-the-margin state, so the renderer cannot hide the cursor there, as terminal-wg prefers. The core would have to expose it. |
 | modes | baud-domain/src/vt/mode.rs:99-113, 124-235, 369-400; baud-core/src/ops.rs:1309-1315, 1562-1661 | BDSM needs an `AnsiMode` variant for 8, some state, and a `mode_state` arm. `ModeBit` uses 20 of its 32 bits. |
 | sequences today | csi.rs:742-773, 869-952; mode.rs:108-113 | Every bidi sequence is counted rather than silently dropped. BDSM falls to `AnsiMode::Other`, and DECRQM 8 answers 0. SCP and SPD hit the intermediate branch's Unsupported arm; only `SP q` is handled there. SRS, SDS and SIMD hit the default Unsupported arm. `?2500`, `?2501` and `?1243` become `PrivateMode::Other`. |
-| XTSAVE/XTRESTORE | csi.rs:835-860 | Missing; the private-marker finals handled are h, l, u, n(996), J and K. terminal-wg's `?1243` design relies on them. |
+| XTSAVE/XTRESTORE | csi.rs:835-860 | Missing; the private-marker finals handled are h, l, u, n(996), J and K. terminal-wg's `?1243` design relies on them. *Built 2026-10-09:* every mode DECSET acts on is saved, so `?1243` needs a slot in `PrivateMode::slot` when it is built, which `every_mode_decset_changes_is_saved_and_restored_and_no_other_is` enforces. |
 | coverage gates | docs/vt-coverage.md; baud-core/tests/coverage.rs:71, 163, 234, 292; conformance/enumerated.rs:146, 183; spec_inventory.rs; api_coverage.rs:70; docs.rs:260; audit_all.sh:114-117, 199, 207, 406-412 | There is no bidi row [measured: grep; the control DECSTBM hits 2 times]. Partial, parsed and todo rows are forbidden, and every `out` row needs a reason. ctlseqs lists none of these sequences, so spec_inventory cannot force them [measured: ctlseqs' SM list is 2, 4, 12, 20]. baud-domain must have 0 `bool` fields. |
 | keys | term.rs:2471-2510; baud-domain/src/vt/key.rs:519-520; docs/input-coverage.md:59 | Arrow swapping means Term::key swaps Left and Right when the cursor's paragraph resolves RTL. With autodetect on, that needs P2/P3 over the paragraph; where that runs is Q3. `scripts/scan-audit.py` counts only the ingest loops in write.rs, and Term::key runs once per keystroke. |
 | mouse | term.rs:2253-2275; baud-app/src/app.rs:4221, 4283, 5151, 5236, 5760-5810 | `cell_under` is the single place that turns pixels into a cell, behind mouse reports, the wheel, OSC 8 hit tests and selection. The visual-to-logical inverse goes there. It is macOS-only for now, because the Wayland driver has no pointer. |
@@ -678,6 +678,7 @@ Each question needs a rendered picture of its options on the review page before 
   - (ii) the core caches the first strong character per row at write time, an ingest cost to measure;
   - (iii) autodetect stays out of the core.
 - Implementing `?1243` to spec needs XTSAVE/XTRESTORE, which baud lacks (7.1).
+  *Built 2026-10-09.*
 
 **Q4. Level 1 or level 2.**
 

@@ -458,6 +458,10 @@ pub struct Cold {
     /// whichever cursor the primary will have when the alternate screen goes.
     pub(crate) alt_entry: crate::ops::AltSwitch,
     pub(crate) modes: Modes,
+    /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
+    /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
+    /// `RIS`, never on the write path.
+    pub(crate) xtsave: SavedModes,
     /// **The kitty keyboard flag stacks, one per screen.** `kitty` is the
     /// active screen's and `kitty_alt` the parked one; the `?1049` transition
     /// swaps them, which is the specification's separate main/alternate stacks
@@ -521,10 +525,14 @@ pub struct Cold {
 // `Term::mouse_report` alone -- input-side, an embedder's call per pointer
 // event, which the per-byte loop never makes. The count of history erasures
 // landed in padding beside `region_scrolls`, so 440 held: a `u32` bumped by
-// `CSI 3 J` and `RIS` and read by the embedder after a read.
+// `CSI 3 J` and `RIS` and read by the embedder after a read. XTSAVE's cache
+// took it to 456, none of its 16 bytes in padding: two `u64` words, which
+// slots were saved and the value each had, written by `CSI ? Pm s` and
+// `RIS` and read by `CSI ? Pm r` -- arms of the dispatch, never the write
+// path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 440);
+const _: () = assert!(core::mem::size_of::<Cold>() == 456);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -607,6 +615,7 @@ impl Cold {
             // `baud-core2` makes the same one, so the differential compares
             // like with like.
             modes: Modes::default(),
+            xtsave: SavedModes::NONE,
         }
     }
 }

@@ -379,7 +379,113 @@ pub enum PrivateMode {
     Other(Param),
 }
 
+/// Where XTSAVE keeps one mode's value in [`SavedModes`]: one per mode
+/// DECSET acts on. A slot, not the wire number, so the cache is two words
+/// rather than a table over every value a parameter can carry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ModeSlot(u8);
+
+impl ModeSlot {
+    const fn bit(self) -> u64 {
+        1 << self.0
+    }
+}
+
+/// XTSAVE's one-level cache, `CSI ? Pm s`, which XTRESTORE `CSI ? Pm r` reads
+/// back (`[[source: ctlseqs]]`): "Like Save Cursor (DECSC), this uses a
+/// one-level cache. Unlike Save Cursor, specific settings can be saved and
+/// restored independently."
+///
+/// **Which slots were saved, and the value each had**, two words rather than
+/// one: "The value of Ps previously saved is restored" presupposes a save, so
+/// a slot never saved must read as nothing to restore rather than as reset.
+/// xterm keeps one array that `VTInitialize` zeroes (`memset(screen, 0, ...)`,
+/// `[[source: xterm-reset]]`), so its restore of a never-saved mode resets it
+/// -- `?25` hides the cursor -- which is a difference from the text, recorded
+/// as the owner's question rather than followed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SavedModes {
+    saved: u64,
+    set: u64,
+}
+
+impl SavedModes {
+    /// Nothing saved: the power-on cache, and what `RIS` returns it to.
+    pub const NONE: SavedModes = SavedModes { saved: 0, set: 0 };
+
+    /// Keep `value` for `slot`, replacing whatever was kept: one level.
+    pub fn save(&mut self, slot: ModeSlot, value: ModeChange) {
+        self.saved |= slot.bit();
+        match value {
+            ModeChange::Set => self.set |= slot.bit(),
+            ModeChange::Reset => self.set &= !slot.bit(),
+        }
+    }
+
+    /// The value kept for `slot`, or `None` if it was never saved. Reading it
+    /// leaves it: a restore does not consume the save, as DECRC does not.
+    pub fn saved(self, slot: ModeSlot) -> Option<ModeChange> {
+        match (self.saved & slot.bit() != 0, self.set & slot.bit() != 0) {
+            (false, _) => None,
+            (true, on) => Some(ModeChange::of(on)),
+        }
+    }
+}
+
 impl PrivateMode {
+    /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
+    /// no other** -- "Ps values are the same as for DECSET". The two named
+    /// modes without one are the two DECSET cannot change: `?1020` is
+    /// read-only (`[[source: ctlseqs]]` marks it so) and `?2027` is
+    /// permanent here. An unnamed mode has none, and DECSET counts it, as a
+    /// save and a restore of it are counted.
+    ///
+    /// xterm saves a different set -- not `?2` or `?8`, `?3` only under the
+    /// `c132` resource `?40` sets, and one slot for all four tracking levels
+    /// and one for all
+    /// four encodings (`savemodes`, `[[source: xterm-reset]]`) -- which is a
+    /// departure from the text, and the owner's question.
+    pub const fn slot(self) -> Option<ModeSlot> {
+        let n = match self {
+            PrivateMode::CursorKeys => 0,
+            PrivateMode::AnsiMode => 1,
+            PrivateMode::Column132 => 2,
+            PrivateMode::SmoothScroll => 3,
+            PrivateMode::ReverseVideo => 4,
+            PrivateMode::Origin => 5,
+            PrivateMode::AutoWrap => 6,
+            PrivateMode::AutoRepeat => 7,
+            PrivateMode::MouseX10Compat => 8,
+            PrivateMode::CursorBlink => 9,
+            PrivateMode::CursorVisible => 10,
+            PrivateMode::ReverseWrap => 11,
+            PrivateMode::AltScreenLegacy => 12,
+            PrivateMode::LeftRightMargin => 13,
+            PrivateMode::MouseNormal => 14,
+            PrivateMode::HighlightTracking => 15,
+            PrivateMode::MouseButtonEvent => 16,
+            PrivateMode::MouseAnyEvent => 17,
+            PrivateMode::FocusReporting => 18,
+            PrivateMode::MouseUtf8 => 19,
+            PrivateMode::MouseSgr => 20,
+            PrivateMode::AlternateScroll => 21,
+            PrivateMode::MouseUrxvt => 22,
+            PrivateMode::MouseSgrPixels => 23,
+            PrivateMode::EightBitInput => 24,
+            PrivateMode::MetaSendsEscape => 25,
+            PrivateMode::AltSendsEscape => 26,
+            PrivateMode::AltScreen => 27,
+            PrivateMode::BracketedPaste => 28,
+            PrivateMode::SynchronizedOutput => 29,
+            PrivateMode::ColorPaletteUpdates => 30,
+            PrivateMode::InbandResize => 31,
+            PrivateMode::Utf8Resource | PrivateMode::GraphemeClustering | PrivateMode::Other(_) => {
+                return None;
+            }
+        };
+        Some(ModeSlot(n))
+    }
+
     pub fn from_wire(p: Option<Param>) -> PrivateMode {
         match p.map_or(0, |x| x.0) {
             6 => PrivateMode::Origin,
