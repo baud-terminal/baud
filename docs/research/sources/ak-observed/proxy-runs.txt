@@ -1,0 +1,8 @@
+titleVisibility=Visible transparent=0: docButton=yes hidden=0 inHiddenAncestor=0 alpha=1.0 frame=(82,9 16x16) image=yes | title field shown=0 subtitle field shown=0
+titleVisibility=Visible transparent=1: docButton=yes hidden=0 inHiddenAncestor=0 alpha=1.0 frame=(82,9 16x16) image=yes | title field shown=0 subtitle field shown=0
+titleVisibility=Hidden  transparent=0: docButton=no hidden=-1 inHiddenAncestor=0 alpha=-1.0 frame=(0,0 0x0) image=no | title field shown=0 subtitle field shown=0
+titleVisibility=Hidden  transparent=1: docButton=no hidden=-1 inHiddenAncestor=0 alpha=-1.0 frame=(0,0 0x0) image=no | title field shown=0 subtitle field shown=0
+titleVisibility=Visible transparent=0: docButton=yes hidden=0 inHiddenAncestor=0 alpha=1.0 frame=(82,9 16x16) image=yes | title field shown=0 subtitle field shown=0
+titleVisibility=Visible transparent=1: docButton=yes hidden=0 inHiddenAncestor=0 alpha=1.0 frame=(82,9 16x16) image=yes | title field shown=0 subtitle field shown=0
+titleVisibility=Hidden  transparent=0: docButton=no hidden=-1 inHiddenAncestor=0 alpha=-1.0 frame=(0,0 0x0) image=no | title field shown=0 subtitle field shown=0
+titleVisibility=Hidden  transparent=1: docButton=no hidden=-1 inHiddenAncestor=0 alpha=-1.0 frame=(0,0 0x0) image=no | title field shown=0 subtitle field shown=0

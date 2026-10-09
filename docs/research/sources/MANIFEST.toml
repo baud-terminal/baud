@@ -35,6 +35,7 @@
 #   AH  title-bar activity lights: the tty LED trigger, modem panels, per-process counters
 #   AI  where a launched terminal's log lines go: unified logging, files, the journal
 #   AJ  a launch splash: launch guidance, flashing, splash prior art
+#   AK  the window title: OSC titles, derived facts, platform conventions
 
 [sources.simdjson]
 key    = "simdjson"
@@ -15327,3 +15328,996 @@ sha256 = "5fb4650ed46d3eff8a7432b287d55242662f03ae99d29192b5d8148b403e7744"
 bytes  = 1567
 status = "retrieved"
 group  = "AH"
+
+# Group AK, note AK (2026-10-09): the window title. xterm's title handling, ECMA-35/48 on command
+# strings, the Unicode Standard on ill-formed UTF-8, Apple's NSWindow docs and HIG, Terminal.app and
+# iTerm2's options, other terminals' title code (external), libproc and the Linux job-control code.
+# The ak-obs-* entries are the note's probes and outputs, redacted (pids, probe directory, battery id).
+
+[sources.ak-obs-lossy-rs]
+key    = "ak-obs-lossy-rs"
+title  = "String::from_utf8_lossy on four example titles: how many U+FFFD each yields"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "test source, compiled and run locally"
+file   = "ak-observed/lossy.rs"
+sha256 = "9e58dc24c205699335c3fb7e762a46ae8cf1865249877cd16a21435741d4c503"
+bytes  = 360
+status = "retrieved"
+group  = "C"
+
+[sources.ak-obs-lossy-out]
+key    = "ak-obs-lossy-out"
+title  = "ak-obs-lossy-rs output: 63 61 66 E9 gives one U+FFFD, E9 A9 41 one U+FFFD for two high bytes, 63 61 66 C3 A9 decodes as cafe with acute"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of ak-obs-lossy-rs"
+file   = "ak-observed/lossy-out.txt"
+sha256 = "3004702489fb9624802575818ad33abe894511199d18d9c1e1f4320d5d9f13da"
+bytes  = 258
+status = "retrieved"
+group  = "C"
+
+[sources.xterm-faq]
+key    = "xterm-faq"
+title  = "The XTerm FAQ -- 'Why can't my program read the window title?'; DECSWT and DECSIN in the VT520/VT525"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "invisible-island.net"
+url    = "https://invisible-island.net/xterm/xterm.faq.html"
+file   = "xterm-faq.html"
+sha256 = "1f40b887fc671ca431bc50886800d57a894cede49eed744347a75d592062d749"
+bytes  = 495945
+status = "retrieved"
+group  = "C"
+
+[sources.xterm-man]
+key    = "xterm-man"
+title  = "xterm patch #411, xterm.man -- allowTitleOps, allowWindowOps, disallowedWindowOps (GetWinTitle off by default), titleModes, utf8Title"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.man"
+file   = "xterm-xterm.man"
+sha256 = "6d3bdddbf3f8e26937276eaf19355372413e075851dad132f2b441e77fc40800"
+bytes  = 333772
+status = "retrieved"
+group  = "C"
+
+[sources.xterm-main-h]
+key    = "xterm-main-h"
+title  = "xterm patch #411, main.h -- DEF_TITLE_MODES 0"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h"
+file   = "xterm-main.h"
+sha256 = "6cde71bb5780e01529965ec40773798cb96b10194329ec3d90c6a0d2bc1b4c82"
+bytes  = 7611
+status = "retrieved"
+group  = "C"
+
+[sources.kitty-6d5d0c4-color-stack]
+key    = "kitty-6d5d0c4-color-stack"
+title  = "kitty 6d5d0c4, docs/color-stack.rst -- 'OSC 21 ; key=value ; ...', kitty's colour control, the same number as ctlseqs' DECSWT"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty documentation"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/docs/color-stack.rst"
+file   = ""
+sha256 = "5a78944c05fc59c000bef534701443f118f22502f3d82a626129c1fc9808f415"
+bytes  = 9147
+status = "external"
+group  = "C"
+
+[sources.terminal-wg-issue-20]
+key    = "terminal-wg-issue-20"
+title  = "terminal-wg/specifications issue 20, 'Specify OSC 7 behavior' (opened 2019-11-01, open) -- 'there is no documentation on the behavior of this escape'"
+author = "Christian Duerr"
+year   = 2019
+venue  = "gitlab.freedesktop.org (API JSON)"
+url    = "https://gitlab.freedesktop.org/api/v4/projects/terminal-wg%2Fspecifications/issues/20"
+file   = "terminal-wg-issue-20.json"
+sha256 = "1a44d21e617924f41408a9035503d54bf0aa9a3bbf5dd69980f2f52c659f37ad"
+bytes  = 2410
+status = "retrieved"
+group  = "C"
+
+[sources.semantic-prompts]
+key    = "semantic-prompts"
+title  = "Semantic prompts proposal (OSC 133) -- OSC 133;C carries no command text"
+author = "Per Bothner"
+year   = 2020
+venue  = "gitlab.freedesktop.org/Per_Bothner/specifications @ 4d2e1d7"
+url    = "https://gitlab.freedesktop.org/Per_Bothner/specifications/-/raw/4d2e1d75d4861a1d924895e106f8f016880e12a7/proposals/semantic-prompts.md"
+file   = ""
+sha256 = "b8e5462f99b61044b8fb03c5d5ab2e901a760d0f7d16ff2958f2889ee2a8125a"
+bytes  = 15843
+status = "external"
+group  = "C"
+
+[sources.uapi-osc-context]
+key    = "uapi-osc-context"
+title  = "UAPI.15 OSC 3008: Hierarchical Context Signalling, version 1.0 -- hostname=, comm=, cwd=, cmdline="
+author = "The UAPI Group (systemd)"
+year   = 2026
+venue  = "github.com/uapi-group/specifications @ 223d393"
+url    = "https://raw.githubusercontent.com/uapi-group/specifications/223d393d4110a1e6c11b880a29d218d9b6dfc40d/specs/osc_context.md"
+file   = "uapi-osc-context.md"
+sha256 = "f8c5836524e41141746451a3464e03e26b7e99ecdbbd1623930181fb6f2cf7e8"
+bytes  = 20408
+status = "retrieved"
+group  = "C"
+
+[sources.rfc8089]
+key    = "rfc8089"
+title  = "RFC 8089: The 'file' URI Scheme -- local vs non-local file URIs, 'Treating a non-local file URI as local ... can result in security problems'"
+author = "M. Kerwin"
+year   = 2017
+venue  = "IETF RFC 8089"
+url    = "https://www.rfc-editor.org/rfc/rfc8089.txt"
+file   = "rfc8089-file-uri.txt"
+sha256 = "b5b3b7892f56ed371b5c53c625a4cde78cabf15276e4d7d9a22da184faf2fe26"
+bytes  = 36893
+status = "retrieved"
+group  = "C"
+
+[sources.rfc3986]
+key    = "rfc3986"
+title  = "RFC 3986: Uniform Resource Identifier (URI): Generic Syntax -- percent-encoding (2.1)"
+author = "T. Berners-Lee, R. Fielding, L. Masinter"
+year   = 2005
+venue  = "IETF RFC 3986"
+url    = "https://www.rfc-editor.org/rfc/rfc3986.txt"
+file   = "rfc3986-uri.txt"
+sha256 = "3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683"
+bytes  = 141811
+status = "retrieved"
+group  = "C"
+
+[sources.uax9-tr9-52]
+key    = "uax9-tr9-52"
+title  = "UAX #9 revision 52 (Unicode 18.0.0) -- the explicit directional formatting characters; overrides 'to be avoided wherever possible, because of security concerns'"
+author = "Unicode Consortium"
+year   = 2026
+venue  = "unicode.org/reports/tr9"
+url    = "https://www.unicode.org/reports/tr9/tr9-52.html"
+file   = "uax9-tr9-52.html"
+sha256 = "3c281b38800bad85b16bf3a169b8cb693d8a2dbceb60903feb26e68a2659ee8a"
+bytes  = 188933
+status = "retrieved"
+group  = "C"
+
+[sources.rust-core-char-methods]
+key    = "rust-core-char-methods"
+title  = "Rust core, char/methods.rs at the pinned toolchain's commit -- char::is_control is general category Cc only"
+author = "The Rust Project"
+year   = 2026
+venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/core/src/char/methods.rs"
+file   = ""
+sha256 = "dc5b1d705ff74a22454153977763b2ff019917b96c094fbfd15db9baa8ad64f9"
+bytes  = 74654
+status = "external"
+group  = "C"
+
+[sources.rust-core-str-mod]
+key    = "rust-core-str-mod"
+title  = "Rust core, str/mod.rs at the pinned toolchain's commit -- str::trim removes White_Space"
+author = "The Rust Project"
+year   = 2026
+venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/core/src/str/mod.rs"
+file   = ""
+sha256 = "1eca1217037085f7a32c41a472f7d8183cb4ad6e04ad888ca5c9cae0f2baf8bf"
+bytes  = 112607
+status = "external"
+group  = "C"
+
+[sources.rust-core-str-lossy]
+key    = "rust-core-str-lossy"
+title  = "Rust core, str/lossy.rs at the pinned toolchain's commit -- Utf8Chunk::invalid, 'a maximum length of 3', replaced by one U+FFFD"
+author = "The Rust Project"
+year   = 2026
+venue  = "rust-lang/rust @ bcded33 (rustc 1.96.0-nightly 2026-04-06)"
+url    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/library/core/src/str/lossy.rs"
+file   = ""
+sha256 = "9b11eff024d0e51447aa7d68033fc6b82707bf19783a59e0bf9f3741e2e52a4e"
+bytes  = 10618
+status = "external"
+group  = "C"
+
+[sources.unicode-proplist-17]
+key    = "unicode-proplist-17"
+title  = "PropList.txt, Unicode 17.0.0 -- U+2028 and U+2029 are White_Space"
+author = "Unicode Consortium"
+year   = 2025
+venue  = "unicode.org/Public/17.0.0/ucd"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/PropList.txt"
+file   = "unicode-proplist.txt"
+sha256 = "130dcddcaadaf071008bdfce1e7743e04fdfbc910886f017d9f9ac931d8c64dd"
+bytes  = 145465
+status = "retrieved"
+group  = "C"
+
+[sources.macos-zshrc-apple-terminal]
+key    = "macos-zshrc-apple-terminal"
+title  = "/etc/zshrc_Apple_Terminal, macOS 27.0 (26A5425a) -- 'Tell the terminal about the current working directory at each prompt': OSC 7 as Apple's Terminal defines it, with $HOST"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a), /etc"
+url    = "file:///etc/zshrc_Apple_Terminal"
+file   = ""
+sha256 = "763ba2dec426f377221e2e93c40708fd545e73fe3b5c5ba9ce6d93df80205bf5"
+bytes  = 9335
+status = "external"
+group  = "C"
+
+[sources.macos-bashrc-apple-terminal]
+key    = "macos-bashrc-apple-terminal"
+title  = "/etc/bashrc_Apple_Terminal, macOS 27.0 (26A5425a) -- the same OSC 7 report for bash, with $HOSTNAME"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a), /etc"
+url    = "file:///etc/bashrc_Apple_Terminal"
+file   = ""
+sha256 = "06e7b9efed6ddfd4c2115524a64d1f2c00bf88f889c33fc96ac52ec6f7b7ba83"
+bytes  = 9293
+status = "external"
+group  = "C"
+
+[sources.vte-0-80-parser-osc]
+key    = "vte-0-80-parser-osc"
+title  = "VTE 0.80.0, src/parser-osc.hh -- OSC 6 VTECWF (current file), OSC 7 VTECWD, no DECSWT"
+author = "The GNOME Project"
+year   = 2025
+venue  = "VTE"
+url    = "https://raw.githubusercontent.com/GNOME/vte/457257d1fdfa129076dd4685e851add970d47ae8/src/parser-osc.hh"
+file   = ""
+sha256 = "b67f14655c343609ec797d54748f6d727c88a9c0e0937999788889eb25012ee5"
+bytes  = 3722
+status = "external"
+group  = "C"
+
+[sources.vte-0-80-vteseq]
+key    = "vte-0-80-vteseq"
+title  = "VTE 0.80.0, src/vteseq.cc -- Terminal::OSC titles, set_termprop_uri (any file: URI, no host check)"
+author = "The GNOME Project"
+year   = 2025
+venue  = "VTE"
+url    = "https://raw.githubusercontent.com/GNOME/vte/457257d1fdfa129076dd4685e851add970d47ae8/src/vteseq.cc"
+file   = ""
+sha256 = "6d1eb3c40a8644d01b34fc28eb6bf1aa60036a9f24c17f695359671ee9df4f67"
+bytes  = 309882
+status = "external"
+group  = "C"
+
+[sources.vte-0-80-vte-sh]
+key    = "vte-0-80-vte-sh"
+title  = "VTE 0.80.0, src/vte.sh.in -- __vte_osc7, 'file://%s%s' with $HOSTNAME"
+author = "The GNOME Project"
+year   = 2025
+venue  = "VTE"
+url    = "https://raw.githubusercontent.com/GNOME/vte/457257d1fdfa129076dd4685e851add970d47ae8/src/vte.sh.in"
+file   = ""
+sha256 = "99d532c51b878e224a15bb3160feabd6f0aa14a4c5e03122cf4ed7b902af398c"
+bytes  = 5058
+status = "external"
+group  = "C"
+
+[sources.kitty-6d5d0c4-utils-py]
+key    = "kitty-6d5d0c4-utils-py"
+title  = "kitty 6d5d0c4, kitty/utils.py -- sanitize_title, path_from_osc7_url"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/utils.py"
+file   = ""
+sha256 = "7d4bfa9d395df1c96d83aecc98b03228f31c5d78c9c616af0c4996785c73907d"
+bytes  = 37498
+status = "external"
+group  = "C"
+
+[sources.kitty-6d5d0c4-vt-parser]
+key    = "kitty-6d5d0c4-vt-parser"
+title  = "kitty 6d5d0c4, kitty/vt-parser.c -- OSC 0/1/2, OSC 7, OSC 21 as color_control"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/vt-parser.c"
+file   = ""
+sha256 = "4c9ec255ae06262c1c094e07504ba002416ba7b10290fc1876cf28c637399f15"
+bytes  = 68279
+status = "external"
+group  = "C"
+
+[sources.kitty-6d5d0c4-screen]
+key    = "kitty-6d5d0c4-screen"
+title  = "kitty 6d5d0c4, kitty/screen.c -- process_cwd_notification stores OSC 7 raw"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/screen.c"
+file   = ""
+sha256 = "d4790574514bb60d4ac112de3e5473a1e085291d9ce14c7912267ac2a06d6c28"
+bytes  = 295417
+status = "external"
+group  = "C"
+
+[sources.wezterm-b09b56c-performer]
+key    = "wezterm-b09b56c-performer"
+title  = "wezterm b09b56c, term/src/terminalstate/performer.rs -- title and icon OSCs, CurrentWorkingDirectory"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/term/src/terminalstate/performer.rs"
+file   = ""
+sha256 = "ed835157c98df179fe0dc1ac5fa86dd007f49bc4dcb56cdcd87f33b76b915ce3"
+bytes  = 49678
+status = "external"
+group  = "C"
+
+[sources.wezterm-b09b56c-shell-integration-md]
+key    = "wezterm-b09b56c-shell-integration-md"
+title  = "wezterm b09b56c, docs/shell-integration.md -- OSC 7 'originated in the macOS Terminal application'"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm documentation"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/docs/shell-integration.md"
+file   = "wezterm-b09b56c-shell-integration.md"
+sha256 = "84f21c12d991d034b8e9fc2e635ed4d588709da7c03763c51ff5b30e53e01cf5"
+bytes  = 7703
+status = "retrieved"
+group  = "C"
+
+[sources.wezterm-b09b56c-get-cwd-md]
+key    = "wezterm-b09b56c-get-cwd-md"
+title  = "wezterm b09b56c, docs/config/lua/pane/get_current_working_dir.md -- OSC 7 first, then the process group leader"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm documentation"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/docs/config/lua/pane/get_current_working_dir.md"
+file   = "wezterm-b09b56c-get_current_working_dir.md"
+sha256 = "172a014fbbac3c3bf24035ec886d35bc03c8c382b368ccf363ae20b9daa31baf"
+bytes  = 1480
+status = "retrieved"
+group  = "C"
+
+[sources.wezterm-b09b56c-terminalstate-mod]
+key    = "wezterm-b09b56c-terminalstate-mod"
+title  = "wezterm b09b56c, term/src/terminalstate/mod.rs -- CSI 21 t answers the program's own title when enabled"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/term/src/terminalstate/mod.rs"
+file   = ""
+sha256 = "992c928614b915740036c0fcd7a7f0e59d35618d6d453b1c05f7dec6f106dd51"
+bytes  = 110533
+status = "external"
+group  = "C"
+
+[sources.ghostty-d9840f3-stream-handler]
+key    = "ghostty-d9840f3-stream-handler"
+title  = "ghostty d9840f3, src/termio/stream_handler.zig -- windowTitle (>=256 bytes dropped), reportPwd (OSC 7 host must be local; the pwd as title until a program sets one), title_push/pop unimplemented"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/termio/stream_handler.zig"
+file   = ""
+sha256 = "ce6140a6b6cddc303816edfc4058a251ae134cb34d3e86623eea61010fa562dc"
+bytes  = 79219
+status = "external"
+group  = "C"
+
+[sources.foot-2705e36-osc]
+key    = "foot-2705e36-osc"
+title  = "foot 2705e36, osc.c -- OSC 0/1/2, osc_set_pwd (file scheme and hostname_is_localhost only)"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/osc.c"
+file   = ""
+sha256 = "1da9ac70169898b99ffaad8a0db32b577eda504c63d129a60fc447155fe8f315"
+bytes  = 49852
+status = "external"
+group  = "C"
+
+[sources.foot-2705e36-csi]
+key    = "foot-2705e36-csi"
+title  = "foot 2705e36, csi.c -- CSI 21 t compiled out ('Disabled for now, see #1894'), the title stack capped at 128"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/csi.c"
+file   = ""
+sha256 = "a9e028dd0752210842d688abce4323d3ac118e1032e35305dbce13c3447b4d61"
+bytes  = 76560
+status = "external"
+group  = "C"
+
+[sources.foot-2705e36-misc]
+key    = "foot-2705e36-misc"
+title  = "foot 2705e36, misc.c -- is_valid_utf8_and_printable"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/misc.c"
+file   = ""
+sha256 = "1c20f5258f09642a20b23ae2c17a113f06426e8b0fcdb69f964cfea7739d3b8a"
+bytes  = 1355
+status = "external"
+group  = "C"
+
+[sources.alacritty-0c405d5-term-mod]
+key    = "alacritty-0c405d5-term-mod"
+title  = "alacritty 0.15.1 (0c405d5), alacritty_terminal/src/term/mod.rs -- set_title, the title stack (TITLE_STACK_MAX_DEPTH 4096)"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty_terminal/src/term/mod.rs"
+file   = ""
+sha256 = "3a3523c4d0996e2286a3f4b379ed99382511fb31663071f5dbf6e1124e8d17b0"
+bytes  = 112815
+status = "external"
+group  = "C"
+
+[sources.iterm2-doc-escape-codes]
+key    = "iterm2-doc-escape-codes"
+title  = "iTerm2 documentation, Proprietary Escape Codes -- OSC 7 as a synonym for RemoteHost and CurrentDir"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2.com"
+url    = "https://iterm2.com/documentation-escape-codes.html"
+file   = ""
+sha256 = "c352db6de5823e1c0e612381dafe2d9795d698d90a3328a9e45cad0aeee3d6c4"
+bytes  = 34720
+status = "external"
+group  = "C"
+
+[sources.ak-obs-probe-c]
+key    = "ak-obs-probe-c"
+title  = "The derive probe: tcgetpgrp on the pty master from another session, proc_name, proc_pidpath, PROC_PIDVNODEPATHINFO, KERN_PROCARGS2, their cost, and pid 1"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, compiled and run locally"
+file   = "ak-observed/probe.c"
+sha256 = "93cf23b1c465d88470d7b32fd8ffc335e724e6822200e045e44c12efc9f682b1"
+bytes  = 7365
+status = "retrieved"
+group  = "E"
+
+[sources.ak-obs-probe-runs]
+key    = "ak-obs-probe-runs"
+title  = "ak-obs-probe-c, three launches with the job /bin/sleep 5: tcgetpgrp(master) against ps PGID and TPGID; cost per read"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of ak-obs-probe-c, three launches"
+file   = "ak-observed/probe-runs.txt"
+sha256 = "424dde688dd3f3d1a7affde41dc117c4d1a09001f072a8bc6449bcdd02a61009"
+bytes  = 5232
+status = "retrieved"
+group  = "E"
+
+[sources.ak-obs-probe-path-sleep]
+key    = "ak-obs-probe-path-sleep"
+title  = "ak-obs-probe-c, one launch with sleep 5 from PATH (nix coreutils, a multi-call binary behind a symlink): proc_name, proc_pidpath and KERN_PROCARGS2 disagree; cost per read with a 32,836-byte argument area"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of ak-obs-probe-c with the job sleep 5 from PATH"
+file   = "ak-observed/probe-run-path-sleep.txt"
+sha256 = "cbfb99d7df06293d12780f85d688c77b75d026dfe60d24b1c9faeb2aa0b1e57e"
+bytes  = 1960
+status = "retrieved"
+group  = "E"
+
+[sources.kitty-6d5d0c4-child-py]
+key    = "kitty-6d5d0c4-child-py"
+title  = "kitty 6d5d0c4, kitty/child.py -- tcgetpgrp on the pty fd, the highest pid of the group, cwd_of_process"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/child.py"
+file   = ""
+sha256 = "13831808b1b38b8a01737ab0c4025221f98b61bafc38660d57deddfe177b6b41"
+bytes  = 26536
+status = "external"
+group  = "E"
+
+[sources.kitty-6d5d0c4-macos-process-info]
+key    = "kitty-6d5d0c4-macos-process-info"
+title  = "kitty 6d5d0c4, kitty/macos_process_info.c -- proc_pidinfo(PROC_PIDVNODEPATHINFO), proc_pidpath"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/macos_process_info.c"
+file   = ""
+sha256 = "bd38aa1e0f2563a1cb635dc4eb5500522c5859c9702a4064c230f87f24294c21"
+bytes  = 10307
+status = "external"
+group  = "E"
+
+[sources.wezterm-b09b56c-procinfo-macos]
+key    = "wezterm-b09b56c-procinfo-macos"
+title  = "wezterm b09b56c, procinfo/src/macos.rs -- current_working_dir via PROC_PIDVNODEPATHINFO, executable_path via proc_pidpath"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/procinfo/src/macos.rs"
+file   = ""
+sha256 = "bf204fea3da41e5ba3c630f72e0cf067214b589ac40ca769ecf4aa01db38f22a"
+bytes  = 11277
+status = "external"
+group  = "E"
+
+[sources.alacritty-0c405d5-daemon]
+key    = "alacritty-0c405d5-daemon"
+title  = "alacritty 0.15.1 (0c405d5), alacritty/src/daemon.rs -- foreground_process_path: tcgetpgrp on the master, the shell's pid as fallback"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty/src/daemon.rs"
+file   = ""
+sha256 = "9e803c54a71d685886ce48faa25e13d211b1b49143f55198fb57a6a9fb716065"
+bytes  = 3098
+status = "external"
+group  = "E"
+
+[sources.alacritty-0c405d5-macos-proc]
+key    = "alacritty-0c405d5-macos-proc"
+title  = "alacritty 0.15.1 (0c405d5), alacritty/src/macos/proc.rs -- cwd via PROC_PIDVNODEPATHINFO"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty/src/macos/proc.rs"
+file   = ""
+sha256 = "7dd9c21081c101fdf5691fccc23bee71b5b88985877ba49471181b8a7ec6bf65"
+bytes  = 4111
+status = "external"
+group  = "E"
+
+[sources.linux-man-proc-pid-cwd]
+key    = "linux-man-proc-pid-cwd"
+title  = "proc_pid_cwd(5) -- PTRACE_MODE_READ_FSCREDS governs reading the link"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_cwd.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "631f2ff8a968d27742c389648cac2674e6a24e1afe88c14f4d44f547c85257d9"
+bytes  = 1051
+status = "external"
+group  = "E"
+
+[sources.linux-man-proc-pid-exe]
+key    = "linux-man-proc-pid-exe"
+title  = "proc_pid_exe(5) -- the actual pathname of the executed command, behind a ptrace check"
+author = "The Linux man-pages project"
+year   = 2026
+venue  = "Linux man-pages at git adb436b, git.kernel.org; the file's header reads \"Linux man-pages (unreleased)\""
+url    = "https://git.kernel.org/pub/scm/docs/man-pages/man-pages.git/plain/man/man5/proc_pid_exe.5?id=adb436b2e4471218021d86f188fb58dec3946eb8"
+file   = ""
+sha256 = "3acd4322b7411b2c84954d2cbf3bed3fbea7cf1a9bbdd3002f32fe677e91db14"
+bytes  = 1752
+status = "external"
+group  = "E"
+
+[sources.macos-man-tcgetpgrp]
+key    = "macos-man-tcgetpgrp"
+title  = "tcgetpgrp(3) -- ENOTTY when fildes is not the controlling terminal (rendered text)"
+author = "Apple Inc."
+year   = 1993
+venue  = "macOS 27.0 SDK man page, dated June 4, 1993"
+url    = "$SDKROOT/usr/share/man/man3/tcgetpgrp.3"
+file   = "macos-man-tcgetpgrp.txt"
+sha256 = "6fcd6b45899a116ab8b4d041bb9eafc69b93e435e794bb3d3b68b6243865f69c"
+bytes  = 1224
+status = "retrieved"
+group  = "E"
+
+[sources.macos-sdk-man-tcgetpgrp-3]
+key    = "macos-sdk-man-tcgetpgrp-3"
+title  = "tcgetpgrp.3 -- the roff source of macos-man-tcgetpgrp"
+author = "Apple Inc."
+year   = 1993
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man3/tcgetpgrp.3"
+file   = ""
+sha256 = "ac471755dd75b5b60d4021cb195da38a4e1edeb88539836ab145ff7bc7ac5a14"
+bytes  = 3110
+status = "external"
+group  = "E"
+
+[sources.macos-sdk-sys-ttycom-h]
+key    = "macos-sdk-sys-ttycom-h"
+title  = "sys/ttycom.h -- TIOCPKT and its status bits: data, flush, stop/start, ^S^Q, pty driver state; no foreground-group event"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/ttycom.h"
+file   = ""
+sha256 = "7ad334c653a1dc541a74be8ad5cbab8a0a284f1f9b560d57a2298f3b2c33ac5a"
+bytes  = 10145
+status = "external"
+group  = "E"
+
+[sources.macos-man-kqueue]
+key    = "macos-man-kqueue"
+title  = "kqueue(2) -- EVFILT_PROC: NOTE_EXIT, NOTE_FORK, NOTE_EXEC (rendered text)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK man page"
+url    = "$SDKROOT/usr/share/man/man2/kqueue.2"
+file   = "macos-man-kqueue.txt"
+sha256 = "4ba50cf4cc28d9208313d27b67032dddde18d722c4d4dfb674dce88dfdea721c"
+bytes  = 21365
+status = "retrieved"
+group  = "E"
+
+[sources.macos-sdk-man-kqueue-2]
+key    = "macos-sdk-man-kqueue-2"
+title  = "kqueue.2 -- the roff source of macos-man-kqueue"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/share/man/man2/kqueue.2"
+file   = ""
+sha256 = "48302f5a7c664d9323dca51593253a30e7263161a6ea514fcb89cdcedd03d2a4"
+bytes  = 23602
+status = "external"
+group  = "E"
+
+[sources.macos-sdk-sys-event-h]
+key    = "macos-sdk-sys-event-h"
+title  = "sys/event.h -- 'NOTE_TRACK, NOTE_TRACKERR, and NOTE_CHILD are no longer supported as of 10.5'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/usr/include/sys/event.h"
+file   = ""
+sha256 = "435ed8fe99ae70c19404c3da14be6e2d217686ac256aed3b5df721b353dbb350"
+bytes  = 17944
+status = "external"
+group  = "E"
+
+[sources.ak-obs-proxy-m]
+key    = "ak-obs-proxy-m"
+title  = "The proxy-icon probe: an offscreen, alpha-0 titled NSWindow in the window crate's style, with representedURL, under each titleVisibility and titlebarAppearsTransparent"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe source, compiled and run locally"
+file   = "ak-observed/proxy.m"
+sha256 = "5b53779c4f5ebb062c0346600c0a004d775aeb65731fc32b5fb8f1096e8e39ab"
+bytes  = 2619
+status = "retrieved"
+group  = "AK"
+
+[sources.ak-obs-proxy-runs]
+key    = "ak-obs-proxy-runs"
+title  = "ak-obs-proxy-m, two runs: the document icon button exists under .visible and is nil under .hidden"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of ak-obs-proxy-m, two runs"
+file   = "ak-observed/proxy-runs.txt"
+sha256 = "3bbd2a50184e8c343ff52bdb7c9e39033b67df64467f7cbad72a4bfa9f5a3278"
+bytes  = 1308
+status = "retrieved"
+group  = "AK"
+
+[sources.ak-obs-observations]
+key    = "ak-obs-observations"
+title  = "Command output for note AK: sw_vers, CPU, pmset, Terminal.app title keys (strings), Basic.terminal, the terminal-wg tree and HEAD, the 401 on issue 20 notes, macos-liquid-glass 1.0.0-beta.5 window.rs against glassnote 5fa641f"
+author = "baud research (note AK)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "shell commands, their output saved verbatim"
+file   = "ak-observed/observations.txt"
+sha256 = "006673e8a00551346a28811f17052cd3951662b54312187e32a9ed2f8fb80614"
+bytes  = 1734
+status = "retrieved"
+group  = "AK"
+
+[sources.kitty-6d5d0c4-zsh-integration]
+key    = "kitty-6d5d0c4-zsh-integration"
+title  = "kitty 6d5d0c4, shell-integration/zsh/kitty-integration -- OSC 2 in precmd/preexec, OSC 7 as kitty-shell-cwd://, OSC 133;C;cmdline="
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/shell-integration/zsh/kitty-integration"
+file   = ""
+sha256 = "46fbd99d41e51a4b655b3e828ebf4b6a80ebed9f95e076be69bddf0a384fdf56"
+bytes  = 23950
+status = "external"
+group  = "AK"
+
+[sources.ghostty-d9840f3-base-terminal-controller]
+key    = "ghostty-d9840f3-base-terminal-controller"
+title  = "ghostty d9840f3, BaseTerminalController.swift -- pwdDidChange sets NSWindow.representedURL"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/macos/Sources/Features/Terminal/BaseTerminalController.swift"
+file   = ""
+sha256 = "b73593314947b34e4aa58b030d6ddece3c5466717f70bf876f024777403a0a60"
+bytes  = 67261
+status = "external"
+group  = "AK"
+
+[sources.ghostty-d9840f3-zsh-integration]
+key    = "ghostty-d9840f3-zsh-integration"
+title  = "ghostty d9840f3, src/shell-integration/zsh/ghostty-integration -- OSC 7 as kitty-shell-cwd://, OSC 2 in precmd/preexec"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/shell-integration/zsh/ghostty-integration"
+file   = ""
+sha256 = "1a2bcb867f06667d5d743221aea42b1d322f3ae402e1a62ba941cba3c5d17f19"
+bytes  = 19396
+status = "external"
+group  = "AK"
+
+[sources.foot-2705e36-foot-ini-5]
+key    = "foot-2705e36-foot-ini-5"
+title  = "foot 2705e36, doc/foot.ini.5.scd -- title, locked-title"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "foot documentation"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/doc/foot.ini.5.scd"
+file   = "foot-2705e36-foot.ini.5.scd"
+sha256 = "4611cce41d79d747166711b611f82549952112788a0e3f74b3c8ea855708a782"
+bytes  = 76752
+status = "retrieved"
+group  = "AK"
+
+[sources.alacritty-0c405d5-event]
+key    = "alacritty-0c405d5-event"
+title  = "alacritty 0.15.1 (0c405d5), alacritty/src/event.rs -- dynamic_title gates Title and ResetTitle"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty/src/event.rs"
+file   = ""
+sha256 = "5e1e38a93d8e8650c05f90ad4a3858be05246d2f4dafa85d304ae40bf0717407"
+bytes  = 72254
+status = "external"
+group  = "AK"
+
+[sources.alacritty-0c405d5-man-5]
+key    = "alacritty-0c405d5-man-5"
+title  = "alacritty 0.15.1 (0c405d5), extra/man/alacritty.5.scd -- dynamic_title 'Allow terminal applications to change Alacritty's window title'"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "Alacritty documentation"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/extra/man/alacritty.5.scd"
+file   = "alacritty-0c405d5-alacritty.5.scd"
+sha256 = "61ac5bad191ee18fdbe9c96d1fc9eca004410909ef26b412e26723b4d4bcde11"
+bytes  = 28413
+status = "retrieved"
+group  = "AK"
+
+[sources.iterm2-8622e64-addressbookmgr-h]
+key    = "iterm2-8622e64-addressbookmgr-h"
+title  = "iTerm2 8622e64, ITAddressBookMgr.h -- iTermTitleComponents"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/Settings/Profiles/ITAddressBookMgr.h"
+file   = ""
+sha256 = "e0d56291de0f81b8ce07810270f3b9b6b7e5dbebd40fe6f4fcddde3bf51494eb"
+bytes  = 35323
+status = "external"
+group  = "AK"
+
+[sources.iterm2-8622e64-profile-preferences]
+key    = "iterm2-8622e64-profile-preferences"
+title  = "iTerm2 8622e64, iTermProfilePreferences.m -- KEY_TITLE_COMPONENTS defaults to Job"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/Settings/iTermProfilePreferences.m"
+file   = ""
+sha256 = "4a7a4df10ee6bd2da8584e4203cabd3a012883f401ce62eeba0c6a5da01f8861"
+bytes  = 108385
+status = "external"
+group  = "AK"
+
+[sources.iterm2-8622e64-session-title]
+key    = "iterm2-8622e64-session-title"
+title  = "iTerm2 8622e64, iTermSessionTitleBuiltInFunction.m -- 'an explicit OSC 2 window name IS the window title'; the composed name (job) — user@host:pwd — tty — size"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/Language/BuiltInFunctions/iTermSessionTitleBuiltInFunction.m"
+file   = ""
+sha256 = "4310ac9d34049119af00546383ebda14d20bc61965a46f29311a8a8e75c8309c"
+bytes  = 28400
+status = "external"
+group  = "AK"
+
+[sources.iterm2-8622e64-machine-identity]
+key    = "iterm2-8622e64-machine-identity"
+title  = "iTerm2 8622e64, iTermMachineIdentity.swift -- the OSC 7 machineID token for telling a local shell from a remote one"
+author = "George Nachman"
+year   = 2026
+venue  = "iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/8622e64dd59c48520fbb4f0cf2ec6172168399e3/sources/ShellIntegration/iTermMachineIdentity.swift"
+file   = ""
+sha256 = "c87c3a244c9f8c892663832c00814dd049b243a9d86682b46e71052daae81adf"
+bytes  = 5828
+status = "external"
+group  = "AK"
+
+[sources.iterm2-doc-profiles-general]
+key    = "iterm2-doc-profiles-general"
+title  = "iTerm2 documentation, Profiles > General -- the Title menu"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2.com"
+url    = "https://iterm2.com/documentation-preferences-profiles-general.html"
+file   = ""
+sha256 = "1ef2ca57ce41a2a63e99075d4f243b8a9c333734b7db0080a7639b3b93c77a4b"
+bytes  = 14311
+status = "external"
+group  = "AK"
+
+[sources.apple-nswindow-title]
+key    = "apple-nswindow-title"
+title  = "NSWindow.title (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/title.json"
+file   = "apple-nswindow-title.json"
+sha256 = "cdc2a2911b0a91bd18cc55197a514c670fea28516e96a528c226ea34acf6330c"
+bytes  = 16113
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-subtitle]
+key    = "apple-nswindow-subtitle"
+title  = "NSWindow.subtitle (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/subtitle.json"
+file   = "apple-nswindow-subtitle.json"
+sha256 = "3a3194b359000a80cb3d5853652fdbaff625d5636044119bd584b9eacf89b92c"
+bytes  = 14580
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-representedurl]
+key    = "apple-nswindow-representedurl"
+title  = "NSWindow.representedURL (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/representedurl.json"
+file   = "apple-nswindow-representedurl.json"
+sha256 = "b538662e4bdb5fcc1e2dfb151209ef036bc76e00f10d9ee66314b34cb95109a0"
+bytes  = 20179
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-miniwindowtitle]
+key    = "apple-nswindow-miniwindowtitle"
+title  = "NSWindow.miniwindowTitle (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniwindowtitle.json"
+file   = "apple-nswindow-miniwindowtitle.json"
+sha256 = "602b1378c13e7abcd4d3ecdff0c457c3a2bf51c7fa11d74fccfc10819c04bf14"
+bytes  = 17056
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-titlevisibility-property]
+key    = "apple-nswindow-titlevisibility-property"
+title  = "NSWindow.titleVisibility (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlevisibility-swift.property.json"
+file   = "apple-nswindow-titlevisibility-property.json"
+sha256 = "aa709b1c91e8c47eac0a3177c31876057b67772192c0d63c27abf79ec2c95c5d"
+bytes  = 19088
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-titlevisibility-hidden]
+key    = "apple-nswindow-titlevisibility-hidden"
+title  = "NSWindow.TitleVisibility.hidden (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlevisibility-swift.enum/hidden.json"
+file   = "apple-nswindow-titlevisibility-hidden.json"
+sha256 = "b5843de9e8a3ae48bc86a821cd38a69ac7e5fb77a863b40bfbf632e4c059a656"
+bytes  = 8448
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-nswindow-titlebarappearstransparent]
+key    = "apple-nswindow-titlebarappearstransparent"
+title  = "NSWindow.titlebarAppearsTransparent (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlebarappearstransparent.json"
+file   = "apple-nswindow-titlebarappearstransparent.json"
+sha256 = "02e1fe4468c3d22ae3d84db62eeb16f71f697fee9758265cb7f40e8ba2a80311"
+bytes  = 24285
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-hig-toolbars]
+key    = "apple-hig-toolbars"
+title  = "Human Interface Guidelines, Toolbars -- § Titles: 'Provide a useful title for each window', 'Don't title windows with your app name' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/toolbars.json"
+file   = "apple-hig-toolbars.json"
+sha256 = "4f1147642ab0561dcb2d4b074be970a537e2072be41e061314d1e234b4cdc6f7"
+bytes  = 72799
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-hig-windows]
+key    = "apple-hig-windows"
+title  = "Human Interface Guidelines, Windows -- 'Avoid creating custom window UI' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/windows.json"
+file   = "apple-hig-windows.json"
+sha256 = "1da7914a4b33b20b55cc7558d004f5017300f4121c2d7fdf05ba79517073a220"
+bytes  = 67050
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-terminal-guide-window-settings]
+key    = "apple-terminal-guide-window-settings"
+title  = "Terminal User Guide, 'Change Profiles Window settings in Terminal on Mac' -- the title checkboxes"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com/guide/terminal (trmlwindw)"
+url    = "https://support.apple.com/guide/terminal/change-profiles-window-settings-trmlwindw/mac"
+file   = "apple-terminal-guide-window-settings.html"
+sha256 = "b51a14204e3a3e4af7e9bf3c8365c0c822d9bb674af89bc28f2ccc50933f3f0d"
+bytes  = 576355
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-terminal-guide-change-title]
+key    = "apple-terminal-guide-change-title"
+title  = "Terminal User Guide, 'Change the title shown in a Terminal window on Mac'"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com/guide/terminal (trml15228)"
+url    = "https://support.apple.com/guide/terminal/change-the-title-shown-in-a-terminal-window-trml15228/mac"
+file   = "apple-terminal-guide-change-title.html"
+sha256 = "a148147a8757f31af21421bdce66249eb0c0fcee23be1defcbcfd81ed93713fd"
+bytes  = 574092
+status = "retrieved"
+group  = "AK"
+
+[sources.apple-terminal-guide-tab-settings]
+key    = "apple-terminal-guide-tab-settings"
+title  = "Terminal User Guide, 'Change Profiles Tab settings in Terminal on Mac' -- 'Show other items when there is a custom title'"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com/guide/terminal (trmltab)"
+url    = "https://support.apple.com/guide/terminal/change-profiles-tab-settings-trmltab/mac"
+file   = "apple-terminal-guide-tab-settings.html"
+sha256 = "49445702a29d2c929d9331ea44931ae66021732eaf48c68fd766529772778e71"
+bytes  = 573803
+status = "retrieved"
+group  = "AK"

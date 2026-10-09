@@ -1,0 +1,33 @@
+# Redacted for commit: process and session ids replaced, consistently within each run, by P1, P2, ...;
+# the probe directory path replaced by <probe dir>. Nothing else changed.
+=== run 4 (PATH sleep)
+sizeof(struct proc_vnodepathinfo) = 2352
+PROC_PIDPATHINFO_MAXSIZE = 4096, MAXCOMLEN = 16
+our pid P1, our sid P2; shell pid P3, shell sid P3, shell pgid P3
+1a at prompt: tcgetpgrp(master) = P3 errno 0 (Undefined error: 0); shell pgid P3 -> MATCH
+  1a: cwd of P3 = "<probe dir>" (ret 2352 = sizeof)
+  job command: cd /tmp && sleep 5
+  ps: ps -o pid,ppid,pgid,tpgid,stat,comm -t ttys007
+  PID  PPID  PGID TPGID STAT COMM
+   P3    P1    P3    P4  s   zsh
+   P4    P3    P4    P4  +   sleep
+  proc_listchildpids(shell) = 1
+1b job running: tcgetpgrp(master) = P4 errno 0; job pid -1 pgid -1 -> DIFFER
+  proc_name(P4) = "coreutils" (ret 9); proc_pidpath = "/nix/store/bv38kxd78jkqh1qwj30a8fl9z97m5pb8-coreutils-9.11/bin/coreutils" (ret 72)
+  1b job: cwd of P4 = "/private/tmp" (ret 2352 = sizeof)
+  1b shell: cwd of P3 = "/private/tmp" (ret 2352 = sizeof)
+  KERN_PROCARGS2(P4): exec path "/nix/store/bv38kxd78jkqh1qwj30a8fl9z97m5pb8-coreutils-9.11/bin/sleep", argv[0] "sleep", 32836 bytes
+2 costs, ns per call, 20000 calls x 5 rounds (min..max of rounds):
+  tcgetpgrp(master)                  2690 ..     2999
+  proc_name                           203 ..      257
+  proc_pidpath                       2252 ..     2496
+  proc_pidinfo(VNODEPATHINFO)         482 ..      598
+  proc_pidinfo(TBSDINFO)              172 ..      177
+  sysctl(KERN_PROCARGS2)             5540 ..     5897
+3 root-owned pid 1:
+  proc_name(1) = "" ret 0 errno 1 (Operation not permitted)
+  proc_pidpath(1) = "/sbin/launchd" ret 13 errno 0 (Undefined error: 0)
+  3: cwd of 1 failed: ret 0 errno 1 (Operation not permitted)
+  KERN_PROCARGS2(1) ret -1 errno 22 (Invalid argument)
+4 after job: tcgetpgrp(master) = P3; shell pgid P3 -> MATCH shell
+  4: cwd of P3 = "/private/tmp" (ret 2352 = sizeof)
