@@ -1106,20 +1106,35 @@ impl Paint<'_, '_> {
                 }
             }
             PrivateMode::ReverseVideo => self.set_reverse_video(change),
-            // **Mouse tracking is a level, not three flags.** `[[source:
+            // **Mouse tracking is a level, not four flags.** `[[source:
             // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
             // `?1003` is a superset of `?1002` which is a superset of `?1000`
             // -- so resetting any of them turns tracking off, which is what an
-            // application expects from `?1000 l`.
+            // application expects from `?1000 l`. `?9` is the fourth level and
+            // follows the same rule: xterm's `really_set_mousemode` stores
+            // `enabled ? mode : MOUSE_OFF` for all of them.
+            PrivateMode::MouseX10Compat => self.set_tracking(MouseTracking::X10Compat, change),
             PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, change),
             PrivateMode::MouseButtonEvent => self.set_tracking(MouseTracking::ButtonEvent, change),
             PrivateMode::MouseAnyEvent => self.set_tracking(MouseTracking::AnyEvent, change),
-            PrivateMode::MouseSgr => {
-                // Resetting `?1006` returns to X10, the protocol's default
-                // rather than "off" -- there is no off.
-                self.cold.mouse_encoding = match on {
-                    true => MouseEncoding::Sgr,
-                    false => MouseEncoding::X10,
+            // **The encodings are exclusive, and a reset undoes only its
+            // own.** Resetting the one in force returns to X10, the
+            // protocol's default rather than "off" -- there is no off -- and
+            // resetting another changes nothing: xterm's "a reset is only
+            // effective against the matching mode" (`MouseEncoding::after`).
+            // `?1006 l` returned to X10 whatever was set until 2026-10-09,
+            // and `?1005`, `?1015` and `?1016` were counted and dropped.
+            PrivateMode::MouseUtf8 => self.set_encoding(MouseEncoding::Utf8, change),
+            PrivateMode::MouseSgr => self.set_encoding(MouseEncoding::Sgr, change),
+            PrivateMode::MouseUrxvt => self.set_encoding(MouseEncoding::Urxvt, change),
+            PrivateMode::MouseSgrPixels => self.set_encoding(MouseEncoding::SgrPixels, change),
+            // **`?1007` is the wheel's, and exposing it is acting on it**
+            // (`Term::alternate_scroll`), as `?1` is the keys'. It was
+            // counted and dropped while the app sent the arrows anyway.
+            PrivateMode::AlternateScroll => {
+                self.cold.alternate_scroll = match change {
+                    ModeChange::Set => AlternateScroll::On,
+                    ModeChange::Reset => AlternateScroll::Off,
                 }
             }
             PrivateMode::HighlightTracking => {
@@ -1177,6 +1192,12 @@ impl Paint<'_, '_> {
             ModeChange::Set => level,
             ModeChange::Reset => MouseTracking::Off,
         };
+    }
+
+    /// The encoding after `change` of the mode selecting `mode`; the rule is
+    /// [`MouseEncoding::after`]'s, kept beside the type it describes.
+    fn set_encoding(&mut self, mode: MouseEncoding, change: ModeChange) {
+        self.cold.mouse_encoding = self.cold.mouse_encoding.after(mode, change);
     }
 
     /// **`ModeChange`, not a `bool`.** The two states already have a name in
@@ -1548,6 +1569,15 @@ fn tracking_state(cur: MouseTracking, level: MouseTracking) -> ModeState {
     }
 }
 
+/// Set only for the encoding in force, as xterm answers each of the four
+/// (`extend_coords == params[0]`, `do_dec_rqm`, `[[source: xterm-misc]]`).
+fn encoding_state(cur: MouseEncoding, mode: MouseEncoding) -> ModeState {
+    match cur == mode {
+        true => ModeState::Set,
+        false => ModeState::Reset,
+    }
+}
+
 impl Paint<'_, '_> {
     /// `DECRQM`: what state is this mode in?
     ///
@@ -1618,14 +1648,27 @@ impl Paint<'_, '_> {
                 HighlightTracking::On => ModeState::Set,
                 HighlightTracking::Off => ModeState::Reset,
             },
+            PrivateMode::MouseX10Compat => {
+                tracking_state(self.cold.mouse, MouseTracking::X10Compat)
+            }
             PrivateMode::MouseNormal => tracking_state(self.cold.mouse, MouseTracking::Normal),
             PrivateMode::MouseButtonEvent => {
                 tracking_state(self.cold.mouse, MouseTracking::ButtonEvent)
             }
             PrivateMode::MouseAnyEvent => tracking_state(self.cold.mouse, MouseTracking::AnyEvent),
-            PrivateMode::MouseSgr => match self.cold.mouse_encoding {
-                MouseEncoding::Sgr => ModeState::Set,
-                MouseEncoding::X10 => ModeState::Reset,
+            PrivateMode::MouseUtf8 => encoding_state(self.cold.mouse_encoding, MouseEncoding::Utf8),
+            PrivateMode::MouseSgr => encoding_state(self.cold.mouse_encoding, MouseEncoding::Sgr),
+            PrivateMode::MouseUrxvt => {
+                encoding_state(self.cold.mouse_encoding, MouseEncoding::Urxvt)
+            }
+            PrivateMode::MouseSgrPixels => {
+                encoding_state(self.cold.mouse_encoding, MouseEncoding::SgrPixels)
+            }
+            // xterm answers the flag (`MdBool(screen->alternateScroll)`,
+            // `[[source: xterm-misc]]`), which here is set at power-on.
+            PrivateMode::AlternateScroll => match self.cold.alternate_scroll {
+                AlternateScroll::On => ModeState::Set,
+                AlternateScroll::Off => ModeState::Reset,
             },
             // The alternate screen is a whole buffer rather than a flag, and it
             // is implemented, so `DECRQM` must not deny it.

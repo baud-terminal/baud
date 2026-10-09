@@ -11,12 +11,12 @@ use crate::host::{
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
-use crate::wheel::{Delta, Travel, WHEEL_MAX};
+use crate::wheel::{Delta, Route, Travel};
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
-    CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent, KeyEventKind,
-    Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, Row,
-    RowRot, Rows, WinSize,
+    CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
+    KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
+    PackedCell, PointerPx, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -4265,7 +4265,7 @@ impl Responder for Driver {
             self.select(event);
             return;
         }
-        let (row, col) = self.cell_under(event.x, event.y);
+        let (row, col, px) = self.pointer_under(event.x, event.y);
         let pressed = match event.button {
             ViewButton::Left => MouseButton::Left,
             ViewButton::Middle => MouseButton::Middle,
@@ -4291,6 +4291,7 @@ impl Responder for Driver {
             kind,
             col,
             row,
+            px: Some(px),
         };
         if self.app.term.mouse_report(e) {
             self.app.flush_reply();
@@ -4300,9 +4301,9 @@ impl Responder for Driver {
     /// The wheel moves the window over the history. A trackpad sends
     /// points and a wheel sends lines; both accumulate to whole rows of the
     /// cell height, positive `dy` being "show earlier lines" the way AppKit
-    /// delivers it. The alternate screen keeps no history and gets nothing
-    /// here; a pager or an editor on it will want the wheel as keys, which
-    /// is a separate protocol.
+    /// delivers it. The alternate screen keeps no history: there the wheel
+    /// is the cursor keys while `?1007` is set, which it is until an
+    /// application resets it, and nothing after (`wheel::route`).
     fn scroll(&mut self, event: &Scroll) {
         self.app.caret.quiet(host_now());
         let (_, ch) = self.app.metrics_cell();
@@ -4324,23 +4325,27 @@ impl Responder for Driver {
         // and 5, one press a line, at the pointer; one on the alternate
         // screen without tracking gets it as the arrow keys, which is what
         // a pager or an editor there reads; the primary screen without
-        // tracking is the window over the history.
-        if self.app.term.mouse_tracking() != MouseTracking::Off {
-            let (row, col) = self.cell_under(event.x, event.y);
-            // Every report into the outbox as it is queued -- the core's
-            // buffer holds 21 of them -- and then one write: what the
-            // kernel cannot take now stays owed to the next pump.
-            let outbox = &mut self.app.outbox;
-            crate::wheel::report(&mut self.app.term, lines, row, col, |b| outbox.push(b));
-            self.app.flush_reply();
-            return;
-        }
-        if self.app.term.screen() != baud_core::Screen::Normal {
-            let code = if step > 0 { KeyCode::Up } else { KeyCode::Down };
-            for _ in 0..step.unsigned_abs().min(WHEEL_MAX) {
-                self.app.send(KeyEvent::press(code, Modifiers::default()));
+        // tracking is the window over the history. `wheel::route` decides,
+        // where a test can reach it.
+        match crate::wheel::route(&self.app.term) {
+            Route::Report => {
+                let at = self.pointer_under(event.x, event.y);
+                // Every report into the outbox as it is queued -- the core's
+                // buffer holds 21 of them -- and then one write: what the
+                // kernel cannot take now stays owed to the next pump.
+                let outbox = &mut self.app.outbox;
+                crate::wheel::report(&mut self.app.term, lines, at, |b| outbox.push(b));
+                self.app.flush_reply();
+                return;
             }
-            return;
+            Route::Keys => {
+                for key in crate::wheel::keys(lines) {
+                    self.app.send(key);
+                }
+                return;
+            }
+            Route::Nothing => return,
+            Route::History => {}
         }
         // A wheel is where the thumb would be revealed, so the scroller the
         // setting asks for is read here as well as at a layout: a changed
@@ -5793,8 +5798,20 @@ impl Driver {
     /// is the terminal's area below the titlebar inset, in points, and the
     /// grid is in pixels of the cell size.
     fn cell_under(&self, x: f64, y: f64) -> (Row, Col) {
-        cell_under(
-            (x, y),
+        let (scale, cell, grid, pad) = self.pointer_geometry();
+        cell_under((x, y), scale, cell, grid, pad)
+    }
+
+    /// The cell under a view point and the pixel it is at: what a mouse
+    /// report needs, `?1016`'s pixel included.
+    fn pointer_under(&self, x: f64, y: f64) -> (Row, Col, PointerPx) {
+        let (scale, cell, grid, pad) = self.pointer_geometry();
+        pointer_under((x, y), scale, cell, grid, pad)
+    }
+
+    /// What turns a view point into a cell and a pixel.
+    fn pointer_geometry(&self) -> PointerGeometry {
+        (
             self.app.scale,
             self.app.metrics_cell(),
             (self.app.grid.ws_col, self.app.grid.ws_row),
@@ -5823,6 +5840,11 @@ fn paste_bytes(text: &str, bracket: Bracket) -> Vec<u8> {
     }
 }
 
+/// What turns a view point into a cell and a pixel: the backing scale, the
+/// cell in device pixels, the grid in cells, and the padding in device
+/// pixels -- `pointer_under`'s arguments after the point, in its order.
+type PointerGeometry = (CGFloat, (f64, f64), (u16, u16), (u32, u32));
+
 /// `cell_under` as a pure function of the point, the scale, the cell size
 /// in pixels and the grid, so a test can pin the arithmetic.
 fn cell_under(
@@ -5832,14 +5854,48 @@ fn cell_under(
     grid: (u16, u16),
     pad: (u32, u32),
 ) -> (Row, Col) {
-    let col = (((at.0 * scale - f64::from(pad.0)) / cell.0).floor() as i64)
-        .clamp(0, i64::from(grid.0).saturating_sub(1).max(0));
-    let row = (((at.1 * scale - f64::from(pad.1)) / cell.1).floor() as i64)
-        .clamp(0, i64::from(grid.1).saturating_sub(1).max(0));
-    (
-        Row::from_index(usize::try_from(row).unwrap_or(0)),
-        Col::at_index(usize::try_from(col).unwrap_or(0)),
-    )
+    let (row, col, _) = pointer_under(at, scale, cell, grid, pad);
+    (row, col)
+}
+
+/// The cell under a point **and the pixel it is at, from one computation**,
+/// so the two cannot name different places: `?1016` reports the pixel where
+/// every other encoding reports the cell, and an application divides one by
+/// the cell size to get the other.
+///
+/// The pixel is the point in device pixels -- the unit `Term::set_cell_size`
+/// is given, and so the unit `CSI 16 t` and `?2048` answer in -- less the
+/// padding, zero-based from the grid's first pixel. It is clamped to the
+/// text area the way the cell is clamped to the grid, so a pointer over the
+/// padding or past the last cell reports the edge pixel of the edge cell.
+/// xterm does not clamp: it reports `event->y - OriginY(screen)` whatever it
+/// is (`EditorButton`, `[[source: xterm-button]]`), which over the border is
+/// zero or negative and on the wire a `0` or a `-1` -- a position no cell
+/// has, and one this cell would contradict.
+///
+/// The cell is the pixel divided by the cell size. It was the point divided
+/// by the cell size before the pixel existed, and for a whole-pixel cell,
+/// which the renderer's metrics always are, the two are the same number.
+fn pointer_under(
+    at: (f64, f64),
+    scale: CGFloat,
+    cell: (f64, f64),
+    grid: (u16, u16),
+    pad: (u32, u32),
+) -> (Row, Col, PointerPx) {
+    let axis = |p: f64, pad: u32, cell: f64, cells: u16| {
+        let extent = (cell * f64::from(cells)).floor() as i64;
+        let px = ((p * scale - f64::from(pad)).floor() as i64).clamp(0, (extent - 1).max(0));
+        let index =
+            ((px as f64 / cell).floor() as i64).clamp(0, i64::from(cells).saturating_sub(1).max(0));
+        (
+            usize::try_from(index).unwrap_or(0),
+            ImagePx::of(u16::try_from(px).unwrap_or(u16::MAX)),
+        )
+    };
+    let (col, x) = axis(at.0, pad.0, cell.0, grid.0);
+    let (row, y) = axis(at.1, pad.1, cell.1, grid.1);
+    (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
 }
 
 /// What a left press does to the selection, from the modifiers held:
@@ -6026,6 +6082,38 @@ mod tests {
         assert_eq!((r.index(), c.index()), (0, 0));
         let (r, c) = cell_under((9999.0, 9999.0), 2.0, (20.0, 40.0), (200, 50), (0, 0));
         assert_eq!((r.index(), c.index()), (49, 199));
+    }
+
+    /// **The pixel `?1016` reports is in the cell the other encodings
+    /// report.** Device pixels less the padding, zero-based, clamped to the
+    /// text area: an application that divides it by the `CSI 16 t` cell size
+    /// gets the cell back, at every point of a sweep across the padding, the
+    /// grid and past its far edge.
+    #[test]
+    fn a_point_names_its_pixel_and_the_cell_that_holds_it() {
+        let (scale, cell, grid, pad) = (2.0, (20.0, 40.0), (200, 50), (10, 6));
+        // (105, 21) points at 2x is (210, 42); less the padding (200, 36).
+        let (r, c, px) = pointer_under((105.0, 21.0), scale, cell, grid, pad);
+        assert_eq!((px.x, px.y), (ImagePx::of(200), ImagePx::of(36)));
+        assert_eq!((r.index(), c.index()), (0, 10));
+        // Over the padding: the first pixel of the first cell.
+        let (r, c, px) = pointer_under((1.0, 1.0), scale, cell, grid, pad);
+        assert_eq!(
+            (px.x, px.y, r.index(), c.index()),
+            (ImagePx::ZERO, ImagePx::ZERO, 0, 0)
+        );
+        // Past the far edge: the last pixel of the last cell.
+        let (r, c, px) = pointer_under((9999.0, 9999.0), scale, cell, grid, pad);
+        assert_eq!((px.x, px.y), (ImagePx::of(3999), ImagePx::of(1999)));
+        assert_eq!((r.index(), c.index()), (49, 199));
+        // And everywhere between, the pixel divided by the cell is the cell.
+        for i in 0..4200 {
+            let p = f64::from(i) * 0.6;
+            let (r, c, px) = pointer_under((p, p * 0.3), scale, cell, grid, pad);
+            assert_eq!(px.x.index() / 20, c.index(), "x at {p}");
+            assert_eq!(px.y.index() / 40, r.index(), "y at {p}");
+            assert_eq!((r, c), cell_under((p, p * 0.3), scale, cell, grid, pad));
+        }
     }
 }
 

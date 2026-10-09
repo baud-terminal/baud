@@ -278,9 +278,15 @@ pub struct Cold {
     /// [`Term::mouse_report`] -- never by the per-byte loop -- so it costs the
     /// ingest path nothing at all.
     pub(crate) mouse: MouseTracking,
-    /// `?1006`. Resetting it returns to X10, which is the protocol's default
-    /// rather than "off": there is no off.
+    /// `?1005`, `?1006`, `?1015`, `?1016`. Setting one replaces the one in
+    /// force and resetting one returns to X10 only if it is the one in force
+    /// ([`MouseEncoding::after`]); X10 is the protocol's default rather than
+    /// "off" -- there is no off.
     pub(crate) mouse_encoding: MouseEncoding,
+    /// `?1007`, on at power-on and **kept by both resets**, as xterm keeps
+    /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
+    /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
+    pub(crate) alternate_scroll: AlternateScroll,
     /// `?1001`. Recorded and exposed, because a core with no selection model
     /// has no other way to act on it -- and answering `DECRQM` truthfully
     /// requires knowing.
@@ -511,6 +517,7 @@ impl Cold {
             placement: crate::placed::Placement::NONE,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
+            alternate_scroll: AlternateScroll::On,
             defaults: [ColorWord::DEFAULT; 3],
             dynamic: [ColorWord::DEFAULT; 3],
             highlight: HighlightTracking::Off,
@@ -2226,6 +2233,18 @@ impl<'b> Term<'b> {
         self.cold.mouse
     }
 
+    /// `?1007`: whether the wheel on the alternate screen, with no tracking
+    /// to take it, should send the cursor keys.
+    ///
+    /// The wheel is the embedder's, so acting on the mode is exposing it --
+    /// the argument `?1` and `?2004` make. `[[source: ctlseqs]]`: "if
+    /// Alternate Scroll mode is set, then cursor up/down controls are sent
+    /// when the terminal is displaying the Alternate Screen Buffer." On at
+    /// power-on, which is what baud did before it read the mode.
+    pub fn alternate_scroll(&self) -> AlternateScroll {
+        self.cold.alternate_scroll
+    }
+
     /// Whether `?1001` highlight tracking is on.
     ///
     /// An embedder with a selection model can implement it; this core records
@@ -2257,31 +2276,76 @@ impl<'b> Term<'b> {
     /// tracking level decides which *kinds* are reported: motion is dropped
     /// under `?1000`, and motion with no button held under anything below
     /// `?1003`, because sending it anyway floods an application that asked
-    /// only for clicks. And the *position* has to be encodable -- X10 caps
-    /// each ordinate at 223 against a 2048-column grid, so a report from
-    /// column 400 has no byte, and the one it would produce names a
-    /// **different cell** rather than a truncated one. Those are refused and
-    /// counted in [`Term::mouse_unencodable`]; everything that fits is sent,
-    /// which is every position on a terminal anyone actually runs.
+    /// only for clicks; `?9` reports a press of button 1, 2 or 3 and nothing
+    /// else; and no level reports a wheel release, which `[[source:
+    /// ctlseqs]]` says "are not reported". And the *position* has to be
+    /// encodable -- X10 caps each ordinate at 223 against a 2048-column
+    /// grid and `?1005` at 2015, so a report from column 400 under X10 has
+    /// no byte, and the one it would produce names a **different cell**
+    /// rather than a truncated one; `?1016` needs the pixel the embedder may
+    /// not have given. Those are refused and counted in
+    /// [`Term::mouse_unencodable`]; everything that fits is sent, which is
+    /// every position on a terminal anyone actually runs.
+    ///
+    /// **Input-side and cold**: an embedder calls this per pointer event;
+    /// the per-byte loop never does.
     pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
-        let wanted = match (self.cold.mouse, e.kind) {
-            (MouseTracking::Off, _) => false,
-            (MouseTracking::Normal, MouseKind::Motion) => false,
-            (MouseTracking::ButtonEvent, MouseKind::Motion) => e.button != MouseButton::None,
+        use MouseButton::{Left, Middle, Right, WheelDown, WheelUp};
+        let wanted = match (self.cold.mouse, e.kind, e.button) {
+            (MouseTracking::Off, ..) => false,
+            // "only on button press ... Cb is button-1, where button is 1,
+            // 2 or 3": no release, no motion, and no wheel, which xterm drops
+            // under `X10_MOUSE` (`EditorButton`, `[[source: xterm-button]]`).
+            (MouseTracking::X10Compat, MouseKind::Press, Left | Middle | Right) => true,
+            (MouseTracking::X10Compat, ..) => false,
+            // "Release events for the wheel buttons are not reported."
+            (_, MouseKind::Release, WheelUp | WheelDown) => false,
+            (MouseTracking::Normal, MouseKind::Motion, _) => false,
+            (MouseTracking::ButtonEvent, MouseKind::Motion, b) => b != MouseButton::None,
             _ => true,
         };
         if !wanted {
             return false;
         }
-        if let Some(max) = self.cold.mouse_encoding.max_ordinate() {
+        // X10 compatibility sends the button and no modifiers: normal
+        // tracking is the first mode whose text says "Modifier key (shift,
+        // ctrl, meta) information is also sent", and xterm writes `' ' +
+        // button` for `X10_MOUSE` (`EmitButtonCode`). The encoding still
+        // applies, so `?9` with `?1006` is `CSI < 0 ; x ; y M`.
+        let e = match self.cold.mouse {
+            MouseTracking::X10Compat => MouseEvent {
+                mods: MouseMods::NONE,
+                ..e
+            },
+            _ => e,
+        };
+        let encoding = self.cold.mouse_encoding;
+        if let Some(max) = encoding.max_ordinate() {
             let (r, c) = (e.row.one_based().get(), e.col.one_based().get());
             if r > max || c > max {
                 self.mouse_unencodable += 1;
                 return false;
             }
-            return self.queue(Report::MouseX10(e));
         }
-        self.queue(Report::MouseSgr(e))
+        let report = match encoding {
+            MouseEncoding::X10 => Report::MouseX10(e),
+            MouseEncoding::Utf8 => Report::MouseUtf8(e),
+            MouseEncoding::Sgr => Report::MouseSgr(e),
+            MouseEncoding::Urxvt => Report::MouseUrxvt(e),
+            // No pixel, or one at `u16::MAX` -- where `ImagePx` saturates,
+            // "at least this far", and whose one-based form the field cannot
+            // carry -- is not made up: refused and counted.
+            MouseEncoding::SgrPixels => match e.px {
+                Some(px) if px.x < ImagePx::of(u16::MAX) && px.y < ImagePx::of(u16::MAX) => {
+                    Report::MouseSgrPixels(e, px)
+                }
+                _ => {
+                    self.mouse_unencodable += 1;
+                    return false;
+                }
+            },
+        };
+        self.queue(report)
     }
 
     /// Queue a focus report, if the application asked for them with `?1004`.

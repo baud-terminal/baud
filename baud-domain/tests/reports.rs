@@ -19,6 +19,17 @@ fn mouse(button: MouseButton, kind: MouseKind, col: usize, row: usize) -> MouseE
         kind,
         col: Col::at_index(col),
         row: Row::from_index(row),
+        px: None,
+    }
+}
+
+/// `e` with every modifier held: the widest `Cb` its button can carry.
+fn all_mods(e: MouseEvent) -> MouseEvent {
+    MouseEvent {
+        mods: MouseMods::SHIFT
+            .with(MouseMods::META)
+            .with(MouseMods::CONTROL),
+        ..e
     }
 }
 
@@ -178,6 +189,118 @@ fn sgr_mouse_reports_have_the_documented_shape() {
         ))),
         b"\x1b[<2;400;42m"
     );
+}
+
+/// **The X10 family writes a release as code 3, and SGR keeps the button.**
+/// `[[source: ctlseqs]]`: "3=release" for the X10 scheme; for SGR, "A
+/// different final character is used for button release to resolve the X10
+/// ambiguity regarding which button was released."
+#[test]
+fn x10_family_releases_are_code_three_and_sgr_keeps_the_button() {
+    let release = mouse(MouseButton::Right, MouseKind::Release, 0, 0);
+    assert_eq!(enc(Report::MouseX10(release)), b"\x1b[M\x23\x21\x21");
+    assert_eq!(enc(Report::MouseUtf8(release)), b"\x1b[M\x23\x21\x21");
+    assert_eq!(enc(Report::MouseUrxvt(release)), b"\x1b[35;1;1M");
+    assert_eq!(enc(Report::MouseSgr(release)), b"\x1b[<2;1;1m");
+}
+
+/// `?1005`'s bytes: X10 below 128, then UTF-8 -- `[[source: ctlseqs]]`'s
+/// "expanding the maximum encodable position from 223 to 2015", whose last
+/// position is `2015 + 32` = U+07FF.
+#[test]
+fn utf8_mouse_reports_are_x10_until_127_and_utf8_after() {
+    let at = |col, row| {
+        enc(Report::MouseUtf8(mouse(
+            MouseButton::Left,
+            MouseKind::Press,
+            col,
+            row,
+        )))
+    };
+    assert_eq!(at(94, 0), b"\x1b[M\x20\x7f\x21");
+    assert_eq!(at(95, 0), b"\x1b[M\x20\xc2\x80\x21");
+    assert_eq!(at(0, 2014), b"\x1b[M\x20\x21\xdf\xbf");
+    // In 8-bit controls the introducer is one byte and the rest unchanged.
+    assert_eq!(
+        Report::MouseUtf8(mouse(MouseButton::Left, MouseKind::Press, 95, 0))
+            .encode(C1Transmit::EightBit)
+            .as_bytes(),
+        b"\x9bM\x20\xc2\x80\x21"
+    );
+}
+
+/// `?1015`: "CSI followed by semicolon-separated encoded button value, the
+/// Px and Py ordinates and final character M", the button value X10's.
+#[test]
+fn urxvt_mouse_reports_have_the_documented_shape() {
+    assert_eq!(
+        enc(Report::MouseUrxvt(mouse(
+            MouseButton::Left,
+            MouseKind::Press,
+            399,
+            41
+        ))),
+        b"\x1b[32;400;42M"
+    );
+    assert_eq!(
+        enc(Report::MouseUrxvt(mouse(
+            MouseButton::WheelUp,
+            MouseKind::Press,
+            0,
+            0
+        ))),
+        b"\x1b[96;1;1M"
+    );
+}
+
+/// `?1016`: "the same mouse response format as the 1006 control, but report
+/// position in pixels", the pixel one-based on the wire.
+#[test]
+fn sgr_pixel_mouse_reports_carry_the_pixel_one_based() {
+    let px = PointerPx {
+        x: ImagePx::of(799),
+        y: ImagePx::ZERO,
+    };
+    assert_eq!(
+        enc(Report::MouseSgrPixels(
+            mouse(MouseButton::Middle, MouseKind::Press, 39, 0),
+            px
+        )),
+        b"\x1b[<1;800;1M"
+    );
+    assert_eq!(
+        enc(Report::MouseSgrPixels(
+            mouse(MouseButton::Middle, MouseKind::Release, 39, 0),
+            px
+        )),
+        b"\x1b[<1;800;1m"
+    );
+}
+
+/// **The encoding a DECSET or DECRST leaves**: a set selects, a reset
+/// undoes only the one in force -- xterm's "a reset is only effective
+/// against the matching mode".
+#[test]
+fn a_set_selects_an_encoding_and_a_reset_undoes_only_its_own() {
+    use MouseEncoding::*;
+    for from in [X10, Utf8, Sgr, Urxvt, SgrPixels] {
+        for mode in [Utf8, Sgr, Urxvt, SgrPixels] {
+            assert_eq!(
+                from.after(mode, ModeChange::Set),
+                mode,
+                "{from:?} then {mode:?} h"
+            );
+            let want = if from == mode { X10 } else { from };
+            assert_eq!(
+                from.after(mode, ModeChange::Reset),
+                want,
+                "{from:?} then {mode:?} l"
+            );
+        }
+    }
+    assert_eq!(X10.max_ordinate(), Some(223));
+    assert_eq!(Utf8.max_ordinate(), Some(2015));
+    assert_eq!(Sgr.max_ordinate(), None);
 }
 
 /// The buffer is big enough for the longest report there is.
@@ -343,6 +466,40 @@ fn report_encodings_fit() {
             Report::MouseX10(mouse(MouseButton::Left, MouseKind::Press, 222, 222)),
             b' ' + 223,
         ),
+        // The widest of each encoding `?1005`, `?1015` and `?1016` brought:
+        // every modifier on the widest button code the type can build, at
+        // the last position each can carry.
+        (
+            "utf-8 mouse",
+            Report::MouseUtf8(all_mods(mouse(
+                MouseButton::WheelDown,
+                MouseKind::Motion,
+                2014,
+                2014,
+            ))),
+            0xbf,
+        ),
+        (
+            "urxvt mouse",
+            Report::MouseUrxvt(all_mods(mouse(
+                MouseButton::WheelDown,
+                MouseKind::Motion,
+                2047,
+                639,
+            ))),
+            b'M',
+        ),
+        (
+            "sgr-pixels mouse",
+            Report::MouseSgrPixels(
+                all_mods(mouse(MouseButton::WheelDown, MouseKind::Release, 2047, 639)),
+                PointerPx {
+                    x: ImagePx::of(u16::MAX - 1),
+                    y: ImagePx::of(u16::MAX - 1),
+                },
+            ),
+            b'm',
+        ),
     ] {
         // **Exhaustive, so this list cannot fall behind the enum again.** A
         // new `Report` variant stops this match compiling, and the edit it
@@ -364,7 +521,10 @@ fn report_encodings_fit() {
             | Report::DynamicColor { .. }
             | Report::ModeStatus { .. }
             | Report::MouseSgr(_)
-            | Report::MouseX10(_) => {}
+            | Report::MouseX10(_)
+            | Report::MouseUtf8(_)
+            | Report::MouseUrxvt(_)
+            | Report::MouseSgrPixels(..) => {}
         }
         let b = enc(r);
         assert!(

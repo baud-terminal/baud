@@ -783,6 +783,17 @@ sha256 = "243be0fe1e1882420e3eaade87134c0c475ff685e46c6040caaa9628d1524f11"
 bytes  = 162096
 status = "external"
 group  = "C"
+# Also cited from 2026-10-09 for the mouse encodings, re-fetched at the pinned
+# commit and hash-verified (243be0fe..., 162096 bytes) before citing: `MouseLimit`
+# (219: 223 for X10, 2015 for `?1005`, none for the decimal encodings),
+# `EmitMousePosition` (240: one byte below zero-based 95, else `0xC0 + (v >> 6)`,
+# `0x80 + (v & 0x3F)` of `value + 33`; `value + 1` in decimal; a position at the
+# limit sent as `0`), `EmitButtonCode` (5414: `' ' + button` under `X10_MOUSE`;
+# SGR and SGR-Pixels drop the 32, urxvt keeps it) and `EditorButton` (5470: no
+# button past 3 under `X10_MOUSE`; a release is `-1`, code 3, except under SGR;
+# SGR-Pixels takes the pointer less the border, unclamped). No encoding test on the
+# emit path: `utf8` appears in the file and in none of those four. **Cited as
+# xterm's**, practice beside ctlseqs, which does not say how the encodings combine.
 
 [sources.xterm-fontutils]
 key    = "xterm-fontutils"

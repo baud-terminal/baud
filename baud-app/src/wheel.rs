@@ -4,7 +4,10 @@
 //! sink in, bytes out -- because `Driver::scroll` is AppKit-bound and no test
 //! reaches it.
 
-use baud_core::{Col, MouseButton, MouseEvent, MouseKind, MouseMods, Row, Term};
+use baud_core::{
+    AlternateScroll, Col, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseKind,
+    MouseMods, MouseTracking, PointerPx, Row, Screen, Term,
+};
 
 /// Lines a single wheel event may turn into reports or keys: a trackpad
 /// fling accumulates to many, and an application wants a bounded burst.
@@ -82,6 +85,57 @@ impl Travel {
     }
 }
 
+/// Where a wheel's lines go, decided from the terminal's state alone so a
+/// test can reach it: `Driver::scroll` is AppKit-bound and no test does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Route {
+    /// An application tracking the mouse: buttons 4 and 5, through [`report`].
+    Report,
+    /// The alternate screen under `?1007`: the cursor keys, through [`keys`].
+    Keys,
+    /// The primary screen: the window over the history moves.
+    History,
+    /// The alternate screen with `?1007` reset: nothing. It keeps no history
+    /// to move, and the application has said it does not want the keys.
+    Nothing,
+}
+
+/// Which [`Route`] a wheel takes now.
+///
+/// **Tracking first, whatever `?1007` says**: a wheel is buttons 4 and 5 to
+/// an application tracking the mouse, `?9` included -- which reports neither,
+/// "button 1, 2 or 3" being all X10 compatibility has, so the wheel there is
+/// taken and sends nothing, as xterm's is (`EditorButton`, `[[source:
+/// xterm-button]]`). Then the screen: the primary's wheel moves the window
+/// over the history, and the alternate screen's sends the cursor keys while
+/// `?1007` is set -- `[[source: ctlseqs]]`, "if Alternate Scroll mode is set,
+/// then cursor up/down controls are sent when the terminal is displaying the
+/// Alternate Screen Buffer" -- and nothing once an application resets it.
+pub fn route(term: &Term<'_>) -> Route {
+    if term.mouse_tracking() != MouseTracking::Off {
+        return Route::Report;
+    }
+    match (term.screen(), term.alternate_scroll()) {
+        (Screen::Normal, _) => Route::History,
+        (Screen::Alternate, AlternateScroll::On) => Route::Keys,
+        (Screen::Alternate, AlternateScroll::Off) => Route::Nothing,
+    }
+}
+
+/// `lines` of wheel as the cursor keys: Up for each line that shows earlier
+/// lines and Down for each that shows later ones, at most `WHEEL_MAX`. Keys,
+/// not bytes, so each goes through `Term::key` and is the cursor key as
+/// DECCKM has it -- `CSI A` normally and `SS3 A` in application mode.
+pub fn keys(lines: Lines) -> impl Iterator<Item = KeyEvent> {
+    let code = if lines.0 > 0 {
+        KeyCode::Up
+    } else {
+        KeyCode::Down
+    };
+    (0..lines.0.unsigned_abs().min(WHEEL_MAX))
+        .map(move |_| KeyEvent::press(code, Modifiers::default()))
+}
+
 /// `lines` of wheel to an application tracking the mouse: one press of
 /// button 4 or 5 a line at `(row, col)`, at most `WHEEL_MAX` -- and every
 /// byte of them handed to `sink` in order, behind whatever the core already
@@ -94,7 +148,14 @@ impl Travel {
 /// Each report lands in an empty buffer now and none can overflow, so a
 /// `false` from `mouse_report` is the application not wanting the event,
 /// which is the same answer for every line of it.
-pub fn report(term: &mut Term<'_>, lines: Lines, row: Row, col: Col, mut sink: impl FnMut(&[u8])) {
+///
+/// `px` is the same position in pixels, which `?1016` reports instead.
+pub fn report(
+    term: &mut Term<'_>,
+    lines: Lines,
+    (row, col, px): (Row, Col, PointerPx),
+    mut sink: impl FnMut(&[u8]),
+) {
     let button = if lines.0 > 0 {
         MouseButton::WheelUp
     } else {
@@ -108,6 +169,7 @@ pub fn report(term: &mut Term<'_>, lines: Lines, row: Row, col: Col, mut sink: i
             kind: MouseKind::Press,
             col,
             row,
+            px: Some(px),
         });
         if !queued {
             break;
@@ -127,11 +189,17 @@ fn owed(term: &mut Term<'_>, sink: &mut impl FnMut(&[u8])) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use baud_core::{BytePos, Owned, ReadLen, WinSize};
+    use baud_core::{BytePos, ImagePx, Owned, ReadLen, WinSize};
 
     const WS: WinSize = WinSize {
         ws_row: 40,
         ws_col: 120,
+    };
+
+    /// A pixel position for the reports whose encoding does not carry one.
+    const PX: PointerPx = PointerPx {
+        x: ImagePx::ZERO,
+        y: ImagePx::ZERO,
     };
 
     /// The modes herdr 0.9.3 leaves the terminal in, in the order it sends
@@ -161,8 +229,7 @@ mod tests {
         report(
             &mut t,
             Lines(40),
-            Row::from_index(15),
-            Col::at_index(50),
+            (Row::from_index(15), Col::at_index(50), PX),
             |b| child.extend_from_slice(b),
         );
         let one = b"\x1b[<64;51;16M";
@@ -185,8 +252,7 @@ mod tests {
         report(
             &mut t,
             Lines(-100),
-            Row::from_index(0),
-            Col::at_index(0),
+            (Row::from_index(0), Col::at_index(0), PX),
             |b| child.extend_from_slice(b),
         );
         let one = b"\x1b[<65;1;1M";
@@ -208,8 +274,7 @@ mod tests {
         report(
             &mut t,
             Lines(2),
-            Row::from_index(0),
-            Col::at_index(0),
+            (Row::from_index(0), Col::at_index(0), PX),
             |b| child.extend_from_slice(b),
         );
         assert_eq!(child, b"\x1b[0n\x1b[<64;1;1M\x1b[<64;1;1M");
@@ -225,12 +290,121 @@ mod tests {
         report(
             &mut t,
             Lines(3),
-            Row::from_index(0),
-            Col::at_index(0),
+            (Row::from_index(0), Col::at_index(0), PX),
             |b| calls += usize::from(!b.is_empty()),
         );
         assert_eq!(calls, 0);
         assert_eq!(t.reply_overflows, 0);
+    }
+
+    /// **`?1007 l` takes the wheel off the arrow keys.** `[[source:
+    /// ctlseqs]]`, "Wheel mice": "if Alternate Scroll mode is set, then
+    /// cursor up/down controls are sent when the terminal is displaying the
+    /// Alternate Screen Buffer." Reset, the alternate screen keeps no history
+    /// to move, so the wheel there does nothing -- and it sent the arrows
+    /// whatever the mode said, because the mode was counted and dropped.
+    #[test]
+    fn after_1007l_the_wheel_on_the_alternate_screen_sends_nothing() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[?1049h\x1b[?1007l");
+        let r = route(&t);
+        assert!(
+            !matches!(r, Route::Report | Route::Keys | Route::History),
+            "after ?1007 l the wheel on the alternate screen sends nothing and moves nothing: {r:?}"
+        );
+        assert_eq!(r, Route::Nothing);
+        assert_eq!(t.alternate_scroll(), AlternateScroll::Off);
+        // And `?1007 h` gives the arrows back.
+        feed(&mut t, b"\x1b[?1007h");
+        assert_eq!(route(&t), Route::Keys);
+    }
+
+    /// **The default is unchanged: arrows on the alternate screen.** baud
+    /// sent them before `?1007` was read, and a user sees no difference until
+    /// an application resets the mode. That is set at power-on, against
+    /// xterm's `alternateScroll` resource, which is `False`
+    /// (`[[source: xterm-reset]]`'s file); ctlseqs leaves the initial state
+    /// to the resource.
+    #[test]
+    fn the_alternate_screen_sends_arrows_until_an_application_says_otherwise() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        assert_eq!(route(&t), Route::History, "the primary moves the history");
+        feed(&mut t, b"\x1b[?1049h");
+        assert_eq!(route(&t), Route::Keys);
+    }
+
+    /// **Tracking takes the wheel whatever `?1007` says, and the primary
+    /// screen moves the history whatever it says.** Alternate scroll is a
+    /// rule for the alternate screen without tracking; xterm's wheel is a
+    /// report first whenever a protocol is on (`EditorButton`'s callers,
+    /// `[[source: xterm-button]]`).
+    #[test]
+    fn tracking_and_the_primary_screen_ignore_1007() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[?1007l");
+        assert_eq!(route(&t), Route::History);
+        // An application tracking the mouse on the primary screen gets the
+        // wheel too: tracking decides before the screen does.
+        feed(&mut t, b"\x1b[?1000h");
+        assert_eq!(route(&t), Route::Report, "tracking on the primary screen");
+        feed(&mut t, b"\x1b[?1000l\x1b[?1049h\x1b[?1000h");
+        assert_eq!(route(&t), Route::Report);
+        feed(&mut t, b"\x1b[?1000l\x1b[?9h");
+        assert_eq!(
+            route(&t),
+            Route::Report,
+            "X10 compatibility is tracking too"
+        );
+    }
+
+    /// **The wheel's keys are the cursor keys as DECCKM has them**: through
+    /// `Term::key`, so `CSI A` normally and `SS3 A` once an application sets
+    /// `?1` -- ctlseqs' "cursor up/down controls", which are the keys.
+    #[test]
+    fn the_wheels_keys_are_the_cursor_keys_as_decckm_has_them() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let sent = |t: &mut Term<'_>, lines| {
+            let mut out = Vec::new();
+            for k in keys(lines) {
+                crate::reads::input(t, |t| t.key(k), |b| out.extend_from_slice(b));
+            }
+            out
+        };
+        feed(&mut t, b"\x1b[?1049h");
+        t.clear_reply();
+        assert_eq!(sent(&mut t, Lines(2)), b"\x1b[A\x1b[A");
+        assert_eq!(sent(&mut t, Lines(-1)), b"\x1b[B");
+        feed(&mut t, b"\x1b[?1h");
+        t.clear_reply();
+        assert_eq!(sent(&mut t, Lines(1)), b"\x1bOA");
+        assert_eq!(keys(Lines(-500)).count(), 64, "capped at WHEEL_MAX");
+    }
+
+    /// **Under `?1016` the wheel reports the pointer in pixels**: a wheel
+    /// event is a button press like any other, and xterm writes it through
+    /// the same `EditorButton` (`[[source: xterm-button]]`).
+    #[test]
+    fn a_wheel_under_1016_reports_the_pointer_in_pixels() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[?1049h\x1b[?1000h\x1b[?1016h");
+        t.clear_reply();
+        let mut child = Vec::new();
+        let px = PointerPx {
+            x: ImagePx::of(33),
+            y: ImagePx::of(70),
+        };
+        report(
+            &mut t,
+            Lines(1),
+            (Row::from_index(1), Col::at_index(2), px),
+            |b| child.extend_from_slice(b),
+        );
+        assert_eq!(child, b"\x1b[<64;34;71M");
     }
 
     /// **A slow wheel scrolls.** A mouse that sends small `scrollingDeltaY`

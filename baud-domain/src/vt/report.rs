@@ -165,17 +165,24 @@ pub enum Report {
     /// `[[source: ctlseqs]]`, "SGR (1006)": "CSI < followed by
     /// semicolon-separated encoded button value, Px and Py ordinates and a
     /// final character which is M for button press and m for button release."
-    ///
-    /// Only the SGR encoding exists here. The X10 scheme it replaced encodes
-    /// each ordinate as one byte at `value + 32`, which caps it at 223 -- and
-    /// baud's grid goes to 2048 columns. A report from column 400 in that
-    /// scheme is not a truncated answer, it is a *wrong* one, pointing the
-    /// application at some other cell. Under the rule that a wrong answer beats
-    /// no answer nowhere, baud reports nothing unless `?1006` is on.
     MouseSgr(MouseEvent),
-    /// `ESC [ M Cb Cx Cy`, each ordinate offset by 32. See
-    /// [`MouseEncoding::X10`] for why the caller must check the range first.
+    /// `ESC [ M Cb Cx Cy`, each byte offset by 32, a release written as code
+    /// 3. See [`MouseEncoding::X10`] for why the caller must check the range
+    /// first: past 223 the byte wraps and names a different cell.
     MouseX10(MouseEvent),
+    /// `?1005`: X10's three values, each written as UTF-8 once it passes 127.
+    /// The caller refuses an ordinate past 2015, whose `+ 32` has no two-byte
+    /// form.
+    MouseUtf8(MouseEvent),
+    /// `?1015`: `CSI Cb ; Cx ; Cy M`, X10's button value -- its `+ 32` and
+    /// its release code -- and the position in decimal, `M` for a release
+    /// too.
+    MouseUrxvt(MouseEvent),
+    /// `?1016`: [`Report::MouseSgr`]'s shape with the position in pixels,
+    /// one-based. The pixel is resolved by the caller -- an event that
+    /// carries none is refused before it gets here, so this variant cannot
+    /// be built without one.
+    MouseSgrPixels(MouseEvent, PointerPx),
 }
 
 /// Whether the Primary DA advertises Sixel graphics (attribute `4`). A typed
@@ -473,13 +480,53 @@ impl Report {
                 });
             }
             Report::MouseX10(ev) => {
-                // `ESC [ M` then three bytes, each ordinate biased by 32. The
-                // caller has already refused anything past 223: encoding it
-                // here would wrap and name a different cell.
+                // `ESC [ M` then three bytes, each biased by 32. The caller
+                // has already refused anything past 223: encoding it here
+                // would wrap and name a different cell.
                 e.push(b'M');
-                e.push((ev.cb() as u8).wrapping_add(32));
+                e.push((ev.cb_x10() as u8).wrapping_add(32));
                 e.push((ev.col.one_based().get() as u8).wrapping_add(32));
                 e.push((ev.row.one_based().get() as u8).wrapping_add(32));
+            }
+            Report::MouseUtf8(ev) => {
+                // X10's shape, each value `+ 32` and then UTF-8: one byte
+                // below 128, which is "identical under both modes", and the
+                // two-byte form from 128 to 2047. xterm writes the two bytes
+                // as `0xC0 + (v >> 6)` and `0x80 + (v & 0x3F)`
+                // (`EmitMousePosition`, `[[source: xterm-button]]`), which for
+                // those values is exactly what `char::encode_utf8` writes.
+                e.push(b'M');
+                e.push_utf8(ev.cb_x10() + 32);
+                e.push_utf8(ev.col.one_based().get() + 32);
+                e.push_utf8(ev.row.one_based().get() + 32);
+            }
+            Report::MouseUrxvt(ev) => {
+                // No `<`, X10's button value with its `+ 32` kept -- "the
+                // same button encoding as X10, but printing it as a decimal
+                // integer" -- and `M` whatever happened.
+                e.push_num(ev.cb_x10() + 32);
+                e.push(b';');
+                e.push_num(ev.col.one_based().get());
+                e.push(b';');
+                e.push_num(ev.row.one_based().get());
+                e.push(b'M');
+            }
+            Report::MouseSgrPixels(ev, px) => {
+                // SGR's shape; the pixel is zero-based on the event and
+                // one-based on the wire, xterm's `value + 1`
+                // (`EmitMousePosition`, `[[source: xterm-button]]`). The
+                // caller refuses `u16::MAX`, whose `+ 1` does not fit, so the
+                // saturation never decides a byte.
+                e.push(b'<');
+                e.push_num(ev.cb());
+                e.push(b';');
+                e.push_num(px.x.raw().saturating_add(1));
+                e.push(b';');
+                e.push_num(px.y.raw().saturating_add(1));
+                e.push(match ev.kind {
+                    MouseKind::Release => b'm',
+                    _ => b'M',
+                });
             }
             Report::Vt52Identity => {
                 e.len = ByteLen::ZERO;
@@ -620,6 +667,18 @@ impl ReportBytes {
         let d = Decimal::of(v);
         for b in d.as_bytes() {
             self.push(*b);
+        }
+    }
+    /// `v` as UTF-8: one byte below 128, two from 128 to 2047, which is
+    /// every value `?1005` writes once the caller has refused an ordinate
+    /// past 2015. A value with no scalar -- none below 2048 is a surrogate
+    /// -- writes nothing rather than a guess.
+    fn push_utf8(&mut self, v: u16) {
+        if let Some(c) = char::from_u32(u32::from(v)) {
+            let mut buf = [0; 4];
+            for b in c.encode_utf8(&mut buf).as_bytes() {
+                self.push(*b);
+            }
         }
     }
 }

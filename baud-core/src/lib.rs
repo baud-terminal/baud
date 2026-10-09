@@ -80,6 +80,13 @@ pub use baud_domain::{
 pub use baud_domain::Focus;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
+/// Mouse reporting's vocabulary: an embedder that cannot name a
+/// `MouseEvent` cannot call [`Term::mouse_report`] -- and since `?1016` an
+/// event carries its pixel position, a `PointerPx` of two `ImagePx`.
+pub use baud_domain::{
+    AlternateScroll, HighlightRegion, HighlightTracking, ImagePx, MouseButton, MouseEncoding,
+    MouseEvent, MouseKind, MouseMods, MouseTracking, PointerPx,
+};
 /// The clustering and width vocabulary the encoding suites name. All of it is
 /// `baud-domain`'s -- neither core owns UAX #29 or East Asian Width.
 pub use baud_domain::{
@@ -96,12 +103,6 @@ pub use baud_domain::{
 /// an `OSC 8` hyperlink, and both are what the accessors return.
 pub use baud_domain::{
     Chan, ClipboardOp, ColorWord, DynamicColor, LinkId, Osc, StringTerm, XColor,
-};
-/// Mouse reporting's vocabulary: an embedder that cannot name a
-/// `MouseEvent` cannot call [`Term::mouse_report`].
-pub use baud_domain::{
-    HighlightRegion, HighlightTracking, MouseButton, MouseEncoding, MouseEvent, MouseKind,
-    MouseMods, MouseTracking,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 pub use graph::Node;

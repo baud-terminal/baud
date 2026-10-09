@@ -360,6 +360,20 @@ pub enum PrivateMode {
     MouseAnyEvent,
     /// `?1006` SGR encoding.
     MouseSgr,
+    /// `?9` X10 compatibility: a press, its button, and nothing else.
+    /// `[[source: ctlseqs]]`: "Send Mouse X & Y on button press ... This is
+    /// the X10 xterm mouse protocol." A tracking level, beside `?1000`.
+    MouseX10Compat,
+    /// `?1005` UTF-8 encoding: X10's bytes, each written as UTF-8 past 127.
+    MouseUtf8,
+    /// `?1015` urxvt encoding: X10's button value and the position, in
+    /// decimal, `CSI Cb ; Cx ; Cy M`.
+    MouseUrxvt,
+    /// `?1016` SGR-Pixels: `?1006`'s shape with the position in pixels.
+    MouseSgrPixels,
+    /// `?1007` alternate scroll: the wheel on the alternate screen sends the
+    /// cursor keys. Input-side, like `?1`.
+    AlternateScroll,
     /// `?1004` FocusIn/FocusOut reporting.
     FocusReporting,
     Other(Param),
@@ -388,6 +402,11 @@ impl PrivateMode {
             1002 => PrivateMode::MouseButtonEvent,
             1003 => PrivateMode::MouseAnyEvent,
             1006 => PrivateMode::MouseSgr,
+            9 => PrivateMode::MouseX10Compat,
+            1005 => PrivateMode::MouseUtf8,
+            1015 => PrivateMode::MouseUrxvt,
+            1016 => PrivateMode::MouseSgrPixels,
+            1007 => PrivateMode::AlternateScroll,
             1004 => PrivateMode::FocusReporting,
             1049 => PrivateMode::AltScreen,
             1001 => PrivateMode::HighlightTracking,
