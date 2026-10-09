@@ -2239,8 +2239,14 @@ impl<'b> Term<'b> {
 
     /// Queue a mouse report, if the application asked for this kind of event.
     ///
-    /// Returns whether anything was queued, so an embedder can tell "the
-    /// application does not want this" from "it was sent".
+    /// Returns whether the report is in the reply buffer, so an embedder can
+    /// tell "it was queued" from both kinds of "it was not": the application
+    /// does not want it, or the buffer is full. **The second was answered
+    /// `true` until 2026-10-09**: `queue` dropped the report whole and counted
+    /// it, and this returned `true` anyway -- a 40-line wheel fling under
+    /// herdr queued 21 reports, dropped 19, and said all 40 were sent. A
+    /// caller with many reports to queue drains [`Term::reply`] between them;
+    /// the `false` is how one that did not finds out.
     ///
     /// **Two gates, and both are refusals rather than omissions.** The
     /// tracking level decides which *kinds* are reported: motion is dropped
@@ -2268,18 +2274,17 @@ impl<'b> Term<'b> {
                 self.mouse_unencodable += 1;
                 return false;
             }
-            self.queue(Report::MouseX10(e));
-            return true;
+            return self.queue(Report::MouseX10(e));
         }
-        self.queue(Report::MouseSgr(e));
-        true
+        self.queue(Report::MouseSgr(e))
     }
 
     /// Queue a focus report, if the application asked for them with `?1004`.
     ///
-    /// Returns whether anything was queued, the way [`Term::mouse_report`]
-    /// does, so an embedder can tell "the application does not want this"
-    /// from "it was sent". `CSI I` on gain, `CSI O` on loss
+    /// Returns whether the report is in the reply buffer, the way
+    /// [`Term::mouse_report`] does: `false` when the application did not ask,
+    /// and `false` when the buffer is full -- which answered `true` until
+    /// 2026-10-09. `CSI I` on gain, `CSI O` on loss
     /// (`[[source: ctlseqs]]`, "FocusIn/FocusOut"); nothing when the mode is
     /// reset, because an application that did not ask reads `CSI I` as a
     /// keypress.
@@ -2287,15 +2292,18 @@ impl<'b> Term<'b> {
         if !self.cold.modes.is_set(ModeBit::FocusReporting) {
             return false;
         }
-        self.queue(Report::Focus(f));
-        true
+        self.queue(Report::Focus(f))
     }
 
-    /// Put a report in the reply buffer.
+    /// Put a report in the reply buffer, and say whether it went in.
     ///
     /// The same rule `Paint::want_reply` follows: a truncated reply is a wrong
-    /// answer, so it is dropped whole and counted rather than half-sent.
-    fn queue(&mut self, r: Report) {
+    /// answer, so it is dropped whole and counted rather than half-sent. The
+    /// answer is the caller's to pass on: `mouse_report` and `focus` return
+    /// it, and the reports that ride on another call -- `?2048` after a
+    /// resize or a cell-size change, `?2031` after a theme change -- are
+    /// counted and nothing more.
+    fn queue(&mut self, r: Report) -> bool {
         let bytes = r.encode(self.cold.c1);
         let b = bytes.as_bytes();
         let at = self.reply_len.index();
@@ -2303,8 +2311,12 @@ impl<'b> Term<'b> {
             true => {
                 self.store.reply[at..at + b.len()].copy_from_slice(b);
                 self.reply_len = ByteLen::from_index(at + b.len());
+                true
             }
-            false => self.reply_overflows += 1,
+            false => {
+                self.reply_overflows += 1;
+                false
+            }
         }
     }
 

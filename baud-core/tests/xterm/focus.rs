@@ -96,3 +96,31 @@ fn the_vim_recording_enables_it() {
     .unwrap();
     assert_eq!(after(&bytes, Focus::Gained), (true, b"\x1b[I".to_vec()));
 }
+
+/// **A report the reply buffer cannot hold returns `false`.** `focus` said
+/// `true` for a report `queue` had dropped -- counted in `reply_overflows`,
+/// and then announced as sent -- the same defect `mouse_report` had, found
+/// beside it on 2026-10-09.
+#[test]
+fn a_report_that_does_not_fit_says_so() {
+    let mut s = Owned::new(&support::CORPUS);
+    let mut t = Term::new(s.storage(), &support::CORPUS);
+    support::feed(&mut t, b"\x1b[?1004h");
+    t.clear_reply();
+    // `CSI I` is three bytes: 85 fit in REPLY and one byte is left over.
+    let fit = REPLY / 3;
+    for i in 0..fit {
+        assert!(t.focus(Focus::Gained), "report {i} fits");
+    }
+    let before = t.reply_overflows;
+    assert!(
+        !t.focus(Focus::Lost),
+        "the next does not fit, and must say so"
+    );
+    assert_eq!(t.reply().len(), fit * 3, "dropped whole");
+    assert_eq!(t.reply_overflows, before + 1, "and counted");
+    // Positive control: into a drained buffer it is queued.
+    t.clear_reply();
+    assert!(t.focus(Focus::Lost));
+    assert_eq!(t.reply(), b"\x1b[O");
+}

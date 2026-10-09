@@ -423,3 +423,74 @@ fn one_parameter_t_is_still_scroll_down() {
     // byte; the assertion that carries here is the one above -- `SD` moved the
     // row, which is what "implemented" means.
 }
+
+// ── a full reply buffer ─────────────────────────────────────────────────────
+
+/// **A report the reply buffer cannot hold returns `false`, the way
+/// [`Term::key`] already does.** `mouse_report` returned `true` for it: the
+/// report was dropped whole and counted in `reply_overflows`, which is right,
+/// and then the return value said it had been sent, which is not. An
+/// embedder that asks `true` to mean "queued" -- the wheel loop draining the
+/// buffer only when it fills -- could not tell the drop from the send.
+///
+/// Found closing the loop on herdr 0.9.3 (2026-10-09): a 40-line fling in
+/// the state it leaves the terminal in -- the alternate screen, `?1003` any
+/// event, `?1006` SGR -- queued 21 twelve-byte reports into the 256-byte
+/// buffer and dropped 19, and every one of the 40 calls answered `true`.
+#[test]
+fn a_report_that_does_not_fit_says_so() {
+    let mut t = T {
+        s: Owned::new(&support::CORPUS),
+    };
+    let mut term = Term::new(t.s.storage(), &support::CORPUS);
+    // The mode bytes herdr sends, in its order: ?1015 arrives and ?1006 wins.
+    feed(
+        &mut term,
+        b"\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h",
+    );
+    term.clear_reply();
+    let wheel = ev(MouseButton::WheelUp, MouseKind::Press, 50, 15);
+    let one = b"\x1b[<64;51;16M";
+    let fit = REPLY / one.len();
+    assert_eq!(fit, 21, "twelve-byte reports into REPLY bytes");
+    for i in 0..fit {
+        assert!(term.mouse_report(wheel), "report {i} fits and is queued");
+    }
+    assert_eq!(term.reply(), one.repeat(fit).as_slice());
+    let before = term.reply_overflows;
+    assert!(
+        !term.mouse_report(wheel),
+        "a report that does not fit is not queued, and must not answer true"
+    );
+    assert_eq!(term.reply().len(), fit * one.len(), "dropped whole");
+    assert_eq!(term.reply_overflows, before + 1, "and counted");
+    // Positive control: the same report into a drained buffer is queued, so
+    // the `false` above meant "did not fit" and not "not wanted".
+    term.clear_reply();
+    assert!(term.mouse_report(wheel));
+    assert_eq!(term.reply(), one);
+}
+
+/// The X10 arm queues through the same buffer and answers the same way.
+#[test]
+fn an_x10_report_that_does_not_fit_says_so() {
+    let mut t = T {
+        s: Owned::new(&support::CORPUS),
+    };
+    let mut term = Term::new(t.s.storage(), &support::CORPUS);
+    feed(&mut term, b"\x1b[?1000h");
+    term.clear_reply();
+    let press = ev(MouseButton::Left, MouseKind::Press, 0, 0);
+    // `ESC [ M Cb Cx Cy`: six bytes, so 42 fit and four bytes are left over.
+    let fit = REPLY / 6;
+    for i in 0..fit {
+        assert!(term.mouse_report(press), "report {i} fits");
+    }
+    let before = term.reply_overflows;
+    assert!(!term.mouse_report(press), "the next does not fit");
+    assert_eq!(term.reply_overflows, before + 1);
+    assert_eq!(
+        term.mouse_unencodable, 0,
+        "a full buffer is not unencodable"
+    );
+}

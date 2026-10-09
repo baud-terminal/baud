@@ -7,11 +7,11 @@
 //! `close`, `O_RDONLY` and `O_CLOEXEC` went to [`std::fs::File`], which
 //! opens close-on-exec, answers the length from `metadata` and closes on
 //! drop; that took the surface from twenty-five items to ten. Everything
-//! left is something `std` has no API for: a pty, an ioctl, a poll over
-//! two descriptors, a mapping, Darwin's raw uptime clock, a symbol
-//! looked up at run time because older systems do not have it, and the
-//! user's locale -- read from CoreFoundation and checked with `newlocale`
-//! -- for a shell whose environment names none.
+//! left is something `std` has no API for: a pty, an ioctl, a poll, a
+//! descriptor's non-blocking flag, a mapping, Darwin's raw uptime clock, a
+//! symbol looked up at run time because older systems do not have it, and
+//! the user's locale -- read from CoreFoundation and checked with
+//! `newlocale` -- for a shell whose environment names none.
 //!
 //! **Every layout and constant below is checked against the platform's own
 //! headers** by this file's tests, which compile a C probe with `cc` and
@@ -31,9 +31,12 @@ pub type Fd = c_int;
 /// `poll`'s count of descriptors: `unsigned int` on Darwin and
 /// `unsigned long` on glibc, which `sizeof.nfds_t` pins.
 ///
-/// Only the Linux loop polls -- the macOS run loop cannot wait on a
-/// descriptor, so the pty is read on a thread there -- which is why this
-/// and the three items below carry the same gate.
+/// Both drivers poll the master. The Linux loop waits on it beside the
+/// compositor's socket; the macOS reader thread waits on it alone, when a
+/// read of the master -- non-blocking since 2026-10-09, because the main
+/// thread writes it (`pty.rs`) -- finds nothing.
+#[cfg(target_os = "macos")]
+pub type Nfds = c_uint;
 #[cfg(target_os = "linux")]
 pub type Nfds = c_ulong;
 
@@ -49,7 +52,6 @@ pub struct Winsize {
 }
 
 /// One descriptor `poll` watches.
-#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PollFd {
@@ -75,8 +77,28 @@ pub const TIOCGWINSZ: c_ulong = 0x4008_7468;
 #[cfg(all(test, not(target_os = "macos")))]
 pub const TIOCGWINSZ: c_ulong = 0x5413;
 
-#[cfg(target_os = "linux")]
 pub const POLLIN: i16 = 0x1;
+/// Room to write. The Linux loop asks for it while the pty owes bytes it
+/// has not taken; the macOS driver retries those on the display link's tick
+/// instead, and only a test asks there.
+#[cfg(any(target_os = "linux", test))]
+pub const POLLOUT: i16 = 0x4;
+/// The descriptor cannot be watched. Darwin's `poll(2)` says under BUGS
+/// that it "currently does not support devices", and a pty master is one;
+/// measured on this Mac it watches the master as it should, so this is the
+/// reader's way to notice a system where the page is right.
+#[cfg(any(target_os = "macos", test))]
+pub const POLLNVAL: i16 = 0x20;
+
+/// `fcntl`'s commands to read and to set a descriptor's status flags, and
+/// the flag that makes a `read` or a `write` that would wait return
+/// `EAGAIN` instead. The flag's bit differs per platform.
+pub const F_GETFL: c_int = 3;
+pub const F_SETFL: c_int = 4;
+#[cfg(target_os = "macos")]
+pub const O_NONBLOCK: c_int = 0x4;
+#[cfg(not(target_os = "macos"))]
+pub const O_NONBLOCK: c_int = 0o4000;
 pub const PROT_READ: c_int = 0x1;
 pub const MAP_PRIVATE: c_int = 0x2;
 
@@ -126,8 +148,13 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn read(fd: Fd, buf: *mut c_void, count: usize) -> isize;
     pub fn write(fd: Fd, buf: *const c_void, count: usize) -> isize;
-    #[cfg(target_os = "linux")]
     pub fn poll(fds: *mut PollFd, nfds: Nfds, timeout: c_int) -> c_int;
+
+    /// Variadic in the header, as `ioctl` is -- and it has to be declared
+    /// so: on Apple's arm64 a variadic argument is passed on the stack, so a
+    /// fixed third parameter would hand `F_SETFL` whatever sat in the
+    /// register.
+    pub fn fcntl(fd: Fd, cmd: c_int, ...) -> c_int;
     pub fn execve(
         path: *const c_char,
         argv: *const *const c_char,
@@ -268,6 +295,7 @@ mod tests {
     use core::mem::{offset_of, size_of};
 
     const PROBE: &str = r#"
+#include <fcntl.h>
 #include <poll.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -297,6 +325,11 @@ int main(void) {
     printf("TIOCSWINSZ=%llu\n", (unsigned long long)TIOCSWINSZ);
     printf("TIOCGWINSZ=%llu\n", (unsigned long long)TIOCGWINSZ);
     printf("POLLIN=%lld\n", (long long)POLLIN);
+    printf("POLLOUT=%lld\n", (long long)POLLOUT);
+    printf("POLLNVAL=%lld\n", (long long)POLLNVAL);
+    printf("F_GETFL=%lld\n", (long long)F_GETFL);
+    printf("F_SETFL=%lld\n", (long long)F_SETFL);
+    printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
@@ -379,14 +412,10 @@ int main(void) {
         assert_eq!(h["winsize.col"], offset_of!(Winsize, ws_col) as i128);
         assert_eq!(h["winsize.xpixel"], offset_of!(Winsize, ws_xpixel) as i128);
         assert_eq!(h["winsize.ypixel"], offset_of!(Winsize, ws_ypixel) as i128);
-        #[cfg(target_os = "linux")]
-        {
-            assert_eq!(h["pollfd.size"], size_of::<PollFd>() as i128);
-            assert_eq!(h["pollfd.fd"], offset_of!(PollFd, fd) as i128);
-            assert_eq!(h["pollfd.events"], offset_of!(PollFd, events) as i128);
-            assert_eq!(h["pollfd.revents"], offset_of!(PollFd, revents) as i128);
-        }
-        #[cfg(target_os = "linux")]
+        assert_eq!(h["pollfd.size"], size_of::<PollFd>() as i128);
+        assert_eq!(h["pollfd.fd"], offset_of!(PollFd, fd) as i128);
+        assert_eq!(h["pollfd.events"], offset_of!(PollFd, events) as i128);
+        assert_eq!(h["pollfd.revents"], offset_of!(PollFd, revents) as i128);
         assert_eq!(h["nfds.size"], size_of::<Nfds>() as i128);
         assert_eq!(h["request.size"], size_of::<c_ulong>() as i128);
         #[cfg(target_os = "macos")]
@@ -409,8 +438,12 @@ int main(void) {
         let h = ask_the_headers();
         assert_eq!(h["TIOCSWINSZ"], i128::from(TIOCSWINSZ));
         assert_eq!(h["TIOCGWINSZ"], i128::from(TIOCGWINSZ));
-        #[cfg(target_os = "linux")]
         assert_eq!(h["POLLIN"], i128::from(POLLIN));
+        assert_eq!(h["POLLOUT"], i128::from(POLLOUT));
+        assert_eq!(h["POLLNVAL"], i128::from(POLLNVAL));
+        assert_eq!(h["F_GETFL"], i128::from(F_GETFL));
+        assert_eq!(h["F_SETFL"], i128::from(F_SETFL));
+        assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
         assert_eq!(h["PROT_READ"], i128::from(PROT_READ));
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);

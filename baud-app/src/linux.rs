@@ -27,7 +27,7 @@ use crate::host::{
     FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
     startup_mark,
 };
-use crate::pty::{Chunk, Pty, Ready, wait};
+use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Px;
@@ -61,6 +61,9 @@ struct Driver {
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
     pty: Pty,
+    /// What the child is owed and the kernel has not taken: every write goes
+    /// through it, in order (`pty.rs`).
+    outbox: Outbox,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
     /// last frame, with the cells' margin filled with the default
@@ -201,6 +204,7 @@ pub fn run() {
         term,
         renderer,
         pty,
+        outbox: Outbox::default(),
         frame: Vec::new(),
         stride: Px::of(0),
         margin,
@@ -243,7 +247,8 @@ pub fn run() {
             .next_change(now, d.blinks())
             .map(|t| t.saturating_duration_since(now));
         let timeout = [sync, repeat, flash, caret].into_iter().flatten().min();
-        let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), timeout) {
+        let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), d.outbox.owed(), timeout)
+        {
             Ok(r) => r,
             Err(e) => {
                 crate::warn!("poll: {e}");
@@ -348,12 +353,14 @@ impl Driver {
         }
     }
 
-    /// Whatever the core answered -- a key, a query -- to the child.
+    /// Whatever the core answered -- a key, a query -- to the child, behind
+    /// whatever the kernel has not yet taken. What it cannot take now stays
+    /// owed, and the wait wakes for room to write it (`Outbox::owed`).
     fn flush_reply(&mut self) {
-        let reply = self.term.reply().to_vec();
-        if !reply.is_empty() {
-            self.pty.write(&reply);
-            self.term.clear_reply();
+        self.outbox.push(self.term.reply());
+        self.term.clear_reply();
+        if !self.outbox.is_empty() {
+            self.pty.write(&mut self.outbox);
         }
     }
 

@@ -9,8 +9,9 @@ use crate::host::{
     startup_mark, startup_note,
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
-use crate::pty::{Pty, Stream, Wrote, host_now};
+use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
+use crate::wheel::{Delta, Travel, WHEEL_MAX};
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
@@ -358,6 +359,12 @@ struct App {
     cell: Option<CellMemory>,
     waker: Waker,
     pty: Pty,
+    /// What the child is owed and the kernel has not taken (`pty.rs`):
+    /// every write goes through it, in order, and the pump offers what is
+    /// left on every turn -- the display link's tick among them -- so a
+    /// queue that fills is retried on the clock the loop already has, and
+    /// the window never waits in `write(2)` for a child that is not reading.
+    outbox: Outbox,
     frame: Vec<u32>,
     frame_w: Px,
     frame_h: Px,
@@ -399,8 +406,8 @@ struct App {
     /// The scroller "Show scroll bars" asked for when the window was last
     /// laid out: under the legacy style the grid gives up a gutter to it.
     scroller: Scroller,
-    /// Wheel travel not yet a whole line, in points.
-    scroll_accum: f64,
+    /// Wheel travel not yet a whole line (`wheel.rs`).
+    travel: Travel,
     frames: Tally,
     /// Display-link ticks, which `frames` is not: a tick that finds
     /// nothing pending returns from `present` before a frame is built,
@@ -903,6 +910,7 @@ impl App {
             cell,
             waker,
             pty,
+            outbox: Outbox::default(),
             frame: vec![0; slots(frame_w) * slots(frame_h)],
             frame_w,
             frame_h,
@@ -920,7 +928,7 @@ impl App {
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
             scroller,
-            scroll_accum: 0.0,
+            travel: Travel::default(),
             frames: Tally::default(),
             ticks: Tally::default(),
             wrote_in_flight: Tally::default(),
@@ -1004,14 +1012,18 @@ impl App {
 
     /// Sends a key to the core and whatever it answers to the shell, and
     /// says whether anything did: a key the core encodes to nothing asks
-    /// for no echo, and the instrument must not wait for one.
+    /// for no echo, and the instrument must not wait for one -- not even
+    /// when the flush behind it writes bytes an earlier event left owed.
     fn send(&mut self, e: KeyEvent) -> Sent {
-        self.term.key(e);
+        let encoded = self.term.key(e);
         // A key shows the cursor and restarts its blink, whether or not the
         // child echoes it back, and is input to the stop (`caret.rs`). The
         // wheel's arrow keys on the alternate screen come through here too.
         self.caret.input(host_now());
-        self.flush_reply()
+        match (encoded, self.flush_reply()) {
+            (true, Sent::Bytes) => Sent::Bytes,
+            _ => Sent::Nothing,
+        }
     }
 
     /// Where the window sits in the ring, for the scrollbar.
@@ -1027,14 +1039,20 @@ impl App {
         self.reveal.look_under(self.scroller, now)
     }
 
+    /// Whatever the core answered to the child, behind whatever it is
+    /// already owed, as much as the kernel takes now; `Bytes` only when that
+    /// emptied the outbox. With nothing owed it makes no system call: the
+    /// pump runs this every tick.
+    ///
+    /// The reply was copied out and cleared whether or not the write went,
+    /// so a short write lost the rest; the outbox keeps it.
     fn flush_reply(&mut self) -> Sent {
-        let reply = self.term.reply().to_vec();
-        if reply.is_empty() {
+        self.outbox.push(self.term.reply());
+        self.term.clear_reply();
+        if self.outbox.is_empty() {
             return Sent::Nothing;
         }
-        let wrote = self.pty.write(&reply);
-        self.term.clear_reply();
-        match wrote {
+        match self.pty.write(&mut self.outbox) {
             Wrote::All => Sent::Bytes,
             Wrote::Short => Sent::Nothing,
         }
@@ -4259,18 +4277,17 @@ impl Responder for Driver {
     fn scroll(&mut self, event: &Scroll) {
         self.app.caret.quiet(host_now());
         let (_, ch) = self.app.metrics_cell();
-        let lines = match event.precise {
-            true => {
-                self.app.scroll_accum += event.dy * self.app.scale;
-                let whole = (self.app.scroll_accum / ch).trunc();
-                self.app.scroll_accum -= whole * ch;
-                whole
-            }
-            false => event.dy.trunc(),
-        };
+        let lines = self.app.travel.lines(match event.precise {
+            true => Delta::Points {
+                dy: event.dy,
+                scale: self.app.scale,
+                cell: ch,
+            },
+            false => Delta::Lines(event.dy),
+        });
         // Whole lines, signed; the retained count bounds the window above
         // and the live screen bounds it below.
-        let step = lines as i64;
+        let step = lines.get();
         if step == 0 {
             return;
         }
@@ -4281,24 +4298,12 @@ impl Responder for Driver {
         // tracking is the window over the history.
         if self.app.term.mouse_tracking() != MouseTracking::Off {
             let (row, col) = self.cell_under(event.x, event.y);
-            let button = if step > 0 {
-                MouseButton::WheelUp
-            } else {
-                MouseButton::WheelDown
-            };
-            let mut sent = false;
-            for _ in 0..step.unsigned_abs().min(WHEEL_MAX) {
-                sent |= self.app.term.mouse_report(MouseEvent {
-                    button,
-                    mods: MouseMods::NONE,
-                    kind: MouseKind::Press,
-                    col,
-                    row,
-                });
-            }
-            if sent {
-                self.app.flush_reply();
-            }
+            // Every report into the outbox as it is queued -- the core's
+            // buffer holds 21 of them -- and then one write: what the
+            // kernel cannot take now stays owed to the next pump.
+            let outbox = &mut self.app.outbox;
+            crate::wheel::report(&mut self.app.term, lines, row, col, |b| outbox.push(b));
+            self.app.flush_reply();
             return;
         }
         if self.app.term.screen() != baud_core::Screen::Normal {
@@ -4962,10 +4967,6 @@ pub fn run() {
 const ZOOM_MIN: f32 = 6.0;
 const ZOOM_MAX: f32 = 72.0;
 
-/// Lines a single wheel event may turn into reports or keys: a trackpad
-/// fling accumulates to many, and an application wants a bounded burst.
-const WHEEL_MAX: u64 = 64;
-
 impl Driver {
     /// Typing, and a paste, snap the window back to the live screen, where
     /// the keystroke's effect is.
@@ -4973,7 +4974,7 @@ impl Driver {
         let back = snapped(&self.app.term, self.app.back);
         if back != self.app.back {
             self.app.back = back;
-            self.app.scroll_accum = 0.0;
+            self.app.travel.settle();
             self.app.pending = Pending::Dirty;
             // A programmatic scroll, which AppKit reveals: the thumb shows
             // at the bottom and fades.
@@ -5751,7 +5752,12 @@ impl Driver {
         };
         self.snap_to_live();
         self.app.caret.input(host_now());
-        self.app.pty.write(&paste_bytes(&text, bracket));
+        // Through the outbox, behind anything owed and ahead of anything
+        // typed after it: a paste longer than the slave's queue -- 1022
+        // bytes on Darwin -- waited in `write(2)` for the child to read it.
+        self.app.flush_reply();
+        self.app.outbox.push(&paste_bytes(&text, bracket));
+        self.app.flush_reply();
     }
 
     /// The cell under a point in the view, clamped to the grid: the view

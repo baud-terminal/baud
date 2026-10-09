@@ -2,8 +2,8 @@
 //! macOS and polled beside the compositor's socket on Linux.
 //!
 //! The one place this binary calls libc: `forkpty`, `execve`, `read`,
-//! `write`, `poll`, the `TIOCSWINSZ` ioctl, `mmap` for the font files,
-//! CoreGraphics for the display's scale before AppKit exists, and
+//! `write`, `poll`, `fcntl`, the `TIOCSWINSZ` ioctl, `mmap` for the font
+//! files, CoreGraphics for the display's scale before AppKit exists, and
 //! CoreFoundation and `newlocale` for a shell whose environment names no
 //! locale. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
@@ -11,6 +11,15 @@
 //! and the Darwin clist hand back anyway -- to the main thread over a
 //! channel; on Linux the main loop waits on the master itself and takes
 //! each read where it is polled.
+//!
+//! **The master is non-blocking**, because the main thread writes it. A
+//! write the slave's input queue cannot hold -- Darwin's takes 1022 bytes
+//! and no more until the child reads -- waited in `write(2)` until the child
+//! read, which held the window's thread for as long as the child did not:
+//! a stopped job, or one busy elsewhere. Now the kernel takes what fits, an
+//! [`Outbox`] keeps the rest in order, and the next pump offers it again.
+//! The read side waits in `poll` instead of in `read`, on whichever thread
+//! reads.
 #![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(target_os = "macos")]
@@ -83,9 +92,187 @@ const READ_CHUNK: usize = 4096;
 /// Whether a write reached the child whole.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Wrote {
+    /// The kernel took every byte owed, and the outbox is empty.
     All,
-    /// The kernel took none of it, or not all of it, and the rest is lost.
+    /// The kernel took none of it, or not all of it: the slave's input queue
+    /// is full because the child is not reading, or the child is gone. The
+    /// rest is still in the outbox, first in line for the next write. It was
+    /// lost until 2026-10-09.
     Short,
+}
+
+/// Bytes owed to the child that the kernel has not taken yet, oldest first.
+///
+/// **Every write to the child goes through one**, so nothing overtakes what
+/// is already owed: a key cannot land between the halves of a mouse report
+/// the kernel split, and a paste cannot jump the tail of a wheel burst. It is
+/// unbounded, and only what the user does fills it -- keys, a paste, the
+/// wheel, and the core's answers to the child's own queries -- so a child
+/// that stops reading costs memory in proportion to what was typed at it,
+/// where it used to cost the window.
+#[derive(Default)]
+pub struct Outbox {
+    bytes: Vec<u8>,
+}
+
+impl Outbox {
+    /// Owe `b` too, after everything already owed.
+    pub fn push(&mut self, b: &[u8]) {
+        self.bytes.extend_from_slice(b);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// Whether a wait should wake for room to write.
+    #[cfg(target_os = "linux")]
+    pub fn owed(&self) -> Owed {
+        match self.bytes.is_empty() {
+            true => Owed::Nothing,
+            false => Owed::Bytes,
+        }
+    }
+}
+
+/// What one `read(2)` of the master found.
+enum Got<'a> {
+    /// What the child wrote since the last read.
+    Bytes(&'a [u8]),
+    /// Nothing yet: the master is non-blocking and the child has written
+    /// nothing since the last read, or a signal cut the read short. Neither
+    /// is the end of the stream.
+    Nothing,
+    /// The child has gone: end of file on Darwin, `EIO` on Linux.
+    Closed,
+}
+
+/// One `read(2)` of the master into `buf`, shared by the macOS reader thread
+/// and the Linux loop so the two cannot disagree about which answer ends the
+/// stream.
+fn read_master(fd: crate::sys::Fd, buf: &mut [u8]) -> Got<'_> {
+    // SAFETY: an open descriptor and a buffer valid for its length.
+    let n = unsafe { crate::sys::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+    match usize::try_from(n) {
+        Ok(0) => Got::Closed,
+        Ok(n) => Got::Bytes(&buf[..n.min(buf.len())]),
+        // Every failed read was `Closed` while the master blocked, which
+        // could not answer `EAGAIN`; a non-blocking one answers it whenever
+        // the child is quiet.
+        Err(_) => match std::io::Error::last_os_error().kind() {
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => Got::Nothing,
+            _ => Got::Closed,
+        },
+    }
+}
+
+/// What a wait on the master for something to read ended with.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Waited {
+    /// Something to read, or a hang-up -- the read that follows says which.
+    Ready,
+    /// `poll` answered `POLLNVAL`: it cannot watch this descriptor, and every
+    /// wait would return at once, so waiting again would spin.
+    Unwatchable,
+    /// `poll` itself failed, which a retry would only repeat.
+    Failed,
+}
+
+/// Waits, as long as it takes, until the master has something to read or
+/// has hung up: the macOS reader's wait, now that a read returns at once.
+#[cfg(any(target_os = "macos", test))]
+fn readable(fd: crate::sys::Fd) -> Waited {
+    let mut p = crate::sys::PollFd {
+        fd,
+        events: crate::sys::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: one initialised record and its count; the kernel writes
+        // only `revents`, and the record outlives the call.
+        if unsafe { crate::sys::poll(&mut p, 1, -1) } >= 0 {
+            return match p.revents & crate::sys::POLLNVAL {
+                0 => Waited::Ready,
+                _ => Waited::Unwatchable,
+            };
+        }
+        // A signal, or `EAGAIN` -- which Darwin's page gives for "Allocation
+        // of internal data structures fails. A subsequent request may
+        // succeed." -- is waited again; anything else would only repeat.
+        match std::io::Error::last_os_error().kind() {
+            std::io::ErrorKind::Interrupted | std::io::ErrorKind::WouldBlock => {}
+            _ => return Waited::Failed,
+        }
+    }
+}
+
+/// Makes the master's reads and writes return rather than wait.
+fn nonblocking(fd: crate::sys::Fd) -> std::io::Result<()> {
+    // SAFETY: `F_GETFL` takes no third argument and `F_SETFL` an `int`; the
+    // descriptor is open.
+    let flags = unsafe { crate::sys::fcntl(fd, crate::sys::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: as above.
+    if unsafe { crate::sys::fcntl(fd, crate::sys::F_SETFL, flags | crate::sys::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Makes the master non-blocking, or says why it stays blocking -- in which
+/// case a write the queue cannot hold waits in the kernel again, as every
+/// write did before this.
+fn make_nonblocking(fd: crate::sys::Fd) {
+    if let Err(e) = nonblocking(fd) {
+        crate::warn!("pty: the master stays blocking, so a full queue waits: {e}");
+    }
+}
+
+/// Makes the master's reads and writes wait again: the reader's way back
+/// when `poll` cannot watch the master, to the blocking reads and writes
+/// every version before this one had.
+#[cfg(target_os = "macos")]
+fn blocking(fd: crate::sys::Fd) -> std::io::Result<()> {
+    // SAFETY: as in `nonblocking`.
+    let flags = unsafe { crate::sys::fcntl(fd, crate::sys::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: as above.
+    if unsafe { crate::sys::fcntl(fd, crate::sys::F_SETFL, flags & !crate::sys::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Writes as much of `out` to `fd` as the kernel takes now, takes that off
+/// the front, and says whether any is left.
+fn write_some(fd: crate::sys::Fd, out: &mut Outbox) -> Wrote {
+    let mut at = 0usize;
+    while at < out.bytes.len() {
+        let rest = &out.bytes[at..];
+        // SAFETY: the slice is valid for its length and the fd is ours.
+        let n = unsafe { crate::sys::write(fd, rest.as_ptr().cast(), rest.len()) };
+        match usize::try_from(n) {
+            Ok(0) => break,
+            Ok(n) => at += n,
+            Err(_) => match std::io::Error::last_os_error().kind() {
+                // A signal cut it short: write again.
+                std::io::ErrorKind::Interrupted => {}
+                // `EAGAIN`: the queue is full until the child reads. Anything
+                // else: the child is gone, and the reader is about to say so.
+                _ => break,
+            },
+        }
+    }
+    out.bytes.drain(..at);
+    match out.bytes.is_empty() {
+        true => Wrote::All,
+        false => Wrote::Short,
+    }
 }
 
 /// The shell when `$SHELL` is unset: the system's.
@@ -597,6 +784,8 @@ impl Pty {
     ) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
         let master = Pty::fork(told)?;
+        // Before the reader starts, so it never sees the master block.
+        make_nonblocking(master);
         let (tx, rx) = channel();
         let fd = master;
         let signalled = Arc::new(AtomicBool::new(false));
@@ -617,10 +806,9 @@ impl Pty {
     #[cfg(target_os = "linux")]
     pub fn spawn_polled(size: &WinSize, cell_w: Px, cell_h: Px) -> Option<Pty> {
         let told = text_area(size, cell_w, cell_h);
-        Some(Pty {
-            master: Pty::fork(told)?,
-            told,
-        })
+        let master = Pty::fork(told)?;
+        make_nonblocking(master);
+        Some(Pty { master, told })
     }
 
     /// The master, to wait on.
@@ -631,23 +819,23 @@ impl Pty {
         unsafe { BorrowedFd::borrow_raw(self.master) }
     }
 
-    /// One read of the master, taken after a wait said it was readable: at
-    /// most `READ_CHUNK` bytes, empty when a signal interrupted the read,
-    /// and `Closed` once the child has gone -- a Linux master answers a
-    /// read with an error then, not with zero bytes.
+    /// One read of the master, taken after a wait said it was ready: at
+    /// most `READ_CHUNK` bytes, empty when a signal interrupted the read or
+    /// the wait woke for room to write rather than for bytes, and `Closed`
+    /// once the child has gone -- a Linux master answers a read with an
+    /// error then, not with zero bytes.
     #[cfg(target_os = "linux")]
     pub fn read_chunk(&self) -> Chunk {
         let mut buf = vec![0u8; READ_CHUNK];
-        // SAFETY: an open descriptor and a buffer of the length named.
-        let n = unsafe { crate::sys::read(self.master, buf.as_mut_ptr().cast(), READ_CHUNK) };
-        if n < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-            return Chunk::Bytes(Vec::new());
+        match read_master(self.master, &mut buf) {
+            Got::Bytes(b) => {
+                let n = b.len();
+                buf.truncate(n);
+                Chunk::Bytes(buf)
+            }
+            Got::Nothing => Chunk::Bytes(Vec::new()),
+            Got::Closed => Chunk::Closed,
         }
-        if n <= 0 {
-            return Chunk::Closed;
-        }
-        buf.truncate(usize::try_from(n).unwrap_or(0));
-        Chunk::Bytes(buf)
     }
 
     /// Chunks the shell wrote since the last call, in order.
@@ -667,23 +855,13 @@ impl Pty {
         Drained { chunks, stream }
     }
 
-    /// Writes `bytes` to the shell, all of them, and says whether they
-    /// all went: a write the kernel refuses -- the slave's input queue full
-    /// because the child stopped reading, or the child gone -- asks for no
-    /// echo, and the keystroke instrument must not wait for one.
-    pub fn write(&self, bytes: &[u8]) -> Wrote {
-        let mut at = 0usize;
-        while at < bytes.len() {
-            // SAFETY: the slice is valid for its length and the fd is ours.
-            let n = unsafe {
-                crate::sys::write(self.master, bytes[at..].as_ptr().cast(), bytes.len() - at)
-            };
-            if n <= 0 {
-                return Wrote::Short;
-            }
-            at += usize::try_from(n).unwrap_or(0);
-        }
-        Wrote::All
+    /// Writes what `out` owes the shell, as much as the kernel takes now,
+    /// and says whether all of it went. **It never waits**: what the slave's
+    /// input queue cannot hold stays in `out`, first in line, and the caller
+    /// offers it again on its next turn. A write that left bytes owed asks
+    /// for no echo, and the keystroke instrument must not wait for one.
+    pub fn write(&self, out: &mut Outbox) -> Wrote {
+        write_some(self.master, out)
     }
 
     /// Tells the kernel, and through it the shell, the geometry in cells
@@ -713,23 +891,43 @@ fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake
             .ok()
     });
     loop {
-        // SAFETY: the buffer is valid for READ_CHUNK bytes.
-        let n = unsafe { crate::sys::read(fd, buf.as_mut_ptr().cast(), READ_CHUNK) };
+        let bytes = match read_master(fd, &mut buf) {
+            Got::Bytes(b) => b,
+            // **The wait is here, in `poll`, not in the read.** The master is
+            // non-blocking for the main thread's writes, and the flag is the
+            // open file's, so this read returns at once with nothing. Read as
+            // the end of the stream -- the rule every empty answer had while
+            // the master blocked -- it would end the reader, and with it the
+            // window, the first time the child paused.
+            Got::Nothing => match readable(fd) {
+                Waited::Ready => continue,
+                // Darwin's `poll(2)` says it does not support devices; it
+                // watched the master on the Mac this was written on, and
+                // where it cannot, the master goes back to blocking -- the
+                // reads wait in `read` and the writes in `write`, as before
+                // -- rather than this loop spinning on `POLLNVAL`.
+                Waited::Unwatchable => match blocking(fd) {
+                    Ok(()) => {
+                        crate::warn!("pty: poll cannot watch the master; it blocks again");
+                        continue;
+                    }
+                    Err(_) => return,
+                },
+                Waited::Failed => return,
+            },
+            Got::Closed => return,
+        };
         // Stamped before anything else happens to the bytes: this is the
         // moment the child's answer reached the process.
         let at = host_now();
-        if n <= 0 {
-            return;
-        }
-        let n = usize::try_from(n).unwrap_or(0);
         if let Some(f) = log.as_mut() {
             use std::io::Write;
-            let _ = f.write_all(&buf[..n]);
+            let _ = f.write_all(bytes);
         }
         if tx
             .send(Read {
                 at,
-                bytes: buf[..n].to_vec(),
+                bytes: bytes.to_vec(),
             })
             .is_err()
         {
@@ -744,12 +942,24 @@ fn reader(fd: crate::sys::Fd, tx: Sender<Read>, signalled: Arc<AtomicBool>, wake
 }
 
 /// What a wait said about a descriptor. A hang-up counts as readable: the
-/// read that follows is what reports it.
+/// read that follows is what reports it. So does room to write, when the
+/// wait was told bytes are owed: the read that follows finds nothing, and
+/// the flush after it writes.
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ready {
     Readable,
     Idle,
+}
+
+/// Whether the second descriptor of a [`wait`] is owed bytes it has not
+/// taken, so room to write should end the wait too: the retry is scheduled
+/// on the event that makes it possible, not on a timer.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Owed {
+    Nothing,
+    Bytes,
 }
 
 /// One read of the master.
@@ -766,6 +976,7 @@ pub enum Chunk {
 pub fn wait(
     a: BorrowedFd<'_>,
     b: BorrowedFd<'_>,
+    b_owed: Owed,
     timeout: Option<Duration>,
 ) -> std::io::Result<(Ready, Ready)> {
     let mut fds = [
@@ -776,7 +987,10 @@ pub fn wait(
         },
         crate::sys::PollFd {
             fd: b.as_raw_fd(),
-            events: crate::sys::POLLIN,
+            events: match b_owed {
+                Owed::Nothing => crate::sys::POLLIN,
+                Owed::Bytes => crate::sys::POLLIN | crate::sys::POLLOUT,
+            },
             revents: 0,
         },
     ];
@@ -1449,6 +1663,152 @@ mod tests {
 
     /// What the kernel holds for the pty behind `master` -- read back rather
     /// than trusted from `told`, so the tests below are about the kernel.
+    /// Blocking reads of `master` until what arrived ends with `want`. The
+    /// master must still be blocking.
+    fn read_until(master: crate::sys::Fd, want: &str) {
+        let mut seen = Vec::new();
+        let mut buf = [0u8; 256];
+        while !seen.ends_with(want.as_bytes()) {
+            match read_master(master, &mut buf) {
+                Got::Bytes(b) => seen.extend_from_slice(b),
+                Got::Nothing => {}
+                Got::Closed => panic!(
+                    "the child left before {want:?}: {:?}",
+                    String::from_utf8_lossy(&seen)
+                ),
+            }
+        }
+    }
+
+    /// **An idle child's empty master is not the end of the stream.** The
+    /// reader took a read that returned no bytes as the child gone. Once the
+    /// master is non-blocking -- for the main thread's writes, and the flag
+    /// is the open file's -- an idle child's master answers `EAGAIN` at once,
+    /// and the reader, and with it the window, would end the first time the
+    /// child paused. Then the wait that replaces the blocking read: `poll`
+    /// returns when the child writes, and the read after it has the bytes.
+    #[test]
+    fn an_idle_childs_master_reads_as_nothing_and_its_next_write_wakes_the_wait() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("/bin/stty -echo; echo ready; read x; echo hi".into()),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        // Parked in `read`, with nothing behind its `ready`.
+        read_until(master, "ready\r\n");
+        nonblocking(master).expect("O_NONBLOCK");
+        let mut buf = [0u8; READ_CHUNK];
+        assert!(
+            matches!(read_master(master, &mut buf), Got::Nothing),
+            "an idle child's empty master read as the end of the stream"
+        );
+        let mut out = Outbox::default();
+        out.push(b"go\n");
+        assert_eq!(write_some(master, &mut out), Wrote::All);
+        let mut seen = Vec::new();
+        loop {
+            match read_master(master, &mut buf) {
+                Got::Bytes(b) => seen.extend_from_slice(b),
+                Got::Nothing => assert_eq!(readable(master), Waited::Ready),
+                Got::Closed => break,
+            }
+        }
+        assert_eq!(String::from_utf8_lossy(&seen), "hi\r\n");
+        // SAFETY: `master` is the descriptor forkpty returned and nothing
+        // else owns it.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    }
+
+    /// **A descriptor `poll` cannot watch is reported, not waited on again.**
+    /// `POLLNVAL` returns at once, so a reader that took it as readiness
+    /// would read, find nothing and wait again, forever, at full speed. A
+    /// number no process opens is the descriptor here: `poll` answers it
+    /// `POLLNVAL` on both platforms, and no other test thread can be handed
+    /// it.
+    #[test]
+    fn a_descriptor_poll_cannot_watch_is_reported_rather_than_waited_on() {
+        assert_eq!(readable(1 << 20), Waited::Unwatchable);
+    }
+
+    /// **A write the queue cannot hold returns, and what it could not take
+    /// stays owed, in order.** A raw child that never reads let Darwin's
+    /// master take 1022 bytes and then answered `EAGAIN` (measured
+    /// 2026-10-09), and the blocking master waited in `write(2)` for the rest
+    /// -- on the window's thread. Here 8192 bytes go to a raw child that
+    /// echoes what it reads, through the outbox, offered again whenever
+    /// `poll` says there is room: every byte comes back once and in order,
+    /// and on Darwin the first write is short, so the owed path is the one
+    /// taken.
+    #[test]
+    fn a_full_queue_keeps_the_rest_owed_in_order_and_never_waits() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("/bin/stty raw -echo; echo ready; exec /usr/bin/head -c 8192".into()),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        // Raw: no output processing, so no carriage return.
+        read_until(master, "ready\n");
+        nonblocking(master).expect("O_NONBLOCK");
+        // Printable, so no line discipline setting can read a byte as a
+        // control.
+        let payload: Vec<u8> = (b' '..=b'~').cycle().take(8192).collect();
+        let mut out = Outbox::default();
+        out.push(&payload);
+        let first = write_some(master, &mut out);
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            first,
+            Wrote::Short,
+            "Darwin's queue holds 1022 bytes, so 8192 do not go in one write; {} were taken",
+            payload.len() - out.bytes.len()
+        );
+        let _ = first;
+        let mut echoed = Vec::new();
+        let mut buf = [0u8; READ_CHUNK];
+        loop {
+            let mut p = crate::sys::PollFd {
+                fd: master,
+                events: match out.is_empty() {
+                    true => crate::sys::POLLIN,
+                    false => crate::sys::POLLIN | crate::sys::POLLOUT,
+                },
+                revents: 0,
+            };
+            // A bound on a hang, not a timing: a pass never comes near it.
+            // SAFETY: one initialised record and its count.
+            let n = unsafe { crate::sys::poll(&mut p, 1, 20_000) };
+            assert!(
+                n > 0,
+                "nothing moved in 20 s: {} echoed, {} owed",
+                echoed.len(),
+                out.bytes.len()
+            );
+            if p.revents & crate::sys::POLLOUT != 0 {
+                let _ = write_some(master, &mut out);
+            }
+            match read_master(master, &mut buf) {
+                Got::Bytes(b) => echoed.extend_from_slice(b),
+                Got::Nothing => {}
+                Got::Closed => break,
+            }
+        }
+        assert!(out.is_empty(), "{} bytes still owed", out.bytes.len());
+        assert_eq!(echoed.len(), payload.len());
+        assert!(echoed == payload, "every byte, once, in order");
+        // SAFETY: as above.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    }
+
     fn ask(master: crate::sys::Fd) -> crate::sys::Winsize {
         let mut ws = crate::sys::Winsize::default();
         // SAFETY: TIOCGWINSZ writes one winsize through the pointer.
