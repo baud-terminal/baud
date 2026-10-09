@@ -845,6 +845,17 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     if matches!(Route::of(b), Route::Text) {
         return edge(Act::Text, g);
     }
+    // **DEL is ignored, in every ground.** `[[source: dec-std-070]]` 070-3
+    // §3.4.2 says it "shall be ignored" with a 94-character set in GL, as do
+    // `[[source: vt510-ch7]]` § 7.2.5 and `[[source: williams]]`; it fell to
+    // `Act::Bad` below and drew U+FFFD, a decoding error for a byte that is
+    // well-formed in UTF-8 (`del_in_ground_is_ignored`). VT52 ground has only
+    // 94-character sets and takes the same rule. A 96-character set in GL
+    // makes 0x7F a character of the set (ECMA-35 8.3.1), which waits on note
+    // AE's 96-set work.
+    if matches!(Route::of(b), Route::Del) {
+        return edge(Act::Consume, g);
+    }
     if matches!(enc, InputEncoding::Latin1) {
         // ISO 8859-1: one byte, one character, no decoder state. **Not
         // `Text`**, which names a *run* of printable ASCII -- the run scanner
@@ -1278,6 +1289,13 @@ mod classes {
         // | C0 and `DEL` ignored in a DCS prefix | **34/958/24,113/566,827** | +8.4% |
         // | DCS `Pa;Pb;Ph` routed to `csi` (Digit/Sep) | **34/968/24,645/584,842** | +0.6% at stride 4 |
         // | `ESC` abandons a sequence (the anywhere `1B` edge) | **34/964/24,373/572,642** | **-2.1%** |
+        // | `DEL` ignored in ground, not drawn as U+FFFD (D4) | **34/963/24,272/568,022** | **-0.8%** |
+        //
+        // **The `DEL` row shrinks it again, and the same way.** `7F` in
+        // ground took `Act::Bad` and draws nothing now: it takes
+        // `Act::Consume`, the edge it already took in the sequence nodes, so
+        // words that differed only by what a `DEL` in ground did stop being
+        // distinct. It adds no action and no class; stride 1 stays at 34.
         //
         // **The `ESC` row is the first to shrink the ladder.** It adds no
         // action and no class: `ESC` inside a sequence now takes the edge it
@@ -1366,9 +1384,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 964, "stride 2");
-        assert_eq!(three.len(), 24_373, "stride 3");
-        assert_eq!(four.len(), 572_642, "stride 4");
+        assert_eq!(two.len(), 963, "stride 2");
+        assert_eq!(three.len(), 24_272, "stride 3");
+        assert_eq!(four.len(), 568_022, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a

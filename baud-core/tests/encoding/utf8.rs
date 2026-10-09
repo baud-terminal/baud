@@ -246,3 +246,60 @@ fn a_lead_whose_continuation_is_malformed_does_not_hang() {
         let _ = w;
     });
 }
+
+/// The screen, the cursor, and the unsupported and replacement counts after
+/// `bytes` in reads of `size`.
+fn state_after(bytes: &[u8], size: usize) -> (Vec<PackedCell>, (Row, Col), usize, usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for chunk in bytes.chunks(size) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+    (
+        support::screen(&t),
+        t.cursor(),
+        t.unsupported,
+        t.replacements,
+    )
+}
+
+/// **DEL in ground is ignored, not drawn as U+FFFD.**
+///
+/// `[[source: dec-std-070]]` 070-3 §3.4.2 (p. 3-17), for 94-character sets,
+/// says DEL "shall be ignored"; `[[source: vt510-ch7]]` § 7.2.5 gives "DEL
+/// DELETE 127 ... Ignored (unless in CRM)"; `[[source: williams]]`'s ground:
+/// "7F will be ignored" with a 94-character set in GL. Under UTF-8, 0x7F is
+/// well-formed -- U+007F, a control -- so the replacement character claimed a
+/// decoding error that was not there; under ISO 8859-1 it is DEL. baud sent it
+/// to `Act::Bad` in every ground. VT52 ground takes the same rule: it has only
+/// 94-character sets, and no text read says DEL draws anything there (note AE,
+/// D4; Jev 0.94). Each program is held against itself without the DEL, at
+/// every read size.
+#[test]
+fn del_in_ground_is_ignored() {
+    for (what, with, without) in [
+        ("UTF-8", b"a\x7fb".as_slice(), b"ab".as_slice()),
+        ("ISO 8859-1", b"\x1b%@a\x7fb", b"\x1b%@ab"),
+        ("VT52", b"\x1b[?2la\x7fb\x1b<", b"\x1b[?2lab\x1b<"),
+    ] {
+        let want = state_after(without, without.len());
+        for size in 1..=with.len() {
+            let got = state_after(with, size);
+            assert_eq!(got.1, want.1, "{what}: cursor moved at read size {size}");
+            assert_eq!(
+                got.2, want.2,
+                "{what}: unsupported moved at read size {size}"
+            );
+            assert_eq!(
+                got.3, want.3,
+                "{what}: replacements moved at read size {size}"
+            );
+            assert!(
+                got.0 == want.0,
+                "{what}: screen differs at read size {size}"
+            );
+        }
+    }
+}

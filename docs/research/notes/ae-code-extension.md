@@ -1762,9 +1762,11 @@ pinned by the parallel change.
     mode's received 8-bit codes.
   - Settling D3 needs the DEC text for VT52 mode's handling of received 8-bit
     bytes. Until it is read, D3 is flagged and not built.
-- **D4.** DEL in Ground writes U+FFFD (§2), and test 32 confirms or strikes it.
-  070-3 §3.4.2 says DEL "shall be ignored", and vt510-ch7 §7.2.5 "Ignored
-  (unless in CRM)".
+- **D4.** DEL in Ground wrote U+FFFD (§2). 070-3 §3.4.2 says DEL "shall be
+  ignored", and vt510-ch7 §7.2.5 "Ignored (unless in CRM)". Confirmed red by
+  test 32 (`del_in_ground_is_ignored`) and fixed in both grounds, VT52's by
+  Jev at 0.94; docs/record.md, "DEL in ground is ignored, not drawn as
+  U+FFFD".
 - **D5 is withdrawn.** It said `GRAPHICS` lands on cells that were not
   translated. The flag's doc defines it as the set invoked into GL when the
   cell was written (cell.rs:166-167), and that is what the code does. Which
