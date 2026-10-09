@@ -1,0 +1,12 @@
+baud-app/fonts/built/Regular.ttf: 279896 bytes, usWeightClass 400, fvar False, upem 1000, cap height 730, glyphs U+0062=214 U+0061=189 U+0075=337 U+0064=221 U+276F=846 U+2588=1185, advances a 600 U+276F 600 U+2588 600
+baud-app/fonts/built/Bold.ttf: 284460 bytes, usWeightClass 700, fvar False, upem 1000, cap height 730, glyphs U+0062=214 U+0061=189 U+0075=337 U+0064=221 U+276F=846 U+2588=1185, advances a 600 U+276F 600 U+2588 600
+baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf: 276840 bytes, usWeightClass 400, fvar False
+baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf: 279832 bytes, usWeightClass 700, fvar False
+baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf: 2610012 bytes, usWeightClass 400, fvar False
+baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf: 838652 bytes, usWeightClass 400, fvar False
+baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf: 273900 bytes
+baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf: 277828 bytes
+wordmark pitch 34.4 px; 'baud' advance boxes x 40-180.4; prompt box x 192-224.4
+ink gap d -> U+276F (d at 400, U+276F at 700): 25.2 px
+ink gap d -> U+276F (d at 700, U+276F at 700): 24.3 px
+ink gap U+276F -> block: 21.7 px; block 22 x 46 = 0.35 x 0.74 em at 62 px

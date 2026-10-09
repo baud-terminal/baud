@@ -487,6 +487,18 @@ fn every_test_named_in_the_docs_exists() {
             "so_update_tx_data_stats",
             "XNU's per-socket send accounting, cited in note AH",
         ),
+        (
+            "should_show_zero_state_block",
+            "Warp's gate on its zero-state block (AI enabled), cited in note AJ",
+        ),
+        (
+            "show_changelog_after_update",
+            "Warp's setting, cited in note AJ: \"Whether the changelog is shown after an update\"",
+        ),
+        (
+            "show_terminal_zero_state_block",
+            "Warp's setting for its per-session logo block, cited in note AJ",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

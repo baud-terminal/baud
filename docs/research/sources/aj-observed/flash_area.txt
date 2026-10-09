@@ -1,0 +1,62 @@
+threshold area 21824; window run 341 across, 426.4 diagonal
+linear: least flashing opacity 0.1000 (fill grey 1.000 over ground grey 0.0000); sheath band +0.1386 cell each side (1.277 cells); knot +-1.293, sway +-1.500 filament widths
+encoded x^2.2: least flashing opacity 0.0522 (fill grey 0.000 over ground grey 0.9530); sheath band +0.2688 cell each side (1.538 cells); knot +-1.524, sway +-1.704 filament widths
+encoded, WCAG 2.2's sRGB curve: least flashing opacity 0.0507 (fill grey 0.000 over ground grey 0.9545); sheath band +0.2746 cell each side (1.549 cells); knot +-1.533, sway +-1.712 filament widths
+
+per font size (cell = round(1.32 x font)):
+font 13 pt, cell 17: body full reach  17391 /  21746 diag
+    [linear] body  7404 /  9259 diag, knots  3638, sway  4223
+    [encoded x^2.2] body  8913 / 11146 diag, knots  4289, sway  4794
+    [encoded, WCAG 2.2's sRGB curve] body  8980 / 11230 diag, knots  4315, sway  4818
+    ions   804; red cursor colour, braid region   7249
+font 14 pt, cell 18: body full reach  18414 /  23026 diag
+    [linear] body  7840 /  9803 diag, knots  3638, sway  4223
+    [encoded x^2.2] body  9438 / 11801 diag, knots  4289, sway  4794
+    [encoded, WCAG 2.2's sRGB curve] body  9509 / 11890 diag, knots  4315, sway  4818
+    ions   804; red cursor colour, braid region   7675
+font 16 pt, cell 21: body full reach  21483 /  26863 diag
+    [linear] body  9146 / 11437 diag, knots  3638, sway  4223
+    [encoded x^2.2] body 11011 / 13768 diag, knots  4289, sway  4794
+    [encoded, WCAG 2.2's sRGB curve] body 11094 / 13872 diag, knots  4315, sway  4818
+    ions   804; red cursor colour, braid region   8954
+font 20 pt, cell 26: body full reach  26598 /  33259 diag
+    [linear] body 11324 / 14160 diag, knots  4300, sway  4990
+    [encoded x^2.2] body 13632 / 17047 diag, knots  5068, sway  5666
+    [encoded, WCAG 2.2's sRGB curve] body 13735 / 17175 diag, knots  5100, sway  5694
+    ions  1101; red cursor colour, braid region  11086
+font 30 pt, cell 40: body full reach  40920 /  51168 diag
+    [linear] body 17422 / 21785 diag, knots  6615, sway  7677
+    [encoded x^2.2] body 20973 / 26225 diag, knots  7798, sway  8717
+    [encoded, WCAG 2.2's sRGB curve] body 21131 / 26422 diag, knots  7846, sway  8760
+    ions  2606; red cursor colour, braid region  17056
+font 38 pt, cell 50: body full reach  51150 /  63960 diag
+    [linear] body 21777 / 27231 diag, knots  8269, sway  9597
+    [encoded x^2.2] body 26216 / 32782 diag, knots  9747, sway 10896
+    [encoded, WCAG 2.2's sRGB curve] body 26413 / 33028 diag, knots  9807, sway 10950
+    ions  4072; red cursor colour, braid region  21320
+
+largest cell (and font) at which each part stays under the threshold:
+body, full reach (the red-cursor upper bound): across cell <=  21.3 pt (font < 16.54 pt); diagonal cell <=  17.1 pt (font < 13.30 pt)
+[linear] body, opacity >= 0.1000: across cell <=  50.1 pt (font < 38.34 pt); diagonal cell <=  40.1 pt (font < 30.74 pt)
+[linear] knots: diagonal cell <= 132.0 pt (font < 100.35 pt); sway: diagonal cell <= 113.7 pt (font < 86.52 pt)
+[encoded x^2.2] body, opacity >= 0.0522: across cell <=  41.6 pt (font < 31.91 pt); diagonal cell <=  33.3 pt (font < 25.60 pt)
+[encoded x^2.2] knots: diagonal cell <= 112.0 pt (font < 85.19 pt); sway: diagonal cell <= 100.1 pt (font < 76.25 pt)
+[encoded, WCAG 2.2's sRGB curve] body, opacity >= 0.0507: across cell <=  41.3 pt (font < 31.68 pt); diagonal cell <=  33.0 pt (font < 25.41 pt)
+[encoded, WCAG 2.2's sRGB curve] knots: diagonal cell <= 111.3 pt (font < 84.67 pt); sway: diagonal cell <=  99.7 pt (font < 75.87 pt)
+red cursor colour, knots over the whole braid region (one cell high): diagonal cell <=  51.2 pt (font < 39.15 pt)
+ions: cell <= 115.8 pt
+
+red ground (R/(R+G+B) >= 0.8) under a light fill, encoded blending, at the default font:
+  white over #FF0000: crosses 0.2 at alpha 0.6601 -> the filament cores only, +-0.767 widths:  2157 at the default font, diagonal
+  default fg, dark theme (0xD8) over #FF0000: crosses 0.2 at alpha 0.6943 -> the filament cores only, +-0.708 widths:  1993 at the default font, diagonal
+  white over SGR 41, xterm #CD0000: crosses 0.2 at alpha 0.6080 -> the filament cores only, +-0.857 widths:  2413 at the default font, diagonal
+  default fg, dark theme (0xD8) over SGR 41, xterm #CD0000: crosses 0.2 at alpha 0.6446 -> the filament cores only, +-0.793 widths:  2232 at the default font, diagonal
+  white over #800000: crosses 0.2 at alpha 0.4869 -> the filament cores only, +-1.093 widths:  3077 at the default font, diagonal
+  default fg, dark theme (0xD8) over #800000: crosses 0.2 at alpha 0.5260 -> the filament cores only, +-1.011 widths:  2846 at the default font, diagonal
+  white over #1A0000: crosses 0.2 at alpha 0.1314 -> the body to +0.084 cell:  8467 at the default font, diagonal; cell <=  43.8 pt (font < 33.58 pt)
+  default fg, dark theme (0xD8) over #1A0000: crosses 0.2 at alpha 0.1503 -> the body to +0.057 cell:  8077 at the default font, diagonal; cell <=  45.9 pt (font < 35.18 pt)
+
+the logo's amber as the fill, over grounds with R/(R+G+B) >= 0.8 (encoded blending; pure-red grounds
+#010000-#FF0000 and reds with small green and blue, alpha in steps of 1/400):
+  #F4A32C: R/(R+G+B) = 0.541; largest u'v' step 0.217 over ground (1, 0, 0) at alpha 0.0450; it exceeds 0.2 only over pure-red grounds up to #030000; over #080000 and brighter its largest step is 0.184
+  #C8801F: R/(R+G+B) = 0.557; largest u'v' step 0.214 over ground (1, 0, 0) at alpha 0.0550; it exceeds 0.2 only over pure-red grounds up to #030000; over #080000 and brighter its largest step is 0.178

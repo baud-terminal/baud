@@ -1,0 +1,100 @@
+== ghostty-org_ghostty: files with the most matching lines
+./vendor/nerd-fonts/font-patcher.py:5
+./dist/doxygen/stylesheet.css:5
+./src/apprt/gtk/key.zig:3
+./dist/doxygen/header.html:3
+./src/apprt/gtk/winproto/wayland/protocols/vicinae-hotkey-v1.xml:2
+./README.md:2
+./src/termio/Exec.zig:1
+./src/font/nerd_font_codepoint_tables.py:1
+./src/font/nerd_font_codegen.py:1
+./src/apprt/gtk/class/window.zig:1
+./macos/Sources/App/AppDelegate.swift:1
+./Doxyfile:1
+== wezterm_wezterm: files with the most matching lines
+./wezterm-gui/src/unicode_names.rs:10
+./bidi/data/DerivedBidiClass.txt:5
+./wezterm-char-props/src/nerdfonts_data.rs:4
+./docs/config/lua/wezterm/nerdfonts.md:4
+./bidi/src/bidi_class.rs:4
+./deps/cairo/pixman/Makefile.win32.common:3
+./window/src/os/x11/keyboard.rs:1
+./wezterm-input-types/src/lib.rs:1
+./wezterm-char-props/data/emoji-variation-sequences.txt:1
+./wezterm-char-props/data/emoji-data.txt:1
+./test-data/emoji-test.txt:1
+./docs/mkdocs-base.yml:1
+== microsoft_terminal: directories holding the matching files
+      4 ./src/cascadia/CascadiaPackage
+      3 ./src/til/ut_til
+      3 ./src/host/ft_host
+      3 ./src/cascadia/TerminalSettingsEditor
+      2 ./src/tools/integrity/packageuwp
+      2 ./src/terminal/adapter/ut_adapter
+      2 ./src/propslib
+      2 ./src/inc
+== gnachman_iTerm2: directories holding the matching files
+      5 ./sources/OpenQuickly
+      5 ./ModernTests/Resources/AICassettes
+      3 ./tests
+      3 ./sources/Logging
+      3 ./ThirdParty/SFSymbolEnum
+      3 ./ModernTests/Resources/SafetyRefusalFixtures
+      2 ./sources/Tasks
+      2 ./sources/Settings
+== matching lines read in app code
+macos/Sources/App/AppDelegate.swift:407:                case kAEShutDown, kAERestart, kAEReallyLogOut:
+src/apprt/gtk/class/window.zig:2034:                "logo-icon-name",
+src/termio/Exec.zig:1977:                // `pwsh -NoLogo`, etc.) and has visible side effects
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:28:    <Logo>Images\StoreLogo.png</Logo>
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:56:        Square150x150Logo="Images\Square150x150Logo.png"
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:57:        Square44x44Logo="Images\Square44x44Logo.png">
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:59:          Wide310x150Logo="Images\Wide310x150Logo.png"
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:60:          Square71x71Logo="Images\SmallTile.png"
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:61:          Square310x310Logo="Images\LargeTile.png"
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:64:            <uap:ShowOn Tile="square150x150Logo"/>
+src/cascadia/CascadiaPackage/Package-Can.appxmanifest:65:            <uap:ShowOn Tile="wide310x150Logo"/>
+sources/AboutWindow/iTermAboutWindowController.m:220:        @{ @"image": @"whitebox_logo", @"title": @"Whitebox", @"url": @"https://whitebox.so/?utm_source=iTe
+sources/AppKit/iTermApplication.h:65:@property(nonatomic) BOOL localAuthenticationDialogOpen;
+sources/AppKit/iTermApplicationDelegate.m:1004:        case kAEReallyLogOut:
+sources/AppKit/iTermApplicationDelegate.m:1108:    // process has exited it relaunches iTerm2 mid-quit. During a logout or restart, that
+sources/AppKit/iTermApplicationDelegate.m:1575:    // returns NO if the process was killed (e.g. SIGKILL by the logout/reboot
+sources/Categories/NSCharacterSet+iTerm.m:1624:        [mutableCharacterSet addCharactersInRange:NSMakeRange(0x1e14e, 2)];  // NYIAKENG PUACHUE HMONG LOGOGRAM N
+sources/ClaudeCode/GlobalJobMonitor.swift:57:        // has begun, which can happen before launch finishes (a quit or logout during launch).
+sources/Hotkey/iTermHotKeyController.m:495:    if ([[iTermApplication sharedApplication] localAuthenticationDialogOpen]) {
+sources/Language/BuiltInFunctions/SetStatusBuiltInFunction.swift:244:        RLogOncePerKey("gateway-status:\(functionName):\(session.guid)",
+sources/Logging/DebugLogging.h:26:void DLogOncePerLoggingSession(NSString *key, NSString *(^messageBlock)(void));
+sources/Logging/DebugLogging.m:41:// Keys already emitted by DLogOncePerLoggingSession this logging
+sources/Logging/DebugLogging.m:546:void DLogOncePerLoggingSession(NSString *key, NSString *(^messageBlock)(void)) {
+sources/OpenQuickly/iTermLogoGenerator.h:3:// Generates a small iTerm2 logo with custom text, cursor, background, and tab
+sources/OpenQuickly/iTermLogoGenerator.h:4:// colors. All color properties must be set before a logo can be generated.
+sources/OpenQuickly/iTermLogoGenerator.h:5:@interface iTermLogoGenerator : NSObject
+sources/OpenQuickly/iTermLogoGenerator.m:1:#import "iTermLogoGenerator.h"
+sources/OpenQuickly/iTermLogoGenerator.m:8:static NSMutableDictionary *gLogoCache;
+sources/OpenQuickly/iTermLogoGenerator.m:10:@implementation iTermLogoGenerator
+sources/OpenQuickly/iTermLogoGenerator.m:21:    // Quantizing at 4 bits per component should be enough to produce good logos, while hopefully
+sources/OpenQuickly/iTermLogoGenerator.m:40:    NSImage *cachedImage = gLogoCache[key];
+sources/OpenQuickly/iTermLogoGenerator.m:50:    NSImage *frame = [NSImage it_imageNamed:@"LogoFrame.png" forClass:self.class];
+sources/OpenQuickly/iTermLogoGenerator.m:51:    NSImage *shadow = [NSImage it_imageNamed:@"LogoShadow.png" forClass:self.class];
+sources/OpenQuickly/iTermLogoGenerator.m:75:    if (!gLogoCache) {
+sources/OpenQuickly/iTermLogoGenerator.m:76:        gLogoCache = [[NSMutableDictionary alloc] init];
+sources/OpenQuickly/iTermLogoGenerator.m:78:    gLogoCache[key] = image;
+sources/OpenQuickly/iTermOpenQuicklyItem.h:3:@class iTermLogoGenerator;
+sources/OpenQuickly/iTermOpenQuicklyItem.h:38:// Holds the session's colors and can create a logo with them as needed.
+sources/OpenQuickly/iTermOpenQuicklyItem.h:39:@property(nonatomic, retain) iTermLogoGenerator *logoGenerator;
+sources/OpenQuickly/iTermOpenQuicklyItem.h:63:// Holds the session's colors and can create a logo with them as needed.
+sources/OpenQuickly/iTermOpenQuicklyItem.h:64:@property(nonatomic, retain) iTermLogoGenerator *logoGenerator;
+sources/OpenQuickly/iTermOpenQuicklyItem.m:3:#import "iTermLogoGenerator.h"
+sources/OpenQuickly/iTermOpenQuicklyItem.m:15:        _logoGenerator = [[iTermLogoGenerator alloc] init];
+sources/OpenQuickly/iTermOpenQuicklyItem.m:21:    return [_logoGenerator generatedImage];
+sources/OpenQuickly/iTermOpenQuicklyItem.m:55:        _logoGenerator = [[iTermLogoGenerator alloc] init];
+sources/OpenQuickly/iTermOpenQuicklyItem.m:61:    return [_logoGenerator generatedImage];
+sources/OpenQuickly/iTermOpenQuicklyModel.m:13:#import "iTermLogoGenerator.h"
+sources/OpenQuickly/iTermOpenQuicklyModel.m:315:        item.logoGenerator.textColor = session.foregroundColor;
+sources/OpenQuickly/iTermOpenQuicklyModel.m:316:        item.logoGenerator.backgroundColor = session.backgroundColor;
+sources/OpenQuickly/iTermOpenQuicklyModel.m:317:        item.logoGenerator.tabColor = session.tabColor;
+sources/OpenQuickly/iTermOpenQuicklyModel.m:318:        item.logoGenerator.cursorColor = session.cursorColor;
+sources/OpenQuickly/iTermOpenQuicklyModel.m:631:        item.logoGenerator.textColor = iTermColorPresetGet(preset, KEY_FOREGROUND_COLOR, dark) ?: [NSColor color
+sources/OpenQuickly/iTermOpenQuicklyModel.m:632:        item.logoGenerator.backgroundColor = iTermColorPresetGet(preset, KEY_BACKGROUND_COLOR, dark) ?: [NSColor
+sources/OpenQuickly/iTermOpenQuicklyModel.m:633:        item.logoGenerator.tabColor = iTermColorPresetGet(preset, KEY_TAB_COLOR, dark) ?: defaultColor;
+sources/OpenQuickly/iTermOpenQuicklyModel.m:634:        item.logoGenerator.cursorColor = iTermColorPresetGet(preset, KEY_CURSOR_COLOR, dark) ?: defaultColor;

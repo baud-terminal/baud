@@ -16321,3 +16321,1113 @@ sha256 = "49445702a29d2c929d9331ea44931ae66021732eaf48c68fd766529772778e71"
 bytes  = 573803
 status = "retrieved"
 group  = "AK"
+
+# Group AJ, note AJ (2026-10-09): a launch splash. Apple's HIG on launching, onboarding, motion and
+# accessibility; WCAG 2.2 and its Understanding pages on flashing; Hyprland's splash and welcome
+# tools, Warp, wezterm, ghostty, kitty, iTerm2 and Windows Terminal (all external). The aj-obs-*
+# entries are the note's model, sweeps and probes with their outputs.
+
+[sources.apple-hig-launching]
+key    = "apple-hig-launching"
+title  = "Human Interface Guidelines: Launching -- 'Launch instantly'; a splash screen at the beginning of onboarding or 'as soon as launching completes'; launch screens 'Not applicable for macOS' (documentation JSON, retrieved 2026-10-09; change log latest June 10, 2024)"
+author = "Apple"
+year   = 2024
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/launching.json"
+file   = "apple-hig-launching.json"
+sha256 = "38291e5bc0ab9b623cdc831f1b495abdc8e39b4c3501a97a499099738901e2cf"
+bytes  = 25518
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-hig-onboarding]
+key    = "apple-hig-onboarding"
+title  = "Human Interface Guidelines: Onboarding -- 'Briefly display a splash screen if necessary ... just long enough for people to absorb the information at a glance'; a skipped tutorial not presented again (documentation JSON, retrieved 2026-10-09; change log latest June 10, 2024)"
+author = "Apple"
+year   = 2024
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/onboarding.json"
+file   = "apple-hig-onboarding.json"
+sha256 = "9a85ebb1e3dd275d5f5dbfa1729a2e18429960fc26f5273921a68dc5b323dcda"
+bytes  = 21786
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-hig-loading]
+key    = "apple-hig-loading"
+title  = "Human Interface Guidelines: Loading -- 'Show something as soon as possible' (documentation JSON, retrieved 2026-10-09; change log latest June 9, 2025)"
+author = "Apple"
+year   = 2025
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/loading.json"
+file   = "apple-hig-loading.json"
+sha256 = "83c69df80cfafd72b1a317d82521f14dfdb415530cdf37c290462eb28673b901"
+bytes  = 16425
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-hig-motion]
+key    = "apple-hig-motion"
+title  = "Human Interface Guidelines: Motion -- add motion purposefully, make motion optional, 'Let people cancel motion' (documentation JSON, retrieved 2026-10-09; change log latest September 9, 2025)"
+author = "Apple"
+year   = 2025
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/motion.json"
+file   = "apple-hig-motion.json"
+sha256 = "957268c323af4617dabb6c0449d0920248c995159d54f76c691aa180ceb72a61"
+bytes  = 31108
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-hig-accessibility]
+key    = "apple-hig-accessibility"
+title  = "Human Interface Guidelines: Accessibility -- Reduce Motion: reduce automatic and repetitive animations, replace transitions with fades (documentation JSON, retrieved 2026-10-09; change log latest June 9, 2025)"
+author = "Apple"
+year   = 2025
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/accessibility.json"
+file   = "apple-hig-accessibility.json"
+sha256 = "be49ec0b34397f356a1e3fd8c7ad323713198515523947097913cb9c57da699b"
+bytes  = 85010
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-nsworkspace-reduce-motion]
+key    = "apple-nsworkspace-reduce-motion"
+title  = "NSWorkspace.accessibilityDisplayShouldReduceMotion -- 'avoid large animations'; register for accessibilityDisplayOptionsDidChangeNotification (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayshouldreducemotion.json"
+file   = "apple-nsworkspace-accessibilitydisplayshouldreducemotion.json"
+sha256 = "01ef2fd99953c7e044404f828ed0c64c84198fb42bc367cdc5eb6fd26608b03b"
+bytes  = 21162
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-nsworkspace-display-options-notification]
+key    = "apple-nsworkspace-display-options-notification"
+title  = "NSWorkspace.accessibilityDisplayOptionsDidChangeNotification -- posted on the workspace's notificationCenter only (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayoptionsdidchangenotification.json"
+file   = "apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json"
+sha256 = "5b812b502d87254733d47d1ae5c92bc34bd3d296da3b391bd38e30724119337c"
+bytes  = 37346
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-understanding-hangs]
+key    = "apple-understanding-hangs"
+title  = "Understanding hangs in your app -- under 100 ms rarely noticeable; tools report past 250 ms (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/xcode"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/understanding-hangs-in-your-app.json"
+file   = "apple-understanding-hangs-in-your-app.json"
+sha256 = "c58705aa94454609ba94334aa096dadb4b904482d5cc78aecd3e897068b8060a"
+bytes  = 35581
+status = "retrieved"
+group  = "AJ"
+
+[sources.apple-reducing-launch-time]
+key    = "apple-reducing-launch-time"
+title  = "Reducing your app's launch time -- time after the first frame 'still contribute[s] to the user's perception of the app's responsiveness' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/xcode"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/reducing-your-app-s-launch-time.json"
+file   = "apple-reducing-your-app-s-launch-time.json"
+sha256 = "50d8cbbd36917b38e875f79c15dc840652dd9263a81789956a88bd9f6627195c"
+bytes  = 47238
+status = "retrieved"
+group  = "AJ"
+
+[sources.wcag22-understanding-pause-stop-hide]
+key    = "wcag22-understanding-pause-stop-hide"
+title  = "Understanding SC 2.2.2 Pause, Stop, Hide -- why five seconds; 'starts automatically'"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html"
+file   = "wcag22-understanding-pause-stop-hide.html"
+sha256 = "151b081b266ccb1df3818bcab210d6016145c3a2edb298fb597d7dae02c8f528"
+bytes  = 61685
+status = "retrieved"
+group  = "AJ"
+
+[sources.wcag22-understanding-animation-from-interactions]
+key    = "wcag22-understanding-animation-from-interactions"
+title  = "Understanding SC 2.3.3 Animation from Interactions -- 'Take advantage of the reduce motion feature in the user agent or operating system'"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html"
+file   = "wcag22-understanding-animation-from-interactions.html"
+sha256 = "14af35e29c3c990a8de49207a26b260c1812eb09b2c70b25f3750a9f114c12f2"
+bytes  = 36817
+status = "retrieved"
+group  = "AJ"
+
+[sources.wcag22-understanding-three-flashes]
+key    = "wcag22-understanding-three-flashes"
+title  = "Understanding SC 2.3.1 Three Flashes or Below Threshold"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold.html"
+file   = "wcag22-understanding-three-flashes.html"
+sha256 = "28f0bc5e956224f95b617027d1d9f506bd25cb8ec7be20fc2744614a0794ce52"
+bytes  = 55814
+status = "retrieved"
+group  = "AJ"
+
+[sources.hyprland-config-values]
+key    = "hyprland-config-values"
+title  = "Hyprland 663b29b, src/config/values/ConfigValues.cpp -- misc:disable_hyprland_logo, disable_splash_rendering, col.splash, splash_font_family (561-566); ecosystem:no_update_news, no_donation_nag (715-716)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/config/values/ConfigValues.cpp"
+file   = ""
+sha256 = "ed5f4641fb5d00e841dba4a0d3547c89842a9e270642d86e3e9af4701ef8b8b3"
+bytes  = 69269
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-renderer]
+key    = "hyprland-renderer"
+title  = "Hyprland 663b29b, src/render/Renderer.cpp -- the wallpaper's opacity warp 0 to 1 (1420-1421); renderBackground draws the splash at 98% of the height (1426-1478); renderSplash (3560-)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/render/Renderer.cpp"
+file   = ""
+sha256 = "f2b1781f8632c36ae5c65ce6382baa848693223035158733b590d554bb240266"
+bytes  = 156252
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-splashes]
+key    = "hyprland-splashes"
+title  = "Hyprland 663b29b, src/helpers/Splashes.hpp -- the splash lines, with seasonal lists"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/helpers/Splashes.hpp"
+file   = ""
+sha256 = "08d8a57aed46088ee56e46683f7784f4b6e6c54934128213df5879a662dcce37"
+bytes  = 4743
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-compositor]
+key    = "hyprland-compositor"
+title  = "Hyprland 663b29b, src/Compositor.cpp -- setRandomSplash (245-261); the WelcomeManager created (762-763)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/Compositor.cpp"
+file   = ""
+sha256 = "c5b94181ca1955e7de9e0b3ff7fbf9d17f544409343f8a2d47816ba0b0d53a13"
+bytes  = 38675
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-welcome-manager]
+key    = "hyprland-welcome-manager"
+title  = "Hyprland 663b29b, src/managers/WelcomeManager.cpp -- hyprland-welcome launched only while the config is autogenerated"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/managers/WelcomeManager.cpp"
+file   = ""
+sha256 = "8c2eaaddb7ac9281d6b2e375f2ad318265d72421f3a622e0e46ce33b2761c226"
+bytes  = 873
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-default-config]
+key    = "hyprland-default-config"
+title  = "Hyprland 663b29b, src/config/lua/DefaultConfig.hpp -- 'hl.config({ autogenerated = true }) -- remove this line to remove the warning'"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/config/lua/DefaultConfig.hpp"
+file   = ""
+sha256 = "71b1ab7b9212fd66217bb7491db9378bf891ef7cbdd474d24eee0c1b0aa2b59a"
+bytes  = 656
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-lua-config-manager]
+key    = "hyprland-lua-config-manager"
+title  = "Hyprland 663b29b, src/config/lua/ConfigManager.cpp -- the autogenerated-config warning (811-816); the generated config written with its prefix (1107-1116)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/config/lua/ConfigManager.cpp"
+file   = ""
+sha256 = "dfd1cb14c59d0cb67aa5236abf20e513e6f6e4da2e696a46c4a4510d152b7964"
+bytes  = 48690
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-donation-nag]
+key    = "hyprland-donation-nag"
+title  = "Hyprland 663b29b, src/managers/DonationNagManager.cpp -- automatic state: lastNag, written on first run and after each nag (17, 62-66, 98-100, 113-115, 157)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/managers/DonationNagManager.cpp"
+file   = ""
+sha256 = "0af9bafedbbbd865ec3c8f18f6122e570bce43657c2a5e454d4344369d7ae142"
+bytes  = 4576
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-version-keeper]
+key    = "hyprland-version-keeper"
+title  = "Hyprland 663b29b, src/managers/VersionKeeperManager.cpp -- automatic state: lastVersion, 0.0.0 on first run, the running x.y on a new release, written before the no_update_news check (20, 30-35, 43, 45)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/managers/VersionKeeperManager.cpp"
+file   = ""
+sha256 = "fcda5de0d83cd62bc10fe1672a47337f3661441e10c9b71778fea2a1b301e6bf"
+bytes  = 2642
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-fsutils]
+key    = "hyprland-fsutils"
+title  = "Hyprland 663b29b, src/helpers/fs/FsUtils.cpp -- getDataHome: $XDG_DATA_HOME/hyprland/ or $HOME/.local/share/hyprland/ (12-35), created at 39, owner-only at 44"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/src/helpers/fs/FsUtils.cpp"
+file   = ""
+sha256 = "9f74dc30ff9858e72785fd63a446968a580d1d704e5de85bee711878bb1fe8f1"
+bytes  = 3235
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-example-config]
+key    = "hyprland-example-config"
+title  = "Hyprland 663b29b, example/hyprland.lua -- disable_hyprland_logo written out at its default (206-211)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/Hyprland (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/Hyprland/663b29b846e4bad17cfa29941f6d2fbb6b61f139/example/hyprland.lua"
+file   = ""
+sha256 = "b144fcf2d4a2afea3092d85711d3005eb63bfcb08c425137dacc73ce65a3433a"
+bytes  = 12282
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-guiutils-welcome]
+key    = "hyprland-guiutils-welcome"
+title  = "hyprland-guiutils 4c30cf3, utils/welcome/src/main.cpp -- 'It will close this window and never show it again' (55); the button closes only (774-781); Finish calls removeAutogen, rewriting hyprland.lua (480-500, 798)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/hyprland-guiutils (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-guiutils/4c30cf3097ea963c0e250749ee0c59f8b08816d6/utils/welcome/src/main.cpp"
+file   = ""
+sha256 = "b0c705d61a11a193641f758ba5d165683e35d01eed9dfc615cbdee5729adbe52"
+bytes  = 36701
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-guiutils-update-screen]
+key    = "hyprland-guiutils-update-screen"
+title  = "hyprland-guiutils 4c30cf3, utils/update-screen/src/main.cpp -- 'You can turn off this screen in your Hyprland config.' (40)"
+author = "the Hyprland contributors"
+year   = 2026
+venue  = "hyprwm/hyprland-guiutils (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-guiutils/4c30cf3097ea963c0e250749ee0c59f8b08816d6/utils/update-screen/src/main.cpp"
+file   = ""
+sha256 = "042f2bf4403530ecf4de2351bf57bd2601bb6d04566f491c0f7c3b17ebfbbee3"
+bytes  = 6882
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-qtutils-update-screen-qml]
+key    = "hyprland-qtutils-update-screen-qml"
+title  = "hyprland-qtutils 56d993a (superseded), utils/update-screen/main.qml -- the 'Don't show this when I update' button (94)"
+author = "the Hyprland contributors"
+year   = 2025
+venue  = "hyprwm/hyprland-qtutils (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-qtutils/56d993aced40a9058350d24ff4a7fb4eb961f89b/utils/update-screen/main.qml"
+file   = ""
+sha256 = "6024a17b7ec0612f2649f17d739151dbffa35bf228ae25563accc65c14df8ea2"
+bytes  = 3404
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-qtutils-update-screen]
+key    = "hyprland-qtutils-update-screen"
+title  = "hyprland-qtutils 56d993a (superseded), utils/update-screen/main.cpp -- the button's dialog: 'set ecosystem:no_update_news to true in your Hyprland config' (54)"
+author = "the Hyprland contributors"
+year   = 2025
+venue  = "hyprwm/hyprland-qtutils (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-qtutils/56d993aced40a9058350d24ff4a7fb4eb961f89b/utils/update-screen/main.cpp"
+file   = ""
+sha256 = "d4a73213a59af4fb86274b06a327c5e83220a8d6f6b0538866aa102fac7f5a4d"
+bytes  = 1924
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-qtutils-readme]
+key    = "hyprland-qtutils-readme"
+title  = "hyprland-qtutils 56d993a, README.md -- 'superseded by hyprland-guiutils'"
+author = "the Hyprland contributors"
+year   = 2025
+venue  = "hyprwm/hyprland-qtutils (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-qtutils/56d993aced40a9058350d24ff4a7fb4eb961f89b/README.md"
+file   = ""
+sha256 = "54a7dbf92556122204dc9d8c06a4e7248fe69b1cb3d09d025f2b7370e9909d30"
+bytes  = 574
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-welcome-archived]
+key    = "hyprland-welcome-archived"
+title  = "hyprland-welcome 6c8495a (archived), src/main.cpp -- neither button writes (600-628)"
+author = "the Hyprland contributors"
+year   = 2025
+venue  = "hyprwm/hyprland-welcome (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-welcome/6c8495a59832008c7ba3e085d86dbc47f6ffe8cb/src/main.cpp"
+file   = ""
+sha256 = "813c643b310727611e27f7eac3e269140b6433bb6ea5f9daaeb356a4e758b1ba"
+bytes  = 31429
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-welcome-archived-readme]
+key    = "hyprland-welcome-archived-readme"
+title  = "hyprland-welcome 6c8495a, README.md -- 'Archived, as this has been moved into guiutils'"
+author = "the Hyprland contributors"
+year   = 2025
+venue  = "hyprwm/hyprland-welcome (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-welcome/6c8495a59832008c7ba3e085d86dbc47f6ffe8cb/README.md"
+file   = ""
+sha256 = "83c7e0cb72146f7ad48d58438489901c73a36d3bef571d6b15cb79106e3d7784"
+bytes  = 215
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-wiki-config-options]
+key    = "hyprland-wiki-config-options"
+title  = "hyprland-wiki c3f93fd, content/configuring/core/config-options.md -- disable_hyprland_logo (615), disable_splash_rendering (617), no_donation_nag and no_update_news (768-769)"
+author = "the Hyprland wiki contributors"
+year   = 2026
+venue  = "hyprwm/hyprland-wiki (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-wiki/c3f93fd8acf083d7ce27be78061b69784ab6fd32/content/configuring/core/config-options.md"
+file   = ""
+sha256 = "8c183e0223bda890498df4d19c69a5b0e5423e023a4f6aee3eebc0f96df86ce0"
+bytes  = 58796
+status = "external"
+group  = "AJ"
+
+[sources.hyprland-wiki-core-index]
+key    = "hyprland-wiki-core-index"
+title  = "hyprland-wiki c3f93fd, content/configuring/core/_index.md -- 'Remove hl.config({ autogenerated = true }) to remove the autogenerated warning banner.' (17)"
+author = "the Hyprland wiki contributors"
+year   = 2026
+venue  = "hyprwm/hyprland-wiki (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/hyprwm/hyprland-wiki/c3f93fd8acf083d7ce27be78061b69784ab6fd32/content/configuring/core/_index.md"
+file   = ""
+sha256 = "35080fbad06093228bf995ed39fc8decb912829c54e009abfb42813b504babbf"
+bytes  = 6151
+status = "external"
+group  = "AJ"
+
+[sources.warp-intro-slide]
+key    = "warp-intro-slide"
+title  = "Warp b2b7357, crates/onboarding/src/slides/intro_slide.rs -- the first onboarding slide: Icon::WarpLogoLight at 64x64 over a shimmering 'Welcome to Warp', 'Get started' (156-206; 165, 190)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/crates/onboarding/src/slides/intro_slide.rs"
+file   = ""
+sha256 = "9334d83a9f63143fbb3c055fcdbd246983be2a25ea41e0ac0a2a766b8d03c92e"
+bytes  = 7958
+status = "external"
+group  = "AJ"
+
+[sources.warp-terminal-view]
+key    = "warp-terminal-view"
+title  = "Warp b2b7357, app/src/terminal/view.rs -- the zero-state block inserted in each new non-restored session (14512-14536)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/terminal/view.rs"
+file   = ""
+sha256 = "b0faac2f7ba31d8b669481eb52a35fd998d87abfcbc2e4c1e91d815c87eae4dc"
+bytes  = 1275625
+status = "external"
+group  = "AJ"
+
+[sources.warp-readme]
+key    = "warp-readme"
+title  = "Warp b2b7357, README.md -- 'Warp's client codebase is open source and lives in this repository.' (60)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/README.md"
+file   = ""
+sha256 = "9fad485973685dd86187fafd517b02121695a9cf6729c1bb96ad45b19a94b09b"
+bytes  = 6026
+status = "external"
+group  = "AJ"
+
+[sources.warp-root-view]
+key    = "warp-root-view"
+title  = "Warp b2b7357, app/src/root_view.rs -- onboarding 'Always use unskippable onboarding' (2204); HasCompletedOnboarding in the private store (1808, 1820-1824)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/root_view.rs"
+file   = ""
+sha256 = "895e00240dae08bf41b23bdb9bc0573cfa7e7b59b2b3edaa02c7e8d5304fbc24"
+bytes  = 178026
+status = "external"
+group  = "AJ"
+
+[sources.warp-user-preferences]
+key    = "warp-user-preferences"
+title  = "Warp b2b7357, crates/warp_core/src/user_preferences.rs -- private settings 'never appear in the user-visible settings file' (16-18)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/crates/warp_core/src/user_preferences.rs"
+file   = ""
+sha256 = "199508d7f3eb366f2a2842df44ca60b6c66ce11548c8a4c1e34983f4238e0f6b"
+bytes  = 1221
+status = "external"
+group  = "AJ"
+
+[sources.warp-zero-state-block]
+key    = "warp-zero-state-block"
+title  = "Warp b2b7357, app/src/terminal/view/zero_state_block.rs -- Icon::Warp beside 'New terminal session' (147-170); 'Don't show again' (296) sets show_terminal_zero_state_block false (339-346)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/terminal/view/zero_state_block.rs"
+file   = ""
+sha256 = "e7c3bb76e769f4fdea972d77bac8bc9fca8ca8aed90954b2ad490cd490f594e4"
+bytes  = 15453
+status = "external"
+group  = "AJ"
+
+[sources.warp-terminal-settings]
+key    = "warp-terminal-settings"
+title  = "Warp b2b7357, app/src/terminal/settings.rs -- show_terminal_zero_state_block, default true, public, toml_path terminal.show_terminal_zero_state_block (176-184); shown only with AI enabled (222-224)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/terminal/settings.rs"
+file   = ""
+sha256 = "ea784827ee02ded28ac4c43bbaa7d12a433c50944aea61ac00c0d9e6e2949f1d"
+bytes  = 8855
+status = "external"
+group  = "AJ"
+
+[sources.warp-changelog-setting]
+key    = "warp-changelog-setting"
+title  = "Warp b2b7357, app/src/settings/changelog.rs -- show_changelog_after_update, default true, general.show_changelog_after_update (5-13)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/settings/changelog.rs"
+file   = ""
+sha256 = "eb7f331b3b5f1150ba37d9c77f688692958a553838dd204f6df3ad2325c3862d"
+bytes  = 609
+status = "external"
+group  = "AJ"
+
+[sources.warpdocs-llms-full]
+key    = "warpdocs-llms-full"
+title  = "Warp documentation, llms-full.txt, retrieved 2026-10-09 -- quickstart 'skip and start using Warp immediately' (50100); the Agent CLI's start screen (4173)"
+author = "Warp"
+year   = 2026
+venue  = "docs.warp.dev"
+url    = "https://docs.warp.dev/llms-full.txt"
+file   = ""
+sha256 = "54dc2e03b84ce20be0ee98b525c1ee5fb39759482d8eef2c6d551adaef483ef2"
+bytes  = 3504001
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-config-246f702]
+key    = "ghostty-config-246f702"
+title  = "ghostty 246f702, src/config/Config.zig -- a template config written on first run (4294-4303); auto-update and its doc (3964-3987)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/src/config/Config.zig"
+file   = ""
+sha256 = "fba3f7596175a246ffa8fdab6213b6678d7e07ab551de3878cdd561f53a8881c"
+bytes  = 431388
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-config-template]
+key    = "ghostty-config-template"
+title  = "ghostty 246f702, src/config/config-template -- 'automatically created ... since Ghostty couldn't find any existing config files' (3-4)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/src/config/config-template"
+file   = ""
+sha256 = "aa37a8ba2136496084c15ff360698aff0ab06c65ac6662fe63825b15381be099"
+bytes  = 1984
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-configuration-errors-view]
+key    = "ghostty-configuration-errors-view"
+title  = "ghostty 246f702, macos/Sources/Features/Settings/ConfigurationErrorsView.swift -- 'Ignore' clears in-memory errors only (48)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/macos/Sources/Features/Settings/ConfigurationErrorsView.swift"
+file   = ""
+sha256 = "8c0e4106c6d7ef593ce9b053268358acd9bd06498340cbc5ddeac4564437ebd1"
+bytes  = 2291
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-boo]
+key    = "ghostty-boo"
+title  = "ghostty 246f702, src/cli/boo.zig -- the website's animation as a CLI action (175)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/src/cli/boo.zig"
+file   = ""
+sha256 = "c940827343b57e4b34952a089a163b36650d7b4b9f33dce1996ee62b456eb8e6"
+bytes  = 8017
+status = "external"
+group  = "AJ"
+
+[sources.sparkle-spuupdater-2-9-6]
+key    = "sparkle-spuupdater-2-9-6"
+title  = "Sparkle 2.9.6 ac2def2, Sparkle/SPUUpdater.m -- the permission prompt waits for the second launch; SUHasLaunchedBefore in user defaults (415-420)"
+author = "the Sparkle Project"
+year   = 2026
+venue  = "sparkle-project/Sparkle (MIT)"
+url    = "https://raw.githubusercontent.com/sparkle-project/Sparkle/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a/Sparkle/SPUUpdater.m"
+file   = ""
+sha256 = "c86e3e59a201a9339bbd5a391f12e62d9c31aca125ef6d665a16088a1c144c78"
+bytes  = 61238
+status = "external"
+group  = "AJ"
+
+[sources.kitty-options-definition-851cb80]
+key    = "kitty-options-definition-851cb80"
+title  = "kitty 851cb80, kitty/options/definition.py -- update_check_interval, default 24, an OS notification (3096-3106)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/options/definition.py"
+file   = ""
+sha256 = "0b958701f84ecc98f50714bd46cc3ba753223e23e9e5557b09716c7fc3c61cbf"
+bytes  = 166014
+status = "external"
+group  = "AJ"
+
+[sources.kitty-update-check]
+key    = "kitty-update-check"
+title  = "kitty 851cb80, kitty/update_check.py -- once per version, new-version-notifications-1.txt in cache_dir (35, 92-94)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/update_check.py"
+file   = ""
+sha256 = "1952e2ed6761372c64d270ce2983359e6111d6d8a4064e18b2cfe20d13d3119b"
+bytes  = 4020
+status = "external"
+group  = "AJ"
+
+[sources.wezterm-update]
+key    = "wezterm-update"
+title  = "wezterm 3725482, wezterm-gui/src/update.rs -- the launch banner 'WezTerm Update Available' (93-131, 122)"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-gui/src/update.rs"
+file   = ""
+sha256 = "426e6c97761ff7404402842c8f1b6e256e1c514a0ada5d6d6834ac01b71138b1"
+bytes  = 8088
+status = "external"
+group  = "AJ"
+
+[sources.wezterm-mux-lib]
+key    = "wezterm-mux-lib"
+title  = "wezterm 3725482, mux/src/lib.rs -- the banner written into each new pane (320-321)"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/mux/src/lib.rs"
+file   = ""
+sha256 = "dff5731db54be367e9fdae76e167b3664d65f1fc1a522c2c4e2bac3cc5417701"
+bytes  = 49591
+status = "external"
+group  = "AJ"
+
+[sources.wezterm-check-for-updates]
+key    = "wezterm-check-for-updates"
+title  = "wezterm 3725482, docs/config/lua/config/check_for_updates.md -- 'Set check_for_updates to false to disable this completely' (7-17)"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/docs/config/lua/config/check_for_updates.md"
+file   = ""
+sha256 = "1d3bc86c4f747af2c380f7758d47838b2034c9ae4b24ae49bab1a9c34b937114"
+bytes  = 697
+status = "external"
+group  = "AJ"
+
+[sources.wezterm-show-update-window]
+key    = "wezterm-show-update-window"
+title  = "wezterm 3725482, docs/config/lua/config/show_update_window.md -- 'no longer has any effect' (20)"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/docs/config/lua/config/show_update_window.md"
+file   = ""
+sha256 = "92dc55ccea5a61f88a302d5b8709a46bba28c1538b5c2696220f65646927c3f9"
+bytes  = 488
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-remote-preferences]
+key    = "iterm2-remote-preferences"
+title  = "iTerm2 964a75d, sources/Settings/iTermRemotePreferences.m -- NoSync keys kept out of the synced preferences (169)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermRemotePreferences.m"
+file   = ""
+sha256 = "e0bd9e64b21987b571a96b1f7e887ec3f2220292868e235f52574555e67501a6"
+bytes  = 111060
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-tip-controller]
+key    = "iterm2-tip-controller"
+title  = "iTerm2 964a75d, sources/TIps/iTermTipController.m -- NoSyncPermissionToShowTip, NoSyncTipsDisabled (21-23, 129, 259)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/TIps/iTermTipController.m"
+file   = ""
+sha256 = "95ded2cd8239c7d7a4d024708973f317fffbb08eb46dda5aa1b9c8bdb2cc160e"
+bytes  = 10852
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-tip-window-controller]
+key    = "iterm2-tip-window-controller"
+title  = "iTerm2 964a75d, sources/TIps/iTermTipWindowController.m -- the tip card's buttons, 'Disable Tips' (32)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/TIps/iTermTipWindowController.m"
+file   = ""
+sha256 = "4313884bf6d6ca542f12b5b6ef12155ba6bd2b44035d901dbf9fb8ab53895730"
+bytes  = 25083
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-pfmoveapplication]
+key    = "iterm2-pfmoveapplication"
+title  = "iTerm2 964a75d, ThirdParty/LetsMove/PFMoveApplication.m -- the suppression checkbox, moveToApplicationsFolderAlertSuppress (65, 202, 281)"
+author = "Andy Kim (LetsMove), in iTerm2"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/ThirdParty/LetsMove/PFMoveApplication.m"
+file   = ""
+sha256 = "dc6c3ec6cc52cbe3d40e10f236f91048ea4a3c4afadbfdf4c7bb9d2327ac8195"
+bytes  = 29546
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-warning]
+key    = "iterm2-warning"
+title  = "iTerm2 964a75d, sources/iTermWarning.m -- suppression for ten minutes, 30 days, permanently (683-701); keyed by the bare identifier (1066-1072)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Infrastructure/iTermWarning.m"
+file   = ""
+sha256 = "8ef5e5a11e3e11333ef3281150f7b22270abe80b38d8bcb2a3ad2a2bffdf199e"
+bytes  = 50626
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-onboarding-window-controller]
+key    = "iterm2-onboarding-window-controller"
+title  = "iTerm2 964a75d, iTermOnboardingWindowController.m -- What's New shown after upgrades from 3.1-3.5 (178)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/AppLaunch/iTermOnboardingWindowController.m"
+file   = ""
+sha256 = "55d267802747f25ed322f72417219b01a723f96ddd74fa7d1f356fb4e32ff84e"
+bytes  = 11209
+status = "external"
+group  = "AJ"
+
+[sources.wt-spec-8324]
+key    = "wt-spec-8324"
+title  = "Windows Terminal 6676c6f, doc/specs/#8324 - Application State (TSM).md -- dismissals 'inappropriate for storage in the user's settings.json'; state.json beside it (11-30)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/doc/specs/%238324%20-%20Application%20State%20%28TSM%29.md"
+file   = ""
+sha256 = "bcde0a5b4444d86acbca3ce964b0c6a9385543ab74fde26e83e490dd8549cb14"
+bytes  = 3690
+status = "external"
+group  = "AJ"
+
+[sources.wt-terminalpage]
+key    = "wt-terminalpage"
+title  = "Windows Terminal 6676c6f, src/cascadia/TerminalApp/TerminalPage.cpp -- the info bar's dismissal into DismissedMessages (5002, 5060-5071); 'Don't ask me again' writes settings (980-983)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalApp/TerminalPage.cpp"
+file   = ""
+sha256 = "9ff276aa6b4bb212b482ac888cddcf7b7779e863d260de737907e53396316fe5"
+bytes  = 259286
+status = "external"
+group  = "AJ"
+
+[sources.wt-applicationstate-h]
+key    = "wt-applicationstate-h"
+title  = "Windows Terminal 6676c6f, ApplicationState.h -- Shared properties stored in state.json; dismissedMessages (23, 43)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalSettingsModel/ApplicationState.h"
+file   = ""
+sha256 = "f1010deb9f9a9e537b9313f0c5aa972d64771d3172656e575770ea597e44e15b"
+bytes  = 6205
+status = "external"
+group  = "AJ"
+
+[sources.wt-resources-resw]
+key    = "wt-resources-resw"
+title  = "Windows Terminal 6676c6f, TerminalApp Resources.resw -- 'Don't ask me again' (535); the info bar 'Don't show again' (831-836)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalApp/Resources/en-US/Resources.resw"
+file   = ""
+sha256 = "9bfb23d69f9148203c61b2bd85d59105129274ae2fb9b7598612b8c0b3c30c8b"
+bytes  = 49049
+status = "external"
+group  = "AJ"
+
+[sources.wt-cascadia-settings-serialization]
+key    = "wt-cascadia-settings-serialization"
+title  = "Windows Terminal 6676c6f, CascadiaSettingsSerialization.cpp -- first-time setup writes settings.json and resets state.json (1231, 1261)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp"
+file   = ""
+sha256 = "6d8c14bbed6ee0aeb8cf2485ac1dc01e72fc74e75cab58fab7bc9ac9925e1e78"
+bytes  = 84101
+status = "external"
+group  = "AJ"
+
+[sources.warp-app-cargo]
+key    = "warp-app-cargo"
+title  = "Warp b2b7357, app/Cargo.toml -- the default features (504-711): agent_onboarding (608), agent_view (625), settings_file (679)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/Cargo.toml"
+file   = ""
+sha256 = "6d33f320984f19b1e61af0476793ebfadf085009feb3d9435852612fdb7d5bd8"
+bytes  = 34148
+status = "external"
+group  = "AJ"
+
+[sources.warp-features]
+key    = "warp-features"
+title  = "Warp b2b7357, app/src/features.rs -- the agent_view feature mapped to FeatureFlag::AgentView (342-343); settings_file to FeatureFlag::SettingsFile (64-65)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/features.rs"
+file   = ""
+sha256 = "cf27a8f209ad2f0ce55921b9f95ece166bd7f7b536305edd11b97c236602d10c"
+bytes  = 23893
+status = "external"
+group  = "AJ"
+
+[sources.warp-tui-zero-state]
+key    = "warp-tui-zero-state"
+title  = "Warp b2b7357, app/src/settings/tui_zero_state.rs -- appearance.zero_state.show_animation, default true, the Agent CLI's rotating object (211-217)"
+author = "Warp"
+year   = 2026
+venue  = "warpdotdev/Warp (AGPL-3.0; parts MIT)"
+url    = "https://raw.githubusercontent.com/warpdotdev/Warp/b2b7357ddcafd83160431e268606aae5f481fc5a/app/src/settings/tui_zero_state.rs"
+file   = ""
+sha256 = "9675f22d2994fb5e7a4d2bd2c3b0dce93596a349d7a5fa0933a93cd3a1120569"
+bytes  = 8216
+status = "external"
+group  = "AJ"
+
+[sources.wezterm-readme-distro]
+key    = "wezterm-readme-distro"
+title  = "wezterm 3725482, README-DISTRO-MAINTAINER.md -- distributions are asked to build with distro-defaults; check_for_updates then defaults to false (51-56)"
+author = "Wez Furlong and the wezterm contributors"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/README-DISTRO-MAINTAINER.md"
+file   = ""
+sha256 = "8b8f5134fde29010d9582be1c843065e3187b0268e9bd5056a57006c0809bac4"
+bytes  = 3840
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-info-plist]
+key    = "ghostty-info-plist"
+title  = "ghostty 246f702, macos/Ghostty-Info.plist -- SUEnableAutomaticChecks false in the source plist (107-108)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/macos/Ghostty-Info.plist"
+file   = ""
+sha256 = "eada2734dd08a548350cce9857a928d98a07f5fe6797562af37c7a78a357f7c9"
+bytes  = 3139
+status = "external"
+group  = "AJ"
+
+[sources.ghostty-release-tag]
+key    = "ghostty-release-tag"
+title  = "ghostty 246f702, .github/workflows/release-tag.yml -- the release build deletes SUEnableAutomaticChecks (203)"
+author = "Mitchell Hashimoto and the ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/.github/workflows/release-tag.yml"
+file   = ""
+sha256 = "1879334e248f3518e74482196d53258e99ee2928aee2e15fd8a650e32d4e0504"
+bytes  = 17547
+status = "external"
+group  = "AJ"
+
+[sources.sparkle-suhost-2-9-6]
+key    = "sparkle-suhost-2-9-6"
+title  = "Sparkle 2.9.6 ac2def2, Sparkle/SUHost.m -- boolNumberForKey: user defaults first, then the Info.plist (400-404)"
+author = "the Sparkle Project"
+year   = 2026
+venue  = "sparkle-project/Sparkle (MIT)"
+url    = "https://raw.githubusercontent.com/sparkle-project/Sparkle/ac2def288cbff5cfc7df3ffef6abdf45b72bcb0a/Sparkle/SUHost.m"
+file   = ""
+sha256 = "93f2ac76c9324f42d5d4587997e9fb8f3cc5640d9eba13ac6b3e40850b2699b4"
+bytes  = 13886
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-preferences]
+key    = "iterm2-preferences"
+title  = "iTerm2 964a75d, sources/Settings/iTermPreferences.m -- settings read from iTermUserDefaults, NSUserDefaults (1036-1037)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/Settings/iTermPreferences.m"
+file   = ""
+sha256 = "07593ada9a05a33802fbfec28e7b9a250a9ba58857b2bdb558421185c104c8db"
+bytes  = 90096
+status = "external"
+group  = "AJ"
+
+[sources.iterm2-launch-experience]
+key    = "iterm2-launch-experience"
+title  = "iTerm2 964a75d, sources/AppLaunch/iTermLaunchExperienceController.m -- What's New chosen when the previous launch's version implies it (111-113)"
+author = "George Nachman and the iTerm2 contributors"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/964a75d0f916929df83c62c1680b08cbccb1beb1/sources/AppLaunch/iTermLaunchExperienceController.m"
+file   = ""
+sha256 = "70318c8d24a277802a87f7d8931f846842c77b0b8c2dec9e14bf6df6a67e87af"
+bytes  = 13882
+status = "external"
+group  = "AJ"
+
+[sources.wt-package-appxmanifest]
+key    = "wt-package-appxmanifest"
+title  = "Windows Terminal 6676c6f, src/cascadia/CascadiaPackage/Package.appxmanifest -- uap:VisualElements with no uap:SplashScreen (141-158)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/src/cascadia/CascadiaPackage/Package.appxmanifest"
+file   = ""
+sha256 = "f47e6939e873819b42e48b2caa52582353fec0a68ab073d11c474eb19da3e025"
+bytes  = 11340
+status = "external"
+group  = "AJ"
+
+[sources.wt-generate-assets]
+key    = "wt-generate-assets"
+title  = "Windows Terminal 6676c6f, Generate-TerminalAssets.ps1 -- a 620 x 300 SplashScreen asset the shipping manifest does not reference (39)"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/6676c6f938f7e98ad680f0cecedd3bafb6529734/res/terminal/Generate-TerminalAssets.ps1"
+file   = ""
+sha256 = "12a423e940b0fe6d58480a258d4c3868a2f8b16ee6219ae2a2194b582474385c"
+bytes  = 8297
+status = "external"
+group  = "AJ"
+
+[sources.aj-obs-flash-area-tool]
+key    = "aj-obs-flash-area-tool"
+title  = "A model of the plasma trail's WCAG 2.3.1 area at the normative 25% of a 10-degree field, in linear, x^2.2 and WCAG's sRGB-curve blending, with red flashes from a red cursor colour or a red ground, and the logo's amber"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Python script written for note AJ; reads no files, its constants copied from baud-render/src/plasma.rs, shaders.metal, metrics.rs, color.rs, trail.rs and metal.rs at ccb8aaa"
+file   = "aj-observed/flash_area.py"
+sha256 = "152370b49814f202804c0ffbe741e4c214f8a8673225c4212728f840d6b3ea44"
+bytes  = 9664
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-flash-area]
+key    = "aj-obs-flash-area"
+title  = "The model's output: least flashing opacity (0.100 linear, 0.0522 x^2.2, 0.0507 sRGB curve); the body, knots, sway, ions and both red cases against 21,824, by font size; the amber's largest u'v' step"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 docs/research/sources/aj-observed/flash_area.py, run from the repository root at ccb8aaa"
+file   = "aj-observed/flash_area.txt"
+sha256 = "6734f157a4b97e2d82ec6cc77517c32b33ebbdcdbf43725de473007966f5011c"
+bytes  = 5616
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-probe-tool]
+key    = "aj-obs-probe-tool"
+title  = "The other-terminals sweep's probe: 26 terms and a positive control, one rg -c per term per repository"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "the sweep agent's probe script, kept as run"
+file   = "aj-observed/probe.sh"
+sha256 = "8cbcff512ca64befb938ff92eb3a91eada08fe7d933f8a218f17c14685957ef5"
+bytes  = 625
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-probe-run]
+key    = "aj-obs-probe-run"
+title  = "The wrapper that runs the probe over the six pinned clones and prints each pin"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a shell script written for note AJ"
+file   = "aj-observed/probe-run.sh"
+sha256 = "4c1d15eec8021bb794171f0650c182466fe375228205a2aa1a523571e256e33e"
+bytes  = 658
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-probe-terminals]
+key    = "aj-obs-probe-terminals"
+title  = "The probe's output over ghostty 246f702, kitty 851cb80, wezterm 3725482, iTerm2 964a75d, Windows Terminal 6676c6f and Warp b2b7357: controls and matching-line counts"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "bash probe-run.sh probe.sh, run in the directory of git clone --depth 1 copies at the printed pins"
+file   = "aj-observed/probe-terminals.txt"
+sha256 = "be2a40dc5a0beaa49daae563783d95e14b13f255c509a193b32d6e0dfb398466"
+bytes  = 4046
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-logo-sampling-tool]
+key    = "aj-obs-logo-sampling-tool"
+title  = "How the logo hits in ghostty, wezterm, Windows Terminal and iTerm2 were sampled: top files, directories, and the lines read in app code"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a shell script written for note AJ, run in the directory of the pinned clones"
+file   = "aj-observed/probe-logo-sampling.sh"
+sha256 = "6e42d07f4e758c57a4cad6ee15e018930ac6da882513e11c1a0dad9c8b713f30"
+bytes  = 1222
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-logo-sampling]
+key    = "aj-obs-logo-sampling"
+title  = "The sampling's output: substrings (-NoLogo, kAEReallyLogOut, DLogOncePerLoggingSession), font and Unicode tables, package tile assets, a GTK about icon, iTerm2's Open Quickly logo generator"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "bash probe-logo-sampling.sh, run in the directory of git clone --depth 1 copies at the pins in aj-obs-probe-terminals"
+file   = "aj-observed/probe-logo-sampling.txt"
+sha256 = "b661cb18d9b12f656fce23cdc7eebf0b7211e9ab7957bf852aaa560381d72ae8"
+bytes  = 7703
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-font-tool]
+key    = "aj-obs-font-tool"
+title  = "The embedded faces' cmap, weights, fvar, advances and sizes, and the lockup's advance boxes and ink gaps"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a Python script written for note AJ, run from the repository root"
+file   = "aj-observed/font_probe.py"
+sha256 = "e7e7ea61c709023b3913bf71803c231ba2b702931126a84dbf2cc7e634c3517c"
+bytes  = 4669
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-font]
+key    = "aj-obs-font"
+title  = "The font probe's output: U+276F glyph 846, U+2588 glyph 1185, every face static at 400 or 700, ink gaps 25.2 and 21.7 px"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 docs/research/sources/aj-observed/font_probe.py, run from the repository root at ccb8aaa"
+file   = "aj-observed/font_probe.txt"
+sha256 = "73048100a0c3116474cca9f0b7f79d1aac760fdeec56fdbc13eabf390c1f5478"
+bytes  = 1247
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-logo-tool]
+key    = "aj-obs-logo-tool"
+title  = "Two searches with positive controls: animation markup in assets/logo/*.svg, and splash and logo in sfte.h"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "a shell script written for note AJ, run from the repository root"
+file   = "aj-observed/logo_probe.sh"
+sha256 = "5180e5d7a74aa678426c6c46d9098c28d58c0785b50f961ac37578102b34f4ff"
+bytes  = 947
+status = "retrieved"
+group  = "AJ"
+
+[sources.aj-obs-logo]
+key    = "aj-obs-logo"
+title  = "The searches' output: no SVG animates (control: rect in all 20); sfte.h has no splash (control: 30) and no logo-related match"
+author = "baud research (note AJ)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "bash docs/research/sources/aj-observed/logo_probe.sh, run from the repository root at ccb8aaa"
+file   = "aj-observed/logo_probe.txt"
+sha256 = "e93dead3d7b677bac53813f66e01a6a13a8ec2092f9a1afc555c3fc7b0d14850"
+bytes  = 372
+status = "retrieved"
+group  = "AJ"
