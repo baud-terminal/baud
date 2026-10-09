@@ -37,9 +37,9 @@ const fn colon_style(bit: Attrs) -> bool {
 ///
 /// * every `WIRE` bit, each as `;` and its code at its own width, with `4:`
 ///   ahead of the three colon styles -- 61 bytes. **An upper bound, not a
-///   reachable reply**: `4` and every `4:n` replace the underline family, so
-///   a rendition holds at most one of `4`, `4:3`, `4:4` and `4:5` (`21` sets
-///   its own bit beside it), and ten of those bytes are never sent together;
+///   reachable reply**: `4`, `21` and every `4:n` replace the underline
+///   family, so a rendition holds at most one of `4`, `21`, `4:3`, `4:4` and
+///   `4:5`, and thirteen of those bytes are never sent together;
 /// * a font, `;19` at most, because `FontId::sgr` is `10..=19`;
 /// * three colours at their widest, `;58;2;255;255;255`, which is longer than
 ///   any indexed `;58;5;255`;
@@ -49,9 +49,10 @@ const fn colon_style(bit: Attrs) -> bool {
 /// `1 $ r` and `ESC \`. A margin pair (`65535;65535r`, the widest `OneBased`),
 /// a cursor style and a protection flag are each far shorter.
 ///
-/// The richest rendition an application can set answers in 114 bytes (note
-/// AG, section 1.2), and `the_longest_decrqss_reply_is_within_its_bound`
-/// drives it through the encoder against this.
+/// The richest rendition an application can set answers in 111 bytes, and
+/// `the_longest_decrqss_reply_is_within_its_bound` drives it through the
+/// encoder against this. Note AG, section 1.2, measured 114 while `21` could
+/// be held beside `4:3`; the family is exclusive now and the two cannot meet.
 pub const DECRQSS_MAX: usize = {
     let mut attrs = 0;
     let mut i = 0;

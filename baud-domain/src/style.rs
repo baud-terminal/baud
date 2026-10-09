@@ -66,10 +66,12 @@ impl Attrs {
     pub const IDEOGRAM_DOUBLE_OVERLINE: Attrs = Attrs(1 << 16);
     /// `SGR 64` -- "ideogram stress marking", off by `SGR 65`.
     pub const IDEOGRAM_STRESS: Attrs = Attrs(1 << 17);
-    /// `SGR 21` -- doubly underlined (ECMA-48 3rd, xterm). A distinct bit from
-    /// [`Attrs::UNDERLINE`] now that a renderer draws it as two lines; the note
-    /// that a second bit "no renderer reads" would be the set-and-never-used
-    /// failure held only until one did.
+    /// `SGR 21` -- doubly underlined (ECMA-48 3rd, xterm) -- and `SGR 4:2`,
+    /// which names the same state. A distinct bit from [`Attrs::UNDERLINE`]
+    /// now that a renderer draws it as two lines; the note that a second bit
+    /// "no renderer reads" would be the set-and-never-used failure held only
+    /// until one did. Distinct, but in [`Attrs::UNDERLINES`]: `21` replaces
+    /// the family like every other style.
     pub const DOUBLE_UNDERLINE: Attrs = Attrs(1 << 18);
     /// `SGR 4:3` -- curly underline, `[[source: kitty-underlines]]`; what
     /// every language server draws a diagnostic with. Kitty's extension,
@@ -81,8 +83,8 @@ impl Attrs {
     pub const DASHED_UNDERLINE: Attrs = Attrs(1 << 21);
 
     /// **The five underline styles are one family and exactly one is in
-    /// force**, so a `4:n` replaces the family rather than adding a bit, and
-    /// `24` (`4:0`) clears all five. Named so the clear cannot drift from the
+    /// force**, so a `4:n` -- or a bare `4`, or `21` -- replaces the family
+    /// rather than adding a bit, and `24` (`4:0`) clears all five. Named so the clear cannot drift from the
     /// set, the shape `IDEOGRAM` has for `SGR 65`.
     pub const UNDERLINES: Attrs = Attrs(
         Attrs::UNDERLINE.0

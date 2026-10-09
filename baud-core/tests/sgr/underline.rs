@@ -4,7 +4,8 @@
 //! a plain underline for a while, on the argument that a second attribute bit
 //! "no renderer reads" would be set-and-never-used -- true until a renderer
 //! drew it as two lines. It has its own bit now, and `DECRQSS` reports it as
-//! 21.
+//! 21. Its own bit, but not its own aspect: `21` is the family's double
+//! style, the state `4:2` names, and replaces the family as every style does.
 
 use crate::support;
 use baud_core::*;
@@ -105,6 +106,85 @@ fn a_style_replaces_the_family_and_4_0_clears_it() {
     assert!(
         !off.has(Attrs::UNDERLINES),
         "24 clears every style, dashed included"
+    );
+}
+
+/// The underline family of the rendition `bytes` leaves under column 0: the
+/// style bits alone, every other attribute stripped, so an assertion on it
+/// says "this style and no other" in one comparison.
+fn family(bytes: &[u8]) -> Attrs {
+    let a = style_at(bytes, 0).attrs();
+    a.without(a.without(Attrs::UNDERLINES))
+}
+
+/// **`21` is the double style, so it replaces the family as `4:n` does.**
+///
+/// `[[source: ecma48]]` § 8.3.117 gives "21 doubly underlined" and "24 not
+/// underlined (neither singly nor doubly)" -- two values of one aspect with
+/// one cancel -- and `[[source: kitty-underlines]]` names the same rendition
+/// `4:2`. `21` was a plain `Set`, so `4:3` then `21` held curly *and* double,
+/// and `4` then `21` single and double, while `21` then `4` already ended
+/// single alone because a bare `4` replaces the family. The two orders now
+/// agree: the last style is the one in force.
+#[test]
+fn twenty_one_replaces_the_family_in_either_order() {
+    let cases: [(&[u8], Attrs, &str); 6] = [
+        (
+            b"\x1b[4:3m\x1b[21mX",
+            Attrs::DOUBLE_UNDERLINE,
+            "4:3 then 21",
+        ),
+        (b"\x1b[4m\x1b[21mX", Attrs::DOUBLE_UNDERLINE, "4 then 21"),
+        (
+            b"\x1b[4:5;21mX",
+            Attrs::DOUBLE_UNDERLINE,
+            "4:5;21 in one SGR",
+        ),
+        // Controls: these orders were already right, because the style that
+        // arrives second replaced the family before this change too.
+        (b"\x1b[21m\x1b[4:3mX", Attrs::CURLY_UNDERLINE, "21 then 4:3"),
+        (b"\x1b[21m\x1b[4mX", Attrs::UNDERLINE, "21 then 4"),
+        (b"\x1b[21m\x1b[24mX", Attrs::NONE, "21 then 24"),
+    ];
+    // Every case is checked before anything is asserted, so a red run names
+    // each order that is wrong rather than stopping at the first.
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(bytes, want, _)| family(bytes) != *want)
+        .map(|(bytes, want, name)| format!("{name}: {:?}, want {want:?}", family(bytes)))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "not exactly one style in force: {wrong:#?}"
+    );
+}
+
+/// **`21` and `4:2` are one state, not two spellings that happen to agree
+/// from a blank start.** From the default rendition a `Set` and a family
+/// replace land on the same word, so only a start that already holds
+/// another style tells them apart: after `4:3`, the two must leave the same
+/// rendition, bit for bit, colours and all.
+#[test]
+fn twenty_one_and_4_2_are_one_rendition() {
+    let starts = [&b"\x1b[4:3m"[..], b"\x1b[4m", b"\x1b[4:4m", b"\x1b[24m"];
+    let wrong: Vec<String> = starts
+        .iter()
+        .filter_map(|start| {
+            let ecma = style_at(&[*start, &b"\x1b[21mX"[..]].concat(), 0);
+            let kitty = style_at(&[*start, &b"\x1b[4:2mX"[..]].concat(), 0);
+            (ecma != kitty).then(|| {
+                format!(
+                    "after {:?}: 21 {:?}, 4:2 {:?}",
+                    String::from_utf8_lossy(start),
+                    ecma.attrs(),
+                    kitty.attrs()
+                )
+            })
+        })
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "21 and 4:2 left different renditions: {wrong:#?}"
     );
 }
 

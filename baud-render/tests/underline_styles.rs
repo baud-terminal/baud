@@ -12,7 +12,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Theme};
+use baud_render::{Blend, Damage, Metrics, PxSize, Renderer, Stack, Theme};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -23,11 +23,17 @@ const WS: WinSize = WinSize {
 /// The pixels of the whole canvas after `bytes`, plus the underline band's
 /// row range so a caller can look only there.
 fn painted(bytes: &[u8]) -> (Vec<u32>, usize, usize, usize) {
+    painted_at(bytes, 14.0).0
+}
+
+/// As [`painted`], at a chosen font size, with the renderer's metrics -- for
+/// a test whose question only a geometry with room in the cell can answer.
+fn painted_at(bytes: &[u8], size: f32) -> ((Vec<u32>, usize, usize, usize), Metrics) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let mut r = Renderer::new(
         Stack::new(&faces).unwrap(),
-        PxSize::of(14.0).unwrap(),
+        PxSize::of(size).unwrap(),
         Theme::dark(),
         Blend::Native,
         Cols::of_index(usize::from(WS.ws_col)),
@@ -44,7 +50,7 @@ fn painted(bytes: &[u8]) -> (Vec<u32>, usize, usize, usize) {
     let ul = usize::try_from(m.underline.value()).unwrap();
     let th = usize::try_from(m.thickness.value().max(1)).unwrap();
     let w = c.width;
-    (c.pixels, w, ul, ul + 2 * th)
+    ((c.pixels, w, ul, ul + 2 * th), m)
 }
 
 /// Pixels in rows `y0..y1` that are not the default background.
@@ -85,6 +91,61 @@ fn every_style_paints_the_band_and_no_two_paint_it_alike() {
             );
         }
     }
+}
+
+/// **The double underline draws, whichever spelling set it.** `21` is
+/// `[[source: ecma48]]`'s "doubly underlined" and `4:2` is
+/// `[[source: kitty-underlines]]`' "double underline": one state, so one
+/// picture, and not the straight line's.
+#[test]
+fn twenty_one_and_4_2_paint_the_same_double_line() {
+    let (ecma, ..) = painted(b"\x1b[?25l\x1b[21m  ");
+    let (kitty, ..) = painted(b"\x1b[?25l\x1b[4:2m  ");
+    let (straight, ..) = painted(b"\x1b[?25l\x1b[4m  ");
+    assert_eq!(ecma, kitty, "21 and 4:2 paint the same pixels");
+    assert_ne!(ecma, straight, "and the double is not the straight line");
+}
+
+/// **A double underline set over another style draws the double alone.**
+/// While `21` set its bit beside the family, `4:3` then `21` drew the curly
+/// zigzag, the straight line and the double's second line together -- three
+/// underlines under one cell. The style that arrives last is the one drawn,
+/// as it already was for every `4:n`. `4` then `21` is the control: the
+/// double draws on top of the straight line, so single-and-double painted
+/// what double alone paints even while the rendition held both.
+///
+/// **At 16 px, not the 14 the other tests use, because at 14 the question
+/// cannot be asked.** There the line sits at row 16 of an 18-row cell, so the
+/// double's second line is clamped to row 17 -- the zigzag's lower row -- and
+/// curly-under-double painted exactly what double alone paints: this test
+/// passed against the defect at 14. At 16 the line is at 18 of 21, the second
+/// line at 20, and the zigzag's row 19 is in neither, which the first
+/// assertion requires so the test cannot quietly lose its room again.
+#[test]
+fn a_double_set_over_another_style_paints_only_the_double() {
+    let ((alone, ..), m) = painted_at(b"\x1b[?25l\x1b[21m  ", 16.0);
+    let (ul, th, h) = (
+        m.underline.value(),
+        m.thickness.value().max(1),
+        m.cell_h.value(),
+    );
+    assert!(
+        ul + 2 * th < h,
+        "the double's second line clears the zigzag's lower row: line {ul}, thickness {th}, cell {h}"
+    );
+    let overs = [
+        &b"\x1b[?25l\x1b[4:3m\x1b[21m  "[..],
+        b"\x1b[?25l\x1b[4m\x1b[21m  ",
+    ];
+    let wrong: Vec<String> = overs
+        .iter()
+        .filter(|over| painted_at(over, 16.0).0.0 != alone)
+        .map(|over| format!("{:?}", String::from_utf8_lossy(over)))
+        .collect();
+    assert!(
+        wrong.is_empty(),
+        "these paint more than 21 alone: {wrong:?}"
+    );
 }
 
 /// The dotted line paints fewer pixels than the straight one, the dashed

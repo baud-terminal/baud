@@ -54,9 +54,27 @@ notification 9 B.
 **The bound for one read** of L bytes is the largest single action's replies
 plus one DECRQSS answer per 5 bytes: `1,014 + floor((L-1)/5) x 114`. At
 `READ_CHUNK` = 4096 that is 94,380 B (**C**), and an all-DECRQSS read measured
-93,480 B (**M**). With the replies queued outside `feed` before a drain (106 B)
-the buffer that provably never drops within one read is 94,603 B; 96 KiB holds
-it. herdr's worst read needs 7,137 B (**M**).
+93,480 B (**M**). The safe largest action uses `Report::MAX_LEN`, 39 x 29 =
+1,131 B, rather than the 1,014 measured; with it and the replies queued outside
+`feed` before a drain (106 B), the buffer that provably never drops within one
+read is 1,131 + 93,366 + 106 = 94,603 B; 96 KiB holds it. herdr's worst read needs 7,137 B (**M**).
+
+**Correction, 2026-10-09: the richest DECRQSS answer is 111 B, not 114.**
+The 114 was measured on a rendition holding `4:3` and `21` together, which
+held curly and double at once because `SGR 21` set its bit beside the
+underline family instead of replacing it. `21` replaces the family now
+(`docs/record.md`, "SGR 21 is the double style, and the underline family
+holds one"), so no rendition holds two styles, and the richest one, with
+`4:3` as the longest spelling, answers in 111 B (**M**, by
+`the_longest_decrqss_reply_is_within_its_bound`). From it: a worst ratio of
+22.2, and the one-read bound `1,014 + floor((L-1)/5) x 111` = 91,923 B at
+`READ_CHUNK` (**C**), 2,457 B under the 94,380: three bytes fewer for each of
+the 819 answers. The never-drops buffer falls with it, so 96 KiB still holds
+it: with the safe largest action and the carry, 1,131 + 819 x 111 + 106 =
+92,146 B. (The 94,603 above is 1,131 + 93,366 + 106, the safe figure; the
+section first gave it without naming the 1,131, now corrected.) The
+all-DECRQSS read's 93,480 B (**M**) was taken before the fix, on 114-byte
+answers, and has not been re-taken.
 
 ### 1.3 Defects found on the way, decided by no question
 

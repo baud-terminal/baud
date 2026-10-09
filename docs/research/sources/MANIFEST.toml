@@ -6859,6 +6859,57 @@ group  = "C"
 # stripped** -- a grep for `4:3` on the raw HTML reads zero and is a probe that
 # cannot fire; `sed 's/<[^>]*>//g'` first, and all six are there.
 
+# What three implementations do with `SGR 21`, cited as **practice** beside
+# `ecma48` § 8.3.117's "21 doubly underlined" and "24 not underlined (neither
+# singly nor doubly)". The same files as `alacritty-vte-ansi`,
+# `linux-vt-console` and `xterm-reset`, under keys scoped to this claim; url,
+# file and hash are theirs. vte's `attrs_from_sgr_parameters` maps `[21]` to
+# `Attr::CancelBold` (ansi.rs 1849) -- 21 as "bold off", which ECMA-48 does
+# not say -- and `[4, 2]` to `Attr::DoubleUnderline` (1839), which alacritty
+# applies by removing `ALL_UNDERLINES` first. The Linux console reads 21 as a
+# single underline, "No console drivers support double underline" (vt.c
+# 1768-1775). xterm's `case 21` sets `ATR_DBL_UNDER` beside `UNDERLINE`
+# (charproc.c 4413-4415), so `4;21` holds both there and `24` clears both
+# (4437); it has no `4:n`.
+[sources.alacritty-vte-sgr]
+key    = "alacritty-vte-sgr"
+title  = "vte 0.15.0, src/ansi.rs -- attrs_from_sgr_parameters: [21] is CancelBold, [4, 2] is DoubleUnderline"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "vte crate"
+url    = "https://raw.githubusercontent.com/alacritty/vte/v0.15.0/src/ansi.rs"
+file   = ""
+sha256 = "2ce81d9282575b0f79d7a127463c177d966d1da13eea32d5ecbc0dc35f392b13"
+bytes  = 83726
+status = "external"
+group  = "C"
+
+[sources.linux-vt-sgr]
+key    = "linux-vt-sgr"
+title  = "Linux vt.c -- SGR 21 falls through to a single underline, no console driver drawing a double one"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "torvalds/linux @ cf72cbb3"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/vt/vt.c"
+file   = "linux-vt-console.c"
+sha256 = "4501ad46d48c11d4a44d1c01d2ccfb07de291a281b323dbe08fea8d954b3cfdd"
+bytes  = 124238
+status = "retrieved"
+group  = "C"
+
+[sources.xterm-sgr]
+key    = "xterm-sgr"
+title  = "xterm 411, charproc.c -- SGR 21 sets ATR_DBL_UNDER beside UNDERLINE, and SGR 24 clears both"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charproc.c"
+file   = "xterm-charproc.c"
+sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
+bytes  = 413144
+status = "retrieved"
+group  = "C"
+
 [sources.vt3xx-sixel]
 key    = "vt3xx-sixel"
 title  = "Sixel Graphics (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 14)"

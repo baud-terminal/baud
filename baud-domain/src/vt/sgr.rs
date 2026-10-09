@@ -49,9 +49,10 @@ pub enum SgrAttr {
     /// `[[source: ctlseqs]]` gives it the same `5;n` and `2;r;g;b` spellings as
     /// the foreground and background, which is why it shares their parser.
     Underline(Color),
-    /// `SGR 4:n` -- the underline's style, one of [`Attrs::UNDERLINES`] or
-    /// `NONE`. **Replaces the family rather than setting a bit**: a `4:3`
-    /// after a `4:2` is curly, not double-and-curly, because exactly one
+    /// The underline's style, one of [`Attrs::UNDERLINES`] or `NONE`: what
+    /// `SGR 4:n` builds, and a bare `4` (`4:1`) and `21` (`4:2`) too.
+    /// **Replaces the family rather than setting a bit**: a `4:3` after a
+    /// `4:2` or a `21` is curly, not double-and-curly, because exactly one
     /// style is in force at a time.
     UnderlineStyle(Attrs),
 }
@@ -211,9 +212,23 @@ impl SgrAttr {
             7 => (SgrAttr::Set(Attrs::REVERSE), ParamCount(1)),
             8 => (SgrAttr::Set(Attrs::HIDDEN), ParamCount(1)),
             9 => (SgrAttr::Set(Attrs::STRIKE), ParamCount(1)),
-            // 21 is doubly-underlined in ECMA-48 3rd and in xterm; the
-            // renderer draws it as two lines, so it has its own bit.
-            21 => (SgrAttr::Set(Attrs::DOUBLE_UNDERLINE), ParamCount(1)),
+            // `21` is the double style of the underline family, `4:2` by its
+            // ECMA-48 name, so it **replaces** the family as `4` and `4:n`
+            // do. `[[source: ecma48]]` § 8.3.117 gives "21 doubly underlined"
+            // and "24 not underlined (neither singly nor doubly)" -- two
+            // values of one aspect with one cancel -- and closes with "The
+            // usable combinations of parameter values are determined by the
+            // implementation", so one style in force conforms. It was a
+            // plain `Set`, so `4:3` then `21` held curly and double while
+            // `21` then `4` held single alone: the order decided whether the
+            // family was exclusive. Practice differs and is not followed:
+            // vte reads 21 as bold off (`[[source: alacritty-vte-sgr]]`), the
+            // Linux console as a single underline (`[[source: linux-vt-sgr]]`),
+            // xterm holds 4 and 21 as two bits (`[[source: xterm-sgr]]`).
+            21 => (
+                SgrAttr::UnderlineStyle(Attrs::DOUBLE_UNDERLINE),
+                ParamCount(1),
+            ),
             22 => (SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM)), ParamCount(1)),
             20 => (SgrAttr::Set(Attrs::FRAKTUR), ParamCount(1)),
             // `[[source: ecma48]]` § 8.3.117 names 23 "not italicized, not
@@ -513,7 +528,7 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             8 => Some(SgrAttr::Set(Attrs::HIDDEN)),
             9 => Some(SgrAttr::Set(Attrs::STRIKE)),
             20 => Some(SgrAttr::Set(Attrs::FRAKTUR)),
-            21 => Some(SgrAttr::Set(Attrs::DOUBLE_UNDERLINE)),
+            21 => Some(SgrAttr::UnderlineStyle(Attrs::DOUBLE_UNDERLINE)),
             22 => Some(SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM))),
             23 => Some(SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR))),
             24 => Some(SgrAttr::Unset(Attrs::UNDERLINES)),
@@ -585,5 +600,33 @@ mod one_table {
             }
         }
         assert!(covered >= 60, "only {covered} values covered");
+    }
+}
+
+#[cfg(test)]
+mod double_underline {
+    use crate::*;
+
+    /// **`21` and `4:2` are one attribute, built by the grammar and by the
+    /// table alike.** `[[source: ecma48]]` § 8.3.117's "21 doubly underlined"
+    /// and `[[source: kitty-underlines]]`' "4:2 double underline" name the
+    /// same rendition, and baud holds the underline as a family with exactly
+    /// one style in force; an `SgrAttr` that sets the double bit without
+    /// replacing the family is a second representation of the same state
+    /// that disagrees with the first as soon as another style is held.
+    #[test]
+    fn twenty_one_parses_to_the_double_style_of_the_family() {
+        let ecma = [Some(Param::from_raw(21))];
+        let kitty = [Some(Param::from_raw(4)), Some(Param::from_raw(2))];
+        let colon = SubParams::NONE.mark(ParamIdx::SECOND);
+        let a = SgrAttr::parse(Params::new(&ecma)).map(|(a, _)| a);
+        let b = SgrAttr::parse(Params::with_subs(&kitty, colon)).map(|(a, _)| a);
+        let double = Some(SgrAttr::UnderlineStyle(Attrs::DOUBLE_UNDERLINE));
+        assert!(a == double, "21 is the double style, replacing the family");
+        assert!(b == double, "4:2 is the double style, replacing the family");
+        assert!(
+            SgrAttr::one(Param::from_raw(21)) == double,
+            "and the one-parameter table says the same"
+        );
     }
 }

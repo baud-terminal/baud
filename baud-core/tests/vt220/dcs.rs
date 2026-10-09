@@ -122,8 +122,14 @@ fn valid_is_one_and_invalid_is_zero() {
 
 /// Every SGR attribute this core reports, one underline style -- `4:3`, the
 /// longest spelling -- a font, and all three colours as RGB at three digits a
-/// channel: the 114-byte reply note AG measured.
-const RICH: &[u8] = b"\x1b[1;2;3;4:3;5;7;8;9;20;21;26;51;52;53;60;61;62;63;64;11m\
+/// channel: a 111-byte reply.
+///
+/// **No `21`.** It carried one while `21` set its bit beside the family, and
+/// then the rendition held curly *and* double and answered in the 114 bytes
+/// note AG measured. `21` is the family's double style now, so after `4:3`
+/// it would replace the curly and the reply would shrink to 110; the curly
+/// is kept because `;4:3` is the longer of the two spellings.
+const RICH: &[u8] = b"\x1b[1;2;3;4:3;5;7;8;9;20;26;51;52;53;60;61;62;63;64;11m\
 \x1b[58;2;255;255;255;38;2;255;255;255;48;2;255;255;255m";
 
 /// **DECRQSS is sent whole or not at all.** It was assembled fragment by
@@ -142,18 +148,19 @@ fn decrqss_for_a_rich_rendition_is_sent_whole_or_not_at_all() {
 /// **The bound the answer is built in holds the richest rendition there is.**
 /// `RICH` sets every attribute an application can hold at once, at the widest
 /// spelling of each, so its reply is the longest the encoder can be driven to:
-/// 114 bytes, note AG's figure. `DECRQSS_MAX` is 124 because it counts all
-/// four underline spellings together, which no rendition holds -- the ten
-/// bytes of `;4`, `;4:4` and `;4:5` that `4:3` excludes.
+/// 111 bytes. `DECRQSS_MAX` is 124 because it counts all five underline
+/// spellings together, which no rendition holds -- the thirteen bytes of
+/// `;4`, `;21`, `;4:4` and `;4:5` that `4:3` excludes. It was 114 while `21`
+/// could be held beside `4:3`, and the slack ten.
 #[test]
 fn the_longest_decrqss_reply_is_within_its_bound() {
     let r = replies(&[RICH, b"\x1bP$qm\x1b\\"].concat());
-    assert_eq!(r.len(), 114, "the richest rendition answers in 114 bytes");
+    assert_eq!(r.len(), 111, "the richest rendition answers in 111 bytes");
     assert!(r.ends_with(b"m\x1b\\"), "and whole: {r:02x?}");
     assert_eq!(DECRQSS_MAX, 124, "the number DECRQSS_MAX's doc derives");
     assert_eq!(
         DECRQSS_MAX - r.len(),
-        b";4;4:4;4:5".len(),
+        b";4;21;4:4;4:5".len(),
         "and the slack is the family"
     );
     const { assert!(DECRQSS_MAX <= REPLY, "so a drained buffer always takes it") };
@@ -426,6 +433,34 @@ fn a_colon_underline_style_round_trips() {
         original.push(b'X');
         assert_eq!(grid(&replay), grid(&original), "{name} round-trips");
     }
+}
+
+/// **The double underline reports alone, as `21`, and round-trips.** While
+/// `21` set its bit beside the family, `4:3` then `21` held curly and double
+/// and answered `0;21;4:3m` -- a reply that, sent back, sets double and then
+/// replaces it with curly, so it did not reproduce what was asked about.
+/// `4:2` answers in the same spelling, because it is the same state.
+#[test]
+fn a_double_underline_after_another_style_reports_alone_and_round_trips() {
+    let mut wrong = Vec::new();
+    for (set, name) in [
+        (&b"\x1b[4:3m\x1b[21m"[..], "4:3 then 21"),
+        (&b"\x1b[4m\x1b[21m"[..], "4 then 21"),
+        (&b"\x1b[4:3m\x1b[4:2m"[..], "4:3 then 4:2"),
+    ] {
+        let reply = replies(&[set, b"\x1bP$qm\x1b\\"].concat());
+        if reply != b"\x1bP1$r0;21m\x1b\\" {
+            wrong.push(format!("{name}: {:?}", String::from_utf8_lossy(&reply)));
+        }
+        let body = &reply[5..reply.len() - 2];
+        let replay = [&b"\x1b["[..], body, b"X"].concat();
+        if grid(&replay) != grid(&[set, b"X"].concat()) {
+            wrong.push(format!("{name}: the reply does not round-trip"));
+        }
+    }
+    // Every case is answered before anything is asserted, so a red run names
+    // each wrong reply rather than stopping at the first.
+    assert!(wrong.is_empty(), "want 0;21m, round-tripping: {wrong:#?}");
 }
 
 /// The *smallest* rendition whose reply does not round-trip.
