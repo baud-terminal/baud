@@ -4,7 +4,7 @@
 //! because the renderer borrows them for the life of the process.
 
 use crate::config::Config;
-use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, WinSize};
+use baud_domain::{CacheGeometry, CacheLevel, ImageBudget, ImagePx, ImageRefusals, WinSize};
 use baud_font::bytes::Index;
 use baud_font::{Face, FaceIndex, Px, StrikeRefusal, StrikeState};
 use std::sync::OnceLock;
@@ -25,28 +25,107 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
     ImagePx::of(u16::try_from(cell_h.value()).unwrap_or(u16::MAX))
 }
 
-/// The default image arena, when a config names no `[images]` section: enough
-/// for a moderate Sixel or several small ones -- the gap-scan packs them, and
-/// an overflow is refused and counted rather than truncated -- plus body
-/// scratch for one raw Sixel before it decodes. The single source of the
-/// default; `Config::defaults` reads it, and `[images] pixels_mb`/`body_kb`
-/// override it for a reader who wants a full-screen image at [`MAX_GRID`].
+/// The default image arena, when a config names no `[images]` section: 4 MiB
+/// of decoded pixels, a 1024x1024 image or several small ones -- the gap-scan
+/// packs them, and an overflow is refused and counted rather than truncated --
+/// plus 256 KiB of body scratch for one raw Sixel before it decodes. **The
+/// body is the tighter limit for a previewer**: yazi, measured headless against
+/// this budget, writes 1 to 4.6 bytes a pixel at its 600x900 cap, so its small,
+/// flat and sparse previews (10-47 KiB) fit and a UI screenshot (334-390 KiB at
+/// 600x375), a photo (474-680 KiB at 600x800) and a page of a text PDF
+/// (797-820 KiB at 600x776) are refused whole, though each fits the arena. The
+/// single source of the default; `Config::defaults` reads it, and
+/// `[images] pixels_mb`/`body_kb` override it. Whether to raise the default or
+/// decode as the body streams is the owner's open call.
 pub const IMAGE_BUDGET: ImageBudget = ImageBudget {
     pixels: 1 << 20, // 1,048,576 ColorWords, 4 MiB
     body: 1 << 18,   // 256 KiB
 };
 
-/// One startup line naming the resolved image budget, so a `[images]`
-/// misconfiguration is diagnosable without a rebuild: a refused image against
-/// a budget the log names is a config the reader can fix. A `ColorWord` is
-/// four bytes, so a MiB is `1 << 18` of them -- `>> 18` gives MiB with no
-/// multiply -- and a KiB is `1 << 10` bytes.
+/// One startup line naming the resolved image budget, at `info` -- so it shows
+/// only under `BAUD_LOG=info` or below. A refusal names its own limit and
+/// sizes as it happens ([`describe_refusals`]); this line is the budget a
+/// reader checks a changed `[images]` against. A `ColorWord` is four bytes,
+/// so a MiB is `1 << 18` of them -- `>> 18` gives MiB with no multiply -- and
+/// a KiB is `1 << 10` bytes.
 pub fn describe_images(b: &ImageBudget) -> String {
     format!(
         "images: {} MiB pixels, {} KiB body",
         b.pixels >> 18,
         b.body >> 10,
     )
+}
+
+/// One `warn` line for the images one pump refused against a limit, naming
+/// the limit, the sizes that hit it and the `[images]` key that raises it --
+/// or `None` when none did. `before` and `after` are the store's
+/// [`ImageRefusals`] either side of the pump's feeds, compared once a pump and
+/// never per byte, so a flood of refusals is one line a read rather than one
+/// an image.
+///
+/// It exists because the refusal was invisible: yazi's previews went blank
+/// against the 256 KiB body default, counted in a total that also counted
+/// the arena and the slots and that nothing in the app read. An image with no
+/// pixels is counted and not said -- no limit refused it and none raised
+/// would draw it. A `ColorWord` is four bytes, so a pixel count shifted right
+/// 18 is MiB, as in [`describe_images`].
+pub fn describe_refusals(
+    before: &ImageRefusals,
+    after: &ImageRefusals,
+    budget: &ImageBudget,
+) -> Option<String> {
+    let mut said = Vec::new();
+    if after.body > before.body {
+        let n = after.body - before.body;
+        let len = after.body_len.index();
+        said.push(format!(
+            "{} refused for its body, the last {len} bytes ({} KiB) against a \
+             {}-byte ({} KiB) body scratch; [images] body_kb raises it",
+            if n == 1 {
+                "a Sixel".to_string()
+            } else {
+                format!("{n} Sixels")
+            },
+            len >> 10,
+            budget.body,
+            budget.body >> 10,
+        ));
+    }
+    if after.arena > before.arena {
+        let n = after.arena - before.arena;
+        let (w, h) = (after.arena_width.index(), after.arena_height.index());
+        let area = w * h;
+        let why = if area > budget.pixels {
+            "larger than the whole arena"
+        } else {
+            "no free gap held it, the live images hold the rest"
+        };
+        said.push(format!(
+            "{} refused for its pixels, the last {w}x{h} = {area} pixels ({} KiB \
+             decoded) against a {} MiB arena of {} pixels -- {why}; [images] \
+             pixels_mb raises it",
+            if n == 1 {
+                "an image".to_string()
+            } else {
+                format!("{n} images")
+            },
+            area >> 8,
+            budget.pixels >> 18,
+            budget.pixels,
+        ));
+    }
+    if after.slot > before.slot {
+        let n = after.slot - before.slot;
+        said.push(format!(
+            "{} refused, every image slot holding a live image",
+            if n == 1 {
+                "an image".to_string()
+            } else {
+                format!("{n} images")
+            },
+        ));
+    }
+    (!said.is_empty()).then(|| format!("images: {}", said.join("; ")))
 }
 
 /// The cache geometry of the machine this runs on, from the per-arch probe:
@@ -623,5 +702,114 @@ mod tests {
             let report: &[u8] = if dropped { b"\x1b[?997;2n" } else { b"" };
             assert_eq!(t.reply(), report, "{overrides:?}");
         }
+    }
+
+    /// **A refusal is said by the limit it hit, with the sizes and the key
+    /// that raises it** -- and only when a counter moved across the pump, so
+    /// a snapshot whose last sizes are set says nothing again on the next
+    /// pump. An image with no pixels is no limit and is not said. The body
+    /// is yazi's 600x375 screenshot, 341669 bytes against the 256 KiB
+    /// default; the arena cases are an image over the whole 4 MiB arena and
+    /// one inside it that found no gap, which are different fixes.
+    #[test]
+    fn a_refusal_is_said_by_the_limit_it_hit() {
+        use baud_domain::{ImagePx, ImageRefusals};
+        let say = |a: &ImageRefusals, b: &ImageRefusals| {
+            super::describe_refusals(a, b, &super::IMAGE_BUDGET)
+        };
+        let none = ImageRefusals::NONE;
+        assert_eq!(say(&none, &none), None, "nothing moved");
+        let empty = ImageRefusals { empty: 1, ..none };
+        assert_eq!(say(&none, &empty), None, "no pixels is no limit");
+
+        let body = ImageRefusals {
+            body: 1,
+            body_len: ReadLen::from_index(341_669),
+            ..none
+        };
+        let line = say(&none, &body).expect("a body refusal is said");
+        for want in [
+            "a Sixel",
+            "341669 bytes",
+            "(333 KiB)",
+            "262144-byte",
+            "(256 KiB)",
+            "body_kb",
+        ] {
+            assert!(line.contains(want), "{want:?} in {line:?}");
+        }
+        assert!(!line.contains("pixels_mb"), "not the arena: {line:?}");
+        assert_eq!(say(&body, &body), None, "said once, not every pump after");
+        let more = ImageRefusals { body: 3, ..body };
+        assert!(say(&body, &more).unwrap().contains("2 Sixels"), "a count");
+
+        let over = ImageRefusals {
+            arena: 1,
+            arena_width: ImagePx::of(2048),
+            arena_height: ImagePx::of(1024),
+            ..none
+        };
+        let line = say(&none, &over).expect("an arena refusal is said");
+        for want in [
+            "2048x1024",
+            "2097152 pixels",
+            "4 MiB arena",
+            "larger than the whole",
+            "pixels_mb",
+        ] {
+            assert!(line.contains(want), "{want:?} in {line:?}");
+        }
+        assert!(!line.contains("body_kb"), "not the body: {line:?}");
+        let gap = ImageRefusals {
+            arena_width: ImagePx::of(600),
+            arena_height: ImagePx::of(800),
+            ..over
+        };
+        let line = say(&none, &gap).unwrap();
+        assert!(
+            line.contains("600x800 = 480000 pixels (1875 KiB"),
+            "{line:?}"
+        );
+        assert!(line.contains("no free gap"), "inside the arena: {line:?}");
+
+        let slot = ImageRefusals { slot: 1, ..none };
+        assert!(say(&none, &slot).unwrap().contains("every image slot"));
+
+        let both = ImageRefusals { body: 1, ..gap };
+        let line = say(&none, &both).unwrap();
+        assert!(
+            line.contains("body_kb") && line.contains("pixels_mb") && !line.contains('\n'),
+            "two limits in one pump are one line: {line:?}"
+        );
+    }
+
+    /// **The yazi case through a real terminal at the default budget**: a
+    /// Sixel whose body is the screenshot preview's 341669 bytes, fed the way
+    /// the pump feeds, is refused against the body and the line says so with
+    /// its true length. The pixels are a run of one sixel column each, so the
+    /// image would be narrow and fit the arena -- the body is all that bites.
+    #[test]
+    fn a_body_past_the_default_scratch_is_said_with_its_length() {
+        let ws = WinSize {
+            ws_row: 24,
+            ws_col: 80,
+        };
+        let mut s = Owned::new(&ws).with_images(super::IMAGE_BUDGET);
+        let mut t = Term::new(s.storage(), &ws);
+        // `ESC P q` opens it, and its body is everything after, to the ST.
+        let mut sixel = b"\x1bPq#0;2;100;0;0".to_vec();
+        sixel.resize(3 + 341_669, b'~');
+        sixel.extend_from_slice(b"\x1b\\");
+        let before = t.images().refusals;
+        feed(&mut t, &sixel);
+        let after = t.images().refusals;
+        assert_eq!(after.body, 1, "refused against the body");
+        assert_eq!(after.body_len, ReadLen::from_index(341_669));
+        let line = super::describe_refusals(&before, &after, &super::IMAGE_BUDGET).unwrap();
+        assert_eq!(
+            line,
+            "images: a Sixel refused for its body, the last 341669 bytes (333 KiB) \
+             against a 262144-byte (256 KiB) body scratch; [images] body_kb raises it"
+        );
     }
 }

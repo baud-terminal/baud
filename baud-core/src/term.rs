@@ -2164,12 +2164,17 @@ impl<'b> Term<'b> {
     /// test to inspect. A placement carries an image id, an absolute line, a
     /// column and a `z`; the image carries its pixel size and its ARGB pixels.
     /// How many images and placements were refused or dropped are counters on
-    /// the store ([`ImageStore::images_refused`] and the rest).
+    /// the store ([`ImageStore::images_refused`] and the rest), and which limit
+    /// each image refusal hit is [`ImageStore::refusals`]: the body scratch with
+    /// the body's true length, the arena with the image's size, the slot table,
+    /// or an image with no pixels. An embedder compares it across a read to say
+    /// which limit bit, which the total alone cannot.
     ///
     /// A Sixel arriving with no image memory provisioned ([`Owned::with_images`]
     /// is how a caller provisions it) is refused and counted here, so an empty
     /// store with a non-zero `images_refused` is the honest state of a terminal
-    /// that was sent an image it had nowhere to put.
+    /// that was sent an image it had nowhere to put -- counted against the
+    /// body, whose scratch is empty.
     pub fn images(&self) -> &ImageStore<'b> {
         &self.store.images
     }

@@ -32,7 +32,7 @@
 //! stack.
 
 use crate::pos::LineIdx;
-use crate::quantity::{Col, Count, Rows};
+use crate::quantity::{Col, Count, ReadLen, Rows};
 use crate::style::ColorWord;
 
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
@@ -333,6 +333,72 @@ impl ImageBudget {
     }
 }
 
+/// Which limit refused an image, with the size that hit it -- what
+/// [`ImageStore::refuse`] is told, and what [`ImageRefusals`] counts. Each
+/// variant is a different fix: the first two are `[images] body_kb` and
+/// `pixels_mb` in the app, the slot table is a provisioning constant, and an
+/// image with no pixels is no limit at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageRefusal {
+    /// A Sixel's raw body ran past the body scratch: its true length, which
+    /// keeps counting after the scratch stops holding bytes. An unprovisioned
+    /// store's empty scratch is this, against a limit of zero.
+    Body(ReadLen),
+    /// An image with no pixels: an empty Sixel, one whose data paints
+    /// nothing, or a zero dimension handed to [`ImageStore::store`]. No limit
+    /// refused it and none raised would draw it.
+    Empty,
+    /// Every image slot held a live image.
+    Slot,
+    /// No gap in the pixel arena held a `width` x `height` image -- larger
+    /// than the whole arena, or larger than what the live images leave free.
+    Arena(ImagePx, ImagePx),
+}
+
+/// The image refusals split by the limit each hit, with the size the last one
+/// of each carried. [`ImageStore::images_refused`] is their total, and stays
+/// the one number for a caller that only asks how many: it mixed a body over
+/// the scratch with an image over the arena, and the two are different knobs
+/// -- yazi's previews went blank on the first (a 600x375 screenshot is a
+/// 334 KiB body against the app's 256 KiB scratch) while the arena held them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageRefusals {
+    /// Sixels refused because the raw body ran past the body scratch.
+    pub body: usize,
+    /// The true length of the last body refused for it, so a reader can see
+    /// how far to raise the scratch. Zero until one is.
+    pub body_len: ReadLen,
+    /// Images refused for having no pixels.
+    pub empty: usize,
+    /// Images refused because every image slot held a live image.
+    pub slot: usize,
+    /// Images refused because no gap in the pixel arena held them.
+    pub arena: usize,
+    /// The width of the last image refused for want of an arena gap.
+    pub arena_width: ImagePx,
+    /// Its height.
+    pub arena_height: ImagePx,
+}
+
+impl ImageRefusals {
+    /// Nothing refused.
+    pub const NONE: ImageRefusals = ImageRefusals {
+        body: 0,
+        body_len: ReadLen::ZERO,
+        empty: 0,
+        slot: 0,
+        arena: 0,
+        arena_width: ImagePx::ZERO,
+        arena_height: ImagePx::ZERO,
+    };
+
+    /// Every refusal, whatever its cause: what
+    /// [`ImageStore::images_refused`] equals.
+    pub fn total(&self) -> usize {
+        self.body + self.empty + self.slot + self.arena
+    }
+}
+
 /// A read view of a stored image: its pixels and its size.
 pub struct ImageView<'a> {
     /// The ARGB pixels, `width * height` of them, row-major.
@@ -352,9 +418,15 @@ pub struct ImageStore<'b> {
     pixels: &'b mut [ColorWord],
     slots: &'b mut [ImageSlot],
     placements: &'b mut [PlacementSlot],
-    /// Images that did not fit -- no free slot, or no gap in the arena. Never
-    /// silent: a refused image is not drawn, and how often is a number.
+    /// Images refused, whatever the cause. Never silent: a refused image is
+    /// not drawn, and how often is a number. [`ImageStore::refusals`] says
+    /// which limit each hit, and this is their total.
     pub images_refused: usize,
+    /// The refusals by cause: the body scratch, the slot table, the arena, or
+    /// an image with no pixels. Every refusal in the tree goes through
+    /// [`ImageStore::refuse`], which bumps `images_refused` with it, so the
+    /// total and its causes agree.
+    pub refusals: ImageRefusals,
     /// Placements that did not fit -- no free placement slot.
     pub placements_refused: usize,
     /// Images freed, by a last placement leaving or an explicit delete.
@@ -406,6 +478,7 @@ impl<'b> ImageStore<'b> {
             slots,
             placements,
             images_refused: 0,
+            refusals: ImageRefusals::NONE,
             placements_refused: 0,
             images_dropped: 0,
             placements_expired: 0,
@@ -466,21 +539,21 @@ impl<'b> ImageStore<'b> {
         let area = match width.index().checked_mul(height.index()) {
             Some(a) if a > 0 => a,
             _ => {
-                self.images_refused += 1;
+                self.refuse(ImageRefusal::Empty);
                 return None;
             }
         };
         let slot = match self.free_slot() {
             Some(i) => i,
             None => {
-                self.images_refused += 1;
+                self.refuse(ImageRefusal::Slot);
                 return None;
             }
         };
         let offset = match self.allocate(area) {
             Some(o) => o,
             None => {
-                self.images_refused += 1;
+                self.refuse(ImageRefusal::Arena(width, height));
                 return None;
             }
         };
@@ -497,6 +570,28 @@ impl<'b> ImageStore<'b> {
             ImageId::from_index(slot),
             &mut self.pixels[start..start + area],
         ))
+    }
+
+    /// Count a refused image: the total and its cause in one place, so the
+    /// two cannot disagree. The store calls it for its own three refusals;
+    /// a decoder calls it for the ones it finds before the store is asked --
+    /// a Sixel body past the scratch, or one that paints nothing.
+    pub fn refuse(&mut self, why: ImageRefusal) {
+        self.images_refused += 1;
+        let r = &mut self.refusals;
+        match why {
+            ImageRefusal::Body(len) => {
+                r.body += 1;
+                r.body_len = len;
+            }
+            ImageRefusal::Empty => r.empty += 1,
+            ImageRefusal::Slot => r.slot += 1,
+            ImageRefusal::Arena(width, height) => {
+                r.arena += 1;
+                r.arena_width = width;
+                r.arena_height = height;
+            }
+        }
     }
 
     /// A read view of a live image, or `None` if `id` names none.

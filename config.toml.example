@@ -201,7 +201,18 @@ mode = "smooth"
 # bounds the RAW Sixel bytes held before they decode, which varies with the
 # image's colours and run-length runs. A large image needs BOTH raised; either
 # limit alone refuses the image (and counts it) rather than showing half of
-# one. The defaults hold a moderate Sixel.
+# one.
+#
+# The defaults hold a 1024x1024 image decoded, and a 256 KiB body, which is
+# the limit a previewer hits first. yazi, measured against them, writes 1 to
+# 4.6 bytes a pixel at its 600x900 cap: small, flat and sparse previews
+# (10-47 KiB) show, while a UI screenshot (334-390 KiB at 600x375), a photo
+# (474-680 KiB at 600x800) and a page of a text PDF (797-820 KiB at 600x776)
+# are refused and the pane stays blank -- each fits the 4 MiB of pixels.
+# body_kb raises it: by their sizes 1024 holds all of those, and 4096 stored
+# every one when measured. Each refusal logs one warning naming the limit and
+# the sizes, on stderr, so it shows when baud is launched from a terminal and
+# not from the Dock.
 #
 # advertise_sixel makes the Primary DA claim Sixel (attribute 4), so a
 # previewer such as yazi draws a real image instead of its text fallback --

@@ -92,6 +92,9 @@ struct Driver {
     /// The title the toplevel was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than every read.
     titles: crate::title::Shown,
+    /// The image budget the core was provisioned with, so a refusal's log
+    /// line names the limit it hit (`host::describe_refusals`).
+    images: baud_domain::ImageBudget,
 }
 
 pub fn run() {
@@ -212,6 +215,7 @@ pub fn run() {
         damage: Damage::Full,
         updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
+        images: cfg.images,
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -339,10 +343,18 @@ impl Driver {
         if bytes.is_empty() {
             return;
         }
+        let refused = self.term.images().refusals;
         self.term.write_at(BytePos::ZERO, bytes);
         self.term
             .feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         self.pending = Pending::Dirty;
+        // A refused image is said by the limit it hit, once a read -- the
+        // macOS pump's rule (`host::describe_refusals`).
+        if let Some(line) =
+            crate::host::describe_refusals(&refused, &self.term.images().refusals, &self.images)
+        {
+            crate::warn!("{line}");
+        }
         // Output shows the cursor and restarts its blink (`caret.rs`).
         self.caret.restart(Instant::now());
         if let Some(t) = self

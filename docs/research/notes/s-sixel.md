@@ -174,12 +174,13 @@ The design below is landed as `baud-domain/src/image.rs` -- `ImageStore`, the
 `ClusterStore` pattern a fourth time: a caller-provided ARGB arena
 (`&mut [ColorWord]`), an image-slot table and a placement table, all
 **refuse-and-count** with public counters (`images_refused`,
-`placements_refused`, `images_dropped`). `store` reserves a `w`x`h` span and
-returns the slice to **decode into in place** -- so a Sixel lands where a
-renderer will read it rather than in a scratch that is then copied -- `place`
-adds an absolute-line/column/`z` placement and refcounts the image, and the
-last placement leaving (or an explicit `free`, the Kitty delete) returns the
-span. Reclaim is inherent: free space is the gaps between live spans, recomputed
+`placements_refused`, `images_dropped`, and since 2026-10-09 `refusals`,
+`images_refused` split by the limit each refusal hit). `store` reserves a
+`w`x`h` span and returns the slice to **decode into in place** -- so a Sixel
+lands where a renderer will read it rather than in a scratch that is then
+copied -- `place` adds an absolute-line/column/`z` placement and refcounts
+the image, and the last placement leaving (or an explicit `free`, the Kitty
+delete) returns the span. Reclaim is inherent: free space is the gaps between live spans, recomputed
 per allocation, so a free is a slot cleared and nothing more, correct for every
 free order rather than a stack. `docs/research/notes/t-images.md` records why
 ARGB and not palette indices, and why the gap-scan over a free list.
@@ -257,8 +258,18 @@ bug).
   and `[images] body_kb` -- two knobs and not one, because the decoded-pixel
   and raw-body limits are independent and a single knob scaling both would
   rest on an unmeasured guess about Sixel encoding density; a large image
-  needs both raised, and the resolved budget is named on a startup line so a
-  refusal is diagnosable without a rebuild.
+  needs both raised. ~~The resolved budget is named on a startup line so a
+  refusal is diagnosable without a rebuild.~~ **It was not diagnosable**,
+  found 2026-10-09 when yazi's previews went blank: the startup line is
+  `info`, which the default `warn` hides, and a refusal was one total --
+  body, slot and arena together -- that nothing in the app read. The store
+  now counts each refusal by its cause (`ImageStore::refusals`: the body
+  with its true length, the arena with the image's size, the slot table, an
+  image with no pixels), and the app logs one `warn` line a pump naming the
+  limit, the sizes and the `[images]` key that raises it
+  (`host::describe_refusals`). **It goes to stderr**, where all of
+  baud-app's log goes: a launch from a terminal shows it, and a Dock launch,
+  whose stderr is discarded, does not.
 
 Two costs are named rather than hidden. **Only the GPU cell path slides images**
 (with `pan`, so an anchored image moves with its line under smooth scroll); the
@@ -362,8 +373,9 @@ Three bounded structures, all caller-owned on `Storage` (which already owns
 the grid, the arena, the reply buffer -- baud-core allocates none of them):
 
 * **An image pixel arena**, `[u32]`, caller-provided, holding decoded ARGB.
-  A decode that would exceed it is refused whole (`images_refused += 1`),
-  never truncated -- half an image is a wrong image. The raster attributes
+  A decode that would exceed it is refused whole (`images_refused` and
+  `refusals.arena`, with the image's size), never truncated -- half an image
+  is a wrong image. The raster attributes
   `Ph`x`Pv` bound a decode before it starts, and an image with no raster
   attributes is bounded by the arena's free space and refused if it fills
   it. **Size is the owner's call**, flagged below; the mechanism does not
@@ -566,9 +578,23 @@ if the operation regressed.
   default retuned. Two knobs because the two limits are independent: a
   1024x1024 image is 4 MiB decoded whatever its Sixel encodes to, and its
   raw body varies with colour count and run-length use, so a single knob
-  scaling both would rest on an unmeasured density guess. The resolved
+  scaling both would rest on an unmeasured density guess. ~~The resolved
   budget is logged at startup, so a reader who raises one knob and still
-  hits a refusal can see which limit bit them.
+  hits a refusal can see which limit bit them.~~ The startup line is
+  `info`, hidden at the default `warn`, and named only the budget; what
+  says which limit bit is the refusal's own `warn` line
+  (`host::describe_refusals`, 2026-10-09), on stderr, which a Dock launch
+  discards.
+* **The body default against a previewer -- open.** yazi 26.5.6, run
+  headless against this budget (cell 17x34, Sixel advertised), caps a
+  preview at 600x900 pixels and writes 1 to 4.6 bytes a pixel. Its small,
+  flat and sparse previews (10-47 KiB of body) store; a UI screenshot
+  (334-390 KiB at 600x375), a photo (474-680 KiB at 600x800) and a page of a
+  text PDF (797-820 KiB at 600x776) are refused against the 256 KiB body
+  though each fits the 4 MiB arena, and the pane is blank because yazi
+  erases the old preview first. Raising `body_kb` alone (to 4 MiB) stored
+  every one. Whether to raise the default or decode as the body streams, so
+  no raw body is buffered, is the owner's call; nothing is changed here.
 * ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
   placed on**, foot's model and ghostty's, over kitty's fixed screen
   position and WezTerm's per-cell slices. See "What a resize does to an

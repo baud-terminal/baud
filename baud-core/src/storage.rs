@@ -433,9 +433,9 @@ impl Owned {
     /// **A zero-length arena is valid and refuses every image**, which the
     /// gate depends on -- do not add a non-empty assert here. Refuse-and-count
     /// is the contract: `store` returns `None` and increments `images_refused`
-    /// when no gap holds the pixels, and an empty arena is that with no gap at
-    /// all, which is the correct nothing for a caller that wants images
-    /// recognised and dropped rather than drawn.
+    /// and `refusals.arena` when no gap holds the pixels, and an empty arena is
+    /// that with no gap at all, which is the correct nothing for a caller that
+    /// wants images recognised and dropped rather than drawn.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
         self.img_pixels = alloc::vec![ColorWord::DEFAULT; budget.pixels];
         self.sixel_body = alloc::vec![0u8; budget.body];

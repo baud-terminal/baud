@@ -7,7 +7,7 @@
 //! and only in production.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx, RowRot, SixelClaim};
+use baud_domain::{ImageBudget, ImagePx, ImageRefusals, RowRot, SixelClaim};
 
 mod support;
 
@@ -199,6 +199,11 @@ fn an_unprovisioned_store_refuses_and_counts() {
         1,
         "the one Sixel is counted refused"
     );
+    assert_eq!(
+        t.images().refusals.body,
+        1,
+        "and counted against the body scratch, whose limit is zero"
+    );
 }
 
 #[test]
@@ -227,6 +232,137 @@ fn a_body_that_fits_but_no_pixel_arena_refuses_at_the_store() {
         assert_eq!(t.images().placements().count(), 0, "not placed");
         assert_eq!(t.images().images_refused, 1, "the store refused it");
     });
+}
+
+/// What a reader can see of an image refusal: the store's refusals by cause.
+/// Two refusals by different limits must read differently here, or the reader
+/// cannot tell which limit to raise. It was every image counter the store
+/// exposed, and read `[1, 0, 0, 0, 0]` for both refusals below.
+fn refusals(t: &Term) -> ImageRefusals {
+    t.images().refusals
+}
+
+#[test]
+fn a_body_overflow_and_an_arena_overflow_are_told_apart() {
+    // The same capture refused twice, by the two limits `[images]` has a knob
+    // for: a 1 KiB body scratch under its ~5 KB body, and a zero pixel arena
+    // under its 64x48 pixels. Raising `body_kb` fixes the first and
+    // `pixels_mb` the second, so a reader must be able to tell them apart.
+    let mut body = None;
+    let mut arena = None;
+    run(
+        SWIRL,
+        SWIRL.len(),
+        ImageBudget::of(64 * 48 + 64, 1024),
+        |t| body = Some(refusals(t)),
+    );
+    run(SWIRL, SWIRL.len(), ImageBudget::of(0, 8192), |t| {
+        arena = Some(refusals(t))
+    });
+    assert_ne!(
+        body, arena,
+        "a body overflow and an arena overflow read the same: the reader cannot \
+         tell which limit bit"
+    );
+}
+
+/// The capture's raw body: from after the `q` that ends `ESC P 0;1;0 q` to
+/// the `ESC \` that ends it -- what the body scratch must hold, 5448 bytes.
+fn swirl_body() -> ReadLen {
+    let start = SWIRL.iter().position(|&b| b == b'q').unwrap() + 1;
+    let end = SWIRL.windows(2).rposition(|w| w == b"\x1b\\").unwrap();
+    ReadLen::from_index(end - start)
+}
+
+#[test]
+fn a_body_past_the_scratch_is_counted_against_the_body_with_its_length() {
+    // A 1 KiB scratch under the capture's 5448-byte body, at every read size:
+    // the length keeps counting across reads after the scratch stops holding
+    // bytes, so the true length is what is kept, not the scratch's. Only the
+    // body is blamed -- the arena holds the 64x48 image with room.
+    for chunk in [1usize, 7, 1024, SWIRL.len()] {
+        run(SWIRL, chunk, ImageBudget::of(64 * 48 + 64, 1024), |t| {
+            let r = refusals(t);
+            assert_eq!(r.body, 1, "chunk {chunk}: counted against the body");
+            assert_eq!(r.body_len, swirl_body(), "chunk {chunk}: its true length");
+            assert_eq!(
+                (r.empty, r.slot, r.arena),
+                (0, 0, 0),
+                "chunk {chunk}: no other limit is blamed"
+            );
+            assert_eq!(t.images().images_refused, r.total(), "chunk {chunk}");
+        });
+    }
+    // The control: a scratch of exactly the body's length holds it.
+    let exact = ImageBudget::of(64 * 48 + 64, swirl_body().index());
+    run(SWIRL, SWIRL.len(), exact, |t| {
+        assert_eq!(refusals(t), ImageRefusals::NONE, "a body that fits");
+        assert_eq!(placed_dims(t), Some((64, 48)));
+    });
+}
+
+#[test]
+fn an_image_past_the_arena_is_counted_against_the_arena_with_its_size() {
+    // One pixel short of the capture's 64x48: the body fits, the store has a
+    // free slot, and no gap holds the pixels. Only the arena is blamed, with
+    // the size that did not fit -- and an arena of exactly 64x48 holds it.
+    run(
+        SWIRL,
+        SWIRL.len(),
+        ImageBudget::of(64 * 48 - 1, 8192),
+        |t| {
+            let r = refusals(t);
+            assert_eq!(r.arena, 1, "counted against the arena");
+            assert_eq!(
+                (r.arena_width.raw(), r.arena_height.raw()),
+                (64, 48),
+                "with the size that did not fit"
+            );
+            assert_eq!((r.body, r.empty, r.slot), (0, 0, 0), "nothing else");
+            assert_eq!(r.body_len, ReadLen::ZERO, "no body length was kept");
+            assert_eq!(t.images().images_refused, r.total());
+        },
+    );
+    run(SWIRL, SWIRL.len(), ImageBudget::of(64 * 48, 8192), |t| {
+        assert_eq!(refusals(t), ImageRefusals::NONE, "an arena that fits");
+        assert_eq!(placed_dims(t), Some((64, 48)));
+    });
+}
+
+#[test]
+fn a_full_slot_table_is_counted_against_the_slots() {
+    // 32 one-by-six images, `Owned`'s `NIMAGE`, at one cell: no cell size is
+    // set, so nothing frees them and each holds a slot. The arena and the
+    // body have room for many more, so the 33rd is refused by the slot table
+    // and by nothing else.
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4096, 8192));
+    let mut t = Term::new(owned.storage(), &ws);
+    for _ in 0..32 {
+        feed(&mut t, TINY);
+    }
+    assert_eq!(t.images().placements().count(), 32, "all 32 stored");
+    assert_eq!(refusals(&t), ImageRefusals::NONE, "and none refused");
+    feed(&mut t, TINY);
+    let r = refusals(&t);
+    assert_eq!(r.slot, 1, "the 33rd has no slot");
+    assert_eq!((r.body, r.empty, r.arena), (0, 0, 0), "nothing else");
+    assert_eq!(t.images().images_refused, r.total());
+}
+
+#[test]
+fn a_sixel_with_no_pixels_is_counted_as_empty() {
+    // An empty body, and one that defines a colour and paints nothing: no
+    // limit refused either and none raised would draw them, so neither is
+    // blamed on one.
+    for empty in [&b"\x1bPq\x1b\\"[..], b"\x1bPq#0;2;100;0;0\x1b\\"] {
+        run(empty, empty.len(), ample(), |t| {
+            let r = refusals(t);
+            assert_eq!(r.empty, 1, "{empty:?}: counted as empty");
+            assert_eq!((r.body, r.slot, r.arena), (0, 0, 0), "{empty:?}");
+            assert_eq!(t.images().images_refused, r.total(), "{empty:?}");
+        });
+    }
 }
 
 /// A 1x6 red Sixel, the smallest well-formed image, for placement tests.

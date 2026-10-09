@@ -29,13 +29,25 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn sixel_end(&mut self) {
         let n = self.cold.sixel_len.index();
+        // Each refusal names the limit it hit, through `refuse`, because the
+        // one total these used to bump mixed a body over the scratch with an
+        // image over the arena -- two different knobs -- and nothing could
+        // tell a reader which to raise. An empty body is no limit at all.
+        if n == 0 {
+            self.images.refuse(ImageRefusal::Empty);
+            return;
+        }
         // The length kept counting past the scratch buffer, so `n` beyond it
         // means bytes were dropped: refuse the whole image rather than decode a
-        // truncated one. An unprovisioned store (an empty `sixel_body`) refuses
-        // every non-empty Sixel here, which is the correct nothing -- a
-        // terminal with no image memory draws none and says how many it lost.
-        if n == 0 || n > self.sixel_body.len() {
-            self.images.images_refused += 1;
+        // truncated one, and keep the true length so a reader can see how far
+        // past the scratch it ran -- yazi's screenshot, photo and text-PDF
+        // previews ran 334 KiB to 820 KiB against the app's 256 KiB, and were
+        // refused here while the arena had room. An unprovisioned store (an
+        // empty `sixel_body`) refuses every non-empty Sixel here, which is the
+        // correct nothing -- a terminal with no image memory draws none and
+        // says how many it lost.
+        if n > self.sixel_body.len() {
+            self.images.refuse(ImageRefusal::Body(self.cold.sixel_len));
             return;
         }
         let body = &self.sixel_body[..n];
@@ -44,15 +56,15 @@ impl Paint<'_, '_> {
         let report = Sixel::extent(body);
         let (w, h) = (report.width, report.height);
         if w == SixelPx::ZERO || h == SixelPx::ZERO {
-            self.images.images_refused += 1;
+            self.images.refuse(ImageRefusal::Empty);
             return;
         }
         let Some((id, buf)) = self
             .images
             .store(ImagePx::of(w.raw()), ImagePx::of(h.raw()))
         else {
-            // `store` already counted the refusal -- no free slot, or no gap in
-            // the arena large enough for `w * h`.
+            // `store` already counted the refusal, by its cause: no free slot,
+            // or no gap in the arena large enough for `w * h`, with the size.
             return;
         };
         // Decode into the reserved span in place; the borrow ends with the

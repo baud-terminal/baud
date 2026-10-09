@@ -521,6 +521,9 @@ struct App {
     /// The keystroke-to-pixel instrument, on under `BAUD_KEYLAT=1` and one
     /// test per hook otherwise; see `latency.rs`.
     latency: Latency,
+    /// The image budget the core was provisioned with, so a refusal's log
+    /// line names the limit it hit (`host::describe_refusals`).
+    images: baud_domain::ImageBudget,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -975,6 +978,7 @@ impl App {
             trail_scroll,
             slide: Slide::new(cell_h),
             latency: Latency::from_env(),
+            images,
         }
     }
 
@@ -3938,6 +3942,7 @@ impl Driver {
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
         let before = Before::of(&self.app.term);
+        let refused = self.app.term.images().refusals;
         for chunk in &drained.chunks {
             if let Some(t) = self.app.trace.as_mut() {
                 t.fed(&chunk.bytes);
@@ -3947,6 +3952,16 @@ impl Driver {
                 .term
                 .feed(BytePos::ZERO, ReadLen::from_index(chunk.bytes.len()));
             self.app.pending = Pending::Dirty;
+        }
+        // An image the store refused is said once a pump, by the limit it
+        // hit: the count was a total nothing here read, and yazi's previews
+        // went blank against the body limit with no word of why.
+        if let Some(line) = crate::host::describe_refusals(
+            &refused,
+            &self.app.term.images().refusals,
+            &self.app.images,
+        ) {
+            crate::warn!("{line}");
         }
         if !drained.chunks.is_empty() {
             self.app.latency.fed(host_now);

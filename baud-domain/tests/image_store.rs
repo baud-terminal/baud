@@ -81,12 +81,20 @@ fn an_image_too_large_for_the_arena_is_refused_and_counted() {
     let mut b = Buffers::new(); // 64-pixel arena
     let mut store = b.store();
 
-    // 9x9 = 81 > 64: refused whole, never truncated.
+    // 9x9 = 81 > 64: refused whole, never truncated -- and counted against
+    // the arena, with the size that did not fit.
     assert!(store.store(ImagePx::of(9), ImagePx::of(9)).is_none());
     assert_eq!(store.images_refused, 1);
-    // A zero dimension is refused too.
+    assert_eq!(
+        (store.refusals.arena, store.refusals.arena_width),
+        (1, ImagePx::of(9))
+    );
+    // A zero dimension is refused too, as an image with no pixels rather than
+    // one over a limit.
     assert!(store.store(ImagePx::of(0), ImagePx::of(4)).is_none());
     assert_eq!(store.images_refused, 2);
+    assert_eq!((store.refusals.empty, store.refusals.arena), (1, 1));
+    assert_eq!(store.images_refused, store.refusals.total());
 }
 
 #[test]
@@ -101,6 +109,11 @@ fn a_full_slot_table_refuses_and_counts() {
         "the fifth image has no slot"
     );
     assert_eq!(store.images_refused, 1);
+    assert_eq!(
+        (store.refusals.slot, store.refusals.arena),
+        (1, 0),
+        "counted against the slots: the arena had room"
+    );
 }
 
 #[test]
