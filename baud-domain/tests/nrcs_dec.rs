@@ -140,7 +140,8 @@ fn cell(x: i64, y: i64, x0: i64, y0: i64) -> Option<u8> {
         return None;
     }
     let (col, row) = (dx / 850, dy / 450);
-    ((2..=7).contains(&col) && row < 16).then(|| (col * 16 + row) as u8)
+    ((2..=7).contains(&col) && row < 16)
+        .then(|| u8::try_from(col * 16 + row).expect("a cell in columns 2-7 is a byte"))
 }
 
 fn unescape(s: &str) -> String {
