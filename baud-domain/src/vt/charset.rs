@@ -161,8 +161,9 @@ impl Nrcs {
 /// not a source.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DecSet {
-    /// `<` — DEC Supplemental (VT200), and User Preferred Selection Set
-    /// (VT300), which share a final byte.
+    /// `<` — DEC Supplemental (VT200), and the User Preference Supplemental
+    /// Set (UPSS, VT300; `[[source: dec-std-070]]` 070-3 p. 3-63), which share
+    /// a final byte. Which of the two `<` should designate is note AE's Q14.
     Supplemental,
     /// `>` — DEC Technical, VT300.
     Technical,

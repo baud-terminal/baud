@@ -1,13 +1,16 @@
-//! DECRQSS: the one DCS either core acts on.
+//! DECRQSS, one of the two DCS this core acts on; the other is Sixel
+//! (`sixel.rs`, entered by `Act::SixelStart`).
 //!
 //! `[[source: ctlseqs]]` gives `DCS $ q Pt ST` as Request Status String, where
 //! `Pt` names a setting by the tail of the CSI that would set it -- `m` for
 //! SGR, `r` for DECSTBM, `"q"` for DECSCA. The reply is the *tail of the CSI
 //! that would set it*, so an application can echo it straight back.
 //!
-//! Every other DCS -- Sixel, DECUDK, DECRQUPSS -- is consumed to its
-//! terminator and ignored, which is the half that matters: a DCS body reaching
-//! the screen would render an application's private protocol as glyphs.
+//! Every other DCS -- DECUDK, DECAUPSS (`DCS Ps ! u ... ST`, the one that
+//! assigns the user-preference supplemental set; DECRQUPSS, its query, is
+//! `CSI & u` and not a DCS) -- is consumed to its terminator and ignored, which
+//! is the half that matters: a DCS body reaching the screen would render an
+//! application's private protocol as glyphs.
 
 use crate::paint::Paint;
 use crate::storage::REPLY;
