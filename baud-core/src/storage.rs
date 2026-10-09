@@ -643,8 +643,10 @@ pub const LINK_MAX: usize = 256;
 
 /// How many bytes of reply the core will hold before it starts counting
 /// losses. `baud-core2` uses the same number and for the same reason: the
-/// longest thing this can queue is a `DECRQSS` rendition string, and 256
-/// bounds it with room while staying far below anything that matters.
+/// longest single reply is a `DECRQSS` rendition string, at most
+/// `DECRQSS_MAX` = 124 bytes and const-asserted against this in `dcs.rs`,
+/// and 256 bounds it with room while staying far below anything that
+/// matters. Several replies from one read can still exceed it (note AG).
 pub const REPLY: usize = 256;
 
 /// How many images can be live at once. Small: a screen shows a handful, the

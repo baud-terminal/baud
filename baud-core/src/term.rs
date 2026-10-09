@@ -2478,9 +2478,16 @@ impl<'b> Term<'b> {
     ///
     /// **One of the five inputs is a constant here, and it used to be two.**
     ///
-    /// * **`C1Transmit::SevenBit`**, because this core does not implement
-    ///   `S8C1T` -- the same constant `want_reply` already passes, so a key
-    ///   and a `DA` cannot disagree about how wide a `CSI` is.
+    /// * **`C1Transmit::SevenBit`.** This said the core does not implement
+    ///   `S8C1T` and that `want_reply` passes the same constant, so a key and
+    ///   a `DA` could not disagree about how wide a `CSI` is. Both stopped
+    ///   being true when `S8C1T` landed: every reply follows `cold.c1` and a
+    ///   key does not, so after `ESC SP G` a `DA` answers with `9B` and an
+    ///   arrow key still sends `ESC [`. `[[source: ctlseqs]]` says xterm
+    ///   "generates 7-bit controls (by default) or 8-bit if S8C1T is
+    ///   enabled", which reads as covering keys too; whether to follow it is
+    ///   an open conformance call (note AG, section 1.3), and the constant
+    ///   stays until it is made.
     /// * `terminal` was `TerminalMode::Ansi` on the grounds that "this core
     ///   has no VT52 sub-graph and no DECANM to leave ANSI with". It has both
     ///   now, so it reads the mode. Leaving the constant would have made every

@@ -14,9 +14,9 @@ use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal,
 use crate::wheel::{Delta, Travel, WHEEL_MAX};
 use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
-    BytePos, CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent,
-    KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
-    PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+    CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, KeyCode, KeyEvent, KeyEventKind,
+    Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking, PackedCell, Row,
+    RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -1019,7 +1019,9 @@ impl App {
     /// for no echo, and the instrument must not wait for one -- not even
     /// when the flush behind it writes bytes an earlier event left owed.
     fn send(&mut self, e: KeyEvent) -> Sent {
-        let encoded = self.term.key(e);
+        // Into an empty buffer, so the key always fits and `false` is only a
+        // key that encodes to nothing (`reads::input`).
+        let encoded = crate::reads::input(&mut self.term, |t| t.key(e), |b| self.outbox.push(b));
         // A key shows the cursor and restarts its blink, whether or not the
         // child echoes it back, and is input to the stop (`caret.rs`). The
         // wheel's arrow keys on the alternate screen come through here too.
@@ -3943,14 +3945,26 @@ impl Driver {
         }
         let before = Before::of(&self.app.term);
         let refused = self.app.term.images().refusals;
-        for chunk in &drained.chunks {
-            if let Some(t) = self.app.trace.as_mut() {
-                t.fed(&chunk.bytes);
-            }
-            self.app.term.write_at(BytePos::ZERO, &chunk.bytes);
-            self.app
-                .term
-                .feed(BytePos::ZERO, ReadLen::from_index(chunk.bytes.len()));
+        // Each read's answers go to the outbox before the next read is fed,
+        // or every read after the first few lost its answers to the 256-byte
+        // reply buffer (`reads::feed`). The write to the child is still the
+        // one `flush_reply` below.
+        let (term, trace, outbox) = (
+            &mut self.app.term,
+            &mut self.app.trace,
+            &mut self.app.outbox,
+        );
+        crate::reads::feed(
+            term,
+            drained.chunks.iter().map(|chunk| {
+                if let Some(t) = trace.as_mut() {
+                    t.fed(&chunk.bytes);
+                }
+                &chunk.bytes[..]
+            }),
+            |b| outbox.push(b),
+        );
+        if !drained.chunks.is_empty() {
             self.app.pending = Pending::Dirty;
         }
         // An image the store refused is said once a pump, by the limit it

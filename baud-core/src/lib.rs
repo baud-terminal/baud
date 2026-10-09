@@ -112,6 +112,9 @@ pub use graph::Node;
 pub use baud_domain::CacheGeometry;
 /// Scrollback: the lines behind the screen's window onto the ring.
 pub use baud_domain::{Back, Depth, Scrollback, Wrap};
+/// The longest single reply the core writes, a DECRQSS rendition string, for
+/// a caller sizing what it drains into.
+pub use dcs::DECRQSS_MAX;
 /// The sixteen allocations a `Storage` borrows, for a caller that has an
 /// allocator. Not `Storage::boxed`: this `Storage` holds borrows, so there is
 /// nothing for a `Box` to own.

@@ -49,6 +49,10 @@ mod log;
 mod palette;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pty;
+// The child's reads into the core and its answers out: pure, so its tests
+// run on every platform, and both drivers feed through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod reads;
 // The scrollbar's reveal is pure and its tests run on every platform; only
 // the macOS driver draws a scrollbar, so the bin builds it there alone.
 #[cfg(any(target_os = "macos", test))]

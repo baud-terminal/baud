@@ -29,7 +29,7 @@ use crate::host::{
 };
 use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
-use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{Cols, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Event, Presented, Window};
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
@@ -298,17 +298,28 @@ pub fn run() {
                 Event::Configured { width, height } => d.configure(width, height),
                 Event::Frame => {}
                 Event::Key(k) => {
-                    d.term.key(k);
+                    // Into an empty buffer, so it always fits and a `false`
+                    // is a key that sends nothing (`reads::input`). It was
+                    // queued behind the read's answers and its `false`
+                    // ignored, so a key after a reply-heavy read was lost.
+                    // A full buffer here would be that again, and is said.
+                    let overflows = d.term.reply_overflows;
+                    let queued =
+                        crate::reads::input(&mut d.term, |t| t.key(k), |b| d.outbox.push(b));
+                    if !queued && d.term.reply_overflows != overflows {
+                        crate::warn!("a key was dropped: the reply buffer had no room for it");
+                    }
                     // A key shows the cursor, restarts its blink, and is
                     // input to its stop.
                     d.caret.input(Instant::now());
                 }
-                // Reported to the child only if it asked with `?1004`; the
-                // reply is flushed with the keys' below. Kept for the blink,
-                // which stops without the keyboard: a cursor hidden when it
-                // leaves is owed the frame below that shows it.
+                // Reported to the child only if it asked with `?1004`, into
+                // an empty buffer like a key, and written with the keys'
+                // below. Kept for the blink, which stops without the
+                // keyboard: a cursor hidden when it leaves is owed the frame
+                // below that shows it.
                 Event::Focus(f) => {
-                    d.term.focus(f);
+                    crate::reads::input(&mut d.term, |t| t.focus(f), |b| d.outbox.push(b));
                     d.focus = f;
                     if f == Focus::Gained {
                         d.caret.input(Instant::now());
@@ -344,9 +355,10 @@ impl Driver {
             return;
         }
         let refused = self.term.images().refusals;
-        self.term.write_at(BytePos::ZERO, bytes);
-        self.term
-            .feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        // The read's answers go to the outbox now, before a key queues behind
+        // them in the 256-byte reply buffer (`reads::feed`); the loop's
+        // `flush_reply` writes them.
+        crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b));
         self.pending = Pending::Dirty;
         // A refused image is said by the limit it hit, once a read -- the
         // macOS pump's rule (`host::describe_refusals`).

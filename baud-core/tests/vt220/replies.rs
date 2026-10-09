@@ -129,6 +129,113 @@ fn clear_reply_empties_the_buffer() {
     assert!(t.reply().is_empty(), "a drained reply must not repeat");
 }
 
+/// Queries whose replies queue exactly `n` bytes: DSR 5's `CSI 0 n`, which is
+/// `short` bytes in whichever C1 form is in force, and DA1's `CSI ? 6 c`, one
+/// byte longer -- `n % short` DA1s and DSR 5s for the rest. It reaches every
+/// `n` from `(short - 1) * (short + 1)` up: 15 in seven-bit form, 8 in eight.
+pub(crate) fn fill(n: usize, short: usize) -> Vec<u8> {
+    let long = n % short;
+    let mut q = b"\x1b[c".repeat(long);
+    q.extend_from_slice(&b"\x1b[5n".repeat((n - long * (short + 1)) / short));
+    q
+}
+
+/// **A reply is sent whole or not at all, wherever the buffer stands.**
+/// After `setup`, `answer` is made once into an empty buffer -- the control,
+/// and the reply it must produce -- then behind every pending length from
+/// `short * short` to one short of `REPLY`, which crosses the point where it stops
+/// fitting. Below that point the tail is the whole reply and nothing is
+/// counted; past it the tail is empty and `reply_overflows` rose by exactly
+/// one. What was already owed is never touched.
+///
+/// DECRQSS failed this until 2026-10-09: its emitter checked each fragment
+/// on its own, so with 200 bytes pending the child got a DCS with no `ST`,
+/// and with 252 an `ESC P` and a `;` (note AG section 1.3).
+pub(crate) fn whole_or_nothing(setup: &[u8], answer: impl Fn(&mut Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, setup);
+    support::feed(&mut t, b"\x1b[5n");
+    let short = t.reply().len();
+    t.clear_reply();
+    answer(&mut t);
+    let full = t.reply().to_vec();
+    t.clear_reply();
+    assert!(
+        !full.is_empty(),
+        "the answer into an empty buffer is the control"
+    );
+    let (mut whole, mut absent) = (0, 0);
+    for pending in short * short..REPLY {
+        support::feed(&mut t, &fill(pending, short));
+        assert_eq!(t.reply().len(), pending, "the filler queues exactly that");
+        let owed = t.reply().to_vec();
+        let before = t.reply_overflows;
+        answer(&mut t);
+        let r = t.reply();
+        assert_eq!(
+            &r[..pending],
+            &owed[..],
+            "what was owed is untouched at {pending}"
+        );
+        let tail = &r[pending..];
+        match pending + full.len() <= REPLY {
+            true => {
+                assert_eq!(
+                    tail,
+                    &full[..],
+                    "a reply that fits is sent whole at {pending}"
+                );
+                assert_eq!(
+                    t.reply_overflows, before,
+                    "and nothing is counted at {pending}"
+                );
+                whole += 1;
+            }
+            false => {
+                assert!(
+                    tail.is_empty(),
+                    "a reply that does not fit is not sent at all at {pending}: {tail:02x?}"
+                );
+                assert_eq!(
+                    t.reply_overflows,
+                    before + 1,
+                    "and counted once at {pending}"
+                );
+                absent += 1;
+            }
+        }
+        t.clear_reply();
+    }
+    assert!(
+        whole > 0 && absent > 0,
+        "the sweep crosses the boundary: {whole} whole, {absent} absent"
+    );
+}
+
+/// **Every other writer already copies one encoded reply under one check**:
+/// `want_reply` a `Report`, `queue` a `Report` for the reports outside `feed`,
+/// and `key` a `KeyBytes`. These hold that, through each: a CPR at the
+/// bottom-right of the corpus screen (`CSI 50 ; 200 R`, ten bytes), the
+/// palette's last entry (`OSC 4`, 28 bytes with `ST`; set by an `OSC 4` first,
+/// because an entry with neither an override nor an embedder's table is not
+/// answered), a focus report, and a key with two modifiers (`CSI 1 ; 6 A`).
+#[test]
+fn every_other_reply_is_sent_whole_or_not_at_all() {
+    whole_or_nothing(b"\x1b[50;200H", |t| support::feed(t, b"\x1b[6n"));
+    whole_or_nothing(b"\x1b]4;255;rgb:ff/00/80\x1b\\", |t| {
+        support::feed(t, b"\x1b]4;255;?\x1b\\");
+    });
+    whole_or_nothing(b"\x1b[?1004h", |t| {
+        t.focus(Focus::Gained);
+    });
+    let up = KeyEvent::press(KeyCode::Up, Modifiers::SHIFT.with(Modifiers::CTRL));
+    whole_or_nothing(b"", |t| {
+        t.key(up);
+    });
+}
+
 /// A caller that never drains loses answers, but **countably**. Silent loss is
 /// the failure this whole file exists to prevent.
 #[test]

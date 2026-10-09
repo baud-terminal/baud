@@ -16,6 +16,84 @@ use crate::paint::Paint;
 use crate::storage::REPLY;
 use baud_domain::*;
 
+/// Whether an attribute's `WIRE` code is a sub-parameter, written `4:n`.
+///
+/// The three colon underline styles have no one-parameter spelling, so the
+/// answer round-trips through `SgrAttr::parse`'s colon arm only in this form.
+/// One predicate for the encoder and for [`DECRQSS_MAX`], so the bound cannot
+/// count a spelling the encoder does not write.
+const fn colon_style(bit: Attrs) -> bool {
+    matches!(
+        bit,
+        Attrs::CURLY_UNDERLINE | Attrs::DOTTED_UNDERLINE | Attrs::DASHED_UNDERLINE
+    )
+}
+
+/// The longest DECRQSS reply this encoder can write: **124 bytes**.
+///
+/// Built from the encoder's own parts rather than measured off one rendition,
+/// so a new attribute in `Attrs::WIRE` grows it without anyone remembering to.
+/// The SGR body is the longest of the five answers, and in it:
+///
+/// * every `WIRE` bit, each as `;` and its code at its own width, with `4:`
+///   ahead of the three colon styles -- 61 bytes. **An upper bound, not a
+///   reachable reply**: `4` and every `4:n` replace the underline family, so
+///   a rendition holds at most one of `4`, `4:3`, `4:4` and `4:5` (`21` sets
+///   its own bit beside it), and ten of those bytes are never sent together;
+/// * a font, `;19` at most, because `FontId::sgr` is `10..=19`;
+/// * three colours at their widest, `;58;2;255;255;255`, which is longer than
+///   any indexed `;58;5;255`;
+/// * the leading `0` and the final `m`.
+///
+/// Around it, the seven-bit frame, the longer of the two C1 forms: `ESC P`,
+/// `1 $ r` and `ESC \`. A margin pair (`65535;65535r`, the widest `OneBased`),
+/// a cursor style and a protection flag are each far shorter.
+///
+/// The richest rendition an application can set answers in 114 bytes (note
+/// AG, section 1.2), and `the_longest_decrqss_reply_is_within_its_bound`
+/// drives it through the encoder against this.
+pub const DECRQSS_MAX: usize = {
+    let mut attrs = 0;
+    let mut i = 0;
+    while i < Attrs::WIRE.len() {
+        let (bit, code) = Attrs::WIRE[i];
+        let digits = if code >= 100 {
+            3
+        } else if code >= 10 {
+            2
+        } else {
+            1
+        };
+        attrs += digits
+            + match colon_style(bit) {
+                true => b";4:".len(),
+                false => b";".len(),
+            };
+        i += 1;
+    }
+    let sgr = b"0".len() + attrs + b";19".len() + 3 * b";58;2;255;255;255".len() + b"m".len();
+    let others = [
+        b"65535;65535r".len(),
+        b"65535;65535s".len(),
+        b"255 q".len(),
+        b"255\"q".len(),
+    ];
+    let mut body = sgr;
+    let mut k = 0;
+    while k < others.len() {
+        if others[k] > body {
+            body = others[k];
+        }
+        k += 1;
+    }
+    b"\x1bP".len() + b"1$r".len() + body + b"\x1b\\".len()
+};
+
+// **A drained buffer always takes a DECRQSS answer.** `REPLY`'s doc names the
+// rendition string as the longest single thing it holds; this is that claim
+// as a build failure rather than a sentence.
+const _: () = assert!(DECRQSS_MAX <= REPLY);
+
 impl Paint<'_, '_> {
     /// Answer a DECRQSS.
     ///
@@ -27,103 +105,133 @@ impl Paint<'_, '_> {
     /// xterm, which is what applications are written against. Getting it
     /// backwards would tell every application that every setting it asked
     /// about is unsupported.
+    ///
+    /// **Built whole, then sent whole or not at all.** It was written into the
+    /// reply buffer a fragment at a time, each fragment checked on its own, so
+    /// once the answer stopped fitting a fragment too long was skipped and a
+    /// later, shorter one written: with 200 bytes already pending the child
+    /// received a DCS with no `ST`, and with 252 `ESC P 0 ;` with the `1 $ r`
+    /// gone (note AG, section 1.3). An unterminated DCS swallows every reply
+    /// after it on the application's side. Now the answer is assembled in a
+    /// [`DECRQSS_MAX`]-byte [`Status`] on the stack and copied under one check,
+    /// as `want_reply` copies a `Report`; one that does not fit is dropped and
+    /// counted once in `reply_overflows`.
     #[cold]
     #[inline(never)]
     pub(crate) fn report_status(&mut self, t: StatusTarget) {
-        // **A setting this core does not record answers `0$r`, not silence.**
-        // `docs/vt-coverage.md`'s rule is never to answer a query with the
-        // wrong shape, and "not recognised" is a shape DECRQSS has. Silence
-        // would leave an application waiting for a terminator that never
-        // arrives, which is worse than either answer.
-        // **A setting this core does not record is `0$r` too.** A target that
-        // fell through to the `1$r` prefix and then matched no arm would emit
-        // `DCS 1 $ r ST`: a "valid" flag over an **empty body**, which an
-        // application reads as "the margins are unset" rather than as "I do
-        // not implement that". `DECSCUSR` was here until the cursor style was
-        // recorded and `DECSLRM` until the margins were, and both left the
-        // same way: the list shrinks when a feature lands, and the pin in
-        // `every_fixture_owes_the_same_reply` goes red to say so: the DECRQSS
-        // fixtures are in the golden capture with the replies core2 gave.
-        let unanswerable = matches!(t, StatusTarget::Unknown);
-        if unanswerable {
-            self.dcs_open();
-            self.emit(b"0$r");
-            self.dcs_close();
-            return;
-        }
-        self.dcs_open();
-        self.emit(b"1$r");
+        // The introducer and terminator follow `S7C1T`/`S8C1T` like every
+        // `CSI` answer. They were written literally once, so `S8C1T` moved
+        // every `CSI` reply to the eight-bit form and left DECRQSS announcing
+        // itself with `ESC P` -- read as the start of something else by an
+        // application that asked for eight-bit replies and parses them as
+        // such. `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`.
+        let c1 = self.cold.c1;
+        let mut s = Status::new();
+        s.push(c1.dcs());
         match t {
+            // **A setting this core does not record answers `0$r`, not
+            // silence.** `docs/vt-coverage.md`'s rule is never to answer a
+            // query with the wrong shape, and "not recognised" is a shape
+            // DECRQSS has. Silence would leave an application waiting for a
+            // terminator that never arrives, which is worse than either
+            // answer.
+            //
+            // **And never `1$r` over an empty body.** That is "the margins
+            // are unset" to an application, rather than "I do not implement
+            // that", and it is what a target that took the `1$r` prefix and
+            // then matched no arm used to emit. Each arm writes its own flag
+            // now, so the shape is unreachable. `DECSCUSR` was a `0$r` until
+            // the cursor style was recorded and `DECSLRM` until the margins
+            // were, and both left the same way: the list shrinks when a
+            // feature lands, and the pin in `every_fixture_owes_the_same_reply`
+            // goes red to say so: the DECRQSS fixtures are in the golden
+            // capture with the replies core2 gave.
+            StatusTarget::Unknown => s.push(b"0$r"),
             StatusTarget::Sgr => {
-                let raw = self.style_raw;
-                self.emit_sgr(raw);
-                self.emit(b"m");
+                s.push(b"1$r");
+                s.sgr(self.style_raw);
+                s.push(b"m");
             }
             StatusTarget::ScrollRegion => {
-                self.emit_num(self.cold.top.one_based());
-                self.emit(b";");
-                self.emit_num(self.cold.bot.one_based());
-                self.emit(b"r");
+                s.push(b"1$r");
+                s.num(self.cold.top.one_based());
+                s.push(b";");
+                s.num(self.cold.bot.one_based());
+                s.push(b"r");
             }
             StatusTarget::CursorStyle => {
-                self.emit_dec(WireByte::of(self.cold.cursor_style.wire()));
-                self.emit(b" q");
+                s.push(b"1$r");
+                s.dec(WireByte::of(self.cold.cursor_style.wire()));
+                s.push(b" q");
             }
             StatusTarget::Protection => {
-                self.emit_dec(WireByte::of(u8::from(self.cold.protect.is_protected())));
-                self.emit(b"\"q");
+                s.push(b"1$r");
+                s.dec(WireByte::of(u8::from(self.cold.protect.is_protected())));
+                s.push(b"\"q");
             }
             StatusTarget::SideMargins => {
-                self.emit_num(self.cold.left.one_based());
-                self.emit(b";");
-                self.emit_num(self.cold.right.one_based());
-                self.emit(b"s");
+                s.push(b"1$r");
+                s.num(self.cold.left.one_based());
+                s.push(b";");
+                s.num(self.cold.right.one_based());
+                s.push(b"s");
             }
-            // Unreachable: the guard above answers it with `0$r`. Spelled out
-            // rather than `_ =>` so that adding a `StatusTarget` stops the
-            // build here instead of silently joining them.
-            StatusTarget::Unknown => {}
         }
-        self.dcs_close();
-    }
-
-    /// The `DCS` introducer, seven-bit or eight, as `S7C1T`/`S8C1T` last said.
-    ///
-    /// **A `DCS` reply is a C1 control like any other and this path wrote the
-    /// bytes literally**, so `S8C1T` moved every `CSI` answer to the eight-bit
-    /// form and left `DECRQSS` announcing itself with `ESC P`. An application
-    /// that asked for eight-bit replies and parses them as such reads the
-    /// `ESC` as the start of something else.
-    ///
-    /// `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`.
-    fn dcs_open(&mut self) {
-        match self.cold.c1 {
-            C1Transmit::SevenBit => self.emit(b"\x1bP"),
-            C1Transmit::EightBit => self.emit(b"\x90"),
-        }
-    }
-
-    fn dcs_close(&mut self) {
-        match self.cold.c1 {
-            C1Transmit::SevenBit => self.emit(b"\x1b\\"),
-            C1Transmit::EightBit => self.emit(b"\x9c"),
-        }
-    }
-
-    /// Append to the pending reply, or count the loss.
-    ///
-    /// **A truncated reply is a wrong answer**, so an overflow drops what did
-    /// not fit and counts it rather than sending half a sequence. The same
-    /// rule `want_reply` follows, and the reason `Report::MAX_LEN` is pinned
-    /// against every variant.
-    fn emit(&mut self, bytes: &[u8]) {
+        s.push(c1.st());
         let at = self.reply_len.index();
-        if at + bytes.len() > REPLY {
-            self.reply_overflows += 1;
-            return;
+        match s.bytes() {
+            Some(b) if at + b.len() <= self.reply.len() => {
+                self.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+            }
+            // **A truncated reply is a wrong answer**, so a reply that does
+            // not fit is dropped whole and counted once -- the rule
+            // `want_reply`, `Term::queue` and `Term::key` follow.
+            _ => self.reply_overflows += 1,
         }
-        self.reply[at..at + bytes.len()].copy_from_slice(bytes);
-        self.reply_len = ByteLen::from_index(at + bytes.len());
+    }
+}
+
+/// A DECRQSS answer, assembled before any of it reaches the reply buffer.
+///
+/// [`DECRQSS_MAX`] bytes on the stack of a `#[cold]` function, rather than
+/// written in place behind the pending reply and committed or rolled back:
+/// the answer's room is then the encoder's to prove, once, at build time, and
+/// does not depend on how large an embedder made the reply buffer.
+struct Status {
+    buf: [u8; DECRQSS_MAX],
+    /// How much of `buf` is the answer, or `None` once a part did not fit.
+    /// `None` cannot happen while [`DECRQSS_MAX`] counts every part, and if
+    /// the encoder ever outgrew it the answer would be dropped and counted
+    /// rather than sent short.
+    len: Option<ByteLen>,
+}
+
+impl Status {
+    fn new() -> Status {
+        Status {
+            buf: [0; DECRQSS_MAX],
+            len: Some(ByteLen::ZERO),
+        }
+    }
+
+    /// The whole answer, or `None` if any part of it was refused.
+    fn bytes(&self) -> Option<&[u8]> {
+        self.len.map(|n| &self.buf[..n.index()])
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        let Some(n) = self.len else {
+            return;
+        };
+        let at = n.index();
+        self.len = match self.buf.get_mut(at..at + bytes.len()) {
+            Some(dst) => {
+                dst.copy_from_slice(bytes);
+                Some(ByteLen::from_index(at + bytes.len()))
+            }
+            None => None,
+        };
     }
 
     /// The current rendition as an SGR parameter string, always starting at 0.
@@ -132,64 +240,61 @@ impl Paint<'_, '_> {
     /// application can send back verbatim, and a string that only *adds*
     /// attributes would not reproduce this state on a terminal that had others
     /// set.
-    fn emit_sgr(&mut self, w: StyleWord) {
-        self.emit(b"0");
+    fn sgr(&mut self, w: StyleWord) {
+        self.push(b"0");
         for (bit, code) in Attrs::WIRE {
             if w.attrs().has(bit) {
-                self.emit(b";");
+                self.push(b";");
                 // The three colon styles have no one-parameter spelling: their
                 // `WIRE` code is the sub-parameter, written as `4:n` so the
                 // answer round-trips through `SgrAttr::parse`'s colon arm.
-                if bit == Attrs::CURLY_UNDERLINE
-                    || bit == Attrs::DOTTED_UNDERLINE
-                    || bit == Attrs::DASHED_UNDERLINE
-                {
-                    self.emit(b"4:");
+                if colon_style(bit) {
+                    self.push(b"4:");
                 }
-                self.emit_dec(WireByte::of(code));
+                self.dec(WireByte::of(code));
             }
         }
         // `SGR 10` is the primary font and is the default, so it is emitted
         // only when it is not -- a redundant `10` is noise a comparison
         // against the default would fail on.
         if !w.font().is_primary() {
-            self.emit(b";");
-            self.emit_dec(WireByte::of(w.font().sgr()));
+            self.push(b";");
+            self.dec(WireByte::of(w.font().sgr()));
         }
         if !w.underline().is_default() {
-            self.emit(b";");
-            self.emit_colour(w.underline(), WireByte::of(58));
+            self.push(b";");
+            self.colour(w.underline(), WireByte::of(58));
         }
         let (fg, bg) = (w.fg(), w.bg());
         if !fg.is_default() {
-            self.emit(b";");
-            self.emit_colour(fg, WireByte::of(38));
+            self.push(b";");
+            self.colour(fg, WireByte::of(38));
         }
         if !bg.is_default() {
-            self.emit(b";");
-            self.emit_colour(bg, WireByte::of(48));
+            self.push(b";");
+            self.colour(bg, WireByte::of(48));
         }
     }
 
-    fn emit_colour(&mut self, c: ColorWord, base: WireByte) {
+    fn colour(&mut self, c: ColorWord, base: WireByte) {
         if let Some((r, g, b)) = c.as_rgb() {
-            self.emit_dec(base);
-            self.emit(b";2;");
-            self.emit_dec(WireByte::of(r));
-            self.emit(b";");
-            self.emit_dec(WireByte::of(g));
-            self.emit(b";");
-            self.emit_dec(WireByte::of(b));
+            self.dec(base);
+            self.push(b";2;");
+            self.dec(WireByte::of(r));
+            self.push(b";");
+            self.dec(WireByte::of(g));
+            self.push(b";");
+            self.dec(WireByte::of(b));
         } else if let Some(i) = c.as_index() {
-            self.emit_dec(base);
-            self.emit(b";5;");
-            self.emit_dec(WireByte::of(i));
+            self.dec(base);
+            self.push(b";5;");
+            self.dec(WireByte::of(i));
         }
     }
 
-    /// A 1-based coordinate as decimal. Wider than `emit_dec`, because a
-    /// margin can be past column 255.
-    fn emit_num(&mut self, v: OneBased) {
+    /// A 1-based coordinate as decimal. Wider than `dec`, because a margin
+    /// can be past column 255.
+    fn num(&mut self, v: OneBased) {
         const D: &[u8; 10] = b"0123456789";
         let mut buf = [0u8; 5];
         let mut i = buf.len();
@@ -203,16 +308,16 @@ impl Paint<'_, '_> {
             }
         }
         let tail = buf;
-        self.emit(&tail[i..]);
+        self.push(&tail[i..]);
     }
 
     /// A wire code as decimal, at most three digits.
     ///
     /// Takes a [`WireByte`] rather than a `u8` so it cannot be handed a
     /// coordinate: a right margin can sit past column 255 and this saturates
-    /// there, writing the wrong number rather than failing. `emit_num` is the
-    /// one for those, and the types are what keep them apart.
-    fn emit_dec(&mut self, v: WireByte) {
+    /// there, writing the wrong number rather than failing. `num` is the one
+    /// for those, and the types are what keep them apart.
+    fn dec(&mut self, v: WireByte) {
         const D: &[u8; 10] = b"0123456789";
         let mut buf = [0u8; 3];
         let mut i = buf.len();
@@ -226,6 +331,6 @@ impl Paint<'_, '_> {
             }
         }
         let tail = buf;
-        self.emit(&tail[i..]);
+        self.push(&tail[i..]);
     }
 }

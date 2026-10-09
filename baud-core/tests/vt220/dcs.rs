@@ -118,6 +118,60 @@ fn valid_is_one_and_invalid_is_zero() {
     assert_eq!(&invalid[..5], b"\x1bP0$r", "an unknown one answers 0");
 }
 
+// ── a part-full reply buffer ────────────────────────────────────────────────
+
+/// Every SGR attribute this core reports, one underline style -- `4:3`, the
+/// longest spelling -- a font, and all three colours as RGB at three digits a
+/// channel: the 114-byte reply note AG measured.
+const RICH: &[u8] = b"\x1b[1;2;3;4:3;5;7;8;9;20;21;26;51;52;53;60;61;62;63;64;11m\
+\x1b[58;2;255;255;255;38;2;255;255;255;48;2;255;255;255m";
+
+/// **DECRQSS is sent whole or not at all.** It was assembled fragment by
+/// fragment into the reply buffer, each fragment checked on its own, so past
+/// the point where the reply stopped fitting a fragment too long was skipped
+/// and a later, shorter one written: a DCS with no `ST`, which swallows every
+/// later reply on the application's side, or `ESC P 0 ;` with the `1 $ r`
+/// gone. Swept in both C1 forms, where the frame is four bytes and two.
+#[test]
+fn decrqss_for_a_rich_rendition_is_sent_whole_or_not_at_all() {
+    let q = |t: &mut Term<'_>| support::feed(t, b"\x1bP$qm\x1b\\");
+    crate::replies::whole_or_nothing(RICH, q);
+    crate::replies::whole_or_nothing(&[b"\x1b G", RICH].concat(), q);
+}
+
+/// **The bound the answer is built in holds the richest rendition there is.**
+/// `RICH` sets every attribute an application can hold at once, at the widest
+/// spelling of each, so its reply is the longest the encoder can be driven to:
+/// 114 bytes, note AG's figure. `DECRQSS_MAX` is 124 because it counts all
+/// four underline spellings together, which no rendition holds -- the ten
+/// bytes of `;4`, `;4:4` and `;4:5` that `4:3` excludes.
+#[test]
+fn the_longest_decrqss_reply_is_within_its_bound() {
+    let r = replies(&[RICH, b"\x1bP$qm\x1b\\"].concat());
+    assert_eq!(r.len(), 114, "the richest rendition answers in 114 bytes");
+    assert!(r.ends_with(b"m\x1b\\"), "and whole: {r:02x?}");
+    assert_eq!(DECRQSS_MAX, 124, "the number DECRQSS_MAX's doc derives");
+    assert_eq!(
+        DECRQSS_MAX - r.len(),
+        b";4;4:4;4:5".len(),
+        "and the slack is the family"
+    );
+    const { assert!(DECRQSS_MAX <= REPLY, "so a drained buffer always takes it") };
+}
+
+/// The short replies too: a scrolling region (`1;50r`, twelve bytes), a
+/// cursor style, and the invalid reply. Each lost its `ST` at the first
+/// length past its room -- the region at 245 pending, the style at 247, and
+/// the invalid reply at 250, as `ESC P 0 $ r` -- and at 252 the invalid reply
+/// was `ESC P ESC \`, the introducer and terminator fitting around a `0 $ r`
+/// that did not.
+#[test]
+fn every_decrqss_reply_is_sent_whole_or_not_at_all() {
+    crate::replies::whole_or_nothing(b"", |t| support::feed(t, b"\x1bP$qr\x1b\\"));
+    crate::replies::whole_or_nothing(b"", |t| support::feed(t, b"\x1bP$qzz\x1b\\"));
+    crate::replies::whole_or_nothing(b"\x1b[5 q", |t| support::feed(t, b"\x1bP$q q\x1b\\"));
+}
+
 // ── the parser states ───────────────────────────────────────────────────────
 
 /// An unhandled DCS consumes its payload rather than executing it.

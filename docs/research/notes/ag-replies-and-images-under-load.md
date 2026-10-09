@@ -60,16 +60,31 @@ it. herdr's worst read needs 7,137 B (**M**).
 
 ### 1.3 Defects found on the way, decided by no question
 
-- **DECRQSS answers with the wrong shape** when its reply does not fit.
-  `baud-core/src/dcs.rs`'s emitter checks each fragment against the constant
-  `REPLY` rather than the room left, so a fragment that does not fit is skipped
-  and later, shorter fragments are written: with 200 bytes pending the child
+The first two and the last are fixed (2026-10-09, `docs/record.md`, "DECRQSS
+is sent whole, and the app drains after every read"); the rest are open.
+
+- **Fixed: DECRQSS answered with the wrong shape** when its reply did not fit.
+  `baud-core/src/dcs.rs`'s emitter checked each fragment against the constant
+  `REPLY` rather than the room left, so a fragment that did not fit was skipped
+  and later, shorter fragments were written: with 200 bytes pending the child
   received a DCS with no terminator; with 252 pending, `ESC P 0 ;` with the
   `1$r` gone (**M**). An unterminated DCS swallows every later reply on the
   application's side. CLAUDE.md: "Never answer a query with the wrong shape."
-- **The app does not drain after every read.** On macOS the pump feeds every
-  queued chunk and then flushes once; on Linux a key queued after a reply-heavy
-  read is dropped, and the key's result is ignored.
+  The answer is now built in a `DECRQSS_MAX`-byte buffer (124, derived from
+  `Attrs::WIRE` and the encoder's widest spellings, const-asserted under
+  `REPLY`) and sent whole or dropped and counted once; a sweep across every
+  pending length up to 255 bytes holds it, in both C1 forms. The other three writers
+  (`want_reply`, `Term::queue`, `Term::key`) already copied one encoded reply
+  under one check, and the same sweep holds each.
+- **Fixed: the app did not drain after every read.** On macOS the pump fed every
+  queued chunk and then flushed once; on Linux a key queued after a
+  reply-heavy read was dropped, and the key's result ignored. Both drivers feed
+  through `baud-app/src/reads.rs`, which hands each read's answers to the
+  outbox before the next read (no extra system call: the write is still once a
+  turn), and queue a key -- and on Linux a focus report -- into an emptied
+  buffer, where it always fits. This stops the loss *between* reads only: one
+  4096-byte read of herdr's queries still overflows, which is section 3's
+  question.
 - **One action can overflow 256 B even drained after every byte**: `?2048` x39
   in a single SM sent 9 reports and counted 30 (**M**).
 - **Two departures rest on the buffer.** `OSC 4` takes only its first pair
@@ -77,9 +92,17 @@ it. herdr's worst read needs 7,137 B (**M**).
   (`baud-domain/src/vt/osc.rs`), where [[source: ctlseqs]] says "Any number of
   c/spec pairs may be given"; and `OSC 10;?;?` answers only 10, where ctlseqs
   says "Each successive parameter changes the next color".
-- The comment in `baud-core/src/paint.rs` calling `want_reply` "the only way
-  bytes reach the reply buffer" is false: `dcs.rs`'s emitter and
-  `Term::queue`/`Term::key` write it too.
+- **Keys stay seven-bit after `S8C1T`**, found correcting the comments: every
+  reply follows `S7C1T`/`S8C1T` and `Term::key` passes `C1Transmit::SevenBit`,
+  so after `ESC SP G` a DA answers `9B` and an arrow key sends `ESC [`.
+  [[source: ctlseqs]]: xterm "generates 7-bit controls (by default) or 8-bit if
+  S8C1T is enabled". Whether keys follow is a conformance call, not made.
+- **Fixed:** the comment in `baud-core/src/paint.rs` calling `want_reply` "the
+  only way bytes reach the reply buffer" was false: `dcs.rs`'s emitter and
+  `Term::queue`/`Term::key` write it too. Its paragraph on seven-bit
+  introducers was stale as well (the core implements `S7C1T` and `S8C1T`, and
+  `want_reply` encodes with them), and so was `Term::key`'s claim that
+  `want_reply` passes the same seven-bit constant.
 
 ### 1.4 What the texts say
 
@@ -97,7 +120,8 @@ worst -- and a fragment is the wrong shape.
   largest single action, DECRQSS's maximum and its 5-byte minimum query,
   `READ_CHUNK`, the replies queued outside `feed`), about 96 KiB, const-asserted,
   with a test that matches over every reply and checks each extreme against its
-  budget. It needs both fixes in 1.3's first two items. Cost: about 94 KiB per
+  budget. It needs both fixes in 1.3's first two items (both made
+  2026-10-09). Cost: about 94 KiB per
   terminal, 0.4% of a 24 MB `Storage`. Two release builds that differ only in
   `REPLY`: 542 functions byte-identical, and the inlined feed loop differs in 4
   places, two allocation immediates and one assert -- no per-byte change, by
@@ -127,7 +151,8 @@ its contract, and the two colour departures until they are built).
 
 ### 1.6 Red-first tests (either option)
 
-DECRQSS whole or absent with 176-252 bytes pending; `?2048` x39 drained after
+DECRQSS whole or absent with 176-252 bytes pending (built 2026-10-09, as a
+sweep across every pending length to 255); `?2048` x39 drained after
 every byte gives 39 reports; the worst read gives 0 overflows; a budget test
 over every reply; herdr's startup, re-recorded, fed at 4096 and 1024 bytes,
 answers every palette index in order with the query's own terminator; a

@@ -984,15 +984,23 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// Queue a report for the host.
     ///
-    /// **The only way bytes reach the reply buffer**, so the shape is chosen
-    /// by the [`Report`] variant rather than by the call site: a `DSR` cannot
-    /// be answered with a `DA`'s bytes, which `docs/vt-coverage.md` calls the
-    /// one thing a terminal must never do.
+    /// **Every report `feed` makes comes through here, and it is one of four
+    /// writers to the reply buffer.** It was called the only one, and was
+    /// not: `report_status` (`dcs.rs`) writes DECRQSS, whose body is the
+    /// rendition rather than a `Report`; `Term::queue` writes the reports made
+    /// outside `feed` -- focus, mouse, `?2048` after a resize or a cell-size
+    /// change, `?2031`; and `Term::key` writes keys. All four copy one whole
+    /// encoded answer under one check, so a reply is in the buffer whole or
+    /// not at all. Here the shape is chosen by the [`Report`] variant rather
+    /// than by the call site: a `DSR` cannot be answered with a `DA`'s bytes,
+    /// which `docs/vt-coverage.md` calls the one thing a terminal must never
+    /// do.
     ///
-    /// **Seven-bit introducers, always.** This core implements neither `S7C1T`
-    /// nor `S8C1T`, so it has never been told to move to the 8-bit C1 forms,
-    /// and passing a mode it does not track would be recording a bit nothing
-    /// sets.
+    /// **The introducers follow `S7C1T` and `S8C1T`.** `cold.c1` is what
+    /// `ESC SP F` and `ESC SP G` last set, and `report_status` and
+    /// `Term::queue` read it too. This said seven-bit always, on the grounds
+    /// that the core implemented neither; it implements both. Keys are the
+    /// exception: `Term::key` passes `C1Transmit::SevenBit`.
     #[cold]
     #[inline(never)]
     pub(crate) fn want_reply(&mut self, r: Report) {
