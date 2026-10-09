@@ -722,6 +722,47 @@ impl<'a> View<'a> {
         self.cells.len()
     }
 
+    /// Erase every row of the ring but the `keep` rows from the window's top,
+    /// at the whole pitch, marks included: the screen and the rows a shorter
+    /// window cut below it stay, and the history goes -- with the rows past
+    /// both, which hold no line a count can reach and are cells all the same.
+    /// What `CSI 3 J` leaves, for [`View::erase_ring`]'s reason: a reader of
+    /// the whole ring reaches every row, and a re-cut that spills past the
+    /// screen writes into them without clearing past its width. The rotation
+    /// stays, because nothing scrolled. Returns the cells written.
+    pub fn erase_outside(&mut self, keep: Rows) -> usize {
+        let (ring, s) = (self.ring.index(), self.stride.index());
+        let mut n = 0;
+        for k in keep.index().min(ring)..ring {
+            let p = self.rot.advance(k, self.ring).index();
+            self.cells[p * s..(p + 1) * s].fill(PackedCell::EMPTY);
+            self.used[p] = RowExtent::ZERO;
+            n += s;
+        }
+        n
+    }
+
+    /// Blank every cell DECSCA left erasable in the `hist` rows behind the
+    /// window, to the live edge, and keep the rest: `CSI ? 3 J`, which is
+    /// DECSED and so spares a protected character as DECSED does on the
+    /// screen. The rows stay rows of the history. A mark only rises, as
+    /// [`View::put`]'s does. Returns the cells written.
+    pub fn selective_wipe_behind(&mut self, hist: Rows, blank: PackedCell) -> usize {
+        let (s, cols) = (self.stride.index(), self.cols.index());
+        let mut n = 0;
+        for k in 1..=hist.index().min(self.ring.index()) {
+            let p = self.rot.retreat(k, self.ring).index();
+            for x in 0..cols {
+                if !self.cells[p * s + x].is_protected() {
+                    self.cells[p * s + x] = blank;
+                    self.used[p] = self.used[p].reached(x + 1);
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     /// Copy screen row `from` over screen row `to` to the live edge, extent
     /// included, and return the cells written.
     ///

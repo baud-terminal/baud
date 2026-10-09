@@ -189,6 +189,25 @@ impl RegionScrolls {
     }
 }
 
+/// Which erasure of the primary's history the terminal is at: it moves on
+/// every `CSI 3 J` and every `RIS`, the two operations that empty the saved
+/// lines, and on nothing else -- not `CSI ? 3 J`, whose lines stay. A window
+/// over the history read at both ends of a read cannot see one: the erase
+/// scrolls nothing, so [`Term::history_moved_since`] reads no movement, and
+/// output after it in the same read refills the history to a count that
+/// says nothing of what went. An embedder holding a window into the history
+/// asks this, and finds the lines it showed are gone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct HistoryErasures(u32);
+
+impl HistoryErasures {
+    pub(crate) const FIRST: HistoryErasures = HistoryErasures(0);
+
+    pub(crate) fn next(self) -> HistoryErasures {
+        HistoryErasures(self.0.wrapping_add(1))
+    }
+}
+
 /// A count of `?5` DECSCNM changes, as a reading to compare. The core keeps
 /// two: the changes made where a frame could show them
 /// ([`Term::reverse_flips`]), and the changes made inside a synchronised
@@ -422,6 +441,9 @@ pub struct Cold {
     /// Moves on every region scroll that advances a ring, on either screen:
     /// [`Term::region_scrolls`].
     pub(crate) region_scrolls: RegionScrolls,
+    /// Moves on every erasure of the primary's history:
+    /// [`Term::history_erasures`].
+    pub(crate) history_erasures: HistoryErasures,
     /// Moves on every change of `?5` outside a synchronised update, and
     /// inside one: [`Term::reverse_flips`], [`Term::reverse_flips_held`].
     pub(crate) flips: ReverseFlips,
@@ -497,7 +519,9 @@ pub struct Cold {
 // 440, none of its 24 bytes in padding: `Option<(Col, Row)>`, written by a
 // pointer event that reports, a mouse mode change and the resets, and read by
 // `Term::mouse_report` alone -- input-side, an embedder's call per pointer
-// event, which the per-byte loop never makes.
+// event, which the per-byte loop never makes. The count of history erasures
+// landed in padding beside `region_scrolls`, so 440 held: a `u32` bumped by
+// `CSI 3 J` and `RIS` and read by the embedder after a read.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 440);
@@ -569,6 +593,7 @@ impl Cold {
             top: Row::ZERO,
             bot: Row::from_index(rows.index() - 1),
             region_scrolls: RegionScrolls::FIRST,
+            history_erasures: HistoryErasures::FIRST,
             flips: ReverseFlips::FIRST,
             flips_held: ReverseFlips::FIRST,
             updates_opened: UpdatesOpened::FIRST,
@@ -2036,6 +2061,15 @@ impl<'b> Term<'b> {
     /// through a region, and the rows under that region did not move.
     pub fn region_scrolls(&self) -> RegionScrolls {
         self.cold.region_scrolls
+    }
+
+    /// Which erasure of the primary's history this is: it moves on every
+    /// `CSI 3 J` and `RIS`, from either screen, and on nothing else. A read
+    /// whose two ends carry one reading erased no saved line; a window over
+    /// the history anchored across one that moved has no line left to stay
+    /// on, and belongs on the live screen.
+    pub fn history_erasures(&self) -> HistoryErasures {
+        self.cold.history_erasures
     }
 
     /// The scrolling region DECSTBM set, as its first and last screen row:

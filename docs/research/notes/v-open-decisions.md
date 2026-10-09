@@ -281,6 +281,15 @@ none has been run. Each test below must go red before its effect is claimed.
    So it stays drawn over the reset screen until it expires after 150 ms
    (`PREDICT_MAX`).
 
+*Updated 2026-10-09:* effects 2 and 3 are closed, by the `CSI 3 J` change
+rather than by V1. The core counts every erasure of the history
+(`Term::history_erasures`, moved by `CSI 3 J` and by `RIS`), and when a read
+moves it the app puts the window on the live screen and settles the slide,
+however the bytes fell into reads (`after_read`, `erased` in
+`baud-app/src/app.rs`). Effects 1 and 4 -- the highlight over the erased
+screen and the stale guess -- are V1's still: the screen's rows are not saved
+lines, so the clip that drops a selection in the history keeps one on them.
+
 After the change: a reset leaves a clean slate, with no highlight, no slide,
 the live screen and no stale guess. It does so however the bytes fall into
 reads.

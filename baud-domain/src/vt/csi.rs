@@ -539,6 +539,15 @@ pub enum Csi {
     SelectiveEraseDisplay(EraseExtent),
     /// DECSEL, `CSI ? Ps K`. Erase in line, erasable characters only.
     SelectiveEraseLine(EraseExtent),
+    /// `CSI 3 J`, "Erase Saved Lines, xterm" (`[[source: ctlseqs]]`): the
+    /// lines that scrolled off the top of the primary screen, and not the
+    /// screen. A variant of its own rather than a fourth [`EraseExtent`],
+    /// because EL and DECSEL share that selector and have no `3` -- widening
+    /// it would read `CSI 3 K` as an erase.
+    EraseSavedLines,
+    /// `CSI ? 3 J`, "Selective Erase Saved Lines, xterm": the same lines,
+    /// erasable characters only, as every DECSED is.
+    SelectiveEraseSavedLines,
     /// REP, `CSI b`. Repeat the preceding graphic character.
     Repeat(Count),
     /// DA, `CSI c`. Primary Device Attributes: "what are you?".
@@ -687,7 +696,7 @@ impl Csi {
     /// resolved without the mode -- so the mode is a parameter rather than
     /// something the caller patches up afterwards.
     /// **`#[inline]` so the construct-and-match pair can collapse.** This
-    /// builds a 44-variant enum that `baud-core`'s `csi_final` destructures
+    /// builds a 54-variant enum that `baud-core`'s `csi_final` destructures
     /// immediately -- two dispatches on the same final byte where one would
     /// do. Across a call boundary LLVM cannot see that; inlined it can thread
     /// the construction straight into the caller's arms. The caller is
@@ -847,6 +856,7 @@ impl Csi {
                 b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
+                    None if p.raw(ParamIdx::FIRST, 0) == 3 => Csi::SelectiveEraseSavedLines,
                     None => Csi::Unsupported {
                         marker,
                         final_byte: f,
@@ -876,6 +886,7 @@ impl Csi {
             },
             b'J' => match p.extent(ParamIdx::FIRST) {
                 Some(e) => Csi::EraseInDisplay(e),
+                None if p.raw(ParamIdx::FIRST, 0) == 3 => Csi::EraseSavedLines,
                 None => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1088,6 +1099,9 @@ impl Csi {
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.
             RequestVersion | HighlightMouseTracking(_) | Window(_) => Level::Xterm,
+            // "Erase Saved Lines, xterm" in both forms: the saved lines are
+            // xterm's, and no DEC level has them.
+            EraseSavedLines | SelectiveEraseSavedLines => Level::Xterm,
             // XTMODKEYS and XTFMTKEYS are xterm's, and input-side: they change
             // what the keyboard sends rather than what the screen shows. The
             // kitty negotiation is the same shape -- input-side, and an

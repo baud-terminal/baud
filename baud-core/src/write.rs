@@ -1539,6 +1539,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         }
         DomCsi::SelectiveEraseLine(e) => p.selective_erase_line(e),
         DomCsi::SelectiveEraseDisplay(e) => p.selective_erase_display(e),
+        DomCsi::EraseSavedLines => p.erase_saved_lines(),
+        DomCsi::SelectiveEraseSavedLines => p.selective_erase_saved_lines(),
         DomCsi::Repeat(c) => p.repeat(c),
         DomCsi::SoftReset => p.soft_reset(),
         DomCsi::InsertColumns(c) => p.insert_columns(c),

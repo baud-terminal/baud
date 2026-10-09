@@ -2180,6 +2180,7 @@ struct Before {
     history: baud_core::HistoryMark,
     epoch: baud_core::ScreenEpoch,
     region: baud_core::RegionScrolls,
+    erased: baud_core::HistoryErasures,
 }
 
 impl Before {
@@ -2189,8 +2190,17 @@ impl Before {
             history: term.history_mark(),
             epoch: term.screen_epoch(),
             region: term.region_scrolls(),
+            erased: term.history_erasures(),
         }
     }
+}
+
+/// Whether a read erased the primary's history -- `CSI 3 J` or `RIS`, from
+/// either screen -- by the core's count, because nothing else across a read
+/// says so: the erase scrolls nothing, and lines after it in the same read
+/// refill the history to a count that hides it.
+fn erased(term: &Term<'_>, before: Before) -> bool {
+    term.history_erasures() != before.erased
 }
 
 /// Whether a read's region scrolls left `sel` naming rows that did not move.
@@ -2347,7 +2357,15 @@ fn trail_cursor(term: &Term<'_>, back: Rows) -> Option<TrailCursor> {
 /// whatever screen is up. The live rotation is the alternate screen's while
 /// it is up, so its scrolling pushed the window up a history that had not
 /// moved, and a read that switched screens compared two rings.
+///
+/// **A read that erased the history puts it on the live screen**: the lines
+/// it showed are gone, and anchoring by the movement -- none, for an erase
+/// -- clamped it to whatever refilled the history in the same read, so the
+/// same bytes landed live or on the oldest new line by where the read ended.
 fn after_read(term: &Term<'_>, back: Rows, before: Before) -> Rows {
+    if erased(term, before) {
+        return Rows::ZERO;
+    }
     let retained = Rows::of_count(term.scrollback().len());
     anchored(back, term.history_moved_since(before.history), retained)
 }
@@ -2383,8 +2401,9 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Hold, Ring, after_read, hold_after, live_cursor, live_moved, looking, oldest,
-        resized_window, snapped, stale_under_region, switched, whole_screen_scrolled, window_of,
+        Before, Hold, Ring, after_read, erased, hold_after, live_cursor, live_moved, looking,
+        oldest, resized_window, snapped, stale_under_region, switched, whole_screen_scrolled,
+        window_of,
     };
     use baud_core::Zone;
     use baud_core::{Owned, Term};
@@ -2867,6 +2886,164 @@ mod alt_window_tests {
                 "on the alternate screen it resets the live screen's view, \
                  which is already at the bottom"
             );
+        });
+    }
+
+    /// **An erased history puts a window over it on the live screen, however
+    /// the read falls.** `CSI 3 J` and `RIS` empty the saved lines and scroll
+    /// nothing, so the anchor read no movement: an erase alone in a read
+    /// clamped the window to an empty history and landed live, and an erase
+    /// with lines after it in the same read clamped it to the lines that
+    /// refilled the history -- the oldest of them, pinned there. The same
+    /// bytes landed in two places by where the read ended.
+    #[test]
+    fn an_erased_history_puts_the_window_on_the_live_screen_however_the_read_falls() {
+        let lines = |n: usize| -> Vec<u8> {
+            (0..n)
+                .flat_map(|i| format!("n {i}\r\n").into_bytes())
+                .collect()
+        };
+        let mut reset_then_lines = b"\x1bc".to_vec();
+        reset_then_lines.extend(lines(15));
+        let mut erase_then_lines = b"\x1b[3J".to_vec();
+        erase_then_lines.extend(lines(3));
+        let mut lines_then_erase = lines(2);
+        lines_then_erase.extend_from_slice(b"\x1b[3J");
+        for (bytes, what) in [
+            (b"\x1b[3J".to_vec(), "the erase alone"),
+            (
+                erase_then_lines,
+                "the erase, then lines that refill the history",
+            ),
+            (lines_then_erase, "lines, then the erase"),
+            (b"\x1bc".to_vec(), "RIS alone"),
+            (reset_then_lines, "RIS, then lines that refill the history"),
+        ] {
+            with_history(|t| {
+                let before = Before::of(t);
+                feed(t, &bytes);
+                assert_eq!(
+                    after_read(t, Rows::of_count(3), before),
+                    Rows::ZERO,
+                    "{what}: the window is not on the live screen"
+                );
+            });
+        }
+        // The control: a read with no erase carries the window up the
+        // history with the lines it shows.
+        with_history(|t| {
+            let before = Before::of(t);
+            feed(t, &lines(2));
+            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 5);
+        });
+    }
+
+    /// **From the alternate screen it is the primary's window that goes
+    /// live**, the one `snapped` keeps while a program has the screen: the
+    /// erase emptied the primary's history under it.
+    #[test]
+    fn an_erase_on_the_alternate_screen_puts_the_primarys_window_live() {
+        with_history(|t| {
+            let mut back = Rows::of_count(3);
+            let read = |t: &mut Term<'_>, bytes: &[u8], back: &mut Rows| {
+                let before = Before::of(t);
+                feed(t, bytes);
+                *back = after_read(t, *back, before);
+            };
+            read(t, b"\x1b[?1049h\x1b[10;1H", &mut back);
+            assert_eq!(back.index(), 3, "the control: entering it moved nothing");
+            read(t, b"\x1b[3J", &mut back);
+            assert_eq!(back, Rows::ZERO, "the primary's history went from under it");
+            read(t, b"\x1b[?1049l", &mut back);
+            assert_eq!(back, Rows::ZERO, "and leaving finds the live screen");
+        });
+    }
+
+    /// **A selection in the erased history goes, and one reaching into it
+    /// from the screen is clipped to the screen's top**, by the clip the
+    /// pump applies after every read: the oldest line a selection may name
+    /// follows the history, and the lines that refill it are numbered after
+    /// the erased ones, so none of them can be mistaken for an erased line.
+    /// A selection on the screen stays, because the screen does.
+    #[test]
+    fn a_selection_in_the_erased_history_goes_and_one_reaching_into_it_is_clipped() {
+        use baud_domain::{Col, Row};
+        use baud_render::{Clip, Grain, Selection, Span};
+        for (bytes, refilled) in [(&b"\x1b[3J"[..], 0), (b"\x1b[3Ja\r\nb\r\n", 2)] {
+            with_history(|t| {
+                // The forty lines before this read: thirty-one behind the
+                // screen, numbered 0 to 30, and the screen's top at 31.
+                let mut scrolled = Scrolled::START.advanced(Rows::of_count(31));
+                // Line `n` counted from the first of them, which is a view
+                // `31 - n` lines up from the screen's top -- negative past it.
+                let span = |t: &Term<'_>, line: usize| {
+                    let at = match line < 31 {
+                        true => scrolled.top(Rows::of_count(31 - line)),
+                        false => scrolled.line(Rows::ZERO, Row::from_index(line - 31)),
+                    };
+                    Span::cell(t.row(Row::ZERO), at, Col::ZERO)
+                };
+                let make = |t: &Term<'_>, from: usize, to: usize| {
+                    let mut s = Selection::at(span(t, from), Grain::Cell);
+                    s.extend(span(t, to));
+                    s
+                };
+                let (mut gone, mut reaching, mut shown) =
+                    (make(t, 5, 10), make(t, 25, 35), make(t, 33, 35));
+                let before = Before::of(t);
+                feed(t, bytes);
+                if let Ring::Retired(n) = live_moved(t, before) {
+                    scrolled = scrolled.advanced(n);
+                }
+                let at = oldest(t, scrolled);
+                assert_eq!(
+                    at,
+                    Scrolled::START.advanced(Rows::of_count(31)).top(Rows::ZERO),
+                    "{refilled} refilled: the oldest line is the screen's top before the read"
+                );
+                assert!(
+                    gone.clip(at) == Clip::Cleared,
+                    "{refilled} refilled: in the history"
+                );
+                assert!(reaching.clip(at) == Clip::Kept, "{refilled} refilled");
+                assert_eq!(reaching.ordered().0.line, at, "clipped to the screen's top");
+                let whole = shown.ordered();
+                assert!(
+                    shown.clip(at) == Clip::Kept,
+                    "{refilled} refilled: on the screen"
+                );
+                assert_eq!(shown.ordered(), whole, "and untouched");
+            });
+        }
+    }
+
+    /// **The pump settles a slide when the history was erased.** A slide
+    /// draws the newest saved line above the screen as it pans, and after
+    /// an erase there is none: the clamp makes it the screen's own first
+    /// row, drawn twice for the rest of the slide. The pump is AppKit-bound,
+    /// so the source is held to it, and `erased` to what moves it.
+    #[test]
+    fn an_erase_settles_the_slide() {
+        const SRC: &str = include_str!("app.rs");
+        assert!(
+            SRC.contains(concat!(
+                "if erased(&self.app.term, before) {\n",
+                "            self.app.slide.snap();"
+            )),
+            "the pump settles the slide on an erase"
+        );
+        with_history(|t| {
+            for (bytes, want) in [
+                (&b"\x1b[2J"[..], false),
+                (b"a\r\n", false),
+                (b"\x1b[?3J", false),
+                (b"\x1b[3J", true),
+                (b"\x1bc", true),
+            ] {
+                let before = Before::of(t);
+                feed(t, bytes);
+                assert_eq!(erased(t, before), want, "{bytes:?}");
+            }
         });
     }
 }
@@ -4048,6 +4225,15 @@ impl Driver {
                 }
             }
             Ring::Restored(_) => self.app.selection = None,
+        }
+        // An erased history has no saved line for a slide to draw above the
+        // screen as it pans, and the clamp would draw the screen's own first
+        // row there instead -- so a slide settles, whichever way the erase
+        // and the lines fell in the read. The selection needs nothing here:
+        // the clip below drops what named an erased line, because the lines
+        // that refill the history are numbered after them.
+        if erased(&self.app.term, before) {
+            self.app.slide.snap();
         }
         if switched(&self.app.term, before) {
             self.app.selection = None;

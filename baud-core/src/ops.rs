@@ -575,6 +575,70 @@ impl Paint<'_, '_> {
         self.row_changed_to(r);
     }
 
+    /// `CSI 3 J`, "Erase Saved Lines, xterm" (`[[source: ctlseqs]]`): the
+    /// history goes and the screen, the cursor and the rendition stay.
+    ///
+    /// **The primary's, from either screen.** The text names the saved lines
+    /// and not a screen, and only the primary keeps any; xterm's `case 3`
+    /// zeroes its one `savedlines` count whichever buffer is shown
+    /// (`do_erase_display`, `[[source: xterm-scroll]]`). While the alternate
+    /// screen is up the primary is the parked surface, so it is swapped in
+    /// for the erase and back out -- four slices exchanged, nothing copied.
+    ///
+    /// **The whole ring past the screen and the cut rows, not the count**:
+    /// `RIS`'s reason, for the same readers -- `Term::cells` hands the whole
+    /// ring to a shader, and a re-cut that spills past the screen writes into
+    /// those rows without clearing past its width. **The rows a shorter
+    /// window cut below the cursor stay**: they are the bottom of the screen
+    /// a growth brings back, not lines that scrolled off its top.
+    ///
+    /// An image anchored to an erased line goes, as one whose line leaves a
+    /// full ring does, and the erasure is counted for an embedder's window
+    /// over the history ([`crate::Term::history_erasures`]).
+    pub(crate) fn erase_saved_lines(&mut self) {
+        let keep = Rows::of_count(self.rows.index() + self.book.hidden.index());
+        let n = self.on_primary(|v| v.erase_outside(keep));
+        self.cells = self.cells.plus(n);
+        self.book.hist = Rows::ZERO;
+        self.cold.history_erasures = self.cold.history_erasures.next();
+        if self.images.any_placed() {
+            self.expire_primary_images(None);
+        }
+    }
+
+    /// `CSI ? 3 J`, "Selective Erase Saved Lines, xterm": DECSED over the
+    /// history, so the characters DECSCA protected stay and the rest are
+    /// blanked with the current rendition's blank, as `selective_wipe` does
+    /// on the screen (`[[source: vt510-decsca]]`: "The selective erase
+    /// control functions (DECSED and DECSEL) can only erase characters
+    /// defined as erasable"). The lines stay lines of the history, as rows
+    /// stay rows under DECSED, so nothing is counted as erased.
+    ///
+    /// **xterm erases them whole**: `do_erase_display`'s `case 3` is the same
+    /// for both forms and sets `savedlines` to zero whatever the protection
+    /// (`[[source: xterm-scroll]]`). That departs from the text, and which
+    /// one baud follows is the owner's call; this follows the text.
+    pub(crate) fn selective_erase_saved_lines(&mut self) {
+        let (hist, blank) = (self.book.hist, self.blank());
+        let n = self.on_primary(|v| v.selective_wipe_behind(hist, blank));
+        self.cells = self.cells.plus(n);
+    }
+
+    /// Run `f` on the primary's surface whichever screen is up: the view
+    /// itself on the primary, and on the alternate screen the parked primary
+    /// swapped into the view for the call and back out after it.
+    fn on_primary<R>(&mut self, f: impl FnOnce(&mut View<'_>) -> R) -> R {
+        let parked = self.cold.screen == Screen::Alternate;
+        if parked {
+            self.view.swap_surface(&mut self.other);
+        }
+        let r = f(&mut self.view);
+        if parked {
+            self.view.swap_surface(&mut self.other);
+        }
+        r
+    }
+
     /// The span `EraseExtent` names on the cursor's row.
     pub(crate) fn line_span(&self, e: EraseExtent) -> (Col, Col) {
         let cols = Col::at_index(self.cols.index());
@@ -1433,6 +1497,11 @@ impl Paint<'_, '_> {
         // rotation under half the ring as rows restored; see the TODO.)
         self.book.hist = Rows::ZERO;
         self.book.hidden = Rows::ZERO;
+        // The history was erased, which an embedder's window over it reads
+        // here as it reads `CSI 3 J` (`Term::history_erasures`): nothing
+        // above moved the rotation or the top line, so no other reading says
+        // the lines it showed are gone.
+        self.cold.history_erasures = self.cold.history_erasures.next();
         // And what the marks said: the block start names rows the reset
         // erased, and the shell is at no prompt after one. This is the
         // primary's -- `set_alt_screen` above came back to it -- and the
