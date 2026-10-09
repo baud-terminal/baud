@@ -100,17 +100,57 @@ fn rows() -> Vec<(String, String)> {
         if !l.starts_with("| `") {
             continue;
         }
-        let cells: Vec<&str> = l.trim_matches('|').split('|').map(str::trim).collect();
+        let cells = cells(l);
         if cells.len() < 2 {
             continue;
         }
-        let Some(seq) = first_backticked(cells[0]) else {
+        let Some(seq) = first_backticked(&cells[0]) else {
             continue;
         };
-        let status = cells[cells.len() - 1].to_string();
+        let status = cells[cells.len() - 1].clone();
         out.push((seq, status));
     }
     out
+}
+
+/// A table row's cells, split on the pipes that delimit them and not on an
+/// escaped `\|`, which markdown renders as a literal pipe inside a cell.
+///
+/// Splitting on every `|` cut row 725 (`CSI ? 2031 h/l`) at the `\|` in its
+/// status cell, so its last fragment, read as the status, did not start with
+/// `done` and the row was skipped: a done row this check never fed. The same
+/// split would drop `ESC |` (LS3R) from the sequence column entirely.
+fn cells(row: &str) -> Vec<String> {
+    let inner = row.trim().trim_start_matches('|');
+    let inner = inner.strip_suffix('|').unwrap_or(inner);
+    let mut out = vec![String::new()];
+    let mut it = inner.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '\\' if it.peek() == Some(&'|') => {
+                out.last_mut().expect("one cell at least").push('|');
+                it.next();
+            }
+            '|' => out.push(String::new()),
+            c => out.last_mut().expect("one cell at least").push(c),
+        }
+    }
+    out.iter().map(|c| c.trim().to_string()).collect()
+}
+
+/// **A cell holding an escaped pipe stays one cell.** Red while `rows()` split
+/// on every `|`: row 725's status came back as the fragment after its `\|`.
+#[test]
+fn an_escaped_pipe_does_not_split_a_row() {
+    let got = rows()
+        .into_iter()
+        .find(|(seq, _)| seq == "CSI ? 2031 h/l")
+        .expect("the ?2031 row is read");
+    assert!(
+        got.1.starts_with("done"),
+        "?2031's status was cut at an escaped pipe: {:?}",
+        &got.1[..got.1.len().min(60)]
+    );
 }
 
 /// The first backticked span of a table cell.
