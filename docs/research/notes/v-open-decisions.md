@@ -358,9 +358,16 @@ What happens to the selection on RIS:
     (charproc.c 6149-6152 and 14372-14375, [[source: xterm-reset]]).
   - The hard branch calls *ClearScreen*, which calls *ScrnDisownSelection*
     (util.c 2366, [[source: xterm-scroll]]).
-  - What that last function does is in button.c, which is not pinned.
-    UNPINNED, from memory: under the *keepSelection* resource it removes the
-    highlight and keeps the text for pasting.
+  - *ScrnDisownSelection* is in screen.c 916-926 ([[source: xterm-screen]]).
+    Under *keepSelection*, which defaults to True (charproc.c 453,
+    [[source: xterm-reset]]), it calls *UnhiliteSelection*: the highlight
+    goes and the text stays for pasting. Otherwise it calls
+    *DisownSelection*, which gives the selection up (button.c 5196 and 5234,
+    [[source: xterm-button]]).
+  - *Corrected 2026-10-09:* this line said the function was in button.c,
+    which was not pinned, and gave its behaviour from memory. It is in
+    screen.c. Both files are pinned now and match the manifest's SHA-256,
+    and the remembered behaviour was right.
   - Where a scrolled-back xterm view lands after RIS is UNVERIFIED.
 - **alacritty: strongly indicated.**
   - *reset_state* swaps back from the alternate grid, resets both grids and
