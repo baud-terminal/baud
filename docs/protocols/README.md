@@ -57,9 +57,17 @@ Each is a decision with a cost, not an oversight:
 
 | | why |
 |---|---|
-| printer control (`CSI i`, VT52 `ESC ^ _ W X ] V`) | no printer; accepting silently is the `parsed` failure |
-| ReGIS, kitty graphics | ReGIS is historical; kitty's `f=100` needs a PNG decoder `baud-core` does not have. Both payloads are consumed safely, which is the part that matters |
+| printer control (`CSI i`, VT52 `ESC ^ _ W X ] V`) | no printer; each is recognised and counted, because accepting silently is the `parsed` failure |
+| ReGIS | historical; no modern application emits it |
 | `OSC 52` clipboard **reads** | a remote program could read back what the user last copied |
+
+**Not declined, and not built.** Kitty graphics (`APC G`) is consumed without
+being executed and counted. The owner decided on 2026-09-25 to build it to
+the spec (V19), with `?1001`'s drawing (V12), the side margins' rectangle
+scrolling (V10), the ambiguous-width switch and `?1021` (V14), `OSC 4`, `10`
+and `11` acting on the colour shown under `?5` (V17) and the Sixel modes
+`?80` and `?1070` (V18), and to turn `OSC 52` writes on by default (V11), in
+`docs/research/notes/v-open-decisions.md`.
 
 Three things this table listed are built; their rows are in
 [../vt-coverage.md](../vt-coverage.md). `?1001` highlight tracking is recorded

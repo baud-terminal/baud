@@ -11,12 +11,11 @@ them, which is the only bar that matters here.
 
 ## Alternate screen
 
-`?1049` switches to a second full grid, saving the cursor on the way in. It has
-**no scrollback** — no ring, no run table, no promotion — which is what makes it
-cheaper than the primary screen rather than merely as expensive. The O(1)
-ring-advance fast path in `scroll_region_up` is deliberately *not* taken there:
-that path retires a line by moving the scrollback window, and using it on the
-alt screen would scroll the primary screen's history from under it.
+`?1049` switches to a second full grid, saving the cursor on the way in. It
+keeps **no history**. A full-screen scroll rotates it as it rotates the
+primary, inside a ring of its own rows with its own rotation (`AltBuf`,
+`baud-core/src/storage.rs`), and `retire` keeps no line on it, so a scroll on
+the alternate screen moves nothing of the primary's history.
 
 `?47` is the pre-1049 form: it switches buffers and does **not** save the
 cursor. `?1049` exists because applications kept getting that wrong, so the two
@@ -102,18 +101,31 @@ Every byte of an OSC is attacker-controlled. A payload over `OSC_MAX` is
 truncated and the truncation is *counted*; dropping the sequence instead would
 leave the previous title showing with nothing to say why.
 
-`OSC 8` hyperlink URIs live in a bounded, evicting table — a URI is
-attacker-supplied content used as a key. The link index rides in spare
+`OSC 8` hyperlink URIs live in a bounded table, `NLINK` slots of at most
+`LINK_MAX` bytes -- a URI is attacker-supplied content used as a key. It
+**refuses** a colliding link rather than evicting the occupant, because an
+evicted link would retarget cells already on screen; a refusal is counted in
+`links_refused` and its cells are plain text. The link index rides in spare
 `CellFlags` bits, because `PackedCell` is eight bytes by measurement and a ninth
 would round it to twelve.
 
-## Modes recorded for an embedder
+## Modes the core records and something acts on
 
-Bracketed paste, synchronised output, DECCKM, DECSCNM, DECSCLM, DECARM,
-`?1034`, `?45`, `?3`. The core has no renderer, and its input path encodes keys
-rather than reading them, so exposing
-them by accessor *is* acting on them — an embedder has no other channel. That
-is what separates them from the "set and never read" failure.
+`baud-core` draws nothing, so a mode about the screen or the paste is recorded
+and exposed by accessor, and that is the channel an embedder acts through --
+what separates it from the "set and never read" failure. Who acts on each:
+
+* **`Term::key`**, in the core: DECCKM, the keypad mode, DECARM (a repeat is
+  dropped while it is reset) and `?1034`.
+* **`baud-app`**: bracketed paste, on macOS (a paste is bracketed while it
+  is set; the Linux driver has no paste), and synchronised output, on both
+  (frames are held while an update is open, 33 ms at most).
+* **`baud-render`**: DECSCNM, drawn as xterm draws reverse video.
+* **The core itself**: `?45` reverse wraparound, and `?3`, which clears the
+  screen, resets the top and bottom margins and homes the cursor.
+* **Nothing yet**: DECSCLM, exposed as `Term::smooth_scroll`, and `?3`'s
+  request for 132 columns, exposed as `Term::column_mode`; nothing outside
+  the core reads either, and the width changes only through `Term::resize`.
 
 Bracketed paste is a **security** mode, not a cosmetic one: without it a pasted
 newline is delivered to the shell as typed input and runs.
