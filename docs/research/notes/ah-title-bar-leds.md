@@ -877,7 +877,7 @@ denies access, then the field value is displayed as 0" for `[PT]` fields
 256-385; `utime`, `stime` and `majflt` are not among them.
 
 **A failed read must not look like a quiet process.** How it looks instead is
-Q8.
+Q8, decided as a look of its own (8).
 
 ### 3.9 What a sample costs
 
@@ -1428,6 +1428,24 @@ every-question-has-a-visual rule).
   - Modem two-letter labels or icons? Which colours?
 - **Q8. A program baud may not read.** Should it get its own look, such as a
   hollow LED, or should its LEDs hide?
+  - **Decided: its own look** (Jev, 2026-10-09, 0.90 and 0.94 on the
+    original and on a replicate with the options reordered, decision log
+    lines 355-356; to be listed on the review page for the owner's veto).
+    No text governs; it keeps rule 2 of 6.6, that a failed read is neither
+    lit nor dark.
+  - What it means once built: each process light has a third state,
+    unreadable, set when the read is refused, and drawn in a look of its
+    own: on macOS when `proc_pid_rusage` answers `EPERM` (3.8); on Linux
+    only DK's `/proc/<pid>/io` is gated (3.4, 3.8), since `utime`, `stime`
+    and `majflt` stay readable. The hollow LED is an example; the look is still
+    to be designed, and rendered on the review page before it is chosen.
+  - **Unbuilt, and why.** Which process lights exist (Q2's DK, CPU and
+    MEM, Q5), where they are drawn (Q7) and the look itself are open, so
+    the state has no light to belong to. A reading that told `EPERM` apart
+    from a quiet process would have no caller. It lands with the first
+    process light, with section 7's "No reading" test red first against a
+    root-owned process in front (the probe's pid 1 shows `proc_pid_rusage`
+    answering `EPERM`, 3.8).
 - **Q9. The modem labels' analogues (6.1).** Do these suit, or should baud
   name the signals plainly?
   - OH: a job is in front.
