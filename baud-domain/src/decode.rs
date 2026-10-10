@@ -753,19 +753,13 @@ impl InputEncoding {
         saw_multibyte.then_some(InputEncoding::Utf8)
     }
 
-    /// The character a byte stands for, in a single-byte encoding.
-    ///
-    /// `None` for `80..9F`, which ISO 8859-1 reserves for C1 controls. baud
-    /// does not act on 8-bit C1 — it cannot, having chosen UTF-8 as the other
-    /// mode — so they are ignored rather than printed, which is what xterm's
-    /// `CASE_IGNORE` does and what ghostty does citing xterm.
     /// The 7-bit escape a C1 byte stands for, in a single-byte encoding.
     ///
     /// **Only meaningful outside UTF-8**, which is the whole point. In UTF-8
     /// `9B` is a continuation byte and cannot be a control -- that is why
-    /// `docs/vt-coverage.md` lists 8-bit C1 as out. In ISO 8859-1 it is
-    /// unambiguously CSI, and `[[source: ctlseqs]]` describes the two forms as
-    /// equivalent: `ESC [` is "a 7-bit equivalent to 8-bit" `9B`.
+    /// `docs/vt-coverage.md` lists 8-bit C1 as out in UTF-8. In ISO 8859-1 it
+    /// is unambiguously CSI, and `[[source: ctlseqs]]` describes the two forms
+    /// as equivalent: `ESC [` is "a 7-bit equivalent to 8-bit" `9B`.
     ///
     /// So the refusal was scoped to the encoding without saying so. baud is not
     /// always in UTF-8 any more.
@@ -784,6 +778,16 @@ impl InputEncoding {
             .then(|| StreamByte::from_stream(v - 0x40))
     }
 
+    /// The character a byte stands for, in a single-byte encoding.
+    ///
+    /// `None` for every byte under UTF-8, which is not one, and under ISO
+    /// 8859-1 for `80..9F`, which it reserves for the C1 controls. Those are
+    /// controls, not characters, and baud acts on them: each is read as its
+    /// 7-bit `ESC` form ([`InputEncoding::c1_as_escape`]), from ground, and
+    /// from a control string or an escape or control sequence it cancels. So
+    /// none reaches the one caller, `baud-core`'s `Act::Latin1`, which the
+    /// graph names only for `A0..FF`, and the `None` is what keeps one that
+    /// did from being printed.
     pub fn single_byte(self, b: StreamByte) -> Option<Codepoint> {
         match self {
             InputEncoding::Utf8 => None,

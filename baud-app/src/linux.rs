@@ -18,12 +18,18 @@
 //! a socket pair, and this file is the wiring between them and the core.
 //! It says so at startup.
 //!
-//! What the macOS app has and this does not, yet: the GPU paths, `SGR 5`
-//! text blink, the system caret's rate (this keeps xterm's 600/300 until
-//! the desktop's settings are read), a pointer -- the seat binds only the
-//! keyboard, so there is no wheel onto the scrollback, no mouse report and
-//! no selection -- a backing scale other than one -- the window binds no
-//! fractional-scale global -- and the report every five seconds.
+//! What the macOS app has and this does not, yet: the GPU paths, and with
+//! them the smooth-scroll slide, which only the cell path draws -- the CPU
+//! path this paints on jumps (`docs/record.md`, "Smooth scroll slides the
+//! cell path on the ring, and the one-row cap is the latency answer"); the
+//! cursor trail, which this driver does not drive (the record, "Reduce
+//! Motion means no trail, unless the config names one": "the Linux driver
+//! draws no trail"); `SGR 5` text blink; the system caret's rate (this
+//! keeps xterm's 600/300 until the desktop's settings are read); a pointer
+//! -- the seat binds only the keyboard, so there is no wheel onto the
+//! scrollback, no mouse report and no selection; a backing scale other than
+//! one -- the window binds no fractional-scale global; and the report every
+//! five seconds.
 
 use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};

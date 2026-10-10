@@ -881,8 +881,8 @@ impl App {
         let trace = Trace::open(&ws);
         // Said at startup, because the one time it mattered the variable
         // was spelled `AUD_TRACE` and nothing said the files were not
-        // being written. Said through `BAUD_LOG`, as every startup line is:
-        // the off and writing lines are diagnostics, `info` beside
+        // being written. Said through `BAUD_LOG`, as the diagnostics beside
+        // it are: the off and writing lines are diagnostics, `info` beside
         // `renderer:`, so a misspelling shows under `BAUD_LOG=info` and a
         // default launch stays quiet; a `BAUD_TRACE` that could not be
         // acted on is a `warn`, as a `BAUD_GPU` baud cannot read is.

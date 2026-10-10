@@ -99,3 +99,146 @@ fn a_control_string_survives_a_read_boundary() {
         );
     }
 }
+
+/// A terminal fed `bytes` in reads of `size`, handed to `f` while it lives.
+fn fed<R>(bytes: &[u8], size: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for part in bytes.chunks(size) {
+        t.write_at(BytePos::ZERO, part);
+        t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
+    }
+    f(&t)
+}
+
+/// **A bare `ST` closes nothing, and is counted nowhere.**
+///
+/// `[[source: ecma48]]` § 8.3.143 defines ST only as "the closing delimiter
+/// of a control string opened by" APC, DCS, OSC, PM or SOS. With no string
+/// open it closes nothing and is no function at all: `[[source: williams]]`
+/// draws `9C / (no action)` from anywhere (line 268), says "there is never
+/// any work to do for 9C" (972-973), and calls the `ESC \` after a string
+/// its `ESC` has already ended "essentially a 'no-op' function" (505-507).
+/// `ESC \` fell to `Esc::Unsupported` and was counted, and so was `9C` under
+/// ISO 8859-1, from ground and, since a C1 cancels the sequence it
+/// interrupts, from inside an escape or control sequence. An embedder reading
+/// `unsupported` was told of a function baud lacks where none was asked for.
+///
+/// Each program is held, at every read size, to the same program with the ST
+/// left out, and its counts to zero. One-byte reads walk the graph; a read
+/// that holds the whole `ESC \` takes `fast_esc`, which dispatches it without
+/// the table. Three controls: `ESC N`, which baud does not implement, is
+/// counted in the same harness, so a zero is not a dead counter; an escape
+/// whose final `\` follows an intermediate is not ST and is still counted;
+/// and an ST that closes a string still closes it, and an ignored string it
+/// closes is counted as it was.
+#[test]
+fn a_bare_st_closes_nothing_and_is_counted_nowhere() {
+    let cases: [(&str, &[u8], &[u8]); 7] = [
+        ("ESC \\ from ground", b"X\x1b\\Y", b"XY"),
+        (
+            "ESC \\ after a CSI its ESC cancels",
+            b"X\x1b[1;\x1b\\Y",
+            b"XY",
+        ),
+        (
+            "ESC \\ after an OSC a CAN cancels",
+            b"X\x1b]0;t\x18\x1b\\Y",
+            b"X\x1b]0;t\x18Y",
+        ),
+        (
+            "9C from ground under ISO 8859-1",
+            b"\x1b%@X\x9cY",
+            b"\x1b%@XY",
+        ),
+        (
+            "9C after ESC under ISO 8859-1",
+            b"\x1b%@X\x1b\x9cY",
+            b"\x1b%@XY",
+        ),
+        (
+            "9C after ESC ( under ISO 8859-1",
+            b"\x1b%@X\x1b(\x9cY",
+            b"\x1b%@XY",
+        ),
+        (
+            "9C inside a CSI under ISO 8859-1",
+            b"\x1b%@X\x1b[1;\x9cY",
+            b"\x1b%@XY",
+        ),
+    ];
+    for (name, bytes, without) in cases {
+        fed(without, without.len(), |want| {
+            assert_eq!(want.unsupported, 0, "{name}: the program without the ST");
+            for size in 1..=bytes.len() {
+                fed(bytes, size, |got| {
+                    assert_eq!(got.unsupported, 0, "{name}: counted, read size {size}");
+                    assert_eq!(
+                        got.charset_unsupported, 0,
+                        "{name}: designated, read size {size}"
+                    );
+                    assert_eq!(got.title(), want.title(), "{name}: title, read size {size}");
+                    assert_eq!(
+                        got.cursor(),
+                        want.cursor(),
+                        "{name}: cursor, read size {size}"
+                    );
+                    assert!(
+                        support::screen(got) == support::screen(want),
+                        "{name}: screen, read size {size}"
+                    );
+                });
+            }
+        });
+    }
+
+    for size in 1..=4 {
+        fed(b"X\x1bNY", size, |t| {
+            assert_eq!(
+                t.unsupported, 1,
+                "control: ESC N is counted, read size {size}"
+            );
+        });
+        fed(b"X\x1b#\\Y", size, |t| {
+            assert_eq!(
+                t.unsupported, 1,
+                "control: ESC # \\ is an escape, not ST, read size {size}"
+            );
+        });
+        fed(b"X\x1b(\\Y", size, |t| {
+            assert_eq!(
+                t.charset_unsupported, 1,
+                "control: ESC ( \\ designates a set baud does not name, read size {size}"
+            );
+        });
+    }
+    for (name, bytes) in [
+        ("OSC closed by ESC \\", b"\x1b]0;t\x1b\\".as_slice()),
+        ("OSC closed by 9C", b"\x1b%@\x9d0;t\x9c"),
+    ] {
+        for size in 1..=bytes.len() {
+            fed(bytes, size, |t| {
+                assert_eq!(t.title(), b"t", "control: {name} sets it, read size {size}");
+                assert_eq!(t.unsupported, 0, "control: {name}, read size {size}");
+            });
+        }
+    }
+    for (name, bytes) in [
+        ("SOS closed by ESC \\", b"\x1bXab\x1b\\".as_slice()),
+        ("SOS closed by 9C", b"\x1b%@\x98ab\x9c"),
+    ] {
+        for size in 1..=bytes.len() {
+            fed(bytes, size, |t| {
+                assert_eq!(
+                    (t.strings_ignored, t.unsupported),
+                    (1, 1),
+                    "control: {name} is an ignored string, counted, read size {size}"
+                );
+            });
+        }
+    }
+}

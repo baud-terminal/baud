@@ -1801,6 +1801,17 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // way for an application to find out.
         Esc::KeypadApplication => p.cold.keypad = KeypadMode::Application,
         Esc::KeypadNumeric => p.cold.keypad = KeypadMode::Numeric,
+        // **An ST with no string open: no function, and not counted.** Not
+        // the bare `{}` the next arm replaced, which dropped functions baud
+        // lacks: ST's one function is to close a control string, and the
+        // string node takes an ST that closes one before it can reach here
+        // (`StrEsc`'s `\`, a string node's `9C`), so what arrives closes
+        // nothing. `[[source: williams]]` draws `9C / (no action)` (line 268)
+        // and says "there is never any work to do for 9C" (972-973). It was
+        // `Esc::Unsupported`: `ESC \` from ground and, under ISO 8859-1, `9C`
+        // from ground or from a sequence it cancels were counted as functions
+        // baud lacks (`a_bare_st_closes_nothing_and_is_counted_nowhere`).
+        Esc::StringTerminator => {}
         // **Counted, and it was a bare `{}`.** `spec_inventory` asks one
         // question per form the specification lists -- "was this acted on, or
         // *counted*" -- and it asks it by snapshotting the terminal either

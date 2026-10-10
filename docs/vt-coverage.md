@@ -232,6 +232,16 @@ is one byte. VT52 is not williams' parser and is not taken here: a Latin-1 C1
 in VT52 ground still takes its ANSI edge, note AE's D3, which waits on DEC's
 text for that mode (xterm's `vt52_table` ignores C1).
 
+**A bare ST is no function, and is counted nowhere.** `[[source: ecma48]]`
+§ 8.3.143 defines ST only as "the closing delimiter of a control string", so
+a `9C` that arrives with no string open, from ground or from a sequence it
+cancels, closes nothing, and neither does an `ESC \` there. williams draws
+`9C / (no action)` (line 268) and says "there is never any work to do for
+9C" (972-973). baud does nothing and counts nothing for either; both fell to
+`Esc::Unsupported` and were counted as a function baud lacks until 2026-10-09,
+after the sequence half above (`a_bare_st_closes_nothing_and_is_counted_nowhere`).
+An ST that closes a string is the string node's, and is unchanged.
+
 **The basis this row gave was wrong, and what SUB displays is open.**
 
 `[[source: williams]]` records that "SUB will also display the error character, a
@@ -313,7 +323,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | | status |
 |---|---|
 | UTF-8 decoding, including the `Utf8` parser state williams does not have | done |
-| 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one |
+| 7-bit `ESC Fe` forms `ESC P`, `ESC [`, `ESC \`, `ESC ]`, `ESC X`, `ESC ^`, `ESC _` | done — `[[source: ecma48]]` § 5.3 specifies these as the representation of C1 in a 7-bit environment, so this *is* the C1 interface, not a substitute for one. `ESC \` is ST, which § 8.3.143 defines only as the closing delimiter of a control string; with none open it closes nothing and is counted nowhere, as `9C` is under `ESC % @` (`a_bare_st_closes_nothing_and_is_counted_nowhere`). Until 2026-10-09 both were counted as unsupported |
 | 8-bit C1 introducers `90`, `9B`, `9C`, `9D`, `98`, `9E`, `9F` — **in UTF-8** | **out** — they are continuation bytes there; a stray one is a decode error and renders U+FFFD. Follows ghostty; diverges from alacritty and wezterm |
 | the same introducers under `ESC % @` (ISO 8859-1) | done — no multi-byte sequence exists for them to be part of, so `9B` is unambiguously CSI. From inside a control string too, which each cancels (`a_c1_in_any_control_string_acts_as_its_seven_bit_form_under_latin1`, and the anywhere block above); until 2026-10-09 the string stored them and only `9C` ended it. And from inside an escape or control sequence, which each cancels (`a_c1_in_any_escape_or_control_sequence_acts_as_its_seven_bit_form_under_latin1`); until the same day `escape` dropped them and the `csi_*` states consumed them |
 | 8-bit `84` IND, `85` NEL, `88` HTS, `8D` RI under `ESC % @` | done — each acts as its 7-bit form, `[[source: ctlseqs]]` pairing the two, at every read split (`eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms`), and none inherits the last escape's intermediate (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`). Until 2026-10-08 all four were counted as unsupported, and `84` after `ESC ( 0` replaced G0. `8E` and `8F` map to `ESC N` and `ESC O`, counted as those are until note AE's single shifts are built |
@@ -508,7 +518,9 @@ on where the read boundary fell.
 `80..9F` are never printed in Latin-1: ISO 8859-1 reserves them for C1
 controls, and printing them would invent characters the application did not
 send. Each is read as its 7-bit `ESC` form, so the introducers and IND, NEL,
-HTS and RI act, and the rest are counted as their 7-bit forms are. This said
+HTS and RI act, and the rest are taken as their 7-bit forms are: counted,
+but for `9C`, which with no string open is an ST that closes nothing and,
+like `ESC \` there, is counted nowhere (since 2026-10-09). This said
 they "stay ignored" because baud did not act on them, citing xterm's
 `CASE_IGNORE`; they were in fact counted, IND, NEL, HTS and RI included.
 Inside a control string each cancels the string and then acts the same way,

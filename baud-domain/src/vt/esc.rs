@@ -39,6 +39,16 @@ pub enum Esc {
     KeypadNumeric,
     /// HTS — Horizontal Tab Set, `ESC H`. Sets a tab stop at the cursor column.
     TabSet,
+    /// ST — String Terminator, `ESC \`, with no control string open.
+    ///
+    /// `[[source: ecma48]]` § 8.3.143: "ST is used as the closing delimiter of
+    /// a control string opened by" APC, DCS, OSC, PM or SOS, and that is all it
+    /// is. The ST that closes one never arrives here, because the string's own
+    /// node takes the `\` after its `ESC`, or the `9C`. One that arrives here
+    /// closes nothing, so it has no function to perform and none is missing:
+    /// `[[source: williams]]` draws `9C / (no action)` (line 268). Named, so it
+    /// does not fall to [`Esc::Unsupported`] and get counted.
+    StringTerminator,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -55,6 +65,7 @@ impl Esc {
             b'=' => Esc::KeypadApplication,
             b'>' => Esc::KeypadNumeric,
             b'H' => Esc::TabSet,
+            b'\\' => Esc::StringTerminator,
             _ => Esc::Unsupported,
         }
     }

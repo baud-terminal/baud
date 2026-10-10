@@ -729,10 +729,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // `ESC 85` ended the escape and lost the NEL, and the `csi_*` rows
     // consumed it, `csi param` staying put, so `CSI 2 ; 85 H` moved the
     // cursor. `9C` takes its ground edge, not `StrEnd`: there is no string to
-    // end, and the diagram draws it to ground (268). The actions need nothing
-    // new: `EscFinal` maps a C1 through `c1_as_escape` and clears `csi`, which
-    // drops the sequence's parameters and intermediates, and `CsiStart` and
-    // `StrStart` clear it on entry, as williams' `clear` does.
+    // end, and the diagram draws it to ground (268), where `esc_final` takes
+    // the bare ST it maps to as no function and counts nothing. The actions
+    // need nothing new: `EscFinal` maps a C1 through `c1_as_escape` and clears
+    // `csi`, which drops the sequence's parameters and intermediates, and
+    // `CsiStart` and `StrStart` clear it on entry, as williams' `clear` does.
     //
     // So every ANSI node a Latin-1 C1 can arrive in now acts on it: `Ground`,
     // the three string nodes, these five, and `StrEsc`, whose `Again` hands
