@@ -447,14 +447,12 @@ fn a_gesture_leaves_one_prompt_on_screen() {
                 .filter(|y| row_text(t, *y).trim_start().starts_with(sig.trim()))
                 .count();
             ever = ever.max(starts);
-            // **Pinned at what it is, not at what it should be.** `zoom`
-            // strands a prompt and `drag` and `short` do not, and that
-            // gap is this repo's open bug rather than a number to wish
-            // away -- the same footing the glyph differential put its
-            // three clustering rows on, "pinned at what they *are* so
-            // the number moves the day it is fixed". Fixing it must take
-            // `zoom` to 1; breaking either of the others shows up here
-            // too, in the other direction.
+            // **Held at `allowed` on every fixture, `zoom` included.**
+            // This was a pin at what each fixture did, with `zoom`
+            // stranding a prompt as the open bug; `a6d6c68` fixed it with
+            // the erase on the redraw mark (the paragraph above) and put
+            // this bound in the pin's place, so a duplicate on any fixture
+            // fails here.
             assert!(
                 starts <= allowed,
                 "{name}: {starts} prompts ({sig:?}) on screen after step {i}, {allowed} allowed:\n{}",

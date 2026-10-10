@@ -113,11 +113,15 @@ fn overwriting_half_a_wide_character_clears_the_other_half() {
 /// of it.
 #[test]
 fn overwriting_the_tail_clears_the_lead() {
-    let r = row0("世\r\u{1b}".as_bytes(), 4096, 8);
-    let _ = r;
-    // `\x1b` is not yet parsed by this core, so drive the case with a
-    // backspace instead: write `ab`, back up one, then a wide character that
-    // starts on `b` and runs off into fresh space.
+    // `世` occupies columns 0 and 1; `\r` and `CUF` put the cursor on its
+    // tail; `x` lands there and must not leave the lead behind.
+    let r = row0("世\r\u{1b}[Cx".as_bytes(), 4096, 8);
+    assert_eq!(r.chars().next(), Some('.'), "the orphaned lead is blanked");
+    assert_eq!(r.chars().nth(1), Some('x'));
+    // A wide character written over a narrow one: `ab`, back up one, then a
+    // wide character that starts on `b` and runs off into fresh space. This
+    // was the whole test, behind a comment saying `ESC` was not yet parsed,
+    // which was no longer true (corrected 2026-10-10).
     let r = row0("ab\u{8}世".as_bytes(), 4096, 8);
     assert_eq!(r.chars().next(), Some('a'));
     assert_eq!(r.chars().nth(1), Some('世'));

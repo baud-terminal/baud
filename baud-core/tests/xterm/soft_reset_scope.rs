@@ -354,17 +354,20 @@ fn the_alt_screen_restore_clamps_like_decrc() {
 
 /// **`Term::row` past the last row returns cells, not an error.**
 ///
-/// The buffer is `MAX_ROWS` deep and the grid is `rows` deep, so a row index
-/// between them is allocated memory that is not part of the grid: `row(55)` on
-/// a fifty-row screen returns real cells from physical row 55. No panic, no
-/// `None` — silently the wrong data, which is the shape this project rules out
-/// for replies.
+/// The grid is a ring of rows, the screen a window into it, and `row` reads
+/// through `Viewport::row`, which does not bound its index by the screen: a
+/// row index past the last one, short of the ring's length, names a ring slot
+/// after the screen's bottom, so `row(55)` on a fifty-row screen returns the cells of a retained history
+/// line or of a slot nothing has written. No panic, no `None` — silently cells
+/// that are not on the screen, which is the shape this project rules out for
+/// replies.
 ///
 /// Pinned rather than changed. `row` returns `&[PackedCell]`, so making it
 /// answer an out-of-range index honestly means either returning `Option` or
 /// panicking, and both change a published signature or its behaviour. That is
-/// the owner's call, not a fix to slip into a testing pass. `viewport()` is
-/// the bounded accessor and is what the benchmarks and tests use.
+/// the owner's call, not a fix to slip into a testing pass. The checked form
+/// is beside it: `Term::get_row` answers `None` past the grid, and the next
+/// test holds it.
 #[test]
 fn row_past_the_grid_is_a_documented_sharp_edge() {
     let ws = support::CORPUS;

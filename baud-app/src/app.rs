@@ -1696,10 +1696,11 @@ impl App {
 /// What the present path has done, for the five-second report and for
 /// `BAUD_FRAME_LOG`.
 ///
-/// `superseded` is the one to read: a frame that reached the layer after
-/// the surfaces it drew into had been replaced. It is the doubled image on
-/// a grow and the old font size on a zoom, and until the discard lands it
-/// counts them happening rather than being prevented.
+/// `superseded` is the one to read: a frame that finished after the
+/// surfaces it drew into had been replaced. Shown, it was the doubled image
+/// on a grow and the old font size on a zoom; since `3c7e589` `admits`
+/// drops it, so the count is of frames kept off the layer, not of the
+/// artefact happening.
 impl App {
     /// A new pixel size for the faces, and the glyph map that goes with
     /// it.

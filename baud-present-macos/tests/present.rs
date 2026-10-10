@@ -80,11 +80,12 @@ fn land(j: &Journal, epoch: &SwapEpoch, tag: FrameTag, l: &CALayer, s: &Surface)
 /// A frame committed before a resize, landing after it, must not replace the
 /// frame drawn for the resize.
 ///
-/// **Pinned at what it does today, not at what it should do.** The rule in
-/// `admits` shows everything, so `stale_shown` is 1 here: that is the bug,
-/// as a number, and this test is what says so before anything is changed.
-/// The fix flips `admits` and this pin moves to 0 -- in either direction, so
-/// a regression is as visible as the repair.
+/// **Written as the failing test before the fix, and green since it.** When
+/// it was written `admits` showed everything, so the superseded frame
+/// reached the layer and this test said so before anything was changed.
+/// `3c7e589` made `admits` skip a superseded frame, and the assertions below
+/// hold that: the layer keeps the frame drawn for the resize, and a
+/// regression that lets the old frame through fails here.
 #[test]
 fn a_frame_that_finished_after_a_resize_never_reaches_the_layer() {
     let epoch = SwapEpoch::new();
