@@ -19,11 +19,11 @@
 //! from that text in places. Where Jev decided for the text on 2026-10-10,
 //! each listed for the owner's veto, baud follows the text: xterm ignores
 //! `?2` and `?8` and saves `?3` only under the `c132` resource `?40` sets
-//! (XT-3). The rest are the owner's call rather than followed here: it saves
-//! one tracking level under all four mouse modes and one encoding under all
-//! four encodings, restores `?1049` without the cursor or the clear,
-//! restores a never-saved mode from a zeroed array, and keeps the cache
-//! across `RIS`.
+//! (XT-3), and restores `?1049` without the cursor or the clear (XT-6). The
+//! rest are the owner's call rather than followed here: it saves one
+//! tracking level under all four mouse modes and one encoding under all four
+//! encodings, restores a never-saved mode from a zeroed array, and keeps the
+//! cache across `RIS`.
 
 use crate::support;
 use baud_core::*;
@@ -115,7 +115,9 @@ fn xtrestore_brings_back_what_xtsave_saved() {
 /// leaves the alternate screen and restores the cursor `?1049 h` saved, as
 /// `?1049 l` does; restoring it set saves the cursor, switches and clears.
 /// Restoring `?47` switches and does nothing else, as `?47` does. xterm's
-/// restore of `?1049` is the bare switch of `?47` -- the owner's call.
+/// restore of `?1049` is the bare switch of `?47`; baud follows the text,
+/// decided 2026-10-10 by Jev at 0.98 and 0.96 (XT-6), listed for the owner's
+/// veto.
 #[test]
 fn xtrestore_has_the_side_effects_of_setting_the_mode() {
     support::with_corpus(|t| {
