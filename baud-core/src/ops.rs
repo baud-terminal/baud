@@ -616,8 +616,8 @@ impl Paint<'_, '_> {
     ///
     /// **xterm erases them whole**: `do_erase_display`'s `case 3` is the same
     /// for both forms and sets `savedlines` to zero whatever the protection
-    /// (`[[source: xterm-scroll]]`). That departs from the text, and which
-    /// one baud follows is the owner's call; this follows the text.
+    /// (`[[source: xterm-scroll]]`). That departs from the text; this follows
+    /// the text, decided 2026-10-10 (Jev, XT-2) and open to the owner's veto.
     pub(crate) fn selective_erase_saved_lines(&mut self) {
         let (hist, blank) = (self.book.hist, self.blank());
         let n = self.on_primary(|v| v.selective_wipe_behind(hist, blank));
