@@ -136,25 +136,28 @@ fn a_base_in_the_last_column_moves_whole_to_the_next_row() {
     });
 }
 
-/// **With `DECAWM` off nothing moves to the next row**, and the selector does
-/// not reach the base at all: the cursor pins *on* the last column, so the
-/// cell left of it is the one before the base, as it is for any mark there.
-/// That is an older defect of the attach (xterm and ghostty keep a pending
-/// wrap with autowrap off, so the cell under the cursor is the base), pinned
-/// here at what the core does and recorded on `TODO.md`.
+/// **With `DECAWM` off nothing moves to the next row**, and the selector
+/// joins its base. The cursor pins *on* the last column, so the character
+/// just written is under it rather than left of it; the attach read the cell
+/// left of the cursor and put the selector on the `g`, which this test pinned
+/// as an older defect until `Paint::attach_continuing` (`tests/margin_pin.rs`).
+/// The base keeps one cell: there is no room to widen into and no wrap to
+/// move it by.
 #[test]
-fn without_autowrap_nothing_moves_and_the_selector_misses_the_base() {
+fn without_autowrap_nothing_moves_and_the_selector_joins_its_base() {
     each_read_size(
         Vs16Width::Two,
         "\x1b[?7labcdefg\u{2764}\u{fe0f}".as_bytes(),
         |t| {
             assert_eq!(row(t, 0), "abcdefg\u{2764}");
             assert_eq!(row(t, 1), "........");
-            let on_g: Vec<u32> = t.marks(Row::from_index(0), Col::at_index(6)).collect();
-            assert_eq!(
-                on_g,
-                [0xfe0f],
-                "pinned: the selector lands on the cell before"
+            let on_base: Vec<u32> = t.marks(Row::from_index(0), Col::at_index(7)).collect();
+            assert_eq!(on_base, [0xfe0f], "the selector is the base's");
+            assert!(
+                t.marks(Row::from_index(0), Col::at_index(6))
+                    .next()
+                    .is_none(),
+                "the cell before keeps nothing"
             );
         },
     );

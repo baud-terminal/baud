@@ -257,6 +257,25 @@ pub(crate) enum SixelBg {
     Opaque,
 }
 
+/// Where the last character written under `DECAWM` reset ended: in the last
+/// column, with the cursor left **on** it, or before it, with the cursor
+/// after it. `[[source: vt510-decawm]]` keeps the cursor on the last column
+/// there, so "the character just written" is under the cursor rather than
+/// before it, and a continuation has to know which (`Paint::attach_continuing`,
+/// `tests/margin_pin.rs`).
+///
+/// Written only where `DECAWM` is reset, and read only on a continuation the
+/// cluster machine accepted with `DECAWM` still reset: a continuation means no
+/// control came between, so the character it continues is the last one
+/// written, and that write set this.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pinned {
+    /// The character ended before the last column; the cursor is after it.
+    Before,
+    /// The character ended in the last column; the cursor is on it.
+    OnLast,
+}
+
 /// The state a control sequence changes that the write loop does not read.
 #[derive(Clone, Copy)]
 pub struct Cold {
@@ -430,6 +449,8 @@ pub struct Cold {
     pub(crate) initial_cursor: CursorStyle,
     /// Whether a `U+FE0F` widens its base ([`Term::set_vs16_width`]).
     pub(crate) vs16: Vs16Width,
+    /// Where the last character written under `DECAWM` reset ended.
+    pub(crate) pinned: Pinned,
     pub(crate) keypad: KeypadMode,
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
@@ -529,10 +550,13 @@ pub struct Cold {
 // took it to 456, none of its 16 bytes in padding: two `u64` words, which
 // slots were saved and the value each had, written by `CSI ? Pm s` and
 // `RIS` and read by `CSI ? Pm r` -- arms of the dispatch, never the write
-// path.
+// path. `Pinned` took it to 464, one byte that found no padding: **written on
+// the write path**, but only in `Paint::pin`, `end_at`'s `DECAWM`-reset arm,
+// once a character or a run, and read by a continuation the cluster machine
+// joined (`tests/margin_pin.rs`).
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 456);
+const _: () = assert!(core::mem::size_of::<Cold>() == 464);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -594,6 +618,7 @@ impl Cold {
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
             vs16: Vs16Width::Two,
+            pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
             screen: Screen::Normal,

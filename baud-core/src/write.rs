@@ -1394,7 +1394,7 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
         }
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
             if p.cx != Col::ZERO {
-                p.attach(cp);
+                p.attach_continuing(cp);
                 return;
             }
             // At column 0 a continuation takes a cell of its own, so the

@@ -598,9 +598,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             .put_ascii_run(self.cy, self.cx, src, self.style, self.flags, self.charset);
         self.cells = self.cells.plus(k);
         let start = self.cx;
-        self.cx = Col::at_index(start.index() + k);
-        self.row_written = self.row_written.max(self.cx);
-        self.overwrite_images(start, self.cx);
+        let end = Col::at_index(start.index() + k);
+        self.cx = self.end_at(end);
+        self.row_written = self.row_written.max(end);
+        self.overwrite_images(start, end);
     }
 
     /// Advance past a character just written, leaving the pending-wrap
@@ -619,11 +620,46 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// being created.
     #[inline(always)]
     fn advance(&mut self, need: Count) {
-        let to = self.cx.index() + need.index();
-        self.cx = match self.cold.modes.is_set(ModeBit::AutoWrap) {
-            true => Col::at_index(to),
-            false => Col::at_index(to.min(self.cold.right.index())),
+        let to = Col::at_index(self.cx.index() + need.index());
+        self.cx = self.end_at(to);
+    }
+
+    /// Where the cursor goes after a write that ended before column `to`:
+    /// `to` itself, or with `DECAWM` reset the last column if `to` is past
+    /// it, recording which ([`crate::term::Pinned`]).
+    ///
+    /// **One rule for a character and for a run.** `blit` and `run` set the
+    /// cursor to the run's end, so a run ending in the last column put it on
+    /// the sentinel this exists to refuse, where the same characters one at a
+    /// time left it on the column: `ICH` then inserted nowhere
+    /// (`tests/margin_pin.rs`). The mode test is once a write, and the clamp
+    /// and the store are out of line, in [`Paint::pin`].
+    #[inline(always)]
+    fn end_at(&mut self, to: Col) -> Col {
+        match self.cold.modes.is_set(ModeBit::AutoWrap) {
+            true => to,
+            false => self.pin(to),
+        }
+    }
+
+    /// `end_at` with `DECAWM` reset: the last column if `to` is past it, and
+    /// which of the two in `Cold::pinned`.
+    ///
+    /// **Out of line because `blit` and `run` pay for it otherwise.** Inline,
+    /// the clamp and the store sat in every run's write on the path `cat`
+    /// takes with autowrap set, and `cat` read 11.8% below the previous
+    /// commit at 0.7% more instructions, with more mispredicts
+    /// (`docs/record.md`, "With `DECAWM` reset the character just written is
+    /// under the cursor").
+    #[cold]
+    #[inline(never)]
+    fn pin(&mut self, to: Col) -> Col {
+        let right = self.cold.right;
+        self.cold.pinned = match to > right {
+            true => crate::term::Pinned::OnLast,
+            false => crate::term::Pinned::Before,
         };
+        to.min(right)
     }
 
     /// A cell that was **looked up, not computed** -- content and width came
@@ -805,11 +841,11 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the two CJK recordings. The gate stays in `glyph`; the work does not.
     #[cold]
     #[inline(never)]
-    pub(crate) fn attach(&mut self, cp: Codepoint) {
+    fn attach_before(&mut self, cp: Codepoint, after: Col) {
         // A continuation with nothing before it on the line has no base.
         // Dropping it is correct: `[[source: uax29]]` GB1 puts a boundary at
         // start of text, so it is its own cluster and there is no cell for it.
-        if self.cx == Col::ZERO {
+        if after == Col::ZERO {
             self.clusters.refused += 1;
             return;
         }
@@ -820,11 +856,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         // is the work rather than its consequences.
         #[cfg(feature = "probe-double-attach")]
         {
-            let o = self.view.lead(self.cy, self.cx.before());
+            let o = self.view.lead(self.cy, after.before());
             let c = self.view.cell_at(self.cy, o);
             core::hint::black_box(self.clusters.get(c.flags.cluster(), c.content).is_some());
         }
-        let (r, owner) = (self.cy, self.view.lead(self.cy, self.cx.before()));
+        let (r, owner) = (self.cy, self.view.lead(self.cy, after.before()));
         let cell = self.view.cell_at(r, owner);
         if cell.content.is_empty() {
             self.clusters.refused += 1;
@@ -867,6 +903,40 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.widen(r, owner.col());
             }
         }
+    }
+
+    /// A zero-width codepoint the cluster machine did not join to anything:
+    /// it goes to the cell before the cursor, the policy `glyph` documents.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn attach(&mut self, cp: Codepoint) {
+        self.attach_before(cp, self.cx)
+    }
+
+    /// A codepoint the cluster machine joined to the character before it:
+    /// the character the last write put down, which is before the cursor,
+    /// **or under it** where `DECAWM` is reset and that write ended in the
+    /// last column ([`crate::term::Pinned`]). Reading `cx - 1` there put
+    /// `e U+0301` in the last column on the letter left of the `e`, and a
+    /// `U+FE0F` after `☠ a` widened the `☠` over the `a`
+    /// (`tests/margin_pin.rs`).
+    ///
+    /// The pin is fresh here: a continuation means no control came between,
+    /// so the last write set it, and `DECAWM` cannot have changed since. A
+    /// resize of the primary carries the cursor with the character it is on,
+    /// wider or reflowed narrower, so the pin still names the last write
+    /// (`tests/margin_pin.rs`); the alternate screen's clamp on a narrower
+    /// resize is not examined.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn attach_continuing(&mut self, cp: Codepoint) {
+        let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
+            && self.cold.pinned == crate::term::Pinned::OnLast;
+        let after = match on_last {
+            true => Col::at_index(self.cx.index() + 1),
+            false => self.cx,
+        };
+        self.attach_before(cp, after)
     }
 
     /// Make the narrow character at `(r, o)` two cells wide, as its `U+FE0F`
@@ -940,9 +1010,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         let n = cps.len() * (1 + usize::from(w == Width::WIDE));
         self.cells = self.cells.plus(n);
         let start = self.cx;
-        self.cx = Col::at_index(start.index() + n);
-        self.row_written = self.row_written.max(self.cx);
-        self.overwrite_images(start, self.cx);
+        let end = Col::at_index(start.index() + n);
+        self.cx = self.end_at(end);
+        self.row_written = self.row_written.max(end);
+        self.overwrite_images(start, end);
     }
 
     /// Does a run of `n` characters of width `w` fit the rest of the row?

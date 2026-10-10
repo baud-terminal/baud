@@ -223,13 +223,25 @@ const ALPHABET: &[Atom] = &[
     // began on its row or after a move onto it, kept the other half on one
     // path and blanked it on another. `Paint`'s mark of how far the cursor's
     // row is written was zero at every read and kept stale on most row
-    // changes (`tests/wide_halves.rs`). Fixed, `?6h` is here, with `CUP`
-    // home and `CUU` so a program lands on rows it has written. **`?7l` is
-    // still out**: it found two more defects at once, `[?7l, ascii, e
-    // U+0301]` -- a letter written into the last column under `DECAWM` reset
-    // pins the cursor there, so a mark after it attaches to the column
-    // before, and a run that ends at the margin leaves the cursor past it
-    // where one character does not.
+    // changes (`tests/wide_halves.rs`). Fixed, they are here, with `CUP` home
+    // and `CUU` so a program lands on rows it has written. Back in, `?7l`
+    // found two more at once, `[?7l, ascii, e U+0301]`: a letter written into
+    // the last column under `DECAWM` reset leaves the cursor on it, so a mark
+    // after it attached to the column before, and a run ending at the margin
+    // left the cursor past it where one character did not
+    // (`tests/margin_pin.rs`).
+    Atom {
+        name: "decawm-reset",
+        bytes: b"\x1b[?7l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decawm-set",
+        bytes: b"\x1b[?7h",
+        stride: 0,
+        count: 0,
+    },
     Atom {
         name: "decom-set",
         bytes: b"\x1b[?6h",
