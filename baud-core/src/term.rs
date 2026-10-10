@@ -553,7 +553,8 @@ pub struct Cold {
 // path. `Pinned` took it to 464, one byte that found no padding: **written on
 // the write path**, but only in `Paint::pin`, `end_at`'s `DECAWM`-reset arm,
 // once a character or a run, and read by a continuation the cluster machine
-// joined (`tests/margin_pin.rs`).
+// joined (`tests/margin_pin.rs`). The `OSC 52` state does not live here but
+// in `StrBuf`, which only a control string reaches (`clip.rs`).
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 464);
@@ -826,7 +827,7 @@ pub struct Term<'b> {
     pub(crate) icon_len: ByteLen,
     pub(crate) link: LinkId,
     /// **Refused, and counted.** A control-string body clipped at `OSC_MAX`, a
-    /// string recognised and not acted on, and the two halves of `OSC 52`.
+    /// string recognised and not acted on, the `OSC 52` reads, and the writes refused.
     /// Silence is the right answer to a clipboard read -- any reply, empty
     /// included, tells a remote program the feature works and it will keep
     /// asking, and what it would read back is whatever the user last copied.
@@ -862,7 +863,9 @@ pub struct Term<'b> {
     pub links_clipped: usize,
     pub strings_ignored: usize,
     pub clipboard_reads_refused: usize,
-    pub clipboard_writes_dropped: usize,
+    /// `OSC 52` writes refused whole: their split by why is
+    /// [`Term::clipboard_refusals`].
+    pub clipboard_writes_refused: usize,
     /// `OSC 133` marks seen. An embedder can tell whether the shell on the
     /// other end sends them at all, which decides whether a resize can be
     /// scoped to what the application will redraw -- see [`Zone`].
@@ -1615,7 +1618,7 @@ impl<'b> Term<'b> {
             clipboard_reads_refused: 0,
             semantic_marks: 0,
             prompt_erases: 0,
-            clipboard_writes_dropped: 0,
+            clipboard_writes_refused: 0,
             marks_dropped: 0,
             mouse_unencodable: 0,
             fast_try: 0,
@@ -2531,6 +2534,25 @@ impl<'b> Term<'b> {
     /// The window title, as the application set it. Bounded by `OSC_MAX`.
     pub fn title(&self) -> &[u8] {
         &self.store.strs.title[..self.title_len.index()]
+    }
+
+    /// The last `OSC 52` write published: the selections it named and what
+    /// they now hold. `None` until one is. Whether a selection is one the
+    /// embedder has, and whether the octets are text, is the embedder's to
+    /// judge -- the core stores what was sent, as it does a title.
+    pub fn clipboard(&self) -> Option<ClipboardWrite<'_>> {
+        self.store.strs.clip.shown(self.store.strs.clip_area)
+    }
+
+    /// How many `OSC 52` writes have been published: read after a read, and
+    /// moved, [`Term::clipboard`] holds the latest.
+    pub fn clipboard_writes(&self) -> crate::clip::ClipboardWrites {
+        self.store.strs.clip.writes()
+    }
+
+    /// The refused `OSC 52` writes, split by why.
+    pub fn clipboard_refusals(&self) -> ClipboardRefusals {
+        self.store.strs.clip.refusals()
     }
 
     /// The icon name. `OSC 1` sets this, and `OSC 0` sets both.

@@ -277,10 +277,24 @@ pub struct StrBuf<'b> {
     /// array flattened into a slice is exactly where a silent stride bug lives.
     pub(crate) links: &'b mut [u8],
     pub(crate) link_len: &'b mut [ByteLen],
+    /// `OSC 52` writes: two areas of [`ClipboardBudget::text`] octets, the
+    /// copy being collected in the first half and the last one finished in
+    /// the second (`clip.rs`). **Empty by default**, the `sixel_body` opt-in:
+    /// a storage with no area refuses every write and counts it.
+    ///
+    /// Here rather than on `Paint` because `Paint` is inlined into the
+    /// per-byte loop and carries this struct by reference already: a slice
+    /// there is two more words through the loop, the class this repo records
+    /// at 3.5-10% (note V, V11 design 1).
+    pub(crate) clip_area: &'b mut [u8],
+    /// The `OSC 52` string in flight, what was last published, and the
+    /// counts (`clip.rs`): here rather than in `Cold`, whose size is pinned
+    /// and which the per-glyph write dereferences.
+    pub(crate) clip: crate::clip::Clip,
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the six, in the one order that is correct.
+    /// Lend the seven, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
@@ -294,6 +308,7 @@ impl<'b> StrBuf<'b> {
         palette: &'b mut [ColorWord],
         links: &'b mut [u8],
         link_len: &'b mut [ByteLen],
+        clip: &'b mut [u8],
     ) -> StrBuf<'b> {
         StrBuf {
             pending,
@@ -302,6 +317,8 @@ impl<'b> StrBuf<'b> {
             palette,
             links,
             link_len,
+            clip_area: clip,
+            clip: crate::clip::Clip::NEW,
         }
     }
 }
@@ -343,6 +360,7 @@ pub struct Owned {
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
     sixel_body: alloc::vec::Vec<u8>,
+    clip: alloc::vec::Vec<u8>,
 }
 
 #[cfg(feature = "alloc")]
@@ -417,6 +435,9 @@ impl Owned {
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
             img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
             sixel_body: vec::Vec::new(),
+            // The `OSC 52` areas default absent, provisioned by
+            // [`Owned::with_clipboard`].
+            clip: vec::Vec::new(),
         }
     }
 
@@ -439,6 +460,15 @@ impl Owned {
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
         self.img_pixels = alloc::vec![ColorWord::DEFAULT; budget.pixels];
         self.sixel_body = alloc::vec![0u8; budget.body];
+        self
+    }
+
+    /// Provision `OSC 52` writes: two areas of `budget`'s text, the copy
+    /// being collected and the last one finished. [`Owned::new`] provisions
+    /// none, the [`Owned::with_images`] shape, and a terminal without them
+    /// refuses every write and counts it in `clipboard_writes_refused`.
+    pub fn with_clipboard(mut self, budget: ClipboardBudget) -> Owned {
+        self.clip = alloc::vec![0u8; budget.buffer()];
         self
     }
 
@@ -502,6 +532,8 @@ impl Owned {
                 palette: &mut self.palette,
                 links: &mut self.links,
                 link_len: &mut self.link_len,
+                clip_area: &mut self.clip,
+                clip: crate::clip::Clip::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -538,6 +570,8 @@ impl Owned {
                 palette: &mut self.palette,
                 links: &mut self.links,
                 link_len: &mut self.link_len,
+                clip_area: &mut self.clip,
+                clip: crate::clip::Clip::NEW,
             },
             ImageStore::new(
                 &mut self.img_pixels,

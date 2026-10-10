@@ -163,6 +163,37 @@ pub struct Config {
     /// as macOS draws it. A `U+FE0F` asks for colour and a `U+FE0E` for text
     /// under either (owner, 2026-09-30).
     pub emoji: baud_render::EmojiDefault,
+    /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
+    /// pasteboard, and how large a copy the terminal holds (note V, V11).
+    pub clipboard: Clipboard,
+}
+
+/// `[clipboard] osc52`: whether a program may write the clipboard with
+/// `OSC 52`. **`Write` by default**, the owner's V11 (2026-09-25), as kitty
+/// and sfte do; reads stay refused whatever this says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Osc52 {
+    Write,
+    Off,
+}
+
+/// The `[clipboard]` section.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Clipboard {
+    pub osc52: Osc52,
+    /// `body_kb`: the largest `OSC 52` body the terminal holds, in KiB of
+    /// base64 -- three octets of text for every four bytes. The core keeps
+    /// two areas of the text, the copy being collected and the last one
+    /// finished, so the default 256 holds a 192 KiB copy in 384 KiB.
+    pub budget: baud_domain::ClipboardBudget,
+}
+
+impl Clipboard {
+    /// Writes on, and a 256 KiB body: note V's design, item 8.
+    pub const DEFAULT: Clipboard = Clipboard {
+        osc52: Osc52::Write,
+        budget: baud_domain::ClipboardBudget::of_body(256 << 10),
+    };
 }
 
 /// The material, and the dimming over it.
@@ -477,6 +508,7 @@ impl Config {
             sixel: baud_domain::SixelClaim::No,
             vs16_width: baud_domain::Vs16Width::Two,
             emoji: baud_render::EmojiDefault::Font,
+            clipboard: Clipboard::DEFAULT,
             source: None,
         }
     }
@@ -742,6 +774,37 @@ impl Config {
                             baud_domain::SixelClaim::No
                         }
                     };
+                }
+                ("clipboard", "osc52") => {
+                    self.clipboard.osc52 = match value.trim().trim_matches('"') {
+                        "write" => Osc52::Write,
+                        "off" => Osc52::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [clipboard] osc52 {other:?} is not write or off; \
+                                 using the default, write"
+                            ));
+                            Osc52::Write
+                        }
+                    };
+                }
+                // KiB of base64 body, as `[images] body_kb` is KiB of raw
+                // Sixel: the budget is a `baud-domain` type, so no `usize`
+                // field lands on `Config`.
+                ("clipboard", "body_kb") => match value.trim().parse::<usize>() {
+                    Ok(kb) => {
+                        self.clipboard.budget =
+                            baud_domain::ClipboardBudget::of_body(kb.saturating_mul(1 << 10));
+                    }
+                    Err(_) => said.push(format!(
+                        "config: [clipboard] body_kb {:?} is not a whole number; keeping the default",
+                        value.trim()
+                    )),
+                },
+                ("clipboard", other) => {
+                    said.push(format!(
+                        "config: [clipboard] has no key {other:?}; it is ignored"
+                    ));
                 }
                 ("images", other) => {
                     said.push(format!(
@@ -1697,6 +1760,38 @@ mod reader {
         assert_eq!(read("advertise_sixel = true\n").sixel, SixelClaim::No);
     }
 
+    /// `[clipboard]`: writes on by default with a 256 KiB body, `off` turns
+    /// them off, `body_kb` sizes the copy, and a value that does not parse
+    /// keeps the default and says so.
+    #[test]
+    fn a_clipboard_section_sets_the_policy_and_the_size() {
+        let d = Config::defaults().clipboard;
+        assert_eq!(d.osc52, Osc52::Write, "on by default: the owner's V11");
+        assert_eq!(
+            d.budget.text(),
+            192 << 10,
+            "a 256 KiB body is 192 KiB of text"
+        );
+        assert_eq!(
+            read("[clipboard]\nosc52 = \"off\"\n").clipboard.osc52,
+            Osc52::Off
+        );
+        assert_eq!(
+            read("[clipboard]\nosc52 = \"write\"\n").clipboard.osc52,
+            Osc52::Write
+        );
+        assert_eq!(
+            read("[clipboard]\nbody_kb = 4\n").clipboard.budget.text(),
+            3 << 10
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[clipboard]\nosc52 = \"maybe\"\nbody_kb = lots\nfocus = 1\n");
+        assert_eq!(c.clipboard, Clipboard::DEFAULT);
+        assert_eq!(said.len(), 3, "{said:?}");
+        // A top-level key of the same name is not the section's.
+        assert_eq!(read("osc52 = \"off\"\n").clipboard.osc52, Osc52::Write);
+    }
+
     #[test]
     fn an_images_section_sets_both_knobs() {
         assert_eq!(Config::defaults().images, crate::host::IMAGE_BUDGET);
@@ -2265,6 +2360,11 @@ shadow     = "never"
             c.images,
             crate::host::IMAGE_BUDGET,
             "the [images] section did not land"
+        );
+        assert_eq!(
+            c.clipboard,
+            Clipboard::DEFAULT,
+            "the [clipboard] section did not land"
         );
     }
 

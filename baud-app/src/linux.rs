@@ -371,7 +371,10 @@ impl Driver {
         // The read's answers go to the outbox now, before a key queues behind
         // them in the 256-byte reply buffer (`reads::feed`); the loop's
         // `flush_reply` writes them.
-        crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b));
+        // No `OSC 52` poll: this driver has no clipboard until the Wayland
+        // driver speaks a data device, and it provisions no area, so the core
+        // refuses every write and counts it in `clipboard_writes_refused`.
+        crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b), |_| {});
         self.pending = Pending::Dirty;
         // A refused image is said by the limit it hit, once a read -- the
         // macOS pump's rule (`host::describe_refusals`).

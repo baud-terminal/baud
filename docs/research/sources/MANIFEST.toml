@@ -4882,6 +4882,22 @@ group  = "J"
 # Block types (3.2.3), the fixed codes (3.2.6), dynamic tables (3.2.7) and the
 # canonical-Huffman construction (3.2.2) the inflater in png.rs implements.
 
+[sources.rfc4648-base64]
+key    = "rfc4648-base64"
+title  = "RFC 4648: The Base16, Base32, and Base64 Data Encodings"
+author = "S. Josefsson"
+year   = 2006
+venue  = "IETF RFC 4648"
+url    = "https://www.rfc-editor.org/rfc/rfc4648.txt"
+file   = "rfc4648-base64.txt"
+sha256 = "84e14418f795d503be5f34bf23ce4ebaa119e9ec7c9f667d8caeb111385b178f"
+bytes  = 35491
+status = "retrieved"
+group  = "C"
+# The alphabet (4, Table 1), padding (3.2, 4), non-alphabet characters (3.3),
+# canonical pad bits (3.5) and the test vectors (10) baud-domain's decoder is
+# held to. Pinned for OSC 52 (note V, V11); ctlseqs names it for Pd.
+
 [sources.rfc1950-zlib]
 key    = "rfc1950-zlib"
 title  = "RFC 1950: ZLIB Compressed Data Format Specification version 3.3"

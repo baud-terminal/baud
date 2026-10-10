@@ -386,6 +386,42 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **`OSC 52` writes, whose body leaves `pending` at `52;`** for the
+    // clipboard areas and is decoded as it arrives: a split can fall inside
+    // `52;` itself, where the route is decided, and between any two
+    // characters of a quantum, where only the decoder's carry crosses. A
+    // padded write closed by `ST`, an unpadded one by `BEL`, a `Pd` that is
+    // not base64 (a clear), one cancelled by `CAN` mid-quantum, and a read.
+    Atom {
+        name: "osc52-write",
+        bytes: b"\x1b]52;c;aGVsbG8gd29ybGQ=\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc52-unpadded",
+        bytes: b"\x1b]52;p;Zm9vYg\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc52-clear",
+        bytes: b"\x1b]52;;not base64\x07",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc52-cancelled",
+        bytes: b"\x1b]52;c;Zm9vY\x18",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "osc52-read",
+        bytes: b"\x1b]52;c;?\x07",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -408,8 +444,25 @@ fn ws() -> WinSize {
 }
 
 /// What a driver reads back: every cell, whether the cursor is shown, the
-/// title and the reply.
-type Seen = (Vec<PackedCell>, bool, Vec<u8>, Vec<u8>);
+/// title, the reply, and the clipboard -- how many writes were published and
+/// what the last left, `None` in its octets for a clear.
+type Seen = (Vec<PackedCell>, bool, Vec<u8>, Vec<u8>, Clipped);
+
+type Clipped = (ClipboardWrites, Option<(Selections, Option<Vec<u8>>)>);
+
+/// Room for every write the alphabet makes.
+const CLIP: ClipboardBudget = ClipboardBudget::of_text(64);
+
+fn clipped(t: &Term<'_>) -> Clipped {
+    let last = t.clipboard().map(|w| {
+        let bytes = match w.content {
+            ClipboardContent::Set(b) => Some(b.to_vec()),
+            ClipboardContent::Cleared => None,
+        };
+        (w.targets, bytes)
+    });
+    (t.clipboard_writes(), last)
+}
 
 /// Feed `bytes` in `chunk`-sized reads and return **every cell**, not a row
 /// and not a string projection -- whether the cursor is shown, the one mode
@@ -417,7 +470,7 @@ type Seen = (Vec<PackedCell>, bool, Vec<u8>, Vec<u8>);
 /// and the reply, to the one request it makes.
 fn drive(bytes: &[u8], chunk: usize) -> Seen {
     let w = ws();
-    let mut owned = Owned::new(&w);
+    let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
     let mut i = 0;
     while i < bytes.len() {
@@ -431,6 +484,7 @@ fn drive(bytes: &[u8], chunk: usize) -> Seen {
         t.cursor_visible(),
         t.title().to_vec(),
         t.reply().to_vec(),
+        clipped(&t),
     )
 }
 
@@ -443,7 +497,7 @@ fn drive(bytes: &[u8], chunk: usize) -> Seen {
 /// same way, which is what the blitter's clipping bug was.
 fn drive_atomwise(prog: &[usize]) -> Seen {
     let w = ws();
-    let mut owned = Owned::new(&w);
+    let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
     for &i in prog {
         let b = ALPHABET[i].bytes;
@@ -455,6 +509,7 @@ fn drive_atomwise(prog: &[usize]) -> Seen {
         t.cursor_visible(),
         t.title().to_vec(),
         t.reply().to_vec(),
+        clipped(&t),
     )
 }
 
@@ -511,7 +566,7 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let (_, _, title, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    let (_, _, title, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
     fed("latin1-osc-nel", &|t| {
@@ -631,11 +686,30 @@ fn atom(name: &str) -> usize {
 fn fed(name: &str, f: &dyn Fn(&Term<'_>)) {
     let bytes = bytes_of(&[atom(name)]);
     let w = ws();
-    let mut owned = Owned::new(&w);
+    let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     f(&t);
+}
+
+/// **The `OSC 52` atoms reach the arms they were added for**, the control
+/// the C1 atoms have: an atom whose body never reached the clipboard would
+/// leave it empty in every chunking and green in every property below.
+#[test]
+fn the_osc52_atoms_reach_the_clipboard() {
+    let one = |name: &str| drive(&bytes_of(&[atom(name)]), 4096).4.1;
+    let c = Selections::NONE.push(b'c').resolve();
+    assert_eq!(one("osc52-write"), Some((c, Some(b"hello world".to_vec()))));
+    let p = Selections::NONE.push(b'p').resolve();
+    assert_eq!(one("osc52-unpadded"), Some((p, Some(b"foob".to_vec()))));
+    assert_eq!(one("osc52-clear"), Some((Selections::NONE.resolve(), None)));
+    assert_eq!(one("osc52-cancelled"), None, "cancelled: nothing published");
+    assert_eq!(one("osc52-read"), None, "a read publishes nothing");
+    fed("osc52-read", &|t| {
+        assert_eq!(t.clipboard_reads_refused, 1);
+        assert!(t.reply().is_empty(), "and is answered with silence");
+    });
 }
 
 proptest! {

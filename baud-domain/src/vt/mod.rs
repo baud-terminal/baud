@@ -1,4 +1,5 @@
 mod charset;
+mod clipboard;
 mod csi;
 mod dcs;
 mod esc;
@@ -13,6 +14,7 @@ mod sgr;
 mod vt52;
 
 pub use charset::*;
+pub use clipboard::*;
 pub use csi::*;
 pub use dcs::*;
 pub use esc::*;

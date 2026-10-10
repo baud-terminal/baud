@@ -224,6 +224,24 @@ pixels_mb = 4
 body_kb = 256
 advertise_sixel = false
 
+# Whether a program can put text on the clipboard with OSC 52: remote
+# Neovim, tmux's copy mode or a multiplexer over ssh, which have no other way
+# to reach this Mac's pasteboard. "write" lets them, "off" refuses every copy
+# and logs once that it did. Reading the clipboard back is always refused --
+# what a program would read is whatever you last copied.
+#
+# The price of "write": anything printed to the terminal, a file you cat
+# included, can replace the clipboard without asking. Every accepted copy is
+# counted in the five-second report, logged at BAUD_LOG=info; the default
+# level, warn, shows only refusals.
+#
+# body_kb is the largest copy, in KiB of the base64 the program sends: 256
+# holds 192 KiB of text. A longer copy is refused whole, never cut, and logs
+# a warning naming this key.
+[clipboard]
+osc52 = "write"
+body_kb = 256
+
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the

@@ -46,10 +46,6 @@ pub enum Osc<'a> {
     ///
     /// [osc8]: https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda
     Hyperlink { id: &'a [u8], uri: &'a [u8] },
-    /// `OSC 52` — clipboard. Carried so the core can *refuse* the read
-    /// deliberately rather than by omission; see the note on
-    /// [`ClipboardOp::Read`].
-    Clipboard(ClipboardOp<'a>),
     /// `OSC 133 ; <kind> ...` -- FinalTerm's semantic prompt marks, as
     /// every shell that ships integration emits them.
     ///
@@ -166,22 +162,6 @@ impl PromptKind {
         }
         PromptKind::Initial
     }
-}
-
-/// The two halves of `OSC 52`, kept apart because they have very different
-/// security properties.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum ClipboardOp<'a> {
-    /// `OSC 52 ; c ; <base64>` — set the clipboard.
-    Write(&'a [u8]),
-    /// `OSC 52 ; c ; ?` — *read* the clipboard back to the application.
-    ///
-    /// A hostile program on the far end of an ssh session can use this to
-    /// exfiltrate whatever the user last copied, which may be a password. xterm
-    /// disables it by default and so does baud: the variant exists so the
-    /// refusal is a decision recorded in the type rather than a sequence that
-    /// happens to fall through.
-    Read,
 }
 
 /// An X11 colour specification, as `XParseColor` accepts it.
@@ -373,15 +353,6 @@ impl<'a> Osc<'a> {
                 Osc::Hyperlink {
                     id: link_id(params),
                     uri,
-                }
-            }
-            b"52" => {
-                let mut p = Split::new(rest, b';');
-                let (_sel, data) = (p.next(), p.next());
-                match data {
-                    Some(b"?") => Osc::Clipboard(ClipboardOp::Read),
-                    Some(d) => Osc::Clipboard(ClipboardOp::Write(d)),
-                    None => Osc::Unsupported,
                 }
             }
             b"133" => {

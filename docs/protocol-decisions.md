@@ -220,6 +220,11 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
   of an ssh session could otherwise read back whatever the user last copied,
   which may be a password. Answering with anything -- including an empty
   payload -- tells it the feature works, so the refusal is silence.
+  **Writes are honoured**, the owner's V11 (2026-09-25), with `[clipboard]
+  osc52 = "off"` to refuse them, and they are not held to `OSC_MAX`: the body
+  after `52;` goes to its own two areas, the copy being collected and the last
+  one finished, and a copy past them is refused whole rather than cut. A `Pd`
+  that is not base64 clears the selection, as `[[source: ctlseqs]]` says.
 * **Colour *names* are not resolved.** `[[source: ctlseqs]]` allows a name "as
   per XParseColor", which needs X11's `rgb.txt`; baud has no citable copy, and
   approximating it would be inventing a protocol. The entry is left alone and
@@ -288,9 +293,6 @@ half-built protocol feature is finished to the spec, not switched off"):
   DECIC/DECDC (above), and the vertical scrolls ignore them: `SU`, `SD`, `IND`,
   `RI`, `LF`, `IL` and `DL` move whole rows, where `[[source: vt510-decslrm]]`
   makes the scrolling region the rectangle.
-* **V11, `OSC 52` writes on by default**, with a config key to turn them off.
-  Today every write is dropped and counted in `clipboard_writes_dropped`.
-  Reads stay refused either way.
 * **V12, `?1001` drawn**: the region through the selection's highlight, and
   the release reports.
 * **V14, an ambiguous-width switch with `?1021`**: a config key to draw East

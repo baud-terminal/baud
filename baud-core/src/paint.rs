@@ -100,7 +100,7 @@ pub(crate) struct Paint<'a, 'b> {
     /// `OSC 8` runs, which is what an empty URI restores.
     pub(crate) link: LinkId,
     /// Bodies clipped at `OSC_MAX`, strings recognised and not acted on, and
-    /// the two halves of `OSC 52`. **Refused is not the same as unnoticed**:
+    /// the `OSC 52` reads and the writes refused. **Refused is not the same as unnoticed**:
     /// silence is the right answer to a clipboard read, and being unable to
     /// tell that one arrived is a different thing.
     /// VT52 commands this core does not act on: the six print functions
@@ -140,7 +140,7 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) semantic_marks: usize,
     /// Redraw marks that erased the block they replace; see `osc.rs`.
     pub(crate) prompt_erases: usize,
-    pub(crate) clipboard_writes_dropped: usize,
+    pub(crate) clipboard_writes_refused: usize,
     /// The screen that is not live: the other surface's cells, marks, ring
     /// and rotation, reached **once per alt-screen transition** and never by
     /// the per-character loop, when `?1049` swaps it with the view's.
@@ -392,7 +392,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             clipboard_reads_refused: 0,
             semantic_marks: 0,
             prompt_erases: 0,
-            clipboard_writes_dropped: 0,
+            clipboard_writes_refused: 0,
             other,
             book,
             clusters,

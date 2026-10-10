@@ -538,6 +538,10 @@ struct App {
     /// The image budget the core was provisioned with, so a refusal's log
     /// line names the limit it hit (`host::describe_refusals`).
     images: baud_domain::ImageBudget,
+    /// `[clipboard]`: the `OSC 52` policy and the area the core was given.
+    clipboard: crate::config::Clipboard,
+    /// The last `OSC 52` write acted on, and the counts (`clip.rs`).
+    clips: crate::clip::Clips,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -586,6 +590,8 @@ struct Boot {
     sixel: baud_domain::SixelClaim,
     /// Whether a `U+FE0F` widens its base, from `vs16_width`.
     vs16_width: baud_domain::Vs16Width,
+    /// `[clipboard]`.
+    clipboard: crate::config::Clipboard,
 }
 
 impl Boot {
@@ -733,6 +739,7 @@ impl Boot {
             images: cfg.images,
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
+            clipboard: cfg.clipboard,
         }
     }
 
@@ -769,6 +776,7 @@ impl App {
             images,
             sixel,
             vs16_width,
+            clipboard,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -789,7 +797,9 @@ impl App {
         startup_mark("scroller style");
         let own_grid = |ws: &WinSize| {
             let owned: &'static mut Owned = Box::leak(Box::new(
-                Owned::with_geometry(&MAX_GRID, &geom).with_images(images),
+                Owned::with_geometry(&MAX_GRID, &geom)
+                    .with_images(images)
+                    .with_clipboard(clipboard.budget),
             ));
             Term::new(owned.storage(), ws)
         };
@@ -800,7 +810,9 @@ impl App {
         let (mut wanted, gpu, term, grid) = match (request, probe) {
             (Request::Force(Path::Cells) | Request::Auto, Some(gpu)) => {
                 let owned: &'static mut Owned = Box::leak(Box::new(
-                    Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT).with_images(images),
+                    Owned::without_surfaces(&MAX_GRID, &geom, Depth::DEFAULT)
+                        .with_images(images)
+                        .with_clipboard(clipboard.budget),
                 ));
                 match (gpu.grid(owned.ring(), pitch), gpu.grid(owned.rows(), pitch)) {
                     (Some((grid, cells)), Some((alt, alt_cells))) => {
@@ -924,6 +936,7 @@ impl App {
         term.set_vs16_width(vs16_width);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
+        let clips = crate::clip::Clips::new(&term);
         App {
             bell,
             term,
@@ -1001,6 +1014,8 @@ impl App {
             slide: Slide::new(cell_h),
             latency: Latency::from_env(),
             images,
+            clipboard,
+            clips,
         }
     }
 
@@ -1732,6 +1747,9 @@ impl App {
             }
             if let Some(line) = self.latency.report() {
                 eprintln!("{line}");
+            }
+            if let Some(line) = self.clips.report() {
+                crate::info!("{line}");
             }
             let l = self.links;
             if l.opened.value() + l.revealed.value() + l.refused.value() > 0 {
@@ -2859,6 +2877,32 @@ mod alt_window_tests {
         feed(&mut t, b"out\r\n\x1b]133;D\x07\x1b]133;P;k=i\x07$ ");
         (hold, _) = hold_after(&t, hold, last);
         assert!(hold == Hold::Open, "the next prompt released the hold");
+    }
+
+    /// **The `OSC 52` poll is the feed's per-read callback.** The pump is
+    /// AppKit-bound and no test drives it, so this holds the source: the
+    /// pump's one `reads::feed` call hands it `clips.poll`, which then runs
+    /// after every read (`clip.rs` holds that `feed` does). Moved after the
+    /// call, beside the title, the first of two reads that each finish a
+    /// copy would be lost: the core keeps only the last write it finished.
+    #[test]
+    fn the_clipboard_is_polled_after_every_read() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const FEED: &str = concat!("crate::reads::", "feed(");
+        const POLL: &str = concat!("|t| pasteboard(", "clips.poll(t, osc52)),");
+        assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
+        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
+        assert_eq!(pump.matches(FEED).count(), 1, "the pump feeds once");
+        let call = pump.split(FEED).nth(1).expect("the feed call");
+        let call = &call[..call.find("\n        );").expect("the call ends")];
+        assert!(
+            call.contains(POLL),
+            "the poll is not the feed's per-read callback"
+        );
+        assert_eq!(SRC.matches(POLL).count(), 1, "and nowhere else");
     }
 
     /// **The driver's calls into these are AppKit-bound**, so no test above
@@ -4338,11 +4382,15 @@ impl Driver {
         // or every read after the first few lost its answers to the 256-byte
         // reply buffer (`reads::feed`). The write to the child is still the
         // one `flush_reply` below.
-        let (term, trace, outbox) = (
+        // A program's `OSC 52` copy is polled after each read, not after the
+        // batch: the core keeps only the last write it finished (`clip.rs`).
+        let (term, trace, outbox, clips) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
+            &mut self.app.clips,
         );
+        let osc52 = self.app.clipboard.osc52;
         crate::reads::feed(
             term,
             drained.chunks.iter().map(|chunk| {
@@ -4352,7 +4400,15 @@ impl Driver {
                 &chunk.bytes[..]
             }),
             |b| outbox.push(b),
+            |t| pasteboard(clips.poll(t, osc52)),
         );
+        if let Some(line) = self
+            .app
+            .clips
+            .core_refusals(&self.app.term, self.app.clipboard.budget)
+        {
+            crate::warn!("{line}");
+        }
         if !drained.chunks.is_empty() {
             self.app.pending = Pending::Dirty;
         }
@@ -4528,6 +4584,26 @@ impl Driver {
             let view = self.view.clone();
             self.app.present(&view, Show::Event);
         }
+    }
+}
+
+/// What a polled `OSC 52` write does: the pasteboard written or emptied, or a
+/// refusal's one warning said.
+fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) {
+    let Some((decision, warn)) = polled else {
+        return;
+    };
+    match decision {
+        crate::clip::Decision::Set(text) => {
+            if clipboard::write_text(text) == clipboard::Written::Refused {
+                crate::warn!("clipboard: the pasteboard refused a program's copy");
+            }
+        }
+        crate::clip::Decision::Clear => clipboard::clear(),
+        crate::clip::Decision::Refused(_) => {}
+    }
+    if let Some(line) = warn {
+        crate::warn!("{line}");
     }
 }
 

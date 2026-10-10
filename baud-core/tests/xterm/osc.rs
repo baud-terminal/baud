@@ -295,12 +295,20 @@ fn clipboard_requests_are_refused_but_counted() {
     assert_eq!(t.clipboard_reads_refused, 1, "the read is counted");
     assert!(t.reply().is_empty(), "and answered with silence");
 
+    // A storage given no clipboard area -- `Owned::new` gives none -- refuses
+    // the write and counts it. Writes a provisioned storage honours are
+    // `tests/clipboard.rs`'s.
     feed(&mut t, b"\x1b]52;c;aGVsbG8=\x07");
-    assert_eq!(t.clipboard_writes_dropped, 1, "the write is counted");
+    assert_eq!(t.clipboard_writes_refused, 1, "the write is counted");
+    assert_eq!(
+        t.clipboard_refusals().unprovisioned,
+        1,
+        "for want of an area"
+    );
     assert!(t.reply().is_empty(), "writes are not answered either");
     // Recognised rather than refused, and `baud-core` says so with the two
     // counters that exist for exactly this: a read is refused and counted, a
-    // write dropped and counted. `strings_ignored` is what an *unrecognised*
+    // write refused and counted. `strings_ignored` is what an *unrecognised*
     // OSC increments, so zero there is the assertion core2 spelled with its
     // `unsupported` counter.
     assert_eq!(t.strings_ignored, 0, "OSC 52 is recognised, not ignored");

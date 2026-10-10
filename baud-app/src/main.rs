@@ -29,6 +29,10 @@ mod bell;
 // drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod caret;
+// What a program's `OSC 52` copy does to the pasteboard: pure, so its tests
+// run on every platform; only the macOS driver has a pasteboard today.
+#[cfg(any(target_os = "macos", test))]
+mod clip;
 mod config;
 // The font compiled into the binary: the default stack's first face.
 mod embedded;

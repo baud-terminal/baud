@@ -100,10 +100,22 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
             return;
         }
+        // An `OSC 52` body past its `52;`: decoded into the clipboard areas,
+        // not kept in `pending`, whose 512 bytes hold under 400 of text.
+        if self.cold.str_kind == StrKind::Clipboard {
+            return self.clip_put(b);
+        }
         let n = self.cold.str_len.index();
         if n < OSC_MAX {
             self.strs.pending[n] = b.raw_byte();
             self.cold.str_len = ByteLen::from_index(n + 1);
+            // **`52;` routes the rest of the body to the clipboard**, whose
+            // `Pd` is unbounded: kept here, a copy past 380-odd octets would
+            // be cut at `OSC_MAX`. Matched on the spelling `Osc::parse`
+            // matches, so no body it would call `52` stays behind.
+            if n == 2 && self.cold.str_kind == StrKind::Osc && self.strs.pending[..3] == *b"52;" {
+                self.clip_start();
+            }
         } else {
             self.string_truncations += 1;
         }
@@ -125,6 +137,7 @@ impl Paint<'_, '_> {
         match self.cold.str_kind {
             StrKind::Osc => self.dispatch_osc(term),
             StrKind::Sixel => self.sixel_end(),
+            StrKind::Clipboard => self.clip_end(),
             StrKind::Decrqss => {
                 let n = self.cold.str_len.index();
                 let target = StatusTarget::parse(&self.strs.pending[..n]);
@@ -274,13 +287,6 @@ impl Paint<'_, '_> {
                 }
                 self.refresh_flags();
             }
-            // Refused, and **counted**. Silence is the right answer to the
-            // application -- any reply, empty included, tells a remote program
-            // the feature works and it will keep asking, and what it would
-            // read back is whatever the user last copied. Being unable to tell
-            // that one asked is a different thing, and not a feature.
-            Osc::Clipboard(ClipboardOp::Read) => self.clipboard_reads_refused += 1,
-            Osc::Clipboard(_) => self.clipboard_writes_dropped += 1,
             // Both counters: `strings_ignored` is what an embedder reads to
             // find OSC codes it might want to implement, and
             // `unsupported_total` is the one the conformance inventory asks.
@@ -412,13 +418,14 @@ fn copy_bounded(dst: &mut [u8], src: &[u8]) -> ByteLen {
 
 /// Which control string is being accumulated.
 ///
-/// Four states for five introducers. `SOS`, `PM` and `APC` share `Other`,
+/// Five states for five introducers. `SOS`, `PM` and `APC` share `Other`,
 /// with any `DCS` this core has no prefix parser for, because it acts on none
 /// of them and their bodies are consumed identically. `Decrqss` and `Sixel`
 /// are separate because each is reached through a **prefix** -- `$ q`, or a
 /// bare `q`, after the introducer and any parameters -- rather than through
 /// the introducer alone, so `StrKind::of` cannot name them; `Act::DcsQuery`
-/// and `Act::SixelStart` set them when the prefix arrives.
+/// and `Act::SixelStart` set them when the prefix arrives. `Clipboard` is the
+/// same again inside an OSC body, set by `str_put` at `52;`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum StrKind {
     Osc,
@@ -428,6 +435,10 @@ pub(crate) enum StrKind {
     /// `sixel_body` and decoded at the terminator. Reached through the bare
     /// `q` prefix, the `Decrqss` shape one prefix over.
     Sixel,
+    /// An `OSC 52` past its `52;`: the body goes to the clipboard areas,
+    /// decoded as it arrives (`clip.rs`). Reached through the body's own
+    /// first bytes, which `StrKind::of` cannot see either.
+    Clipboard,
     Other,
 }
 

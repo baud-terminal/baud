@@ -28,6 +28,7 @@
 #![feature(variant_count)]
 #![forbid(unsafe_code)]
 
+mod base64;
 mod brand;
 mod cache;
 mod cell;
@@ -72,6 +73,7 @@ mod vt;
 mod width;
 mod width_data;
 
+pub use base64::*;
 pub use brand::*;
 pub use cache::*;
 pub use cell::*;

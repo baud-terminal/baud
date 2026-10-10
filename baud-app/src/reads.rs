@@ -20,16 +20,24 @@ use baud_core::{BytePos, ReadLen, Term};
 /// AG; this stops the loss between reads. `sink` is the outbox's `push`,
 /// which makes no system call, so draining a read at a time writes no more
 /// often than draining a batch did.
+///
+/// **`after` sees the core after each read**, for what is an event rather
+/// than state: an `OSC 52` write (`clip.rs`). The core keeps only the last
+/// write it finished, so a batch whose reads each finish one would hand a
+/// poll after the batch only the last; a title is state and is read once
+/// after the batch, beside this.
 pub fn feed<'r>(
     term: &mut Term<'_>,
     reads: impl IntoIterator<Item = &'r [u8]>,
     mut sink: impl FnMut(&[u8]),
+    mut after: impl FnMut(&Term<'_>),
 ) {
     owed(term, &mut sink);
     for bytes in reads {
         term.write_at(BytePos::ZERO, bytes);
         term.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
         owed(term, &mut sink);
+        after(term);
     }
 }
 
@@ -122,9 +130,12 @@ mod tests {
         }
         let before = t.reply_overflows;
         let mut child = Vec::new();
-        feed(&mut t, stream.chunks(READ_CHUNK), |b| {
-            child.extend_from_slice(b)
-        });
+        feed(
+            &mut t,
+            stream.chunks(READ_CHUNK),
+            |b| child.extend_from_slice(b),
+            |_| {},
+        );
         let answered = child.windows(4).filter(|w| w == b"\x1b]4;").count();
         assert_eq!(answered, 256, "every index is answered");
         assert_eq!(child, want, "in order, each with its query's terminator");
@@ -149,7 +160,12 @@ mod tests {
         let before = t.reply_overflows;
         let read = b"\x1b]4;1;?\x07\x1b]4;2;?\x1b\\";
         let mut child = Vec::new();
-        feed(&mut t, [read.as_slice()], |b| child.extend_from_slice(b));
+        feed(
+            &mut t,
+            [read.as_slice()],
+            |b| child.extend_from_slice(b),
+            |_| {},
+        );
         let mut want = b"\x1b[0n".repeat(57);
         want.extend_from_slice(b"\x1b]4;1;rgb:1212/3434/5656\x07");
         want.extend_from_slice(b"\x1b]4;2;rgb:1212/3434/5656\x1b\\");

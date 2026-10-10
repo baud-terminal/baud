@@ -305,6 +305,9 @@ fn main() {
     let mut palette = vec![ColorWord::DEFAULT; baud_core::PALETTE_LEN];
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
+    // No `OSC 52` areas: no recording carries one, and an empty slice
+    // refuses a write and counts it, as `sixel_body` does an image.
+    let mut clip: Vec<u8> = Vec::new();
     // No images, except for the payload that places one: an empty store
     // refuses every Sixel, and the recordings carry none, so the ingest path
     // never reaches image storage. `sixel-cat` gets room for its one image and
@@ -342,6 +345,7 @@ fn main() {
                 &mut palette,
                 &mut links,
                 &mut link_len,
+                &mut clip,
             ),
             ImageStore::new(&mut img_pixels, &mut img_slots, &mut img_places),
             &mut sixel_body,

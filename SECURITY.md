@@ -14,7 +14,7 @@ reads its configuration (`$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/`,
 ones the config names, or the system faces behind its embedded font when it
 names none -- and draws with Metal
 on macOS and on the CPU into `wl_shm` on Linux. On macOS it copies a selection
-to the clipboard and pastes from it when you ask, and opens the links below.
+to the clipboard and pastes from it when you ask, puts a program's `OSC 52` copy on it unless `[clipboard] osc52 = "off"`, and opens the links below.
 It has no network code: the Linux driver talks only to the local Wayland
 compositor's Unix socket.
 
@@ -99,11 +99,16 @@ report them as gaps; if you think one is wrong, the reasoning is in
   read back whatever the user last copied, which may be a password. Any answer —
   including an empty one — tells it the feature works, so the refusal is
   silence, counted in `clipboard_reads_refused`.
-- **`OSC 52` clipboard *writes* are dropped today, and counted** in
-  `clipboard_writes_dropped`. The owner has decided they will be on by
-  default, with a config key to turn them off (note V's V11,
-  `docs/research/notes/v-open-decisions.md`); that is unbuilt. Once it is, a
-  program can put text on your clipboard, and still never read it back.
+- **`OSC 52` clipboard *writes* are honoured by default**, the owner's V11
+  (`docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
+  turns them off. The threat is the write itself: anything printed to the
+  terminal -- a remote program, a file you `cat` -- can replace your clipboard
+  without asking, and you might paste that into a shell. Bracketed paste
+  blunts the worst of it in a modern shell; baud's paste does not strip other
+  control bytes. Every accepted write is counted in the five-second report,
+  which the log shows at `BAUD_LOG=info` (the default, `warn`, shows only refusals), and a copy is never cut: one past `[clipboard] body_kb` is refused
+  whole and logged. There is no focus gate until one is tested over a slow
+  ssh link. A program still never reads the clipboard back.
 - **Bracketed paste (`?2004`) is implemented as a security mode.** Without it a
   pasted string containing a newline is delivered to the shell as typed input
   and runs. That is the paste-jacking class.

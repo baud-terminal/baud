@@ -28,6 +28,13 @@ pub fn write_text(text: &str) -> Written {
     }
 }
 
+/// Empty the pasteboard: what a program's `OSC 52` whose data is neither
+/// base64 nor `?` asks for -- `[[source: ctlseqs]]`, "the selection is
+/// cleared".
+pub fn clear() {
+    NSPasteboard::generalPasteboard().clearContents();
+}
+
 /// The pasteboard's string, if it holds one.
 pub fn read_text() -> Option<String> {
     let board = NSPasteboard::generalPasteboard();

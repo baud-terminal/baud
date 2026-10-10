@@ -51,6 +51,7 @@
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
+mod clip;
 mod dcs;
 mod feed;
 mod graph;
@@ -102,9 +103,12 @@ pub use baud_domain::{
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return.
 pub use baud_domain::{
-    Chan, ClipboardOp, ColorWord, DynamicColor, LinkId, Osc, StringTerm, XColor,
+    Chan, ClipboardBudget, ClipboardContent, ClipboardRefusals, ClipboardWrite, ColorWord,
+    DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, XColor,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
+/// A reading of how many `OSC 52` writes have been published.
+pub use clip::ClipboardWrites;
 pub use graph::Node;
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller
