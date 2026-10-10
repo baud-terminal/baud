@@ -1,0 +1,11 @@
+--- a/baud-core/src/graph.rs
++++ b/baud-core/src/graph.rs
+@@ -1194,7 +1194,7 @@
+         // up to its first non-digit, so a `BEL` put inside one split it.
+         0x07 => match node {
+             Node::OscStr => edge(Act::StrEnd, Node::Ground),
+-            Node::DcsStr => edge(Act::StrPut, Node::DcsStr),
++            Node::DcsStr => edge(Act::Consume, Node::DcsStr),
+             _ => edge(Act::Consume, node),
+         },
+         0x1b => edge(Act::Consume, Node::StrEsc),

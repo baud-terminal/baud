@@ -1,0 +1,36 @@
+--- a/baud-core/src/graph.rs
++++ b/baud-core/src/graph.rs
+@@ -1249,7 +1249,10 @@
+         // whose recovery the implementation picks (Annex D, item 10). The
+         // texts conflict, so the row stays what it was; `BEL` alone is put,
+         // above.
+-        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, node),
++        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => match node {
++            Node::DcsStr => edge(Act::StrPut, node),
++            _ => edge(Act::Consume, node),
++        },
+         // **`DEL` is ignored in a DCS body and kept in the other two.** For a
+         // DCS every text that speaks of it drops it or lets it be dropped:
+         // `[[source: williams]]`'s `dcs passthrough` ignores `7F` with no
+--- a/baud-core/src/osc.rs
++++ b/baud-core/src/osc.rs
+@@ -72,6 +72,10 @@
+             // and as 070-9 §9.2 lists for Sixel, "7/15 (DELETE) Ignored" (926).
+             // The `DEL` was stored until 2026-10-10 and this arm dropped it; xterm
+             // hands its parser one, which ends a number there, its departure.
++            if b.raw_byte() == 0x07 {
++                self.bells += 1;
++                return;
++            }
+             if b.is_c0() {
+                 return;
+             }
+@@ -97,7 +101,7 @@
+         // `[[source: ctlseqs]]` leaves error recovery to the implementation
+         // (133-137). The other C0 the graph puts, `BEL`, stays in the `Pt`,
+         // and the request then names nothing, which is the owner's open call.
+-        if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
++        if self.cold.str_kind == StrKind::Decrqss && b.is_c0() {
+             return;
+         }
+         let n = self.cold.str_len.index();

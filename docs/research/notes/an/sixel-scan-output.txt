@@ -1,0 +1,12 @@
+# sixel-scan.py, run 2026-10-10 at 2543f8b from the repository root over every tracked
+# recording and Sixel file:
+#   python3 -I docs/research/notes/an/sixel-scan.py $(git ls-files '*.raw' '*.six')
+tests/recordings/sixel/img2sixel-96x72.six: P - body 2157 B cut ST; raster 1;1 first; SPACE 0 C0 0 DEL 0 80-FF 0; repeat then other command 0; colour defines 32, Pu not 2 or value over 100 0; selections 75, of a register never defined 0; data bytes before any '#' 0
+tests/recordings/sixel/swirl.raw: P 0;1;0 body 5448 B cut ST; raster 1;1 first; SPACE 0 C0 0 DEL 0 80-FF 0; repeat then other command 0; colour defines 233, Pu not 2 or value over 100 0; selections 113, of a register never defined 0; data bytes before any '#' 0
+2 Sixel strings in 28 files
+#
+# The positive control: a scratch file written with
+#   printf '\033P0;1;0q"2;1;1;6~#5~ !5%%~\376\001\177#1;3;0;0;0#2;2;150;0;0~\030' > control.raw
+# holding one of each shape the scan counts. Every count fires:
+control.raw: P 0;1;0 body 43 B cut CAN; raster 2;1 first; SPACE 1 C0 1 DEL 1 80-FF 1; repeat then other command 1; colour defines 2, Pu not 2 or value over 100 2; selections 1, of a register never defined 1; data bytes before any '#' 1
+1 Sixel strings in 1 files

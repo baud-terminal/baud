@@ -1,0 +1,11 @@
+--- a/baud-core/src/osc.rs
++++ b/baud-core/src/osc.rs
+@@ -97,7 +97,7 @@
+         // `[[source: ctlseqs]]` leaves error recovery to the implementation
+         // (133-137). The other C0 the graph puts, `BEL`, stays in the `Pt`,
+         // and the request then names nothing, which is the owner's open call.
+-        if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
++        if self.cold.str_kind == StrKind::Decrqss && b.is_c0() {
+             return;
+         }
+         let n = self.cold.str_len.index();
