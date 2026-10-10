@@ -443,7 +443,7 @@ impl Row {
 /// be five digits and a right margin can sit past column 255. Passing a margin
 /// to a byte-wide emitter does not fail -- it silently writes the wrong
 /// number, which is the class this repo's audit exists to catch and the reason
-/// `baud-core2`'s `emit_num` carries a comment saying it is "wider than
+/// `baud-core2`'s `emit_num` carried a comment saying it was "wider than
 /// `emit_dec`".
 ///
 /// Everything it wraps is a wire code an SGR or an `OSC 4` already defines as

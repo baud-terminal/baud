@@ -147,7 +147,8 @@ impl Csi {
     /// Reporting zero here made `fold_sgr`'s loop run no iterations, so
     /// `git-log.raw`'s commonest sequence -- `ESC [ m`, 1,779 of them -- left
     /// the rendition exactly as it was instead of resetting it. `baud-core2`
-    /// spells the same rule as `count_at_least_one`.
+    /// spelled the same rule as `baud-domain`'s `ParamIdx::count_at_least_one`,
+    /// which nothing calls now.
     fn count(&self) -> Count {
         Count::of((self.n.raw_index() + 1).min(NPARAM))
     }
@@ -219,10 +220,11 @@ impl Csi {
     }
 
     /// The operation, parsed by the **domain's** grammar rather than a second
-    /// one written here. `baud-core2` calls the same function, so the two
-    /// cores cannot drift about what a sequence means -- which is what a
-    /// hand-written recogniser beside the table did, and it leaked
-    /// half-parsed parameters when it bailed.
+    /// one written here, so this dispatch cannot drift from it about what a
+    /// sequence means -- which is what a hand-written recogniser beside the
+    /// table did, and it leaked half-parsed parameters when it bailed.
+    /// `baud-core2` called the same function, which kept the two cores agreed
+    /// while both existed.
     #[inline]
     fn op(&self, f: FinalByte, lrm: MarginMode) -> baud_domain::Csi {
         baud_domain::Csi::parse_with(
@@ -994,8 +996,9 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     // **Index the cell instead of computing it.** `len` is a constant at each
     // call site, so this test folds; the three-byte plane is 81% of
     // `cat-cjk.raw`. The table is built once at construction and verified
-    // against what `baud-core2` writes for all 65,536 sequences by
-    // `the_cell_table_is_what_the_write_path_writes`.
+    // against what the computing path below writes, for all 65,536
+    // sequences, by `the_cell_table_is_what_the_write_path_writes`; it was
+    // verified against `baud-core2` until that crate was deleted.
     #[cfg(feature = "cell-table")]
     if len == 3 && !p.cells3.is_empty() {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);
@@ -1602,18 +1605,20 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             _ => p.unsupported_param += 1,
         },
         // **Recorded, not acted on, and those are different things.** The
-        // region is what an application asks the terminal to highlight; baud
-        // has no selection model to highlight *with*, which is a reason not to
-        // draw it and not a reason to discard the request. An embedder that
-        // has one reads it from [`Term::highlight_region`].
+        // region is what an application asks the terminal to highlight, and
+        // nothing in baud draws it yet: drawing it through the selection's
+        // highlight is unbuilt (note V's V12, and the `?1001` row of
+        // `docs/vt-coverage.md`). That is a reason not to draw it and not a
+        // reason to discard the request. An embedder reads it from
+        // [`Term::highlight_region`].
         //
         // It is also the arity trap. `CSI Ps T` is SD and `CSI Ps ; Ps ; Ps ;
         // Ps ; Ps T` is this, and reading the five-parameter form as SD makes
         // a highlight request **scroll the screen** -- silently, because SD is
         // implemented and the sequence reaches a real handler.
         // `baud_domain::Csi` splits them on `p.len() >= 5`, so the two cannot
-        // be confused here; the arity is the discriminator and it is one line
-        // above in a crate both cores share.
+        // be confused here; the arity is the discriminator, and it lives in
+        // the domain's grammar rather than in this dispatch.
         DomCsi::HighlightMouseTracking(r) => p.cold.highlight_region = r,
         DomCsi::CursorStyle(CursorPick::Style(c)) => p.cold.cursor_style = c,
         DomCsi::CursorStyle(CursorPick::Initial) => p.cold.cursor_style = p.cold.initial_cursor,
@@ -1633,9 +1638,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // **XTVERSION, and the refusal it replaces was scoped wrongly.** The
         // reason on record was that answering "would name a version this core
         // does not have" -- but `Report::Version` is `baud_domain`'s and
-        // already encodes `DCS > | baud ST`, which is the answer core2 sends.
-        // The name is the *program*'s rather than the core's, and both cores
-        // are baud. Read a refusal against its scope, which this file says to
+        // already encodes `DCS > | baud ST`, which is the answer core2 sent.
+        // The name is the *program*'s rather than the core's, and the program
+        // is baud. Read a refusal against its scope, which this file says to
         // do and which has closed four others.
         DomCsi::RequestVersion => p.want_reply(Report::Version),
         // **XTWINOPS 14, 16 and 18: the size of the text area, which an image
@@ -1821,8 +1826,8 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // `docs/vt-coverage.md` rates worse than not implementing it: the
         // application gets no way to find out.
         //
-        // `baud-core2` answers with one `unsupported` counter every dispatch
-        // arm bumps; this core had one for CSI *finals* only, which is why
+        // `baud-core2` answered with one `unsupported` counter every dispatch
+        // arm bumped; this core had one for CSI *finals* only, which is why
         // `every_spec_csi_final_is_handled_or_counted` passed while the ESC,
         // OSC and DCS inventories did not. The mechanism was right and its
         // coverage was three quarters short.
@@ -2016,7 +2021,7 @@ fn fast_csi(
     // it at **19.5-33.5%**, see `CLAUDE.md`. A parameter only
     // has to reach the array when it *ends*, at a separator or at the final
     // byte, so the digits fold in a register and the array is touched once a
-    // parameter instead of once a digit. `baud-core2` has always done this.
+    // parameter instead of once a digit. `baud-core2` always did this.
     //
     // **One loop, and splitting it into phases lost.** The marker can only be
     // at position zero and `seen_inter` only ever goes from false to true, so

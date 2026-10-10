@@ -162,7 +162,7 @@ fn a_grow_after_scrolling_does_not_panic() {
     // **Provisioned for 120 rows, because growing needs somewhere to grow.**
     // `Term::resize` answers `Truncated` past the row capacity rather than
     // allocating behind the caller -- the storage is the caller's here, where
-    // `baud-core2`'s is a fixed array it can always grow into.
+    // `baud-core2`'s was a fixed array it could always grow into.
     support::with_room(120, |t| {
         let payload: Vec<u8> = (0..90).flat_map(|_| b"Y\r\n".to_vec()).collect();
         support::feed(t, &payload);

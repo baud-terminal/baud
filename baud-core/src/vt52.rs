@@ -9,7 +9,7 @@
 //! a per-byte branch and were free.
 //!
 //! `[[source: ctlseqs]]` gives the command set; `baud_domain::Vt52` is the
-//! parse and both cores call it, so what lives here is what each command does.
+//! parse, so what lives here is what each command does.
 
 use crate::paint::Paint;
 use baud_domain::*;

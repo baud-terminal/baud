@@ -3,13 +3,15 @@
 //! Feeds identical bytes to `baud-core` and to alacritty's `Term`, then compares
 //! the visible grid cell by cell.
 //!
-//! **It is the only external oracle left, and that is new.** Until `baud-core2`
-//! was deleted the differential that mattered was between the two cores, and
-//! this one was a second opinion; now it is the only thing in the repository
-//! that can disagree with `baud-core` from outside it. `baud-core/tests/golden.
-//! rs` froze what core2 rendered, but a golden capture only finds regressions on
-//! bytes somebody wrote down -- this can find an operation nobody thought to
-//! write a test for.
+//! **It was the only external oracle left when `baud-core2` went.** Until
+//! then the differential that mattered was between the two cores, and this one
+//! was a second opinion; after it, this was the one thing in the repository
+//! that could disagree with `baud-core` from outside it, until
+//! `baud-sfte-difftest` added a second, against sfte, which compares the
+//! cursor and the replies as well as the grid. `baud-core/tests/golden.rs`
+//! froze what core2 rendered, but a golden capture only finds regressions on
+//! bytes somebody wrote down -- a differential can find an operation nobody
+//! thought to write a test for.
 //!
 //! **This file said `baud-core` and used `baud-core2` from the rename until the
 //! deletion**, which is the same drift `docs.rs`'s `ROOTS` list and the CI step

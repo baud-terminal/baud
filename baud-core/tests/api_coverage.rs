@@ -5,10 +5,10 @@
 // analysis is the check that catches it.
 //! Every public function in `baud-core` is called by a test.
 //!
-//! `baud-core2` has had this gate for a while and `baud-core` did not, which is
-//! the same asymmetry that left CI running `cargo test -p baud-core --test
-//! parser` against a package with no such target: a check written for the old
-//! core, and a new core beside it that nothing points at.
+//! `baud-core2` had this gate for a while before `baud-core` did, which is the
+//! same asymmetry that left CI running `cargo test -p baud-core --test parser`
+//! against a package with no such target: a check written for the old core,
+//! and a new core beside it that nothing pointed at.
 //!
 //! It is deliberately *not* line coverage. "Is there a test that calls this at
 //! all" is the weaker question, and it is the one that was being answered
@@ -18,8 +18,8 @@
 //!
 //! In `baud-core2` the equivalent found `Term::resize` with **no caller
 //! anywhere**, and reaching it found three bugs including a panic on shrink.
-//! `baud-core` has no `resize` at all yet; when it gets one, this is what makes
-//! sure something calls it.
+//! `baud-core` had no `resize` when this was written; it has one now, and this
+//! is what makes sure something calls it.
 
 use std::collections::BTreeSet;
 use std::fs;

@@ -181,10 +181,11 @@ fn decaln_fills_the_screen_and_homes_the_cursor() {
         after[..200].iter().all(|c| *c == first),
         "row 0 must be uniform"
     );
-    // **The stride is the live width here, not `MAX_COLS`.** `baud-core2`
-    // lays the grid out at 2048 cells a row; this core strides by the live
-    // column count, which is the change worth +14% on everything that
-    // scrolls. Keeping the constant would read row 307 of this grid.
+    // **The stride is `Term::stride`, not `MAX_COLS`.** `baud-core2` laid the
+    // grid out at 2048 cells a row; this core's pitch is fixed from the
+    // provisioned width, and leaving 2048 was the change worth +14% on
+    // everything that scrolls. Keeping the constant would read row 307 of
+    // this grid.
     let stride = support::with_corpus(|t| t.stride().index());
     assert_eq!(after[stride * 30], first, "and so must row 30");
     assert_ne!(first, grid(b"")[0], "the pattern is not blank");

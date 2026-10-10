@@ -155,7 +155,7 @@ fn every_relative_link_resolves() {
 
 /// **Every repository path a document names in backticks exists.**
 ///
-/// Documents here cite real paths constantly — `baud-core2/src/parse/fast.rs`,
+/// Documents here cite real paths constantly — `baud-core/src/graph.rs`,
 /// `scripts/check-sources.sh`, `docs/research/notes/g-text-encoding.md` — and
 /// those are load-bearing: they are how a reader gets from a claim to the code
 /// that implements it. A path that has moved turns the claim into folklore.
@@ -235,7 +235,7 @@ fn every_repository_path_named_in_the_docs_exists() {
 }
 
 /// Expand shell-style `{a,b,c}` shorthand, which the protocol docs use to name
-/// a group of modules in one breath: `baud-core2/src/{osc,mouse,modes}.rs`.
+/// a group of modules in one breath: `baud-core/src/{write,ops,paint}.rs`.
 /// Readable, and not a path — so it is expanded rather than banned.
 fn expand_braces(tok: &str) -> Vec<String> {
     let (Some(open), Some(close)) = (tok.find('{'), tok.find('}')) else {

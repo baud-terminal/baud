@@ -1,20 +1,23 @@
 //! Operating System Commands: titles, the palette, hyperlinks, the clipboard.
 //!
-//! **The parsing is `baud_domain::Osc` and both cores call it.** What is here
-//! is the wiring -- accumulate a body, decide what it was, write the result
-//! somewhere the embedder can read -- and that is the half each core has to
-//! get right on its own. A core that recognised `OSC 8` and never set the
-//! link index would open every URI it was sent and link no cell, and no test
-//! of the parser could see it.
+//! **The parsing is `baud_domain::Osc`.** What is here is the wiring --
+//! accumulate a body, decide what it was, write the result somewhere the
+//! embedder can read -- and that is the half this core has to get right on its
+//! own. A core that recognised `OSC 8` and never set the link index would open
+//! every URI it was sent and link no cell, and no test of the parser could see
+//! it.
 //!
-//! **The two pinned differentials are structurally blind to all of this.**
-//! The glyph differential read content and the rendition one
-//! reads the resolved `StyleWord`; a window title changes no cell and a link
-//! index rides in `CellFlags`, which neither reads. So the gate for this file
-//! was the control-string differential against `baud-core2`, which compared the
-//! title, the icon, the palette, the link index of a written cell, the URI it
+//! **The two pinned differentials were structurally blind to all of this.**
+//! The glyph differential read content and the rendition one read the
+//! resolved `StyleWord`; a window title changes no cell and a link index rides
+//! in `CellFlags`, which neither read. So the gate for this file was the
+//! control-string differential against `baud-core2`, which compared the title,
+//! the icon, the palette, the link index of a written cell, the URI it
 //! resolves to, and the two refusal counters -- and it was perturbed both ways
-//! before it was believed.
+//! before it was believed. All three went with that crate (bcefaae). The
+//! golden capture that replaced them keeps cells, the cursor and the reply,
+//! and no title, icon, palette or link, so what holds this file now is chiefly the
+//! hand-written suites, `tests/xterm/osc.rs` and `tests/xterm/hyperlinks.rs`.
 
 use crate::paint::Paint;
 use crate::storage::{LINK_MAX, NLINK, OSC_MAX, StyleLog};
@@ -157,7 +160,7 @@ impl Paint<'_, '_> {
         // want the other buffers. Every arm resolves to owned values first.
         match Osc::parse(&self.strs.pending[..n]) {
             // **No trailing-NUL trim, because a NUL cannot get here.**
-            // `baud-core2` carries a `clip` helper for emitters that put a NUL
+            // `baud-core2` carried a `clip` helper for emitters that put a NUL
             // before the real terminator, and this core had one too until the
             // parser started ignoring C0 in the payload: `graph::string` drops
             // `00-06` outright, so there is no trailing NUL left to trim.
@@ -195,7 +198,7 @@ impl Paint<'_, '_> {
             // **Inline, because the URI borrows the payload buffer.** Both
             // live in `strs`, so resolving the slot and the length first is
             // what lets the write happen at all -- the same borrow split
-            // `baud-core2` makes here for the same reason.
+            // `baud-core2` made here for the same reason.
             //
             // **A slot is never overwritten and a clipped URI is never
             // interned**, because a click opens what the slot holds. The
@@ -388,15 +391,17 @@ fn copy_bounded(dst: &mut [u8], src: &[u8]) -> ByteLen {
 
 /// Which control string is being accumulated.
 ///
-/// Three states rather than five. `SOS`, `PM` and `APC` share `Other` because
-/// neither core acts on any of them and their bodies are consumed identically;
-/// `Decrqss` is separate because it is reached through a **prefix** -- `$ q`
-/// after the introducer -- rather than through the introducer alone, so
-/// `StrKind::of` cannot name it and `Act::DcsQuery` sets it two bytes later.
+/// Four states for five introducers. `SOS`, `PM` and `APC` share `Other`,
+/// with any `DCS` this core has no prefix parser for, because it acts on none
+/// of them and their bodies are consumed identically. `Decrqss` and `Sixel`
+/// are separate because each is reached through a **prefix** -- `$ q`, or a
+/// bare `q`, after the introducer and any parameters -- rather than through
+/// the introducer alone, so `StrKind::of` cannot name them; `Act::DcsQuery`
+/// and `Act::SixelStart` set them when the prefix arrives.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum StrKind {
     Osc,
-    /// A `DCS $ q`, which is the one DCS either core acts on.
+    /// A `DCS $ q`, the status request `report_status` answers.
     Decrqss,
     /// A `DCS Pa;Pb;Ph q` Sixel: the body is raster data, accumulated into
     /// `sixel_body` and decoded at the terminator. Reached through the bare

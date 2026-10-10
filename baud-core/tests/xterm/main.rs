@@ -23,10 +23,11 @@ mod soft_reset_scope;
 ///
 /// This pinned "an `OSC 8` link does not survive a wrap" on the strength of a
 /// failing test -- and the test was reading index **2048**, core2's row stride.
-/// This core strides by the live column count, which is worth +14% on anything
-/// that scrolls, so the assertion was inspecting a cell no addressing path can
-/// reach. The link had survived the wrap the whole time, because the index
-/// rides in `CellFlags` and therefore moves with the cell.
+/// This core strides by `Term::stride`, a pitch fixed from the provisioned
+/// width, and leaving 2048 is worth +14% on anything that scrolls, so the
+/// assertion was inspecting a cell no addressing path can reach. The link had
+/// survived the wrap the whole time, because the index rides in `CellFlags`
+/// and therefore moves with the cell.
 ///
 /// **Fifth instance of that porting bug**, after `erase.rs`, `irm.rs`,
 /// `sgr/rep_align.rs` and `vt420/side_margins.rs` -- and the first where it

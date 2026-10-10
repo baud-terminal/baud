@@ -1,8 +1,8 @@
 //! Generated programs, over an alphabet chosen from the code rather than from
 //! a language.
 //!
-//! **The alphabet is the whole design.** `baud-core2`'s generator has 79
-//! operations and reaches the *protocol*; this one has twenty-eight atoms and
+//! **The alphabet is the whole design.** `baud-core2`'s generator had 79
+//! operations and reached the *protocol*; this one has twenty-eight atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -28,10 +28,14 @@
 //! compares a program to itself and so can only find *inconsistency*. A
 //! terminal's hardest obligations are agreements with a **document** -- that a
 //! regional-indicator pair is one cluster, that `CAN` cancels -- and those need
-//! an oracle: `baud-core2` through `baud-bench/tests/differential.rs`, or
-//! `GraphemeBreakTest.txt`. It is a direct argument against retiring core2 on
-//! the strength of a property suite, and it was cheaper to measure than to
-//! argue.
+//! an oracle. When this was written that was `baud-core2` through
+//! `baud-bench/tests/differential.rs`, or `GraphemeBreakTest.txt`, and it was
+//! a direct argument against retiring core2 on the strength of a property
+//! suite, cheaper to measure than to argue. core2 was retired in bcefaae,
+//! with its renderings frozen in `tests/golden.rs`; the oracles now are those,
+//! `GraphemeBreakTest.txt` (`tests/encoding/graphemes.rs`), and the two
+//! external differentials, `baud-difftest` against alacritty and
+//! `baud-sfte-difftest` against sfte.
 //!
 //! What these four **are** is a regression net for the class that has been
 //! most productive here historically: a screen that depends on where the reads
@@ -174,8 +178,8 @@ const ALPHABET: &[Atom] = &[
         count: 0,
     },
     // A cancelled sequence: `CAN` inside a `CSI`. `baud-core2`'s generator
-    // excludes CAN and SUB from its C0-inside-CSI set by construction, so no
-    // program it builds exercises cancellation at all.
+    // excluded CAN and SUB from its C0-inside-CSI set by construction, so no
+    // program it built exercised cancellation at all.
     Atom {
         name: "csi-cancelled",
         bytes: b"\x1b[1;5\x18~",
@@ -381,7 +385,7 @@ fn drive_atomwise(prog: &[usize]) -> Seen {
 ///
 /// An atom that silently emits the wrong bytes is indistinguishable from a
 /// shape that is never buggy -- the same failure as a search probe that cannot
-/// match, and the reason `baud-core2`'s suite runs a positive control over its
+/// match, and the reason `baud-core2`'s suite ran a positive control over its
 /// own generator.
 #[test]
 fn the_alphabet_emits_what_it_claims() {
@@ -559,7 +563,7 @@ proptest! {
     /// index that has gone stale answers *empty* rather than wrong -- by
     /// design, because the store checks the base -- so this is what turns that
     /// silence into a failure. It is also what discriminates content-keying
-    /// from position-keying: `baud-core2`'s marks table cannot pass this
+    /// from position-keying: `baud-core2`'s marks table could not pass this
     /// after a `viewport()` call, which is why the index rides in the cell.
     #[test]
     fn every_cell_that_claims_marks_has_them(prog in program()) {

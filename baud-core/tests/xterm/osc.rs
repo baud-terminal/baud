@@ -301,7 +301,7 @@ fn clipboard_requests_are_refused_but_counted() {
     // Recognised rather than refused, and `baud-core` says so with the two
     // counters that exist for exactly this: a read is refused and counted, a
     // write dropped and counted. `strings_ignored` is what an *unrecognised*
-    // OSC increments, so zero there is the assertion core2 spells with its
+    // OSC increments, so zero there is the assertion core2 spelled with its
     // `unsupported` counter.
     assert_eq!(t.strings_ignored, 0, "OSC 52 is recognised, not ignored");
 }

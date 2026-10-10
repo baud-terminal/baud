@@ -1,6 +1,6 @@
 //! The terminal core, as a block-driven graph.
 //!
-//! **Why this crate exists beside `baud-core2`.** The previous core reached
+//! **Why this crate replaced `baud-core2`.** The previous core reached
 //! 456 MB/s on `cat-cjk.raw` and could not be made materially faster by
 //! optimising anything it *did*: ceiling arms priced every decode, every table
 //! lookup, every cluster decision, every cell write and every scroll at **45%
@@ -88,13 +88,13 @@ pub use baud_domain::{
     MouseEvent, MouseKind, MouseMods, MouseTracking, PointerPx,
 };
 /// The clustering and width vocabulary the encoding suites name. All of it is
-/// `baud-domain`'s -- neither core owns UAX #29 or East Asian Width.
+/// `baud-domain`'s -- this crate owns neither UAX #29 nor East Asian Width.
 pub use baud_domain::{
     AmbiguousWidth, ClusterBreak, ClusterId, ClusterSlot, GraphemeClass, StreamByte,
 };
 /// The vocabulary the conformance suites name: a national replacement
 /// character set, a private-mode number, and the mode state a `DECRQM`
-/// reports. All three are `baud-domain`'s and neither core owns them.
+/// reports. All three are `baud-domain`'s, not this crate's.
 pub use baud_domain::{
     Attrs, C1Transmit, Csi, CursorBlink, CursorPick, CursorShape, CursorStyle, DecSet, FnKey,
     GSlot, Level, Marker, ModeState, Nrcs, Params,

@@ -244,12 +244,12 @@ impl CellFlags {
     /// **The cluster this cell's continuations live under, carried *in* the
     /// cell.**
     ///
-    /// That placement is the whole design. `baud-core2` keys its marks on
+    /// That placement is the whole design. `baud-core2` keyed its marks on
     /// *where the cell is* -- surface, physical row, column, generation -- and
-    /// an adversarial review reproduced what that costs: `Term::viewport`
-    /// un-rotates the grid in place and does not move the table with it, so a
-    /// renderer reading **one frame** loses a cell's marks and the next write
-    /// to that address inherits a stranger's. An index that rides in the cell
+    /// an adversarial review reproduced what that costs: its `Term::viewport`
+    /// un-rotated the grid in place and did not move the table with it, so a
+    /// renderer reading **one frame** lost a cell's marks and the next write
+    /// to that address inherited a stranger's. An index that rides in the cell
     /// survives rotation, `viewport` and the alternate screen for free,
     /// because it moves when the cell moves.
     ///

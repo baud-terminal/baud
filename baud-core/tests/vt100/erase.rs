@@ -20,12 +20,12 @@ use baud_core::*;
 
 /// The viewport **and the stride it is laid out at**.
 ///
-/// `baud-core2`'s grid strides by `MAX_COLS`, so its suites index
-/// `cells[n * 2048 + i]`. This core strides by the *live* column count -- the
-/// change that was worth +14% on every payload that scrolls, because at 2048
-/// cells a row consecutive rows landed in the same L1 sets. A ported test that
-/// kept the constant reads row 10 where it means row 1, so the stride travels
-/// with the cells.
+/// `baud-core2`'s grid strode by `MAX_COLS`, so its suites indexed
+/// `cells[n * 2048 + i]`. This core strides by `Term::stride`, a pitch fixed
+/// from the provisioned width -- leaving 2048 was worth +14% on every payload
+/// that scrolls, because at 2048 cells a row consecutive rows landed in the
+/// same L1 sets. A ported test that kept the constant reads row 10 where it
+/// means row 1, so the stride travels with the cells.
 fn run(bytes: &[u8]) -> (Vec<PackedCell>, usize) {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);

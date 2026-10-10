@@ -80,9 +80,9 @@ fn text_pushed_past_the_end_is_discarded() {
     let after = grid(&v);
     // Row 1 must still be blank — nothing wrapped onto it.
     let blank = grid(b"")[0];
-    // Row 1 starts one stride in, and the stride is the *live* width here
+    // Row 1 starts one stride in, and the stride is `Term::stride` here
     // rather than `MAX_COLS`. Reading `after[2048]` -- which is what
-    // `baud-core2`'s suite does -- lands on row 10 of this grid.
+    // `baud-core2`'s suite did -- lands on row 10 of this grid.
     let stride = support::with_corpus(|t| t.stride().index());
     assert_eq!(after[stride], blank, "nothing may spill onto the next row");
 }
@@ -155,26 +155,4 @@ fn insert_mode_is_chunk_invariant() {
         }
         assert_eq!(support::screen(&t), whole, "differed at chunk {chunk}");
     }
-}
-
-/// The span-storage mode renders the same as the materialised one.
-///
-/// Insert mode cannot use the run table — a run says "these bytes at this
-/// position", and shifting the tail invalidates every run after the cursor —
-/// so `OpMode::Runs` must promote before inserting. If it did not, the line
-/// would render as though nothing had been inserted.
-#[test]
-fn insert_mode_renders_the_same_in_runs_mode() {
-    let seq = b"abcdef\x1b[1;1H\x1b[4hXYZ";
-    let ws = support::CORPUS;
-    let mut s1 = Owned::new(&ws);
-    let mut t1 = Term::new(s1.storage(), &ws);
-    let ws = support::CORPUS;
-    let mut s2 = Owned::new(&ws);
-    let mut t2 = Term::new(s2.storage(), &ws);
-    for t in [&mut t1, &mut t2].iter_mut() {
-        t.write_at(BytePos::ZERO, seq);
-        t.feed(BytePos::ZERO, ReadLen::from_index((seq).len()));
-    }
-    assert_eq!(support::screen(&t2), support::screen(&t1));
 }

@@ -7,7 +7,7 @@
 //! **A caller *with* one gets [`Owned`], behind the `alloc` feature, and it is
 //! not `Storage::boxed`.** This file used to claim it was, which was a
 //! sentence carried over from `baud-core2` and false here: core2's `Storage`
-//! *owns* `[PackedCell; GRID]` and can be boxed zeroed, while this one holds
+//! *owned* `[PackedCell; GRID]` and could be boxed zeroed, while this one holds
 //! **borrows**, so there is nothing for a `Box<Storage>` to own. [`Owned`]
 //! holds the nine allocations and lends them, which is the same convenience in
 //! the shape this design admits.
@@ -137,7 +137,7 @@ pub struct Storage<'b> {
     /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
     /// the cell moves -- which is what makes it survive `RowRot`, a frame's read
     /// and the alternate screen without a parallel structure to keep in step,
-    /// and is exactly what `baud-core2`'s position key does not.
+    /// and is exactly what `baud-core2`'s position key did not.
     pub(crate) clusters: ClusterStore<'b>,
     /// Everything a control string writes. See [`StrBuf`].
     pub(crate) strs: StrBuf<'b>,
@@ -612,7 +612,7 @@ pub const CELLS3: usize = CELLS3_PREFIXES * 256;
 ///
 /// **A truncation is counted, not silent.** A title past this is clipped and
 /// `Term::string_truncations` says how often -- the same contract every
-/// bounded table here carries. `baud-core2` uses the same 512.
+/// bounded table here carries. `baud-core2` used the same 512.
 pub const OSC_MAX: usize = 512;
 
 /// Entries in the palette slice: the first 256 are the application's `OSC 4`
@@ -642,7 +642,7 @@ pub const NLINK: usize = 128;
 pub const LINK_MAX: usize = 256;
 
 /// How many bytes of reply the core will hold before it starts counting
-/// losses. `baud-core2` uses the same number and for the same reason: the
+/// losses. `baud-core2` used the same number and for the same reason: the
 /// longest single reply is a `DECRQSS` rendition string, at most
 /// `DECRQSS_MAX` = 124 bytes and const-asserted against this in `dcs.rs`,
 /// and 256 bounds it with room while staying far below anything that

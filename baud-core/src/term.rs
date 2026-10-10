@@ -611,9 +611,9 @@ impl Cold {
             kitty: KittyStack::new(),
             kitty_alt: KittyStack::new(),
             // **DECAWM defaults on**, which is xterm's behaviour rather than
-            // the VT510 manual's; `docs/vt-coverage.md` records the choice and
-            // `baud-core2` makes the same one, so the differential compares
-            // like with like.
+            // the VT510 manual's; `docs/vt-coverage.md` records the choice.
+            // `baud-core2` made the same one, so the golden capture of what it
+            // rendered (`tests/golden.rs`) compares like with like.
             modes: Modes::default(),
             xtsave: SavedModes::NONE,
         }
@@ -1061,9 +1061,10 @@ impl<'b> Term<'b> {
     ///   relative to now, and a pending wrap at the old right edge is
     ///   forgotten with the edge.
     ///
-    /// **One thing core2 does here and this does not, deliberately.** It
-    /// rebuilds the tab table, which is `MAX_COLS` long and stamped every
-    /// eighth column at construction, so no width change can invalidate it.
+    /// **One thing core2 did here and this does not, deliberately.** It
+    /// rebuilt the tab table; this one is at least `MAX_COLS` long and stamped
+    /// every eighth column at construction, so no width change can invalidate
+    /// it.
     pub fn resize(&mut self, ws: &WinSize) -> Resized {
         self.resize_holding(ws, Rows::ZERO).0
     }
@@ -2163,13 +2164,14 @@ impl<'b> Term<'b> {
     /// with it reads past the end of the row.
     ///
     /// So the accessor answers the question a renderer is asking. `baud-core2`
-    /// takes `min(cols - 1)` here for the same reason, and
-    /// The cursor differential against `baud-core2` is what found that this
-    /// core did not: on a 200-column screen it returned **column 200** after
-    /// `HT` ran to the right margin. Both cores' *internal* `cx` was 200 and
-    /// they rendered identically, so neither pinned gate could see it -- the
-    /// glyph gate reads content and the rendition gate reads the style word,
-    /// and the cursor is in neither.
+    /// took `min(cols - 1)` for the same reason, and the cursor differential
+    /// against it is what found that this core did not: on a 200-column screen
+    /// it returned **column 200** after `HT` ran to the right margin. Both
+    /// cores' *internal* `cx` was 200 and they rendered identically, so neither
+    /// pinned gate could see it -- the glyph gate read content and the
+    /// rendition gate the style word, and the cursor was in neither. This core
+    /// clamps to the right margin rather than to `cols - 1`, for the reason the
+    /// body gives.
     pub fn cursor(&self) -> (Row, Col) {
         // **The sentinel is one past the last *writable* column**, which is
         // the right margin rather than the screen edge once `DECSLRM` has
@@ -2200,7 +2202,7 @@ impl<'b> Term<'b> {
     /// **Resolved through the grid, not from a position key.** The cell holds
     /// the cluster index, so this is one load and a bounds check, and it is
     /// correct after a scroll and on either screen -- the
-    /// index moved when the cell moved. `baud-core2` answers the same question
+    /// index moved when the cell moved. `baud-core2` answered the same question
     /// from a table keyed on surface, physical row, column and generation, and
     /// an adversarial review reproduced what that costs: one un-rotating read
     /// and the answer is empty, then a stranger's.

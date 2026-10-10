@@ -11,7 +11,7 @@
 //!
 //! A usage snippet that does not compile is the same class of false claim as a
 //! coverage table nothing checks — and README examples rot silently, because
-//! nothing builds them. `baud-core2/examples/quickstart.rs` *is* built, by
+//! nothing builds them. `baud-core/examples/quickstart.rs` *is* built, by
 //! `cargo check --all-targets`. This test asserts the README shows that file
 //! and not a drifted paraphrase of it.
 
@@ -65,7 +65,7 @@ fn the_readme_example_is_the_compiled_example() {
     assert_eq!(
         rd, ex,
         "README.md's Rust block has drifted from \
-         baud-core2/examples/quickstart.rs.\nThe example is the one that compiles; \
+         baud-core/examples/quickstart.rs.\nThe example is the one that compiles; \
          update the README to match it."
     );
 }

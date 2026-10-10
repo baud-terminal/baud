@@ -209,8 +209,9 @@ fn cuu_cud_and_cub_move_and_stop_at_the_edges() {
     // assertion was written the other way round first -- "CUD stops at the
     // region's bottom" -- from reading `[[source: ctlseqs]]`'s sentence
     // without the clause in front of it. `confine` clamps to the margins only
-    // when Origin mode is set, in both cores, so the region on its own leaves
-    // the whole screen reachable. The oracle said so before the spec did.
+    // when Origin mode is set, as core2's did, so the region on its own leaves
+    // the whole screen reachable. The oracle, core2, said so before the spec
+    // did.
     support::with_corpus(|t| {
         support::feed(t, b"\x1b[5;20r\x1b[10;1H\x1b[99B");
         assert_eq!(

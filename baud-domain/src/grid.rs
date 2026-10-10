@@ -114,9 +114,10 @@ impl<'buf> core::ops::IndexMut<SlotIdx> for SlotRing<'buf> {
 /// Rows the grid is rotated by: screen row `y` lives at physical row
 /// `(y + rot) % rows`.
 ///
-/// **This is what makes a full-screen scroll O(1).** Scrolling used to advance
-/// `head`, which indexes the run table, and leave the cells alone -- so
-/// `Computed` and `Templated` never scrolled. Copying the grid instead was
+/// **This is what makes a full-screen scroll O(1).** In `baud-core2` scrolling
+/// advanced `head`, which indexed its run table, and left the cells alone --
+/// so its `Computed` and `Templated` modes never scrolled. Copying the grid
+/// instead was
 /// correct and cost 45% of cell ingest, because a streaming payload scrolls
 /// every screenful: write amplification around 20:1 against the rule that it
 /// stays at or below 1. Rotating an index costs neither.

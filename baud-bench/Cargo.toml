@@ -55,8 +55,9 @@ stride-pad0 = []
 # arm sets it -- so one binary sweeps candidate pitches; what ships is still
 # decided by `grid_stride` and measured with the arms above.
 stride-env = []
-# The new core's arms, named apart from core2's so one `--features` cannot
-# silently arm the wrong crate.
+# The `new-` arms are the core's, named apart from core2's while both crates
+# were benched so one `--features` could not silently arm the wrong crate; the
+# names outlived core2.
 new-no-write = ["baud-core/ceiling-no-write"]
 render-no-window-cache = ["baud-render/ceiling-no-window-cache"]
 render-no-windows = ["baud-render/ceiling-no-windows"]

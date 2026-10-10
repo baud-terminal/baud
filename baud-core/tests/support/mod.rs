@@ -1,13 +1,13 @@
 //! The driving loop, once, for the conformance suites.
 //!
-//! **Not a compatibility shim.** `baud-core2`'s suites each repeat five lines
-//! of `read_slot`/`base`/`write`/`feed`/`commit_read`, and the temptation when
-//! moving them was to re-spell that API on top of `write_at`/`feed` so the
-//! files could come across untouched. That would have hidden the one
-//! difference that matters: `viewport()` strode by `MAX_COLS` in core2 and
-//! the pitch here is `Term::stride`, chosen from the cache line and the
-//! provisioned width, not a number -- so `screen(t)[..8]` and
-//! `t.row(Row::from_index(1))` do not mean the same thing in the two crates.
+//! **Not a compatibility shim.** `baud-core2`'s suites each repeated five
+//! lines of `read_slot`/`base`/`write`/`feed`/`commit_read`, and the
+//! temptation when moving them was to re-spell that API on top of
+//! `write_at`/`feed` so the files could come across untouched. That would have
+//! hidden the one difference that matters: `viewport()` strode by `MAX_COLS`
+//! in core2 and the pitch here is `Term::stride`, chosen from the cache line
+//! and the provisioned width, not a number -- so `screen(t)[..8]` and
+//! `t.row(Row::from_index(1))` did not mean the same thing in the two crates.
 //! Fifty-two `viewport()` call sites would have passed vacuously.
 //!
 //! **`screen` is the test's owned copy of the viewport, and the core makes
@@ -22,8 +22,8 @@
 
 use baud_core::*;
 
-/// The geometry both cores start at, so a ported test measures the grid it was
-/// written against. `baud-core2::Term::new` hard-codes it; here it is the
+/// The geometry `baud-core2` started at, so a ported test measures the grid it
+/// was written against. `baud-core2::Term::new` hard-coded it; here it is the
 /// `WinSize` a caller passes, and the suites passed nothing.
 pub const CORPUS: WinSize = WinSize {
     ws_row: 50,
@@ -47,9 +47,9 @@ pub fn with_term<R>(ws: &WinSize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
 /// **`Owned::new` provisions exactly the geometry it is given**, and
 /// `Term::resize` returns `Truncated` rather than growing past it -- the grid
 /// is caller-provided, so the library cannot allocate on the caller's behalf.
-/// `baud-core2` can always grow to `MAX_ROWS` because its `Storage` is a fixed
-/// `[PackedCell; GRID]`; here the caller says how much. A test that grows says
-/// so here.
+/// `baud-core2` could always grow to `MAX_ROWS` because its `Storage` was a
+/// fixed `[PackedCell; GRID]`; here the caller says how much. A test that
+/// grows says so here.
 pub fn with_room<R>(rows: u16, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     let big = WinSize {
         ws_row: rows,

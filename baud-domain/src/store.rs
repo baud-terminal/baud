@@ -102,10 +102,12 @@ pub struct Run {
     /// struct crosses the mmap boundary and zerocopy will not take a type whose
     /// bit patterns are not all valid. Recover it with [`Run::flags`].
     ///
-    /// A run carries the protection so that promoting it to cells does not lose
-    /// it -- the run *is* the storage in `OpMode::Runs`, and a promotion that
-    /// dropped the flag would make protection depend on when the line happened
-    /// to materialise.
+    /// **Unused, like `charset`.** It was for `promote`, which replayed a run
+    /// into cells: the run *was* the storage in `baud-core2`'s `OpMode::Runs`,
+    /// and a promotion that dropped the flag would have made protection depend
+    /// on when the line happened to materialise. Nothing in this core builds a
+    /// `Run` or calls [`Run::flags`]; a cell carries its own [`CellFlags`] from
+    /// the moment it is written.
     pub flags: u8,
     pub _pad: [u8; 1],
 }

@@ -705,7 +705,7 @@ impl StatusKind {
 /// A `u16` in decimal, without an allocator and without a cast.
 ///
 /// **Written once because it had been written twice.** `ReportBytes::push_num`
-/// and the key encoder both need it, and `baud-core2`'s reply path spells it
+/// and the key encoder both need it, and `baud-core2`'s reply path spelled it
 /// twice more as `emit_param` and `emit_dec` -- four copies of a loop whose
 /// only interesting property is that it indexes a digit table rather than
 /// casting `n % 10`, which would be another raw-integer site against the

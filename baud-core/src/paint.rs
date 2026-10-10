@@ -655,13 +655,13 @@ impl<'a, 'b> Paint<'a, 'b> {
         // **A zero-width codepoint gets no cell, and that needs no cluster
         // machine.** A combining mark, a ZWJ or a variation selector took a
         // full cell here and advanced the cursor a column, so everything after
-        // it on the row sat one place right of where `baud-core2` puts it --
+        // it on the row sat one place right of where `baud-core2` put it --
         // which was about a third of the pinned glyph divergence.
         //
-        // `baud-core2` reaches the same answer through a *second* arm that
-        // fires whatever the break decision was (`put_cp_classified`, and
+        // `baud-core2` reached the same answer through a *second* arm that
+        // fired whatever the break decision was (its `put_cp_classified`, and
         // `ClusterBreak::after_ascii_run`'s doc says so in as many words), so
-        // this reproduces its cell output exactly rather than approximately,
+        // this reproduced its cell output exactly rather than approximately,
         // for every input, with no state and no 24 KB transition table.
         //
         // It stores the codepoint too, since the cluster store landed:
@@ -1098,7 +1098,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `docs/vt-coverage.md` rates worse than not implementing it: `CSI 20 h`
     /// set a bit `apply_ansi_mode` stored and nothing consulted, so `LF` moved
     /// down and left the column alone whatever the application asked for.
-    /// `baud-core2` has always read it here, and the ported
+    /// `baud-core2` always read it here, and the ported
     /// `lf_returns_to_column_one_when_lnm_is_set` is what found the gap.
     #[inline(always)]
     pub(crate) fn line_feed(&mut self) {

@@ -177,21 +177,54 @@ fn decrqm_reports_the_alt_screen() {
     assert_eq!(t.reply(), b"\x1b[?1049;1$y");
 }
 
-/// The alt screen works the same in the span-storage mode.
+/// **What is written on the alternate screen is what it shows.**
 ///
-/// `OpMode::Runs` keeps lines as runs and promotes them on demand, but the alt
-/// screen has no run table -- writes there are materialised directly. If that
-/// were wrong, the alt screen would render blank in Runs mode while looking
-/// correct in Computed.
+/// `[[source: ctlseqs]]`, `?1049 h`: "switch to the Alternate Screen Buffer,
+/// clearing it first." So `abc` written after the switch is the alternate
+/// screen's whole first row -- the three characters, then blanks where the
+/// primary had `hello world`. The text goes to an explicit `CSI 1;1H` rather
+/// than wherever the switch leaves the cursor, and the primary has text of its
+/// own, so a screen that showed the wrong buffer reads as `hello world` and
+/// one that showed nothing reads as blanks, rather than either passing.
+///
+/// Blanks are rendered as `.` (`Content::EMPTY` is not U+0020), so each of
+/// the eleven columns `hello world` held is compared, not only the three that
+/// hold text.
+///
+/// It replaced a test that compared `baud-core2`'s `OpMode::Runs` with its
+/// `Computed` on the same bytes. With one mode the two sides were one terminal
+/// built twice, and that comparison could not fail.
 #[test]
-fn the_alt_screen_renders_in_runs_mode() {
-    let seq = b"\x1b[?1049habc";
-    let computed = run(&mut T::new(), seq).0;
-    let runs = run(&mut T::new(), seq).0;
-    assert_eq!(runs, computed, "Runs mode must materialise the alt screen");
+fn the_alt_screen_shows_what_is_written_on_it() {
+    let (cells, _, screen) = run(&mut T::new(), b"hello world\x1b[?1049h\x1b[1;1Habc");
+    assert_eq!(
+        screen,
+        Screen::Alternate,
+        "the control: the switch happened"
+    );
+    let shown: String = cells[..11]
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|x| char::from_u32(x.value()))
+                .unwrap_or('.')
+        })
+        .collect();
+    assert_eq!(
+        shown, "abc........",
+        "the alternate screen's first row is what was written on it"
+    );
 }
 
-/// And leaving Runs mode's alt screen still restores the primary.
+/// **Leaving the alternate screen brings the primary back as it was.**
+///
+/// The shape of `the_primary_screen_is_restored_intact`: enter, write and
+/// leave once, then compare the whole screen with a terminal that never
+/// switched. The name is `baud-core2`'s, where this ran in its `OpMode::Runs`;
+/// it is kept because `docs/record.md` cites the test by it. Nothing scrolls
+/// the primary here, so a restore that dropped the primary's rotation would
+/// pass, as the record says of this test.
 #[test]
 fn runs_mode_restores_the_primary_screen() {
     let mut a = T::new();

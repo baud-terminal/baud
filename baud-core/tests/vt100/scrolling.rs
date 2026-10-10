@@ -39,8 +39,8 @@ fn cursor_of(bytes: &[u8]) -> (usize, usize) {
     (r.index(), c.index())
 }
 
-// **`OpMode` does not exist in `baud-core`.** core2 has three -- `Runs`
-// stores spans and materialises later, `Computed` and `Templated` write cells
+// **`OpMode` does not exist in `baud-core`.** core2 had three -- `Runs`
+// stored spans and materialised later, `Computed` and `Templated` wrote cells
 // -- and this core has only the materialising one, because the span path was
 // built here, measured at +50% on two recordings and -5-10% on six, and
 // reverted. So every test that swept the three now runs once, and the ones
@@ -316,16 +316,19 @@ fn rows_are_full_width() {
 
 /// **A full-screen scroll moves the rendered grid.**
 ///
-/// Every other test in this file scrolls a *region* set with DECSTBM, which
-/// takes the copying path. The full-screen case takes a different one — an
-/// O(1) ring advance, which `scroll_region_up` documents as "what makes
-/// streaming ingest fast" — and nothing checked what it left on the screen.
+/// The tests above it either scroll a *region* set with DECSTBM, which takes
+/// the copying path, or scroll the full screen without reading what it
+/// leaves: `su_and_sd_leave_the_cursor_alone` reads the cursor and
+/// `su_agrees_with_a_line_feed_at_the_bottom` compares two full-screen paths
+/// with each other. The full-screen case takes a different path --
+/// `scroll_region_up` advances the grid's rotation a row instead of moving
+/// the rows -- and nothing checked what it left on the screen.
 ///
-/// It left the screen alone. The ring advance moves `head`, which indexes the
-/// **run** table; `vp` is indexed by screen row and nothing re-derived it, so
-/// in `Computed` and `Templated` the content never moved and only the bottom
-/// row was blanked. That is the most common scroll there is: every line of
-/// output past the last row.
+/// In `baud-core2` it left the screen alone. Its ring advance moved `head`,
+/// which indexed the **run** table; `vp` was indexed by screen row and nothing
+/// re-derived it, so in `Computed` and `Templated` the content never moved and
+/// only the bottom row was blanked. That is the most common scroll there is:
+/// every line of output past the last row.
 #[test]
 fn a_full_screen_scroll_moves_the_grid() {
     {
@@ -635,26 +638,29 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
 }
 /// **A round trip through the alternate screen leaves the primary alone.**
 ///
-/// A regression guard, and deliberately narrower than the bug that prompted it.
+/// Fifty marked rows on the primary, then `?1049 h` and five line-moving
+/// shapes on the alternate screen -- `SU` inside a 5-40 region, `IL` and `DL`
+/// inside it, `LF` at the bottom of the full screen and `RI` at its top (not
+/// `SD`, `IND`, `NEL`, DECIC or DECDC) --
+/// then `?1049 l`, and every primary row must read back as it was written.
+/// In this core the two screens are two surfaces: `set_alt_screen` (`ops.rs`)
+/// swaps the view onto the alternate one and parks the primary's cells, ring
+/// and rotation in `other` until the exit swaps them back, so this fails if
+/// any of those line-moves writes through to the parked surface. It reads the
+/// rendered rows only. The primary never scrolls here, so its rotation is
+/// zero on both sides of the trip and a restore that dropped it would pass;
+/// nor does it read the primary's history, which `retire` leaves alone while
+/// the alternate screen is up.
 ///
-/// Every copying line-move used to run its run-table invalidation
-/// unconditionally: `self.s.promoted[y] = true` and `self.s.nrun[head.plus(y)]
-/// = RunCount::ZERO`, while `head` indexes the *primary's* ring and does not
-/// move during an alternate-screen session. So a region scroll inside the
-/// alternate screen wrote over the primary's bookkeeping. `invalidate_runs`
-/// now returns early on the alternate screen, where there is nothing to
-/// invalidate -- `blit` treats that screen as always promoted, so text there
-/// never enters the run table.
-///
-/// **The state bug is real and this test does not prove it**, which is worth
-/// saying plainly. In `OpMode::Runs` nothing renders spans -- `Term::row` and
-/// `viewport` read cells -- so a zeroed run count is invisible to every public
-/// accessor, and an attempt to write the failing test instead reproduced the
-/// harness trap core2's notes recorded (`git show b10c006^:CLAUDE.md`, lines
-/// 698-705): a `Runs` viewport shows representation, so *every* case came
-/// back empty including the one that did nothing at all.
-/// What is checkable is that the round trip is content-preserving in
-/// `Computed`, and that is what this asserts.
+/// It was written for a `baud-core2` bug in a run table this core does not
+/// have: every copying line-move in core2 ran its run-table invalidation
+/// unconditionally, `promoted[y] = true` by screen row and
+/// `nrun[head.plus(y)] = RunCount::ZERO` through the primary's ring head, and
+/// `head` did not move during an alternate-screen session, so a region scroll
+/// there wrote over the primary's bookkeeping. No public accessor showed that
+/// state: in core2's Runs mode a viewport showed representation, so every
+/// case came back empty (`git show b10c006^:CLAUDE.md`, lines 698-705). The
+/// test checked the rendered content then, as it does now.
 #[test]
 fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {
     const ROWS: usize = 50;
@@ -696,23 +702,23 @@ fn a_round_trip_through_the_alternate_screen_preserves_the_primary() {
         );
     }
 }
-/// **Every erase works on the alternate screen, in both modes.**
+/// **Every erase works on the alternate screen.**
 ///
-/// `OpMode::Runs` is the point. `erase_line`'s fast path -- erase-to-end of an
-/// *unpromoted* line is the truncation of its span list, not a fill -- read
-/// `s.promoted[y]` raw, and that flag belongs to the primary screen. On the
-/// alternate screen it was false for every row, so `CSI K` took the span path,
-/// zeroed a run count belonging to the primary underneath, and returned
-/// **without erasing anything**: `HELLO WORLD` survived an erase-to-end from
-/// column 6.
+/// `HELLO WORLD` on the alternate screen, then six erases from column 6, each
+/// with the first twelve columns it must leave stated. This core erases the
+/// same way on either screen -- the view holds whichever surface is up -- so
+/// what this pins is that the surface erased is the one shown, on the screen
+/// every full-screen application does its erasing on.
 ///
-/// Nothing caught it because every erase test ran on the primary, and the
-/// alternate screen is where every full-screen application does its erasing.
-///
-/// Each case is checked in `Computed` too. `Computed` was already correct, so
-/// the pair is what makes the assertion about the *mode* rather than about the
-/// operation -- a fix that broke `Computed` to satisfy `Runs` would show up
-/// here rather than pass.
+/// The name is `baud-core2`'s bug. core2's `erase_line` took a fast path on a
+/// line its `promoted` flag called unpromoted -- erase-to-end was the
+/// truncation of the line's span list, not a fill -- and read that flag raw,
+/// though it belonged to the primary screen. On the alternate screen every row
+/// qualified, so `CSI K` zeroed a run count belonging to the primary
+/// underneath and returned **without erasing anything**: `HELLO WORLD`
+/// survived an erase-to-end from column 6. Nothing caught it because every
+/// erase test then ran on the primary. core2 ran each case in its `Computed`
+/// mode as well as in `Runs`; this core has one mode, and each case runs once.
 #[test]
 fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
     // A blank is rendered as `.` rather than dropped. `Content::EMPTY` is a
@@ -755,17 +761,23 @@ fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
     }
 }
 
-/// **`IND` on the alternate screen does not drop a primary run count.**
+/// **`IND` on the alternate screen leaves the primary's rows alone.**
 ///
-/// `next_line` clears the destination line's spans, which is load-bearing for
-/// chunk invariance. It indexes with `line()` -- `head.plus(cy)` -- and `head`
-/// is the primary's ring position, unmoved for the whole alternate-screen
-/// session. Scrolling a screenful of `IND` in the alternate screen therefore
-/// zeroed a screenful of the primary's run counts.
+/// Fifty marked rows on the primary, then sixty `IND` from the bottom row of
+/// the alternate screen, which scroll it past a full screen; after `?1049 l`
+/// every primary row must read back as it was written. Asserted on the
+/// rendered rows, as the round trip above is, and
+/// `scrolling_the_alt_screen_does_not_disturb_the_primary`
+/// (`xterm/alt_screen.rs`) asks the same of 900 lines fed through the
+/// alternate screen, comparing the whole primary before and after.
 ///
-/// Asserted through rendered content in `Computed`, which is what this harness
-/// can see; see `scrolling_the_alt_screen_does_not_disturb_the_primary` for the
-/// check that covers the state directly.
+/// It was written for a `baud-core2` bug. core2's `index` (IND, in
+/// `baud-core2/src/cursor.rs`) cleared the
+/// destination line's spans, which was load-bearing for its chunk invariance,
+/// and indexed that line with `line()` -- `head.plus(cy)` -- where `head` was
+/// the primary's ring position, unmoved for the whole alternate-screen
+/// session. A screenful of `IND` in the alternate screen therefore zeroed a
+/// screenful of the primary's run counts.
 #[test]
 fn index_on_the_alternate_screen_leaves_the_primary_intact() {
     const ROWS: usize = 50;

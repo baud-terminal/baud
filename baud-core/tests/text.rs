@@ -1,8 +1,9 @@
 //! What the block loop must put on the screen.
 //!
 //! Written before any measurement: a fast loop that renders the wrong thing is
-//! not a result, and this crate exists to be compared against `baud-core2`, so
-//! it has to be right first.
+//! not a result, and this crate was written to be compared against
+//! `baud-core2`, so it had to be right first. core2 is gone (bcefaae); what
+//! it rendered is frozen in `tests/golden.rs`.
 
 #[path = "support/mod.rs"]
 mod support;

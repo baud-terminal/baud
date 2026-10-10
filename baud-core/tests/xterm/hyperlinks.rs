@@ -135,11 +135,12 @@ fn a_link_survives_a_wrap() {
     v.extend(std::iter::repeat_n(b'x', 205));
     let s = run(&v);
     assert!(s.uris[0].is_some());
-    // **Row 1, column 0 -- at the live stride, not at `MAX_COLS`.** This read
-    // index `2048` and found a cell no addressing path can reach: core2 strides
-    // by the maximum, this core by the live column count, which is worth +14%
-    // on anything that scrolls. Fifth instance of that porting bug, and the
-    // reason `support` hands back the stride beside the cells.
+    // **Row 1, column 0 -- at `Term::stride`, not at `MAX_COLS`.** This read
+    // index `2048` and found a cell no addressing path can reach: core2 strode
+    // by the maximum, this core by a pitch fixed from the provisioned width,
+    // and leaving the maximum is worth +14% on anything that scrolls. Fifth
+    // instance of that porting bug, and the reason `support` hands back the
+    // stride beside the cells.
     let ws = support::CORPUS;
     let mut st = Owned::new(&ws);
     let mut t = Term::new(st.storage(), &ws);

@@ -2,7 +2,7 @@
 //!
 //! **Every one of these delegates to `View`.** `baud-domain` already owns
 //! `insert_lines_in`, `delete_lines_in`, `delete_cells`, `insert_cells`,
-//! `fill` and `fill_row`, and `baud-core2` reaches the same primitives; a
+//! `fill` and `fill_row`, and `baud-core2` reached the same primitives; a
 //! second spelling of a grid operation here is the "one write path knowing a
 //! rule the other did not" failure this repo records four times. What lives in
 //! this file is the *state* -- the region, the modes, the saved cursor -- and
@@ -1692,9 +1692,9 @@ impl Paint<'_, '_> {
         // **Both resets restore the cursor shape.** A first version put this in
         // `hard_reset` only, on the argument that `DECSCUSR` is an xterm
         // extension and xterm's soft path leaves it alone -- which is the
-        // reason mouse tracking *is* excluded here. `baud-core2` sets it in
-        // both, and it is the oracle; the argument was mine and the code was
-        // not checked against it. xterm's `ReallyReset` agrees since it was
+        // reason mouse tracking *is* excluded here. `baud-core2`, the oracle
+        // then, set it in both; the argument was mine and the code was not
+        // checked against it. xterm's `ReallyReset` agrees since it was
         // pinned: its common path, both resets', restores the shape and the
         // blink from the resources (`[[source: xterm-reset]]`'s file) -- the
         // configured style, which is what this restores.
@@ -1847,15 +1847,6 @@ impl Paint<'_, '_> {
                 Screen::Alternate => ModeState::Set,
                 Screen::Normal => ModeState::Reset,
             },
-            // **`?1020` is not answered here and that is deliberate.** It
-            // mirrors the live input encoding, which lives on `Term` rather
-            // than on `Paint` -- the per-byte loop carries the encoding as a
-            // local and never reads it back. Threading a field through `Paint`
-            // to answer one query is the trade this file prices at 5-10%, so
-            // the honest answer is `NotRecognized` rather than a value read
-            // from the wrong place. `baud-core2` answers it; the difference is
-            // recorded rather than papered over.
-            //
             // `?2027`: this core clusters per `[[source: uax29]]` and has no
             // mode that stops it, so `1` would invite an application to try
             // turning it off. `3` is the value DECRPM has for exactly this,

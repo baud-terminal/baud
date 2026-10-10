@@ -675,8 +675,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // Inside an `OSC` the byte was body text and the string ate what followed.
     //
     // The ground-like states fall through and handle both bytes themselves,
-    // which is core2's rule spelled the same way: in `Ground` there is nothing
-    // to cancel and `c0` already answers `Consume`, and mid-character
+    // which was core2's rule too, spelled the same way: in `Ground` there is
+    // nothing to cancel and `c0` already answers `Consume`, and mid-character
     // `Act::Resync` makes the partial character a replacement and re-dispatches
     // the byte from `Ground` -- `[[source: unicode-ch3]]` 3.9.5 requires the
     // successor not be swallowed, and the outcome is the same `Consume`.

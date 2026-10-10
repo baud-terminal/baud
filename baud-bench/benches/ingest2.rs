@@ -1,8 +1,9 @@
-//! The same measurement as `ingest`, driving the **new** core.
+//! The ingest measurement, driving `baud-core`.
 //!
-//! Same payloads, same rep protocol, same self-timing, same power-source
-//! report -- so the two numbers are comparable and the only difference is
-//! which core parsed the bytes. `ingest` drives `baud-core2`.
+//! It was written as `ingest`'s twin -- same payloads, same rep protocol, same
+//! self-timing, same power-source report -- so the two numbers were comparable
+//! and the only difference was which core parsed the bytes. `ingest` drove
+//! `baud-core2` and went with it (bcefaae).
 //!
 //! ```text
 //! ingest2 cat-cjk 250

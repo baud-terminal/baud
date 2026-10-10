@@ -149,10 +149,9 @@ fn both_charset_selectors_are_honoured() {
     };
     feed(&mut t, b"\x1b%@");
     feed(&mut t, b"\x1b%G");
-    // `baud-core` counts an unsupported *charset designation* rather than an
-    // unsupported ESC final, so the counter core2 reads here has no
-    // counterpart. What both cores agree on is that neither selector is
-    // counted as a designation this core could not name.
+    // core2 read its `unsupported` counter here. What the two cores agreed
+    // on, and what this still holds, is that neither selector is counted as
+    // a charset designation this core could not name.
     assert_eq!(
         t.charset_unsupported, 0,
         "neither selector is dropped as unsupported"
