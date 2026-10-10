@@ -1,8 +1,12 @@
 # AJ. The launch splash: the colour logo, and the plasma it vanishes in
 
 **Status: research draft, 2026-10-09; revised the same day after a
-read-only review. Nothing is built. Jev has not been asked.** The owner's
-request, verbatim (2026-10-08, TODO.md "The owner's new issues"):
+read-only review. Nothing is built. Jev was asked on 2026-10-09, after the
+draft (decision log 359-360), and question 4's Medium face again on
+2026-10-10 (377-378, 0.30 and 0.56); question 6's default is the only
+answer at 0.9 or above both times, and so the only one decided
+(section 8).** The owner's request, verbatim (2026-10-08, TODO.md "The
+owner's new issues"):
 
 > "i'd like baud to start with the baud > [] logo drawn in the middle and then
 > vanish with the plasma effect , the logo should be the one with the color, it
@@ -1906,6 +1910,23 @@ them.
    splash`), its values (`"plasma"`, `"fade"`, `"off"`), and whether it
    ships on or off. Off departs from "start with the ... logo ... and a
    config option to turn it off".
+   - **Decided: on by default** (Jev, 2026-10-09, 0.98 and 0.98 on the
+     original and on a replicate with the options reordered, decision log
+     lines 359-360; to be listed on the review page for the owner's veto).
+     No text governs; it matches the owner's words, read as on by default
+     with a key to turn it off. Leaving the key unset shows the splash,
+     except under Reduce Motion, which question 5 decides; a value that
+     turns it off wins whatever the system says (5.6).
+   - **Still open:** the name (Jev 0.76 and 0.86 for `[screen] splash`,
+     under the 0.9 bar) and the values. Jev was asked the name and the
+     default, not the values; the named vanishes wait on how the logo
+     vanishes (question 2) and on Reduce Motion's look (question 5).
+   - **Unbuilt, and why.** No splash exists (questions 1 to 5 are open), and
+     the key cannot be written without its name. The `BAUD_SPLASH=off|on`
+     instrument of section 7 and the startup bench's arm would switch off
+     something that is not there, so they land with the splash, with
+     section 7's tests red first. The splash's own flash count (note AL)
+     waits on it too.
 7. **What "do not show this again kinda thing" asks for.** The owner's
    words can be read two ways.
    - **The config key itself (K).** This is how Hyprland's logo and splash
@@ -1960,4 +1981,5 @@ Before any of these goes to the owner, the project's rules ask for:
 - Jev at or above 0.9, with the texts above quoted in the request;
 - a recommendation per question.
 
-None of that is done in this draft.
+Jev has been asked (see the status line); the renders and the
+per-question recommendations are not done.
