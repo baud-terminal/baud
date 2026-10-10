@@ -333,8 +333,9 @@ fn step(
     // counters say so.** It read: "the non-Ground nodes exist only for a
     // character a `read(2)` cut in half, so with one read there are none".
     // That is true of the *UTF-8* nodes and of nothing else -- `Escape`,
-    // `CsiParam`, `CsiInter`, `CsiIgnore`, `Str` and `StrEsc` are entered by
-    // every escape sequence in the stream, whatever the read size. Pinned at
+    // `CsiParam`, `CsiInter`, `CsiIgnore`, the three string bodies and
+    // `StrEsc` are entered by every escape sequence in the stream, whatever
+    // the read size. Pinned at
     // `Ground` an escape is never parsed and its parameter bytes are drawn as
     // text: at `CHUNK=400000`, `asciiquarium.raw` goes **3,389,132 cells to
     // 29,325,329** and `btop.raw` **7,482,240 to 53,034,740**.

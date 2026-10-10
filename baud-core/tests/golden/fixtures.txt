@@ -3395,10 +3395,14 @@ cursor 0 0
 reply 
 digest 11b7328a6fa84ae5 nonblank 0
 end
+# decrqss-bel departs from core2 on 2026-10-09, by the text: a BEL ends only an OSC
+# (ctlseqs 2023-2024; ECMA-48 5.6 ends a control string with ST alone) and williams
+# puts it in a DCS body, so the request is still open and owes nothing. core2 answered
+# it at the BEL with 1b50312472306d1b5c; the name is core2's.
 fixture decrqss-bel terminated
 bytes 1b5024716d07
 cursor 0 0
-reply 1b50312472306d1b5c
+reply 
 digest 11b7328a6fa84ae5 nonblank 0
 end
 fixture decrqss-cancelled by can

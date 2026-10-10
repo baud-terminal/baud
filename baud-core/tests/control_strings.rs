@@ -242,3 +242,220 @@ fn a_bare_st_closes_nothing_and_is_counted_nowhere() {
         }
     }
 }
+
+/// What one program left behind that a BEL could change: the screen, the
+/// cursor, the reply and the title. The counts are read off the terminal in
+/// a `fed` closure where each test needs them, so none is held in a field.
+#[derive(Debug, PartialEq)]
+struct Left {
+    screen: Vec<PackedCell>,
+    cursor: (Row, Col),
+    reply: Vec<u8>,
+    title: Vec<u8>,
+}
+
+fn left(bytes: &[u8], size: usize) -> Left {
+    fed(bytes, size, |t| Left {
+        screen: support::screen(t),
+        cursor: t.cursor(),
+        reply: t.reply().to_vec(),
+        title: t.title().to_vec(),
+    })
+}
+
+/// The DECRQSS answer for a request baud cannot name: `DCS 0 $ r ST`.
+const INVALID: &[u8] = b"\x1bP0$r\x1b\\";
+
+/// **A BEL inside a DCS body is payload, and only ST ends the string.**
+///
+/// `[[source: williams]]`'s `dcs passthrough` gives `00-17,19,1C-1F,20-7E` the
+/// *put* action (line 388): the byte goes to the control function's handler
+/// and the string goes on. `[[source: ecma48]]` 5.6 closes a control string
+/// with ST alone, and `[[source: ctlseqs]]` allows BEL beside it "for
+/// terminating OSC sequences" (2023-2024), and for no other string. baud's DCS body
+/// took the OSC's edge, so a BEL ended a DECRQSS, answered it, and drew what
+/// followed it.
+///
+/// `m BEL` is told apart three ways: put, the payload is `m\x07` and the
+/// request is invalid; ignored, it is `m` and valid; a terminator, it is `m`
+/// and the `X` after it is drawn. No bell rings: put executes nothing. Every
+/// read size, and the 8-bit form under ISO 8859-1. The control is the same
+/// request without the BEL, which answers valid, so `INVALID` is not the
+/// only reply this harness can see.
+#[test]
+fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
+    let control = b"\x1bP$qm\x1b\\";
+    for size in 1..=control.len() {
+        assert_eq!(
+            left(control, size).reply,
+            b"\x1bP1$r0m\x1b\\",
+            "control: DECRQSS m answers valid, read size {size}"
+        );
+    }
+    let cases: [(&str, &[u8], &[u8]); 4] = [
+        ("DECRQSS m BEL", b"\x1bP$qm\x07\x1b\\Y", b"Y"),
+        ("DECRQSS m BEL X", b"\x1bP$qm\x07X\x1b\\Y", b"Y"),
+        (
+            "DECRQSS m BEL X under ISO 8859-1, 90 and 9C",
+            b"\x1b%@\x90$qm\x07X\x9cY",
+            b"\x1b%@Y",
+        ),
+        (
+            "DECUDK-shaped, ignored",
+            b"\x1bP0;1|17/31\x07X\x1b\\Y",
+            b"Y",
+        ),
+    ];
+    for (name, bytes, drawn) in cases {
+        let want = left(drawn, drawn.len());
+        for size in 1..=bytes.len() {
+            let got = left(bytes, size);
+            assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
+            assert_eq!(got.cursor, want.cursor, "{name}: cursor, read size {size}");
+            let decrqss = name.starts_with("DECRQSS");
+            let reply: &[u8] = match decrqss {
+                true => INVALID,
+                false => b"",
+            };
+            assert_eq!(got.reply, reply, "{name}: reply, read size {size}");
+            fed(bytes, size, |t| {
+                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+                if !decrqss {
+                    assert_eq!(t.strings_ignored, 1, "{name}: one string, read size {size}");
+                }
+            });
+        }
+    }
+}
+
+/// **A BEL before a DCS body is ignored.**
+///
+/// `[[source: williams]]` gives `dcs entry`, `dcs param` and `dcs
+/// intermediate` each the row `00-17,19,1C-1F / ignore` (lines 354, 361 and
+/// 368), and says "C0 controls other than CAN, SUB and ESC are not executed
+/// while recognising the first part of a device control string" (565). The prefix
+/// nodes ended the string on BEL, so `ESC P BEL $ q m ST` lost its reply and
+/// drew `$qm`. Each spelling must answer as the request without the BEL, and
+/// ring nothing.
+#[test]
+fn a_bel_before_a_dcs_body_is_ignored() {
+    let plain = b"\x1bP$qm\x1b\\Y";
+    let want = left(plain, plain.len());
+    assert_eq!(
+        want.reply, b"\x1bP1$r0m\x1b\\",
+        "control: the request answers"
+    );
+    let cases: [(&str, &[u8], &[u8]); 3] = [
+        ("after ESC P", b"\x1bP\x07$qm\x1b\\Y", plain),
+        ("after $", b"\x1bP$\x07qm\x1b\\Y", plain),
+        (
+            "after 90 under ISO 8859-1",
+            b"\x1b%@\x90\x07$qm\x9cY",
+            b"\x1b%@\x90$qm\x9cY",
+        ),
+    ];
+    for (name, bytes, without) in cases {
+        let want = left(without, without.len());
+        assert_eq!(
+            want.reply, b"\x1bP1$r0m\x1b\\",
+            "control: {name} without the BEL answers"
+        );
+        for size in 1..=bytes.len() {
+            let got = left(bytes, size);
+            assert_eq!(got.reply, want.reply, "{name}: reply, read size {size}");
+            assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
+            fed(bytes, size, |t| {
+                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+            });
+        }
+    }
+}
+
+/// **A BEL inside an SOS, PM or APC is ignored, and only ST ends it.**
+///
+/// `[[source: williams]]`'s `sos/pm/apc string` ignores `00-17,19,1C-1F,20-7F`
+/// (line 426); `[[source: ctlseqs]]` says of APC and PM that "Pt need not be
+/// printable characters" (432-433, 2278-2279) and gives BEL as a terminator for OSC
+/// only. The three shared the OSC's body node, so a BEL ended them and the
+/// body after it was drawn.
+///
+/// *Ignored*, not put: an APC whose `OSC_MAX` printable bytes fill the
+/// accumulator is not truncated by the BEL after them, where a put would
+/// count one. The control is the same APC one byte longer, which does count,
+/// so the counter is live for this string.
+#[test]
+fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
+    let cases: [(&str, &[u8], &[u8]); 4] = [
+        ("SOS", b"\x1bXa\x07X\x1b\\AFTER", b"AFTER"),
+        ("PM", b"\x1b^a\x07X\x1b\\AFTER", b"AFTER"),
+        ("APC", b"\x1b_Ga\x07X\x1b\\AFTER", b"AFTER"),
+        (
+            "APC under ISO 8859-1, 9F and 9C",
+            b"\x1b%@\x9fa\x07X\x9cAFTER",
+            b"\x1b%@AFTER",
+        ),
+    ];
+    for (name, bytes, drawn) in cases {
+        let want = left(drawn, drawn.len());
+        for size in 1..=bytes.len() {
+            let got = left(bytes, size);
+            assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
+            fed(bytes, size, |t| {
+                assert_eq!(t.strings_ignored, 1, "{name}: one string, read size {size}");
+                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+            });
+        }
+    }
+
+    // `OSC_MAX` printable bytes and a BEL, against `OSC_MAX + 1` and none.
+    let mut full = b"\x1b_".to_vec();
+    full.extend(std::iter::repeat_n(b'x', OSC_MAX));
+    let mut over = full.clone();
+    full.push(0x07);
+    over.push(b'x');
+    for v in [&mut full, &mut over] {
+        v.extend_from_slice(b"\x1b\\AFTER");
+    }
+    fed(&over, over.len(), |t| {
+        assert_eq!(
+            t.string_truncations, 1,
+            "control: one byte past the accumulator counts"
+        );
+    });
+    for size in [1, 2, 7, full.len()] {
+        fed(&full, size, |t| {
+            assert_eq!(
+                t.string_truncations, 0,
+                "a full APC and a BEL: read size {size}"
+            );
+            assert_eq!(
+                t.strings_ignored, 1,
+                "a full APC and a BEL: one string, read size {size}"
+            );
+        });
+    }
+}
+
+/// **A BEL still ends an OSC**, the one string `[[source: ctlseqs]]` lets it
+/// end: "XTerm accepts either BEL or ST for terminating OSC sequences"
+/// (2023-2024). The positive control for the three tests above, at every read
+/// size and in both encodings: the title is set, the text after the BEL is
+/// drawn, and nothing rings.
+#[test]
+fn a_bel_still_ends_an_osc() {
+    let cases: [(&str, &[u8], &[u8]); 2] = [
+        ("ESC ]", b"\x1b]0;t\x07X", b"X"),
+        ("9D under ISO 8859-1", b"\x1b%@\x9d0;t\x07X", b"\x1b%@X"),
+    ];
+    for (name, bytes, drawn) in cases {
+        let want = left(drawn, drawn.len());
+        for size in 1..=bytes.len() {
+            let got = left(bytes, size);
+            assert_eq!(got.title, b"t", "{name}: title, read size {size}");
+            assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
+            fed(bytes, size, |t| {
+                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+            });
+        }
+    }
+}

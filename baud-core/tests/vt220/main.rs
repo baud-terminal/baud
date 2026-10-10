@@ -16,7 +16,7 @@ mod selective_erase;
 /// What was here, and what each turned out to be:
 ///
 /// * **C0 and `DEL` inside a DCS prefix.** `Node::Dcs` sent anything
-///   unrecognised to `Str`, so a `DEL` between `ESC P` and the `$` turned a
+///   unrecognised to the body, so a `DEL` between `ESC P` and the `$` turned a
 ///   `DECRQSS` into a generic control string -- the request dropped and no
 ///   reply sent, which for a *query* is the worst of the three outcomes.
 ///   `[[source: williams]]` gives those bytes the *ignore* action: they go

@@ -49,6 +49,26 @@ impl Paint<'_, '_> {
         // terminator (`sixel_len > sixel_body.len()`) and the image is refused
         // whole rather than decoded from a truncated body.
         if self.cold.str_kind == StrKind::Sixel {
+            // **A C0 or `DEL` is dropped here, before the decoder.** The graph
+            // puts a `BEL` in a DCS body, `[[source: williams]]`'s `dcs
+            // passthrough` row (388), and stores `7F`, which that row ignores.
+            // The decoder reads a number up to its first non-digit, so either
+            // byte inside one split it: `!1 BEL 0~` drew one column where
+            // `!10~` draws ten, and `#1;2;10 BEL 0;0;0` set red to 10%.
+            // `[[source: vt3xx-sixel]]` defines the data and says nothing of
+            // C0. xterm withholds a `BEL` the same way: its Sixel parser is
+            // handed only bytes its string table calls `CASE_IGNORE`
+            // (`[[source: xterm-reset]]`'s file, 3408-3412), and `BEL` is
+            // `CASE_BELL` (`[[source: xterm-vtprstbl-c]]` 7630). `DEL` is
+            // `CASE_IGNORE` there, and its parser ends a number on it, as on
+            // any byte that is not a digit or white space
+            // (`[[source: xterm-graphics-sixel]]` 541-555): its departure from
+            // williams' ignore, not followed. The other C0 never get here --
+            // the graph ignores them, the open `dcs_passthrough` gap -- so the
+            // image stays what it is whichever way that is decided.
+            if b.is_c0() || b.is_del() {
+                return;
+            }
             let n = self.cold.sixel_len.index();
             if n < self.sixel_body.len() {
                 self.sixel_body[n] = b.raw_byte();

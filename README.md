@@ -50,13 +50,13 @@ Latency, frame time and memory are baud's own numbers, on one Mac
 
 **A terminal emulator that runs on macOS, with a Linux port that has run only
 headless.** The VT core is measured, and in its coverage table every row for
-an operation it implements is done except three at partial, DECSC, DECRC and
-the DEC Special Graphics table; the renderer, the shaper and the input path are
-built and run on macOS.
+an operation it implements is done except four at partial, DECSC, DECRC, the
+DEC Special Graphics table and the `dcs_passthrough` state; the renderer, the
+shaper and the input path are built and run on macOS.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ [enumerated against primary sources](docs/vt-coverage.md): every row for an operation baud implements is **done** except three at **partial**: DECSC/DECRC, which save G0-G3 and which of them GL invokes but not GR (baud does not model it) or a single shift (SS2/SS3 are not implemented), and the DEC Special Graphics table, which leaves `0x5F` as `_`. What it does not implement is **out** with the reason in its row, or refused and counted. Some operations have no row yet, among them XTVERSION, answered and tested, and SS2/SS3 and the locking shifts LS2, LS3 and LS1R-LS3R, which count as unsupported |
+| **VT protocol** | ✅ [enumerated against primary sources](docs/vt-coverage.md): every row for an operation baud implements is **done** except four at **partial**: DECSC/DECRC, which save G0-G3 and which of them GL invokes but not GR (baud does not model it) or a single shift (SS2/SS3 are not implemented), the DEC Special Graphics table, which leaves `0x5F` as `_`, and the `dcs_passthrough` state, which keeps a `7F` in a DECRQSS `Pt` and drops a `CR`, where `[[source: williams]]` ignores the `7F` and passes the `CR` on (388). What it does not implement is **out** with the reason in its row, or refused and counted. Some operations have no row yet, among them XTVERSION, answered and tested, and SS2/SS3 and the locking shifts LS2, LS3 and LS1R-LS3R, which count as unsupported |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Text** | ✅ UTF-8 decoding against the standard's own vectors, width generated from `EastAsianWidth.txt`, and grapheme clustering that passes `GraphemeBreakTest.txt`. Marks past what the cluster store can hold are dropped and counted, an open departure (below) |
 | **Grid** | ✅ one representation: cells in a ring the screen is a window into, so a scroll copies nothing and `Term::scrollback` reads the lines behind the window. `Depth::DEFAULT` is 2,000 lines, and `Term::resize` reflows the primary in place |
@@ -257,6 +257,11 @@ owner's call:
   replaces it with Blank; which code point Blank stores is the owner's call
   ([the record](docs/record.md), "DEC Special Graphics begins at 0x5F, and what
   it stores there is the owner's call").
+- **A DCS body stores a `7F` and ignores the C0 that `[[source: williams]]`'s
+  `dcs passthrough` row puts**, `BEL` excepted, where that row ignores `7F`
+  (388). DECRQSS is the one reader it reaches, keeping a `7F` in its `Pt` and
+  dropping a `CR` ([docs/vt-coverage.md](docs/vt-coverage.md),
+  `dcs_passthrough`).
 - **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
   application to the script table for the text's own script and to `DFLT`
   where there is none; `baud-font` takes no script argument

@@ -12781,6 +12781,24 @@ group  = "C"
 # Re-fetched at 9489b20 on 2026-10-08, byte for byte the copy read, which is what
 # fixes the commit.
 
+[sources.xterm-graphics-sixel]
+key    = "xterm-graphics-sixel"
+title  = "xterm 411, graphics_sixel.c -- parse_sixel_char: white space skipped, NUL skipped or ending a repeat, digits accumulated, any other byte ends a number"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_sixel.c"
+file   = "xterm-graphics_sixel.c"
+sha256 = "3f6234e71ded3d816d6b2e7792b3a4860ecaf8c3c104d2284f0a44f31c726c96"
+bytes  = 27474
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-10 at the commit the other xterm files are pinned to, to say what
+# xterm's Sixel parser does with the C0 and DEL bytes charproc.c hands it
+# (3408-3412): lines 541-555 return early on NUL and isspace (a NUL inside a repeat
+# ends the image), accumulate a digit, and let every other byte fall to the code
+# that consumes the number.
+
 [sources.xterm-xterm-h]
 key    = "xterm-xterm-h"
 title  = "xterm 411, xterm.h -- the prototypes the charset paths name: saveCharsets, restoreCharsets, xtermCharSetOut"

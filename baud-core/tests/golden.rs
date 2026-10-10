@@ -16,11 +16,13 @@
 //! deleted it, which went with it. Nothing here re-derives it: if a value looks wrong,
 //! it is what a mature implementation actually did, and that is the point.
 //!
-//! **Two departures, each a decision of this core's and labelled where it is
+//! **Three departures, each a decision of this core's and labelled where it is
 //! pinned.** The recordings' digests fold the resolved rendition rather than
-//! core2's slot index since the style table became open-addressed, and
+//! core2's slot index since the style table became open-addressed,
 //! `utf8/cat-cjk`'s line moved on 2026-10-01 when a `U+FE0F` began widening
-//! its base: those are this core's renderings, not core2's.
+//! its base, and `decrqss-bel terminated` owes no reply since 2026-10-09,
+//! when a `BEL` stopped ending a DCS, which no text has it do: those are this
+//! core's renderings, not core2's.
 
 #[path = "support/mod.rs"]
 mod support;

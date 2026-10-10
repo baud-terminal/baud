@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Three rows carry it: DECSC, DECRC and the DEC Special Graphics glyph table |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Four rows carry it: DECSC, DECRC, the DEC Special Graphics glyph table and the `dcs_passthrough` state |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,13 +53,14 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Three carry `**partial**`, and
+**No row carries `parsed` or `todo`. Four carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
 and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
-Graphics glyph table all at `**partial**`. A check that saw them would fail on
-all three, and that is the right answer: each row names work that is not
+Graphics glyph table all at `**partial**`, and the `dcs_passthrough` state
+since 2026-10-09. A check that saw them would fail on
+all four, and that is the right answer: each row names work that is not
 finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
@@ -89,13 +90,13 @@ addition, not a substitution.
 | `csi_param` | done | `CsiParams` |
 | `csi_intermediate` | done | intermediate recorded, in both feed paths |
 | `csi_ignore` | done | |
-| `dcs_entry` | done | its own state — the marker rule, as `csi_entry` |
-| `dcs_param` | done | C0 **ignored**, not executed |
-| `dcs_intermediate` | done | `30-3F` ends the sequence — the parameter string is over |
-| `dcs_passthrough` | done | payload collected for DECRQSS |
+| `dcs_entry` | done | its own state — the marker rule, as `csi_entry`; C0 **ignored**, `BEL` among them (`[[source: williams]]` 354), which ended the string until 2026-10-09 (`a_bel_before_a_dcs_body_is_ignored`) |
+| `dcs_param` | done | C0 **ignored**, not executed, `BEL` among them (361) |
+| `dcs_intermediate` | done | `30-3F` ends the sequence — the parameter string is over; C0 ignored, `BEL` among them (368) |
+| `dcs_passthrough` | **partial** | payload collected for DECRQSS and Sixel. **`BEL` is payload and ends nothing**, williams' *put* (388): it ended the string, an `OSC`'s terminator in a DCS, until 2026-10-09, so `DCS $ q m BEL` answered and drew what followed; now only ST ends it, and a DECRQSS whose `Pt` holds one answers invalid (`a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it`, `a_bel_inside_a_sixel_is_payload_and_draws_nothing`, `a_bel_does_not_terminate_a_dcs`). **A Sixel's handler drops every C0 and `DEL` before its decoder**, so neither the put `BEL` nor a stored `7F` reaches a Sixel number; a stored `7F` split one until 2026-10-09, `!1 DEL 0~` drawing one column for ten, as a put `BEL` would (`a_c0_or_del_inside_a_sixel_number_splits_nothing`). xterm hands its Sixel parser only `CASE_IGNORE` bytes (`[[source: xterm-reset]]`'s file, 3408-3412), so not the `BEL`, which is `CASE_BELL`; the `DEL` is one, and ends a number there (`[[source: xterm-graphics-sixel]]` 541-555), a departure from williams' ignore not followed. **The gap, open and the owner's call**: the same row puts the other C0 and ignores `7F`, and baud's DCS body ignores the C0 and stores `7F`, the `osc_string` row, so a DECRQSS reads a `CR` in its `Pt` as absent and keeps a `7F`; DECRQSS is the one consumer the gap still reaches. It read `done` until 2026-10-09 with the gap unnamed |
 | `dcs_ignore` | done | unhandled DCS consumed, never executed |
-| `osc_string` | done | payload captured, bounded, and dispatched |
-| `sos_pm_apc_string` | done | payload consumed, never executed |
+| `osc_string` | done | payload captured, bounded, and dispatched. **The one string `BEL` ends**, by `[[source: ctlseqs]]` ("XTerm accepts either BEL or ST for terminating OSC sequences", 2023-2024) where williams ignores it (407) (`a_bel_still_ends_an_osc`) |
+| `sos_pm_apc_string` | done | payload consumed, never executed. **`BEL` is ignored and ends nothing**, williams' row (426) and ctlseqs' "Pt need not be printable characters" (432-433, 2278-2279); it ended the string until 2026-10-09 (`a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it`) |
 
 ~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: DCS, SOS,
 PM and APC payloads are consumed by `StringIgnore` and never executed. Note the
@@ -104,7 +105,10 @@ specified limit, which is not a hole: `[[source: williams]]` says a bare `ESC`
 612-615), so the guarantee is precisely that a payload containing no ESC, and
 under ISO 8859-1 no byte in `80-9F`, is inert. The C1 half holds in the
 `dcs_*`, `osc_string` and `sos_pm_apc_string` states since 2026-10-09; see
-the anywhere block.
+the anywhere block. **And until 2026-10-09 a `BEL` broke it too**: one body
+node served all five strings and ended each on `BEL`, so a DCS, SOS, PM or
+APC payload holding one was not inert past it. Only an `OSC` ends on `BEL`
+now, the one string `[[source: ctlseqs]]` lets it end.
 
 baud adds a `Utf8` state, which `[[source: williams]]` does not have — that
 parser predates UTF-8 and is defined over bytes. Keeping it is deliberate; the
@@ -598,13 +602,15 @@ a corner case. Deriving the constant rather than writing a number is what stops
 it going back out of step the next time `WIRE` grows, which is how it drifted in
 the first place.
 
-### C0 inside a control string payload is ignored, not stored
+### C0 inside an OSC payload is ignored, not stored
 
 `osc_string` takes the *ignore* action on `01-17,19,1C-1F`; only `20-7F` is
-`osc_put`, and the same holds for `dcs_passthrough`. baud appended every byte
-that was not a terminator, so a raw control byte landed in the title — and OSC
-payloads are attacker-supplied, which is why this one is in the threat model
-rather than only in the conformance table.
+`osc_put`. `dcs_passthrough` is not the same: `[[source: williams]]` gives
+`00-17,19,1C-1F,20-7E` its *put* action and `7F` *ignore* (388), and baud's DCS
+body follows the `osc_string` row instead but for `BEL`, the gap its row names.
+baud appended every byte that was not a terminator, so a raw control byte
+landed in the title — and OSC payloads are attacker-supplied, which is why this
+one is in the threat model rather than only in the conformance table.
 
 **This block broke chunk-invariance the moment it landed, and the property
 caught it.** `fast_esc` scans an OSC straight to its terminator, so it could not
@@ -629,7 +635,7 @@ without these.
 | byte | name | status |
 |---|---|---|
 | `0x00` NUL | ignored | done |
-| `0x07` BEL | bell | done — counted; no UI to ring |
+| `0x07` BEL | bell | done — counted; no UI to ring. **Inside a control string it rings nothing**: it ends an `OSC` (`[[source: ctlseqs]]` 2023-2024) and no other string, as `[[source: ecma48]]` 5.6 closes each with ST; it is payload in a DCS body and ignored in the DCS prefix and in an SOS, PM or APC, `[[source: williams]]`'s rows (354-426). Until 2026-10-09 it ended all five; see `dcs_passthrough` and `sos_pm_apc_string` above. xterm rings it in every string but an OSC (`CASE_BELL`, `[[source: xterm-reset]]`'s file 3691-3705), a departure from the text not followed (`a_bel_ends_an_osc_and_no_other_control_string`) |
 | `0x08` BS | backspace | done |
 | `0x09` HT | tab | done — real stop table |
 | `0x0A` LF | line feed | done — index only unless LNM |

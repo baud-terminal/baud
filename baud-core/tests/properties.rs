@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator has 79
-//! operations and reaches the *protocol*; this one has twenty-six atoms and
+//! operations and reaches the *protocol*; this one has twenty-eight atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -286,6 +286,25 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **A BEL inside a DCS body and inside an APC**: payload in the first,
+    // ignored in the second, and the end of neither, so the `u` and the `v`
+    // after them are body and only the `ESC \` closes each. The DECRQSS
+    // answers for a `Pt` of `m BEL u`, which names nothing, and the drivers
+    // compare the reply beside the cells. A split can fall between the BEL
+    // and the byte after it, where a string the BEL had ended would leave the
+    // `u` to be drawn.
+    Atom {
+        name: "dcs-bel",
+        bytes: b"\x1bP$qm\x07u\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "apc-bel",
+        bytes: b"\x1b_a\x07v\x1b\\",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -307,11 +326,15 @@ fn ws() -> WinSize {
     }
 }
 
+/// What a driver reads back: every cell, whether the cursor is shown, the
+/// title and the reply.
+type Seen = (Vec<PackedCell>, bool, Vec<u8>, Vec<u8>);
+
 /// Feed `bytes` in `chunk`-sized reads and return **every cell**, not a row
 /// and not a string projection -- whether the cursor is shown, the one mode
-/// the alphabet sets, saves and restores, and the title, the one string it
-/// sets.
-fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool, Vec<u8>) {
+/// the alphabet sets, saves and restores, the title, the one string it sets,
+/// and the reply, to the one request it makes.
+fn drive(bytes: &[u8], chunk: usize) -> Seen {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -322,7 +345,12 @@ fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool, Vec<u8>) {
         t.feed(BytePos::ZERO, ReadLen::from_index(n));
         i += n;
     }
-    (support::screen(&t), t.cursor_visible(), t.title().to_vec())
+    (
+        support::screen(&t),
+        t.cursor_visible(),
+        t.title().to_vec(),
+        t.reply().to_vec(),
+    )
 }
 
 /// The same program, but each **atom** delivered in its own `feed`.
@@ -332,7 +360,7 @@ fn drive(bytes: &[u8], chunk: usize) -> (Vec<PackedCell>, bool, Vec<u8>) {
 /// a run of four and four runs of one must agree. That is the class chunk
 /// invariance is structurally blind to -- where both chunkings are wrong the
 /// same way, which is what the blitter's clipping bug was.
-fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool, Vec<u8>) {
+fn drive_atomwise(prog: &[usize]) -> Seen {
     let w = ws();
     let mut owned = Owned::new(&w);
     let mut t = Term::new(owned.storage(), &w);
@@ -341,7 +369,12 @@ fn drive_atomwise(prog: &[usize]) -> (Vec<PackedCell>, bool, Vec<u8>) {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
     }
-    (support::screen(&t), t.cursor_visible(), t.title().to_vec())
+    (
+        support::screen(&t),
+        t.cursor_visible(),
+        t.title().to_vec(),
+        t.reply().to_vec(),
+    )
 }
 
 /// **The control, and nothing below it is believable until it passes.**
@@ -397,7 +430,7 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let (_, _, title) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    let (_, _, title, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
     fed("latin1-osc-nel", &|t| {
@@ -451,6 +484,27 @@ fn the_c1_atoms_reach_the_sequence_arms() {
     fed("latin1-csi-osc", &|t| {
         assert_eq!(t.title(), b"w", "CSI 1 ; 9D: the OSC set the title");
         assert_eq!(t.cursor().1, Col::ZERO, "CSI 1 ; 9D: nothing printed");
+    });
+}
+
+/// **The BEL atoms reach the string bodies**, for the same reason: a BEL that
+/// ended its string would end it in both chunkings, and every property below
+/// would stay green with the `u` and the `v` on the screen.
+///
+/// `dcs-bel`'s BEL is payload, so the `u` is too, nothing is drawn, and the
+/// DECRQSS answers invalid for `m BEL u`; `apc-bel`'s BEL is ignored, so the
+/// `v` is body and the string is one ignored string; neither rings.
+#[test]
+fn the_bel_atoms_reach_the_string_bodies() {
+    fed("dcs-bel", &|t| {
+        assert_eq!(t.cursor().1, Col::ZERO, "DCS: the `u` is payload");
+        assert_eq!(t.reply(), b"\x1bP0$r\x1b\\", "DCS: m BEL u is invalid");
+        assert_eq!(t.bells, 0, "DCS: no bell");
+    });
+    fed("apc-bel", &|t| {
+        assert_eq!(t.cursor().1, Col::ZERO, "APC: the `v` is body");
+        assert_eq!(t.strings_ignored, 1, "APC: one ignored string");
+        assert_eq!(t.bells, 0, "APC: no bell");
     });
 }
 

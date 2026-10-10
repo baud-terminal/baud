@@ -58,8 +58,31 @@ pub enum Node {
     Dcs,
     /// `ESC P $`: one byte from being a DECRQSS.
     DcsDollar,
-    /// The body of a control string -- `OSC`, `DCS`, `SOS`, `PM`, `APC`.
-    Str,
+    /// The body of an `OSC`: `[[source: williams]]`'s `osc string`, which a
+    /// `BEL` ends as well as `ST`, because `[[source: ctlseqs]]` says so
+    /// (2023-2024) where williams ignores it.
+    ///
+    /// **Three body nodes, for williams' `osc string`, `dcs passthrough` and
+    /// `sos/pm/apc string`, and the only byte their rows differ in is
+    /// `BEL`.** They were one node, and so a `BEL` ended all five strings,
+    /// where every text that speaks of it ends only the `OSC`:
+    /// `[[source: ecma48]]` 5.6 closes a control string with `ST` alone, and
+    /// williams puts the byte in a DCS and ignores it in the other three.
+    OscStr,
+    /// The body of a `DCS`, past its prefix: williams' `dcs passthrough`,
+    /// whose row puts a `BEL` (388), so it is payload and the string goes on.
+    ///
+    /// **It is williams' `dcs ignore` as well**, which this graph has no node
+    /// for: a prefix williams sends there, `ESC P 1 ?` or `ESC P $ 1`, leads
+    /// here too, and its body is put -- `20-7F` before this node split,
+    /// `BEL` as well now -- then discarded as `StrKind::Other`, where
+    /// williams ignores every byte of it. Only `string_truncations` can see
+    /// the difference, on such a string longer than the accumulator.
+    DcsStr,
+    /// The body of an `SOS`, `PM` or `APC`: williams' `sos/pm/apc string`,
+    /// whose row ignores a `BEL` (426), so it goes nowhere and the string
+    /// goes on.
+    SosStr,
     /// An `ESC` inside a control string: `\` ends it, anything else cancels.
     StrEsc,
     /// Between characters in VT52. **A protocol is more nodes, not a runtime
@@ -88,7 +111,7 @@ pub enum Node {
     Vt52Utf8Three,
 }
 
-pub(crate) const NNODE: usize = 20;
+pub(crate) const NNODE: usize = 22;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
@@ -108,7 +131,9 @@ impl Node {
         Node::CsiIgnore,
         Node::Dcs,
         Node::DcsDollar,
-        Node::Str,
+        Node::OscStr,
+        Node::DcsStr,
+        Node::SosStr,
         Node::StrEsc,
         Node::Vt52Ground,
         Node::Vt52Escape,
@@ -184,11 +209,12 @@ pub enum Act {
     Consume,
     /// The introducer of a control string: `OSC`, `DCS`, `SOS`, `PM`, `APC`.
     ///
-    /// Reads the byte, so one action serves all five and the body node is
-    /// shared. **It resets the accumulator**, which is the whole reason it is
-    /// distinct from `Consume`: a string that a `CAN` cancels never reaches a
-    /// terminator, so resetting where the string starts is what makes the
-    /// cancelled case right without a second rule for it.
+    /// Reads the byte, so one action serves all five, and `SOS`, `PM` and
+    /// `APC` share a body node. **It resets the accumulator**, which is the
+    /// whole reason it is distinct from `Consume`: a string that a `CAN`
+    /// cancels never reaches a terminator, so resetting where the string
+    /// starts is what makes the cancelled case right without a second rule
+    /// for it.
     StrStart,
     /// One byte of a control string's body.
     StrPut,
@@ -196,9 +222,10 @@ pub enum Act {
     /// can -- a `BEL` consumed silently is a protocol event the application
     /// has no way to learn was received.
     ///
-    /// Distinct from the `BEL` inside a control string, which is `StrEnd`:
-    /// there it terminates an `OSC` rather than ringing anything, and the node
-    /// is what tells them apart.
+    /// Distinct from the `BEL` inside a control string, which rings nothing:
+    /// `StrEnd` in an `OSC`, which it terminates, `StrPut` in a `DCS` body
+    /// and `Consume` in the `DCS` prefix and in an `SOS`, `PM` or `APC`. The
+    /// node is what tells them apart.
     Bell,
     /// A VT52 command byte, handed to `Vt52::parse` at run time.
     ///
@@ -213,10 +240,10 @@ pub enum Act {
     Vt52Address,
     /// The `q` of a `DCS $ q`: this control string is a DECRQSS.
     ///
-    /// One action rather than the two a separate DCS body would need, because
-    /// the body, the terminator and the accumulator are already `StrPut` and
-    /// `StrEnd` -- a DCS payload and an OSC payload are the same bytes with a
-    /// different prefix, and only the prefix differs.
+    /// One action, because the body and the accumulator are already `StrPut`
+    /// and `StrEnd` -- a DCS payload and an OSC payload are the same bytes
+    /// with a different prefix, and the one byte their bodies treat apart,
+    /// `BEL`, is told apart by the body node, `Node::DcsStr`.
     DcsQuery,
     /// The `q` of a `DCS Pa;Pb;Ph q`: this control string is a Sixel image,
     /// reached from `Node::Dcs` **without** the `$` intermediate that marks a
@@ -224,7 +251,8 @@ pub enum Act {
     /// existing `StrPut`/`StrEnd` machinery accumulates is decoded as Sixel
     /// raster data rather than dropped.
     SixelStart,
-    /// `BEL`, or the `\` of an `ST`: the string is complete, act on it.
+    /// The `\` of an `ST`, its one-byte form `9C` under ISO 8859-1, or a `BEL`
+    /// in an `OSC`: the string is complete, act on it.
     ///
     /// Distinct from the `Consume` that the `anywhere` rule uses for `CAN` and
     /// `SUB`, and that is the difference that stops a cancelled title being
@@ -285,15 +313,17 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::CsiIgnore => 8,
         Node::Dcs => 9,
         Node::DcsDollar => 10,
-        Node::Str => 11,
-        Node::StrEsc => 12,
-        Node::Vt52Ground => 13,
-        Node::Vt52Escape => 14,
-        Node::Vt52Row => 15,
-        Node::Vt52Col => 16,
-        Node::Vt52Utf8One => 17,
-        Node::Vt52Utf8Two => 18,
-        Node::Vt52Utf8Three => 19,
+        Node::OscStr => 11,
+        Node::DcsStr => 12,
+        Node::SosStr => 13,
+        Node::StrEsc => 14,
+        Node::Vt52Ground => 15,
+        Node::Vt52Escape => 16,
+        Node::Vt52Row => 17,
+        Node::Vt52Col => 18,
+        Node::Vt52Utf8One => 19,
+        Node::Vt52Utf8Two => 20,
+        Node::Vt52Utf8Three => 21,
     }] += 1;
 }
 
@@ -322,7 +352,9 @@ const fn node_name(n: Node) -> &'static str {
         Node::CsiIgnore => "CsiIgnore",
         Node::Dcs => "Dcs",
         Node::DcsDollar => "DcsDollar",
-        Node::Str => "Str",
+        Node::OscStr => "OscStr",
+        Node::DcsStr => "DcsStr",
+        Node::SosStr => "SosStr",
         Node::StrEsc => "StrEsc",
         Node::Vt52Ground => "Vt52Ground",
         Node::Vt52Escape => "Vt52Escape",
@@ -573,8 +605,10 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 20 x 256 x 2 bytes = **10 KB of rodata per encoding, 20 KB for both**, no
-/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes.)
+/// 22 x 256 x 2 bytes = **11 KB of rodata per encoding, 22 KB for both**, no
+/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes, and 10
+/// KB at 20, before the string body split three ways on `BEL`; a row is read
+/// only while the parser stands in its node.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 
@@ -710,7 +744,10 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // Under UTF-8 `latin1_c1` answers `None` for every byte, so these nodes'
     // rows there are what they were: `80-9F` are continuation bytes of the
     // payload's characters (`a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays`).
-    let in_string = matches!(node, Node::Dcs | Node::DcsDollar | Node::Str);
+    let in_string = matches!(
+        node,
+        Node::Dcs | Node::DcsDollar | Node::OscStr | Node::DcsStr | Node::SosStr
+    );
     if in_string {
         if let Some(e) = latin1_c1(enc, b) {
             return match b.raw_byte() {
@@ -736,7 +773,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // `CsiStart` and `StrStart` clear it on entry, as williams' `clear` does.
     //
     // So every ANSI node a Latin-1 C1 can arrive in now acts on it: `Ground`,
-    // the three string nodes, these five, and `StrEsc`, whose `Again` hands
+    // the five string nodes, these five, and `StrEsc`, whose `Again` hands
     // the byte to `Escape`. The UTF-8 continuation nodes cannot be reached
     // under Latin-1, whose every character is one byte wide, and VT52 is note
     // AE's D3, waiting on the DEC text for that mode
@@ -803,32 +840,36 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // **Both rows are `Act::Consume` with a different next node**, which
         // is the cheapest kind of edge this graph has: it costs table content
         // and nothing in the dispatch, the way `CAN`/`SUB` did. Anything that
-        // is not the DECRQSS prefix falls to `Str`, where the body is still
+        // is not the DECRQSS prefix falls to `DcsStr`, where the body is still
         // consumed to its terminator and then ignored -- consumed is the half
         // that matters, because a DCS body reaching the screen would render an
         // application's private protocol as glyphs.
         // **A C0 or `DEL` in the prefix is ignored, and the prefix survives
-        // it.** Both of these sent anything unrecognised to `Str`, so a `DEL`
-        // between `ESC P` and the `$` turned a `DECRQSS` into a generic
+        // it.** Both of these sent anything unrecognised to the body, so a
+        // `DEL` between `ESC P` and the `$` turned a `DECRQSS` into a generic
         // control string -- the request was dropped and the application got no
         // reply, which for a *query* is the worst of the three outcomes.
         //
         // `[[source: williams]]`'s `dcs_entry`, `dcs_param` and
         // `dcs_intermediate` all give `00-17`, `19`, `1C-1F` and `7F` the
-        // *ignore* action: the byte goes nowhere and the state does not move.
-        // `18` and `1A` are absent because the `anywhere` rule takes them
-        // first -- they cancel.
+        // *ignore* action (354, 361, 368): the byte goes nowhere and the state
+        // does not move. `18` and `1A` are absent because the `anywhere` rule
+        // takes them first -- they cancel.
+        //
+        // **`BEL` is one of them.** Both rows ended the string on it, an
+        // `OSC`'s terminator (`[[source: ctlseqs]]` 2023-2024) where no text
+        // puts one, so `ESC P BEL $ q m ST` lost its reply and drew `$qm`.
         Node::Dcs => {
             return match b.raw_byte() {
                 b'$' => edge(Act::Consume, Node::DcsDollar),
                 // A bare `q` (no `$` before it) is a Sixel: rename the string
                 // kind and route the body through the `StrPut`/`StrEnd` path,
                 // which now decodes it rather than dropping it.
-                b'q' => edge(Act::SixelStart, Node::Str),
+                b'q' => edge(Act::SixelStart, Node::DcsStr),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
-                // `q` reached from here is a Sixel. The earlier `_ => Str` sent
+                // `q` reached from here is a Sixel. The earlier catch-all sent
                 // the first digit to the passthrough body, so `q` never arrived
                 // and the image was never recognised.
                 //
@@ -836,7 +877,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // not the private markers `3C-3F` (`< = > ?`) or the
                 // intermediates `20-2F`.** A Sixel's parameters are
                 // `Pa;Pb;Ph` -- digits and `;` -- so that is all it needs; and
-                // routing the rest to `Node::Str` keeps two things right that
+                // routing the rest to `Node::DcsStr` keeps two things right that
                 // williams' separate `dcs_param`/`dcs_intermediate`/`dcs_ignore`
                 // states enforce: `DCS + q` (XTGETTCAP, an intermediate then
                 // `q`) is not mistaken for a Sixel, and `DCS 1 ? $ q` (a marker
@@ -853,22 +894,20 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 0x30..=0x39 => edge(Act::Digit, Node::Dcs),
                 0x3a..=0x3b => edge(Act::Sep, Node::Dcs),
                 0x1b => edge(Act::Consume, Node::StrEsc),
-                0x07 => edge(Act::StrEnd, Node::Ground),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::Dcs),
-                _ => edge(Act::Consume, Node::Str),
+                _ => edge(Act::Consume, Node::DcsStr),
             };
         }
         Node::DcsDollar => {
             return match b.raw_byte() {
-                b'q' => edge(Act::DcsQuery, Node::Str),
+                b'q' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
-                0x07 => edge(Act::StrEnd, Node::Ground),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
-                _ => edge(Act::Consume, Node::Str),
+                _ => edge(Act::Consume, Node::DcsStr),
             };
         }
         Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(node, b),
-        Node::Str => return string(b),
+        Node::OscStr | Node::DcsStr | Node::SosStr => return string(node, b),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
@@ -992,17 +1031,25 @@ const fn escape(b: StreamByte) -> Edge {
     }
     match v {
         0x5b => edge(Act::CsiStart, Node::CsiEntry),
-        // `OSC`, `DCS`, `SOS`, `PM`, `APC` -- all bodies, all ended the same
-        // way, and **which one it was has to be recorded here** because the
-        // body node is shared. `Act::StrStart` reads the introducer byte and
-        // resets the accumulator; a string that is cancelled never reaches a
-        // terminator, so resetting at the *start* is what makes both the
-        // completed and the cancelled case right.
-        0x5d | 0x58 | 0x5e | 0x5f => edge(Act::StrStart, Node::Str),
+        // `OSC`, `DCS`, `SOS`, `PM`, `APC` -- all bodies, all ended by `ST`,
+        // and **which one it was has to be recorded here** because `SOS`, `PM`
+        // and `APC` share a body node and `str_end` dispatches on the kind.
+        // `Act::StrStart` reads the introducer byte and resets the
+        // accumulator; a string that is cancelled never reaches a terminator,
+        // so resetting at the *start* is what makes both the completed and the
+        // cancelled case right.
+        //
+        // **`OSC` has a body node of its own because a `BEL` ends it**, which
+        // `[[source: ctlseqs]]` allows "for terminating OSC sequences"
+        // (2023-2024) and for no other string; `[[source: williams]]`'s
+        // `sos/pm/apc string` ignores the byte (426). One shared node ended all
+        // four on it.
+        0x5d => edge(Act::StrStart, Node::OscStr),
+        0x58 | 0x5e | 0x5f => edge(Act::StrStart, Node::SosStr),
         // `DCS` alone, because it has a **prefix**: `[[source: ctlseqs]]`
         // gives DECRQSS as `DCS $ q Pt ST`, so two bytes stand between the
         // introducer and the payload. `OSC` has none -- its parameters are in
-        // the payload -- which is why the other four share one node.
+        // the payload -- and neither have `SOS`, `PM` and `APC`.
         0x50 => edge(Act::StrStart, Node::Dcs),
         // **Recorded, not consumed.** `ESC ( B` designates a character set
         // and `ESC B` does not exist; dropping the `(` made every charset
@@ -1110,17 +1157,43 @@ const fn vt52(node: Node, b: StreamByte) -> Edge {
     }
 }
 
-/// The body of a control string. `BEL` ends an `OSC`; `ESC` may begin `ST`.
+/// The body of a control string, in the node it is: `OscStr`, `DcsStr` or
+/// `SosStr`. `ESC` may begin `ST` in all three; `BEL` ends only the `OSC`.
 ///
 /// `9C`, the one-byte `ST`, and the other C1 controls are `one()`'s, under
 /// ISO 8859-1 only: in UTF-8 they are continuation bytes and belong to
 /// whatever character opened them, so they reach here and are payload.
-const fn string(b: StreamByte) -> Edge {
+const fn string(node: Node, b: StreamByte) -> Edge {
     match b.raw_byte() {
-        // `BEL` ends an `OSC`. `[[source: ctlseqs]]` allows it beside `ST`
+        // **`BEL` ends an `OSC` and no other string.** `[[source: ctlseqs]]`
+        // allows it beside `ST` "for terminating OSC sequences" (2023-2024),
         // and applications overwhelmingly send it, so a core that took only
-        // `ST` would drop nearly every title it was sent.
-        0x07 => edge(Act::StrEnd, Node::Ground),
+        // `ST` would drop nearly every title it was sent. It names no other
+        // string, and `[[source: ecma48]]` 5.6 closes every control string
+        // with `ST` alone. So the other two rows follow
+        // `[[source: williams]]`: `dcs passthrough` puts it (388), and it is
+        // payload, as the `Pt` of a DECRQSS that then names nothing;
+        // `sos/pm/apc string` ignores it (426). One shared row ended all five,
+        // so a DCS answered at the `BEL` and drew what followed it.
+        //
+        // **Neither rings**: put and ignore do not execute the byte. xterm
+        // does, which is its departure and not followed: its `sos_table`
+        // holds every string, `BEL` there is `CASE_BELL`
+        // (`[[source: xterm-vtprstbl-c]]` 7630), and `CASE_BELL` ends an
+        // `OSC` and otherwise calls `Bell` and leaves the string open
+        // (`[[source: xterm-reset]]`'s file, 3691-3705). Not a terminator, it
+        // agrees: the byte is appended to a DCS's buffer (3454) before that
+        // case is reached, as put does here, so a DECRQSS with one fails its
+        // `strcmp` (`[[source: xterm-misc]]`'s file, 4935), and its Sixel
+        // parser is handed only `CASE_IGNORE` bytes (3408-3412), so never the
+        // `BEL`. Here the Sixel handler drops it, with every C0 and `DEL`,
+        // before the decoder (`Paint::str_put`): the decoder reads a number
+        // up to its first non-digit, so a `BEL` put inside one split it.
+        0x07 => match node {
+            Node::OscStr => edge(Act::StrEnd, Node::Ground),
+            Node::DcsStr => edge(Act::StrPut, Node::DcsStr),
+            _ => edge(Act::Consume, node),
+        },
         0x1b => edge(Act::Consume, Node::StrEsc),
         // **A C0 in the payload is ignored, not stored.**
         // `[[source: williams]]`'s `osc_string` makes only `20-7F` `osc_put`;
@@ -1135,8 +1208,19 @@ const fn string(b: StreamByte) -> Edge {
         // core2's control-string differential grew a row for it:
         // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
         // `baud-core2` set it to `title`.
-        0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, Node::Str),
-        _ => edge(Act::StrPut, Node::Str),
+        //
+        // **In a DCS body this row departs from williams, and it is open.**
+        // `dcs passthrough` puts every C0 here and ignores `7F` (388); this
+        // row, the `osc string` one, ignores the C0 and stores `7F`, so a
+        // DECRQSS reads a `CR` in its `Pt` as absent where williams' handler,
+        // and xterm's buffer, would see it, and keeps a `7F` williams drops.
+        // A stored `7F` reached the Sixel decoder too and split a number in
+        // it, `!1 DEL 0~` drawing one column for ten, until the Sixel handler
+        // dropped C0 and `DEL` itself (`Paint::str_put`); DECRQSS is the
+        // consumer the gap is left in. Whether to follow the passthrough row
+        // whole is the owner's call; only `BEL` moved here.
+        0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, node),
+        _ => edge(Act::StrPut, node),
     }
 }
 
@@ -1366,6 +1450,30 @@ mod classes {
         // | `DEL` ignored in ground, not drawn as U+FFFD (D4) | **34/963/24,272/568,022** | **-0.8%** |
         // | a Latin-1 C1 cancels a control string and acts | **34/955/23,735/549,546** | **-3.3%** |
         // | ... and an escape or control sequence | **34/955/23,743/555,038** | +1.0% |
+        // | `BEL` ends only an `OSC`: three string bodies | **36/1,075/27,628/663,126** | **+19.5%** |
+        //
+        // **The `BEL` row is a prefix's cost, the shape DECRQSS paid.** Eight
+        // edges changed what they do, taken against a dump of every edge
+        // before: `07` in `Dcs`, `DcsDollar` and the two new bodies, under
+        // both encodings, each from `StrEnd` into ground to `Consume` or
+        // `StrPut` in place. Every other edge is what it was but for the node
+        // it names: `OscStr` is the old `Str` row exactly, `DcsStr` and
+        // `SosStr` are that row but for `07`, and the edges into the old body
+        // now name one of the three. What moves stride 1, by 2, is the last
+        // part: `5D` led to the body `58`, `5E` and `5F` led to, and now leads
+        // to `OscStr` where they lead to `SosStr`, so `]` parts from `X ^ _`,
+        // and under ISO 8859-1 `9D` from `98 9E 9F`. No class merges. At
+        // stride 2, 112 old classes split into 232 and none merge, against a
+        // dump of the old partition. By cause, 106 are that split seen
+        // through a pair: 104 a byte and then an introducer or the reverse,
+        // and 2 a `BEL` that rings and then an introducer, `07 5D` parting
+        // from `07 58 5E 5F` and `07 9D` from `07 98 9E 9F`. 6 hold a `BEL`
+        // the string no longer ends on -- `BEL` then `$`, `q` or `9C`, which
+        // the prefix or body it stayed in now reads; `$` then `BEL`; and an
+        // introducer then `BEL`, now three ways where it was one, for `P`,
+        // `]` and `X ^ _` and for `90`, `9D` and `98 9E 9F`. At stride 3,
+        // 3,472 old classes split into 7,357 and none merge. Stride 4
+        // compounds the same and was not decomposed.
         //
         // **The sequence half grows it a little, and again only the Latin-1
         // table moved**: the UTF-8 edges hash as they did, and exactly 160
@@ -1492,7 +1600,7 @@ mod classes {
         // **The Sixel hook moved strides 2, 3 and 4, not stride 1.** Routing a
         // `DCS` bare-`q` to `Act::SixelStart` and collecting the numeric
         // parameters `30-3F` in `Node::Dcs` (rather than dumping the first one
-        // to `Node::Str`) tells apart the `q` final and the param bytes there.
+        // to the body) tells apart the `q` final and the param bytes there.
         // It nets zero new stride-1 classes, but the param bytes `30-3B` now
         // differ from the markers `3C-3F` and the intermediates `20-2F` at that
         // node, so 958 -> 967 at stride 2, 24,113 -> 24,566 at stride 3 and
@@ -1501,9 +1609,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 955, "stride 2");
-        assert_eq!(three.len(), 23_743, "stride 3");
-        assert_eq!(four.len(), 555_038, "stride 4");
+        assert_eq!(two.len(), 1_075, "stride 2");
+        assert_eq!(three.len(), 27_628, "stride 3");
+        assert_eq!(four.len(), 663_126, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1597,13 +1705,15 @@ mod classes {
     /// half-applied -- but nothing enforced that it stays in one place, and
     /// the shape it had before was six node functions each remembering it,
     /// which all six got wrong. The two differential fixtures drive `CsiParam`,
-    /// `Escape` and `Str`; **`CsiEntry`, `CsiInter`, `CsiIgnore` and `StrEsc`
+    /// `Escape` and `DcsStr`, the DECRQSS body (`Str` when there was one body
+    /// node); **`CsiEntry`, `CsiInter`, `CsiIgnore` and `StrEsc`
     /// are reached by no payload in the repository**, so a refactor that
     /// pushed the test back into the node functions would leave four nodes
     /// broken and every test green.
     ///
-    /// This is exhaustive over both encodings and all twenty nodes, so the
-    /// claim is a gate rather than a comment.
+    /// This is exhaustive over both encodings and every node, twenty-two
+    /// since the string body split, so the claim is a gate rather than a
+    /// comment.
     #[test]
     fn can_and_sub_cancel_from_every_node_that_is_not_ground_like() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
@@ -1693,7 +1803,9 @@ mod classes {
                     Node::Vt52Utf8One | Node::Vt52Utf8Two | Node::Vt52Utf8Three => {
                         edge(Act::Resync, Node::Vt52Ground)
                     }
-                    Node::Dcs | Node::DcsDollar | Node::Str => edge(Act::Consume, Node::StrEsc),
+                    Node::Dcs | Node::DcsDollar | Node::OscStr | Node::DcsStr | Node::SosStr => {
+                        edge(Act::Consume, Node::StrEsc)
+                    }
                     Node::StrEsc => edge(Act::Again, Node::Escape),
                     Node::Vt52Ground | Node::Vt52Escape => edge(Act::Consume, Node::Vt52Escape),
                     Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
@@ -1710,7 +1822,7 @@ mod classes {
 
     /// **Under ISO 8859-1 a C1 byte leaves a control string as it leaves
     /// ground; under UTF-8 it stays in the string, the continuation byte it
-    /// is.** Exhaustive over `80-9F` and the three string nodes, and checked
+    /// is.** Exhaustive over `80-9F` and the five string nodes, and checked
     /// against the shipped table.
     ///
     /// `[[source: williams]]` (612-615): "All C1 controls cancel any escape
@@ -1728,8 +1840,14 @@ mod classes {
         assert_eq!(ground(0x85), edge(Act::EscFinal, Node::Ground), "85 NEL");
         assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
         assert_eq!(ground(0x90), edge(Act::StrStart, Node::Dcs), "90 DCS");
-        assert_eq!(ground(0x9d), edge(Act::StrStart, Node::Str), "9D OSC");
-        for node in [Node::Dcs, Node::DcsDollar, Node::Str] {
+        assert_eq!(ground(0x9d), edge(Act::StrStart, Node::OscStr), "9D OSC");
+        for node in [
+            Node::Dcs,
+            Node::DcsDollar,
+            Node::OscStr,
+            Node::DcsStr,
+            Node::SosStr,
+        ] {
             for v in 0x80..=0x9fusize {
                 let b = StreamByte::ALL[v];
                 let want = match v {
@@ -1742,14 +1860,76 @@ mod classes {
                     "{node:?} Latin1 byte {v:#04x}"
                 );
                 let kept = match node {
-                    Node::Str => edge(Act::StrPut, Node::Str),
-                    _ => edge(Act::Consume, Node::Str),
+                    Node::Dcs | Node::DcsDollar => edge(Act::Consume, Node::DcsStr),
+                    _ => edge(Act::StrPut, node),
                 };
                 assert_eq!(
                     Edge::of(InputEncoding::Utf8, node, b),
                     kept,
                     "{node:?} Utf8 byte {v:#04x}"
                 );
+            }
+        }
+    }
+
+    /// **A BEL ends an OSC and no other control string**, checked against the
+    /// shipped table in both encodings, at the node each introducer reaches.
+    ///
+    /// `[[source: ctlseqs]]` gives BEL as a terminator "for terminating OSC
+    /// sequences" (2023-2024) and for nothing else; `[[source: ecma48]]` 5.6
+    /// ends a control string with ST alone. `[[source: williams]]` puts BEL in
+    /// `dcs passthrough` (388), ignores it in `dcs entry`, `dcs param` and `dcs
+    /// intermediate` (354, 361, 368) and in `sos/pm/apc string` (426). The
+    /// body node was shared, so all five ended on BEL, and so did the DCS
+    /// prefix. The nodes are found by walking the table from ground rather
+    /// than named, so the gate holds whatever they are called, and a node two
+    /// introducers share must answer for both.
+    #[test]
+    fn a_bel_ends_an_osc_and_no_other_control_string() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            let walk = |bytes: &[u8]| {
+                let mut n = Node::Ground;
+                for b in bytes {
+                    n = Edge::of(enc, n, StreamByte::from_stream(*b)).next;
+                }
+                n
+            };
+            let bel = |n: Node| Edge::of(enc, n, StreamByte::BEL);
+            // Positive control: each walk ends inside a string, where an
+            // `ESC` is the first half of `ST`, and not back in ground.
+            for intro in [
+                b"\x1b]".as_slice(),
+                b"\x1bP",
+                b"\x1bP$",
+                b"\x1bP$q",
+                b"\x1bPq",
+                b"\x1bP|",
+                b"\x1bX",
+                b"\x1b^",
+                b"\x1b_",
+            ] {
+                assert_eq!(
+                    Edge::of(enc, walk(intro), StreamByte::ESC),
+                    edge(Act::Consume, Node::StrEsc),
+                    "{enc:?} {intro:?}: not inside a string"
+                );
+            }
+            assert_eq!(
+                bel(walk(b"\x1b]")),
+                edge(Act::StrEnd, Node::Ground),
+                "{enc:?}: OSC"
+            );
+            for prefix in [b"\x1bP".as_slice(), b"\x1bP$", b"\x1bP1;2"] {
+                let n = walk(prefix);
+                assert_eq!(bel(n), edge(Act::Consume, n), "{enc:?} {prefix:?}");
+            }
+            for body in [b"\x1bP$q".as_slice(), b"\x1bPq", b"\x1bP|"] {
+                let n = walk(body);
+                assert_eq!(bel(n), edge(Act::StrPut, n), "{enc:?} {body:?}");
+            }
+            for body in [b"\x1bX".as_slice(), b"\x1b^", b"\x1b_"] {
+                let n = walk(body);
+                assert_eq!(bel(n), edge(Act::Consume, n), "{enc:?} {body:?}");
             }
         }
     }
@@ -1774,7 +1954,7 @@ mod classes {
         let ground = |v: usize| Edge::of(InputEncoding::Latin1, Node::Ground, StreamByte::ALL[v]);
         assert_eq!(ground(0x84), edge(Act::EscFinal, Node::Ground), "84 IND");
         assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
-        assert_eq!(ground(0x98), edge(Act::StrStart, Node::Str), "98 SOS");
+        assert_eq!(ground(0x98), edge(Act::StrStart, Node::SosStr), "98 SOS");
         assert_eq!(ground(0x9c), edge(Act::EscFinal, Node::Ground), "9C ST");
         for (node, utf8) in [
             (Node::Escape, edge(Act::Consume, Node::Ground)),
@@ -1826,9 +2006,12 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    // 34, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
-    // 8-bit C1 routing each split more bytes apart after that prose was written.
-    const CLASSES: usize = 34;
+    // 36, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
+    // 8-bit C1 routing each split more bytes apart after that prose was
+    // written, which made 34, and the `OSC` body parting from the `SOS`, `PM`
+    // and `APC` one on `BEL` split `5D` from `58 5E 5F` and `9D` from
+    // `98 9E 9F`, which made 36.
+    const CLASSES: usize = 36;
     /// **The loop always advances**, and it is a table property rather than a
     /// hope.
     ///

@@ -70,6 +70,210 @@ fn a_sixel_is_chunk_invariant() {
     }
 }
 
+/// What a Sixel program left: the placed image's size and pixels, the screen
+/// and the cursor.
+type Drawn = (
+    Option<(u16, u16, Vec<ColorWord>)>,
+    Vec<PackedCell>,
+    (Row, Col),
+);
+
+fn drawn(t: &Term) -> Drawn {
+    let imgs = t.images();
+    let image = imgs.placements().next().and_then(|(_, p)| {
+        imgs.image(p.image)
+            .map(|v| (v.width.raw(), v.height.raw(), v.pixels.to_vec()))
+    });
+    (image, support::screen(t), t.cursor())
+}
+
+/// **A BEL inside a Sixel is payload, and draws nothing; one in its
+/// parameters is ignored.** Each program must leave what the same program
+/// without the BEL leaves -- the image pixel for pixel, the screen, the
+/// cursor -- at every read size, and ring nothing.
+///
+/// `[[source: williams]]` puts `00-17,19,1C-1F` in `dcs passthrough` (line
+/// 388) and ignores them in `dcs param` (361); `[[source: ecma48]]` 5.6 ends
+/// a control string with ST alone, and `[[source: ctlseqs]]` lets BEL end an
+/// OSC (2023-2024) and nothing else. The body BEL is put, and the Sixel
+/// handler drops it before the decoder; here it falls between two data
+/// bytes, and `a_c0_or_del_inside_a_sixel_number_splits_nothing` holds the
+/// places where a decoder that saw it would read a different image. Before,
+/// the BEL ended the Sixel: the image was cut at it and the rest of the body
+/// was drawn as `~~-~~`.
+#[test]
+fn a_bel_inside_a_sixel_is_payload_and_draws_nothing() {
+    let without: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~~~-~~\x1b\\Z";
+    let cases: [(&str, &[u8]); 2] = [
+        ("in the body", b"\x1bP0;1q#1;2;100;0;0#1~~\x07~~-~~\x1b\\Z"),
+        (
+            "in the parameters",
+            b"\x1bP0;\x071q#1;2;100;0;0#1~~~~-~~\x1b\\Z",
+        ),
+    ];
+    let budget = ImageBudget::of(64 * 48 + 64, 8192);
+    let mut want = None;
+    run(without, without.len(), budget, |t| want = Some(drawn(t)));
+    let want = want.unwrap();
+    assert_eq!(
+        want.0.as_ref().map(|i| (i.0, i.1)),
+        Some((4, 12)),
+        "control: the image without the BEL is 4 by 12"
+    );
+    for (name, bytes) in cases {
+        for size in 1..=bytes.len() {
+            run(bytes, size, budget, |t| {
+                assert_eq!(drawn(t), want, "{name}: read size {size}");
+                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+            });
+        }
+    }
+}
+
+/// The same program under ISO 8859-1: `ESC % @` first, and the 8-bit
+/// introducer and terminator, `90` for `ESC P` and `9C` for `ESC \`.
+fn latin1(seven: &[u8]) -> Vec<u8> {
+    let body = seven
+        .strip_prefix(b"\x1bP")
+        .and_then(|b| b.strip_suffix(b"\x1b\\Z"))
+        .expect("a 7-bit Sixel followed by Z");
+    [b"\x1b%@\x90".as_slice(), body, b"\x9cZ"].concat()
+}
+
+/// Where the byte sits, the program, the same program without it, and the
+/// image size without it.
+type Split = (&'static str, &'static [u8], &'static [u8], (u16, u16));
+
+/// **A `BEL` or `DEL` inside a Sixel number splits nothing: the Sixel
+/// handler drops every C0 and `DEL` before the decoder.** Each program must
+/// leave what the same program without the byte leaves -- the image pixel
+/// for pixel, the screen, the cursor -- at every read size, in both
+/// encodings, and ring nothing.
+///
+/// The decoder reads a number up to its first non-digit. The graph puts a
+/// `BEL` in a DCS body, `[[source: williams]]`'s `dcs passthrough` (388), and
+/// stores a `DEL`, which that row ignores, so before the handler dropped
+/// them `!1 BEL 0~` drew one column where `!10~` draws ten,
+/// `#1;2;10 BEL 0;0;0` made register 1 10% red where it is 100%, and
+/// `#1 BEL 2` selected register 1 for 12. `[[source: vt3xx-sixel]]` says
+/// nothing of C0 in the data. xterm hands its Sixel parser only
+/// `CASE_IGNORE` bytes (`[[source: xterm-reset]]`'s file, 3408-3412), and
+/// `BEL` is not one, so it never sees the `BEL`; `DEL` is one, and its
+/// parser ends a number on it (`[[source: xterm-graphics-sixel]]` 541-555),
+/// a departure from williams' ignore that is not followed.
+///
+/// Two kinds of control. The bytes between two tokens -- after the data
+/// byte, and between a repeat count and the byte it repeats -- were skipped
+/// by the decoder before the handler dropped them, so they pass either way
+/// and show the harness is not what changed. A `CR` inside the repeat count
+/// is ignored by the graph before the handler sees it, so it passes either
+/// way too, and is the positive control for "the same program without it".
+#[test]
+fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
+    let cases: [Split; 13] = [
+        (
+            "BEL inside the repeat count",
+            b"\x1bP0;1q#1;2;100;0;0#1!1\x070~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+        (
+            "DEL inside the repeat count",
+            b"\x1bP0;1q#1;2;100;0;0#1!1\x7f0~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+        (
+            "BEL inside a colour component",
+            b"\x1bP0;1q#1;2;10\x070;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "DEL inside a colour component",
+            b"\x1bP0;1q#1;2;10\x7f0;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "BEL inside a register number",
+            b"\x1bP0;1q#12;2;0;100;0#1\x072~~\x1b\\Z",
+            b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "DEL inside a register number",
+            b"\x1bP0;1q#12;2;0;100;0#1\x7f2~~\x1b\\Z",
+            b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "BEL between # and its number",
+            b"\x1bP0;1q#1;2;100;0;0#\x071~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "DEL between # and its number",
+            b"\x1bP0;1q#1;2;100;0;0#\x7f1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "control: BEL between two data bytes",
+            b"\x1bP0;1q#1;2;100;0;0#1~\x07~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "control: DEL between two data bytes",
+            b"\x1bP0;1q#1;2;100;0;0#1~\x7f~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "control: BEL between a repeat count and its byte",
+            b"\x1bP0;1q#1;2;100;0;0#1!10\x07~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+        (
+            "control: DEL between a repeat count and its byte",
+            b"\x1bP0;1q#1;2;100;0;0#1!10\x7f~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+        (
+            "control: CR inside the repeat count",
+            b"\x1bP0;1q#1;2;100;0;0#1!1\r0~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+    ];
+    let budget = ImageBudget::of(64 * 48 + 64, 8192);
+    for (name, with, without, size) in cases {
+        for (enc, with, without) in [
+            ("UTF-8", with.to_vec(), without.to_vec()),
+            ("ISO 8859-1", latin1(with), latin1(without)),
+        ] {
+            let mut want = None;
+            run(&without, without.len(), budget, |t| want = Some(drawn(t)));
+            let want = want.unwrap();
+            assert_eq!(
+                want.0.as_ref().map(|i| (i.0, i.1)),
+                Some(size),
+                "{name}, {enc}: the image without the byte"
+            );
+            for read in 1..=with.len() {
+                run(&with, read, budget, |t| {
+                    assert_eq!(drawn(t), want, "{name}, {enc}: read size {read}");
+                    assert_eq!(t.bells, 0, "{name}, {enc}: no bell, read size {read}");
+                });
+            }
+        }
+    }
+}
+
 /// Feed `d` to `t` in one read.
 fn one(t: &mut Term, d: &[u8]) {
     t.write_at(BytePos::ZERO, d);
