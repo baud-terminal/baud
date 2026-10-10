@@ -341,3 +341,115 @@ fn a_del_in_csi_param_is_ignored_and_the_sequence_goes_on() {
         }
     }
 }
+
+/// The designations that load a slot a right half could hold: `ESC ) * +`
+/// load G1-G3, with DEC Special Graphics (`0`) and the United Kingdom set
+/// (`A`), two of the sets baud translates; the national sets, which it also
+/// translates through `nrcs_table`, are not among the candidates. GL stays
+/// G0 and ASCII, so the whole cell must match, flags included.
+const GR_CANDIDATES: [(&str, &[u8]); 6] = [
+    ("ESC ) 0", b"\x1b)0"),
+    ("ESC * 0", b"\x1b*0"),
+    ("ESC + 0", b"\x1b+0"),
+    ("ESC ) A", b"\x1b)A"),
+    ("ESC * A", b"\x1b*A"),
+    ("ESC + A", b"\x1b+A"),
+];
+
+/// DEC Special Graphics in GL, by designation into G0 and by `SO` over G1.
+/// Here the character must match and the flags may not: a cell written while
+/// GL holds DEC graphics carries `CellFlags::GRAPHICS` whatever the character
+/// (note AE Q16(a), decided at 0.98), so the flags are cleared on both sides
+/// before comparing. The payloads set no other flag.
+const GL_CANDIDATES: [(&str, &[u8]); 2] = [("ESC ( 0", b"\x1b(0"), ("ESC ) 0 SO", b"\x1b)0\x0e")];
+
+/// **Under UTF-8, bytes `A0-FF` are UTF-8 and never a right half** (note AE,
+/// AE5 part 1, Q5(a): no GR; Jev 0.92 on the asking and 0.92 on a replicate
+/// with the options reordered, decided under the owner's 2026-10-10 rule).
+///
+/// The texts: `[[source: unicode18-ch3]]` C4, "A process shall interpret a
+/// coded character sequence according to the character semantics established
+/// by this standard", and D92, which gives every UTF-8 byte sequence its
+/// scalar value or makes it ill-formed. Under note AE's P-A, UTF-8 decides
+/// 80-FF and no ISO 2022 clause applies; under P-B, ECMA-35 9.1 (p. 20) gives
+/// a 7-bit code only "the CL area" and "the GL area". Either way there is no
+/// GR. The departure this guards against is xterm's: decoded
+/// U+0080-U+00FF are mapped through GR, and raw bytes bypass the decoder,
+/// whenever GR is not ASCII (`[[source: xterm-ptydata-c]]` ptydata.c:91-97),
+/// so after `ESC * 0`, `C3 A9` shows `Ã©` (note AE Q5(b), derived by reading).
+///
+/// Three checks, each at every read size, so a split between `C3` and `A9`
+/// -- where a raw-byte bypass would show -- is taken:
+///
+/// * note AE's own example: `ESC * 0 C3 A9` is `é`;
+/// * every scalar U+00A0-U+00FF, encoded `C2 A0`..`C3 BF`, leaves the screen,
+///   cursor and counters as it does with nothing designated, after each of
+///   [`GR_CANDIDATES`] and [`GL_CANDIDATES`];
+/// * every raw byte `A0-FF`, each followed by a space, does the same: a lone
+///   continuation byte is still U+FFFD and `replacements` +1, not a glyph from
+///   the set.
+///
+/// **A guard: green before and after.** The perturbation that turns it red is
+/// in the record: a decoded U+00A1-U+00FE written through `g[2]`. Once
+/// LS1R-LS3R exist (stage (c) of note AE §9) they join the candidates, for the
+/// bytes `A0-FF` only: what `ESC ~ } |` do to GL under UTF-8 is Q5's other
+/// half, still open.
+#[test]
+fn gr_bytes_under_utf8_are_utf8_whatever_is_designated() {
+    for size in 1..=5 {
+        let (screen, ..) = state_after(b"\x1b*0\xc3\xa9", size);
+        assert_eq!(
+            screen[0].content.as_codepoint().map(|c| c.value()),
+            Some(0xe9),
+            "ESC * 0 C3 A9 must be U+00E9 at read size {size}, not xterm's Ã©"
+        );
+    }
+
+    let decoded: Vec<u8> = (0xa0u32..=0xff)
+        .filter_map(char::from_u32)
+        .flat_map(|c| c.encode_utf8(&mut [0; 4]).as_bytes().to_vec())
+        .collect();
+    assert_eq!(decoded.len(), 192, "96 scalars of two bytes each");
+    let raw: Vec<u8> = (0xa0u8..=0xff).flat_map(|b| [b, b' ']).collect();
+
+    let whole: fn(PackedCell) -> PackedCell = |c| c;
+    let unflagged: fn(PackedCell) -> PackedCell = |c| PackedCell {
+        flags: baud_domain::CellFlags::NONE,
+        ..c
+    };
+    let cases = GR_CANDIDATES
+        .iter()
+        .map(|&(name, prefix)| (name, prefix, whole))
+        .chain(
+            GL_CANDIDATES
+                .iter()
+                .map(|&(name, prefix)| (name, prefix, unflagged)),
+        );
+    for (name, prefix, cell) in cases {
+        for (payload_name, payload) in [("C2 A0..C3 BF", &decoded), ("raw A0..FF", &raw)] {
+            // The same shift with nothing designated, so `SO`'s own effect
+            // on what follows is not read as the set's.
+            let bare: &[u8] = match prefix.last() {
+                Some(0x0e) => b"\x0e",
+                _ => b"",
+            };
+            let want = state_after(&[bare, payload.as_slice()].concat(), usize::MAX);
+            let want_cells: Vec<PackedCell> = want.0.iter().copied().map(cell).collect();
+            let bytes = [prefix, payload.as_slice()].concat();
+            for size in 1..=bytes.len() {
+                let got = state_after(&bytes, size);
+                let what = format!("{payload_name} after {name} at read size {size}");
+                assert_eq!(got.1, want.1, "{what}: the cursor moved");
+                assert_eq!(got.2, want.2, "{what}: unsupported moved");
+                assert_eq!(got.3, want.3, "{what}: replacements moved");
+                let got_cells: Vec<PackedCell> = got.0.iter().copied().map(cell).collect();
+                if let Some(at) = got_cells.iter().zip(&want_cells).position(|(a, b)| a != b) {
+                    panic!(
+                        "{what}: the screen differs first at cell {at}: {:?} for {:?}",
+                        got_cells[at], want_cells[at]
+                    );
+                }
+            }
+        }
+    }
+}

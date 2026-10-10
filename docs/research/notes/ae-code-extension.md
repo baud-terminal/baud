@@ -704,6 +704,12 @@ stay ASCII, so the echo shows `A`.
   - (ii) Take 9.3.2's 7-bit meaning (into GL).
   - (iii) Count.
 - **Recommend (a) and (i), under P-A.** Under P-B, (ii) is required.
+- **Decided, GR bytes: (a), no GR** (AE5 part 1). Re-asked on its own with
+  `[[source: unicode18-ch3]]` C4 and D92 added to the governing texts, Jev
+  picked (a) at 0.92 and 0.92 on a replicate with the options reordered
+  (§10, "Re-asked since"). It is baud's behaviour already, now held by
+  `gr_bytes_under_utf8_are_utf8_whatever_is_designated`. LS1R-LS3R under
+  UTF-8 stay open.
 
 ### Q6. A control function between SS2/SS3 and its character (Jev, then the owner)
 
@@ -1836,7 +1842,7 @@ The work splits by what each piece waits on.
 | Question | Who decides | Why |
 |---|---|---|
 | Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12, Q17 | **Owner, whatever Jev says** | No option is free of departure (Q1 under the 8bit-level1 reading of `ESC % @`; Q9 under the VT102 reading of DA; both readings the owner's), or the conforming one collides with a practice baud follows (Q8 against the SUB precedent) |
-| P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | Q4 and Q16 decided (§10); P, Q5, Q7 and Q15 fell below the bar and are the owner's |
+| P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | Q4 and Q16 decided (§10), and Q5's GR-bytes half on a re-asking; P, Q5's LS1R-LS3R half, Q7 and Q15 fell below the bar and are the owner's |
 | Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **Jev, then the owner** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
 
 **(a) Buildable now, with no decision.**
@@ -1913,7 +1919,7 @@ confidence 0.9.
 | Q3 | (a) now, in part | 0.30 | owner |
 | Q4 | (a) act | **0.96** | **decided** |
 | Q4.1 | (α) Q2's value in both encodings | 0.53 | owner, whatever Jev says |
-| Q5, GR bytes | (a) no GR | 0.62 | owner |
+| Q5, GR bytes | (a) no GR | 0.62; re-asked, **0.92 and 0.92** | **decided** on the re-asking (below), AE5 part 1 |
 | Q5, LS1R-LS3R | (ii) 9.3.2's 7-bit meaning | 0.69 | owner; conflicts with Jev's P (below) |
 | Q6 | (a) 070's cancel rule | 0.84 | owner |
 | Q6, how many SO/SI | a single | 0.12 | owner; Jev did not lean |
@@ -1963,3 +1969,15 @@ reordered is built and listed for the owner's veto.
   (`baud-domain/tests/nrcs_dec.rs`). Only the codepoint is decided: Q8 itself
   (what A0 and FF do with a 94-set in GR, AE8), SUB's display and note AF's
   Q-UNDEF still decide where it is drawn, and nothing draws it yet.
+- **AE5 part 1, GR bytes under UTF-8: (a) no GR, decided.** Re-asked on its
+  own (jev-diagnosis batch 1) with `[[source: unicode18-ch3]]` C4 and D92
+  added to the governing texts, each option marked as §4 marks it and this
+  note's recommendation left out: Jev picked (a) at 0.92 on the asking and
+  0.92 on a replicate with the options reordered (decision log lines 369 and
+  370). It conforms: under P-A UTF-8 decides 80-FF, and under P-B ECMA-35 9.1
+  gives a 7-bit code no GR. Nothing changes in baud, which already reads
+  `A0-FF` as UTF-8 there; `gr_bytes_under_utf8_are_utf8_whatever_is_designated`
+  (`baud-core/tests/encoding/utf8.rs`) now holds it after `ESC ) * +` with
+  `0` or `A` and after `ESC ( 0` and `ESC ) 0 SO`, at every read size. Q5's
+  other half, LS1R-LS3R under UTF-8, and its conflict with Jev's P, are still
+  open.
