@@ -9,12 +9,6 @@
 
 <div align="center">
 
-[![crates.io](https://img.shields.io/crates/v/baud?logo=rust&logoColor=white)](https://crates.io/crates/baud)
-[![Downloads](https://img.shields.io/crates/d/baud?logo=rust&logoColor=white)](https://crates.io/crates/baud)
-[![MSRV](https://img.shields.io/crates/msrv/baud?logo=rust&logoColor=white)](https://www.rust-lang.org)
-[![CI](https://img.shields.io/github/actions/workflow/status/i-am-logger/baud/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/i-am-logger/baud/actions/workflows/ci.yml)
-[![docs.rs](https://img.shields.io/docsrs/baud?logo=docsdotrs&logoColor=white)](https://docs.rs/baud)
-
 [![Nix](https://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=white)](https://nixos.org)
 [![devenv](https://img.shields.io/badge/devenv-2b2b2b?logo=nixos&logoColor=white)](https://devenv.sh)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
@@ -59,7 +53,7 @@ input path are built and run on macOS.
 
 | | |
 |---|---|
-| **VT protocol** | ✅ [enumerated against primary sources](docs/vt-coverage.md): every row for an operation baud implements is **done** except nine at **partial**: DECSC/DECRC, which save G0-G3 and which of them GL invokes but not GR (baud does not model it) or a single shift (SS2/SS3 are not implemented); the DEC Special Graphics table, which leaves `0x5F` as `_`; the `dcs_param` state, which collects `3A` as a parameter separator where `[[source: williams]]` (589) and DEC STD 070 ignore the string and ECMA-48 lets 03/10 separate only within a control sequence's parameter, for Jev; the `dcs_passthrough` state, which ignores the C0 other than `BEL` and the format effectors where `[[source: williams]]` passes them on (388) and DEC STD 070 recommends ignoring them, the texts conflicting; GR bytes under ISO 8859-1, read as their 7-bit bytes in a DCS prefix and not yet in an escape or control sequence or in an OSC, APC or PM body, where every text read reads them so, as xterm does in a sequence; and three rows for a `DEL` after `ESC` or `CSI`, the `escape` and `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`, where baud drops the sequence and `[[source: williams]]` ignores the `DEL` and stays (286, 293, 306, 328). What it does not implement is **out** with the reason in its row, or refused and counted. Some operations have no row yet, among them XTVERSION, answered and tested, and SS2/SS3 and the locking shifts LS2, LS3 and LS1R-LS3R, which count as unsupported |
+| **VT protocol** | ✅ [enumerated against primary sources](docs/vt-coverage.md): every row for an operation baud implements is **done** except nine at **partial**: DECSC/DECRC, which save G0-G3 and which of them GL invokes but not GR (baud does not model it) or a single shift (SS2/SS3 are not implemented); the DEC Special Graphics table, which leaves `0x5F` as `_`; the `dcs_param` state, which collects `3A` as a parameter separator where `[[source: williams]]` (589) and DEC STD 070 ignore the string and ECMA-48 lets 03/10 separate only within a control sequence's parameter, for Jev; the `dcs_passthrough` state, which ignores the C0 other than `BEL` and the format effectors where `[[source: williams]]` passes them on (388) and DEC STD 070 recommends ignoring them, the texts conflicting; GR bytes under ISO 8859-1, read as their 7-bit bytes in a DCS prefix and not yet in an escape or control sequence or in an OSC, APC or PM body, where every text read reads them so, as xterm does in a sequence; and three rows for a `DEL` after `ESC` or `CSI`, the `escape` and `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`, where baud drops the sequence and `[[source: williams]]` ignores the `DEL` and stays (286, 293, 306, 328). What it does not implement is **out** with the reason in its row, or refused and counted. Some operations have no row yet, among them SS2/SS3 and the locking shifts LS2, LS3 and LS1R-LS3R, which count as unsupported |
 | **Parser** | ✅ all 13 DEC ANSI states, chunk-invariant, property-tested |
 | **Text** | ✅ UTF-8 decoding against the standard's own vectors, width generated from `EastAsianWidth.txt`, and grapheme clustering that passes `GraphemeBreakTest.txt`. Marks past what the cluster store can hold are dropped and counted, an open departure (below) |
 | **Grid** | ✅ one representation: cells in a ring the screen is a window into, so a scroll copies nothing and `Term::scrollback` reads the lines behind the window. `Depth::DEFAULT` is 2,000 lines, and `Term::resize` reflows the primary in place |
@@ -107,8 +101,8 @@ the instrument [CLAUDE.md](CLAUDE.md) says to verify a core change with
 ## Embedding the core
 
 `baud-core` is a `no_std` library and is usable on its own — it is the engine
-`baud-app` is built on, and it is published because it is useful for anything
-that needs to interpret a VT stream.
+`baud-app` is built on, and any program that needs to interpret a VT stream
+can embed it.
 
 ```rust
 use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
@@ -325,7 +319,7 @@ More in [BUILD.md](BUILD.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 | | |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | the constraints that shaped the core, and `baud-core2`'s data path |
+| [docs/architecture.md](docs/architecture.md) | the core's data path and the constraints that shaped it |
 | [docs/protocols/](docs/protocols/) | one document per protocol level, mirroring the code and tests |
 | [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation |
 | [docs/input-coverage.md](docs/input-coverage.md) | what baud must send, enumerated the same way |
