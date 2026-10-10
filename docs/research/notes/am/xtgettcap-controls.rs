@@ -5,11 +5,14 @@
 //! Q1 kitty's `CSI ? u` is answered at this commit, so a conforming
 //!    application can turn the flags on (key.rs 86, 369, 418 and term.rs
 //!    471-472, 1841-1843 say it is refused; write.rs 1668-1677 answers it).
+//!    db60529 corrected those comments.
 //! Q2 F21 through `Term::key`: nothing under the base layer, `CSI 57384 u`
 //!    once an application pushes a kitty flag.
 //! Q3 today's path stores the `q` of `DCS + q` in the body: with the `q`,
 //!    511 bytes of hex fit `OSC_MAX` = 512 and 512 do not.
-//! Q4 a BEL ends a `DCS + q` body (state `Node::Str`, so `string()` takes it).
+//! Q4 at 5477bf7, a BEL ends a `DCS + q` body (state `Node::Str`, so `string()` takes it).
+//!    Since 83fee5d it does not: the body is `Node::DcsStr`, which puts the BEL, and
+//!    `a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it` (control_strings.rs) holds it.
 #[path = "support/mod.rs"]
 mod support;
 use baud_core::*;
@@ -106,7 +109,7 @@ fn controls() {
         );
     }
 
-    // Q4: BEL ends a `DCS + q` body; the text after it prints.
+    // Q4: at 5477bf7, BEL ends a `DCS + q` body and the text after it prints; not since 83fee5d.
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     feed(&mut t, b"\x1bP+q6b62");

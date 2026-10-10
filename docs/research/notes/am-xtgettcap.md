@@ -21,7 +21,9 @@ Evidence: the harnesses and their outputs are in
 * `xtgettcap-controls.rs` checks four facts about baud at `5477bf7`: the
   kitty flags query, F21 through `Term::key`, how many hex bytes a `DCS + q`
   body holds today, and BEL in a `DCS + q` body. Its output is
-  `xtgettcap-controls-output.txt`, and its checks are cited Q1-Q4.
+  `xtgettcap-controls-output.txt`, and its checks are cited Q1-Q4. Q4's BEL
+  ended the body at `5477bf7`; since `83fee5d` a BEL in a DCS body is payload
+  and only ST ends it (`a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it`).
 * `input-caps-output.txt` is a re-run of the repo's own
   `tests/conformance/input_caps.rs`.
 * `d1-test-time.rs` is the exhaustive D1 test section 8.3 proposes, built
@@ -433,6 +435,7 @@ follow.
   * They have landed: `kitty_encode` emits both (461-476). The comment was
     not re-derived. Its own case is 14 B, and the encoder's measured maximum
     is 40 B (section 7.1). So no bound in this note rests on the comment.
+    `db60529` replaced it with the measured 40 B; the line numbers here are `5477bf7`'s.
   * Backspace sends `0x7f`. The comment says which byte it sends is DECBKM's
     (`?67`) choice, which baud does not implement, and that BS is Ctrl-H
     (712-720).
@@ -1202,6 +1205,8 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
     `Term::unsupported` at 0. The capture's manifest entry lists what would
     move if a later change made it join.
 * **Comments in the key encoder and the core say what is no longer so.**
+  * `db60529` rewrote all four below to say what the code does; their line
+    numbers are `5477bf7`'s.
   * key.rs 275-285 derives the CSI-u maximum at 15 B and says the
     alternate-key and associated-text sub-fields "will grow it again and this
     bound is re-derived when they land". They have landed (`kitty_encode`,
